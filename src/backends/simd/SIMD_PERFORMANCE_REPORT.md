@@ -13,6 +13,9 @@ structures whose current instances are all triangle meshes. The latest stage
 also retains hot ray-query predicates in a proven JIT-side packed status
 sidecar and caches the corresponding fixed-vector state handles at W4/W8/W16
 while leaving the public query state and plain Embree providers unchanged.
+The current final stage treats the cached status entry and its construction-
+selected plain provider as an audited internal pair, removing one redundant
+JIT callback gather while retaining provider-side fail-closed validation.
 
 ## Test host and method
 
@@ -724,6 +727,59 @@ is W1/W2/W4/W8/W16 = 0.7753x/0.6283x/0.7560x/0.8458x/0.8504x across five
 adjacent alternating pairs per width. The cache therefore gives a repeatable
 incremental improvement but does not close the public query gap.
 
+### Paired ray-query status callback
+
+With a proven status color, construction stores both the plain provider in the
+authoritative query state and its paired status entry in the JIT sidecar. The
+status entry invokes the plain provider; every production provider validates
+that every active state still carries that exact plain callback. JIT therefore
+only needs to verify status-entry agreement for the active cohort instead of
+gathering and comparing the same plain pointers again. W1/W2, disabled status
+caching/coloring, and every unproven query keep both checks. The same-binary
+oracle is `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING=1`.
+
+The exact W8 16-candidate triangle rejection object changes incrementally from
+the state-handle-cache checkpoint:
+
+| Main kernel | pairing disabled | pairing enabled |
+| --- | ---: | ---: |
+| `.text` bytes | 6,208 | 6,144 |
+| static instructions | 1,316 | 1,309 |
+| vector instructions | 563 | 557 |
+| branches / calls | 133 / 1 | 132 / 1 |
+| stack references | 284 | 282 |
+| stack allocation | 12,800 B | 12,736 B |
+| `vpgather` / `vscatter` | 3 / 10 | 2 / 10 |
+| scalar-math calls / undefined symbols | 0 / 0 | 0 / 0 |
+
+Five alternating `perf stat` pairs measured enabled/disabled geometric-mean
+ratios of 0.9931 for cycles, 0.9989 for retired instructions, and 0.9986 for
+branches. Branch misses were 1.0294x, but represented about 0.09% of branches
+and did not offset the cycle reduction. Disassembly identifies the removed
+instruction as the plain-callback `vpgatherqq`; the status-entry indirect call
+remains exactly once.
+
+Seven final-binary alternating pairs per width measured:
+
+| Query benchmark | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: |
+| 16 rejected triangle candidates | 1.0170x (6/7) | 1.0060x (6/7) | 1.0016x (4/7) |
+| 16 rejected procedural candidates | 1.0181x (6/7) | 1.0265x (7/7) | 1.0290x (7/7) |
+
+The real W8 cutout renderer is neutral at 1.0002x with 3/7 wins across seven
+64-spp pairs; all fourteen images have the same reference hash. Mixed
+procedural callable is positive across fourteen 1024-spp pairs at 1.0106x with
+13/14 wins; all twenty-eight images are byte-identical. An attempted direct
+provider-specific status wrapper was rejected: in a four-way ablation it was
+1.0002x with 4/7 wins alone on the W8 procedural microbenchmark and did not
+improve the paired path. The generic status ABI remains unchanged.
+
+The IR fixture fixes W4/W8/W16 pairing-on gathers at zero for its status/handle
+probe versus three with the pairing oracle, executes divergent cohorts and
+inactive tails, and uses a fatal subprocess to reject mismatched plain
+providers. W1/W2 query objects and W4/W8/W16 non-query GEMM assembly are byte-
+identical under the oracle.
+
 ## Same-algorithm ISPC control and provenance
 
 `benchmark_ispc_gemm.ispc` was independently written to match the DSL loop and
@@ -846,3 +902,12 @@ six for the status-only oracle, while W1/W2/fail-closed paths retain thirteen;
 it also executes divergent cohorts and inactive tails. Separate object gates
 prove W1/W2 query kernels and W4/W8/W16 non-query GEMM kernels are byte-
 identical under the independent handle-cache oracle.
+
+The status-callback-pairing stage reran the required native-math/runtime-width
+gate (3/3), the final SIMD-only Release suite (129/129, including
+`integration_simd` 26/26 and graphics 3/3), and the final SIMD+fallback Release
+suite (140/140). Its dedicated W4/W8/W16 IR oracle fixes the paired status/
+handle probe at zero gathers versus three with pairing disabled, and its fatal
+subprocess verifies that a mismatched plain provider is still rejected. Final
+W8 1024-spp gallery gates pass at 44.17 dB for cutout and 58.37 dB for mixed
+procedural callable.

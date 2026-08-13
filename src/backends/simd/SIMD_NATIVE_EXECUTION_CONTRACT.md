@@ -228,6 +228,8 @@ for the two state-layout refinements.
 predicate gathers for eligible ray queries.
 `LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1` keeps the packed status
 sidecar but restores the query-local pointer gathers.
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING=1` keeps both caches but
+restores the JIT-side plain-callback gather and cohort check.
 These process-wide variables are diagnostic controls, not shader semantics or
 a replacement for the public configuration extension. Invalid width text or a
 width outside the supported set is rejected.
@@ -921,16 +923,22 @@ query-local gather path. The cache does not change the public state, accel
 descriptor, or Embree ABI. `LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1`
 is its same-binary semantic/performance oracle.
 
-The status-aware host entry must first invoke the plain callback stored in the
-query state, preserving generic versus triangle-only and narrow versus wide
-selection, and may inspect only active non-null state pointers afterward. It
-returns one scalar packed mask and must not replace W4/W8/W16 Embree packet
-traversal with per-lane scalar calls. JIT lowering verifies that every active
-state has the same plain callback and the same status callback before the
-call. The stable instance-table descriptor owns the status-entry pointers;
-the six-pointer accel argument and the public query-state layout do not
-change. `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1` is the same-binary
-semantic/performance oracle.
+The status-aware host entry and the construction-selected plain callback form
+one internal ABI pair. The entry must invoke that provider, preserving generic
+versus triangle-only and narrow versus wide selection; the provider must fail
+closed if any active non-null state stores a different plain callback. The
+entry may inspect only active non-null state pointers afterward. It returns one
+scalar packed mask and must not replace W4/W8/W16 Embree packet traversal with
+per-lane scalar calls. JIT lowering always verifies that every active state has
+the same status callback. When the status ownership/color proof holds, it may
+rely on the paired provider for the plain-callback check and omit the redundant
+masked gather; all other paths verify both callbacks in JIT. The stable
+instance-table descriptor owns the status-entry pointers; the six-pointer
+accel argument and the public query-state layout do not change.
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1` is the same-binary semantic/
+performance oracle, while
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING=1` restores only the
+redundant JIT check.
 
 Each normal accel build recomputes whether the complete current instance table
 contains a curve or procedural primitive. Motion instances are classified by

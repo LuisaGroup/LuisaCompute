@@ -2055,8 +2055,14 @@ host assembly leaves a 237-byte hot wrapper with a 40-byte frame instead of
 pulling logging/backtrace construction into every `PROCEED`. JIT construction
 loads the side entry from the stable instance-table descriptor and retains a
 masked vector of callbacks when divergent constructions share a scratch
-color. A proceed checks both the plain and status callbacks for active-cohort
-agreement before calling either provider.
+color. The status entry and construction-selected plain provider are one
+internal ABI pair: every status entry must invoke that provider, and the
+provider must reject any active state carrying a different plain callback.
+Generic, wide, and triangle-only production providers already perform that
+per-active-lane check. A proven cached-status proceed therefore verifies
+status-callback cohort agreement in JIT and delegates the redundant plain-
+callback agreement check to the paired provider, avoiding another masked
+pointer gather. Unproven/W1/W2 paths still perform both JIT checks.
 
 Status validity is published only after the masked local store installs the
 new query pointer. Every later update merges only the active physical lanes;
@@ -2068,6 +2074,8 @@ kind, while hit payload and `t_max` updates still access the authoritative
 state. `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1` restores the old JIT path
 from the same binary, and `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the
 number of allocated status colors.
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING=1` retains the status
+sidecar but restores the redundant JIT plain-callback gather and comparison.
 
 An eligible status color additionally owns one fixed-vector cache of its query
 state handles. The construction result is not published early: the ordinary
@@ -2082,6 +2090,14 @@ caching, or disabled scratch coloring. It changes neither the public query
 state nor the host/Embree provider ABI. The independent same-binary oracle is
 `LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1`, and the optimization
 report records the allocated handle-cache color count.
+
+With both caches proven, status/plain callback pairing removes the remaining
+W8 plain-callback `vpgatherqq`. The exact 16-candidate rejection object shrinks
+from 6,208 to 6,144 `.text` bytes, from 1,316 to 1,309 reported static
+instructions, and from a 12,800-byte to a 12,736-byte frame while preserving
+one callback callsite. A fatal mismatched-provider regression demonstrates
+that the status ABI still fails closed. W1/W2 query objects and W4/W8/W16
+non-query GEMM assembly are byte-identical under the pairing oracle.
 
 At the status-sidecar checkpoint, the W8 rejection object trades 32 additional
 instructions for five fewer

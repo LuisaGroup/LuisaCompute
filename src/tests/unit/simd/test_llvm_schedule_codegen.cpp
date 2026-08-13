@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cerrno>
+#include <csignal>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +20,12 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -3597,8 +3605,11 @@ struct RayQueryStatusProbe {
             continue;
         }
         auto *state = states[lane];
-        probe->valid &= state != nullptr && state->accel == probe &&
-                        state->proceed == probe->expected_proceed;
+        auto valid_state =
+            state != nullptr && state->accel == probe &&
+            state->proceed == probe->expected_proceed;
+        probe->valid &= valid_state;
+        if (!valid_state) { std::abort(); }
         state->terminated = 0u;
         state->candidate_kind =
             lane % 2u == 0u ?
@@ -3625,10 +3636,48 @@ void ray_query_status_plain_probe(
         lane_count, active_mask_bits, states);
 }
 
+void ray_query_status_mismatched_plain_probe(
+    uint32_t, uint64_t,
+    SIMDHostRayQueryState *const *) noexcept {}
+
+[[nodiscard]] bool run_ray_query_status_pairing_fail_closed() noexcept {
+#if defined(__unix__) || defined(__APPLE__)
+    auto child = fork();
+    if (child < 0) { return false; }
+    if (child == 0) {
+        const rlimit no_core{0u, 0u};
+        static_cast<void>(setrlimit(RLIMIT_CORE, &no_core));
+        RayQueryStatusProbe probe{
+            .expected_lane_count = 2u,
+            .expected_proceed = ray_query_status_plain_probe,
+        };
+        std::array<SIMDHostRayQueryState, 2u> state_storage{};
+        state_storage[0u].accel = &probe;
+        state_storage[0u].proceed = ray_query_status_plain_probe;
+        state_storage[1u].accel = &probe;
+        state_storage[1u].proceed =
+            ray_query_status_mismatched_plain_probe;
+        std::array<SIMDHostRayQueryState *, 2u> states{
+            &state_storage[0u], &state_storage[1u]};
+        static_cast<void>(ray_query_status_probe(
+            2u, 0b11u, states.data()));
+        _exit(EXIT_SUCCESS);
+    }
+    auto status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) { return false; }
+    }
+    return WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT;
+#else
+    return true;
+#endif
+}
+
 [[nodiscard]] bool run_ray_query_status_cache_codegen_case(
     uint32_t width, uint32_t active_lanes,
     bool disable_cache, bool disable_coloring = false,
-    bool disable_state_handles = false) {
+    bool disable_state_handles = false,
+    bool disable_status_pairing = false) {
     ScopedEnvironmentVariable cache{
         "LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE",
         disable_cache ? "1" : nullptr};
@@ -3638,6 +3687,9 @@ void ray_query_status_plain_probe(
     ScopedEnvironmentVariable state_handles{
         "LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE",
         disable_state_handles ? "1" : nullptr};
+    ScopedEnvironmentVariable status_pairing{
+        "LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING",
+        disable_status_pairing ? "1" : nullptr};
     xir::Module module;
     auto *kernel = module.create_kernel();
     kernel->set_name("ray_query_status_cache");
@@ -3726,7 +3778,9 @@ void ray_query_status_plain_probe(
                 (disable_cache ? "_disabled" : "_enabled") +
                 (disable_coloring ? "_uncolored" : "_colored") +
                 (disable_state_handles ? "_handles_disabled" :
-                                         "_handles_enabled");
+                                         "_handles_enabled") +
+                (disable_status_pairing ? "_pairing_disabled" :
+                                          "_pairing_enabled");
     auto codegen = lower_schedule_to_llvm(
         *llvm_module, *lowered.function, width, name);
     if (!codegen.succeeded()) {
@@ -3763,9 +3817,18 @@ void ray_query_status_plain_probe(
         CHECK(callback_load.find("align 8") != std::string_view::npos);
     }
     auto gather_count = count_occurrences(ir, "llvm.masked.gather");
+    auto expect_status_pairing =
+        expect_cache && !disable_status_pairing;
+    CHECK((ir.find("ray.query.proceed.callback.mismatch") ==
+           std::string::npos) == expect_status_pairing);
+    CHECK((ir.find("ray.query.proceed.status.callback.mismatch") !=
+           std::string::npos) == expect_cache);
     auto expected_gather_count = expect_cache ?
                                      (expect_state_handles ? 3u : 6u) :
                                      13u;
+    if (expect_status_pairing) {
+        expected_gather_count -= expect_state_handles ? 3u : 2u;
+    }
     if (gather_count != expected_gather_count) {
         std::cerr << "ray-query gather count W" << width
                   << " cache=" << expect_cache
@@ -3832,6 +3895,7 @@ void ray_query_status_plain_probe(
 }
 
 [[nodiscard]] bool run_ray_query_status_cache_codegen() {
+    if (!run_ray_query_status_pairing_fail_closed()) { return false; }
     for (auto disable_cache : {false, true}) {
         if (!run_ray_query_status_cache_codegen_case(
                 1u, 1u, disable_cache) ||
@@ -3853,7 +3917,13 @@ void ray_query_status_plain_probe(
            run_ray_query_status_cache_codegen_case(
                8u, 5u, false, false, true) &&
            run_ray_query_status_cache_codegen_case(
-               16u, 3u, false, false, true);
+               16u, 3u, false, false, true) &&
+           run_ray_query_status_cache_codegen_case(
+               4u, 3u, false, false, false, true) &&
+           run_ray_query_status_cache_codegen_case(
+               8u, 5u, false, false, false, true) &&
+           run_ray_query_status_cache_codegen_case(
+               16u, 3u, false, false, false, true);
 }
 
 struct RayQueryScratchProbe {

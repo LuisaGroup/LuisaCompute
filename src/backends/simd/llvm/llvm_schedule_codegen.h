@@ -237,9 +237,12 @@ struct alignas(16) SIMDHostRayQueryState {
     return status;
 }
 
-// Status-aware JIT kernels call this side entry. It preserves the state ABI by
-// dispatching through the plain provider already stored in every query, then
-// scans only the active lanes once to return the packed hot predicates.
+// Status-aware JIT kernels call this side entry. The status entry and the
+// construction-selected plain provider form an internal ABI pair: the entry
+// dispatches through that provider, which must reject any active state carrying
+// a different plain callback, then scans the active lanes once to return the
+// packed hot predicates. Proven JIT cohorts can therefore avoid repeating the
+// same plain-callback gather without weakening the provider-side check.
 [[nodiscard]] uint64_t simd_host_ray_query_proceed_status(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states) noexcept;

@@ -1282,17 +1282,32 @@ void ScheduleEmitter::_ray_query_write(
             auto *pointer_type = ::llvm::PointerType::getUnqual(context);
             auto *pointer_lanes = ::llvm::FixedVectorType::get(
                 pointer_type, _width);
-            auto *callbacks = _builder.CreateMaskedGather(
-                pointer_lanes,
-                field_pointers(
-                    offsetof(SIMDHostRayQueryState, proceed)),
-                ::llvm::Align{alignof(void *)}, _active_mask,
-                ::llvm::Constant::getNullValue(pointer_lanes));
-            auto *plain_callback = _builder.CreateExtractElement(
-                callbacks, _safe_first_lane(_active_mask));
             auto *status_slot = _ray_query_status_slot(
                 instruction.operands[0u]);
             auto cache_status = status_slot != nullptr;
+            // A cached status callback and the plain callback installed by
+            // the same construction are one internal ABI pair. Every status
+            // provider must call its paired plain provider and fail closed if
+            // an active state's plain callback differs. The status callback
+            // vector is still checked below, so a divergent construction may
+            // use this path only when the whole active cohort selected the
+            // same pair.
+            auto trust_status_pairing =
+                cache_status &&
+                !luisa::compute::detail::env_flag(
+                    "LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING");
+            auto *callbacks = static_cast<::llvm::Value *>(nullptr);
+            auto *plain_callback = static_cast<::llvm::Value *>(nullptr);
+            if (!trust_status_pairing) {
+                callbacks = _builder.CreateMaskedGather(
+                    pointer_lanes,
+                    field_pointers(
+                        offsetof(SIMDHostRayQueryState, proceed)),
+                    ::llvm::Align{alignof(void *)}, _active_mask,
+                    ::llvm::Constant::getNullValue(pointer_lanes));
+                plain_callback = _builder.CreateExtractElement(
+                    callbacks, _safe_first_lane(_active_mask));
+            }
             auto *callback = plain_callback;
             auto *status_callbacks = static_cast<::llvm::Value *>(nullptr);
             if (cache_status) {
@@ -1310,15 +1325,17 @@ void ScheduleEmitter::_ray_query_write(
             _trap_if(
                 _builder.CreateICmpEQ(callback, null_pointer),
                 "ray.query.proceed.callback.null");
-            auto *callback_mismatch = _builder.CreateAnd(
-                _active_mask,
-                _builder.CreateICmpNE(
-                    callbacks,
-                    _builder.CreateVectorSplat(
-                        _width, plain_callback)));
-            _trap_if(
-                _builder.CreateOrReduce(callback_mismatch),
-                "ray.query.proceed.callback.mismatch");
+            if (!trust_status_pairing) {
+                auto *callback_mismatch = _builder.CreateAnd(
+                    _active_mask,
+                    _builder.CreateICmpNE(
+                        callbacks,
+                        _builder.CreateVectorSplat(
+                            _width, plain_callback)));
+                _trap_if(
+                    _builder.CreateOrReduce(callback_mismatch),
+                    "ray.query.proceed.callback.mismatch");
+            }
             if (cache_status) {
                 auto *status_callback_mismatch = _builder.CreateAnd(
                     _active_mask,
