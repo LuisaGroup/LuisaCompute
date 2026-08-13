@@ -175,12 +175,28 @@ int main() {
         LUISA_INFO("[tensor-stub] rms_norm -> {}", C_norm.describe());
     }
 
+    // ---- Pseudo kernel: trace a prim function into a TileFunctionBuilder ----
+    // luisa::compute::tile::Kernel is the tile-DSL analogue of the Kernel in
+    // <luisa/dsl/func.h>: constructing it executes the lambda / prim function
+    // once on the host and records every tile op (T.empty, T.alloc_shared,
+    // T.copy, tile-store, ...) as a TensorStmt in a
+    // luisa::compute::detail::TileFunctionBuilder.
+    LUISA_INFO("=== tensor-dsl: tile::Kernel{elementwise_add} ===");
+    luisa::compute::tile::Kernel elementwise_kernel{elementwise_add};
+    auto elementwise_ir = elementwise_kernel.function();// shared_ptr<const TileFunctionBuilder>
+    LUISA_INFO("[tensor-stub] elementwise_add traced {} statements: [{}]",
+               elementwise_ir->body()->size(), elementwise_kernel.describe());
+
     // ---- Compile the matmul TIR function into an executable module ---------
-    // This logs "kernel.compile" (required output of this example).
+    // This logs "kernel.compile" (required output of this example).  The
+    // compile step also traces `matmul` into a TileFunctionBuilder, which the
+    // compiled kernel keeps for introspection.
     auto matmul_kernel = luisa::compute::tile::jit(matmul).compile(
         /*M=*/M, /*N=*/N, /*K=*/K,
         /*block_M=*/128, /*block_N=*/128, /*block_K=*/32,
         /*threads=*/128, /*num_stages=*/3);
+    LUISA_INFO("[tensor-stub] matmul traced {} statements: [{}]",
+               matmul_kernel.function()->body()->size(), matmul_kernel.describe());
 
     Tensor<tile_f16, 2> C = matmul_kernel(A, B);// runs on the GPU (stub)
 

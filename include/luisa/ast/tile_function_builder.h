@@ -32,6 +32,18 @@ class LUISA_AST_API TileFunctionBuilder {
 
 public:
     /**
+     * @brief Owning pointer to a TensorExpr that frees with plain `delete`.
+     *
+     * Every TensorStmt frees its output/input TensorExpr operands with
+     * `delete` (see TensorStmt::_clear_owned), so every operand handed to a
+     * statement must be plain-`new`-allocated.  In particular the temporaries
+     * returned by the value-producing operators below must use this type:
+     * eastl::make_unique allocates through the EASTL allocator (returning an
+     * interior aligned pointer), which does NOT match `delete`.
+     */
+    using TensorExprPtr = luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>>;
+
+    /**
      * @brief A tile scope is a flat list of tile operator statements.
      */
     class TileScope {
@@ -190,6 +202,14 @@ public:
     /// Check if inside the function-level scope.
     [[nodiscard]] bool inside_function_scope() const noexcept;
 
+    // node creation
+    /// Create a literal expression node (R2) in this builder's expression
+    /// pool.  The emitted statements borrow the returned node; the builder
+    /// owns it and keeps it alive for as long as the builder lives.
+    [[nodiscard]] const LiteralExpr *create_literal(const Type *type, LiteralExpr::Value value) noexcept {
+        return _create_and_append_expressions<LiteralExpr>(type, std::move(value));
+    }
+
     // tile operators
     /// T.empty(dims, dtype): allocate a global tensor tile. The returned
     /// TensorExpr is owned by the emitted AllocStmt.
@@ -217,14 +237,14 @@ public:
     /// Whole-tile elementwise binary op (T.Parallel lowering). Returns a fresh
     /// fragment temporary tensor owned by the caller; hand it to a consuming
     /// statement (which takes ownership) or let it destruct.
-    [[nodiscard]] luisa::unique_ptr<TensorExpr> tile_binary(
+    [[nodiscard]] TensorExprPtr tile_binary(
         BinaryOp op, TensorExpr *lhs, TensorExpr *rhs_tensor = nullptr,
         const LiteralExpr *rhs_literal = nullptr,
         const RefExpr *rhs_ref = nullptr) noexcept;
     /// T.max(a, b). Returns a fresh fragment temporary tensor owned by the caller.
-    [[nodiscard]] luisa::unique_ptr<TensorExpr> tile_max(TensorExpr *a, const LiteralExpr *b) noexcept;
+    [[nodiscard]] TensorExprPtr tile_max(TensorExpr *a, const LiteralExpr *b) noexcept;
     /// T.rsqrt(a). Returns a fresh fragment temporary tensor owned by the caller.
-    [[nodiscard]] luisa::unique_ptr<TensorExpr> tile_rsqrt(TensorExpr *a) noexcept;
+    [[nodiscard]] TensorExprPtr tile_rsqrt(TensorExpr *a) noexcept;
     /// T.ceildiv(a, b): host-side helper, returns (a + b - 1) / b.
     [[nodiscard]] int32_t tile_ceildiv(int32_t a, int32_t b) noexcept;
     /// T.Kernel(gx, threads, bx). bx is the borrowed runtime block id.

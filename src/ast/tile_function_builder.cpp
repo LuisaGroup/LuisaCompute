@@ -122,28 +122,29 @@ void TileFunctionBuilder::tile_store(int32_t op, TensorExpr *lhs, TensorExpr *rh
     _create_and_append_statement<TileStoreStmt>(op, lhs, rhs_tensor, rhs_literal, rhs_ref);
 }
 
-luisa::unique_ptr<TensorExpr> TileFunctionBuilder::tile_binary(
+luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_binary(
     BinaryOp op, TensorExpr *lhs, TensorExpr *rhs_tensor,
     const LiteralExpr *rhs_literal, const RefExpr *rhs_ref) noexcept {
     _create_and_append_statement<TileBinaryStmt>(op, lhs, rhs_tensor, rhs_literal, rhs_ref);
-    // fresh fragment temporary with the lhs layout (elementwise result)
-    return luisa::make_unique<TensorExpr>(
+    // fresh fragment temporary with the lhs layout (elementwise result);
+    // plain-`new`-allocated so a consuming statement can `delete` it.
+    return TensorExprPtr{new TensorExpr{
         lhs->rank(), lhs->dtype(), TensorScope::Fragment,
-        luisa::fixed_vector<int32_t, 4>{lhs->dims().begin(), lhs->dims().end()});
+        luisa::fixed_vector<int32_t, 4>{lhs->dims().begin(), lhs->dims().end()}}};
 }
 
-luisa::unique_ptr<TensorExpr> TileFunctionBuilder::tile_max(TensorExpr *a, const LiteralExpr *b) noexcept {
+luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_max(TensorExpr *a, const LiteralExpr *b) noexcept {
     _create_and_append_statement<MaxStmt>(a, b);
-    return luisa::make_unique<TensorExpr>(
+    return TensorExprPtr{new TensorExpr{
         a->rank(), a->dtype(), TensorScope::Fragment,
-        luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()});
+        luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()}}};
 }
 
-luisa::unique_ptr<TensorExpr> TileFunctionBuilder::tile_rsqrt(TensorExpr *a) noexcept {
+luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_rsqrt(TensorExpr *a) noexcept {
     _create_and_append_statement<RsqrtStmt>(a);
-    return luisa::make_unique<TensorExpr>(
+    return TensorExprPtr{new TensorExpr{
         a->rank(), a->dtype(), TensorScope::Fragment,
-        luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()});
+        luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()}}};
 }
 
 int32_t TileFunctionBuilder::tile_ceildiv(int32_t a, int32_t b) noexcept {

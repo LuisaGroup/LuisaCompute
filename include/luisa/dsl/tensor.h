@@ -34,6 +34,17 @@
 // luisa::compute::tile::jit(f).compile(M, N, ...) -> traces `f` and logs "kernel.compile"
 // luisa::compute::tile::testing::assert_close(a, b, ...) -> logged
 //
+// Pseudo kernel:
+//   luisa::compute::tile::Kernel k{elementwise_add}; -> the tile-DSL analogue
+//     of `luisa::compute::Kernel` in <luisa/dsl/func.h>: it takes a lambda or
+//     prim function (e.g. `elementwise_add`) and *traces* the tile program into
+//     a `luisa::compute::detail::TileFunctionBuilder`
+//     (<luisa/ast/tile_function_builder.h>).  Every tile op below (T.empty,
+//     T.alloc_shared, T.copy, T.gemm, tile-store, ...) emits the matching
+//     TensorStmt into the active builder, so `k.function()->body()->statements()`
+//     contains the real tile IR.  Outside a Kernel the same ops keep logging
+//     only (pure host-side stub trace).
+//
 // All logs go through the LuisaCompute core logger (lc_core), e.g. LUISA_INFO.
 // =============================================================================
 
@@ -41,10 +52,13 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>// luisa::format
+#include <luisa/core/stl/memory.h>// luisa::unique_ptr / shared_ptr
 #include <luisa/core/stl/string.h>// luisa::string
+#include <luisa/ast/tile_function_builder.h>// TileFunctionBuilder / TensorExpr / TensorStmt
 
 #include <array>
 #include <cstdint>
+#include <functional>// std::invoke
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -54,6 +68,20 @@
 #define TILELANG_PRIM_FUNC
 
 namespace luisa::compute::tile {
+
+// The AST tile-function builder this DSL traces into when a pseudo kernel is
+// being defined (see tile::Kernel below).  Alias for luisa::compute::detail::
+// TileFunctionBuilder, which lives in <luisa/ast/tile_function_builder.h>.
+using TileFunctionBuilder = ::luisa::compute::detail::TileFunctionBuilder;
+
+namespace language {
+
+// Memory scope of a tensor: global (kernel argument / result), shared
+// (per-block on-chip memory) or fragment (per-thread registers).  Declared
+// before the detail helpers below because they map it to the AST scope.
+enum class Scope : uint8_t { Global, Shared, Fragment };
+
+}// namespace language
 
 // ---------------------------------------------------------------------------
 // Scalar dtype handles
@@ -98,6 +126,63 @@ inline const char *dtype_name<float32>() noexcept { return "f32"; }
 template<>
 inline const char *dtype_name<int32>() noexcept { return "i32"; }
 
+// DSL dtype handle -> AST TensorElementType tag (R1, <luisa/ast/tensor.h>).
+template<typename T>
+struct tensor_element_type {
+    static constexpr TensorElementType value = TensorElementType::F32;
+};
+template<>
+struct tensor_element_type<half> {
+    static constexpr TensorElementType value = TensorElementType::F16;
+};
+template<>
+struct tensor_element_type<float32> {
+    static constexpr TensorElementType value = TensorElementType::F32;
+};
+template<>
+struct tensor_element_type<int32> {
+    static constexpr TensorElementType value = TensorElementType::I32;
+};
+template<typename T>
+inline constexpr auto tensor_element_type_v = tensor_element_type<T>::value;
+
+// DSL memory scope -> AST TensorScope tag.
+inline TensorScope to_ast_scope(language::Scope s) noexcept {
+    switch (s) {
+        case language::Scope::Global: return TensorScope::Global;
+        case language::Scope::Shared: return TensorScope::Shared;
+        case language::Scope::Fragment: return TensorScope::Fragment;
+    }
+    return TensorScope::Global;
+}
+
+// std::array<int, R> -> the fixed_vector<int32_t, 4> consumed by the AST.
+template<size_t R>
+inline luisa::fixed_vector<int32_t, 4> to_fixed_vector(const std::array<int, R> &a) {
+    return luisa::fixed_vector<int32_t, 4>{a.begin(), a.end()};
+}
+
+// Human-readable TileOpKind name (used when dumping a traced kernel body).
+inline const char *tile_op_name(TileOpKind kind) noexcept {
+    switch (kind) {
+        case TileOpKind::ALLOC: return "alloc";
+        case TileOpKind::CLEAR: return "clear";
+        case TileOpKind::COPY: return "copy";
+        case TileOpKind::GEMM: return "gemm";
+        case TileOpKind::REDUCE_SUM: return "reduce_sum";
+        case TileOpKind::PRINT: return "print";
+        case TileOpKind::STORE: return "store";
+        case TileOpKind::BINARY: return "binary";
+        case TileOpKind::MAX: return "max";
+        case TileOpKind::RSQRT: return "rsqrt";
+        case TileOpKind::CEILDIV: return "ceildiv";
+        case TileOpKind::KERNEL_1D: return "kernel_1d";
+        case TileOpKind::KERNEL_2D: return "kernel_2d";
+        case TileOpKind::PIPELINED: return "pipelined";
+        default: return "op";
+    }
+}
+
 template<size_t R>
 inline luisa::string join_ints(const std::array<int, R> &a, const char *sep = ",") {
     luisa::string s;
@@ -111,10 +196,6 @@ inline luisa::string join_ints(const std::array<int, R> &a, const char *sep = ",
 }// namespace detail
 
 namespace language {
-
-// Memory scope of a tensor: global (kernel argument / result), shared
-// (per-block on-chip memory) or fragment (per-thread registers).
-enum class Scope : uint8_t { Global, Shared, Fragment };
 
 inline const char *scope_name(Scope s) noexcept {
     switch (s) {
@@ -151,6 +232,14 @@ inline constexpr Slice range(int begin, int end) noexcept { return {begin, end, 
 
 // A tile region: a (possibly derived) view of a tensor.  Whole-tile
 // expressions and tile-to-tile stores are spelled as operations on these.
+//
+// While a tile::Kernel is being traced, a TileExpr also carries the AST
+// operand (`ast`) that the tile IR operates on: `owned` holds the operand
+// when this TileExpr created it (fresh view clones and value temporaries),
+// otherwise `ast` is borrowed.  Passing a TileExpr to a consuming statement
+// (tile_copy / tile_store / tile_binary / ...) transfers that ownership via
+// take().  Like the AST itself, an operand pointer must not be handed to two
+// statements.
 template<size_t Rank>
 class TileExpr {
 public:
@@ -161,12 +250,30 @@ public:
     std::array<int, Rank> offset{};// anchor in the base tensor
     std::array<int, Rank> extent{};// tile extents (0 = unknown)
 
+    // AST operand (non-template, <luisa/ast/tensor.h>); null in pure
+    // host-stub mode.  `owned` is non-null when this TileExpr created the
+    // operand and must transfer it to a consuming statement.  Operands are
+    // plain-`new`-allocated and freed with plain `delete` (TensorStmt frees
+    // its operands with `delete`; eastl::make_unique does NOT match).
+    TensorExpr *ast = nullptr;
+    mutable TileFunctionBuilder::TensorExprPtr owned;
+
     TileExpr() = default;
     TileExpr(luisa::string n, Scope sc,
              std::array<int, Rank> off,
              std::array<int, Rank> ext) noexcept
         : name(std::move(n)), scope(sc),
           offset(std::move(off)), extent(std::move(ext)) {}
+    TileExpr(TileExpr &&) noexcept = default;
+    TileExpr(const TileExpr &) = delete;// operands are move-only (unique_ptr)
+
+    /// Hand the AST operand to a consuming statement (which takes ownership):
+    /// releases `owned` when this TileExpr created the operand, otherwise
+    /// clones the borrowed `ast`.  Returns nullptr in pure host-stub mode.
+    [[nodiscard]] TensorExpr *take() const noexcept {
+        if (owned) { return owned.release(); }
+        return ast != nullptr ? new TensorExpr(*ast) : nullptr;
+    }
 
     [[nodiscard]] luisa::string describe() const {
         if (extent != std::array<int, Rank>{}) {
@@ -176,16 +283,32 @@ public:
     }
 
     // C_local[BM, BN] = <tile expr>;  A_powsum[blk_m] = T.rsqrt(...)
+    // Every assignment form (rvalue / lvalue / cross-rank) lowers to
+    // TileStoreStmt (op 0) while a kernel is traced.
+    TileExpr &operator=(TileExpr &&rhs) noexcept { return _store(0, rhs); }
+    TileExpr &operator=(const TileExpr &rhs) noexcept { return _store(0, rhs); }
     template<size_t R2>
     TileExpr &operator=(const TileExpr<R2> &rhs) noexcept {
-        LUISA_INFO("[tensor-dsl] tile-store: {} = {}", describe(), rhs.describe());
-        return *this;
+        return _store(0, rhs);
     }
 
     // A_local[blk_m, N] *= A_powsum[blk_m];  (row-broadcast scale)
+    // Lowers to TileStoreStmt (op 1) while a kernel is traced.
+    TileExpr &operator*=(TileExpr &&rhs) noexcept { return _store(1, rhs); }
+    TileExpr &operator*=(const TileExpr &rhs) noexcept { return _store(1, rhs); }
     template<size_t R2>
     TileExpr &operator*=(const TileExpr<R2> &rhs) noexcept {
-        LUISA_INFO("[tensor-dsl] tile-store: {} *= {}", describe(), rhs.describe());
+        return _store(1, rhs);
+    }
+
+private:
+    template<size_t R2>
+    TileExpr &_store(int op, const TileExpr<R2> &rhs) noexcept {
+        LUISA_INFO("[tensor-dsl] tile-store: {} {} {}", describe(),
+                   op == 0 ? "=" : "*=", rhs.describe());
+        if (auto *builder = TileFunctionBuilder::current_or_null()) {
+            builder->tile_store(op, take(), rhs.take());
+        }
         return *this;
     }
 };
@@ -202,6 +325,10 @@ private:
     std::array<int, Rank> _dims{};
     Scope _scope = Scope::Global;
     luisa::string _name;
+    // Borrowed AST operand (global / shared / fragment tensor), owned by the
+    // AllocStmt emitted into the active TileFunctionBuilder; null in pure
+    // host-stub mode.
+    TensorExpr *_ast = nullptr;
 
     [[nodiscard]] luisa::string make_default_name() const {
         return luisa::format("{}<{},{}>#{}", scope_name(_scope), detail::dtype_name<DType>(),
@@ -239,6 +366,17 @@ public:
     [[nodiscard]] Scope scope() const noexcept { return _scope; }
     [[nodiscard]] const luisa::string &name() const noexcept { return _name; }
 
+    /// Attach the AST operand of this tensor (borrowed; the AllocStmt emitted
+    /// by the active TileFunctionBuilder owns it).  Internal DSL use.
+    void set_ast(TensorExpr *ast) noexcept { _ast = ast; }
+    /// The borrowed AST operand, or nullptr in pure host-stub mode.
+    [[nodiscard]] TensorExpr *ast() const noexcept { return _ast; }
+    /// A fresh deep copy of the AST operand for a consuming statement (which
+    /// takes ownership), or nullptr in pure host-stub mode.
+    [[nodiscard]] TensorExpr *clone_ast() const noexcept {
+        return _ast != nullptr ? new TensorExpr(*_ast) : nullptr;
+    }
+
     [[nodiscard]] luisa::string describe() const {
         return luisa::format("{}({})", _name, detail::join_ints(_dims));
     }
@@ -261,7 +399,19 @@ public:
         } else {
             ext = values;// whole local tile
         }
-        return TileExpr<Rank>(_name, _scope, off, ext);
+        TileExpr<Rank> e(_name, _scope, off, ext);
+        if (auto *builder = TileFunctionBuilder::current_or_null()) {
+            // Fresh AST operand for the tile view; `e` owns it (plain new /
+            // plain delete, matching TensorStmt operand ownership) until it
+            // is handed to a consuming statement (tile_copy / tile_store / ...).
+            auto texpr = TileFunctionBuilder::TensorExprPtr{new TensorExpr{
+                static_cast<int32_t>(Rank), detail::tensor_element_type_v<DType>,
+                detail::to_ast_scope(_scope), detail::to_fixed_vector(_dims),
+                detail::to_fixed_vector(off), detail::to_fixed_vector(ext)}};
+            e.ast = texpr.get();
+            e.owned = std::move(texpr);
+        }
+        return e;
     }
 
     // A(T.range(begin, end), T.all()) — rank-2 row slice.
@@ -273,7 +423,16 @@ public:
         off[1] = s1.is_all ? 0 : s1.begin;
         ext[0] = s0.is_all ? _dims[0] : s0.end - s0.begin;
         ext[1] = s1.is_all ? _dims[1] : s1.end - s1.begin;
-        return TileExpr<Rank>(_name, _scope, off, ext);
+        TileExpr<Rank> e(_name, _scope, off, ext);
+        if (auto *builder = TileFunctionBuilder::current_or_null()) {
+            auto texpr = TileFunctionBuilder::TensorExprPtr{new TensorExpr{
+                static_cast<int32_t>(Rank), detail::tensor_element_type_v<DType>,
+                detail::to_ast_scope(_scope), detail::to_fixed_vector(_dims),
+                detail::to_fixed_vector(off), detail::to_fixed_vector(ext)}};
+            e.ast = texpr.get();
+            e.owned = std::move(texpr);
+        }
+        return e;
     }
 };
 
@@ -296,34 +455,143 @@ inline luisa::string describe(const language::Tensor<DType, R> &t) { return t.de
 template<size_t R>
 inline luisa::string describe(const language::TileExpr<R> &t) { return t.describe(); }
 
+// ---- AST operand extraction ------------------------------------------------
+// TileExpr and Tensor are the two operand kinds a tile op can consume.
+template<typename T>
+struct is_tile_expr : std::false_type {};
+template<size_t R>
+struct is_tile_expr<language::TileExpr<R>> : std::true_type {};
+template<typename T>
+inline constexpr bool is_tile_expr_v = is_tile_expr<std::remove_cvref_t<T>>::value;
+
+template<typename T>
+struct is_tile_tensor : std::false_type {};
+template<typename DType, size_t R>
+struct is_tile_tensor<language::Tensor<DType, R>> : std::true_type {};
+template<typename T>
+inline constexpr bool is_tile_tensor_v = is_tile_tensor<std::remove_cvref_t<T>>::value;
+
+// Hand a fresh, statement-owned AST operand for `t` to a consuming tile
+// statement: TileExpr hands over its owned view / value temporary, Tensor
+// hands over a fresh clone of its borrowed operand.  Returns nullptr in pure
+// host-stub mode (no TileFunctionBuilder active).
+template<typename T>
+inline TensorExpr *extract_operand(T &t) noexcept {
+    if constexpr (is_tile_expr_v<T>) {
+        return t.take();
+    } else {
+        return t.clone_ast();
+    }
+}
+
+// DSL op spelling -> AST BinaryOp tag.
+inline BinaryOp binary_op_from(const char *op) noexcept {
+    switch (op[0]) {
+        case '+': return BinaryOp::ADD;
+        case '-': return BinaryOp::SUB;
+        case '*': return BinaryOp::MUL;
+        case '/': return BinaryOp::DIV;
+        default: return BinaryOp::ADD;
+    }
+}
+
+// Whole-tile elementwise binary ops.  While a kernel is traced they emit a
+// TileBinaryStmt and wrap the returned fragment temporary in the result
+// TileExpr (owned by the caller, i.e. the TileExpr).
 template<size_t R>
 inline language::TileExpr<R> binary_op(const char *op,
                                        const language::TileExpr<R> &a,
                                        const language::TileExpr<R> &b) {
     LUISA_INFO("[tensor-dsl] tile-op: {} {} {}", describe(a), op, describe(b));
-    language::TileExpr<R> e = a;
+    language::TileExpr<R> e;
     e.name = luisa::format("expr({})", op);
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto tmp = builder->tile_binary(binary_op_from(op), a.take(), b.take());
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
     return e;
 }
 
+// Whole-tile scalar binary ops (e.g. `A_powsum(blk_m) / f32(N) + 1e-12f`):
+// rhs is an R2 literal embedded in the emitted TileBinaryStmt.
 template<size_t R>
 inline language::TileExpr<R> scalar_op(const char *op,
                                        const language::TileExpr<R> &a,
                                        float b) {
     LUISA_INFO("[tensor-dsl] tile-op: {} {} {}", describe(a), op, b);
-    language::TileExpr<R> e = a;
+    language::TileExpr<R> e;
     e.name = luisa::format("expr({})", op);
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto lit = builder->create_literal(Type::of<float>(), b);
+        auto tmp = builder->tile_binary(binary_op_from(op), a.take(), nullptr, lit);
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
     return e;
 }
 
+// ---- callable traits (function pointers and lambdas/function objects) ------
 template<typename F>
-struct fn_traits;
+struct fn_traits : fn_traits<decltype(&std::remove_cvref_t<F>::operator())> {};
 template<typename Ret, typename... Args>
 struct fn_traits<Ret (*)(Args...)> {
     using return_type = Ret;
     using arg_tuple = std::tuple<Args...>;
     static constexpr size_t arity = sizeof...(Args);
 };
+template<typename Ret, typename... Args>
+struct fn_traits<Ret (*)(Args...) noexcept> {
+    using return_type = Ret;
+    using arg_tuple = std::tuple<Args...>;
+    static constexpr size_t arity = sizeof...(Args);
+};
+#define LUISA_TILE_FN_TRAITS_MEMBER(QUAL)                                     \
+    template<typename C, typename Ret, typename... Args>                      \
+    struct fn_traits<Ret (C::*)(Args...) QUAL> {                              \
+        using return_type = Ret;                                              \
+        using arg_tuple = std::tuple<Args...>;                                \
+        static constexpr size_t arity = sizeof...(Args);                      \
+    };
+LUISA_TILE_FN_TRAITS_MEMBER()
+LUISA_TILE_FN_TRAITS_MEMBER(const)
+LUISA_TILE_FN_TRAITS_MEMBER(noexcept)
+LUISA_TILE_FN_TRAITS_MEMBER(const noexcept)
+#undef LUISA_TILE_FN_TRAITS_MEMBER
+
+// ---- kernel argument creation ----------------------------------------------
+// Create a default kernel argument of type T.  Tile tensors become global
+// tensors (AllocStmt, TensorScope::Global) in the active TileFunctionBuilder;
+// other argument types are default-constructed (stub: only tensors matter).
+template<typename T>
+T make_kernel_arg() {
+    if constexpr (is_tile_tensor_v<T>) {
+        auto *builder = TileFunctionBuilder::current();
+        T t;
+        std::array<int, T::rank> zeros{};
+        t.set_ast(builder->tile_empty(detail::to_fixed_vector(zeros),
+                                      tensor_element_type_v<typename T::dtype>));
+        return t;
+    } else {
+        return T{};
+    }
+}
+
+// One-line summary of the statements of a traced kernel body (op names).
+inline luisa::string describe(const TileFunctionBuilder &builder) {
+    luisa::string s;
+    for (auto *stmt : builder.body()->statements()) {
+        if (!s.empty()) { s += ", "; }
+        s += tile_op_name(stmt->op());
+    }
+    return s;
+}
 
 }// namespace detail
 
@@ -349,18 +617,43 @@ inline TileExpr<R> operator/(const TileExpr<R> &a, float b) {
 
 template<size_t R>
 inline TileExpr<R> max(const TileExpr<R> &a, float b) {
-    return detail::scalar_op("max", a, b);
+    LUISA_INFO("[tensor-dsl] tile-op: max({}, {})", detail::describe(a), b);
+    TileExpr<R> e;
+    e.name = "expr(max)";
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto lit = builder->create_literal(Type::of<float>(), b);
+        auto tmp = builder->tile_max(a.take(), lit);
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
+    return e;
 }
 
 template<size_t R>
 inline TileExpr<R> rsqrt(const TileExpr<R> &a) {
     LUISA_INFO("[tensor-dsl] tile-op: rsqrt({})", detail::describe(a));
-    TileExpr<R> e = a;
+    TileExpr<R> e;
     e.name = "expr(rsqrt)";
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto tmp = builder->tile_rsqrt(a.take());
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
     return e;
 }
 
-inline int ceildiv(int a, int b) noexcept { return (a + b - 1) / b; }
+inline int ceildiv(int a, int b) noexcept {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        return builder->tile_ceildiv(a, b);
+    }
+    return (a + b - 1) / b;
+}
 
 // ---- index binders ----------------------------------------------------------
 // `T.Kernel(gx, gy, threads)` is the C++ spelling of `with T.Kernel(...) as
@@ -387,6 +680,9 @@ struct Kernel2D {
     [[nodiscard]] Iterator begin() const noexcept {
         LUISA_INFO("[tensor-dsl] T.Kernel: grid=({},{}), threads={} [stub: tracing one representative block]",
                    gx, gy, threads);
+        if (auto *builder = TileFunctionBuilder::current_or_null()) {
+            builder->tile_kernel_2d(gx, gy, threads);
+        }
         return {this, 0};
     }
     [[nodiscard]] Iterator end() const noexcept { return {this, 1}; }
@@ -409,6 +705,9 @@ struct Kernel1D {
     [[nodiscard]] Iterator begin() const noexcept {
         LUISA_INFO("[tensor-dsl] T.Kernel: grid=({}), threads={} [stub: tracing one representative block]",
                    gx, threads);
+        if (auto *builder = TileFunctionBuilder::current_or_null()) {
+            builder->tile_kernel_1d(gx, threads);
+        }
         return {this, 0};
     }
     [[nodiscard]] Iterator end() const noexcept { return {this, 1}; }
@@ -435,6 +734,9 @@ struct PipelinedRange {
     [[nodiscard]] Iterator begin() const noexcept {
         LUISA_INFO("[tensor-dsl] T.Pipelined: {} iterations x {} stages [stub: tracing iteration 0]",
                    count, stages);
+        if (auto *builder = TileFunctionBuilder::current_or_null()) {
+            builder->tile_pipelined(count, stages);
+        }
         return {0};
     }
     [[nodiscard]] Iterator end() const noexcept { return {count}; }
@@ -445,45 +747,78 @@ inline PipelinedRange Pipelined(int count, int stages) { return {count, stages};
 // ---- tile allocation & ops -------------------------------------------------
 template<typename DType, size_t R>
 inline Tensor<DType, R> empty(const Shape<R> &dims, DType) {
-    return Tensor<DType, R>(dims, Scope::Global);
+    Tensor<DType, R> t(dims, Scope::Global);
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        // T.empty: global tensor (kernel argument / result buffer).
+        t.set_ast(builder->tile_empty(detail::to_fixed_vector(dims.dims),
+                                      detail::tensor_element_type_v<DType>));
+    }
+    return t;
 }
 
 template<typename DType, size_t R>
 inline Tensor<DType, R> alloc_shared(const Shape<R> &dims, DType) {
-    return Tensor<DType, R>(dims, Scope::Shared);
+    Tensor<DType, R> t(dims, Scope::Shared);
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        t.set_ast(builder->tile_alloc_shared(detail::to_fixed_vector(dims.dims),
+                                             detail::tensor_element_type_v<DType>));
+    }
+    return t;
 }
 
 template<typename DType, size_t R>
 inline Tensor<DType, R> alloc_fragment(const Shape<R> &dims, DType) {
-    return Tensor<DType, R>(dims, Scope::Fragment);
+    Tensor<DType, R> t(dims, Scope::Fragment);
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        t.set_ast(builder->tile_alloc_fragment(detail::to_fixed_vector(dims.dims),
+                                               detail::tensor_element_type_v<DType>));
+    }
+    return t;
 }
 
 template<typename Src, typename Dst>
 inline void copy(const Src &src, const Dst &dst) {
     static_assert(detail::tile_rank_v<Src> == detail::tile_rank_v<Dst>,
                   "T.copy requires source and destination tiles of equal rank");
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_copy(detail::extract_operand(src), detail::extract_operand(dst));
+    }
     LUISA_INFO("[tensor-dsl] T.copy: {} -> {}", detail::describe(src), detail::describe(dst));
 }
 
-template<typename DType, size_t R>
-inline void clear(const Tensor<DType, R> &t) {
+template<typename T>
+inline void clear(const T &t) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_clear(detail::extract_operand(t));
+    }
     LUISA_INFO("[tensor-dsl] T.clear: {}", detail::describe(t));
 }
 
 template<typename A, typename B, typename C>
 inline void gemm(const A &a, const B &b, const C &c) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_gemm(detail::extract_operand(a), detail::extract_operand(b),
+                           detail::extract_operand(c));
+    }
     LUISA_INFO("[tensor-dsl] T.gemm: {} x {} -> {}", detail::describe(a),
                detail::describe(b), detail::describe(c));
 }
 
 template<typename X, typename Y>
 inline void reduce_sum(const X &x, const Y &y, int dim) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_reduce_sum(detail::extract_operand(x), detail::extract_operand(y),
+                                 static_cast<uint32_t>(dim));
+    }
     LUISA_INFO("[tensor-dsl] T.reduce_sum: {} -> {} (dim={})",
                detail::describe(x), detail::describe(y), dim);
 }
 
 template<typename T>
 inline void print(const T &t, const char *msg) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_print(detail::extract_operand(t), msg);
+    }
     LUISA_INFO("[tensor-dsl] T.print: {} {}", msg, detail::describe(t));
 }
 
@@ -584,6 +919,55 @@ inline constexpr dsl_t dsl{};
 }// namespace language
 
 // ---------------------------------------------------------------------------
+// tile::Kernel — the pseudo kernel entry point (the tile-DSL analogue of
+// luisa::compute::Kernel in <luisa/dsl/func.h>).
+//
+// Constructing a Kernel traces the given lambda or prim function (e.g.
+// `elementwise_add` in examples/compute/tensor_stub.cpp) into a
+// luisa::compute::detail::TileFunctionBuilder: the function is invoked once
+// on the host with freshly allocated global argument tensors, and every tile
+// op it performs (T.empty, T.alloc_shared, T.copy, tile-store, T.gemm, ...)
+// emits the matching TensorStmt into the builder.  The resulting IR is
+// available through function() / describe().
+// ---------------------------------------------------------------------------
+template<typename F>
+class Kernel {
+
+private:
+    using fn_type = std::remove_cvref_t<F>;
+    using traits = detail::fn_traits<fn_type>;
+    luisa::shared_ptr<const TileFunctionBuilder> _builder;
+
+public:
+    /// Trace `def` (a lambda or a prim function like elementwise_add) into a
+    /// TileFunctionBuilder, mirroring how func.h's Kernel executes its lambda
+    /// once on the host to record the AST.
+    explicit Kernel(F def) {
+        _builder = TileFunctionBuilder::define([&def] {
+            []<size_t... i>(auto &&f, std::index_sequence<i...>) {
+                using arg_tuple = typename traits::arg_tuple;
+                auto args = std::make_tuple(
+                    detail::make_kernel_arg<std::tuple_element_t<i, arg_tuple>>()...);
+                // The return value is the kernel's result tensor (or void);
+                // a real lowering would turn it into an output argument.
+                [[maybe_unused]] auto result =
+                    std::invoke(std::forward<decltype(f)>(f), std::get<i>(args)...);
+            }(def, std::make_index_sequence<traits::arity>{});
+        });
+    }
+
+    /// The traced tile IR (a TileFunctionBuilder holding the emitted
+    /// TensorStmt nodes), or nullptr if tracing failed.
+    [[nodiscard]] auto function() const noexcept { return _builder; }
+
+    /// One-line summary of the traced statement list, e.g.
+    /// "alloc, ceildiv, kernel_2d, alloc, alloc, copy, binary, store".
+    [[nodiscard]] luisa::string describe() const {
+        return _builder ? detail::describe(*_builder) : luisa::string{};
+    }
+};
+
+// ---------------------------------------------------------------------------
 // Host side: luisa::compute::tile::jit(kernel).compile(...)  (mirrors @tilelang.jit)
 // ---------------------------------------------------------------------------
 template<typename Ret>
@@ -598,28 +982,40 @@ public:
 
     template<typename... ConfigArgs>
     auto compile(ConfigArgs &&...config_args) const {
-        using traits = detail::fn_traits<F>;
+        using traits = detail::fn_traits<std::remove_cvref_t<F>>;
         luisa::string cfg;
         ((cfg += luisa::format("{} ", static_cast<long long>(config_args))), ...);
         LUISA_INFO("[tensor-dsl] kernel.compile: {} ({} compile-time args: {})",
                    "prim_function", sizeof...(ConfigArgs), cfg);
-        // Trace the kernel body exactly like a real DSL would at compile time:
-        // invoke the prim function with default-constructed input tensors.
-        auto inputs = typename traits::arg_tuple{};
-        [[maybe_unused]] auto result = std::apply(_fn, inputs);
-        return CompiledKernel<typename traits::return_type>{};
+        // Trace the prim function into a TileFunctionBuilder exactly like a
+        // real DSL would at compile time.
+        Kernel<std::remove_cvref_t<F>> kernel{_fn};
+        return CompiledKernel<typename traits::return_type>{kernel.function()};
     }
 };
 
 // A compiled kernel: callable (`matmul_kernel(A, B)`) and introspectable
-// (`get_kernel_source()`).  The stub logs and returns a default tensor.
+// (`get_kernel_source()`, `function()`).  The stub logs and returns a default
+// tensor; the traced TileFunctionBuilder is kept for introspection.
 template<typename Ret>
 class CompiledKernel {
 public:
     luisa::string name = "compiled_kernel";
+    luisa::shared_ptr<const TileFunctionBuilder> builder;
 
     CompiledKernel() = default;
     explicit CompiledKernel(luisa::string n) : name(std::move(n)) {}
+    explicit CompiledKernel(luisa::shared_ptr<const TileFunctionBuilder> b,
+                            luisa::string n = "compiled_kernel")
+        : name(std::move(n)), builder(std::move(b)) {}
+
+    /// The traced tile IR (TileFunctionBuilder) produced by tile::Kernel.
+    [[nodiscard]] auto function() const noexcept { return builder; }
+
+    /// One-line summary of the traced statement list (see tile::Kernel::describe).
+    [[nodiscard]] luisa::string describe() const {
+        return builder ? detail::describe(*builder) : luisa::string{};
+    }
 
     template<typename... Args>
     Ret operator()(Args &&.../*args*/) const {
@@ -629,7 +1025,9 @@ public:
 
     [[nodiscard]] luisa::string get_kernel_source() const {
         LUISA_INFO("[tensor-dsl] kernel.get_kernel_source: stub (no kernel source generated)");
-        return "// tensor-dsl stub: no kernel source generated\n";
+        luisa::string src = "// tensor-dsl stub: traced tile IR\n";
+        if (builder) { src += "// " + detail::describe(*builder) + "\n"; }
+        return src;
     }
 };
 

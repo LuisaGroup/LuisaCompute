@@ -104,9 +104,9 @@ int main(int argc, char *argv[]) {
         auto *eps = new_literal(Type::of<float>(), 1e-12f);
         auto *scale = new_literal(Type::of<float>(), 2.0f);
 
-        luisa::unique_ptr<TensorExpr> tmp_binary;
-        luisa::unique_ptr<TensorExpr> tmp_max;
-        luisa::unique_ptr<TensorExpr> tmp_rsqrt;
+        TileFunctionBuilder::TensorExprPtr tmp_binary;
+        TileFunctionBuilder::TensorExprPtr tmp_max;
+        TileFunctionBuilder::TensorExprPtr tmp_rsqrt;
         int32_t ceildiv_result = 0;
 
         auto f = TileFunctionBuilder::define([&] {
