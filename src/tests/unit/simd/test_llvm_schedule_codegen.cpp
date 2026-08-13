@@ -36,6 +36,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/verifier.h>
 
 #include "xir_to_schedule.h"
 
@@ -5544,6 +5545,250 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_predicated_select_ladder() {
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        auto selector = index & 7u;
+        $uint value = 71u;
+        $if (selector == 1u) {
+            value = 11u;
+        }
+        $elif (selector == 2u) {
+            value = 22u;
+        }
+        $elif (selector == 3u) {
+            value = 33u;
+        }
+        $elif (selector == 4u) {
+            value = 44u;
+        }
+        $elif (selector == 5u) {
+            value = 55u;
+        };
+        output.write(index, value);
+    };
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    constexpr std::array widths{2u, 4u, 8u, 16u};
+    for (auto width : widths) {
+        auto compiled = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_predicated_select_ladder");
+        if (!compiled.succeeded()) {
+            for (auto &&diagnostic : compiled.diagnostics) {
+                std::cerr << diagnostic << '\n';
+            }
+            return false;
+        }
+        auto refinement_enabled = width == 4u || width == 8u;
+        CHECK((compiled.predicated_forwarding_block_count != 0u) ==
+              refinement_enabled);
+        CHECK((compiled.predicated_forwarded_phi_count != 0u) ==
+              refinement_enabled);
+
+        std::array<uint32_t, count> output{};
+        output.fill(0xdeadbeefu);
+        alignas(16) SIMDHostBufferView argument{
+            output.data(), sizeof(output)};
+        auto *entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += width) {
+            config.thread_index = first;
+            entry(&argument, nullptr, &config, width);
+        }
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto expected = 71u;
+            switch (index & 7u) {
+                case 1u: expected = 11u; break;
+                case 2u: expected = 22u; break;
+                case 3u: expected = 33u; break;
+                case 4u: expected = 44u; break;
+                case 5u: expected = 55u; break;
+                default: break;
+            }
+            CHECK(output[index] == expected);
+        }
+
+        if (refinement_enabled) {
+            ScopedEnvironmentVariable disable_refinement{
+                "LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT", "1"};
+            auto oracle = compile_simd_kernel(
+                kernel.function()->function(), width,
+                "simd_ast_scheduled_select_ladder");
+            CHECK(oracle.succeeded());
+            CHECK(oracle.predicated_forwarding_block_count == 0u);
+            CHECK(oracle.predicated_forwarded_phi_count == 0u);
+            std::array<uint32_t, count> oracle_output{};
+            oracle_output.fill(0xdeadbeefu);
+            alignas(16) SIMDHostBufferView oracle_argument{
+                oracle_output.data(), sizeof(oracle_output)};
+            auto *oracle_entry =
+                reinterpret_cast<Entry *>(oracle.entry);
+            CHECK(oracle_entry != nullptr);
+            for (auto first = uint32_t{0u}; first < 16u;
+                 first += width) {
+                config.thread_index = first;
+                oracle_entry(
+                    &oracle_argument, nullptr, &config, width);
+            }
+            CHECK(output == oracle_output);
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_predicated_select_forwarding_metadata() {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    auto *entry = kernel->create_body_block();
+    auto *outer_true = kernel->create_basic_block();
+    auto *outer_false = kernel->create_basic_block();
+    auto *inner_true = kernel->create_basic_block();
+    auto *inner_false = kernel->create_basic_block();
+    auto *inner_merge = kernel->create_basic_block();
+    auto *outer_merge = kernel->create_basic_block();
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto two_value = uint32_t{2u};
+    auto three_value = uint32_t{3u};
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    auto *three = module.create_constant(
+        Type::of<uint32_t>(), &three_value);
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *outer_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {lane, zero});
+    builder.cond_br(
+        outer_condition, outer_true, outer_false);
+    builder.set_insertion_point(outer_true);
+    builder.br(outer_merge);
+    builder.set_insertion_point(outer_false);
+    auto *inner_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {lane, one});
+    builder.cond_br(
+        inner_condition, inner_true, inner_false);
+    builder.set_insertion_point(inner_true);
+    builder.br(inner_merge);
+    builder.set_insertion_point(inner_false);
+    builder.br(inner_merge);
+    builder.set_insertion_point(inner_merge);
+    auto *inner_phi = builder.phi(
+        Type::of<uint32_t>(),
+        {{two, inner_true}, {three, inner_false}});
+    inner_phi->add_comment(
+        "select forwarding must preserve this owner");
+    builder.br(outer_merge);
+    builder.set_insertion_point(outer_merge);
+    static_cast<void>(builder.phi(
+        Type::of<uint32_t>(),
+        {{one, outer_true}, {inner_phi, inner_merge}}));
+    builder.return_void();
+    CHECK(xir::xir_verify_module(&module).succeeded());
+
+    auto predication =
+        schedule::predicate_small_varying_diamonds(kernel);
+    CHECK(predication.if_conversion.converted_diamond_count == 1u);
+    CHECK(predication.refinement_round_count == 0u);
+    CHECK(predication.forwarded_phi_count == 0u);
+    CHECK(predication.removed_forwarding_block_count == 0u);
+    CHECK(entry->terminator()->isa<xir::ConditionalBranchInst>());
+    CHECK(inner_phi->is_linked());
+    CHECK(!inner_phi->metadata_list().empty());
+    CHECK(xir::xir_verify_module(&module).succeeded());
+    return true;
+}
+
+[[nodiscard]] bool run_predicated_select_forwarding_provenance() {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    auto *entry = kernel->create_body_block();
+    auto *outer_true = kernel->create_basic_block();
+    auto *outer_false = kernel->create_basic_block();
+    auto *inner_true = kernel->create_basic_block();
+    auto *inner_false = kernel->create_basic_block();
+    auto *inner_merge = kernel->create_basic_block();
+    auto *outer_merge = kernel->create_basic_block();
+    auto *preexisting_select_block = kernel->create_basic_block();
+    auto *preexisting_forwarder = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto two_value = uint32_t{2u};
+    auto three_value = uint32_t{3u};
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    auto *three = module.create_constant(
+        Type::of<uint32_t>(), &three_value);
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *outer_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {lane, zero});
+    builder.cond_br(
+        outer_condition, outer_true, outer_false);
+    builder.set_insertion_point(outer_true);
+    builder.br(outer_merge);
+    builder.set_insertion_point(outer_false);
+    auto *inner_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {lane, one});
+    builder.cond_br(
+        inner_condition, inner_true, inner_false);
+    builder.set_insertion_point(inner_true);
+    builder.br(inner_merge);
+    builder.set_insertion_point(inner_false);
+    builder.br(inner_merge);
+    builder.set_insertion_point(inner_merge);
+    auto *inner_phi = builder.phi(
+        Type::of<uint32_t>(),
+        {{two, inner_true}, {three, inner_false}});
+    inner_phi->set_name("generated_inner_value");
+    builder.br(outer_merge);
+    builder.set_insertion_point(outer_merge);
+    auto *outer_phi = builder.phi(
+        Type::of<uint32_t>(),
+        {{one, outer_true}, {inner_phi, inner_merge}});
+    outer_phi->set_name("generated_outer_value");
+    builder.br(preexisting_select_block);
+    builder.set_insertion_point(preexisting_select_block);
+    auto *preexisting_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {lane, three});
+    auto *preexisting_select = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::SELECT,
+        {two, three, preexisting_condition});
+    builder.br(preexisting_forwarder);
+    builder.set_insertion_point(preexisting_forwarder);
+    auto *preexisting_phi = builder.phi(
+        Type::of<uint32_t>(),
+        {{preexisting_select, preexisting_select_block}});
+    preexisting_phi->set_name("preexisting_value");
+    builder.br(exit);
+    builder.set_insertion_point(exit);
+    builder.return_void();
+    CHECK(xir::xir_verify_module(&module).succeeded());
+
+    auto predication =
+        schedule::predicate_small_varying_diamonds(kernel);
+    CHECK(predication.if_conversion.converted_diamond_count == 2u);
+    CHECK(predication.refinement_round_count == 1u);
+    CHECK(predication.removed_forwarding_block_count == 1u);
+    CHECK(outer_merge->is_linked());
+    CHECK(preexisting_forwarder->is_linked());
+    CHECK(preexisting_phi->is_linked());
+    CHECK(preexisting_phi->incoming(0u).value == preexisting_select);
+    CHECK(xir::xir_verify_module(&module).succeeded());
+    return true;
+}
+
 [[nodiscard]] bool run_ast_predicated_memory_diamond() {
     static constexpr auto width = 8u;
     static constexpr auto count = 13u;
@@ -5758,7 +6003,7 @@ void bindless_uniform_gradient_probe(
     CHECK(output[0u] == 0x11111111u);
     for (auto i = uint32_t{1u}; i < count; i++) {
         auto expected = (i & 1u) == 0u ? input[i - 1u] + 9u :
-                                        0x22222222u;
+                                         0x22222222u;
         CHECK(output[i] == expected);
     }
     return true;
@@ -6000,6 +6245,12 @@ int main() {
          &run_ast_fast_math_canonicalization},
         {"AST predicated varying diamond",
          &run_ast_predicated_diamond},
+        {"AST predicated select ladder",
+         &run_ast_predicated_select_ladder},
+        {"predicated select forwarding metadata",
+         &run_predicated_select_forwarding_metadata},
+        {"predicated select forwarding provenance",
+         &run_predicated_select_forwarding_provenance},
         {"AST predicated memory diamond",
          &run_ast_predicated_memory_diamond},
         {"AST invariant varying loop unswitch",

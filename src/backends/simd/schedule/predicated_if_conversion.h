@@ -12,16 +12,24 @@ namespace luisa::compute::simd::schedule {
 struct PredicatedIfConversionInfo {
     xir::IfConversionInfo if_conversion{};
     xir::SelectFactorInfo select_factoring{};
+    size_t refinement_round_count{0u};
+    size_t forwarded_phi_count{0u};
+    size_t removed_forwarding_block_count{0u};
 
     [[nodiscard]] bool changed() const noexcept {
-        return if_conversion.changed() || select_factoring.changed();
+        return if_conversion.changed() ||
+               removed_forwarding_block_count != 0u ||
+               select_factoring.changed();
     }
 };
 
 // If-converts only small, inexpensive diamonds whose condition is genuinely
-// varying, then factors matching arithmetic back through the generated
-// selects. Warp- and cohort-uniform conditions retain scalar control flow.
+// varying. Optional refinement collapses transparent select/Phi forwarding
+// blocks so a bounded enclosing diamond can be reconsidered, then matching
+// arithmetic is factored back through the generated selects. Warp- and
+// cohort-uniform conditions retain scalar control flow.
 [[nodiscard]] PredicatedIfConversionInfo predicate_small_varying_diamonds(
-    xir::Function *function) noexcept;
+    xir::Function *function,
+    bool enable_refinement = true) noexcept;
 
 }// namespace luisa::compute::simd::schedule

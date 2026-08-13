@@ -227,6 +227,23 @@ forms stay unchanged. Instruction metadata and multi-use producers are also
 fail-closed. This recovers one execution of common math without extending any
 domain or evaluating a formerly untaken memory operation.
 
+At W4/W8, a bounded refinement also exposes one or more enclosing diamonds in
+an `if/elif` select ladder. The pass records the selects created by the current
+if-conversion round, then may remove a single-predecessor block containing only
+single-input PHIs and an unannotated branch when at least one PHI is driven by
+one of those new selects and the target has a sibling reconvergence edge. Only
+Name metadata may move to the unique select owner, and an existing select Name
+must match; non-Name metadata, multiple uses, annotated blocks/branches,
+pre-existing selects, and ambiguous downstream PHI edges reject the candidate.
+The ordinary safety and weighted-cost gates are recomputed before converting
+the next enclosing diamond. The process stops after eight conversion rounds
+and at most eight forwarding blocks per round. This is not general CFG
+canonicalization: measured whole-function `phi_cleanup + simplify_cfg` made
+real voxel rendering slower despite reducing the static CFG.
+W2 candidate code regressed and W16 was neutral on default-worker real-render
+A/B tests, so both retain the single-pass policy. The independent oracle is
+`LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT=1`.
+
 A remaining varying conditional or switch has a dynamic coherent fast path:
 when all active lanes select one successor, it behaves like directly threaded
 masked SIMT control flow. A genuinely divergent partition lazily allocates its
@@ -839,11 +856,12 @@ authoritative pre-JITLink input for disassembly and unresolved-symbol audits.
 `LUISA_SIMD_REPORT_JIT_ADDRESS=1` reports the materialized entry address for
 correlation with live profiler records. This distinction matters on sampling
 profilers: skid-prone cycle samples must not be assigned to a semantic block
-using a separately laid-out assembly file. The remaining planned independent
-dumps are:
+using a separately laid-out assembly file. `LUISA_SIMD_REPORT_XIR=1` prints
+canonical XIR immediately before and after the scheduling rewrites, while
+`LUISA_SIMD_REPORT_SCHEDULE=1` prints the verified Schedule IR immediately
+before LLVM lowering. The remaining planned independent dumps are:
 
-- canonical XIR;
-- Schedule IR before and after scheduling optimization;
+- Schedule IR after future scheduling-IR optimization;
 - LLVM IR;
 - runtime cohort traces for one selected block/warp.
 

@@ -1,6 +1,6 @@
 # SIMD CPU backend performance report
 
-Snapshot date: 2026-08-13. This report covers the Release build after merging
+Snapshot date: 2026-08-14. This report covers the Release build after merging
 `origin/next@62b77df36b6dae05aff558d4db84e415b5e84e75` into
 `codex/simd-cpu-backend`, adding coherent direct-CFG lowering, completing the
 bindless gradient-sampling vertical slice, and eliminating curve-hit
@@ -21,7 +21,9 @@ status with one sequential state-pointer pass; narrower widths and every
 non-procedural acceleration structure retain the established callback.
 Its provider-native batch installers now place their overwhelmingly common
 already-ascending case on one hot branch and all reorderings on an unlikely
-edge.
+edge. The latest control-flow stage also recognizes a bounded nested
+select/Phi forwarding ladder at W4/W8, exposing one additional small varying
+diamond without applying a whole-function CFG cleanup.
 
 ## Test host and method
 
@@ -42,13 +44,17 @@ force one spp per dispatch on both backends to remove a batching asymmetry.
 Their current rows use three adjacent fallback/SIMD pairs per width with
 reversed order on alternating pairs. The focused triangle-only-provider result
 uses twelve W8 pairs, while the other widths use four to six pairs. Image,
-voxel, Spacex, and ordinary path tracing compare every measured output with
-the repository gallery reference. The refreshed 64-spp cutout processes are
-performance-only; a separate 1024-spp run supplies its gallery conformance
-gate. SDF uses its internal four-SPP throughput metric; high-SPP SDF image
-comparison remains a separate conformance gate. Image/SDF/voxel/Spacex/GEMM
-cells retain the earlier seven-process sweep because the relevant kernels have
-no eligible aggregate local and unchanged JIT code under this transform.
+Spacex, and ordinary path tracing compare every measured output with the
+repository gallery reference. Refreshed voxel processes keep stable per-
+backend hashes and use separate gallery conformance runs. The refreshed
+64-spp cutout processes are performance-only; a separate 1024-spp run supplies
+its gallery conformance gate. SDF uses its internal four-SPP throughput metric;
+high-SPP SDF image comparison remains a separate conformance gate.
+Image/SDF/Spacex/GEMM cells retain the earlier seven-process sweep and are not
+performance claims for this checkpoint. Voxel is refreshed with seven
+adjacent alternating fallback/SIMD pairs per width, 128 render iterations per
+process, and both backends using their default 32 workers on logical CPUs
+0--31.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -59,7 +65,7 @@ Speedup is always `fallback time / SIMD time`, or
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | non-coro SDF, samples/s | 8.705 | 8.197 (0.942x) | 9.476 (1.089x) | 15.112 (1.736x) | 22.568 (2.593x) | 32.959 (3.786x) |
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
-| voxel render, ms/iteration | 6.904 | 8.127 (0.850x) | 24.122 (0.286x) | 16.128 (0.428x) | 9.386 (0.736x) | 6.479 (1.066x) |
+| voxel render, ms/iteration | 6.889 | 8.422 (0.818x) | 24.872 (0.275x) | 16.117 (0.430x) | 9.384 (0.743x) | 6.652 (1.062x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
 | ordinary path tracing, fixed 1 spp/dispatch, spp/s | 69.784 | 61.813 (0.863x) | 51.087 (0.730x) | 63.853 (0.932x) | 74.108 (1.108x) | 79.461 (1.133x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 59.366 | 45.860 (0.770x) | 29.919 (0.511x) | 36.802 (0.619x) | 42.791 (0.730x) | 42.283 (0.711x) |
@@ -72,6 +78,17 @@ validates the output against double-precision accumulation. The fallback
 process medians ranged from 41.594 to 88.326 GFLOP/s under shared-host load,
 while the SIMD distributions were tight. Its relative speedups must therefore
 be treated as host observations, not cross-machine constants.
+
+The refreshed voxel fallback cell is the pooled median of all 35 fallback
+processes, while each SIMD cell is its seven-process median. Parenthesized
+values are the preferred geometric means of the seven adjacent fallback/SIMD
+ratios. Their 95% paired bootstrap intervals at
+W1/W2/W4/W8/W16 are [0.8152, 0.8219], [0.2715, 0.2788],
+[0.4254, 0.4368], [0.7273, 0.7610], and [1.0477, 1.0797]. W16 wins all seven
+pairs; the other widths lose all seven. Independent gallery comparisons pass
+at 48.08 dB RGB PSNR for fallback and 82.83 dB for W8 SIMD. The two backends use
+different floating-point paths and are not expected to produce identical PNG
+bytes; same-backend refinement/oracle outputs below are byte-identical.
 
 The current path-tracing rows are paired rather than independent medians because
 unrelated host tasks moved the load average during the sweeps. The displayed
@@ -155,6 +172,89 @@ instructions and hot state loads, rather than DRAM or failed LLVM vector
 selection, were the dominant gap. The direct W8 body is now close to the ISPC
 code shape and contains packed arithmetic, masked contiguous memory, no stack
 references, and no scalar-libm lane loop.
+
+### Nested select-ladder refinement
+
+The accepted branch-splitting checkpoint handles a narrow pattern left after
+the innermost small diamond is if-converted: a newly generated `select` feeds
+a single-predecessor PHI-only forwarding block, and that value participates in
+the next enclosing diamond. Only Name metadata may move to the unique select;
+block, branch, non-Name metadata, multiple-use values, and pre-existing
+selects fail closed. The normal four-per-arm, six-total, four-live-out, and
+cost-twelve limits are reapplied at every enclosing layer. No whole-function
+CFG cleanup is enabled.
+
+The final W4/W8 binary uses
+`LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT=1` as its same-binary oracle. Each
+default-configuration W4/W8 result below comprises fourteen alternating pairs,
+128 voxel renders per process, and 32 workers pinned to logical CPUs 0--31.
+W2 and W16 used seven exploratory pairs under the same method in an otherwise
+identical temporary measurement build that enabled the candidate at those
+widths; the production width gate was restored immediately afterward. Speedup
+is oracle time divided by candidate time:
+
+| Width | Production policy | Paired geometric mean | Wins | 95% bootstrap interval | Candidate/oracle median, ms |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| W2 | rejected | 0.9413x | 0/7 | [0.9340, 0.9468] | 26.399 / 24.916 |
+| W4 | enabled | 1.0154x | 13/14 | [1.0116, 1.0183] | 16.087 / 16.351 |
+| W8 | enabled | 1.0106x | 14/14 | [1.0074, 1.0142] | 9.394 / 9.490 |
+| W16 | rejected as neutral | 1.0004x | 3/7 | [0.9956, 1.0056] | 6.580 / 6.569 |
+
+Every candidate/oracle output used one identical SIMD PNG hash. A separate
+W2/W4/W8/W16 inactive-tail regression executes thirteen elements, compares
+the accepted widths against the same-binary oracle element by element, and
+keeps non-Name metadata plus pre-existing select forwarders unchanged.
+
+The W8 final object explains the modest but stable real-render gain. The
+refinement increases accepted diamonds from two to three, reduces Schedule
+blocks 37 to 32, convergence points 11 to 10, state slots 45 to 39, and cold
+slots 26 to 20. Optimized assembly changes as follows:
+
+| W8 voxel kernel | Oracle | Refinement |
+| --- | ---: | ---: |
+| assembly text bytes | 134,476 | 124,557 |
+| static instructions | 2,959 | 2,724 |
+| vector instructions | 1,470 | 1,359 |
+| branches | 288 | 260 |
+| stack references | 778 | 718 |
+| stack allocation | 4,992 B | 4,480 B |
+| calls / scalar-math calls | 3 / 2 | 3 / 2 |
+
+W4 similarly falls from 3,013 to 2,756 static instructions, 280 to 251
+branches, 736 to 665 stack references, and a 2,504- to 2,264-byte frame. The
+gain is therefore removed scheduler state and control, not a math-library or
+host-launch change. Ordinary non-query path tracing has no eligible forwarding
+block: enabled and disabled W8 main objects are exactly equal at 3,586 static
+instructions, 234 branches, 1,024 stack references, and a 7,168-byte frame.
+No path-tracing speedup is claimed for this checkpoint.
+
+Worker-count sensitivity was measured separately because the host has sixteen
+cores and thirty-two SMT threads. Three 64-render medians with 16 workers on
+CPUs 0--15 versus 32 workers on CPUs 0--31 are W1 10.731/8.270,
+W2 43.848/24.683, W4 28.209/15.883,
+W8 15.617/9.185, and W16 10.527/6.497 ms. The existing SIMD thread pool
+therefore benefits substantially from using all logical CPUs; replacing it
+with a system `parallel_for` is not supported by this evidence. The accepted
+W4/W8 refinement remains positive under both 16-worker and default 32-worker
+configurations.
+
+Several broader scheduler experiments were rejected before this narrow rule
+was retained. Whole-function `phi_cleanup + simplify_cfg` reduced W8 voxel
+blocks 37 to 33 and static instructions 2,959 to 2,953, but seven 128-render
+pairs measured 0.9850x. A nonempty-continuation specialization reduced static
+instructions to 2,776 and branches to 244 but measured 0.9663x on voxel;
+ordinary path tracing was only 1.0075x. Pure-region predication and coherent
+forwarding likewise measured 0.9929x/0.9853x and 0.9821x respectively. They
+remain out of production: smaller IR is not sufficient when added selects,
+mask liveness, or register pressure increase dynamic cost.
+
+This policy was informed by an independent audit of ISPC 1.31.0 source at
+revision `c6adb4f86f56` under its BSD-3-Clause license. ISPC's varying-if
+emitter uses all-on/mixed paths and permits straight-line predication only
+when both arms pass `SafeToRunWithMaskAllOff` and their estimated statement
+cost is below six; otherwise it emits mask-aware arm skips. No ISPC source or
+threshold is copied. Luisa retains its independently audited safety whitelist,
+weighted register-unit cost, and the width-specific real-render gate above.
 
 ### Predicated masked-memory control
 
@@ -1147,3 +1247,11 @@ handle probe at zero gathers versus three with pairing disabled, and its fatal
 subprocess verifies that a mismatched plain provider is still rejected. Final
 W8 1024-spp gallery gates pass at 44.17 dB for cutout and 58.37 dB for mixed
 procedural callable.
+
+The nested select-ladder stage reran the required native-math/fallback-math/
+runtime-width gate (3/3), its Schedule-codegen regression, the combined
+SIMD/XIR/runtime/graphics gate (88/88), and the complete configured Release
+suite (140/140). The dedicated regression covers W2/W4/W8/W16, a thirteen-
+element inactive tail, same-binary W4/W8 oracles, non-Name metadata rejection,
+and pre-existing-select provenance. Final fallback and W8 voxel gallery gates
+pass at 48.08 and 82.83 dB RGB PSNR respectively.

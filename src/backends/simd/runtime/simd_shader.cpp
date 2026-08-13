@@ -226,6 +226,8 @@ SIMDShader::SIMDShader(
         LUISA_INFO(
             "SIMD optimization report [{} W{}]: aggregate_allocas={}, "
             "aggregate_leaf_allocas={}, predicated_diamonds={}, "
+            "predicated_refinement_rounds={}, predicated_forwarded_phis={}, "
+            "predicated_forwarding_blocks={}, "
             "predicated_memory_diamonds={}, "
             "predicated_memory_instructions={}, "
             "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
@@ -243,6 +245,9 @@ SIMDShader::SIMDShader(
             warp_width, _compiled.decomposed_aggregate_alloca_count,
             _compiled.inserted_aggregate_leaf_alloca_count,
             _compiled.predicated_diamond_count,
+            _compiled.predicated_refinement_round_count,
+            _compiled.predicated_forwarded_phi_count,
+            _compiled.predicated_forwarding_block_count,
             _compiled.predicated_memory_diamond_count,
             _compiled.predicated_memory_instruction_count,
             _compiled.factored_select_count,

@@ -9,7 +9,9 @@
 #include <llvm/IR/Module.h>
 
 #include <luisa/ast/function.h>
+#include <luisa/core/logging.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/debug_printer.h>
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dce.h>
@@ -85,6 +87,13 @@ SIMDCompiledKernel compile_simd_kernel(
                 ": " + diagnostic.message);
         }
         return result;
+    }
+    if (detail::env_flag("LUISA_SIMD_REPORT_SCHEDULE")) {
+        LUISA_INFO(
+            "SIMD Schedule IR [{} W{}]:\n{}",
+            entry_name.empty() ? "simd_kernel" : entry_name,
+            warp_width,
+            schedule::to_string(*schedule_result.function));
     }
 
     auto context = std::make_unique<::llvm::LLVMContext>();
@@ -239,11 +248,27 @@ SIMDCompiledKernel compile_simd_kernel(
     }
     auto predication_info =
         schedule::PredicatedIfConversionInfo{};
+    if (detail::env_flag("LUISA_SIMD_REPORT_XIR")) {
+        luisa::string text;
+        xir::XIRDebugPrinter printer;
+        printer.emit_function(text, xir_kernel);
+        LUISA_INFO(
+            "SIMD XIR before scheduling rewrites [{} W{}]:\n{}",
+            entry_name.empty() ? "simd_kernel" : entry_name,
+            warp_width, text);
+    }
     if (warp_width != 1u &&
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_PREDICATED_IF")) {
         predication_info =
-            schedule::predicate_small_varying_diamonds(xir_kernel);
+            schedule::predicate_small_varying_diamonds(
+                xir_kernel,
+                // The extra select-ladder step has a stable real-graphics
+                // win at W4/W8. W2 regresses and W16 is neutral on the same
+                // workload, so those widths retain the single-pass policy.
+                (warp_width == 4u || warp_width == 8u) &&
+                    !detail::env_flag(
+                        "LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT"));
     }
     if (predication_info.changed()) {
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));
@@ -257,6 +282,15 @@ SIMDCompiledKernel compile_simd_kernel(
     }
     if (loop_unswitch_info.changed()) {
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+    }
+    if (detail::env_flag("LUISA_SIMD_REPORT_XIR")) {
+        luisa::string text;
+        xir::XIRDebugPrinter printer;
+        printer.emit_function(text, xir_kernel);
+        LUISA_INFO(
+            "SIMD XIR after scheduling rewrites [{} W{}]:\n{}",
+            entry_name.empty() ? "simd_kernel" : entry_name,
+            warp_width, text);
     }
     auto result = compile_simd_kernel(
         xir_kernel, warp_width, entry_name, enable_fast_math,
@@ -277,6 +311,12 @@ SIMDCompiledKernel compile_simd_kernel(
         predication_info.if_conversion.hoisted_inst_count;
     result.predicated_phi_count =
         predication_info.if_conversion.replaced_phi_count;
+    result.predicated_refinement_round_count =
+        predication_info.refinement_round_count;
+    result.predicated_forwarded_phi_count =
+        predication_info.forwarded_phi_count;
+    result.predicated_forwarding_block_count =
+        predication_info.removed_forwarding_block_count;
     result.factored_select_count =
         predication_info.select_factoring.factored_select_count;
     result.unswitched_loop_count =

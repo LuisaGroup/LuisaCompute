@@ -224,6 +224,12 @@ refinement, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` controls proven
 lane-consecutive typed-buffer accesses. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`
 logs per-shader transform, scheduler-state, ray-query scratch, ray-query
 status-color, and cached state-handle counters.
+`LUISA_SIMD_REPORT_XIR=1` logs canonical XIR immediately before and after the
+SIMD scheduling rewrites. `LUISA_SIMD_REPORT_SCHEDULE=1` logs the verified
+Schedule IR immediately before LLVM lowering, including value classes,
+convergence/loop metadata, resource access annotations, edge assignments, and
+terminators. It is an explicit diagnostic because large graphics kernels
+produce correspondingly large logs.
 `LUISA_SIMD_REPORT_ASSEMBLY=1` additionally captures optimized target assembly
 and reports its static instruction/call/branch counts, stack references, the
 x86 stack allocation when recognizable, and scalar-math symbols.
@@ -310,6 +316,28 @@ extension. IR-shape, inactive-tail execution, final assembly, and throughput
 are permanent gates in `benchmark_simd_predicated_if` and the Schedule-codegen
 regressions.
 
+At W4/W8 only, an additional bounded refinement may expose the next enclosing
+diamond in a nested select ladder. It may bypass a single-predecessor PHI-only
+forwarding block only when at least one incoming value is a select generated
+by the immediately preceding if-conversion round. Every PHI must have exactly
+one well-typed incoming from that predecessor; the block and branch must have
+no metadata; the downstream target must have exactly one corresponding PHI
+edge, at least one sibling predecessor, and no already-existing edge from the
+predecessor. A PHI may carry only Name metadata, which moves to its unique
+select value or must already match that value's Name. Any non-Name metadata,
+conflicting Name, multiple use, pre-existing select, or ambiguous edge rejects
+the complete forwarding block.
+The original speculation-safety and cost contract is then reapplied to the
+newly exposed diamond. The transform is capped at eight conversion rounds and
+eight forwarding blocks per round. A loop-carried PHI has multiple incoming
+edges and is rejected by the single-incoming structural requirement.
+
+This restriction is a performance policy, not a semantic width limitation.
+Default-worker Voxel A/B accepts W4/W8 and rejects W2 (regression) and W16
+(neutral); W1 never enters varying if-conversion. Thirteen-element inactive-
+tail execution, same-binary oracle comparison, non-Name metadata rejection,
+and pre-existing-select provenance are permanent regressions.
+
 #### 4.4.1 Predicated direct-memory diamond
 
 Schedule-to-LLVM may also straighten a small varying diamond containing direct
@@ -343,8 +371,10 @@ horizontal extract and spill caused only by the submask. An arm-local index
 must instead use the arm's safe first lane because its inactive elements may
 be poison. W1 retains the ordinary scalar branch.
 
-`LUISA_SIMD_DISABLE_PREDICATED_IF=1` disables both predication refinements for
-differential diagnostics. Permanent coverage includes an underflowing index
+`LUISA_SIMD_DISABLE_PREDICATED_IF=1` disables both predication families for
+differential diagnostics. `LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT=1`
+retains the first small-diamond pass but disables only the W4/W8 forwarding
+refinement. Permanent coverage includes an underflowing index
 in the untaken lane, a completely empty arm with a null input pointer,
 W2/W4/W8/W16 inactive tails, nesting under an outer scheduled convergence,
 volatile and division rejection, the W1 path, optimized assembly with no stack
