@@ -2036,6 +2036,51 @@ of total cycles), `_ray_query_proceed` including the inlined cache advance
 failure is removed for bounded chains; the remaining gap is primarily Embree
 packet/filter and host-boundary work, not a second independent-PC scheduler.
 
+The JIT now keeps the three predicates that cross that boundary most often --
+`terminated`, surface candidate, and procedural candidate -- in a packed
+64-bit sidecar at W4/W8/W16. Each 16-bit field uses physical lane bits; a
+fourth field records which lanes have had their query pointer published. The
+sidecar is colored with the existing query-scratch interference graph and is
+enabled only when the analysis proves one unaliased query-local owner, one
+same-block construction store, and no intervening query observation. Unknown
+aliases, copied query handles, disabled scratch coloring, and W1/W2 all retain
+the original state gathers.
+
+The host status entry is deliberately separate from every Embree provider. It
+calls the plain provider already stored in the active query state, then scans
+only active lanes once and returns the packed classification. This keeps the
+1216-byte state ABI and the generic/triangle-only provider code unchanged.
+The entry's assertion formatting lives in no-inline cold helpers: optimized
+host assembly leaves a 237-byte hot wrapper with a 40-byte frame instead of
+pulling logging/backtrace construction into every `PROCEED`. JIT construction
+loads the side entry from the stable instance-table descriptor and retains a
+masked vector of callbacks when divergent constructions share a scratch
+color. A proceed checks both the plain and status callbacks for active-cohort
+agreement before calling either provider.
+
+Status validity is published only after the masked local store installs the
+new query pointer. Every later update merges only the active physical lanes;
+predicate reads validate all active bits and intersect the result with the
+current cohort mask, so a reused color cannot expose stale inactive data.
+Explicit terminate sets only the terminated field because the public state is
+allowed to retain its last candidate kind. Commit validation uses the cached
+kind, while hit payload and `t_max` updates still access the authoritative
+state. `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1` restores the old JIT path
+from the same binary, and `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the
+number of allocated status colors.
+
+The final W8 rejection object trades 32 additional instructions for five fewer
+gathers (`13 -> 8`), grows `.text` from 6,134 to 6,266 bytes, and retains one
+callback callsite with no scalar-math or unresolved symbol. Seven paired
+processes measure status enabled/disabled at 1.0253x/1.0201x/1.0026x for
+triangle W4/W8/W16 and 1.0437x/1.0459x/1.0216x for procedural W4/W8/W16.
+The real W8 cutout and procedural-callable renderers measure 1.0073x and
+1.0199x respectively, with every reference comparison passing. W1/W2 objects
+are byte-identical under the oracle. The final triangle rejection sweep is
+still only 0.7709x/0.6318x/0.7601x/0.8476x/0.8532x of fallback, so this
+sidecar is an accepted incremental latency reduction rather than closure of
+the query-state boundary.
+
 Triangle-only acceleration structures now select an independent surface-only
 ray-query runtime. Every accel build recomputes curve and procedural summaries,
 including motion children, and `host_view()` chooses the provider when the
@@ -2344,6 +2389,11 @@ on 2026-08-11. The repository now contains:
   motion traversal, curve classification and per-primitive front/back
   deduplication, a persistent 32-candidate speculative batch, W2-to-W4 padding,
   and exact W1/W2/W4/W8/W16 tail and 35-candidate continuation coverage;
+- a fail-closed W4/W8/W16 ray-query status sidecar, colored with query scratch
+  liveness, that keeps terminated/surface/procedural masks in one JIT scalar,
+  publishes validity only after the owner-local pointer store, preserves
+  divergent cohort bits, and falls back to authoritative AoS gathers for W1/W2,
+  unknown aliases, copied handles, or disabled scratch coloring;
 - a dynamically selected triangle-only query provider whose build-time accel
   summary excludes curve/procedural instances (including motion children),
   whose compact scan context and surface filter never touch procedural/curve

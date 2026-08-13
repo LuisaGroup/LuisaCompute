@@ -121,6 +121,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.ray_query_scratch_slot_count;
     result.ray_query_scratch_bytes =
         llvm_result.ray_query_scratch_bytes;
+    result.ray_query_status_slot_count =
+        llvm_result.ray_query_status_slot_count;
     result.uniform_buffer_broadcast_count =
         llvm_result.uniform_buffer_broadcast_count;
     result.contiguous_buffer_read_count =

@@ -37,7 +37,9 @@ private:
     luisa::vector<Instance> _instances;
     luisa::vector<RTCGeometry> _geometries;
     luisa::vector<luisa::unique_ptr<MotionState>> _motion_states;
-    SIMDHostAccelInstanceTable _instance_table{};
+    SIMDHostAccelInstanceTable _instance_table{
+        .ray_query_proceed_status = simd_host_ray_query_proceed_status,
+        .ray_query_proceed_wide_status = simd_host_ray_query_proceed_status};
     bool _has_curve_instances{false};
     bool _has_procedural_instances{false};
     bool _enable_triangle_only_ray_query{true};

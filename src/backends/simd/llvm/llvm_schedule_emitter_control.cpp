@@ -1135,6 +1135,25 @@ void ScheduleEmitter::_allocate_state() {
                     offsets);
         }
     }
+    for (auto slot = size_t{0u};
+         slot < _ray_query_status_storage.size(); slot++) {
+        auto *storage = _builder.CreateAlloca(
+            _builder.getInt64Ty(), nullptr,
+            "ray.query.status.slot." + std::to_string(slot));
+        storage->setAlignment(::llvm::Align{alignof(uint64_t)});
+        _builder.CreateStore(_builder.getInt64(0u), storage);
+        _ray_query_status_storage[slot] = storage;
+        auto *callback_type = ::llvm::FixedVectorType::get(
+            ::llvm::PointerType::getUnqual(_module.getContext()), _width);
+        auto *callback = _builder.CreateAlloca(
+            callback_type, nullptr,
+            "ray.query.status.callback.slot." + std::to_string(slot));
+        callback->setAlignment(::llvm::Align{alignof(void *)});
+        _builder.CreateStore(
+            ::llvm::Constant::getNullValue(callback_type),
+            callback);
+        _ray_query_status_callback_storage[slot] = callback;
+    }
     _state_slots.resize(_source.values().size(), nullptr);
     for (auto &&value : _source.values()) {
         auto spill = value.id.value <

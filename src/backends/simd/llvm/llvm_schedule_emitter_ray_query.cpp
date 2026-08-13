@@ -1,7 +1,6 @@
 #include "llvm_schedule_emitter.h"
 
 #include <algorithm>
-#include <array>
 #include <limits>
 #include <numeric>
 
@@ -86,6 +85,9 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     constexpr auto invalid = std::numeric_limits<uint32_t>::max();
     auto value_count = _source.values().size();
     _ray_query_scratch_slots.assign(value_count, invalid);
+    _ray_query_status_slots.assign(value_count, invalid);
+    _ray_query_status_storage.clear();
+    _ray_query_status_callback_storage.clear();
 
     std::vector<schedule::ValueId> constructions;
     std::vector<uint32_t> construction_for_value(value_count, invalid);
@@ -111,12 +113,13 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
             constructions.size() * static_cast<size_t>(_width) *
             sizeof(SIMDHostRayQueryState);
     };
-    if (constructions.size() < 2u ||
-        luisa::compute::detail::env_flag(
-            "LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING")) {
+    if (constructions.empty()) {
         assign_unique_slots();
         return;
     }
+    auto disable_coloring =
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING");
 
     // Resolve every query-typed local reference to the packet-local alloca
     // that owns it. Schedule edge assignments may copy an lvalue handle; a
@@ -285,6 +288,71 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         }
     }
     if (!safe) {
+        assign_unique_slots();
+        return;
+    }
+
+    // The public query pointer changes at the store, not at construction.
+    // Standard lowering may insert a harmless alloca between them. Permit
+    // such instructions, but only cache status when every construction has
+    // one later store in the same block and no query access/construction can
+    // observe or overwrite the old owner in the gap. Scratch coloring keeps
+    // its established liveness proof even when this stricter cache proof
+    // fails; only the sidecar then falls back to AoS gathers.
+    auto status_cache_safe = true;
+    for (auto construction_index = size_t{0u};
+         construction_index < constructions.size(); construction_index++) {
+        auto construction = constructions[construction_index];
+        const schedule::BasicBlock *owner_block = nullptr;
+        auto definition_index = size_t{0u};
+        auto store_index = size_t{0u};
+        auto store_count = size_t{0u};
+        for (auto &&block : _source.blocks()) {
+            for (auto i = size_t{0u}; i < block.instructions.size(); i++) {
+                auto &&candidate = block.instructions[i];
+                if (candidate.result == construction) {
+                    owner_block = &block;
+                    definition_index = i;
+                }
+                if (candidate.opcode == schedule::Opcode::store &&
+                    candidate.operands.size() == 2u &&
+                    candidate.operands[1u] == construction) {
+                    store_count++;
+                    if (owner_block == &block) { store_index = i; }
+                }
+            }
+        }
+        if (owner_block == nullptr || store_count != 1u ||
+            store_index <= definition_index) {
+            status_cache_safe = false;
+            continue;
+        }
+        auto root = construction_root[construction_index];
+        for (auto i = definition_index + 1u; i < store_index; i++) {
+            auto &&candidate = owner_block->instructions[i];
+            if (is_ray_query_construction(candidate)) {
+                status_cache_safe = false;
+                break;
+            }
+            if ((candidate.opcode == schedule::Opcode::ray_query_read ||
+                 candidate.opcode == schedule::Opcode::ray_query_write) &&
+                !candidate.operands.empty()) {
+                auto object = candidate.operands.front();
+                if (object.value < roots.size() &&
+                    roots[object.value].size() == 1u &&
+                    roots[object.value].front() == root) {
+                    status_cache_safe = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    // The scratch-coloring oracle deliberately restores the old independent
+    // allocations. Keep the status cache fail-closed under the same oracle:
+    // multiple constructions assigned to one query local no longer have a
+    // unique sidecar owner in that mode.
+    if (disable_coloring) {
         assign_unique_slots();
         return;
     }
@@ -530,6 +598,73 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         _ray_query_scratch_slots[constructions[i].value] =
             colors[construction_variable[i]];
     }
+    if (_width >= 4u && status_cache_safe &&
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE")) {
+        std::vector<uint8_t> needs_status(
+            variable_count, uint8_t{0u});
+        for (auto &&block : _source.blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (!instruction.source_op ||
+                    instruction.operands.empty()) {
+                    continue;
+                }
+                auto uses_status = false;
+                if (instruction.opcode ==
+                    schedule::Opcode::ray_query_read) {
+                    auto op = static_cast<xir::RayQueryObjectReadOp>(
+                        *instruction.source_op);
+                    uses_status =
+                        op == xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED ||
+                        op == xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE ||
+                        op == xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE;
+                } else if (instruction.opcode ==
+                           schedule::Opcode::ray_query_write) {
+                    auto op = static_cast<xir::RayQueryObjectWriteOp>(
+                        *instruction.source_op);
+                    uses_status =
+                        op == xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE ||
+                        op == xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL;
+                }
+                auto variable = use_variable_for(instruction);
+                if (uses_status && variable != invalid) {
+                    needs_status[variable] = 1u;
+                }
+            }
+        }
+        std::vector<uint32_t> status_slot_for_color(
+            color_count, invalid);
+        auto status_slot_count = uint32_t{0u};
+        for (auto variable = uint32_t{0u};
+             variable < variable_count; variable++) {
+            if (needs_status[variable] == 0u) { continue; }
+            auto color = colors[variable];
+            if (status_slot_for_color[color] == invalid) {
+                status_slot_for_color[color] = status_slot_count++;
+            }
+        }
+        for (auto i = size_t{0u}; i < constructions.size(); i++) {
+            auto variable = construction_variable[i];
+            if (needs_status[variable] != 0u) {
+                _ray_query_status_slots[constructions[i].value] =
+                    status_slot_for_color[colors[variable]];
+            }
+        }
+        for (auto value = uint32_t{0u}; value < roots.size(); value++) {
+            auto variable = query_variable(schedule::ValueId{value});
+            if (variable != invalid && needs_status[variable] != 0u) {
+                _ray_query_status_slots[value] =
+                    status_slot_for_color[colors[variable]];
+            }
+        }
+        _ray_query_status_storage.assign(status_slot_count, nullptr);
+        _ray_query_status_callback_storage.assign(status_slot_count, nullptr);
+        _result.ray_query_status_slot_count = status_slot_count;
+    } else {
+        std::fill(
+            _ray_query_status_slots.begin(),
+            _ray_query_status_slots.end(), invalid);
+    }
     _ray_query_scratch_storage.assign(color_count, nullptr);
     _result.ray_query_scratch_slot_count = color_count;
     _result.ray_query_scratch_bytes =
@@ -655,12 +790,39 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     };
 
     auto *object = _builder.CreateExtractValue(accel, {0u});
-    auto *proceed = _builder.CreateExtractValue(
+    auto *plain_proceed = _builder.CreateExtractValue(
         accel, {_width >= 8u ? 5u : 4u});
+    auto cache_status =
+        _ray_query_status_slot(*instruction.result) != nullptr;
     auto *null_pointer = ::llvm::ConstantPointerNull::get(pointer_type);
+    auto *status_proceed = static_cast<::llvm::Value *>(nullptr);
+    if (cache_status) {
+        auto *instances = _builder.CreateExtractValue(accel, {3u});
+        _trap_if(
+            _builder.CreateICmpEQ(instances, null_pointer),
+            "accel.ray.query.status.table.null");
+        auto status_offset = _width >= 8u ?
+                                 offsetof(
+                                     SIMDHostAccelInstanceTable,
+                                     ray_query_proceed_wide_status) :
+                                 offsetof(
+                                     SIMDHostAccelInstanceTable,
+                                     ray_query_proceed_status);
+        auto *proceed_pointer = _byte_pointer(instances, status_offset);
+        auto *proceed_load = _builder.CreateLoad(
+            pointer_type, proceed_pointer,
+            "accel.ray.query.status.callback");
+        proceed_load->setAlignment(::llvm::Align{alignof(void *)});
+        status_proceed = proceed_load;
+    }
     auto *missing_callback = _builder.CreateOr(
         _builder.CreateICmpEQ(object, null_pointer),
-        _builder.CreateICmpEQ(proceed, null_pointer));
+        _builder.CreateICmpEQ(plain_proceed, null_pointer));
+    if (cache_status) {
+        missing_callback = _builder.CreateOr(
+            missing_callback,
+            _builder.CreateICmpEQ(status_proceed, null_pointer));
+    }
     _trap_if(
         _builder.CreateAnd(
             _builder.CreateOrReduce(_active_mask), missing_callback),
@@ -668,7 +830,19 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     scatter(
         object, offsetof(SIMDHostRayQueryState, accel), alignof(void *));
     scatter(
-        proceed, offsetof(SIMDHostRayQueryState, proceed), alignof(void *));
+        plain_proceed, offsetof(SIMDHostRayQueryState, proceed), alignof(void *));
+    if (cache_status) {
+        auto status_slot = _ray_query_status_slots[instruction.result->value];
+        auto *old_callbacks = _builder.CreateLoad(
+            pointer_lanes,
+            _ray_query_status_callback_storage[status_slot]);
+        _builder.CreateStore(
+            _builder.CreateSelect(
+                _active_mask,
+                _builder.CreateVectorSplat(_width, status_proceed),
+                old_callbacks),
+            _ray_query_status_callback_storage[status_slot]);
+    }
 
     auto *zero_offsets = ::llvm::Constant::getNullValue(
         ::llvm::FixedVectorType::get(_builder.getInt64Ty(), _width));
@@ -848,6 +1022,75 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     return states;
 }
 
+[[nodiscard]] ::llvm::AllocaInst *ScheduleEmitter::_ray_query_status_slot(
+    schedule::ValueId object_id) const noexcept {
+    constexpr auto invalid = std::numeric_limits<uint32_t>::max();
+    auto slot = object_id.value < _ray_query_status_slots.size() ?
+                    _ray_query_status_slots[object_id.value] :
+                    invalid;
+    return slot == invalid || slot >= _ray_query_status_storage.size() ?
+               nullptr :
+               _ray_query_status_storage[slot];
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_ray_query_status_mask(
+    schedule::ValueId object_id, uint32_t shift) {
+    auto *slot = _ray_query_status_slot(object_id);
+    if (slot == nullptr) { return nullptr; }
+    auto *status = _builder.CreateLoad(
+        _builder.getInt64Ty(), slot, "ray.query.status");
+    auto *packed_mask_type = ::llvm::IntegerType::get(
+        _module.getContext(), _width);
+    auto unpack = [&](uint32_t field_shift) noexcept {
+        auto *bits = field_shift == 0u ?
+                         status :
+                         _builder.CreateLShr(status, field_shift);
+        return _builder.CreateBitCast(
+            _builder.CreateTrunc(bits, packed_mask_type),
+            _layout.mask_type());
+    };
+    auto *valid = unpack(simd_host_ray_query_valid_status_shift);
+    _trap_if(
+        _builder.CreateOrReduce(
+            _builder.CreateAnd(
+                _active_mask, _builder.CreateNot(valid))),
+        "ray.query.status.uninitialized");
+    // Match the zero passthrough of the replaced masked gather. A scratch
+    // color may retain another cohort's bits outside the current definition
+    // mask; those lanes must never escape as observable predicate values.
+    return _builder.CreateAnd(unpack(shift), _active_mask);
+}
+
+void ScheduleEmitter::_ray_query_update_status(
+    schedule::ValueId object_id, ::llvm::Value *status) {
+    auto *slot = _ray_query_status_slot(object_id);
+    if (slot == nullptr) { return; }
+    auto *active = _bindless_callback_mask(true);
+    auto *active_fields = _builder.CreateOr(
+        _builder.CreateOr(
+            _builder.CreateOr(
+                active,
+                _builder.CreateShl(
+                    active,
+                    simd_host_ray_query_valid_status_shift)),
+            _builder.CreateShl(
+                active, simd_host_ray_query_surface_status_shift)),
+        _builder.CreateShl(
+            active, simd_host_ray_query_procedural_status_shift));
+    auto *old_status = _builder.CreateLoad(
+        _builder.getInt64Ty(), slot);
+    auto *merged = _builder.CreateOr(
+        _builder.CreateAnd(old_status, _builder.CreateNot(active_fields)),
+        _builder.CreateAnd(
+            _builder.CreateOr(
+                status,
+                _builder.CreateShl(
+                    active,
+                    simd_host_ray_query_valid_status_shift)),
+            active_fields));
+    _builder.CreateStore(merged, slot);
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_ray_query_read(
     const schedule::Instruction &instruction) {
     if (!instruction.result || !instruction.source_op ||
@@ -856,13 +1099,31 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         return nullptr;
     }
     auto *result = _source.value(*instruction.result);
-    auto *states = _ray_query_state_handles(instruction.operands[0u]);
     if (result == nullptr || result->type == nullptr ||
-        result->value_class != schedule::ValueClass::varying ||
-        states == nullptr) {
+        result->value_class != schedule::ValueClass::varying) {
         _fail("ray-query object read has an invalid result");
         return nullptr;
     }
+    auto op = static_cast<xir::RayQueryObjectReadOp>(
+        *instruction.source_op);
+    if (result->type->is_bool()) {
+        auto shift =
+            op == xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED ?
+                simd_host_ray_query_terminated_status_shift :
+            op == xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE ?
+                simd_host_ray_query_surface_status_shift :
+            op == xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE ?
+                simd_host_ray_query_procedural_status_shift :
+                std::numeric_limits<uint32_t>::max();
+        if (shift != std::numeric_limits<uint32_t>::max()) {
+            if (auto *cached = _ray_query_status_mask(
+                    instruction.operands[0u], shift)) {
+                return cached;
+            }
+        }
+    }
+    auto *states = _ray_query_state_handles(instruction.operands[0u]);
+    if (states == nullptr) { return nullptr; }
     auto *zero_offsets = ::llvm::Constant::getNullValue(
         ::llvm::FixedVectorType::get(_builder.getInt64Ty(), _width));
     auto gather = [&](const Type *type, size_t offset) noexcept {
@@ -880,8 +1141,6 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
             _active_mask, ::llvm::Constant::getNullValue(lanes));
     };
 
-    auto op = static_cast<xir::RayQueryObjectReadOp>(
-        *instruction.source_op);
     switch (op) {
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
             if (!is_ray_type(result->type)) { break; }
@@ -994,8 +1253,22 @@ void ScheduleEmitter::_ray_query_write(
                     offsetof(SIMDHostRayQueryState, proceed)),
                 ::llvm::Align{alignof(void *)}, _active_mask,
                 ::llvm::Constant::getNullValue(pointer_lanes));
-            auto *callback = _builder.CreateExtractElement(
+            auto *plain_callback = _builder.CreateExtractElement(
                 callbacks, _safe_first_lane(_active_mask));
+            auto *status_slot = _ray_query_status_slot(
+                instruction.operands[0u]);
+            auto cache_status = status_slot != nullptr;
+            auto *callback = plain_callback;
+            auto *status_callbacks = static_cast<::llvm::Value *>(nullptr);
+            if (cache_status) {
+                auto slot = _ray_query_status_slots[instruction.operands[0u].value];
+                status_callbacks = _builder.CreateLoad(
+                    pointer_lanes,
+                    _ray_query_status_callback_storage[slot],
+                    "ray.query.status.callbacks");
+                callback = _builder.CreateExtractElement(
+                    status_callbacks, _safe_first_lane(_active_mask));
+            }
             auto *null_pointer =
                 ::llvm::ConstantPointerNull::get(pointer_type);
             _trap_if(
@@ -1005,10 +1278,21 @@ void ScheduleEmitter::_ray_query_write(
                 _active_mask,
                 _builder.CreateICmpNE(
                     callbacks,
-                    _builder.CreateVectorSplat(_width, callback)));
+                    _builder.CreateVectorSplat(
+                        _width, plain_callback)));
             _trap_if(
                 _builder.CreateOrReduce(callback_mismatch),
                 "ray.query.proceed.callback.mismatch");
+            if (cache_status) {
+                auto *status_callback_mismatch = _builder.CreateAnd(
+                    _active_mask,
+                    _builder.CreateICmpNE(
+                        status_callbacks,
+                        _builder.CreateVectorSplat(_width, callback)));
+                _trap_if(
+                    _builder.CreateOrReduce(status_callback_mismatch),
+                    "ray.query.proceed.status.callback.mismatch");
+            }
 
             auto *scratch = _entry_scratch(
                 pointer_lanes,
@@ -1021,25 +1305,36 @@ void ScheduleEmitter::_ray_query_write(
             auto *store = _builder.CreateStore(safe_states, scratch);
             store->setAlignment(::llvm::Align{alignof(void *)});
             auto *callback_type = ::llvm::FunctionType::get(
-                _builder.getVoidTy(),
+                cache_status ?
+                    static_cast<::llvm::Type *>(_builder.getInt64Ty()) :
+                    static_cast<::llvm::Type *>(_builder.getVoidTy()),
                 {_builder.getInt32Ty(), _builder.getInt64Ty(),
                  pointer_type},
                 false);
-            _builder.CreateCall(
+            auto *call = _builder.CreateCall(
                 callback_type, callback,
                 {_builder.getInt32(_width),
                  _bindless_callback_mask(true), scratch});
+            if (cache_status) {
+                _ray_query_update_status(
+                    instruction.operands[0u], call);
+            }
             return;
         }
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE: {
-            auto *kinds = gather_i32(
-                offsetof(SIMDHostRayQueryState, candidate_kind));
-            auto *surface = _builder.CreateICmpEQ(
-                kinds,
-                _builder.CreateVectorSplat(
-                    _width,
-                    _builder.getInt32(static_cast<uint32_t>(
-                        SIMDHostRayQueryCandidateKind::surface))));
+            auto *surface = _ray_query_status_mask(
+                instruction.operands[0u],
+                simd_host_ray_query_surface_status_shift);
+            if (surface == nullptr) {
+                auto *kinds = gather_i32(
+                    offsetof(SIMDHostRayQueryState, candidate_kind));
+                surface = _builder.CreateICmpEQ(
+                    kinds,
+                    _builder.CreateVectorSplat(
+                        _width,
+                        _builder.getInt32(static_cast<uint32_t>(
+                            SIMDHostRayQueryCandidateKind::surface))));
+            }
             auto *invalid = _builder.CreateAnd(
                 _active_mask, _builder.CreateNot(surface));
             _trap_if(
@@ -1073,14 +1368,19 @@ void ScheduleEmitter::_ray_query_write(
                 _fail("procedural ray-query commit requires a float distance");
                 return;
             }
-            auto *kinds = gather_i32(
-                offsetof(SIMDHostRayQueryState, candidate_kind));
-            auto *procedural = _builder.CreateICmpEQ(
-                kinds,
-                _builder.CreateVectorSplat(
-                    _width,
-                    _builder.getInt32(static_cast<uint32_t>(
-                        SIMDHostRayQueryCandidateKind::procedural))));
+            auto *procedural = _ray_query_status_mask(
+                instruction.operands[0u],
+                simd_host_ray_query_procedural_status_shift);
+            if (procedural == nullptr) {
+                auto *kinds = gather_i32(
+                    offsetof(SIMDHostRayQueryState, candidate_kind));
+                procedural = _builder.CreateICmpEQ(
+                    kinds,
+                    _builder.CreateVectorSplat(
+                        _width,
+                        _builder.getInt32(static_cast<uint32_t>(
+                            SIMDHostRayQueryCandidateKind::procedural))));
+            }
             auto *invalid_kind = _builder.CreateAnd(
                 _active_mask, _builder.CreateNot(procedural));
             _trap_if(
@@ -1120,6 +1420,16 @@ void ScheduleEmitter::_ray_query_write(
                 _builder.getInt32(1u),
                 offsetof(SIMDHostRayQueryState, terminated),
                 alignof(uint32_t), _active_mask);
+            if (auto *slot = _ray_query_status_slot(
+                    instruction.operands[0u])) {
+                auto *status = _builder.CreateLoad(
+                    _builder.getInt64Ty(), slot);
+                _ray_query_update_status(
+                    instruction.operands[0u],
+                    _builder.CreateOr(
+                        status,
+                        _bindless_callback_mask(true)));
+            }
             return;
     }
     _fail("unsupported ray-query object write operation");

@@ -3554,13 +3554,15 @@ void ray_query_packet_probe_wide(
            run_ray_query_packet_codegen_case(16u, 3u, true);
 }
 
-struct RayQueryScratchProbe {
+struct RayQueryStatusProbe {
     uint32_t calls{0u};
     uint64_t mask{0u};
+    uint32_t expected_lane_count{0u};
+    SIMDHostAccelRayQueryProceed *expected_proceed{nullptr};
     bool valid{true};
 };
 
-void ray_query_scratch_probe(
+[[nodiscard]] uint64_t ray_query_status_probe_impl(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states) {
     SIMDHostRayQueryState *first_state = nullptr;
@@ -3570,7 +3572,257 @@ void ray_query_scratch_probe(
             break;
         }
     }
-    if (first_state == nullptr) { return; }
+    if (first_state == nullptr) { return 0u; }
+    auto *probe = static_cast<RayQueryStatusProbe *>(
+        first_state->accel);
+    probe->calls++;
+    probe->mask |= active_mask_bits;
+    probe->valid &= lane_count == probe->expected_lane_count;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        auto active =
+            (active_mask_bits & (uint64_t{1u} << lane)) != 0u;
+        if (!active) {
+            probe->valid &= states[lane] == nullptr;
+            continue;
+        }
+        auto *state = states[lane];
+        probe->valid &= state != nullptr && state->accel == probe &&
+                        state->proceed == probe->expected_proceed;
+        state->terminated = 0u;
+        state->candidate_kind =
+            lane % 2u == 0u ?
+                static_cast<uint32_t>(
+                    SIMDHostRayQueryCandidateKind::surface) :
+                static_cast<uint32_t>(
+                    SIMDHostRayQueryCandidateKind::procedural);
+    }
+    return simd_host_ray_query_pack_status(
+        lane_count, active_mask_bits, states);
+}
+
+void ray_query_status_plain_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) {
+    (void)ray_query_status_probe_impl(
+        lane_count, active_mask_bits, states);
+}
+
+[[nodiscard]] uint64_t ray_query_status_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) {
+    return ray_query_status_probe_impl(
+        lane_count, active_mask_bits, states);
+}
+
+[[nodiscard]] bool run_ray_query_status_cache_codegen_case(
+    uint32_t width, uint32_t active_lanes,
+    bool disable_cache, bool disable_coloring = false) {
+    ScopedEnvironmentVariable cache{
+        "LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE",
+        disable_cache ? "1" : nullptr};
+    ScopedEnvironmentVariable coloring{
+        "LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING",
+        disable_coloring ? "1" : nullptr};
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("ray_query_status_cache");
+    auto *accel = kernel->create_resource_argument(Type::of<Accel>());
+    auto *ray = kernel->create_value_argument(Type::of<Ray>());
+    auto *output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::uint4>()));
+    auto *entry = kernel->create_body_block();
+    auto *left = kernel->create_basic_block();
+    auto *right = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto visibility_value = uint32_t{0xffu};
+    auto split_value = std::max(active_lanes / 2u, 1u);
+    auto *visibility = module.create_constant(
+        Type::of<uint32_t>(), &visibility_value);
+    auto *split = module.create_constant(
+        Type::of<uint32_t>(), &split_value);
+    auto *query_type = Type::custom("LC_RayQueryAll");
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *query_value = builder.call(
+        query_type, xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL,
+        {accel, ray, visibility});
+    auto *query = builder.alloca_local(query_type);
+    builder.store(query, query_value);
+    auto *condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {x, split});
+    builder.cond_br(condition, left, right);
+    builder.set_insertion_point(left);
+    builder.call(
+        xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+        {query});
+    builder.call(
+        xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE,
+        {query});
+    builder.br(merge);
+    builder.set_insertion_point(right);
+    builder.call(
+        xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+        {query});
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *terminated = builder.call(
+        Type::of<bool>(),
+        xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
+        {query});
+    auto *surface = builder.call(
+        Type::of<bool>(),
+        xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE,
+        {query});
+    auto *procedural = builder.call(
+        Type::of<bool>(),
+        xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE,
+        {query});
+    auto *terminated_u32 = builder.cast_(
+        Type::of<uint32_t>(), xir::CastOp::STATIC_CAST, terminated);
+    auto *surface_u32 = builder.cast_(
+        Type::of<uint32_t>(), xir::CastOp::STATIC_CAST, surface);
+    auto *procedural_u32 = builder.cast_(
+        Type::of<uint32_t>(), xir::CastOp::STATIC_CAST, procedural);
+    auto *result = builder.call(
+        Type::of<luisa::uint4>(), xir::ArithmeticOp::AGGREGATE,
+        {terminated_u32, surface_u32, procedural_u32, x});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, x, result});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-ray-query-status-cache", *context);
+    auto name = std::string{"simd_ray_query_status_cache_"} +
+                std::to_string(width) +
+                (disable_cache ? "_disabled" : "_enabled") +
+                (disable_coloring ? "_uncolored" : "_colored");
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(codegen.ray_query_count == 1u);
+    CHECK(codegen.ray_query_scratch_slot_count == 1u);
+    auto expect_cache =
+        !disable_cache && !disable_coloring && width >= 4u;
+    CHECK(codegen.ray_query_status_slot_count ==
+          (expect_cache ? 1u : 0u));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK((ir.find("ray.query.status.slot.0") != std::string::npos) ==
+          expect_cache);
+    CHECK(count_occurrences(ir, expect_cache ? "call i64 %" : "call void %") == 2u);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        Ray ray;
+        SIMDHostBufferView output;
+    };
+    RayQueryStatusProbe probe{
+        .expected_lane_count = width,
+        .expected_proceed = ray_query_status_plain_probe,
+    };
+    SIMDHostAccelInstanceTable instance_table{
+        .ray_query_proceed_status = ray_query_status_probe,
+        .ray_query_proceed_wide_status = ray_query_status_probe};
+    luisa::vector<luisa::uint4> values(width);
+    std::fill(
+        values.begin(), values.end(),
+        luisa::make_uint4(0xdeadbeefu));
+    Arguments arguments{
+        .accel = {
+            .accel = &probe,
+            .instances = &instance_table,
+            .ray_query_proceed = ray_query_status_plain_probe,
+            .ray_query_proceed_wide = ray_query_status_plain_probe,
+        },
+        .ray = {
+            .compressed_origin = {1.0f, 2.0f, 3.0f},
+            .compressed_t_min = 0.25f,
+            .compressed_direction = {4.0f, 5.0f, 6.0f},
+            .compressed_t_max = 7.0f,
+        },
+        .output = {values.data(), sizeof(luisa::uint4) * values.size()},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    CHECK(probe.valid);
+    CHECK(probe.calls == (active_lanes > 1u ? 2u : 1u));
+    CHECK(probe.mask == (uint64_t{1u} << active_lanes) - 1u);
+    for (auto lane = uint32_t{0u}; lane < width; lane++) {
+        auto expected = lane < active_lanes ?
+                            luisa::make_uint4(
+                                lane < split_value,
+                                lane % 2u == 0u,
+                                lane % 2u == 1u, lane) :
+                            luisa::make_uint4(0xdeadbeefu);
+        CHECK(luisa::all(values[lane] == expected));
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_ray_query_status_cache_codegen() {
+    for (auto disable_cache : {false, true}) {
+        if (!run_ray_query_status_cache_codegen_case(
+                1u, 1u, disable_cache) ||
+            !run_ray_query_status_cache_codegen_case(
+                2u, 2u, disable_cache) ||
+            !run_ray_query_status_cache_codegen_case(
+                4u, 3u, disable_cache) ||
+            !run_ray_query_status_cache_codegen_case(
+                8u, 5u, disable_cache) ||
+            !run_ray_query_status_cache_codegen_case(
+                16u, 3u, disable_cache)) {
+            return false;
+        }
+    }
+    return run_ray_query_status_cache_codegen_case(
+        8u, 5u, false, true);
+}
+
+struct RayQueryScratchProbe {
+    uint32_t calls{0u};
+    uint64_t mask{0u};
+    SIMDHostAccelRayQueryProceed *expected_proceed{nullptr};
+    bool valid{true};
+};
+
+[[nodiscard]] uint64_t ray_query_scratch_probe_impl(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) {
+    SIMDHostRayQueryState *first_state = nullptr;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if (states[lane] != nullptr) {
+            first_state = states[lane];
+            break;
+        }
+    }
+    if (first_state == nullptr) { return 0u; }
     auto *probe = static_cast<RayQueryScratchProbe *>(first_state->accel);
     probe->calls++;
     probe->mask |= active_mask_bits;
@@ -3583,7 +3835,7 @@ void ray_query_scratch_probe(
         }
         auto *state = states[lane];
         probe->valid &= state != nullptr && state->accel == probe &&
-                        state->proceed == ray_query_scratch_probe &&
+                        state->proceed == probe->expected_proceed &&
                         (state->visibility_mask == 0x31u ||
                          state->visibility_mask == 0x72u);
         state->committed = SIMDHostRayQueryCommittedHit{
@@ -3594,8 +3846,30 @@ void ray_query_scratch_probe(
                 SIMDHostRayQueryCandidateKind::surface),
             .t = 1.0f,
         };
-        state->terminated = 1u;
+        state->terminated = state->visibility_mask == 0x31u ? 1u : 0u;
+        state->candidate_kind =
+            state->visibility_mask == 0x72u ?
+                static_cast<uint32_t>(
+                    SIMDHostRayQueryCandidateKind::surface) :
+                static_cast<uint32_t>(
+                    SIMDHostRayQueryCandidateKind::none);
     }
+    return simd_host_ray_query_pack_status(
+        lane_count, active_mask_bits, states);
+}
+
+void ray_query_scratch_plain_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) {
+    (void)ray_query_scratch_probe_impl(
+        lane_count, active_mask_bits, states);
+}
+
+[[nodiscard]] uint64_t ray_query_scratch_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) {
+    return ray_query_scratch_probe_impl(
+        lane_count, active_mask_bits, states);
 }
 
 [[nodiscard]] bool run_ray_query_scratch_coloring_codegen(
@@ -3705,6 +3979,7 @@ void ray_query_scratch_probe(
     CHECK(codegen.ray_query_scratch_slot_count == expected_slots);
     CHECK(codegen.ray_query_scratch_bytes ==
           expected_slots * width * sizeof(SIMDHostRayQueryState));
+    CHECK(codegen.ray_query_status_slot_count == 0u);
     CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
     std::string ir;
     ::llvm::raw_string_ostream stream{ir};
@@ -3726,14 +4001,19 @@ void ray_query_scratch_probe(
         Ray ray;
         SIMDHostBufferView output;
     };
-    RayQueryScratchProbe probe;
+    RayQueryScratchProbe probe{
+        .expected_proceed = ray_query_scratch_plain_probe};
+    SIMDHostAccelInstanceTable instance_table{
+        .ray_query_proceed_status = ray_query_scratch_probe,
+        .ray_query_proceed_wide_status = ray_query_scratch_probe};
     std::array<luisa::uint4, width> values{};
     values.fill(luisa::make_uint4(0xdeadbeefu));
     Arguments arguments{
         .accel = {
             .accel = &probe,
-            .ray_query_proceed = ray_query_scratch_probe,
-            .ray_query_proceed_wide = ray_query_scratch_probe,
+            .instances = &instance_table,
+            .ray_query_proceed = ray_query_scratch_plain_probe,
+            .ray_query_proceed_wide = ray_query_scratch_plain_probe,
         },
         .ray = {
             .compressed_origin = {1.0f, 2.0f, 3.0f},
@@ -3829,17 +4109,38 @@ void ray_query_scratch_probe(
         auto *inst = builder.call(
             Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
             {committed, zero});
+        auto *terminated = builder.call(
+            Type::of<bool>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
+            {query});
+        auto *surface = builder.call(
+            Type::of<bool>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE,
+            {query});
+        auto *terminated_u32 = builder.cast_(
+            Type::of<uint32_t>(), xir::CastOp::STATIC_CAST,
+            terminated);
+        auto *surface_u32 = builder.cast_(
+            Type::of<uint32_t>(), xir::CastOp::STATIC_CAST,
+            surface);
         builder.br(merge);
-        return inst;
+        return std::array<xir::Value *, 3u>{
+            inst, terminated_u32, surface_u32};
     };
-    auto *inst1 = emit_query(left, visibility1);
-    auto *inst2 = emit_query(right, visibility2);
+    auto result1 = emit_query(left, visibility1);
+    auto result2 = emit_query(right, visibility2);
     builder.set_insertion_point(merge);
     auto *inst = builder.phi(
-        Type::of<uint32_t>(), {{inst1, left}, {inst2, right}});
+        Type::of<uint32_t>(), {{result1[0u], left}, {result2[0u], right}});
+    auto *terminated = builder.phi(
+        Type::of<uint32_t>(),
+        {{result1[1u], left}, {result2[1u], right}});
+    auto *surface = builder.phi(
+        Type::of<uint32_t>(),
+        {{result1[2u], left}, {result2[2u], right}});
     auto *metadata = builder.call(
         Type::of<luisa::uint4>(), xir::ArithmeticOp::AGGREGATE,
-        {inst, x, one, zero});
+        {inst, x, terminated, surface});
     builder.call(
         xir::ResourceWriteOp::BUFFER_WRITE,
         {output, x, metadata});
@@ -3865,13 +4166,15 @@ void ray_query_scratch_probe(
     CHECK(codegen.ray_query_scratch_slot_count == 1u);
     CHECK(codegen.ray_query_scratch_bytes ==
           width * sizeof(SIMDHostRayQueryState));
+    CHECK(codegen.ray_query_status_slot_count == 1u);
     CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
     std::string ir;
     ::llvm::raw_string_ostream stream{ir};
     llvm_module->print(stream, nullptr);
     stream.flush();
     CHECK(count_occurrences(ir, "alloca [9728 x i8]") == 1u);
-    CHECK(count_occurrences(ir, "call void %") == 2u);
+    CHECK(count_occurrences(ir, "ray.query.status.slot.0") >= 1u);
+    CHECK(count_occurrences(ir, "call i64 %") == 2u);
 
     LLVMJIT jit;
     CHECK(jit.succeeded());
@@ -3885,14 +4188,19 @@ void ray_query_scratch_probe(
         Ray ray;
         SIMDHostBufferView output;
     };
-    RayQueryScratchProbe probe;
+    RayQueryScratchProbe probe{
+        .expected_proceed = ray_query_scratch_plain_probe};
+    SIMDHostAccelInstanceTable instance_table{
+        .ray_query_proceed_status = ray_query_scratch_probe,
+        .ray_query_proceed_wide_status = ray_query_scratch_probe};
     std::array<luisa::uint4, width> values{};
     values.fill(luisa::make_uint4(0xdeadbeefu));
     Arguments arguments{
         .accel = {
             .accel = &probe,
-            .ray_query_proceed = ray_query_scratch_probe,
-            .ray_query_proceed_wide = ray_query_scratch_probe,
+            .instances = &instance_table,
+            .ray_query_proceed = ray_query_scratch_plain_probe,
+            .ray_query_proceed_wide = ray_query_scratch_plain_probe,
         },
         .ray = {
             .compressed_origin = {1.0f, 2.0f, 3.0f},
@@ -3913,7 +4221,9 @@ void ray_query_scratch_probe(
                                 lane < two_value ?
                                     visibility1_value :
                                     visibility2_value,
-                                lane, 1u, 0u) :
+                                lane,
+                                lane < two_value ? 1u : 0u,
+                                lane < two_value ? 0u : 1u) :
                             luisa::make_uint4(0xdeadbeefu);
         CHECK(luisa::all(values[lane] == expected));
     }
@@ -5226,6 +5536,8 @@ int main() {
          &run_accel_direct_packet_codegen},
         {"XIR ray-query packet callback",
          &run_ray_query_packet_codegen},
+        {"XIR ray-query status cache",
+         &run_ray_query_status_cache_codegen},
         {"sequential ray-query scratch coloring",
          &run_sequential_ray_query_scratch_coloring_codegen},
         {"overlapping ray-query scratch coloring",

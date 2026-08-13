@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -150,9 +151,16 @@ struct alignas(8) SIMDHostRayQueryProceduralHit {
 };
 
 inline constexpr auto simd_host_ray_query_candidate_batch_capacity = 32u;
+inline constexpr auto simd_host_ray_query_terminated_status_shift = 0u;
+inline constexpr auto simd_host_ray_query_surface_status_shift = 16u;
+inline constexpr auto simd_host_ray_query_procedural_status_shift = 32u;
+inline constexpr auto simd_host_ray_query_valid_status_shift = 48u;
 
 struct SIMDHostRayQueryState;
 using SIMDHostAccelRayQueryProceed = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states);
+using SIMDHostAccelRayQueryProceedStatus = uint64_t(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states);
 
@@ -196,6 +204,46 @@ struct alignas(16) SIMDHostRayQueryState {
         procedural_batch[simd_host_ray_query_candidate_batch_capacity]{};
 };
 
+// The proceed callback has already classified every active lane before it
+// returns. Carry that classification back across the host/JIT boundary so a
+// proven query owner can retain the three hot predicates in one scalar mask
+// instead of gathering candidate_kind/terminated from the large AoS record.
+// Each field occupies the physical lane bits [0, 16). The fields intentionally
+// remain independent: explicit termination does not clear candidate_kind in
+// the public state. Inactive-lane bits are always clear;
+// [48, 64) is reserved for JIT-side per-lane initialization validity.
+[[nodiscard]] inline uint64_t simd_host_ray_query_pack_status(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
+    auto remaining = active_mask_bits & lane_mask;
+    auto status = uint64_t{0u};
+    while (remaining != 0u) {
+        auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
+        auto bit = uint64_t{1u} << lane;
+        remaining &= remaining - 1u;
+        auto *state = states[lane];
+        if (state->terminated != 0u) {
+            status |= bit << simd_host_ray_query_terminated_status_shift;
+        }
+        if (state->candidate_kind == static_cast<uint32_t>(
+                                         SIMDHostRayQueryCandidateKind::surface)) {
+            status |= bit << simd_host_ray_query_surface_status_shift;
+        } else if (state->candidate_kind == static_cast<uint32_t>(
+                                                SIMDHostRayQueryCandidateKind::procedural)) {
+            status |= bit << simd_host_ray_query_procedural_status_shift;
+        }
+    }
+    return status;
+}
+
+// Status-aware JIT kernels call this side entry. It preserves the state ABI by
+// dispatching through the plain provider already stored in every query, then
+// scans only the active lanes once to return the packed hot predicates.
+[[nodiscard]] uint64_t simd_host_ray_query_proceed_status(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept;
+
 // Device-side instance metadata reads use this stable plain-data table rather
 // than depending on SIMDAccel's C++ object or vector layout. The table object
 // itself remains at a fixed address while a build may replace its data pointer.
@@ -231,6 +279,8 @@ struct alignas(16) SIMDHostAccelInstance {
 struct alignas(16) SIMDHostAccelInstanceTable {
     SIMDHostAccelInstance *data{nullptr};
     size_t size{0u};
+    SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_status{nullptr};
+    SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_wide_status{nullptr};
 };
 
 struct alignas(16) SIMDHostAccelView {
@@ -246,6 +296,7 @@ struct alignas(16) SIMDHostAccelView {
 static_assert(sizeof(SIMDHostAccelTraceClosest *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelTraceAny *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelRayQueryProceed *) == sizeof(void *));
+static_assert(sizeof(SIMDHostAccelRayQueryProceedStatus *) == sizeof(void *));
 static_assert(sizeof(SIMDHostRayQuerySurfaceHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryCommittedHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryProceduralHit) == 8u);
@@ -276,7 +327,15 @@ static_assert(offsetof(SIMDHostAccelInstance, geometry_kind) == 55u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_frames) == 64u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_keyframe_count) == 72u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_mode) == 76u);
-static_assert(sizeof(SIMDHostAccelInstanceTable) == 16u);
+static_assert(sizeof(SIMDHostAccelInstanceTable) == 32u);
+static_assert(offsetof(SIMDHostAccelInstanceTable, data) == 0u);
+static_assert(offsetof(SIMDHostAccelInstanceTable, size) == sizeof(void *));
+static_assert(offsetof(
+                  SIMDHostAccelInstanceTable,
+                  ray_query_proceed_status) == 2u * sizeof(void *));
+static_assert(offsetof(
+                  SIMDHostAccelInstanceTable,
+                  ray_query_proceed_wide_status) == 3u * sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, accel) == 0u);
 static_assert(offsetof(SIMDHostAccelView, trace_closest) == sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));
@@ -346,6 +405,7 @@ struct LLVMScheduleCodegenResult {
     size_t ray_query_count{0u};
     size_t ray_query_scratch_slot_count{0u};
     size_t ray_query_scratch_bytes{0u};
+    size_t ray_query_status_slot_count{0u};
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};

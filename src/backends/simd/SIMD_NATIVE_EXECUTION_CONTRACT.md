@@ -208,7 +208,8 @@ before the two SROA/`mem2reg` stages;
 `LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` controls the typed-buffer
 refinement, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` controls proven
 lane-consecutive typed-buffer accesses. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`
-logs per-shader transform, scheduler-state, and ray-query scratch counters.
+logs per-shader transform, scheduler-state, ray-query scratch, and ray-query
+status-color counters.
 `LUISA_SIMD_REPORT_ASSEMBLY=1` additionally captures optimized target assembly
 and reports its static instruction/call/branch counts, stack references, the
 x86 stack allocation when recognizable, and scalar-math symbols.
@@ -223,6 +224,8 @@ the live entry address so profiler records can be correlated with the object
 symbol/section offsets. `LUISA_SIMD_DISABLE_COLD_STATE_PARTITION=1` and
 `LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING=1` are same-binary A/B controls
 for the two state-layout refinements.
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1` restores authoritative AoS
+predicate gathers for eligible ray queries.
 These process-wide variables are diagnostic controls, not shader semantics or
 a replacement for the public configuration extension. Invalid width text or a
 width outside the supported set is rejected.
@@ -883,6 +886,36 @@ cross the respective boundaries at W1/W2/W4/W8/W16 and require exactly-once
 ascending handler delivery before the final commit. This removes repeated
 traversal for the common bounded case without moving handler execution or its
 control flow into the runtime.
+
+At W4/W8/W16, an eligible query local may have one JIT-owned packed status
+sidecar. Bits `[0, 16)`, `[16, 32)`, and `[32, 48)` respectively represent
+terminated, surface-candidate, and procedural-candidate physical lanes;
+`[48, 64)` is the initialization-valid mask. These fields are independent.
+In particular, explicit terminate must not clear a still-observable candidate
+kind. W1/W2 and any query whose ownership, construction store, or aliasing is
+not proven continue to gather the authoritative fields from the 1216-byte
+state. Disabling query scratch coloring also disables this refinement.
+
+Construction may prepare state and callback data before the query pointer is
+stored, but it must not publish the sidecar valid bit until after that masked
+local store. A status update clears and replaces exactly the current active
+lanes in all four fields, leaving other cohorts in a shared color untouched.
+Every cached read must trap if any active lane is invalid, then mask the result
+by the current active cohort so stale inactive bits remain unobservable. A
+terminate update merges the active terminated bits. Candidate commits may use
+the cached kind only for validation/masking; payload and interval data remain
+authoritative in the public state.
+
+The status-aware host entry must first invoke the plain callback stored in the
+query state, preserving generic versus triangle-only and narrow versus wide
+selection, and may inspect only active non-null state pointers afterward. It
+returns one scalar packed mask and must not replace W4/W8/W16 Embree packet
+traversal with per-lane scalar calls. JIT lowering verifies that every active
+state has the same plain callback and the same status callback before the
+call. The stable instance-table descriptor owns the status-entry pointers;
+the six-pointer accel argument and the public query-state layout do not
+change. `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1` is the same-binary
+semantic/performance oracle.
 
 Each normal accel build recomputes whether the complete current instance table
 contains a curve or procedural primitive. Motion instances are classified by

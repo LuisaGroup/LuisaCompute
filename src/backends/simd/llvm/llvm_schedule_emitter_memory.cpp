@@ -181,6 +181,14 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         _local_base(_builder, handle),
         _local_offsets(_builder, handle),
         written_value->type, written);
+    // A proven ray-query sidecar becomes valid only when the pointer value is
+    // actually installed in its thread-local owner. Construction may precede
+    // this masked store, so publishing validity in _ray_query_create would let
+    // an intervening read observe the new status with the old object pointer.
+    if (_ray_query_status_slot(instruction.operands[0u]) != nullptr) {
+        _ray_query_update_status(
+            instruction.operands[0u], _builder.getInt64(0u));
+    }
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_atomic(

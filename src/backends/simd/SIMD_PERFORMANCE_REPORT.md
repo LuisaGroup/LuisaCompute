@@ -9,7 +9,10 @@ direct-trace packet copies. The current snapshot additionally promotes
 eligible local aggregates before Schedule IR, allowing their varying fields to
 remain independent SoA SSA values instead of repeatedly crossing an AoS
 storage boundary, and selects a surface-only ray-query runtime for acceleration
-structures whose current instances are all triangle meshes.
+structures whose current instances are all triangle meshes. The latest stage
+also retains hot ray-query predicates in a proven JIT-side packed status
+sidecar at W4/W8/W16 while leaving the public query state and plain Embree
+providers unchanged.
 
 ## Test host and method
 
@@ -589,6 +592,69 @@ isolated final layout instead measured 0.9981x across five fresh W8 pairs, so
 no procedural throughput claim is made and preserving generic compiler/layout
 shape within a matched A/B build is a permanent review constraint.
 
+### Packed ray-query status sidecar
+
+The generated query loop historically reloaded `terminated` and candidate kind
+from the 1216-byte lane-private AoS state after every host `PROCEED`. W4/W8/W16
+now retain those three predicates in one JIT-owned 64-bit sidecar when
+ownership, aliasing, construction-store order, and scratch-color interference
+are all proven. W1/W2, disabled scratch coloring, and every unproven query keep
+the authoritative gather path. The same-binary oracle is
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1`.
+
+The final exact W8 16-candidate rejection object shows the intended tradeoff:
+
+| Main kernel | status disabled | status enabled |
+| --- | ---: | ---: |
+| status colors | 0 | 1 |
+| `.text` bytes | 6,134 | 6,266 |
+| static instructions | 1,292 | 1,324 |
+| vector instructions | 577 | 572 |
+| branches / calls | 128 / 1 | 132 / 1 |
+| stack references | 269 | 281 |
+| stack allocation | 12,672 B | 12,736 B |
+| gather / scatter instructions | 13 / 26 | 8 / 26 |
+| scalar-math calls / undefined symbols | 0 / 0 | 0 / 0 |
+
+Thus this is a latency optimization, not an instruction-count optimization:
+five gathers disappear while 32 scalar/vector bookkeeping instructions are
+added. Three alternating W8 `perf stat` pairs measured enabled/disabled
+geometric-mean ratios of 0.9721 for cycles, 1.0329 for instructions, 1.0335
+for branches, and 1.0036 for branch misses. The cache events were multiplexed
+and are not used as an acceptance claim. Disassembly also caught and rejected
+an initial assertion implementation that pulled logging/backtrace construction
+into the wrapper; cold no-inline error helpers leave the accepted hot status
+entry at 237 bytes with a 40-byte frame. The existing generic and
+triangle-only providers are unchanged.
+
+Seven alternating same-binary process pairs per width measured the following
+final status-enabled/disabled throughput. No outlier was removed:
+
+| Query benchmark | Width | Enabled/disabled | Wins | Median enabled / disabled |
+| --- | ---: | ---: | ---: | ---: |
+| 16 rejected triangle candidates | W4 | 1.0253x | 7/7 | 26.726 / 26.199 Mray/s |
+| 16 rejected triangle candidates | W8 | 1.0201x | 7/7 | 30.304 / 29.602 Mray/s |
+| 16 rejected triangle candidates | W16 | 1.0026x | 6/7 | 29.590 / 29.477 Mray/s |
+| 16 rejected procedural candidates | W4 | 1.0437x | 7/7 | 63.896 / 61.401 Mray/s |
+| 16 rejected procedural candidates | W8 | 1.0459x | 7/7 | 92.255 / 87.674 Mray/s |
+| 16 rejected procedural candidates | W16 | 1.0216x | 7/7 | 106.710 / 104.668 Mray/s |
+
+The real W8 cutout renderer at 64 spp and one spp per dispatch measured 1.0073x
+across seven alternating pairs with 6/7 wins; medians were 44.196 and 43.883
+spp/s. The 1024-spp procedural-callable renderer measured 1.0199x across five
+pairs with 4/5 wins; medians were 3,151.4 and 3,247.6 ms. All 24 renderer
+outputs passed their gallery comparisons. Ordinary direct-trace path tracing
+allocates zero status colors: all five JIT objects and their assembly are
+byte-identical with the oracle toggled, and the output comparison passes.
+
+The final public triangle rejection sweep remains below fallback despite this
+incremental win. Five alternating pairs give W1/W2/W4/W8/W16 ratios of
+0.7709x/0.6318x/0.7601x/0.8476x/0.8532x. W1 and W2 deliberately generate
+byte-identical objects with the status oracle on or off. This result keeps
+sparse cohort compaction and a more structural query-state SoA/register
+layout, rather than further predicate-cache bookkeeping, as the next major
+ray-query targets.
+
 ## Same-algorithm ISPC control and provenance
 
 `benchmark_ispc_gemm.ispc` was independently written to match the DSL loop and
@@ -686,12 +752,14 @@ metadata did not regress its hot descriptor layout.
 
 ## Validation
 
-The required native-math/fallback-math/runtime-width gate passes 3/3. A
-focused gate including in-place packet codegen, accel, curve-summary
-replacement, procedural-summary replacement, and example-option parsing passes
-7/7. After a full Release
-build, the current configured repository CTest suite passes 129/129: 26
-integration-SIMD, 21 runtime-SIMD, and three graphics-SIMD tests are included.
+The required native-math/fallback-math/runtime-width gate passes 3/3. The
+focused `unit_simd` and `integration_simd` gates pass 11/11 and 26/26,
+including in-place packet codegen, accel, curve/procedural summary replacement,
+local memory, atomics, bindless resources, and three graphics tests. After a
+full Release build, the current configured repository CTest suite passes
+140/140. The examples runner accepts its default backend matrix and explicit
+backend lists, its Python parser has 13 passing unit tests, and clangd syntax
+checks pass for the status wrapper, emitter, and regression fixture.
 This also includes the coroutine-frame tests merged from `next`, the repaired
 lazy-dispatch scalar snapshot regression, and the W1/W2/W4/W8/W16 aggregate-
 promotion differential test. Separate 1024-SPP gallery gates pass ordinary
