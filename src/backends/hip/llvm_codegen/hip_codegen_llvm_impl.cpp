@@ -17,6 +17,7 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Linker/Linker.h>
 #include <llvm/Support/SourceMgr.h>
@@ -32,7 +33,9 @@
 #include <luisa/core/stl/hash.h>
 #include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
+#include "hip_callable_inline_graph.h"
 #include "hip_llvm_pipeline.h"
+#include "../../common/env_flag.h"
 #include "hiprt_device_wrapper.hip"
 #include "hip_codegen_llvm_device_bitcode.h"
 
@@ -794,6 +797,39 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         }
     }
 
+    // Model generated callable expansion before assigning LLVM attributes.
+    // Mutually exclusive call frontiers are discovered from the actual LLVM
+    // CFG rather than inferred from source names or scene-specific counts.
+    auto inline_graph = build_generated_callable_inline_graph(
+        *_llvm_module, llvm_generated_callable_attribute);
+    auto &generated_callables = inline_graph.functions;
+    auto generated_callable_indices =
+        llvm::DenseMap<const llvm::Function *, size_t>{};
+    for (auto node_index = size_t{0u};
+         node_index < generated_callables.size(); node_index++) {
+        generated_callable_indices.try_emplace(
+            generated_callables[node_index], node_index);
+    }
+    auto generated_callable_boundaries =
+        select_generated_callable_boundaries(inline_graph.nodes);
+    const auto dump_callable_boundaries =
+        luisa::compute::detail::env_flag(
+            "LUISA_HIP_DUMP_CALLABLE_BOUNDARIES");
+    if (dump_callable_boundaries) {
+        for (auto node_index = size_t{0u};
+             node_index < generated_callables.size(); node_index++) {
+            const auto &node = inline_graph.nodes[node_index];
+            LUISA_INFO(
+                "HIP generated callable '{}': instructions={}, "
+                "calls={}, alternative_groups={}, preserve={}.",
+                generated_callables[node_index]->getName().str(),
+                node.instruction_count,
+                node.callees.size(),
+                node.alternative_call_groups.size(),
+                generated_callable_boundaries[node_index] != 0u);
+        }
+    }
+
     for (auto &&func : *_llvm_module) {
         if (!func.isDeclaration() && func.getCallingConv() != llvm::CallingConv::AMDGPU_KERNEL) {
             func.setLinkage(llvm::Function::PrivateLinkage);
@@ -817,13 +853,15 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
             if (is_generated_callable) {
                 // Luisa Callable is an intentional DSL/JIT-stage function
                 // boundary. LLVM gives a large bonus to single-call-site local
-                // functions, which can otherwise inline an entire generated
-                // continuation into its scheduler kernel. Bound that growth by
-                // the callee's structural IR size; small callables still use the
-                // normal whole-module cost model.
+                // functions, which can otherwise inline mutually exclusive
+                // generated alternatives into one enormous caller. Bound both
+                // individual bodies and formally modeled alternative expansion;
+                // small linear call graphs still use LLVM's ordinary cost model.
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                if (preserve_generated_callable_boundary(
-                        func.getInstructionCount())) {
+                const auto index =
+                    generated_callable_indices.find(&func);
+                if (index != generated_callable_indices.end() &&
+                    generated_callable_boundaries[index->second]) {
                     func.addFnAttr(llvm::Attribute::NoInline);
                 } else {
                     func.removeFnAttr(llvm::Attribute::NoInline);

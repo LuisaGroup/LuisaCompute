@@ -2,6 +2,7 @@
 #include "ut/ut.hpp"
 
 #include <string>
+#include <vector>
 
 using namespace luisa::compute::hip;
 using namespace boost::ut;
@@ -14,6 +15,116 @@ static auto suite = [] {
             generated_callable_inline_instruction_budget));
         expect(preserve_generated_callable_boundary(
             generated_callable_inline_instruction_budget + 1u));
+    };
+
+    "HIP generated callable linear reuse remains an LLVM decision"_test = [] {
+        auto graph = std::vector<GeneratedCallableInlineGraphNode>{
+            {.instruction_count = 100000u},
+            {.instruction_count = 10u,
+             .callees = {0u, 0u, 0u, 0u, 0u, 0u}},
+        };
+        auto boundaries = select_generated_callable_boundaries(graph);
+        expect(boundaries.size() == graph.size());
+        expect(boundaries[0u] == 0u);
+        expect(boundaries[1u] == 0u);
+    };
+
+    "HIP generated callable alternative expansion preserves the complete frontier"_test = [] {
+        auto graph = std::vector<GeneratedCallableInlineGraphNode>{
+            {.instruction_count = 200000u},
+            {.instruction_count = 180000u},
+            {.instruction_count = 160000u},
+            {.instruction_count = 100u,
+             .callees = {0u, 1u, 2u},
+             .alternative_call_groups = {{0u, 1u, 2u}}},
+        };
+        auto boundaries = select_generated_callable_boundaries(graph);
+        expect(boundaries[0u] != 0u);
+        expect(boundaries[1u] != 0u);
+        expect(boundaries[2u] != 0u);
+        expect(boundaries[3u] == 0u);
+    };
+
+    "HIP generated callable outlining keeps leaf internals inline"_test = [] {
+        auto graph = std::vector<GeneratedCallableInlineGraphNode>{
+            {.instruction_count = 100000u},
+            {.instruction_count = 100000u, .callees = {0u}},
+            {.instruction_count = 100000u, .callees = {0u}},
+            {.instruction_count = 100000u, .callees = {0u}},
+            {.instruction_count = 100u,
+             .callees = {1u, 2u, 3u},
+             .alternative_call_groups = {{0u, 1u, 2u}}},
+        };
+        auto boundaries = select_generated_callable_boundaries(graph);
+        expect(boundaries[0u] == 0u);
+        expect(boundaries[1u] != 0u);
+        expect(boundaries[2u] != 0u);
+        expect(boundaries[3u] != 0u);
+        expect(boundaries[4u] == 0u);
+    };
+
+    "HIP generated callable inner boundaries prevent redundant outer outlining"_test = [] {
+        auto graph = std::vector<GeneratedCallableInlineGraphNode>{
+            {.instruction_count =
+                 generated_callable_inline_instruction_budget + 1u},
+            {.instruction_count = 100000u},
+            {.instruction_count = 100u,
+             .callees = {0u, 1u},
+             .alternative_call_groups = {{0u, 1u}}},
+        };
+        auto boundaries = select_generated_callable_boundaries(graph);
+        expect(boundaries[0u] != 0u);
+        expect(boundaries[1u] == 0u);
+        expect(boundaries[2u] == 0u);
+    };
+
+    "HIP generated callable expansion is independent of graph order"_test = [] {
+        auto graph = std::vector<GeneratedCallableInlineGraphNode>{
+            {.instruction_count = 100u,
+             .callees = {1u, 2u, 3u},
+             .alternative_call_groups = {{0u, 1u, 2u}}},
+            {.instruction_count = 200000u},
+            {.instruction_count = 180000u},
+            {.instruction_count = 160000u},
+        };
+        auto boundaries = select_generated_callable_boundaries(graph);
+        expect(boundaries[0u] == 0u);
+        expect(boundaries[1u] != 0u);
+        expect(boundaries[2u] != 0u);
+        expect(boundaries[3u] != 0u);
+    };
+
+    "HIP generated callable chooses the largest frontier above budget"_test = [] {
+        auto graph = std::vector<GeneratedCallableInlineGraphNode>{
+            {.instruction_count = 220000u},
+            {.instruction_count = 210000u},
+            {.instruction_count = 300000u},
+            {.instruction_count = 290000u},
+            {.instruction_count = 100u,
+             .callees = {0u, 1u, 2u, 3u},
+             .alternative_call_groups = {{0u, 1u}, {2u, 3u}}},
+        };
+        auto boundaries = select_generated_callable_boundaries(graph);
+        // Both groups individually exceed the 500k budget when fully
+        // expanded, but the second contributes the greater exact expansion.
+        // The choice must therefore not depend on group enumeration order.
+        expect(boundaries[0u] == 0u);
+        expect(boundaries[1u] == 0u);
+        expect(boundaries[2u] != 0u);
+        expect(boundaries[3u] != 0u);
+        expect(boundaries[4u] == 0u);
+    };
+
+    "HIP generated callable recursion is a mandatory boundary"_test = [] {
+        auto graph = std::vector<GeneratedCallableInlineGraphNode>{
+            {.instruction_count = 10u, .callees = {1u}},
+            {.instruction_count = 10u, .callees = {0u}},
+            {.instruction_count = 10u, .callees = {2u}},
+        };
+        auto boundaries = select_generated_callable_boundaries(graph);
+        expect(boundaries[0u] != 0u);
+        expect(boundaries[1u] != 0u);
+        expect(boundaries[2u] != 0u);
     };
 
     "HIP ray-query pipeline preserves only the canonical-loop option"_test = [] {
