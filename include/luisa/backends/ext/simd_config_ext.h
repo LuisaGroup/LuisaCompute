@@ -7,8 +7,10 @@ namespace luisa::compute {
 // Backend-specific device configuration for the SIMD CPU runtime.
 // A width of zero keeps the backend default. Nonzero widths select the fixed
 // LLVM vector specialization used by every shader created on the device. A
-// worker count of zero uses the host hardware concurrency; one forces serial
-// block execution for diagnostics and benchmarking.
+// worker count of zero uses LUISA_SIMD_WORKER_COUNT when present, otherwise
+// host hardware concurrency; one forces serial block execution for diagnostics
+// and benchmarking. An explicit nonzero setting always wins over the process
+// environment.
 class SIMDDeviceConfigExt final : public DeviceConfigExt {
 
 private:

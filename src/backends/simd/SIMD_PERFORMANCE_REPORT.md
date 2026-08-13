@@ -725,6 +725,40 @@ only 1.0067x (5/7), procedural was 0.996x (3/7), and cutout was about 0.997x
 (1/5). A future payload split must be populated directly by the provider or a
 new packet ABI; duplicating the scan is not retained.
 
+A narrower follow-up fused procedural `inst/prim` publication into the already
+mandatory status scan, so it did not add that rejected second lane pass. The
+same-binary oracle was
+`LUISA_SIMD_DISABLE_RAY_QUERY_PROCEDURAL_CANDIDATE_CACHE=1`; paired runs pinned
+sixteen workers to CPUs 0--15 through `LUISA_SIMD_WORKER_COUNT=16`. Fourteen
+16-candidate rejection-chain pairs per width measured 1.0411x (14/14, 95%
+interval 1.0314--1.0509) at W4, 1.0663x (14/14, 1.0581--1.0747) at W8, and
+1.0356x (13/14, 1.0174--1.0541) at W16. Final assembly removed one W8 gather
+and two W16 gathers; static instructions changed 1,319 to 1,315 and 1,919 to
+1,910, while two SoA vectors increased stack allocation by 128 bytes.
+
+The real 1280x720, 1024-SPP mixed procedural-callable renderer nevertheless
+measured 0.9977x at W8 (4/14, 95% interval 0.9923--1.0031) and 0.9985x at W16
+(4/14, 0.9892--1.0078). All 56 candidate/oracle images were byte-identical
+(SHA-256 `d95cbe53b1cf7c573953986e2f64516494bfa7870536dbd2e37f98b2feb49036`).
+The fused cache is therefore also rejected: removing these two gathers is not
+the real renderer bottleneck, and a synthetic-only win does not justify the
+ABI, analysis, or per-kernel stack cost. Future payload work must let the
+traversal provider produce its native packet/SoA representation directly or
+remove a larger host/state boundary.
+
+An independent immutable-ray sidecar was also rejected. It cached the seven
+construction-stable `origin/t_min/direction` scalars but deliberately left
+mutable `t_max` in the authoritative state. W1/W2/W4/W8/W16 world-ray semantic
+tests and an inactive-tail ORC fixture passed, and W8 assembly removed fourteen
+`vgather` instructions. Fourteen fixed-affinity W16 procedural-callable pairs
+were nevertheless only 1.0047x (9/14, 95% interval 0.9937--1.0159); five
+`perf stat` pairs were 1.0040x in wall time (3/5). The object grew by nine
+static instructions, twenty stack references, and 384 bytes of stack, while
+cache references increased about 9.8%. This demonstrates that moving already
+immutable fields into an additional JIT sidecar trades gathers for register/
+stack pressure rather than removing the state boundary; no immutable-ray code
+or oracle remains.
+
 The refreshed final-binary 16-candidate triangle-query sweep against fallback
 is W1/W2/W4/W8/W16 = 0.7753x/0.6283x/0.7560x/0.8458x/0.8504x across five
 adjacent alternating pairs per width. The cache therefore gives a repeatable
@@ -864,10 +898,11 @@ identical.
 ## Next measured optimization targets
 
 1. Extend the accepted local aggregate promotion to the remaining ray-query
-   payload: publish candidate fields directly into provider-owned packet/SoA
-   storage and rematerialize immutable fields across suspension, following the
-   liveness/frame principles merged from `next`. A wrapper-side second scan is
-   measured and rejected; the accepted state-handle cache covers pointers only.
+   payload only through a provider-native packet/SoA representation or a
+   larger host/state-boundary elimination, following the liveness/frame
+   principles merged from `next`. Both a wrapper-side second scan and a fused
+   two-field status scan are measured and rejected on real graphics; the
+   accepted state-handle cache covers pointers only.
 2. Compact or rebatch sparse ray cohorts before Embree and reduce the remaining
    JIT-side ray-query state crossings. The accepted triangle-only host provider
    removes surface-runtime bookkeeping but does not compact lanes; inlining

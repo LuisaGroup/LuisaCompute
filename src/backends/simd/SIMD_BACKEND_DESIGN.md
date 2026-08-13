@@ -819,7 +819,12 @@ different blocks may execute in any order and concurrently. A dispatch joins
 all of its block jobs before the stream advances to the next command or invokes
 command-list callbacks. Multiple dispatch sizes in one command also remain
 ordered. `SIMDDeviceConfigExt::worker_count()` selects the pool size: zero uses
-host hardware concurrency and one provides a serial diagnostic path.
+host hardware concurrency and one provides a serial diagnostic path. When the
+extension leaves the count at zero, `LUISA_SIMD_WORKER_COUNT=<positive integer>`
+provides a process-wide diagnostic/benchmark override; an explicit nonzero
+extension value remains authoritative. This mirrors the warp-width override
+and permits fixed-worker, fixed-affinity paired measurements without changing
+example sources.
 
 ## 12. Diagnostics and observability
 

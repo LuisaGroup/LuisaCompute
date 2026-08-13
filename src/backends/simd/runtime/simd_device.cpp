@@ -139,6 +139,26 @@ SIMDDevice::SIMDDevice(
             requested_width);
         _warp_width = requested_width;
     }
+    // Diagnostic/benchmark override matching LUISA_SIMD_WARP_WIDTH. The
+    // explicit backend extension remains authoritative so applications can
+    // make worker-count selection deterministic without inheriting process
+    // environment state.
+    if (requested_worker_count == 0u) {
+        if (auto *environment =
+                std::getenv("LUISA_SIMD_WORKER_COUNT");
+            environment != nullptr) {
+            auto text = std::string_view{environment};
+            auto result = std::from_chars(
+                text.data(), text.data() + text.size(),
+                requested_worker_count);
+            LUISA_ASSERT(
+                result.ec == std::errc{} &&
+                    result.ptr == text.data() + text.size() &&
+                    requested_worker_count != 0u,
+                "Invalid LUISA_SIMD_WORKER_COUNT value '{}'.",
+                text);
+        }
+    }
     _rtc_device = shared_embree_device();
     auto hardware_worker_count = static_cast<uint32_t>(
         std::max(std::thread::hardware_concurrency(), 1u));

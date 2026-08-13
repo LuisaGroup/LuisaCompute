@@ -1,9 +1,16 @@
 #include "ut/ut.hpp"
 
 #include <array>
+#include <cerrno>
 #include <cstdlib>
 #include <optional>
 #include <string>
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/luisa-compute.h>
@@ -49,19 +56,61 @@ struct ScopedEnvironmentVariable {
     }
 };
 
+[[nodiscard]] bool invalid_worker_override_fails_closed(
+    const char *program) noexcept {
+#if defined(__unix__) || defined(__APPLE__)
+    auto child = fork();
+    if (child < 0) { return false; }
+    if (child == 0) {
+        const rlimit no_core{0u, 0u};
+        static_cast<void>(setrlimit(RLIMIT_CORE, &no_core));
+        set_environment_variable("LUISA_SIMD_WORKER_COUNT", "invalid");
+        Context context{program};
+        auto device = context.create_device("simd");
+        static_cast<void>(device.compute_warp_size());
+        _exit(EXIT_SUCCESS);
+    }
+    auto child_status = 0;
+    while (waitpid(child, &child_status, 0) < 0) {
+        if (errno != EINTR) { return false; }
+    }
+    return WIFSIGNALED(child_status) &&
+           WTERMSIG(child_status) == SIGABRT;
+#else
+    static_cast<void>(program);
+    return true;
+#endif
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
+    expect(invalid_worker_override_fails_closed(
+        argc > 0 ? argv[0] : ""))
+        << "invalid SIMD worker override must fail closed";
     Context context{argc > 0 ? argv[0] : ""};
     ScopedEnvironmentVariable width_override{
         "LUISA_SIMD_WARP_WIDTH", "2"};
+    ScopedEnvironmentVariable worker_override{
+        "LUISA_SIMD_WORKER_COUNT", "1"};
 
     {
         auto device = context.create_device("simd");
         expect(device.compute_warp_size() == 2u)
             << "SIMD environment width override was not honored";
+    }
+
+    {
+        ScopedEnvironmentVariable invalid_worker_override{
+            "LUISA_SIMD_WORKER_COUNT", "invalid"};
+        DeviceConfig config{};
+        config.extension =
+            luisa::make_unique<SIMDDeviceConfigExt>(1u, 1u);
+        auto device = context.create_device("simd", &config);
+        expect(device.compute_warp_size() == 1u)
+            << "explicit SIMD configuration must override the environment";
     }
 
     for (auto width : std::array{1u, 2u, 4u, 8u, 16u}) {

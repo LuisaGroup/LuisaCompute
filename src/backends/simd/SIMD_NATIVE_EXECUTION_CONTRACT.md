@@ -108,6 +108,13 @@ Target legalization may split `<16 x float>` into two or four physical vector
 instructions. That still satisfies `native`: the split is by physical vector
 width, not a hidden source-level lane loop or scalar device-library call.
 
+For reproducible host scheduling diagnostics, a device whose
+`SIMDDeviceConfigExt::worker_count()` is zero may read a positive decimal
+`LUISA_SIMD_WORKER_COUNT`. An explicit nonzero API value always wins, including
+when the environment is malformed; otherwise zero, malformed, or trailing
+characters fail closed. This changes only the persistent host worker-pool size,
+not warp width, packet ABI, block ordering, or kernel semantics.
+
 ### Pre-schedule aggregate promotion
 
 The AST compiler front door runs target-independent XIR SROA before each of
