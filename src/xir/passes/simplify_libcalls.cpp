@@ -5,32 +5,50 @@
 #include <luisa/xir/constant.h>
 
 #include <cmath>
+#include <cstring>
 
 namespace luisa::compute::xir {
 
 namespace detail {
+
+template<typename T>
+[[nodiscard]] static T load_constant_scalar(const void *data) noexcept {
+    T value;
+    std::memcpy(&value, data, sizeof(T));
+    return value;
+}
 
 // Check if a Constant has a specific float value (scalar or uniform vector).
 [[nodiscard]] static bool is_const_float_value(const Value *v, float expected) noexcept {
     if (!v->isa<Constant>()) return false;
     auto c = static_cast<const Constant *>(v);
     auto t = c->type();
-    if (t->is_float32()) return *static_cast<const float *>(c->data()) == expected;
-    if (t->is_float64()) return *static_cast<const double *>(c->data()) == static_cast<double>(expected);
+    if (t->is_float32()) {
+        return load_constant_scalar<float>(c->data()) == expected;
+    }
+    if (t->is_float64()) {
+        return load_constant_scalar<double>(c->data()) ==
+               static_cast<double>(expected);
+    }
     if (t->is_vector()) {
         auto elem = t->element();
         auto stride = elem->size();
         auto base = static_cast<const std::byte *>(c->data());
         if (elem->is_float32()) {
             for (size_t i = 0; i < t->dimension(); ++i) {
-                if (*reinterpret_cast<const float *>(base + i * stride) != expected) return false;
+                if (load_constant_scalar<float>(base + i * stride) !=
+                    expected) {
+                    return false;
+                }
             }
             return true;
         }
         if (elem->is_float64()) {
             auto de = static_cast<double>(expected);
             for (size_t i = 0; i < t->dimension(); ++i) {
-                if (*reinterpret_cast<const double *>(base + i * stride) != de) return false;
+                if (load_constant_scalar<double>(base + i * stride) != de) {
+                    return false;
+                }
             }
             return true;
         }
@@ -42,21 +60,31 @@ namespace detail {
     if (!is_const_float_value(v, 0.0f)) return false;
     auto c = static_cast<const Constant *>(v);
     auto t = c->type();
-    if (t->is_float32()) return !std::signbit(*static_cast<const float *>(c->data()));
-    if (t->is_float64()) return !std::signbit(*static_cast<const double *>(c->data()));
+    if (t->is_float32()) {
+        return !std::signbit(load_constant_scalar<float>(c->data()));
+    }
+    if (t->is_float64()) {
+        return !std::signbit(load_constant_scalar<double>(c->data()));
+    }
     if (t->is_vector()) {
         auto elem = t->element();
         auto stride = elem->size();
         auto base = static_cast<const std::byte *>(c->data());
         if (elem->is_float32()) {
             for (size_t i = 0; i < t->dimension(); ++i) {
-                if (std::signbit(*reinterpret_cast<const float *>(base + i * stride))) return false;
+                if (std::signbit(
+                        load_constant_scalar<float>(base + i * stride))) {
+                    return false;
+                }
             }
             return true;
         }
         if (elem->is_float64()) {
             for (size_t i = 0; i < t->dimension(); ++i) {
-                if (std::signbit(*reinterpret_cast<const double *>(base + i * stride))) return false;
+                if (std::signbit(
+                        load_constant_scalar<double>(base + i * stride))) {
+                    return false;
+                }
             }
             return true;
         }
@@ -81,7 +109,12 @@ namespace detail {
             auto hi = inst->operand(2);
             if (is_const_positive_float_zero(lo) && is_const_float_one(hi)) {
                 builder.set_insertion_point(inst);
-                return builder.call(type, ArithmeticOp::SATURATE, {inst->operand(0)});
+                auto *replacement = builder.call(
+                    type, ArithmeticOp::SATURATE, {inst->operand(0)});
+                for (auto *metadata : inst->metadata_list()) {
+                    replacement->metadata_list().push_front(metadata->clone());
+                }
+                return replacement;
             }
             break;
         }
@@ -90,6 +123,10 @@ namespace detail {
             // ABS(x) where x is unsigned → x (no-op)
             // For uint types, abs is identity.
             if (inst->operand_count() < 1) break;
+            // An identity replacement has no unique instruction on which to
+            // preserve instruction-local metadata: the operand can be a
+            // shared value or a non-instruction. Reject annotated instances.
+            if (!inst->metadata_list().empty()) break;
             auto x_type = inst->operand(0)->type();
             if (x_type != nullptr && (x_type->is_uint32() || x_type->is_uint64() ||
                                       x_type->is_uint16() || x_type->is_uint8())) {
@@ -106,8 +143,9 @@ namespace detail {
         }
 
         case ArithmeticOp::SELECT: {
-            // SELECT(cond, x, x) → x
+            // SELECT(false_value, true_value, condition) with equal values → x.
             if (inst->operand_count() < 3) break;
+            if (!inst->metadata_list().empty()) break;
             if (inst->operand(0) == inst->operand(1)) return inst->operand(0);
             break;
         }
@@ -152,9 +190,10 @@ SimplifyLibCallsInfo simplify_libcalls_pass_run_on_function(FunctionDefinition *
 
 SimplifyLibCallsInfo simplify_libcalls_pass_run_on_module(Module *module, PassReport *report) noexcept {
     SimplifyLibCallsInfo info;
-    if (module == nullptr) return info;
-    for (auto f : module->function_list()) {
-        detail::simplify_libcalls_on_function(f, info);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            detail::simplify_libcalls_on_function(f, info);
+        }
     }
     if (report != nullptr) {
         report->set("simplified_count", info.simplified_count);

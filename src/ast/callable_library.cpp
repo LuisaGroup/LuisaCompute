@@ -7,8 +7,8 @@ namespace luisa::compute {
 namespace detail {
 
 [[nodiscard]] inline auto &callable_library_function_builder_deserialize_stack() noexcept {
-    static thread_local luisa::vector<FunctionBuilder *> stack;
-    return stack;
+    static thread_local luisa::vector<FunctionBuilder *> callable_library_stack;
+    return callable_library_stack;
 }
 
 [[nodiscard]] inline auto callable_library_function_builder_deserialize_stack_top() noexcept {
@@ -229,7 +229,6 @@ void CallableLibrary::deser_ptr(LiteralExpr *obj, std::byte const *&ptr, DeserPa
     (void)pack;
     auto index = deser_value<size_t>(ptr, pack);
     auto literal_size = deser_value<size_t>(ptr, pack);
-#ifdef LUISA_USE_SYSTEM_STL
     using V = LiteralExpr::Value::variant_type;
     static constexpr auto n = luisa::variant_size_v<V>;
     auto emplace = [index, ptr, obj, literal_size]<size_t current>(auto &&self, std::integral_constant<size_t, current>) noexcept {
@@ -238,17 +237,13 @@ void CallableLibrary::deser_ptr(LiteralExpr *obj, std::byte const *&ptr, DeserPa
                 using T = luisa::variant_alternative_t<current, V>;
                 T value;
                 std::memcpy(&value, ptr, literal_size);
-                obj->_value.emplace<T>(value);
+                obj->_value.template emplace<T>(value);
             } else {
                 self(self, std::integral_constant<size_t, current + 1>{});
             }
         }
     };
     emplace(emplace, std::integral_constant<size_t, 0>{});
-#else
-    *reinterpret_cast<size_t *>(&obj->_value) = index;
-    std::memcpy(obj->_value.get_as<std::byte *>(), ptr, literal_size);
-#endif
     ptr += literal_size;
 }
 template<>
@@ -559,12 +554,25 @@ template<>
 void CallableLibrary::ser_value(SuspendStmt const &t, luisa::vector<std::byte> &vec) noexcept {
     ser_value(t._token, vec);
     ser_value(t._name, vec);
+    ser_value(t._frame_exports.size(), vec);
+    for (auto &&frame_export : t._frame_exports) {
+        ser_value(frame_export.name, vec);
+        ser_value(*frame_export.value, vec);
+    }
 }
 template<>
 void CallableLibrary::deser_ptr(SuspendStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
-    (void)pack;
     obj->_token = deser_value<uint32_t>(ptr, pack);
     obj->_name = deser_value<luisa::string>(ptr, pack);
+    auto count = deser_value<size_t>(ptr, pack);
+    obj->_frame_exports.reserve(count);
+    for (size_t i = 0u; i < count; ++i) {
+        auto name = deser_value<luisa::string>(ptr, pack);
+        auto *value = deser_value<Expression const *>(ptr, pack);
+        obj->_frame_exports.emplace_back(CoroFrameExport{
+            .value = value, .name = std::move(name)});
+        if (value != nullptr) { value->mark(Usage::READ); }
+    }
 }
 template<>
 void CallableLibrary::ser_value(AutoDiffStmt const &t, luisa::vector<std::byte> &vec) noexcept {

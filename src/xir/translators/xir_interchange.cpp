@@ -967,6 +967,8 @@ instruction_name(DerivedInstructionTag tag) noexcept {
     switch (tag) {
         case DerivedInstructionTag::IF: return "if"sv;
         case DerivedInstructionTag::SWITCH: return "switch"sv;
+        case DerivedInstructionTag::INDEXED_BRANCH:
+            return "indexed_branch"sv;
         case DerivedInstructionTag::LOOP: return "loop"sv;
         case DerivedInstructionTag::SIMPLE_LOOP: return "simple_loop"sv;
         case DerivedInstructionTag::BRANCH: return "branch"sv;
@@ -1013,6 +1015,9 @@ instruction_name(DerivedInstructionTag tag) noexcept {
 parse_instruction_name(luisa::string_view name) noexcept {
     if (name == "if") { return DerivedInstructionTag::IF; }
     if (name == "switch") { return DerivedInstructionTag::SWITCH; }
+    if (name == "indexed_branch") {
+        return DerivedInstructionTag::INDEXED_BRANCH;
+    }
     if (name == "loop") { return DerivedInstructionTag::LOOP; }
     if (name == "simple_loop") { return DerivedInstructionTag::SIMPLE_LOOP; }
     if (name == "branch") { return DerivedInstructionTag::BRANCH; }
@@ -1707,6 +1712,18 @@ struct InstructionRecord {
     luisa::vector<MetadataRecord> metadata;
 };
 
+[[nodiscard]] BindlessResourceAccess instruction_bindless_access(
+    const InstructionRecord &record) noexcept {
+    if ((record.tag != DerivedInstructionTag::RESOURCE_QUERY &&
+         record.tag != DerivedInstructionTag::RESOURCE_READ &&
+         record.tag != DerivedInstructionTag::RESOURCE_WRITE) ||
+        record.auxiliary.empty()) {
+        return {};
+    }
+    return BindlessResourceAccess::decode(
+        static_cast<uint8_t>(record.auxiliary.front()));
+}
+
 struct FunctionRecord {
     uint64_t id{0u};
     luisa::string kind;
@@ -1765,7 +1782,10 @@ constexpr std::array binary_instruction_tags{
     DerivedInstructionTag::DEBUG_BREAK,
     DerivedInstructionTag::ASSERT,
     DerivedInstructionTag::ASSUME,
-    DerivedInstructionTag::OUTLINE};
+    DerivedInstructionTag::OUTLINE,
+    // Appended to preserve the binary tag IDs of the existing interchange
+    // schema.
+    DerivedInstructionTag::INDEXED_BRANCH};
 
 [[nodiscard]] luisa::optional<uint64_t>
 binary_instruction_tag_id(DerivedInstructionTag tag) noexcept {
@@ -2475,12 +2495,19 @@ public:
     switch (tag) {
         case DerivedInstructionTag::IF: return operand_count == 3u && auxiliary_count == 1u && payload_count == 0u;
         case DerivedInstructionTag::SWITCH: return operand_count >= 2u && auxiliary_count + 1u == operand_count && payload_count == 0u;
+        case DerivedInstructionTag::INDEXED_BRANCH:
+            return operand_count >= 2u &&
+                   auxiliary_count + 2u == operand_count &&
+                   payload_count == 0u;
         case DerivedInstructionTag::LOOP: return operand_count == 1u && auxiliary_count == 3u && payload_count == 0u;
         case DerivedInstructionTag::SIMPLE_LOOP: return operand_count == 1u && auxiliary_count == 1u && payload_count == 0u;
         case DerivedInstructionTag::BRANCH: return operand_count == 1u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::CONDITIONAL_BRANCH: return operand_count == 3u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::UNREACHABLE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 1u;
         case DerivedInstructionTag::RASTER_DISCARD: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
+        // Interchange v1 predates semantic coroutine frame exports. Refuse to
+        // encode an exported suspension rather than silently dropping its ABI
+        // names; the core verifier accepts the in-memory extended shape.
         case DerivedInstructionTag::CORO_SUSPEND: return operand_count == 1u && auxiliary_count == 1u && payload_count == 1u;
         case DerivedInstructionTag::CORO_RESUME: return operand_count == 1u && auxiliary_count == 1u && payload_count == 0u;
         case DerivedInstructionTag::CORO_TERMINATE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
@@ -2493,9 +2520,11 @@ public:
         case DerivedInstructionTag::ATOMIC:
         case DerivedInstructionTag::ARITHMETIC:
         case DerivedInstructionTag::THREAD_GROUP:
+            return auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::RESOURCE_QUERY:
         case DerivedInstructionTag::RESOURCE_READ:
         case DerivedInstructionTag::RESOURCE_WRITE:
+            return auxiliary_count <= 1u && payload_count == 0u;
         case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
         case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
         case DerivedInstructionTag::RAY_QUERY_PIPELINE:
@@ -3693,7 +3722,8 @@ template<typename OperandSpan>
 template<typename OperandSpan>
 [[nodiscard]] bool instruction_semantics_valid(
     DerivedInstructionTag tag, int64_t op, const Type *type,
-    const OperandSpan &operands) noexcept {
+    const OperandSpan &operands,
+    BindlessResourceAccess bindless_access = {}) noexcept {
     auto data_operands_valid = [&](size_t begin = 0u) noexcept {
         for (auto i = begin; i < operands.size(); i++) {
             if (!data_operand_valid(operands[i])) { return false; }
@@ -3727,6 +3757,7 @@ template<typename OperandSpan>
         case DerivedInstructionTag::CONTINUE:
             return type == nullptr && value_is.template operator()<BasicBlock>(operands[0]);
         case DerivedInstructionTag::SWITCH:
+        case DerivedInstructionTag::INDEXED_BRANCH:
             if (type != nullptr || !data_operand_valid(operands[0]) ||
                 !(integer_scalar_type(operands[0]->type()) ||
                   operands[0]->type()->is_bool())) {
@@ -3759,6 +3790,12 @@ template<typename OperandSpan>
             }
             return true;
         case DerivedInstructionTag::CORO_SUSPEND:
+            if (type != nullptr || operands.empty() ||
+                (operands[0] != nullptr &&
+                 !typed_value_operand_valid(operands[0]))) {
+                return false;
+            }
+            return data_operands_valid(1u);
         case DerivedInstructionTag::CORO_RESUME:
             return type == nullptr &&
                    (operands[0] == nullptr || typed_value_operand_valid(operands[0]));
@@ -3769,6 +3806,10 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RESOURCE_QUERY: {
             if (!data_operands_valid(1u)) { return false; }
             auto query = static_cast<ResourceQueryOp>(op);
+            if (!bindless_access.is_default() &&
+                !is_bindless_resource_op(query)) {
+                return false;
+            }
             return resource_query_base_type_valid(query, operands[0]) &&
                    resource_query_result_type_valid(query, type) &&
                    resource_query_operand_types_valid(query, operands);
@@ -3776,6 +3817,10 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RESOURCE_READ: {
             if (!data_operands_valid(1u)) { return false; }
             auto read = static_cast<ResourceReadOp>(op);
+            if (!bindless_access.is_default() &&
+                !is_bindless_resource_op(read)) {
+                return false;
+            }
             if (type == nullptr || !resource_read_base_type_valid(read, operands[0]) ||
                 !resource_read_operand_types_valid(read, operands)) {
                 return false;
@@ -3806,6 +3851,10 @@ template<typename OperandSpan>
             if (type != nullptr || !data_operands_valid(1u)) { return false; }
             if (operands[0] == nullptr || operands[0]->type() == nullptr) { return false; }
             auto write = static_cast<ResourceWriteOp>(op);
+            if (!bindless_access.is_default() &&
+                !is_bindless_resource_op(write)) {
+                return false;
+            }
             auto base = operands[0]->type();
             if (!resource_write_operand_types_valid(write, operands)) { return false; }
             switch (write) {
@@ -4050,7 +4099,10 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RAY_QUERY_LOOP:
         case DerivedInstructionTag::OUTLINE: return all_nonnegative();
         case DerivedInstructionTag::SWITCH:
-            return !record.auxiliary.empty() && record.auxiliary.front() >= -1;
+            return !record.auxiliary.empty() &&
+                   record.auxiliary.front() >= 0;
+        case DerivedInstructionTag::INDEXED_BRANCH:
+            return all_nonnegative();
         case DerivedInstructionTag::CORO_SUSPEND:
         case DerivedInstructionTag::CORO_RESUME:
             return record.auxiliary[0u] >= 0 &&
@@ -4065,6 +4117,12 @@ template<typename OperandSpan>
             }
             return forward == 0 ? n_forward_grads == 0 : n_forward_grads > 0;
         }
+        case DerivedInstructionTag::RESOURCE_QUERY:
+        case DerivedInstructionTag::RESOURCE_READ:
+        case DerivedInstructionTag::RESOURCE_WRITE:
+            return record.auxiliary.empty() ||
+                   (record.auxiliary.front() >= 0 &&
+                    record.auxiliary.front() <= 3);
         default: return true;
     }
 }
@@ -4080,6 +4138,13 @@ template<typename OperandSpan>
             break;
         case DerivedInstructionTag::SWITCH: {
             auto value = luisa::make_managed<SwitchInst>(block, nullptr);
+            value->set_case_count(record.operands.size() - 2u);
+            instruction = std::move(value);
+            break;
+        }
+        case DerivedInstructionTag::INDEXED_BRANCH: {
+            auto value =
+                luisa::make_managed<IndexedBranchInst>(block, nullptr);
             value->set_case_count(record.operands.size() - 2u);
             instruction = std::move(value);
             break;
@@ -4150,13 +4215,19 @@ template<typename OperandSpan>
             instruction = luisa::make_managed<ThreadGroupInst>(block, type, static_cast<ThreadGroupOp>(record.op), null_operands);
             break;
         case DerivedInstructionTag::RESOURCE_QUERY:
-            instruction = luisa::make_managed<ResourceQueryInst>(block, type, static_cast<ResourceQueryOp>(record.op), null_operands);
+            instruction = luisa::make_managed<ResourceQueryInst>(
+                block, type, static_cast<ResourceQueryOp>(record.op),
+                null_operands, instruction_bindless_access(record));
             break;
         case DerivedInstructionTag::RESOURCE_READ:
-            instruction = luisa::make_managed<ResourceReadInst>(block, type, static_cast<ResourceReadOp>(record.op), null_operands);
+            instruction = luisa::make_managed<ResourceReadInst>(
+                block, type, static_cast<ResourceReadOp>(record.op),
+                null_operands, instruction_bindless_access(record));
             break;
         case DerivedInstructionTag::RESOURCE_WRITE:
-            instruction = luisa::make_managed<ResourceWriteInst>(block, static_cast<ResourceWriteOp>(record.op), null_operands);
+            instruction = luisa::make_managed<ResourceWriteInst>(
+                block, static_cast<ResourceWriteOp>(record.op),
+                null_operands, instruction_bindless_access(record));
             break;
         case DerivedInstructionTag::RAY_QUERY_LOOP:
             instruction = luisa::make_managed<RayQueryLoopInst>(block);
@@ -4460,7 +4531,8 @@ template<typename OperandSpan>
                 }
             }
             if (!instruction_semantics_valid(instruction_record.tag, instruction_record.op,
-                                             instruction->type(), luisa::span{resolved_operands})) {
+                                             instruction->type(), luisa::span{resolved_operands},
+                                             instruction_bindless_access(instruction_record))) {
                 fail("XIR instruction operands or result type do not match its operation.");
                 return result;
             }
@@ -4522,6 +4594,22 @@ template<typename OperandSpan>
                             return result;
                         }
                         switch_inst->set_case_value(i, *case_value);
+                    }
+                    break;
+                }
+                case DerivedInstructionTag::INDEXED_BRANCH: {
+                    auto indexed_branch =
+                        static_cast<IndexedBranchInst *>(instruction);
+                    for (auto i = 0u;
+                         i < indexed_branch->case_count(); i++) {
+                        auto case_value = decode_switch_case_value(
+                            indexed_branch->value()->type(),
+                            instruction_record.auxiliary[i]);
+                        if (!case_value) {
+                            fail("XIR indexed-branch case value is outside the selector type range.");
+                            return result;
+                        }
+                        indexed_branch->set_case_value(i, *case_value);
                     }
                     break;
                 }
@@ -4603,8 +4691,10 @@ template<typename OperandSpan>
 
 bool detail::interchange_instruction_semantics_valid(
     DerivedInstructionTag tag, int64_t op, const Type *type,
-    luisa::span<const Value *const> operands) noexcept {
-    return instruction_semantics_valid(tag, op, type, operands);
+    luisa::span<const Value *const> operands,
+    BindlessResourceAccess bindless_access) noexcept {
+    return instruction_semantics_valid(
+        tag, op, type, operands, bindless_access);
 }
 
 XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noexcept {
@@ -4794,6 +4884,13 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     fail("XIR interchange v1 encountered an unsupported instruction.");
                     return result;
                 }
+                if (instruction->isa<CoroSuspendInst>() &&
+                    static_cast<const CoroSuspendInst *>(instruction)
+                            ->frame_export_count() != 0u) {
+                    fail("XIR interchange v1 cannot serialize semantic "
+                         "coroutine frame exports.");
+                    return result;
+                }
                 auto op = int64_t{-1};
                 switch (instruction->derived_instruction_tag()) {
                     case DerivedInstructionTag::ALLOCA: op = static_cast<int64_t>(static_cast<const AllocaInst *>(instruction)->op()); break;
@@ -4819,6 +4916,30 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 }
                 luisa::vector<int64_t> auxiliary;
                 switch (instruction->derived_instruction_tag()) {
+                    case DerivedInstructionTag::RESOURCE_QUERY: {
+                        auto access = static_cast<const ResourceQueryInst *>(instruction)
+                                          ->bindless_access();
+                        if (!access.is_default()) {
+                            auxiliary.emplace_back(access.encoded());
+                        }
+                        break;
+                    }
+                    case DerivedInstructionTag::RESOURCE_READ: {
+                        auto access = static_cast<const ResourceReadInst *>(instruction)
+                                          ->bindless_access();
+                        if (!access.is_default()) {
+                            auxiliary.emplace_back(access.encoded());
+                        }
+                        break;
+                    }
+                    case DerivedInstructionTag::RESOURCE_WRITE: {
+                        auto access = static_cast<const ResourceWriteInst *>(instruction)
+                                          ->bindless_access();
+                        if (!access.is_default()) {
+                            auxiliary.emplace_back(access.encoded());
+                        }
+                        break;
+                    }
                     case DerivedInstructionTag::IF: {
                         auto merge = static_cast<const IfInst *>(instruction)->merge_block();
                         if (merge != nullptr && !id(merge)) {
@@ -4843,6 +4964,18 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                         for (auto case_value : switch_inst->case_values()) {
                             auxiliary.emplace_back(encode_switch_case_value(
                                 switch_inst->value()->type(), case_value));
+                        }
+                        break;
+                    }
+                    case DerivedInstructionTag::INDEXED_BRANCH: {
+                        auto indexed_branch = static_cast<
+                            const IndexedBranchInst *>(instruction);
+                        for (auto case_value :
+                             indexed_branch->case_values()) {
+                            auxiliary.emplace_back(
+                                encode_switch_case_value(
+                                    indexed_branch->value()->type(),
+                                    case_value));
                         }
                         break;
                     }
@@ -4963,8 +5096,24 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 for (auto operand_use : instruction->operand_uses()) {
                     semantic_operands.emplace_back(operand_use->value());
                 }
-                if (!instruction_semantics_valid(instruction->derived_instruction_tag(), op,
-                                                 instruction->type(), luisa::span{semantic_operands})) {
+                auto bindless_access = [&]() noexcept {
+                    switch (instruction->derived_instruction_tag()) {
+                        case DerivedInstructionTag::RESOURCE_QUERY:
+                            return static_cast<const ResourceQueryInst *>(instruction)
+                                ->bindless_access();
+                        case DerivedInstructionTag::RESOURCE_READ:
+                            return static_cast<const ResourceReadInst *>(instruction)
+                                ->bindless_access();
+                        case DerivedInstructionTag::RESOURCE_WRITE:
+                            return static_cast<const ResourceWriteInst *>(instruction)
+                                ->bindless_access();
+                        default: return BindlessResourceAccess{};
+                    }
+                }();
+                if (!instruction_semantics_valid(
+                        instruction->derived_instruction_tag(), op,
+                        instruction->type(), luisa::span{semantic_operands},
+                        bindless_access)) {
                     fail("XIR instruction operands or result type do not match its operation.");
                     return result;
                 }

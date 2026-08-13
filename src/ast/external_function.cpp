@@ -16,7 +16,7 @@ ExternalFunction::ExternalFunction(luisa::string name,
 
 void ExternalFunction::_compute_hash() noexcept {
     using namespace std::string_view_literals;
-    static thread_local const auto seed = luisa::hash_value("__hash_external_function"sv);
+    static thread_local const auto external_function_seed = luisa::hash_value("__hash_external_function"sv);
     luisa::string desc;
     desc.reserve(64u);
     desc.append(_return_type ? _return_type->description() : "void")
@@ -34,7 +34,7 @@ void ExternalFunction::_compute_hash() noexcept {
         desc.append(_argument_types[i]->description());
     }
     desc.append(")"sv);
-    _hash = luisa::hash_value(desc, seed);
+    _hash = luisa::hash_value(desc, external_function_seed);
     LUISA_VERBOSE_WITH_LOCATION(
         "Computed hash for external function '{}': {}",
         desc, luisa::hash_to_string(_hash));

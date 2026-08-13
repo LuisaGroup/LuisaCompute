@@ -10,6 +10,18 @@ class PassReport;
 struct DCEInfo {
     size_t removed_inst_count{0u};
     size_t removed_block_count{0u};
+    size_t inserted_terminator_count{0u};
+    // Diagnostic operation counts for the dead-value least fixed point.
+    // Every observed instruction is classified once per outer CFG version;
+    // every proven-dead candidate is popped from the reverse-use worklist
+    // exactly once. These fields do not participate in changed().
+    size_t dead_code_instruction_scan_count{0u};
+    size_t dead_code_worklist_pop_count{0u};
+    [[nodiscard]] bool changed() const noexcept {
+        return removed_inst_count != 0u ||
+               removed_block_count != 0u ||
+               inserted_terminator_count != 0u;
+    }
 };
 
 [[nodiscard]] LUISA_XIR_API DCEInfo dce_pass_run_on_function(Function *function) noexcept;

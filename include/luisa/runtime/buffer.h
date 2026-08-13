@@ -150,13 +150,15 @@ public:
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept {
         return view().subview(offset, count);
     }
-    template<typename U>
+    template<typename U, size_t Extent>
         requires(!std::is_const_v<U>)
-    [[nodiscard]] auto copy_to(luisa::span<U> data) const noexcept {
+    [[nodiscard]] auto copy_to(
+        luisa::span<U, Extent> data) const noexcept {
         return this->view().copy_to(data);
     }
-    template<typename U>
-    [[nodiscard]] auto copy_from(luisa::span<U> data) const noexcept {
+    template<typename U, size_t Extent>
+    [[nodiscard]] auto copy_from(
+        luisa::span<U, Extent> data) const noexcept {
         return this->view().copy_from(data);
     }
 #ifndef LUISA_ENABLE_SAFE_MODE
@@ -278,16 +280,18 @@ public:
     }
     // commands
     // copy buffer's data to pointer
-    template<typename U>
+    template<typename U, size_t Extent>
         requires(!std::is_const_v<U>)
-    [[nodiscard]] auto copy_to(luisa::span<U> data) const noexcept {
+    [[nodiscard]] auto copy_to(
+        luisa::span<U, Extent> data) const noexcept {
 #ifndef NDEBUG
         luisa::compute::detail::assert_same_size(data.size_bytes(), size_bytes(), "buffer");
 #endif
         return luisa::make_unique<BufferDownloadCommand>(_handle, offset_bytes(), size_bytes(), data.data());
     }
-    template<typename U>
-    [[nodiscard]] auto copy_from(luisa::span<U> data) const noexcept {
+    template<typename U, size_t Extent>
+    [[nodiscard]] auto copy_from(
+        luisa::span<U, Extent> data) const noexcept {
 #ifndef NDEBUG
         luisa::compute::detail::assert_same_size(data.size_bytes(), size_bytes(), "buffer");
 #endif

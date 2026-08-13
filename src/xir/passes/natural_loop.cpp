@@ -72,6 +72,34 @@ namespace {
     }
 }
 
+[[nodiscard]] bool positive_recurrence_stays_in_range(
+    const Type *type, int64_t start, uint64_t trip_count,
+    uint64_t stride) noexcept {
+    if (trip_count == 0u) { return true; }
+    if (type == nullptr || stride == 0u ||
+        !(type->is_int() || type->is_uint())) {
+        return false;
+    }
+    auto width = static_cast<uint32_t>(type->size() * 8u);
+    if (width == 0u || width > 64u) { return false; }
+    uint64_t maximum = 0u;
+    if (type->is_uint()) {
+        maximum = width == 64u ?
+                      std::numeric_limits<uint64_t>::max() :
+                      (uint64_t{1u} << width) - 1u;
+        if (start < 0) { return false; }
+    } else {
+        maximum = width == 64u ?
+                      static_cast<uint64_t>(
+                          std::numeric_limits<int64_t>::max()) :
+                      (uint64_t{1u} << (width - 1u)) - 1u;
+    }
+    // `maximum - start` in unsigned arithmetic is the exact mathematical
+    // room to the type's maximum, including INT64_MIN -> INT64_MAX.
+    auto room = maximum - static_cast<uint64_t>(start);
+    return trip_count <= room / stride;
+}
+
 }// namespace
 
 bool NaturalLoop::contains(BasicBlock *block) const noexcept {
@@ -80,10 +108,6 @@ bool NaturalLoop::contains(BasicBlock *block) const noexcept {
         if (b == block) { return true; }
     }
     return false;
-}
-
-bool NaturalLoop::is_innermost() const noexcept {
-    return true;// refined by the caller when a loop nest is known
 }
 
 luisa::vector<NaturalLoop> discover_natural_loops(
@@ -125,6 +149,7 @@ luisa::vector<NaturalLoop> discover_natural_loops(
             for (auto *pred : block_predecessors(block)) {
                 if (pred == header) { continue; }
                 if (!dom_tree.contains(pred)) { continue; }
+                if (!dom_tree.dominates(header, pred)) { continue; }
                 if (body.emplace(pred).second) {
                     worklist.emplace_back(pred);
                 }
@@ -140,6 +165,16 @@ luisa::vector<NaturalLoop> discover_natural_loops(
                 for (auto *succ : block_successors(block)) {
                     if (succ != header && !body.contains(succ)) {
                         exits.emplace(succ);
+                        auto duplicate = false;
+                        for (auto &&edge : loop.exit_edges) {
+                            if (edge.first == block && edge.second == succ) {
+                                duplicate = true;
+                                break;
+                            }
+                        }
+                        if (!duplicate) {
+                            loop.exit_edges.emplace_back(block, succ);
+                        }
                     }
                 }
             };
@@ -181,6 +216,12 @@ LoopBoundsInfo analyze_loop_bounds(const NaturalLoop &loop) noexcept {
         loop.latches.size() != 1u) {
         return info;
     }
+    // Canonical consumers need one executable exit edge owned by the header,
+    // not merely one distinct destination reached from arbitrary loop blocks.
+    if (loop.exit_edges.size() != 1u ||
+        loop.exit_edges.front().first != loop.header) {
+        return info;
+    }
     auto *latch = loop.latches.front();
 
     // Find the induction phi: one incoming from the preheader, one from the
@@ -204,7 +245,10 @@ LoopBoundsInfo analyze_loop_bounds(const NaturalLoop &loop) noexcept {
         if (start == nullptr || recurrence == nullptr) { continue; }
         if (!recurrence->isa<ArithmeticInst>()) { continue; }
         auto *add = static_cast<ArithmeticInst *>(recurrence);
-        if (add->op() != ArithmeticOp::BINARY_ADD || add->operand_count() != 2u) { continue; }
+        if (add->op() != ArithmeticOp::BINARY_ADD ||
+            add->operand_count() != 2u || add->type() != phi->type()) {
+            continue;
+        }
         Value *stride_value = nullptr;
         if (add->operand(0u) == phi) {
             stride_value = add->operand(1u);
@@ -242,15 +286,54 @@ LoopBoundsInfo analyze_loop_bounds(const NaturalLoop &loop) noexcept {
         info.induction_phi = nullptr;
         return info;
     }
+    info.comparison_inst = cmp;
     if (cmp->operand(0u) == info.induction_phi) {
         info.bound_value = cmp->operand(1u);
+        info.induction_is_lhs = true;
     } else if (cmp->operand(1u) == info.induction_phi) {
         info.bound_value = cmp->operand(0u);
+        info.induction_is_lhs = false;
     } else {
         info.induction_phi = nullptr;
         return info;
     }
     info.comparison = cmp->op();
+
+    auto *branch = static_cast<ConditionalBranchInst *>(terminator);
+    auto true_is_inside = loop.contains(branch->true_block());
+    auto false_is_inside = loop.contains(branch->false_block());
+    if (true_is_inside == false_is_inside) {
+        info.induction_phi = nullptr;
+        return info;
+    }
+    info.continue_on_true = true_is_inside;
+    info.body_entry = true_is_inside ?
+                          branch->true_block() :
+                          branch->false_block();
+    info.exit_block = true_is_inside ?
+                          branch->false_block() :
+                          branch->true_block();
+    if (info.exit_block != loop.exit_edges.front().second) {
+        info.induction_phi = nullptr;
+        return info;
+    }
+
+    // Normalize the executable continuation predicate, accounting for both
+    // operand order and branch polarity. Only this strict-less form has the
+    // simple positive-stride trip-count formula used by vectorization.
+    if (info.induction_is_lhs) {
+        info.normalized_strict_less =
+            (info.continue_on_true &&
+             info.comparison == ArithmeticOp::BINARY_LESS) ||
+            (!info.continue_on_true &&
+             info.comparison == ArithmeticOp::BINARY_GREATER_EQUAL);
+    } else {
+        info.normalized_strict_less =
+            (info.continue_on_true &&
+             info.comparison == ArithmeticOp::BINARY_GREATER) ||
+            (!info.continue_on_true &&
+             info.comparison == ArithmeticOp::BINARY_LESS_EQUAL);
+    }
 
     // Constant trip count when start, bound, and stride are all constants
     // and the comparison is a strict less-than: ceil((bound-start)/stride).
@@ -259,12 +342,29 @@ LoopBoundsInfo analyze_loop_bounds(const NaturalLoop &loop) noexcept {
     if (info.stride_is_constant &&
         decode_constant_int(info.start_value, start) &&
         decode_constant_int(info.bound_value, bound) &&
-        info.comparison == ArithmeticOp::BINARY_LESS &&
-        info.stride > 0 && bound > start) {
-        auto span = static_cast<uint64_t>(bound - start);
-        auto stride = static_cast<uint64_t>(info.stride);
-        info.constant_trip_count = (span + stride - 1u) / stride;
-        info.trip_count_is_constant = true;
+        info.normalized_strict_less &&
+        info.stride > 0) {
+        if (bound <= start) {
+            info.constant_trip_count = 0u;
+            info.trip_count_is_constant = true;
+        } else {
+            // Unsigned subtraction yields the exact positive mathematical
+            // difference even when the signed endpoints straddle zero.
+            auto span = static_cast<uint64_t>(bound) -
+                        static_cast<uint64_t>(start);
+            auto stride = static_cast<uint64_t>(info.stride);
+            auto trip_count =
+                span / stride + static_cast<uint64_t>(span % stride != 0u);
+            // The closed-form count is only valid if the recurrence reaches
+            // the first failing check without wrapping the IV type. For
+            // example, `uint8 iv = 0; iv < 255; iv += 200` cycles after 200
+            // instead of terminating after ceil(255 / 200) iterations.
+            if (positive_recurrence_stays_in_range(
+                    info.induction_phi->type(), start, trip_count, stride)) {
+                info.constant_trip_count = trip_count;
+                info.trip_count_is_constant = true;
+            }
+        }
     }
     return info;
 }

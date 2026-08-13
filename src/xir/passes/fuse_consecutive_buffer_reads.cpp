@@ -4,13 +4,13 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/arithmetic.h>
-#include <luisa/xir/instructions/atomic.h>
-#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/passes/fuse_consecutive_buffer_reads.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
 #include <limits>
+
+#include "helpers.h"
 
 namespace luisa::compute::xir {
 
@@ -99,49 +99,69 @@ struct ByteIndex {
     return type->size() >= 8u ? 2u : 4u;
 }
 
-// Whether an instruction may observe or mutate the given byte buffer in a way
-// that forbids moving memory operations across it.
-[[nodiscard]] bool is_barrier_for(const Instruction *inst, const Value *buffer,
+[[nodiscard]] bool is_aligned_constant_byte_index(
+    const ByteIndex &index, const Type *access_type) noexcept {
+    if (index.base != nullptr || index.offset < 0 ||
+        access_type == nullptr) {
+        return false;
+    }
+    auto alignment = access_type->alignment();
+    return alignment != 0u &&
+           static_cast<uint64_t>(index.offset) % alignment == 0u;
+}
+
+[[nodiscard]] bool has_exact_scalar_transaction_footprint(
+    const Type *element_type, size_t lane_count,
+    const Type *vector_type) noexcept {
+    if (element_type == nullptr || vector_type == nullptr ||
+        lane_count == 0u ||
+        element_type->size() >
+            std::numeric_limits<size_t>::max() / lane_count) {
+        return false;
+    }
+    auto scalar_span = element_type->size() * lane_count;
+    auto alignment = vector_type->alignment();
+    // A three-lane vector may have a logical 12-byte payload but 16-byte ABI
+    // alignment/storage extent. Such a transaction can access padding that
+    // the scalar operations did not touch.
+    return vector_type->size() == scalar_span &&
+           alignment != 0u &&
+           scalar_span % alignment == 0u;
+}
+
+[[nodiscard]] bool is_next_byte_offset(
+    const ByteIndex &first, const ByteIndex &next,
+    size_t element_size, size_t lane) noexcept {
+    if (first.base != next.base ||
+        element_size > static_cast<size_t>(
+                           std::numeric_limits<int64_t>::max()) ||
+        lane > static_cast<size_t>(
+                   std::numeric_limits<int64_t>::max()) /
+                   element_size) {
+        return false;
+    }
+    auto delta = static_cast<int64_t>(element_size * lane);
+    if (first.offset > std::numeric_limits<int64_t>::max() - delta) {
+        return false;
+    }
+    return next.offset == first.offset + delta;
+}
+
+// A read run moves later reads to the first read. A write run moves earlier
+// writes to the last write. With no resource no-alias contract, every write is
+// a barrier for a read run and every memory access is a barrier for a write
+// run, even when the resource SSA values differ.
+[[nodiscard]] bool is_barrier_for(const Instruction *inst,
                                   bool reads_are_barriers) noexcept {
-    if (inst->isa<ResourceWriteInst>()) {
-        auto write = static_cast<const ResourceWriteInst *>(inst);
-        if (write->op() == ResourceWriteOp::BUFFER_VOLATILE_WRITE ||
-            write->op() == ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE) {
-            return true;
-        }
-        if ((write->op() == ResourceWriteOp::BYTE_BUFFER_WRITE ||
-             write->op() == ResourceWriteOp::BUFFER_WRITE) &&
-            write->operand(0u) == buffer) {
-            return true;
-        }
+    auto info = get_memory_info(const_cast<Instruction *>(inst));
+    if (info.is_volatile ||
+        inst->derived_instruction_tag() == DerivedInstructionTag::CLOCK) {
+        return true;
     }
-    if (reads_are_barriers && inst->isa<ResourceReadInst>()) {
-        auto read = static_cast<const ResourceReadInst *>(inst);
-        if (read->op() == ResourceReadOp::BUFFER_VOLATILE_READ ||
-            read->op() == ResourceReadOp::BYTE_BUFFER_VOLATILE_READ) {
-            return true;
-        }
-        if ((read->op() == ResourceReadOp::BYTE_BUFFER_READ ||
-             read->op() == ResourceReadOp::BUFFER_READ) &&
-            read->operand(0u) == buffer) {
-            return true;
-        }
+    if (reads_are_barriers) {
+        return info.reads_memory() || info.writes_memory();
     }
-    if (inst->isa<ResourceReadInst>()) {
-        auto read = static_cast<const ResourceReadInst *>(inst);
-        if (read->op() == ResourceReadOp::BUFFER_VOLATILE_READ ||
-            read->op() == ResourceReadOp::BYTE_BUFFER_VOLATILE_READ) {
-            return true;
-        }
-    }
-    if (inst->isa<AtomicInst>()) {
-        auto atomic = static_cast<const AtomicInst *>(inst);
-        if (atomic->operand_count() != 0u && atomic->operand(0u) == buffer) {
-            return true;
-        }
-    }
-    // Calls may capture buffers; stay conservative.
-    return inst->isa<CallInst>();
+    return info.writes_memory();
 }
 
 struct ReadRun {
@@ -153,10 +173,21 @@ struct ReadRun {
                                      FuseConsecutiveBufferReadsInfo &info) noexcept {
     auto lane_count = run.reads.size();
     LUISA_DEBUG_ASSERT(lane_count >= 2u, "Read run too short to fuse.");
+    // Without a range/nowrap proof, `base` and `base + sizeof(T)` are not
+    // necessarily adjacent in finite-width integer arithmetic: the latter
+    // may wrap to zero while a vector transaction from `base` does not.
+    // Constant offsets are exact and are the only currently proven case.
+    if (run.first_index.base != nullptr) { return false; }
     auto *first = run.reads.front();
     auto *elem_type = first->type();
     auto *vector_type = Type::vector(elem_type, lane_count);
-    if (vector_type == nullptr) { return false; }
+    if (vector_type == nullptr ||
+        !has_exact_scalar_transaction_footprint(
+            elem_type, lane_count, vector_type) ||
+        !is_aligned_constant_byte_index(
+            run.first_index, vector_type)) {
+        return false;
+    }
     XIRBuilder builder;
     // Insert the vector read right after the first scalar read, followed by
     // the per-lane extracts. The original scalar reads are erased afterwards.
@@ -170,6 +201,11 @@ struct ReadRun {
         auto *index = module->create_constant(Type::of<uint32_t>(), &lane_index);
         auto *extract = builder.call(elem_type, ArithmeticOp::EXTRACT,
                                      {vector_read, index});
+        // Each extract is the semantic replacement for one scalar read.
+        // Keep lane-specific metadata on that replacement value.
+        for (auto *metadata : run.reads[lane]->metadata_list()) {
+            extract->metadata_list().push_front(metadata->clone());
+        }
         run.reads[lane]->replace_all_uses_with(extract);
     }
     for (auto *read : run.reads) {
@@ -189,11 +225,24 @@ struct WriteRun {
                                       FuseConsecutiveBufferReadsInfo &info) noexcept {
     auto lane_count = run.writes.size();
     LUISA_DEBUG_ASSERT(lane_count >= 2u, "Write run too short to fuse.");
+    if (run.first_index.base != nullptr) { return false; }
+    // Multiple side-effecting instructions do not have one unambiguous
+    // metadata owner after coalescing. Reject annotated writes rather than
+    // silently dropping or arbitrarily merging their metadata.
+    for (auto *write : run.writes) {
+        if (!write->metadata_list().empty()) { return false; }
+    }
     auto *first = run.writes.front();
     auto *last = run.writes.back();
     auto *elem_type = first->operand(2u)->type();
     auto *vector_type = Type::vector(elem_type, lane_count);
-    if (vector_type == nullptr) { return false; }
+    if (vector_type == nullptr ||
+        !has_exact_scalar_transaction_footprint(
+            elem_type, lane_count, vector_type) ||
+        !is_aligned_constant_byte_index(
+            run.first_index, vector_type)) {
+        return false;
+    }
     XIRBuilder builder;
     // Insert the aggregate and the vector write immediately before the last
     // scalar write, so every aggregated value is already defined. The
@@ -218,13 +267,13 @@ void collect_and_fuse(Module *module, BasicBlock *block, FuseConsecutiveBufferRe
     WriteRun write_run;
     auto flush_reads = [&]() noexcept {
         if (read_run.reads.size() >= 2u) {
-            try_fuse_read_run(module, read_run, info);
+            static_cast<void>(try_fuse_read_run(module, read_run, info));
         }
         read_run.reads.clear();
     };
     auto flush_writes = [&]() noexcept {
         if (write_run.writes.size() >= 2u) {
-            try_fuse_write_run(module, write_run, info);
+            static_cast<void>(try_fuse_write_run(module, write_run, info));
         }
         write_run.writes.clear();
     };
@@ -246,9 +295,10 @@ void collect_and_fuse(Module *module, BasicBlock *block, FuseConsecutiveBufferRe
                 } else if (!read_run.reads.empty() &&
                            (read->operand(0u) != read_run.reads.front()->operand(0u) ||
                             read->type() != read_run.reads.front()->type() ||
-                            index.base != read_run.first_index.base ||
-                            index.offset != read_run.first_index.offset +
-                                                static_cast<int64_t>(read->type()->size() * read_run.reads.size()) ||
+                            !is_next_byte_offset(
+                                read_run.first_index, index,
+                                read->type()->size(),
+                                read_run.reads.size()) ||
                             read_run.reads.size() >= max_lane_count(read->type()))) {
                     flush_reads();
                     read_run.reads.emplace_back(read);
@@ -270,9 +320,10 @@ void collect_and_fuse(Module *module, BasicBlock *block, FuseConsecutiveBufferRe
                 } else if (!write_run.writes.empty() &&
                            (write->operand(0u) != write_run.writes.front()->operand(0u) ||
                             value_type != write_run.writes.front()->operand(2u)->type() ||
-                            index.base != write_run.first_index.base ||
-                            index.offset != write_run.first_index.offset +
-                                                static_cast<int64_t>(value_type->size() * write_run.writes.size()) ||
+                            !is_next_byte_offset(
+                                write_run.first_index, index,
+                                value_type->size(),
+                                write_run.writes.size()) ||
                             write_run.writes.size() >= max_lane_count(value_type))) {
                     flush_writes();
                     write_run.writes.emplace_back(write);
@@ -283,21 +334,19 @@ void collect_and_fuse(Module *module, BasicBlock *block, FuseConsecutiveBufferRe
                 }
             }
         }
-        // A read run may span intervening independent reads but not writes to
-        // the same buffer; a write run may not span any access to the same
-        // buffer. An access that joins one run may still be a barrier for the
-        // other, so both runs are checked against every instruction except
-        // the one that was just appended to that run.
+        // A read run may span intervening reads but not a potentially aliasing
+        // write; a write run may not span any memory access. An access that
+        // joins one run may still be a barrier for the other.
         auto joined_read_run = handled && !read_run.reads.empty() &&
                                read_run.reads.back() == inst;
         auto joined_write_run = handled && !write_run.writes.empty() &&
                                 write_run.writes.back() == inst;
         if (!joined_read_run && !read_run.reads.empty() &&
-            is_barrier_for(inst, read_run.reads.front()->operand(0u), false)) {
+            is_barrier_for(inst, false)) {
             flush_reads();
         }
         if (!joined_write_run && !write_run.writes.empty() &&
-            is_barrier_for(inst, write_run.writes.front()->operand(0u), true)) {
+            is_barrier_for(inst, true)) {
             flush_writes();
         }
     }
@@ -319,7 +368,7 @@ void run_on_function(FunctionDefinition *def, FuseConsecutiveBufferReadsInfo &in
 FuseConsecutiveBufferReadsInfo fuse_consecutive_buffer_reads_pass_run_on_function(
     Function *function) noexcept {
     FuseConsecutiveBufferReadsInfo info;
-    if (auto def = function->definition()) {
+    if (auto def = function == nullptr ? nullptr : function->definition()) {
         detail::run_on_function(def, info);
     }
     return info;
@@ -328,9 +377,11 @@ FuseConsecutiveBufferReadsInfo fuse_consecutive_buffer_reads_pass_run_on_functio
 FuseConsecutiveBufferReadsInfo fuse_consecutive_buffer_reads_pass_run_on_module(
     Module *module, PassReport *report) noexcept {
     FuseConsecutiveBufferReadsInfo info;
-    for (auto f : module->function_list()) {
-        if (auto def = f->definition()) {
-            detail::run_on_function(def, info);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            if (auto def = f->definition()) {
+                detail::run_on_function(def, info);
+            }
         }
     }
     if (report != nullptr) {

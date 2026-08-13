@@ -14,6 +14,12 @@ class Module;
 struct Reg2MemInfo {
     size_t lowered_phi_count{0u};
     size_t lowered_cross_block_value_count{0u};
+    size_t hoisted_alloca_count{0u};
+    [[nodiscard]] bool changed() const noexcept {
+        return lowered_phi_count != 0u ||
+               lowered_cross_block_value_count != 0u ||
+               hoisted_alloca_count != 0u;
+    }
 };
 
 struct Reg2MemSpillAuditInfo {
@@ -34,6 +40,7 @@ struct Reg2MemSpillAuditInfo {
 [[nodiscard]] LUISA_XIR_API Reg2MemInfo reg2mem_pass_run_on_function(Function *function) noexcept;
 [[nodiscard]] LUISA_XIR_API Reg2MemInfo reg2mem_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 [[nodiscard]] LUISA_XIR_API Reg2MemInfo reg2mem_pass_repair_cross_block_rvalue_uses_on_function(Function *function) noexcept;
+/// Audit helpers are total: null inputs report an empty, successful audit.
 [[nodiscard]] LUISA_XIR_API Reg2MemSpillAuditInfo audit_reg2mem_spills_on_function(const Function *function) noexcept;
 [[nodiscard]] LUISA_XIR_API Reg2MemSpillAuditInfo audit_reg2mem_spills_on_module(const Module *module, PassReport *report = nullptr) noexcept;
 

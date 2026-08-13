@@ -21,7 +21,6 @@
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/module.h>
-#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
 
@@ -373,6 +372,102 @@ void reg_semantic_module_round_trip() {
         expect(bitcode_again.succeeded());
         expect(static_cast<bool>(bitcode_again.bitcode == bitcode.bitcode))
             << "binary string-table ordering must be deterministic";
+    };
+}
+
+void reg_bindless_access_round_trip() {
+    "xir_interchange_bindless_access_axes_round_trip"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *bindless = kernel->create_resource_argument(
+            Type::from("bindless_array"));
+        auto *body = kernel->create_body_block();
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        auto *one = module.create_constant_one(Type::of<uint32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.call(
+            Type::of<uint32_t>(), ResourceReadOp::BINDLESS_BUFFER_READ,
+            {bindless, zero, zero},
+            {.typed = true, .uniform = true});
+        builder.call(
+            Type::of<uint32_t>(), ResourceQueryOp::BINDLESS_BUFFER_SIZE,
+            {bindless, zero, one},
+            {.typed = false, .uniform = true});
+        builder.call(
+            ResourceWriteOp::BINDLESS_BUFFER_WRITE,
+            {bindless, zero, zero, one},
+            {.typed = true, .uniform = false});
+        builder.return_void();
+        expect(xir_verify_module(&module).succeeded());
+
+        auto text = xir_to_interchange_text(&module);
+        expect(text.succeeded());
+        if (!text.succeeded()) { return; }
+        auto decoded = xir_from_interchange_text(text.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+
+        std::array<bool, 3u> found{};
+        for (auto *function : decoded.module->function_list()) {
+            for (auto *block : function->basic_blocks()) {
+                for (auto *instruction : block->instructions()) {
+                    if (instruction->isa<ResourceReadInst>()) {
+                        auto access = static_cast<ResourceReadInst *>(
+                                          instruction)
+                                          ->bindless_access();
+                        found[0] |= access == BindlessResourceAccess{
+                                                  .typed = true,
+                                                  .uniform = true};
+                    } else if (instruction->isa<ResourceQueryInst>()) {
+                        auto access = static_cast<ResourceQueryInst *>(
+                                          instruction)
+                                          ->bindless_access();
+                        found[1] |= access == BindlessResourceAccess{
+                                                  .typed = false,
+                                                  .uniform = true};
+                    } else if (instruction->isa<ResourceWriteInst>()) {
+                        auto access = static_cast<ResourceWriteInst *>(
+                                          instruction)
+                                          ->bindless_access();
+                        found[2] |= access == BindlessResourceAccess{
+                                                  .typed = true,
+                                                  .uniform = false};
+                    }
+                }
+            }
+        }
+        expect(found[0] && found[1] && found[2]);
+        auto canonical = xir_to_interchange_text(decoded.module.get());
+        expect(canonical.succeeded());
+        expect(canonical.text == text.text);
+
+        auto bitcode = xir_to_bitcode(&module);
+        expect(bitcode.succeeded());
+        auto decoded_bitcode = xir_from_bitcode(bitcode.bitcode);
+        expect(decoded_bitcode.succeeded());
+        if (decoded_bitcode.succeeded()) {
+            auto bitcode_text = xir_to_interchange_text(
+                decoded_bitcode.module.get());
+            expect(bitcode_text.succeeded());
+            expect(bitcode_text.text == text.text);
+        }
+    };
+
+    "xir_interchange_rejects_bindless_access_on_direct_resource"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.call(
+            Type::of<uint32_t>(), ResourceQueryOp::BUFFER_SIZE,
+            {buffer}, {.typed = true});
+        builder.return_void();
+        expect(!xir_verify_module(&module).succeeded());
+        expect(!xir_to_interchange_text(&module).succeeded());
     };
 }
 
@@ -1396,10 +1491,6 @@ void reg_instruction_type_validation() {
             auto decoded_text = xir_from_interchange_text(text.text);
             expect(decoded_text.succeeded());
             if (decoded_text.succeeded()) {
-                auto lowered = lower_switch_pass_run_on_module(
-                    decoded_text.module.get());
-                expect(lowered.succeeded());
-                expect(lowered.lowered_switch_count == 1u);
                 expect(xir_verify_module(decoded_text.module.get()).succeeded());
                 expect(xir_to_interchange_text(
                            decoded_text.module.get())
@@ -1541,7 +1632,7 @@ void reg_instruction_type_validation() {
         }
     };
 
-    "xir_interchange_terminal_null_merge_selections_round_trip"_test = [] {
+    "xir_interchange_terminal_if_and_indexed_branch_round_trip"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
         auto *condition = kernel->create_value_argument(Type::of<bool>());
@@ -1555,9 +1646,10 @@ void reg_instruction_type_validation() {
         builder.set_insertion_point(true_block);
         builder.return_void();
         builder.set_insertion_point(false_block);
-        auto *switch_inst = builder.switch_(selector);
-        auto *case_block = switch_inst->create_case_block(1);
-        auto *default_block = switch_inst->create_default_block();
+        auto *indexed_branch = builder.indexed_branch(selector);
+        auto *case_block = indexed_branch->create_case_block(1);
+        auto *default_block =
+            indexed_branch->create_default_block();
         builder.set_insertion_point(case_block);
         builder.return_void();
         builder.set_insertion_point(default_block);
@@ -1565,21 +1657,22 @@ void reg_instruction_type_validation() {
 
         auto check_decoded = [](const Module *decoded) noexcept {
             size_t null_if_count = 0u;
-            size_t null_switch_count = 0u;
+            size_t indexed_branch_count = 0u;
             for (auto *function : decoded->function_list()) {
                 for (auto *block : function->basic_blocks()) {
                     for (auto *instruction : block->instructions()) {
                         if (instruction->isa<IfInst>()) {
                             null_if_count += static_cast<const IfInst *>(instruction)->merge_block() == nullptr ? 1u : 0u;
                         }
-                        if (instruction->isa<SwitchInst>()) {
-                            null_switch_count += static_cast<const SwitchInst *>(instruction)->merge_block() == nullptr ? 1u : 0u;
-                        }
+                        indexed_branch_count +=
+                            instruction->isa<IndexedBranchInst>() ?
+                                1u :
+                                0u;
                     }
                 }
             }
             expect(null_if_count == 1u);
-            expect(null_switch_count == 1u);
+            expect(indexed_branch_count == 1u);
         };
 
         auto text = xir_to_interchange_text(&module);
@@ -2326,6 +2419,7 @@ int main(int argc, char *argv[]) {
     reg_malformed_text();
     reg_malformed_bitcode();
     reg_semantic_module_round_trip();
+    reg_bindless_access_round_trip();
     reg_unsupported_instruction_fails_closed();
     reg_symbolic_op_tokens_and_compatibility();
     reg_vulkan_priority_instruction_round_trip();

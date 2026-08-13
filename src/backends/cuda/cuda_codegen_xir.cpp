@@ -638,6 +638,10 @@ void CUDACodegenXIR::_emit_instructions(const xir::InstructionList &inst_list, i
                 });
                 break;
             }
+            case xir::DerivedInstructionTag::INDEXED_BRANCH:
+                LUISA_ERROR_WITH_LOCATION(
+                    "CUDA XIR codegen requires structured control flow; "
+                    "run restructure_cfg before codegen.");
             case xir::DerivedInstructionTag::LOOP: {
                 _with_control_flow(inst, [&] {
                     _emit_loop_inst(static_cast<const xir::LoopInst *>(inst), indent);
@@ -1323,7 +1327,13 @@ void CUDACodegenXIR::_emit_arithmetic_inst(const xir::ArithmeticInst *inst, int 
         case xir::ArithmeticOp::BINARY_SUB: b("-"); break;
         case xir::ArithmeticOp::BINARY_MUL: b("*"); break;
         case xir::ArithmeticOp::BINARY_DIV: b("/"); break;
-        case xir::ArithmeticOp::BINARY_MOD: b("%"); break;
+        case xir::ArithmeticOp::BINARY_MOD:
+            if (inst->type()->is_float_or_float_vector()) {
+                f("lc_fmod");
+            } else {
+                b("%");
+            }
+            break;
         case xir::ArithmeticOp::BINARY_BIT_AND: {
             if (auto t = inst->type(); t->is_bool() || t->is_bool_vector()) {
                 b("&&");

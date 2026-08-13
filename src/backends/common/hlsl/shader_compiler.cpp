@@ -154,7 +154,6 @@ CompileResult ShaderCompiler::compile_compute(
         } else if (shaderModel > 60) {
             args.emplace_back(L"-fspv-target-env=vulkan1.2");
         }
-        args.emplace_back(L"-fspv-use-unknown-image-format");
     }
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());
@@ -189,7 +188,6 @@ RasterBin ShaderCompiler::compile_raster(
         } else if (shaderModel > 60) {
             args.emplace_back(L"-fspv-target-env=vulkan1.2");
         }
-        args.emplace_back(L"-fspv-use-unknown-image-format");
     }
     if (enableUnsafeMath) {
         AddUnsafeMathFlags(args);
@@ -236,7 +234,6 @@ CompileResult ShaderCompiler::compile_raytracing(
         }
         // Enable ray tracing SPIR-V extensions
         args.emplace_back(L"-fspv-extension=SPV_KHR_ray_tracing");
-        args.emplace_back(L"-fspv-use-unknown-image-format");
     }
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());

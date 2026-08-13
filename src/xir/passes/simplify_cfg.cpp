@@ -5,12 +5,15 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+
+#include "coro_semantic_cfg.h"
 
 namespace luisa::compute::xir {
 
@@ -52,8 +55,10 @@ namespace detail {
             }
             break;
         }
-        case DerivedInstructionTag::SWITCH: {
-            auto sw = static_cast<SwitchInst *>(term);
+        case DerivedInstructionTag::SWITCH:
+        case DerivedInstructionTag::INDEXED_BRANCH: {
+            auto sw = static_cast<
+                IndexedBranchTerminatorInstruction *>(term);
             if (sw->default_block() == from) {
                 sw->set_default_block(to);
                 changed = true;
@@ -72,6 +77,16 @@ namespace detail {
 }
 
 static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
+    luisa::unordered_map<BasicBlock *, LoopInst *> loop_prepares;
+    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        if (block != nullptr && block->is_terminated() &&
+            block->terminator()->isa<LoopInst>()) {
+            auto *loop = static_cast<LoopInst *>(block->terminator());
+            if (loop->prepare_block() != nullptr) {
+                loop_prepares.emplace(loop->prepare_block(), loop);
+            }
+        }
+    });
     luisa::vector<ConditionalBranchInst *> targets;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (bb == nullptr) { return; }
@@ -84,12 +99,26 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
             } else if (cond != nullptr && cond->isa<Constant>()) {
                 auto cc = static_cast<Constant *>(cond);
                 if (cc->type() != nullptr && cc->type()->is_bool()) {
+                    // A canonical structured Loop prepare may be simplified
+                    // to Branch(body) when true. Branch(merge) when false,
+                    // however, destroys the prepare/body/update contract
+                    // while leaving the owning LoopInst in place.
+                    auto prepare = loop_prepares.find(bb);
+                    if (!cc->as<bool>() &&
+                        prepare != loop_prepares.end() &&
+                        cb->true_block() ==
+                            prepare->second->body_block() &&
+                        cb->false_block() ==
+                            prepare->second->merge_block()) {
+                        return;
+                    }
                     targets.push_back(cb);
                 }
             }
         }
     });
     if (targets.empty()) return false;
+    auto any = false;
     for (auto cb : targets) {
         auto bb = cb->parent_block();
         if (bb == nullptr) { continue; }
@@ -115,13 +144,102 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
                 }
             }
         }
-        cb->remove_self();
+        auto removed = cb->remove_self();
         XIRBuilder b;
         b.set_insertion_point(bb);
-        b.br(taken);
+        auto *branch = b.br(taken);
+        for (auto *metadata : removed->metadata_list()) {
+            branch->metadata_list().push_front(metadata->clone());
+        }
         ++info.folded_constant_cond_br_count;
+        any = true;
     }
-    return true;
+    return any;
+}
+
+[[nodiscard]] static luisa::optional<
+    IndexedBranchTerminatorInstruction::case_value_type>
+evaluate_constant_indexed_branch(Value *value) noexcept {
+    if (value == nullptr || !value->isa<Constant>()) {
+        return luisa::nullopt;
+    }
+    auto *constant = static_cast<Constant *>(value);
+    switch (constant->type()->tag()) {
+        case Type::Tag::BOOL: return constant->as<bool>();
+        case Type::Tag::INT8:
+            return luisa::bit_cast<uint8_t>(constant->as<int8_t>());
+        case Type::Tag::UINT8: return constant->as<uint8_t>();
+        case Type::Tag::INT16:
+            return luisa::bit_cast<uint16_t>(constant->as<int16_t>());
+        case Type::Tag::UINT16: return constant->as<uint16_t>();
+        case Type::Tag::INT32:
+            return luisa::bit_cast<uint32_t>(constant->as<int32_t>());
+        case Type::Tag::UINT32: return constant->as<uint32_t>();
+        case Type::Tag::INT64:
+            return luisa::bit_cast<uint64_t>(constant->as<int64_t>());
+        case Type::Tag::UINT64: return constant->as<uint64_t>();
+        default: return luisa::nullopt;
+    }
+}
+
+static bool fold_constant_indexed_branch(
+    FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
+    luisa::vector<IndexedBranchInst *> candidates;
+    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        if (block != nullptr && block->is_terminated() &&
+            block->terminator()->isa<IndexedBranchInst>()) {
+            auto *indexed_branch =
+                static_cast<IndexedBranchInst *>(block->terminator());
+            if (evaluate_constant_indexed_branch(
+                    indexed_branch->value())) {
+                candidates.emplace_back(indexed_branch);
+            }
+        }
+    });
+    auto any = false;
+    for (auto *indexed_branch : candidates) {
+        auto *block = indexed_branch->parent_block();
+        auto selector =
+            evaluate_constant_indexed_branch(indexed_branch->value());
+        if (!selector) { continue; }
+        auto *taken = indexed_branch->default_block();
+        luisa::unordered_set<BasicBlock *> dropped;
+        dropped.emplace(indexed_branch->default_block());
+        for (auto i = 0u; i < indexed_branch->case_count(); i++) {
+            auto *target = indexed_branch->case_block(i);
+            dropped.emplace(target);
+            if (indexed_branch->case_value(i) == *selector) {
+                taken = target;
+            }
+        }
+        // A malformed raw branch may have no default or a null selected case.
+        // Do not replace it with Branch(nullptr), and do not claim progress:
+        // the caller's fixed-point loop must still terminate on rejected IR.
+        if (taken == nullptr) { continue; }
+        dropped.erase(taken);
+        for (auto *target : dropped) {
+            if (target == nullptr) { continue; }
+            for (auto *inst : target->instructions()) {
+                if (!inst->isa<PhiInst>()) { continue; }
+                auto *phi = static_cast<PhiInst *>(inst);
+                for (auto i = phi->incoming_count(); i-- > 0u;) {
+                    if (phi->incoming(i).block == block) {
+                        phi->remove_incoming(i);
+                    }
+                }
+            }
+        }
+        auto removed = indexed_branch->remove_self();
+        XIRBuilder b;
+        b.set_insertion_point(block);
+        auto *branch = b.br(taken);
+        for (auto *metadata : removed->metadata_list()) {
+            branch->metadata_list().push_front(metadata->clone());
+        }
+        ++info.folded_switch_count;
+        any = true;
+    }
+    return any;
 }
 
 template<typename Visit>
@@ -144,6 +262,7 @@ static void traverse_structural_successors(BasicBlock *block, Visit &&visit) noe
 }
 
 static luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(FunctionDefinition *def) noexcept {
+    CoroTransferGraph coro_transfers{def};
     luisa::unordered_set<BasicBlock *> reachable;
     luisa::vector<BasicBlock *> work;
     auto add = [&](BasicBlock *block) noexcept {
@@ -154,6 +273,7 @@ static luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(
         auto *block = work.back();
         work.pop_back();
         traverse_structural_successors(block, add);
+        coro_transfers.traverse_successors(block, add);
     }
     return reachable;
 }
@@ -273,11 +393,20 @@ static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &
             }
         }
     }
-    for (auto bb : dead) {
+    luisa::vector<ManagedPtr<Instruction>> removed_instructions;
+    for (auto *bb : dead) {
         while (!bb->instructions().empty()) {
-            bb->instructions().front()->remove_self();
+            removed_instructions.emplace_back(
+                bb->instructions().front()->remove_self());
         }
-        bb->remove_self();
+    }
+    // Terminator operands are now detached, so dead blocks no longer keep
+    // one another alive through CFG Use nodes. Retain the blocks until all
+    // of them have been unlinked for deterministic lifetime safety.
+    luisa::vector<ManagedPtr<BasicBlock>> removed_blocks;
+    removed_blocks.reserve(dead.size());
+    for (auto *bb : dead) {
+        removed_blocks.emplace_back(bb->remove_self());
         ++info.removed_unreachable_block_count;
     }
     return true;
@@ -302,53 +431,66 @@ static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &
 static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
     auto structural_targets = collect_structural_targets(def);
-    BasicBlock *candidate_block = nullptr;
-    BasicBlock *candidate_successor = nullptr;
+    ++info.straight_line_scan_count;
+    luisa::vector<BasicBlock *> blocks;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (candidate_block != nullptr) return;
-        auto term = bb->terminator();
-        if (term == nullptr || !term->isa<BranchInst>()) return;
-        auto br = static_cast<BranchInst *>(term);
-        auto succ = br->target_block();
-        if (succ == nullptr || succ == bb || succ == entry) return;
-        if (structural_targets.contains(bb) || structural_targets.contains(succ)) return;
-        if (block_has_phi(succ)) return;
-        if (has_phi_sensitive_successor(bb, succ)) return;
-        size_t pred_count = 0;
-        BasicBlock *pred = nullptr;
-        succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
-            ++pred_count;
-            pred = p;
-        });
-        if (pred_count == 1 && pred == bb) {
-            candidate_block = bb;
-            candidate_successor = succ;
+        blocks.emplace_back(bb);
+    });
+    auto changed = false;
+    luisa::unordered_set<BasicBlock *> removed;
+    // Snapshot entries are raw pointers. Retain detached blocks until every
+    // entry has been skipped or visited, so no worklist pointer can dangle.
+    luisa::vector<ManagedPtr<BasicBlock>> removed_blocks;
+    for (auto *block : blocks) {
+        if (removed.contains(block)) { continue; }
+        // Contract the maximal chain rooted at this physical-order block.
+        // A contraction changes no predecessor relation except replacing
+        // (block -> successor -> target) with (block -> target), so only the
+        // same source can become newly eligible. All other live sources were
+        // already present in `blocks` and are revalidated when visited.
+        for (;;) {
+            ++info.straight_line_block_visit_count;
+            auto *terminator = block->terminator();
+            if (terminator == nullptr ||
+                !terminator->isa<BranchInst>()) {
+                break;
+            }
+            auto *branch = static_cast<BranchInst *>(terminator);
+            auto *successor = branch->target_block();
+            if (successor == nullptr || successor == block ||
+                successor == entry || removed.contains(successor) ||
+                structural_targets.contains(block) ||
+                structural_targets.contains(successor) ||
+                block_has_phi(successor) ||
+                has_phi_sensitive_successor(block, successor)) {
+                break;
+            }
+            auto predecessor_count = size_t{0u};
+            BasicBlock *predecessor = nullptr;
+            successor->traverse_predecessors(
+                false, [&](BasicBlock *candidate) noexcept {
+                    ++predecessor_count;
+                    predecessor = candidate;
+                });
+            if (predecessor_count != 1u || predecessor != block) {
+                break;
+            }
+
+            branch->remove_self();
+            XIRBuilder builder;
+            builder.set_insertion_point(block);
+            while (!successor->instructions().empty()) {
+                auto instruction =
+                    successor->instructions().front()->remove_self();
+                builder.append(std::move(instruction));
+            }
+            removed.emplace(successor);
+            removed_blocks.emplace_back(successor->remove_self());
+            ++info.merged_straight_line_count;
+            changed = true;
         }
-    });
-    if (candidate_block == nullptr || candidate_successor == nullptr) return false;
-    auto bb = candidate_block;
-    auto succ = candidate_successor;
-    if (bb->terminator() == nullptr || !bb->terminator()->isa<BranchInst>()) return false;
-    auto br = static_cast<BranchInst *>(bb->terminator());
-    if (br->target_block() != succ || block_has_phi(succ)) return false;
-    if (has_phi_sensitive_successor(bb, succ)) return false;
-    size_t pred_count = 0;
-    BasicBlock *pred = nullptr;
-    succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
-        ++pred_count;
-        pred = p;
-    });
-    if (pred_count != 1 || pred != bb) return false;
-    br->remove_self();
-    XIRBuilder b;
-    b.set_insertion_point(bb);
-    while (!succ->instructions().empty()) {
-        auto inst = succ->instructions().front()->remove_self();
-        b.append(std::move(inst));
     }
-    succ->remove_self();
-    ++info.merged_straight_line_count;
-    return true;
+    return changed;
 }
 
 }// namespace detail
@@ -362,6 +504,10 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept {
     while (changed) {
         changed = false;
         if (detail::fold_constant_cond_br(def, info)) {
+            changed = true;
+            continue;
+        }
+        if (detail::fold_constant_indexed_branch(def, info)) {
             changed = true;
             continue;
         }
@@ -383,14 +529,18 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept {
 
 SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     SimplifyCFGInfo info;
-    if (module == nullptr) return info;
-    for (auto f : module->function_list()) {
-        auto sub = simplify_cfg_pass_run_on_function(f);
-        info.folded_constant_cond_br_count += sub.folded_constant_cond_br_count;
-        info.folded_switch_count += sub.folded_switch_count;
-        info.threaded_empty_block_count += sub.threaded_empty_block_count;
-        info.merged_straight_line_count += sub.merged_straight_line_count;
-        info.removed_unreachable_block_count += sub.removed_unreachable_block_count;
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            auto sub = simplify_cfg_pass_run_on_function(f);
+            info.folded_constant_cond_br_count += sub.folded_constant_cond_br_count;
+            info.folded_switch_count += sub.folded_switch_count;
+            info.threaded_empty_block_count += sub.threaded_empty_block_count;
+            info.merged_straight_line_count += sub.merged_straight_line_count;
+            info.removed_unreachable_block_count += sub.removed_unreachable_block_count;
+            info.straight_line_scan_count += sub.straight_line_scan_count;
+            info.straight_line_block_visit_count +=
+                sub.straight_line_block_visit_count;
+        }
     }
     if (report != nullptr) {
         report->set("folded_constant_cond_br", info.folded_constant_cond_br_count);
@@ -398,6 +548,10 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module, PassReport *repo
         report->set("threaded_empty_block", info.threaded_empty_block_count);
         report->set("merged_straight_line", info.merged_straight_line_count);
         report->set("removed_unreachable_block", info.removed_unreachable_block_count);
+        report->set("straight_line_scan", info.straight_line_scan_count);
+        report->set(
+            "straight_line_block_visit",
+            info.straight_line_block_visit_count);
     }
     return info;
 }

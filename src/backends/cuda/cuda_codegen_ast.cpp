@@ -631,6 +631,15 @@ void CUDACodegenAST::visit(const UnaryExpr *expr) {
 }
 
 void CUDACodegenAST::visit(const BinaryExpr *expr) {
+    if (expr->op() == BinaryOp::MOD &&
+        expr->type()->is_float_or_float_vector()) {
+        _scratch << "lc_fmod(";
+        expr->lhs()->accept(*this);
+        _scratch << ", ";
+        expr->rhs()->accept(*this);
+        _scratch << ")";
+        return;
+    }
     _scratch << "(";
     expr->lhs()->accept(*this);
     switch (expr->op()) {
@@ -909,6 +918,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::FRACT: _scratch << "lc_fract"; break;
         case CallOp::TRUNC: _scratch << "lc_trunc"; break;
         case CallOp::ROUND: _scratch << "lc_round"; break;
+        case CallOp::RINT: _scratch << "lc_rint"; break;
         case CallOp::FMA: _scratch << "lc_fma"; break;
         case CallOp::COPYSIGN: _scratch << "lc_copysign"; break;
         case CallOp::CROSS: _scratch << "lc_cross"; break;
@@ -1238,17 +1248,36 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: [[fallthrough]];
         case CallOp::ASYNC_COPY: {
-            // Emit: lc_pipeline_memcpy_async(dst, src, num * elem_bytes)
-            // AST args: [scope, dst, src, elem_bytes, num, stride, event]
-            _scratch << "lc_pipeline_memcpy_async(";
-            args[1]->accept(*this);  // dst (shared memory pointer)
-            _scratch << ", ";
-            args[2]->accept(*this);  // src (global memory pointer)
+            // Emit: lc_pipeline_memcpy_async(&dst, (void*)src, num * elem_bytes)
+            // AST args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]
+            // dst is an lvalue of the shared-memory destination; taking its
+            // address directly (&shared[i]) keeps the shared-memory provenance
+            // visible to NVVM/NVRTC, which is required for cp.async. src is a
+            // 64-bit device address of the global source.
+            luisa::fixed_vector<const Expression *, 8> chain;
+            {
+                luisa::fixed_vector<const Expression *, 8> reversed;
+                const Expression *cur = args[1];
+                while (cur->tag() == Expression::Tag::ACCESS) {
+                    auto acc = static_cast<const AccessExpr *>(cur);
+                    reversed.emplace_back(acc->index());
+                    cur = acc->range();
+                }
+                chain.emplace_back(cur);
+                for (auto it = reversed.rbegin();
+                     it != reversed.rend(); ++it) {
+                    chain.emplace_back(*it);
+                }
+            }
+            _scratch << "lc_pipeline_memcpy_async(&";
+            _emit_access_chain(chain);  // &(s2[i]) shared destination
+            _scratch << ", (void*)";
+            args[2]->accept(*this);     // src (global memory address)
             _scratch << ", ";
             // size = num * elem_bytes
-            args[4]->accept(*this);  // num
+            args[4]->accept(*this);     // num
             _scratch << " * ";
-            args[3]->accept(*this);  // elem_bytes
+            args[3]->accept(*this);     // elem_bytes
             _scratch << ")";
             return;
         }

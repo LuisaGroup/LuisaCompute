@@ -9,12 +9,6 @@
 #include <pmmintrin.h>
 #endif
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#include <luisa/ir/ast2ir.h>
-#include <luisa/ir/transform.h>
-#endif
-
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
@@ -35,6 +29,7 @@
 #include "fallback_accel.h"
 #include "fallback_bindless_array.h"
 #include "fallback_shader.h"
+#include "fallback_codegen.h"
 #include "fallback_buffer.h"
 #include "fallback_event.h"
 #include "fallback_swapchain.h"
@@ -44,8 +39,19 @@
 
 namespace luisa::compute::fallback {
 
-FallbackDevice::FallbackDevice(Context &&ctx) noexcept
+FallbackDevice::FallbackDevice(Context &&ctx, const DeviceConfig *config) noexcept
     : DeviceInterface{std::move(ctx)} {
+
+    if (config == nullptr || config->binary_io == nullptr) {
+        auto use_lmdb =
+            config != nullptr && config->use_lmdb;
+        _default_io =
+            luisa::make_unique<DefaultBinaryIO>(
+                context(), false, use_lmdb);
+        _io = _default_io.get();
+    } else {
+        _io = config->binary_io;
+    }
 
 #if defined(LUISA_ARCH_X86_64)
     _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
@@ -136,6 +142,9 @@ void FallbackDevice::present_display_in_stream(uint64_t stream_handle,
 uint FallbackDevice::compute_warp_size() const noexcept {
     return 1;
 }
+size_t FallbackDevice::compute_max_shared_memory_size() const noexcept {
+    return max_shared_memory_size;
+}
 uint64_t FallbackDevice::memory_granularity() const noexcept {
     return 1;
 }
@@ -154,15 +163,6 @@ BufferCreationInfo FallbackDevice::create_buffer(const Type *element, size_t ele
     info.handle = reinterpret_cast<uint64_t>(buffer);
     info.native_handle = reinterpret_cast<void *>(buffer->data());
     return info;
-}
-
-BufferCreationInfo FallbackDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept {
-#ifdef LUISA_ENABLE_IR
-    auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count, external_memory);
-#else
-    LUISA_ERROR_WITH_LOCATION("LuisaCompute's fallback backend is compiled without IR support.");
-#endif
 }
 
 ResourceCreationInfo FallbackDevice::create_texture(PixelFormat format, uint dimension,
@@ -219,16 +219,6 @@ ShaderCreationInfo FallbackDevice::create_shader(const ShaderOption &option, Fun
         LUISA_ERROR("Fallback backend only support warp size 1.");
     }
     Clock clk;
-    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
-#ifdef LUISA_ENABLE_IR
-        auto ir = AST2IR::build_kernel(kernel);
-        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
-        transform_ir_kernel_module_auto(ir->get());
-        return create_shader(option, ir->get());
-#else
-        LUISA_ERROR_WITH_LOCATION("Please enable IR for autodiff support");
-#endif
-    }
     auto shader = luisa::new_with_allocator<FallbackShader>(this, option, kernel);
     LUISA_VERBOSE("Shader compilation took {} ms.", clk.toc());
     ShaderCreationInfo info{};
@@ -236,22 +226,6 @@ ShaderCreationInfo FallbackDevice::create_shader(const ShaderOption &option, Fun
     info.native_handle = reinterpret_cast<void *>(shader->native_handle());
     info.block_size = kernel.block_size();
     return info;
-}
-
-ShaderCreationInfo FallbackDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-#ifdef LUISA_ENABLE_IR
-    Clock clk;
-    auto function = IR2AST::build(kernel);
-    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
-    return create_shader(option, function->function());
-#else
-    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
-    return {};
-#endif
-}
-
-ShaderCreationInfo FallbackDevice::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
-    return DeviceInterface::create_shader(option, kernel);
 }
 
 ShaderCreationInfo FallbackDevice::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {
@@ -404,8 +378,10 @@ ResourceCreationInfo FallbackDevice::create_event() noexcept {
 }// namespace luisa::compute::fallback
 
 LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
-                                                         const luisa::compute::DeviceConfig *) noexcept {
-    return luisa::new_with_allocator<luisa::compute::fallback::FallbackDevice>(std::move(ctx));
+                                                         const luisa::compute::DeviceConfig *config) noexcept {
+    return luisa::new_with_allocator<
+        luisa::compute::fallback::FallbackDevice>(
+        std::move(ctx), config);
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {

@@ -18,7 +18,7 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/passes/destructure_cfg.h>
-#include <luisa/xir/passes/lower_switch.h>
+#include <luisa/xir/passes/unused_callable_removal.h>
 
 namespace lc::spirv {
 
@@ -64,7 +64,9 @@ struct StructuredInventory {
 
 [[nodiscard]] bool call_requires_specialization(
     const xir::CallInst *call, const xir::Function *callee,
-    const SpirvFunctionArgumentAnalysisMap &usage) noexcept {
+    const SpirvFunctionArgumentAnalysisMap &usage,
+    const SpirvReadonlyResourceOriginMap
+        &readonly_resource_origins) noexcept {
     if (call == nullptr || callee == nullptr ||
         call->argument_count() != callee->arguments().count_size()) {
         return true;
@@ -83,7 +85,10 @@ struct StructuredInventory {
                 usage, callee, formal);
             if (argument_usage == Usage::NONE) { continue; }
             if (type->is_buffer() || type->is_bindless_array()) {
-                return true;
+                if (!readonly_resource_origins.contains(formal)) {
+                    return true;
+                }
+                continue;
             }
             if (type->is_accel() &&
                 (usage_contains(argument_usage, Usage::WRITE) ||
@@ -106,29 +111,29 @@ struct StructuredInventory {
 }
 
 [[nodiscard]] luisa::vector<PointerCall> collect_pointer_calls(
-    xir::Module *module,
-    const SpirvFunctionArgumentAnalysisMap &usage) noexcept {
+    luisa::span<const xir::CallInst *const> call_sites,
+    const SpirvFunctionArgumentAnalysisMap &usage,
+    const SpirvReadonlyResourceOriginMap
+        &readonly_resource_origins) noexcept {
     luisa::vector<PointerCall> calls;
-    for (auto *function : module->function_list()) {
-        auto *definition = function->definition();
-        if (definition == nullptr) { continue; }
-        auto closure = plan_spirv_codegen_structural_closure(definition);
-        if (!closure.succeeded()) { continue; }
-        for (auto *const_block : closure.blocks) {
-            auto *block = const_cast<xir::BasicBlock *>(const_block);
-            for (auto *instruction : block->instructions()) {
-                if (!instruction->isa<xir::CallInst>()) { continue; }
-                auto *call = static_cast<xir::CallInst *>(instruction);
-                auto *callee = call->callee();
-                if (callee == nullptr || callee->definition() == nullptr ||
-                    callee->derived_function_tag() !=
-                        xir::DerivedFunctionTag::CALLABLE) {
-                    continue;
-                }
-                if (call_requires_specialization(call, callee, usage)) {
-                    calls.emplace_back(PointerCall{call, callee});
-                }
-            }
+    calls.reserve(call_sites.size());
+    for (auto *const_call : call_sites) {
+        auto *call = const_cast<xir::CallInst *>(const_call);
+        if (call == nullptr ||
+            !usage.contains(call->parent_function())) {
+            continue;
+        }
+        auto *callee = call->callee();
+        if (callee == nullptr || !usage.contains(callee) ||
+            callee->definition() == nullptr ||
+            callee->derived_function_tag() !=
+                xir::DerivedFunctionTag::CALLABLE) {
+            continue;
+        }
+        if (call_requires_specialization(
+                call, callee, usage,
+                readonly_resource_origins)) {
+            calls.emplace_back(PointerCall{call, callee});
         }
     }
     return calls;
@@ -165,13 +170,6 @@ struct StructuredInventory {
         }
     }
     return inventory;
-}
-
-[[nodiscard]] bool switches_are_lowerable(
-    xir::Function *function) noexcept {
-    return function != nullptr && function->definition() != nullptr &&
-           xir::lower_switch_pass_preflight_function(function)
-               .succeeded();
 }
 
 [[nodiscard]] bool destructure_boundary_is_valid(
@@ -233,7 +231,9 @@ struct StructuredInventory {
 }
 
 [[nodiscard]] luisa::unordered_set<xir::Function *>
-find_recursive_callables(xir::Module *module) noexcept {
+find_recursive_callables(
+    xir::Module *module,
+    luisa::span<const xir::CallInst *const> call_sites) noexcept {
     luisa::vector<xir::Function *> callables;
     luisa::unordered_set<xir::Function *> callable_set;
     for (auto *function : module->function_list()) {
@@ -244,20 +244,14 @@ find_recursive_callables(xir::Module *module) noexcept {
         }
     }
     luisa::unordered_map<xir::Function *, luisa::vector<xir::Function *>> edges;
-    for (auto *function : callables) {
-        auto closure = plan_spirv_codegen_structural_closure(
-            function->definition());
-        if (!closure.succeeded()) { continue; }
-        for (auto *block : closure.blocks) {
-            block->traverse_instructions(
-                [&](const xir::Instruction *instruction) noexcept {
-                    if (!instruction->isa<xir::CallInst>()) { return; }
-                    auto *callee = const_cast<xir::Function *>(
-                        static_cast<const xir::CallInst *>(instruction)->callee());
-                    if (callable_set.contains(callee)) {
-                        edges[function].emplace_back(callee);
-                    }
-                });
+    for (auto *call : call_sites) {
+        if (call == nullptr) { continue; }
+        auto *caller = const_cast<xir::Function *>(
+            call->parent_function());
+        auto *callee = const_cast<xir::Function *>(call->callee());
+        if (callable_set.contains(caller) &&
+            callable_set.contains(callee)) {
+            edges[caller].emplace_back(callee);
         }
     }
     luisa::unordered_set<xir::Function *> recursive;
@@ -289,8 +283,62 @@ void accumulate_inline_info(
         increment.skipped_recursive_callable_count;
     total.skipped_structured_call_count +=
         increment.skipped_structured_call_count;
+    total.skipped_constrained_call_count +=
+        increment.skipped_constrained_call_count;
+    total.skipped_metadata_call_count +=
+        increment.skipped_metadata_call_count;
+    total.consumed_call_site_diagnostic_metadata_count +=
+        increment.consumed_call_site_diagnostic_metadata_count;
+    total.skipped_declaration_call_count +=
+        increment.skipped_declaration_call_count;
     total.rejected_malformed_call_count +=
         increment.rejected_malformed_call_count;
+    total.skipped_costly_callable_count +=
+        increment.skipped_costly_callable_count;
+    total.call_site_summary_function_count +=
+        increment.call_site_summary_function_count;
+    total.call_site_summary_instruction_scan_count +=
+        increment.call_site_summary_instruction_scan_count;
+    total.call_site_cached_apply_count +=
+        increment.call_site_cached_apply_count;
+    total.call_site_revalidated_apply_count +=
+        increment.call_site_revalidated_apply_count;
+    total.call_site_clone_layout_function_count +=
+        increment.call_site_clone_layout_function_count;
+    total.call_site_clone_layout_value_count +=
+        increment.call_site_clone_layout_value_count;
+    total.call_site_dense_resolver_apply_count +=
+        increment.call_site_dense_resolver_apply_count;
+    total.call_site_dense_resolver_fallback_count +=
+        increment.call_site_dense_resolver_fallback_count;
+    total.inline_pass_summary_function_count +=
+        increment.inline_pass_summary_function_count;
+    total.inline_pass_summary_instruction_scan_count +=
+        increment.inline_pass_summary_instruction_scan_count;
+    total.inline_pass_clone_layout_function_count +=
+        increment.inline_pass_clone_layout_function_count;
+    total.inline_pass_clone_layout_value_count +=
+        increment.inline_pass_clone_layout_value_count;
+    total.inline_pass_dense_resolver_apply_count +=
+        increment.inline_pass_dense_resolver_apply_count;
+    total.inline_pass_dense_resolver_fallback_count +=
+        increment.inline_pass_dense_resolver_fallback_count;
+    total.inline_pass_caller_barrier_function_count +=
+        increment.inline_pass_caller_barrier_function_count;
+    total.inline_pass_caller_barrier_instruction_scan_count +=
+        increment.inline_pass_caller_barrier_instruction_scan_count;
+    total.inline_pass_caller_barrier_cache_hit_count +=
+        increment.inline_pass_caller_barrier_cache_hit_count;
+    total.recursion_analysis_function_count +=
+        increment.recursion_analysis_function_count;
+    total.recursion_analysis_call_use_visit_count +=
+        increment.recursion_analysis_call_use_visit_count;
+    total.recursion_analysis_edge_count +=
+        increment.recursion_analysis_edge_count;
+    total.recursion_analysis_vertex_visit_count +=
+        increment.recursion_analysis_vertex_visit_count;
+    total.recursion_analysis_edge_visit_count +=
+        increment.recursion_analysis_edge_visit_count;
 }
 
 }// namespace
@@ -343,14 +391,50 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
         return result;
     }
 
+    struct AnalysisSnapshot {
+        SpirvFunctionArgumentAnalysisMap usage;
+        SpirvReadonlyResourceOriginMap readonly_resource_origins;
+        SpirvFunctionCallSiteList call_sites;
+    };
+    auto analyze_argument_flow = [&]() noexcept {
+        SpirvFunctionArgumentAnalysisStatistics statistics;
+        AnalysisSnapshot snapshot;
+        snapshot.usage = analyze_spirv_function_argument_usage(
+            module, &statistics,
+            {.kernel_reachable_only = true},
+            &snapshot.call_sites);
+        snapshot.readonly_resource_origins =
+            analyze_spirv_readonly_resource_origins_from_call_sites(
+                snapshot.usage,
+                luisa::span{snapshot.call_sites});
+        ++result.argument_usage_analysis_count;
+        result.indexed_call_site_count +=
+            snapshot.call_sites.size();
+        result.argument_usage_structural_closure_count +=
+            statistics.structural_closure_count;
+        result.argument_usage_instruction_scan_count +=
+            statistics.instruction_scan_count;
+        result.argument_usage_call_dependency_count +=
+            statistics.call_dependency_count;
+        result.argument_usage_worklist_pop_count +=
+            statistics.worklist_pop_count;
+        result.argument_usage_dependency_visit_count +=
+            statistics.dependency_visit_count;
+        return snapshot;
+    };
+
     luisa::unordered_set<xir::Function *> blocking_functions_seen;
     for (;;) {
-        auto usage = analyze_spirv_function_argument_usage(module);
-        auto pointer_calls = collect_pointer_calls(module, usage);
+        auto analysis = analyze_argument_flow();
+        auto pointer_calls = collect_pointer_calls(
+            luisa::span{analysis.call_sites},
+            analysis.usage,
+            analysis.readonly_resource_origins);
         if (pointer_calls.empty()) { break; }
         result.planned_pointer_call_count += pointer_calls.size();
 
-        auto recursive = find_recursive_callables(module);
+        auto recursive = find_recursive_callables(
+            module, luisa::span{analysis.call_sites});
         luisa::unordered_set<xir::Function *> recursive_callees;
         auto malformed_count = size_t{0u};
         for (auto &&pointer_call : pointer_calls) {
@@ -397,7 +481,6 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
 
         luisa::vector<xir::Function *> blocking_functions;
         auto unsupported_count = size_t{0u};
-        auto rejected_switch_count = size_t{0u};
         auto rejected_destructure_count = size_t{0u};
         for (auto *function : module->function_list()) {
             if (!blocking_set.contains(function)) { continue; }
@@ -406,8 +489,6 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             auto inventory =
                 inspect_structured_control_flow(function->definition());
             unsupported_count += inventory.unsupported_count;
-            rejected_switch_count +=
-                switches_are_lowerable(function) ? 0u : 1u;
             rejected_destructure_count +=
                 destructure_boundary_is_valid(function) ? 0u : 1u;
         }
@@ -423,17 +504,6 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
                 unsupported_count, blocking_functions.size());
             return result;
         }
-        if (rejected_switch_count != 0u) {
-            result.status =
-                SpirvPointerLegalizationStatus::SWITCH_LOWERING_FAILED;
-            result.remaining_pointer_call_count = pointer_calls.size();
-            result.diagnostic = luisa::format(
-                "SPIR-V pointer-argument fallback rejected {} blocking "
-                "function(s) during atomic switch preflight; the module was "
-                "left unchanged.",
-                rejected_switch_count);
-            return result;
-        }
         if (rejected_destructure_count != 0u) {
             result.status =
                 SpirvPointerLegalizationStatus::DESTRUCTURE_FAILED;
@@ -447,29 +517,28 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
         }
 
         for (auto *function : blocking_functions) {
-            auto lowered =
-                xir::lower_switch_pass_run_on_function(function);
-            result.lowered_switch_count += lowered.lowered_switch_count;
-            LUISA_ASSERT(lowered.succeeded(),
-                         "Switch lowering failed after successful preflight.");
             auto destructured =
                 xir::destructure_cfg_pass_run_on_function(function);
+            result.destructured_switch_count +=
+                destructured.destructured_switch_count;
             if (!destructured.succeeded()) {
                 result.status =
                     SpirvPointerLegalizationStatus::DESTRUCTURE_FAILED;
+                auto remaining = analyze_argument_flow();
                 result.remaining_pointer_call_count =
                     collect_pointer_calls(
-                        module,
-                        analyze_spirv_function_argument_usage(module))
+                        luisa::span{remaining.call_sites},
+                        remaining.usage,
+                        remaining.readonly_resource_origins)
                         .size();
                 result.diagnostic = luisa::format(
                     "SPIR-V pointer-argument fallback could not destructure a "
-                    "switch-lowered function (errors={}, leaked_blocks={}).",
+                    "blocking function (errors={}, leaked_blocks={}).",
                     destructured.error_count,
                     destructured.leaked_block_count);
                 return result;
             }
-            result.lowered_blocking_function_count++;
+            result.destructured_blocking_function_count++;
         }
 
         luisa::vector<xir::CallInst *> call_sites;
@@ -478,27 +547,51 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             call_sites.emplace_back(pointer_call.call);
         }
         auto inline_info = xir::inline_call_sites_pass_run_on_module(
-            module, luisa::span{call_sites});
+            module, luisa::span{call_sites},
+            {.consume_call_site_diagnostic_metadata = true});
         accumulate_inline_info(result.inline_info, inline_info);
         if (inline_info.inlined_call_count == 0u ||
             inline_info.skipped_structured_call_count != 0u ||
+            inline_info.skipped_constrained_call_count != 0u ||
+            inline_info.skipped_metadata_call_count != 0u ||
+            inline_info.skipped_declaration_call_count != 0u ||
             inline_info.rejected_malformed_call_count != 0u ||
             inline_info.skipped_recursive_callable_count != 0u) {
-            auto remaining_usage =
-                analyze_spirv_function_argument_usage(module);
+            auto remaining = analyze_argument_flow();
             result.remaining_pointer_call_count =
-                collect_pointer_calls(module, remaining_usage).size();
+                collect_pointer_calls(
+                    luisa::span{remaining.call_sites},
+                    remaining.usage,
+                    remaining.readonly_resource_origins)
+                    .size();
             result.status =
                 SpirvPointerLegalizationStatus::INLINE_RETRY_FAILED;
             result.diagnostic = luisa::format(
                 "SPIR-V pointer-argument inline retry failed "
-                "(remaining={}, structured={}, malformed={}, recursive={}).",
+                "(remaining={}, structured={}, malformed={}, recursive={}, "
+                "constrained={}, metadata={}, declaration={}).",
                 result.remaining_pointer_call_count,
                 result.inline_info.skipped_structured_call_count,
                 result.inline_info.rejected_malformed_call_count,
-                result.inline_info.skipped_recursive_callable_count);
+                result.inline_info.skipped_recursive_callable_count,
+                result.inline_info.skipped_constrained_call_count,
+                result.inline_info.skipped_metadata_call_count,
+                result.inline_info.skipped_declaration_call_count);
             return result;
         }
+
+        // Pointer legalization is a fixed point over the semantic call graph
+        // reachable from kernel roots. The argument/resource analyses above
+        // explicitly project onto that domain, including when an orphan block
+        // still owns a physical function operand. Inlining a wrapper can then
+        // drop the last physical use of a callable that has left the semantic
+        // domain. Remove such definitions at the mutation boundary so later
+        // whole-module passes and SPIR-V emission observe the same domain, and
+        // so subsequent fixed-point iterations need not rescan dead bodies.
+        auto pruned =
+            xir::unused_callable_removal_pass_run_on_module(module);
+        result.pruned_unreachable_callable_count +=
+            pruned.removed_callable_count;
     }
     result.remaining_pointer_call_count = 0u;
     return result;

@@ -36,6 +36,8 @@ private:
     hipStream_t _stream{};
     HIPStageBufferPool _upload_pool;
     HIPStageBufferPool _download_pool;
+    hipDeviceptr_t _rt_scratch_buffer{};
+    size_t _rt_scratch_capacity{};
     std::thread _callback_thread;
     std::mutex _callback_mutex;
     std::condition_variable _callback_cv;
@@ -65,6 +67,9 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _stream; }
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
     [[nodiscard]] auto download_pool() noexcept { return &_download_pool; }
+    // Temporary acceleration-structure builders on one stream are totally
+    // ordered, so they share one allocation whose lifetime is the stream.
+    [[nodiscard]] hipDeviceptr_t rt_scratch_buffer(size_t required_size) noexcept;
     void dispatch(CommandList &&command_list) noexcept;
     void synchronize() noexcept;
     void callback(CallbackContainer &&callbacks) noexcept;

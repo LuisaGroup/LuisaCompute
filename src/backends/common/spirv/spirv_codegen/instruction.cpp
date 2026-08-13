@@ -3,6 +3,7 @@
 #include "arithmetic_support.h"
 #include "texture_sampling.h"
 #include <luisa/core/logging.h>
+#include <luisa/xir/passes/integer_alignment.h>
 #include <SPIRV/GLSL.std.450.h>
 #include <algorithm>
 #include <limits>
@@ -279,6 +280,382 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         return _builder.createUnaryOp(
             spv::Op::OpBitcast, type, copied);
     };
+    auto strict_float32_constant = [&](double value) noexcept {
+        auto scalar = make_float_scalar_constant(elem, value);
+        return is_scalar ?
+                   scalar :
+                   _builder.smearScalar(
+                       spv::NoPrecision,
+                       scalar,
+                       type);
+    };
+    auto strict_float32_mul =
+        [&](spv::Id lhs, spv::Id rhs) noexcept {
+            return mark_no_contraction(
+                _builder.createBinOp(
+                    spv::Op::OpFMul,
+                    type,
+                    lhs,
+                    rhs));
+        };
+    auto strict_float32_add =
+        [&](spv::Id lhs, spv::Id rhs) noexcept {
+            return mark_no_contraction(
+                _builder.createBinOp(
+                    spv::Op::OpFAdd,
+                    type,
+                    lhs,
+                    rhs));
+        };
+    auto strict_float32_sub =
+        [&](spv::Id lhs, spv::Id rhs) noexcept {
+            return mark_no_contraction(
+                _builder.createBinOp(
+                    spv::Op::OpFSub,
+                    type,
+                    lhs,
+                    rhs));
+        };
+    auto exact_float32_fmod =
+        [&](spv::Id x, spv::Id y) noexcept {
+            LUISA_ASSERT(
+                elem->is_float32() &&
+                    (t->is_scalar() || t->is_vector()),
+                "Exact SPIR-V fmod requires float32 scalar/vector operands.");
+
+            // For a finite binary32 value, write the magnitude as
+            //
+            //   significand * 2^(scale - 149),
+            //
+            // where scale is max(biased_exponent - 1, 0). If |x| >= |y|,
+            // the exact remainder is therefore
+            //
+            //   ((sig_x * 2^(scale_x - scale_y)) mod sig_y)
+            //       * 2^(scale_y - 149).
+            //
+            // Compute the integer modulus with exponentiation by squaring.
+            // The significands have at most 24 bits, so every intermediate
+            // product fits in 48 bits. This avoids forming the enormous,
+            // rounded floating-point quotient used by common OpFRem lowering.
+            auto uint_scalar_type = _builder.makeUintType(32);
+            auto uint_type = is_scalar ?
+                                 uint_scalar_type :
+                                 _builder.makeVectorType(
+                                     uint_scalar_type, t->dimension());
+            auto wide_uint_scalar_type = _builder.makeUintType(64);
+            auto wide_uint_type = is_scalar ?
+                                      wide_uint_scalar_type :
+                                      _builder.makeVectorType(
+                                          wide_uint_scalar_type,
+                                          t->dimension());
+            auto bool_type = is_scalar ?
+                                 _builder.makeBoolType() :
+                                 _builder.makeVectorType(
+                                     _builder.makeBoolType(),
+                                     t->dimension());
+            auto make_u32 = [&](uint32_t value) noexcept {
+                auto scalar = _builder.makeIntConstant(
+                    uint_scalar_type, value, false);
+                return is_scalar ?
+                           scalar :
+                           _builder.smearScalar(
+                               spv::NoPrecision, scalar, uint_type);
+            };
+            auto make_u64 = [&](uint64_t value) noexcept {
+                auto scalar = _builder.makeInt64Constant(
+                    wide_uint_scalar_type, value, false);
+                return is_scalar ?
+                           scalar :
+                           _builder.smearScalar(
+                               spv::NoPrecision, scalar, wide_uint_type);
+            };
+            auto select_u32 = [&](spv::Id condition,
+                                  spv::Id when_true,
+                                  spv::Id when_false) noexcept {
+                return _builder.createTriOp(
+                    spv::Op::OpSelect, uint_type,
+                    condition, when_true, when_false);
+            };
+            auto select_u64 = [&](spv::Id condition,
+                                  spv::Id when_true,
+                                  spv::Id when_false) noexcept {
+                return _builder.createTriOp(
+                    spv::Op::OpSelect, wide_uint_type,
+                    condition, when_true, when_false);
+            };
+
+            auto zero = make_u32(0u);
+            auto one = make_u32(1u);
+            auto exponent_mask = make_u32(0xffu);
+            auto fraction_mask = make_u32(0x007fffffu);
+            auto magnitude_mask = make_u32(0x7fffffffu);
+            auto sign_mask = make_u32(0x80000000u);
+            auto hidden_bit = make_u32(0x00800000u);
+            auto infinity_bits = make_u32(0x7f800000u);
+            auto quiet_nan_bits = make_u32(0x7fc00000u);
+
+            auto x_bits = _builder.createUnaryOp(
+                spv::Op::OpBitcast, uint_type, x);
+            auto y_bits = _builder.createUnaryOp(
+                spv::Op::OpBitcast, uint_type, y);
+            auto x_magnitude = _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, uint_type,
+                x_bits, magnitude_mask);
+            auto y_magnitude = _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, uint_type,
+                y_bits, magnitude_mask);
+            auto x_exponent = _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpShiftRightLogical, uint_type,
+                    x_magnitude, make_u32(23u)),
+                exponent_mask);
+            auto y_exponent = _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpShiftRightLogical, uint_type,
+                    y_magnitude, make_u32(23u)),
+                exponent_mask);
+            auto x_is_normal = _builder.createBinOp(
+                spv::Op::OpINotEqual, bool_type, x_exponent, zero);
+            auto y_is_normal = _builder.createBinOp(
+                spv::Op::OpINotEqual, bool_type, y_exponent, zero);
+            auto x_significand = _builder.createBinOp(
+                spv::Op::OpBitwiseOr, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpBitwiseAnd, uint_type,
+                    x_magnitude, fraction_mask),
+                select_u32(x_is_normal, hidden_bit, zero));
+            auto y_significand = _builder.createBinOp(
+                spv::Op::OpBitwiseOr, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpBitwiseAnd, uint_type,
+                    y_magnitude, fraction_mask),
+                select_u32(y_is_normal, hidden_bit, zero));
+            auto x_scale = select_u32(
+                x_is_normal,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type, x_exponent, one),
+                zero);
+            auto y_scale = select_u32(
+                y_is_normal,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type, y_exponent, one),
+                zero);
+            auto scales_ordered = _builder.createBinOp(
+                spv::Op::OpUGreaterThanEqual, bool_type,
+                x_scale, y_scale);
+            auto exponent_delta = select_u32(
+                scales_ordered,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type, x_scale, y_scale),
+                zero);
+
+            auto y_significand_is_zero = _builder.createBinOp(
+                spv::Op::OpIEqual, bool_type, y_significand, zero);
+            auto safe_y_significand = select_u32(
+                y_significand_is_zero, one, y_significand);
+            auto wide_x_significand = _builder.createUnaryOp(
+                spv::Op::OpUConvert, wide_uint_type, x_significand);
+            auto wide_y_significand = _builder.createUnaryOp(
+                spv::Op::OpUConvert, wide_uint_type,
+                safe_y_significand);
+            auto remainder = _builder.createBinOp(
+                spv::Op::OpUMod, wide_uint_type,
+                wide_x_significand, wide_y_significand);
+            auto factor = _builder.createBinOp(
+                spv::Op::OpUMod, wide_uint_type,
+                make_u64(2u), wide_y_significand);
+            for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                auto bit_mask = make_u32(1u << bit);
+                auto bit_set = _builder.createBinOp(
+                    spv::Op::OpINotEqual, bool_type,
+                    _builder.createBinOp(
+                        spv::Op::OpBitwiseAnd, uint_type,
+                        exponent_delta, bit_mask),
+                    zero);
+                auto multiplied = _builder.createBinOp(
+                    spv::Op::OpIMul, wide_uint_type,
+                    remainder, factor);
+                auto reduced = _builder.createBinOp(
+                    spv::Op::OpUMod, wide_uint_type,
+                    multiplied, wide_y_significand);
+                remainder = select_u64(bit_set, reduced, remainder);
+                if (bit + 1u < 8u) {
+                    factor = _builder.createBinOp(
+                        spv::Op::OpUMod, wide_uint_type,
+                        _builder.createBinOp(
+                            spv::Op::OpIMul, wide_uint_type,
+                            factor, factor),
+                        wide_y_significand);
+                }
+            }
+            auto remainder_bits = _builder.createUnaryOp(
+                spv::Op::OpUConvert, uint_type, remainder);
+
+            // Re-encode remainder * 2^(scale_y - 149) without performing a
+            // floating-point operation, so subnormal results are preserved.
+            auto remainder_is_zero = _builder.createBinOp(
+                spv::Op::OpIEqual, bool_type, remainder_bits, zero);
+            auto remainder_msb = _builder.createBuiltinCall(
+                uint_type, _glsl450, GLSLstd450FindUMsb,
+                {remainder_bits});
+            auto safe_msb = select_u32(
+                remainder_is_zero, zero, remainder_msb);
+            auto exponent_sum = _builder.createBinOp(
+                spv::Op::OpIAdd, uint_type,
+                safe_msb, y_exponent);
+            auto normal_result = _builder.createBinOp(
+                spv::Op::OpLogicalAnd, bool_type,
+                _builder.createUnaryOp(
+                    spv::Op::OpLogicalNot, bool_type,
+                    remainder_is_zero),
+                _builder.createBinOp(
+                    spv::Op::OpUGreaterThanEqual, bool_type,
+                    exponent_sum, make_u32(24u)));
+            auto normalized_significand = _builder.createBinOp(
+                spv::Op::OpShiftLeftLogical, uint_type,
+                remainder_bits,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type,
+                    make_u32(23u), safe_msb));
+            auto normal_bits = _builder.createBinOp(
+                spv::Op::OpBitwiseOr, uint_type,
+                _builder.createBinOp(
+                    spv::Op::OpShiftLeftLogical, uint_type,
+                    _builder.createBinOp(
+                        spv::Op::OpISub, uint_type,
+                        exponent_sum, make_u32(23u)),
+                    make_u32(23u)),
+                _builder.createBinOp(
+                    spv::Op::OpBitwiseAnd, uint_type,
+                    normalized_significand, fraction_mask));
+            auto subnormal_shift = select_u32(
+                y_is_normal,
+                _builder.createBinOp(
+                    spv::Op::OpISub, uint_type, y_exponent, one),
+                zero);
+            auto clamped_subnormal_shift = select_u32(
+                _builder.createBinOp(
+                    spv::Op::OpUGreaterThan, bool_type,
+                    subnormal_shift, make_u32(23u)),
+                make_u32(23u), subnormal_shift);
+            auto subnormal_bits = _builder.createBinOp(
+                spv::Op::OpShiftLeftLogical, uint_type,
+                remainder_bits, clamped_subnormal_shift);
+            auto magnitude_result = select_u32(
+                normal_result, normal_bits, subnormal_bits);
+            auto signed_result = _builder.createBinOp(
+                spv::Op::OpBitwiseOr, uint_type,
+                magnitude_result,
+                _builder.createBinOp(
+                    spv::Op::OpBitwiseAnd, uint_type,
+                    x_bits, sign_mask));
+
+            auto invalid = _builder.createBinOp(
+                spv::Op::OpLogicalOr, bool_type,
+                _builder.createBinOp(
+                    spv::Op::OpUGreaterThanEqual, bool_type,
+                    x_magnitude, infinity_bits),
+                _builder.createBinOp(
+                    spv::Op::OpLogicalOr, bool_type,
+                    _builder.createBinOp(
+                        spv::Op::OpUGreaterThan, bool_type,
+                        y_magnitude, infinity_bits),
+                    _builder.createBinOp(
+                        spv::Op::OpIEqual, bool_type,
+                        y_magnitude, zero)));
+            auto compute_remainder = _builder.createBinOp(
+                spv::Op::OpLogicalAnd, bool_type,
+                _builder.createUnaryOp(
+                    spv::Op::OpLogicalNot, bool_type, invalid),
+                _builder.createBinOp(
+                    spv::Op::OpLogicalAnd, bool_type,
+                    _builder.createBinOp(
+                        spv::Op::OpULessThan, bool_type,
+                        y_magnitude, infinity_bits),
+                    _builder.createBinOp(
+                        spv::Op::OpUGreaterThanEqual, bool_type,
+                        x_magnitude, y_magnitude)));
+            auto result_bits = select_u32(
+                invalid,
+                quiet_nan_bits,
+                select_u32(
+                    compute_remainder, signed_result, x_bits));
+            return _builder.createUnaryOp(
+                spv::Op::OpBitcast, type, result_bits);
+        };
+    auto strict_float32_asin = [&](spv::Id x) noexcept {
+        LUISA_ASSERT(
+            elem->is_float32(),
+            "Strict SPIR-V asin requires float32 operands.");
+        auto magnitude = glsl(GLSLstd450FAbs, x);
+        auto half = strict_float32_constant(0.5);
+        auto one = strict_float32_constant(1.0);
+        auto two = strict_float32_constant(2.0);
+        auto half_pi = strict_float32_constant(
+            1.57079632679489661923);
+        auto bool_type = is_scalar ?
+                             _builder.makeBoolType() :
+                             _builder.makeVectorType(
+                                 _builder.makeBoolType(),
+                                 t->dimension());
+        auto use_complement =
+            _builder.createBinOp(
+                spv::Op::OpFOrdGreaterThan,
+                bool_type,
+                magnitude,
+                half);
+        auto complement =
+            strict_float32_mul(
+                half,
+                strict_float32_sub(one, magnitude));
+        auto reduced_complement =
+            glsl(GLSLstd450Sqrt, complement);
+        auto reduced =
+            _builder.createTriOp(
+                spv::Op::OpSelect,
+                type,
+                use_complement,
+                reduced_complement,
+                magnitude);
+        auto squared =
+            strict_float32_mul(reduced, reduced);
+
+        auto polynomial =
+            strict_float32_constant(4.2163199048e-2);
+        polynomial = strict_float32_add(
+            strict_float32_mul(polynomial, squared),
+            strict_float32_constant(2.4181311049e-2));
+        polynomial = strict_float32_add(
+            strict_float32_mul(polynomial, squared),
+            strict_float32_constant(4.5470025998e-2));
+        polynomial = strict_float32_add(
+            strict_float32_mul(polynomial, squared),
+            strict_float32_constant(7.4953002686e-2));
+        polynomial = strict_float32_add(
+            strict_float32_mul(polynomial, squared),
+            strict_float32_constant(1.6666752422e-1));
+
+        auto reduced_result =
+            strict_float32_add(
+                reduced,
+                strict_float32_mul(
+                    strict_float32_mul(reduced, squared),
+                    polynomial));
+        auto complement_result =
+            strict_float32_sub(
+                half_pi,
+                strict_float32_mul(two, reduced_result));
+        auto result_magnitude =
+            _builder.createTriOp(
+                spv::Op::OpSelect,
+                type,
+                use_complement,
+                complement_result,
+                reduced_result);
+        return copy_float_sign(result_magnitude, x);
+    };
     LUISA_ASSERT(
         !spirv_glsl_transcendental_rejects_float64(inst->op()) ||
             !elem->is_float64(),
@@ -344,7 +721,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 id = binary(spv::Op::OpUDiv);
             break;
         case xir::ArithmeticOp::BINARY_MOD:
-            if (is_float)
+            if (elem->is_float32())
+                id = exact_float32_fmod(operand(0), operand(1));
+            else if (is_float)
                 id = binary(spv::Op::OpFRem);
             else if (is_signed_int)
                 id = binary(spv::Op::OpSRem);
@@ -637,13 +1016,58 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = unary(spv::Op::OpIsNan);
             break;
         case xir::ArithmeticOp::ACOS:
-            id = glsl(GLSLstd450Acos, operand(0));
+            if (!_enable_fast_math && elem->is_float32()) {
+                // Keep strict acos stable at both endpoints. Expressing it
+                // as pi/2 - asin(x) loses every significant bit near +1;
+                // range-reduce by magnitude instead, then select the
+                // negative half of the domain without cancellation.
+                auto x = operand(0);
+                auto magnitude = glsl(GLSLstd450FAbs, x);
+                auto zero = strict_float32_constant(0.0);
+                auto half = strict_float32_constant(0.5);
+                auto one = strict_float32_constant(1.0);
+                auto two = strict_float32_constant(2.0);
+                auto pi = strict_float32_constant(
+                    3.14159265358979323846);
+                auto bool_type = is_scalar ?
+                                     _builder.makeBoolType() :
+                                     _builder.makeVectorType(
+                                         _builder.makeBoolType(),
+                                         t->dimension());
+                auto negative =
+                    _builder.createBinOp(
+                        spv::Op::OpFOrdLessThan,
+                        bool_type,
+                        x,
+                        zero);
+                auto reduced = glsl(
+                    GLSLstd450Sqrt,
+                    strict_float32_mul(
+                        half,
+                        strict_float32_sub(one, magnitude)));
+                auto positive_result =
+                    strict_float32_mul(
+                        two,
+                        strict_float32_asin(reduced));
+                auto negative_result =
+                    strict_float32_sub(pi, positive_result);
+                id = _builder.createTriOp(
+                    spv::Op::OpSelect,
+                    type,
+                    negative,
+                    negative_result,
+                    positive_result);
+            } else {
+                id = glsl(GLSLstd450Acos, operand(0));
+            }
             break;
         case xir::ArithmeticOp::ACOSH:
             id = glsl(GLSLstd450Acosh, operand(0));
             break;
         case xir::ArithmeticOp::ASIN:
-            id = glsl(GLSLstd450Asin, operand(0));
+            id = !_enable_fast_math && elem->is_float32() ?
+                     strict_float32_asin(operand(0)) :
+                     glsl(GLSLstd450Asin, operand(0));
             break;
         case xir::ArithmeticOp::ASINH:
             id = glsl(GLSLstd450Asinh, operand(0));
@@ -1379,6 +1803,12 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(
     if (auto it = _value_map.find(arg); it != _value_map.end()) {
         return it->second;
     }
+    if (auto origin = _readonly_resource_origins.find(arg);
+        origin != _readonly_resource_origins.end()) {
+        auto id = _resolve_resource_argument(origin->second);
+        _value_map.emplace(arg, id);
+        return id;
+    }
     auto &binding = _kernel_resource_binding(arg);
     auto property_index =
         binding.read_property_index != invalid_resource_property_index ?
@@ -1411,6 +1841,23 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(
     }
     _value_map.emplace(arg, id);
     return id;
+}
+
+size_t SpirvCodegenEntry::_direct_buffer_bias_alignment(
+    const xir::Value *resource) const noexcept {
+    if (resource == nullptr || !resource->isa<xir::Argument>()) {
+        return 1u;
+    }
+    auto *argument = static_cast<const xir::Argument *>(resource);
+    if (auto iter = _bound_direct_buffer_bias_alignments.find(argument);
+        iter != _bound_direct_buffer_bias_alignments.end()) {
+        return iter->second;
+    }
+    if (auto origin = _readonly_resource_origins.find(argument);
+        origin != _readonly_resource_origins.end()) {
+        return _direct_buffer_bias_alignment(origin->second);
+    }
+    return 1u;
 }
 
 spv::Id SpirvCodegenEntry::_resolve_writable_resource(
@@ -2123,6 +2570,94 @@ void SpirvCodegenEntry::_emit_ray_query_traversal_to_completion(
     _set_current_tail(merge);
 }
 
+bool SpirvCodegenEntry::_bindless_index_is_nonuniform(
+    const xir::Value *index,
+    xir::BindlessResourceAccess access) const noexcept {
+    // `uniform` is an explicit frontend promise. When it is absent, the
+    // analysis may still prove uniformity and avoid descriptor-indexing
+    // decorations without changing semantics.
+    return !access.uniform && !_uniformity.is_uniform(index);
+}
+
+spv::Id SpirvCodegenEntry::_load_bindless_slot_word(
+    spv::Id bindless_array, spv::Id slot_index,
+    uint32_t stride_words, uint32_t field_word,
+    bool nonuniform) noexcept {
+    LUISA_ASSERT(stride_words != 0u && field_word < stride_words,
+                 "Invalid SPIR-V bindless slot word layout ({}, {}).",
+                 stride_words, field_word);
+    auto uint_type = _builder.makeUintType(32);
+    slot_index = _ensure_type(slot_index, uint_type);
+    auto word = slot_index;
+    if (stride_words != 1u) {
+        word = _builder.createBinOp(
+            spv::Op::OpIMul, uint_type, word,
+            _builder.makeUintConstant(stride_words));
+    }
+    if (field_word != 0u) {
+        word = _builder.createBinOp(
+            spv::Op::OpIAdd, uint_type, word,
+            _builder.makeUintConstant(field_word));
+    }
+    auto ptr = _create_access_chain(
+        _builder.getStorageClass(bindless_array), bindless_array,
+        {_builder.makeUintConstant(0u), word}, nonuniform);
+    auto value = _builder.createLoad(ptr, spv::NoPrecision);
+    if (nonuniform) {
+        _builder.addDecoration(value, spv::Decoration::NonUniformEXT);
+    }
+    return value;
+}
+
+SpirvCodegenEntry::BindlessBufferBinding
+SpirvCodegenEntry::_load_bindless_buffer_binding(
+    spv::Id bindless_array, const xir::Value *slot,
+    xir::BindlessResourceAccess access) noexcept {
+    auto uint_type = _builder.makeUintType(32);
+    auto slot_index = _ensure_type(_emit_value(slot), uint_type);
+    auto nonuniform = _bindless_index_is_nonuniform(slot, access);
+    _require_storage_buffer_array_indexing(nonuniform);
+    auto descriptor_index = _load_bindless_slot_word(
+        bindless_array, slot_index,
+        access.typed ? 4u : 3u, 0u, nonuniform);
+    LUISA_ASSERT(_buffer_heap_id != spv::NoResult,
+                 "SPIR-V buffer heap not bound.");
+    auto buffer = _create_access_chain(
+        _builder.getStorageClass(_buffer_heap_id), _buffer_heap_id,
+        {descriptor_index}, nonuniform);
+    return {buffer, slot_index};
+}
+
+SpirvCodegenEntry::BindlessTextureBinding
+SpirvCodegenEntry::_load_bindless_texture_binding(
+    spv::Id bindless_array, const xir::Value *slot,
+    bool is_2d, xir::BindlessResourceAccess access) noexcept {
+    auto uint_type = _builder.makeUintType(32);
+    auto slot_index = _ensure_type(_emit_value(slot), uint_type);
+    auto nonuniform = _bindless_index_is_nonuniform(slot, access);
+    _require_sampled_image_array_indexing(nonuniform);
+    auto packed = _load_bindless_slot_word(
+        bindless_array, slot_index,
+        access.typed ? 1u : 3u,
+        access.typed ? 0u : (is_2d ? 1u : 2u),
+        nonuniform);
+    auto texture_index = _builder.createBinOp(
+        spv::Op::OpBitwiseAnd, uint_type, packed,
+        _builder.makeUintConstant(0x0fffffffu));
+    auto heap = is_2d ? _tex2d_heap_id : _tex3d_heap_id;
+    LUISA_ASSERT(heap != spv::NoResult,
+                 "SPIR-V {} texture heap not bound.",
+                 is_2d ? "2D" : "3D");
+    auto texture_ptr = _create_access_chain(
+        spv::StorageClass::UniformConstant, heap,
+        {texture_index}, nonuniform);
+    auto image = _builder.createLoad(texture_ptr, spv::NoPrecision);
+    if (nonuniform) {
+        _builder.addDecoration(image, spv::Decoration::NonUniformEXT);
+    }
+    return {image, packed, nonuniform};
+}
+
 void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept {
     auto type = _convert_type(inst->type(), Usage::READ);
     spv::Id id = spv::NoResult;
@@ -2363,9 +2898,15 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
         case xir::ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE: {
             auto bindless_array = _emit_value(inst->operand(0));
             auto slot_index = _emit_value(inst->operand(1));
-            id = _load_bindless_buffer_metadata(
-                bindless_array, slot_index,
-                StorageBufferMetadataField::LOGICAL_SIZE_BYTES, type);
+            if (inst->bindless_access().typed) {
+                id = _load_bindless_slot_word(
+                    bindless_array, slot_index, 4u, 2u, false);
+                id = _ensure_type(id, type);
+            } else {
+                id = _load_bindless_buffer_metadata(
+                    bindless_array, slot_index,
+                    StorageBufferMetadataField::LOGICAL_SIZE_BYTES, type);
+            }
             if (inst->op() == xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE) {
                 auto stride = _ensure_type(_emit_value(inst->operand(2)), type);
                 id = _builder.createBinOp(
@@ -2421,26 +2962,16 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
                          inst->op() == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL;
             auto has_level = inst->op() == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL ||
                              inst->op() == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL;
-            auto uint_type = _builder.makeUintType(32);
             auto bindless_array = _emit_value(inst->operand(0));
-            auto nonuniform = !_uniformity.is_uniform(inst->operand(1));
-            _require_sampled_image_array_indexing(nonuniform);
-            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
-            auto base_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto field_offset = _builder.makeUintConstant(is_2d ? 1u : 2u);
-            auto slot_word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, field_offset);
-            auto bdls_ptr = _create_access_chain(_builder.getStorageClass(bindless_array), bindless_array, {_builder.makeUintConstant(0u), slot_word_offset}, nonuniform);
-            auto packed = _builder.createLoad(bdls_ptr, spv::NoPrecision);
-            if (nonuniform) { _builder.addDecoration(packed, spv::Decoration::NonUniformEXT); }
-            auto tex_idx = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, packed, _builder.makeUintConstant(0x0FFFFFFFu));
-            auto heap_id = is_2d ? _tex2d_heap_id : _tex3d_heap_id;
-            LUISA_ASSERT(heap_id != spv::NoResult, "SPIR-V {} texture heap not bound.", is_2d ? "2D" : "3D");
-            auto tex_ptr = _create_access_chain(spv::StorageClass::UniformConstant, heap_id, {tex_idx}, nonuniform);
-            auto tex = _builder.createLoad(tex_ptr, spv::NoPrecision);
-            if (nonuniform) { _builder.addDecoration(tex, spv::Decoration::NonUniformEXT); }
+            auto binding = _load_bindless_texture_binding(
+                bindless_array, inst->operand(1), is_2d,
+                inst->bindless_access());
             _builder.addCapability(spv::Capability::ImageQuery);
+            auto uint_type = _builder.makeUintType(32);
             spv::Id lod = has_level ? _ensure_type(_emit_value(inst->operand(2)), uint_type) : _builder.makeUintConstant(0u);
-            id = _builder.createOp(spv::Op::OpImageQuerySizeLod, type, {tex, lod});
+            id = _builder.createOp(
+                spv::Op::OpImageQuerySizeLod, type,
+                {binding.image, lod});
             break;
         }
         case xir::ResourceQueryOp::TEXTURE2D_SAMPLE:
@@ -2498,41 +3029,19 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             } else {
                 auto uint_type = _builder.makeUintType(32);
                 auto bindless_array = _emit_value(inst->operand(0));
-                image_nonuniform = !_uniformity.is_uniform(inst->operand(1));
-                _require_sampled_image_array_indexing(image_nonuniform);
-                auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
-                auto base_offset = _builder.createBinOp(
-                    spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-                auto field_offset = _builder.makeUintConstant(info.is_2d ? 1u : 2u);
-                auto slot_word_offset = _builder.createBinOp(
-                    spv::Op::OpIAdd, uint_type, base_offset, field_offset);
-                auto bdls_ptr = _create_access_chain(
-                    _builder.getStorageClass(bindless_array), bindless_array,
-                    {_builder.makeUintConstant(0u), slot_word_offset}, image_nonuniform);
-                auto packed = _builder.createLoad(bdls_ptr, spv::NoPrecision);
-                if (image_nonuniform) {
-                    _builder.addDecoration(packed, spv::Decoration::NonUniformEXT);
-                }
-                auto texture_index = _builder.createBinOp(
-                    spv::Op::OpBitwiseAnd, uint_type, packed,
-                    _builder.makeUintConstant(0x0fffffffu));
-                auto heap = info.is_2d ? _tex2d_heap_id : _tex3d_heap_id;
-                LUISA_ASSERT(heap != spv::NoResult,
-                             "SPIR-V {} texture heap not bound.", info.is_2d ? "2D" : "3D");
-                auto texture_ptr = _create_access_chain(
-                    spv::StorageClass::UniformConstant, heap,
-                    {texture_index}, image_nonuniform);
-                image = _builder.createLoad(texture_ptr, spv::NoPrecision);
-                if (image_nonuniform) {
-                    _builder.addDecoration(image, spv::Decoration::NonUniformEXT);
-                }
+                auto binding = _load_bindless_texture_binding(
+                    bindless_array, inst->operand(1), info.is_2d,
+                    inst->bindless_access());
+                image = binding.image;
+                image_nonuniform = binding.nonuniform;
                 if (info.sampler_operands) {
                     sampler = load_configured_sampler(
                         inst->operand(inst->operand_count() - 2u),
                         inst->operand(inst->operand_count() - 1u));
                 } else {
                     auto sampler_index = _builder.createBinOp(
-                        spv::Op::OpShiftRightLogical, uint_type, packed,
+                        spv::Op::OpShiftRightLogical, uint_type,
+                        binding.packed,
                         _builder.makeUintConstant(28u));
                     sampler = load_sampler(sampler_index, true, image_nonuniform);
                 }
@@ -2883,7 +3392,8 @@ spv::Id SpirvCodegenEntry::_add_direct_buffer_bias(
 
 spv::Id SpirvCodegenEntry::_add_bindless_buffer_bias(
     spv::Id bindless_array, spv::Id slot_index,
-    spv::Id byte_offset) noexcept {
+    spv::Id byte_offset,
+    xir::BindlessResourceAccess access) noexcept {
     auto offset_type = _builder.getTypeId(byte_offset);
     LUISA_ASSERT(_builder.isIntType(offset_type) ||
                      _builder.isUintType(offset_type),
@@ -2892,9 +3402,16 @@ spv::Id SpirvCodegenEntry::_add_bindless_buffer_bias(
                             _builder.makeUintType(64) :
                             _builder.makeUintType(32);
     byte_offset = _ensure_type(byte_offset, address_type);
-    auto bias = _load_bindless_buffer_metadata(
-        bindless_array, slot_index,
-        StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES, address_type);
+    auto bias = access.typed ?
+                    _ensure_type(
+                        _load_bindless_slot_word(
+                            bindless_array, slot_index,
+                            4u, 1u, false),
+                        address_type) :
+                    _load_bindless_buffer_metadata(
+                        bindless_array, slot_index,
+                        StorageBufferMetadataField::DESCRIPTOR_BIAS_BYTES,
+                        address_type);
     return _builder.createBinOp(
         spv::Op::OpIAdd, address_type, byte_offset, bias);
 }
@@ -3083,7 +3600,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id byte_o
     return _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, raw);
 }
 
-spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access) noexcept {
+spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access, size_t byte_index_alignment) noexcept {
     auto typed_buffer = buffer_type != nullptr && buffer_type->is_buffer() &&
                         buffer_type->element() != nullptr && !_buffer_uses_word_storage(buffer_type);
     if (typed_buffer) {
@@ -3132,7 +3649,9 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
     auto index_width = _builder.getScalarTypeWidth(index_type);
     auto address_type = index_width > 32 ? _builder.makeUintType(64) : _builder.makeUintType(32);
     auto byte_offset = _ensure_type(index, address_type);
-    auto byte_alignment = size_t{1u};
+    auto byte_alignment = index_unit == BufferIndexUnit::BYTE ?
+                              byte_index_alignment :
+                              size_t{1u};
     if (index_unit == BufferIndexUnit::ELEMENT) {
         byte_offset = _builder.createBinOp(
             spv::Op::OpIMul, address_type, byte_offset,
@@ -3146,9 +3665,10 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
         // The Vulkan argument preprocessor validates direct typed-buffer
         // offsets and sizes as exact multiples of the logical element stride.
         // The runtime bias is therefore at least as aligned as the element
-        // access planned above. Byte-buffer accesses start with alignment one
-        // and remain conservative. The host separately proves the padded
-        // descriptor tail needed by a genuinely cross-word access.
+        // access planned above. Byte-buffer callers combine their XIR offset
+        // proof with an independently established descriptor-bias proof; an
+        // unbound view contributes alignment one. The host separately proves
+        // the padded descriptor tail needed by a cross-word access.
     }
     return _emit_buffer_read_impl(buffer, byte_offset, read_type, byte_alignment, memory_access);
 }
@@ -3383,7 +3903,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id byte_off
     }
 }
 
-void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access) noexcept {
+void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access, size_t byte_index_alignment) noexcept {
     auto typed_buffer = buffer_type != nullptr && buffer_type->is_buffer() &&
                         buffer_type->element() != nullptr && !_buffer_uses_word_storage(buffer_type);
     if (typed_buffer) {
@@ -3434,7 +3954,9 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
     auto index_width = _builder.getScalarTypeWidth(index_type);
     auto address_type = index_width > 32 ? _builder.makeUintType(64) : _builder.makeUintType(32);
     auto byte_offset = _ensure_type(index, address_type);
-    auto byte_alignment = size_t{1u};
+    auto byte_alignment = index_unit == BufferIndexUnit::BYTE ?
+                              byte_index_alignment :
+                              size_t{1u};
     if (index_unit == BufferIndexUnit::ELEMENT) {
         byte_offset = _builder.createBinOp(
             spv::Op::OpIMul, address_type, byte_offset,
@@ -3447,7 +3969,7 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
         byte_offset = _add_direct_buffer_bias(buffer, byte_offset);
         // Direct typed-buffer metadata preserves the logical element-stride
         // alignment proved by storage_buffer_descriptor_range(). Byte-buffer
-        // writes retain their initial alignment-one contract.
+        // callers have already intersected the index and runtime-bias facts.
     }
     _emit_buffer_write_impl(buffer, byte_offset, value, value_type, byte_alignment, memory_access);
 }
@@ -3476,7 +3998,14 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
         case xir::ResourceReadOp::BYTE_BUFFER_READ: {
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _emit_value(inst->operand(1));
-            id = _emit_buffer_read(buffer, byte_index, inst->type(), nullptr, BufferIndexUnit::BYTE);
+            auto byte_alignment = std::gcd(
+                xir::integer_value_guaranteed_alignment(
+                    inst->operand(1), 4u),
+                _direct_buffer_bias_alignment(inst->operand(0)));
+            id = _emit_buffer_read(
+                buffer, byte_index, inst->type(), nullptr,
+                BufferIndexUnit::BYTE,
+                spv::MemoryAccessMask::MaskNone, byte_alignment);
             break;
         }
         case xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ: {
@@ -3485,7 +4014,14 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
                                              spv::MemorySemanticsMask::AcquireRelease);
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _emit_value(inst->operand(1));
-            id = _emit_buffer_read(buffer, byte_index, inst->type(), nullptr, BufferIndexUnit::BYTE, spv::MemoryAccessMask::Volatile);
+            auto byte_alignment = std::gcd(
+                xir::integer_value_guaranteed_alignment(
+                    inst->operand(1), 4u),
+                _direct_buffer_bias_alignment(inst->operand(0)));
+            id = _emit_buffer_read(
+                buffer, byte_index, inst->type(), nullptr,
+                BufferIndexUnit::BYTE,
+                spv::MemoryAccessMask::Volatile, byte_alignment);
             break;
         }
         case xir::ResourceReadOp::TEXTURE2D_READ:
@@ -3522,53 +4058,28 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             auto has_level = op == xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL ||
                              op == xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL;
             auto bindless_array = _emit_value(inst->operand(0));
-            auto nonuniform = !_uniformity.is_uniform(inst->operand(1));
-            _require_sampled_image_array_indexing(nonuniform);
-            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
-            auto base_offset = _builder.createBinOp(
-                spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto field_offset = _builder.makeUintConstant(is_2d ? 1u : 2u);
-            auto slot_word_offset = _builder.createBinOp(
-                spv::Op::OpIAdd, uint_type, base_offset, field_offset);
-            auto bdls_ptr = _create_access_chain(
-                _builder.getStorageClass(bindless_array), bindless_array,
-                {_builder.makeUintConstant(0u), slot_word_offset}, nonuniform);
-            auto packed = _builder.createLoad(bdls_ptr, spv::NoPrecision);
-            if (nonuniform) { _builder.addDecoration(packed, spv::Decoration::NonUniformEXT); }
-            auto tex_idx = _builder.createBinOp(
-                spv::Op::OpBitwiseAnd, uint_type, packed,
-                _builder.makeUintConstant(0x0fffffffu));
-            auto heap_id = is_2d ? _tex2d_heap_id : _tex3d_heap_id;
-            LUISA_ASSERT(heap_id != spv::NoResult,
-                         "SPIR-V {} texture heap not bound.", is_2d ? "2D" : "3D");
-            auto tex_ptr = _create_access_chain(
-                spv::StorageClass::UniformConstant, heap_id, {tex_idx}, nonuniform);
-            auto tex = _builder.createLoad(tex_ptr, spv::NoPrecision);
-            if (nonuniform) { _builder.addDecoration(tex, spv::Decoration::NonUniformEXT); }
+            auto binding = _load_bindless_texture_binding(
+                bindless_array, inst->operand(1), is_2d,
+                inst->bindless_access());
             auto coord = _emit_value(inst->operand(2));
             auto lod = has_level ?
                            _ensure_type(_emit_value(inst->operand(3)), uint_type) :
                            _builder.makeUintConstant(0u);
             std::vector<spv::IdImmediate> operands;
-            operands.emplace_back(true, tex);
+            operands.emplace_back(true, binding.image);
             operands.emplace_back(true, coord);
             operands.emplace_back(false, spv::ImageOperandsMask::Lod);
             operands.emplace_back(true, lod);
-            id = _builder.createOp(spv::Op::OpImageFetch, type, operands);
+            id = _builder.createOp(
+                spv::Op::OpImageFetch, type, operands);
             break;
         }
         case xir::ResourceReadOp::BINDLESS_BUFFER_READ: {
             auto bindless_array = _emit_value(inst->operand(0));
-            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto binding = _load_bindless_buffer_binding(
+                bindless_array, inst->operand(1),
+                inst->bindless_access());
             auto elem_index = _emit_value(inst->operand(2));
-            auto nonuniform = !_uniformity.is_uniform(inst->operand(1));
-            _require_storage_buffer_array_indexing(nonuniform);
-            auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto bdls_ptr = _create_access_chain(_builder.getStorageClass(bindless_array), bindless_array, {_builder.makeUintConstant(0u), slot_offset}, nonuniform);
-            auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
-            if (nonuniform) { _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT); }
-            LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
-            auto buffer_base = _create_access_chain(_builder.getStorageClass(_buffer_heap_id), _buffer_heap_id, {buffer_idx}, nonuniform);
             auto index_type = _builder.getTypeId(elem_index);
             LUISA_ASSERT(_builder.isIntType(index_type) ||
                              _builder.isUintType(index_type),
@@ -3584,28 +4095,24 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
                     _builder.makeUintConstant(
                         static_cast<uint32_t>(inst->type()->size())));
             byte_index = _add_bindless_buffer_bias(
-                bindless_array, slot_index, byte_index);
+                bindless_array, binding.slot_index, byte_index,
+                inst->bindless_access());
             id = _emit_buffer_read(
-                buffer_base, byte_index, inst->type(), nullptr,
+                binding.buffer, byte_index, inst->type(), nullptr,
                 BufferIndexUnit::BYTE);
             break;
         }
         case xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ: {
             auto bindless_array = _emit_value(inst->operand(0));
-            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto binding = _load_bindless_buffer_binding(
+                bindless_array, inst->operand(1),
+                inst->bindless_access());
             auto byte_index = _emit_value(inst->operand(2));
-            auto nonuniform = !_uniformity.is_uniform(inst->operand(1));
-            _require_storage_buffer_array_indexing(nonuniform);
-            auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto bdls_ptr = _create_access_chain(_builder.getStorageClass(bindless_array), bindless_array, {_builder.makeUintConstant(0u), slot_offset}, nonuniform);
-            auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
-            if (nonuniform) { _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT); }
-            LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
-            auto buffer_base = _create_access_chain(_builder.getStorageClass(_buffer_heap_id), _buffer_heap_id, {buffer_idx}, nonuniform);
             byte_index = _add_bindless_buffer_bias(
-                bindless_array, slot_index, byte_index);
+                bindless_array, binding.slot_index, byte_index,
+                inst->bindless_access());
             id = _emit_buffer_read(
-                buffer_base, byte_index, inst->type(), nullptr,
+                binding.buffer, byte_index, inst->type(), nullptr,
                 BufferIndexUnit::BYTE);
             break;
         }
@@ -3640,7 +4147,14 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto byte_index = _emit_value(inst->operand(1));
             auto value = _emit_value(inst->operand(2));
             auto value_type = inst->operand(2)->type();
-            _emit_buffer_write(buffer, byte_index, value, value_type, nullptr, BufferIndexUnit::BYTE);
+            auto byte_alignment = std::gcd(
+                xir::integer_value_guaranteed_alignment(
+                    inst->operand(1), 4u),
+                _direct_buffer_bias_alignment(inst->operand(0)));
+            _emit_buffer_write(
+                buffer, byte_index, value, value_type, nullptr,
+                BufferIndexUnit::BYTE,
+                spv::MemoryAccessMask::MaskNone, byte_alignment);
             break;
         }
         case xir::ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE: {
@@ -3648,7 +4162,14 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto byte_index = _emit_value(inst->operand(1));
             auto value = _emit_value(inst->operand(2));
             auto value_type = inst->operand(2)->type();
-            _emit_buffer_write(buffer, byte_index, value, value_type, nullptr, BufferIndexUnit::BYTE, spv::MemoryAccessMask::Volatile);
+            auto byte_alignment = std::gcd(
+                xir::integer_value_guaranteed_alignment(
+                    inst->operand(1), 4u),
+                _direct_buffer_bias_alignment(inst->operand(0)));
+            _emit_buffer_write(
+                buffer, byte_index, value, value_type, nullptr,
+                BufferIndexUnit::BYTE,
+                spv::MemoryAccessMask::Volatile, byte_alignment);
             _builder.createMemoryBarrier(spv::Scope::Device,
                                          spv::MemorySemanticsAllMemory |
                                              spv::MemorySemanticsMask::AcquireRelease);
@@ -3679,18 +4200,12 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
         }
         case xir::ResourceWriteOp::BINDLESS_BUFFER_WRITE: {
             auto bindless_array = _emit_value(inst->operand(0));
-            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto binding = _load_bindless_buffer_binding(
+                bindless_array, inst->operand(1),
+                inst->bindless_access());
             auto elem_index = _emit_value(inst->operand(2));
             auto value = _emit_value(inst->operand(3));
             auto elem_type = inst->operand(3)->type();
-            auto nonuniform = !_uniformity.is_uniform(inst->operand(1));
-            _require_storage_buffer_array_indexing(nonuniform);
-            auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto bdls_ptr = _create_access_chain(_builder.getStorageClass(bindless_array), bindless_array, {_builder.makeUintConstant(0u), slot_offset}, nonuniform);
-            auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
-            if (nonuniform) { _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT); }
-            LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
-            auto buffer_base = _create_access_chain(_builder.getStorageClass(_buffer_heap_id), _buffer_heap_id, {buffer_idx}, nonuniform);
             auto index_type = _builder.getTypeId(elem_index);
             LUISA_ASSERT(_builder.isIntType(index_type) ||
                              _builder.isUintType(index_type),
@@ -3706,30 +4221,26 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
                     _builder.makeUintConstant(
                         static_cast<uint32_t>(elem_type->size())));
             byte_index = _add_bindless_buffer_bias(
-                bindless_array, slot_index, byte_index);
+                bindless_array, binding.slot_index, byte_index,
+                inst->bindless_access());
             _emit_buffer_write(
-                buffer_base, byte_index, value, elem_type, nullptr,
+                binding.buffer, byte_index, value, elem_type, nullptr,
                 BufferIndexUnit::BYTE);
             break;
         }
         case xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE: {
             auto bindless_array = _emit_value(inst->operand(0));
-            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto binding = _load_bindless_buffer_binding(
+                bindless_array, inst->operand(1),
+                inst->bindless_access());
             auto byte_index = _emit_value(inst->operand(2));
             auto value = _emit_value(inst->operand(3));
             auto value_type = inst->operand(3)->type();
-            auto nonuniform = !_uniformity.is_uniform(inst->operand(1));
-            _require_storage_buffer_array_indexing(nonuniform);
-            auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto bdls_ptr = _create_access_chain(_builder.getStorageClass(bindless_array), bindless_array, {_builder.makeUintConstant(0u), slot_offset}, nonuniform);
-            auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
-            if (nonuniform) { _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT); }
-            LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
-            auto buffer_base = _create_access_chain(_builder.getStorageClass(_buffer_heap_id), _buffer_heap_id, {buffer_idx}, nonuniform);
             byte_index = _add_bindless_buffer_bias(
-                bindless_array, slot_index, byte_index);
+                bindless_array, binding.slot_index, byte_index,
+                inst->bindless_access());
             _emit_buffer_write(
-                buffer_base, byte_index, value, value_type, nullptr,
+                binding.buffer, byte_index, value, value_type, nullptr,
                 BufferIndexUnit::BYTE);
             break;
         }
@@ -4670,6 +5181,10 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::LOOP: _emit_loop_inst(static_cast<const xir::LoopInst *>(inst)); break;
         case xir::DerivedInstructionTag::SIMPLE_LOOP: _emit_simple_loop_inst(static_cast<const xir::SimpleLoopInst *>(inst)); break;
         case xir::DerivedInstructionTag::SWITCH: _emit_switch_inst(static_cast<const xir::SwitchInst *>(inst)); break;
+        case xir::DerivedInstructionTag::INDEXED_BRANCH:
+            LUISA_ERROR_WITH_LOCATION(
+                "SPIR-V codegen received raw IndexedBranchInst after dialect "
+                "validation; run restructure_cfg before codegen.");
         case xir::DerivedInstructionTag::BRANCH: _emit_branch_inst(static_cast<const xir::BranchInst *>(inst)); break;
         case xir::DerivedInstructionTag::CONDITIONAL_BRANCH: _emit_conditional_branch_inst(static_cast<const xir::ConditionalBranchInst *>(inst)); break;
         case xir::DerivedInstructionTag::BREAK: {

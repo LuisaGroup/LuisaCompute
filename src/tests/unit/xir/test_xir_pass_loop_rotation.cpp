@@ -13,8 +13,11 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/passes/loop_rotation.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -224,6 +227,110 @@ void reg_loop_rotation() {
         expect_module_valid(m);
     };
 
+    "loop_rotation_rejects_observable_header_store_without_mutation"_test = [] {
+        Module m;
+        auto *kernel = m.create_kernel();
+        auto *def = kernel->definition();
+        auto *entry = kernel->create_body_block();
+        auto *header = def->create_basic_block();
+        auto *latch = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        uint32_t bound_value = 8u;
+        auto *bound = m.create_constant(Type::of<uint>(), &bound_value);
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *slot = b.alloca_local(Type::of<uint>());
+        b.br(header);
+        b.set_insertion_point(header);
+        auto *iv = b.phi(Type::of<uint>());
+        b.store(slot, iv);
+        auto *condition = b.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, bound});
+        b.cond_br(condition, latch, exit);
+        b.set_insertion_point(latch);
+        auto *next = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD, {iv, one});
+        b.br(header);
+        b.set_insertion_point(exit);
+        b.return_void();
+        iv->add_incoming(zero, entry);
+        iv->add_incoming(next, latch);
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_rotation_pass_run_on_function(def);
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.rotated_loop_count == 0u);
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "loop_rotation_rejects_opaque_header_call_without_mutation"_test = [] {
+        Module m;
+        auto *callee = m.create_callable(nullptr);
+        auto *callee_body = callee->create_body_block();
+        auto *kernel = m.create_kernel();
+        auto *def = kernel->definition();
+        auto *entry = kernel->create_body_block();
+        auto *header = def->create_basic_block();
+        auto *latch = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        uint32_t bound_value = 8u;
+        auto *bound = m.create_constant(Type::of<uint>(), &bound_value);
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        b.return_void();
+        b.set_insertion_point(entry);
+        b.br(header);
+        b.set_insertion_point(header);
+        auto *iv = b.phi(Type::of<uint>());
+        static_cast<void>(b.call(nullptr, callee, {}));
+        auto *condition = b.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, bound});
+        b.cond_br(condition, latch, exit);
+        b.set_insertion_point(latch);
+        auto *next = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD, {iv, one});
+        b.br(header);
+        b.set_insertion_point(exit);
+        b.return_void();
+        iv->add_incoming(zero, entry);
+        iv->add_incoming(next, latch);
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_rotation_pass_run_on_function(def);
+        auto after = xir_to_text_translate(&m, true);
+        expect(info.rotated_loop_count == 0u);
+        expect(before == after);
+        expect_module_valid(m);
+    };
+
+    "loop_rotation_rejects_ambiguous_control_metadata_atomically"_test = [] {
+        auto run = [](bool annotate_condition) noexcept {
+            Module m;
+            auto loop = make_counted_loop(m, 8u);
+            if (annotate_condition) {
+                loop.condition->add_comment(
+                    "condition metadata cannot be duplicated");
+            } else {
+                loop.header->terminator()->add_comment(
+                    "branch metadata has no unique rotated owner");
+            }
+            auto before = xir_to_text_translate(&m, true);
+            auto info = loop_rotation_pass_run_on_function(
+                loop.kernel->definition());
+            auto after = xir_to_text_translate(&m, true);
+            expect(!info.changed());
+            expect(before == after);
+            expect_module_valid(m);
+        };
+        run(false);
+        run(true);
+    };
+
     "inverted_condition_loop_preserves_arm_order"_test = [] {
         // while-style loop expressed as cond_br(iv >= bound, exit, body):
         // the body is the FALSE target, so the guard and latch branches must
@@ -355,6 +462,47 @@ void reg_loop_rotation() {
         expect(guard->terminator()->isa<ConditionalBranchInst>());
         expect(header->terminator()->isa<ConditionalBranchInst>());
         expect_module_valid(m);
+    };
+
+    "loop_rotation_module_rejection_is_atomic_across_functions"_test = [] {
+        Module m;
+        auto plain = make_counted_loop(m, 64u);
+
+        auto *structured_kernel = m.create_kernel();
+        auto *parent = structured_kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(parent);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        b.br(body);
+        b.set_insertion_point(body);
+        b.br(update);
+        b.set_insertion_point(update);
+        b.break_(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        expect_module_valid(m);
+
+        auto before = xir_to_text_translate(&m, true);
+        auto info = loop_rotation_pass_run_on_module(&m);
+        auto after = xir_to_text_translate(&m, true);
+        expect(!info.succeeded());
+        expect(!info.changed());
+        expect(info.structured_cfg_error_count == 1u);
+        expect(info.rotated_loop_count == 0u);
+        expect(before == after);
+        expect(plain.header->terminator()->isa<ConditionalBranchInst>());
+        expect_module_valid(m);
+    };
+
+    "loop_rotation_null_module_is_a_noop"_test = [] {
+        auto info = loop_rotation_pass_run_on_module(nullptr);
+        expect(info.succeeded());
+        expect(!info.changed());
     };
 }
 

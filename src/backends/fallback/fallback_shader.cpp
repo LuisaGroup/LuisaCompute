@@ -2,11 +2,17 @@
 // Created by swfly on 2024/11/21.
 //
 
+#include <charconv>
 #include <fstream>
 
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/MC/TargetRegistry.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Target/TargetMachine.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Analysis/AliasAnalysis.h>
@@ -35,6 +41,8 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 
@@ -86,6 +94,24 @@ static const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
     return false;
 }();
 
+static const std::size_t LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT = [] {
+    constexpr std::size_t default_limit = 250'000u;
+    if (auto env = getenv("LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT")) {
+        auto text = std::string_view{env};
+        std::size_t value{};
+        auto [end, error] = std::from_chars(
+            text.data(), text.data() + text.size(), value);
+        if (error == std::errc{} && end == text.data() + text.size() &&
+            value != 0u) {
+            return value;
+        }
+        LUISA_WARNING_WITH_LOCATION(
+            "Ignoring invalid LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT='{}'.",
+            text);
+    }
+    return default_limit;
+}();
+
 static const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = [] {
     if (auto env = getenv("LUISA_XIR_ELIMINATE_EARLY_RETURN")) {
         return std::string_view{env} == "1";
@@ -97,6 +123,10 @@ namespace luisa::compute::fallback {
 
 namespace {
 
+// Increment whenever the persisted object or its external symbol contract
+// changes in a way that makes an older cache artifact unsafe to load.
+static constexpr auto fallback_shader_cache_abi = 6u;
+
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
     auto verification = xir::xir_verify_module(module);
@@ -105,6 +135,132 @@ void verify_xir_or_error(const xir::Module *module,
             "Invalid XIR at fallback {}: {} ({} error(s) total).",
             stage, verification.errors.front().message, verification.errors.size());
     }
+}
+
+[[nodiscard]] bool function_contains_debug_break(
+    Function function,
+    luisa::unordered_set<uint64_t> &visited) noexcept {
+    if (!visited.emplace(function.hash()).second) { return false; }
+    auto contains_debug_break = false;
+    traverse_expressions<false>(
+        function.body(),
+        [](auto) noexcept {},
+        [&](auto statement) noexcept {
+            contains_debug_break |=
+                statement->tag() == Statement::Tag::DEBUG_BREAK;
+        },
+        [](auto) noexcept {});
+    if (contains_debug_break) { return true; }
+    for (auto &&callable : function.custom_callables()) {
+        if (function_contains_debug_break(
+                callable->function(), visited)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool function_contains_debug_break(
+    Function function) noexcept {
+    luisa::unordered_set<uint64_t> visited;
+    return function_contains_debug_break(function, visited);
+}
+
+struct FallbackShaderCacheMetadata {
+    uint64_t checksum;
+    luisa::string object_name;
+    luisa::string metadata_name;
+    luisa::string serialized;
+};
+
+[[nodiscard]] FallbackShaderCacheMetadata make_shader_cache_metadata(
+    Function kernel, const ShaderOption &option,
+    const llvm::TargetMachine &target_machine) noexcept {
+    auto copy_string = [](llvm::StringRef value) noexcept {
+        return luisa::string{value.data(), value.size()};
+    };
+    auto builtin_module = fallback_backend_device_builtin_module();
+    auto builtin_hash = luisa::hash64(
+        builtin_module.data(), builtin_module.size(),
+        luisa::hash64_default_seed);
+    auto native_include_hash = luisa::hash64(
+        option.native_include.data(), option.native_include.size(),
+        luisa::hash64_default_seed);
+    auto argument_hash = luisa::hash64_default_seed;
+    for (auto argument : kernel.arguments()) {
+        argument_hash = luisa::hash_value(
+            argument.type()->description(), argument_hash);
+        argument_hash = luisa::hash_value(
+            luisa::to_underlying(argument.tag()), argument_hash);
+        argument_hash = luisa::hash_value(
+            luisa::to_underlying(
+                kernel.variable_usage(argument.uid())),
+            argument_hash);
+    }
+    auto data_layout =
+        target_machine.createDataLayout().getStringRepresentation();
+    auto target_triple =
+        copy_string(target_machine.getTargetTriple().str());
+    auto target_cpu =
+        copy_string(target_machine.getTargetCPU());
+    auto target_features =
+        copy_string(target_machine.getTargetFeatureString());
+#ifdef NDEBUG
+    static constexpr auto release_build = true;
+#else
+    static constexpr auto release_build = false;
+#endif
+    auto body = luisa::format(
+        "FALLBACK_CACHE_ABI {}\n"
+        "KERNEL_HASH {:016x}\n"
+        "ARGUMENT_HASH {:016x}\n"
+        "ARGUMENT_COUNT {}\n"
+        "BLOCK_SIZE {} {} {}\n"
+        "LLVM_VERSION {}.{}.{}\n"
+        "TARGET_TRIPLE {}\n"
+        "TARGET_CPU {}\n"
+        "TARGET_FEATURES {}\n"
+        "DATA_LAYOUT {}\n"
+        "BUILTIN_HASH {:016x}\n"
+        "NATIVE_INCLUDE_HASH {:016x}\n"
+        "FAST_MATH {}\n"
+        "DEBUG_INFO {}\n"
+        "RELEASE_BUILD {}\n"
+        "XIR_NORMALIZE_CFG {}\n"
+        "XIR_RESTRUCTURE_CFG {}\n"
+        "XIR_ELIMINATE_EARLY_RETURN {}\n",
+        fallback_shader_cache_abi,
+        kernel.hash(),
+        argument_hash,
+        kernel.arguments().size(),
+        kernel.block_size().x,
+        kernel.block_size().y,
+        kernel.block_size().z,
+        LLVM_VERSION_MAJOR,
+        LLVM_VERSION_MINOR,
+        LLVM_VERSION_PATCH,
+        target_triple,
+        target_cpu,
+        target_features,
+        data_layout,
+        builtin_hash,
+        native_include_hash,
+        option.enable_fast_math,
+        option.enable_debug_info,
+        release_build,
+        LUISA_XIR_NORMALIZE_CFG,
+        LUISA_XIR_RESTRUCTURE_CFG,
+        LUISA_XIR_ELIMINATE_EARLY_RETURN);
+    auto checksum = luisa::hash64(
+        body.data(), body.size(), luisa::hash64_default_seed);
+    auto object_name = luisa::format(
+        "kernel_{:016x}.fallback.obj", checksum);
+    return {
+        .checksum = checksum,
+        .object_name = object_name,
+        .metadata_name = luisa::format("{}.metadata", object_name),
+        .serialized = luisa::format(
+            "CHECKSUM {:016x}\n{}", checksum, body)};
 }
 
 }// namespace
@@ -177,13 +333,246 @@ struct FallbackShaderLaunchConfig {
 
 FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &option, Function kernel) noexcept {
 
-    _initialize_target_machine_jit(
-        option);
-
-    LUISA_VERBOSE("======= Fallback Backend JIT Shader Compilation =======");
+    _initialize_target_machine_jit(option);
 
     _block_size = kernel.block_size();
     _build_bound_arguments(kernel.bound_arguments());
+
+    // Compute the dispatch argument layout before trying the cache. Bound
+    // resource handles and uniform values are intentionally absent from the
+    // cache key: they are encoded into this buffer for each dispatch.
+    _argument_buffer_size = 0u;
+    static constexpr auto argument_alignment = 16u;
+    for (auto arg : kernel.arguments()) {
+        switch (arg.tag()) {
+            case Variable::Tag::LOCAL: {
+                _argument_buffer_size += arg.type()->size();
+                _argument_buffer_size = luisa::align(
+                    _argument_buffer_size, argument_alignment);
+                break;
+            }
+            case Variable::Tag::BUFFER: {
+                _argument_buffer_size += sizeof(FallbackBufferView);
+                _argument_buffer_size = luisa::align(
+                    _argument_buffer_size, argument_alignment);
+                break;
+            }
+            case Variable::Tag::TEXTURE: {
+                _argument_buffer_size += sizeof(FallbackTextureView);
+                _argument_buffer_size = luisa::align(
+                    _argument_buffer_size, argument_alignment);
+                break;
+            }
+            case Variable::Tag::BINDLESS_ARRAY: {
+                _argument_buffer_size += sizeof(FallbackBindlessArray *);
+                _argument_buffer_size = luisa::align(
+                    _argument_buffer_size, argument_alignment);
+                break;
+            }
+            case Variable::Tag::ACCEL: {
+                _argument_buffer_size += sizeof(FallbackAccel *);
+                _argument_buffer_size = luisa::align(
+                    _argument_buffer_size, argument_alignment);
+                break;
+            }
+            default: LUISA_ERROR_WITH_LOCATION("Unsupported argument type.");
+        }
+    }
+
+    auto define_common_symbols = [&]() noexcept {
+        llvm::orc::SymbolMap symbol_map{};
+        auto map_symbol = [
+                              jit = _jit.get(),
+                              &symbol_map]<typename T>(
+                              const char *name, T *function) noexcept {
+            auto address = llvm::orc::ExecutorAddr::fromPtr(function);
+            auto symbol = llvm::orc::ExecutorSymbolDef{
+                address, llvm::JITSymbolFlags::Callable};
+            symbol_map.try_emplace(
+                jit->mangleAndIntern(name), symbol);
+        };
+
+#include "fallback_device_api_map_symbols.inl.h"
+
+        map_symbol("luisa.asin.f16", &luisa_fallback_asin_f16);
+        map_symbol("luisa.asin.f32", &luisa_fallback_asin_f32);
+        map_symbol("luisa.asin.f64", &luisa_fallback_asin_f64);
+        map_symbol("luisa.acos.f16", &luisa_fallback_acos_f16);
+        map_symbol("luisa.acos.f32", &luisa_fallback_acos_f32);
+        map_symbol("luisa.acos.f64", &luisa_fallback_acos_f64);
+        map_symbol("luisa.atan.f16", &luisa_fallback_atan_f16);
+        map_symbol("luisa.atan.f32", &luisa_fallback_atan_f32);
+        map_symbol("luisa.atan.f64", &luisa_fallback_atan_f64);
+        map_symbol("luisa.atan2.f16", &luisa_fallback_atan2_f16);
+        map_symbol("luisa.atan2.f32", &luisa_fallback_atan2_f32);
+        map_symbol("luisa.atan2.f64", &luisa_fallback_atan2_f64);
+        map_symbol("luisa.coro.alloc", &luisa_coro_alloc);
+        map_symbol("luisa.coro.free", &luisa_coro_free);
+        map_symbol("luisa.shared.memory", &luisa_shared_memory);
+        map_symbol("luisa.assert", &luisa_fallback_assert);
+
+        if (auto error = _jit->getMainJITDylib().define(
+                llvm::orc::absoluteSymbols(std::move(symbol_map)))) {
+            auto message = llvm::toString(std::move(error));
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to define fallback JIT symbols: {}.",
+                message);
+        }
+    };
+    define_common_symbols();
+
+    auto define_codegen_symbols =
+        [&](const FallbackCodeGenFeedback &feedback) noexcept {
+            llvm::orc::SymbolMap symbol_map{};
+            auto map_symbol = [
+                                  jit = _jit.get(),
+                                  &symbol_map]<typename T>(
+                                  const char *name, T *function) noexcept {
+                auto address =
+                    llvm::orc::ExecutorAddr::fromPtr(function);
+                auto symbol = llvm::orc::ExecutorSymbolDef{
+                    address, llvm::JITSymbolFlags::Callable};
+                symbol_map.try_emplace(
+                    jit->mangleAndIntern(name), symbol);
+            };
+
+            if (!feedback.print_inst_map.empty()) {
+                map_symbol("luisa.print.context", this);
+                _print_formatters.reserve(
+                    feedback.print_inst_map.size());
+                for (auto format_id = 0u;
+                     format_id < feedback.print_inst_map.size();
+                     format_id++) {
+                    auto &&[print_inst, llvm_symbol] =
+                        feedback.print_inst_map[format_id];
+                    map_symbol(
+                        llvm_symbol.c_str(),
+                        &luisa_fallback_print);
+                    LUISA_INFO(
+                        "Mapping print instruction #{}: \"{}\" -> {}",
+                        format_id, print_inst->format(), llvm_symbol);
+                    llvm::SmallVector<const Type *, 8u> argument_types;
+                    for (auto operand : print_inst->operand_uses()) {
+                        argument_types.emplace_back(
+                            operand->value()->type());
+                    }
+                    auto argument_pack_type =
+                        Type::structure(16u, argument_types);
+                    _print_formatters.emplace_back(
+                        luisa::make_unique<ShaderPrintFormatter>(
+                            print_inst->format(),
+                            argument_pack_type, false));
+                }
+            }
+            for (auto &&[callback, llvm_symbol] :
+                 feedback.debug_callback_map) {
+                map_symbol(llvm_symbol.c_str(), callback);
+                LUISA_INFO(
+                    "Mapping debug callback: {} -> {}",
+                    reinterpret_cast<void *>(callback), llvm_symbol);
+            }
+            if (!symbol_map.empty()) {
+                if (auto error =
+                        _jit->getMainJITDylib().define(
+                            llvm::orc::absoluteSymbols(
+                                std::move(symbol_map)))) {
+                    auto message = llvm::toString(std::move(error));
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Failed to define fallback shader-specific "
+                        "JIT symbols: {}.",
+                        message);
+                }
+            }
+        };
+
+    auto has_debug_break = function_contains_debug_break(kernel);
+    auto cache_enabled =
+        option.enable_cache &&
+        option.name.empty() &&
+        !kernel.requires_printing() &&
+        !has_debug_break &&
+        !LUISA_SHOULD_DUMP_XIR &&
+        !LUISA_SHOULD_DUMP_LLVM_IR &&
+        !LUISA_SHOULD_DUMP_ASM &&
+        device->binary_io() != nullptr;
+    auto cache_metadata = make_shader_cache_metadata(
+        kernel, option, *_target_machine);
+
+    auto lookup_kernel_entry = [&]() noexcept {
+        auto address = _jit->lookup("kernel.main");
+        if (!address) {
+            auto message = llvm::toString(address.takeError());
+            LUISA_WARNING_WITH_LOCATION(
+                "Fallback JIT kernel lookup failed: {}.", message);
+            return false;
+        }
+        _kernel_entry = address->toPtr<kernel_entry_t>();
+        return true;
+    };
+
+    if (cache_enabled) {
+        Clock cache_clock;
+        auto metadata_stream = device->binary_io()->read_shader_cache(
+            cache_metadata.metadata_name);
+        auto object_stream = device->binary_io()->read_shader_cache(
+            cache_metadata.object_name);
+        auto metadata_matches = false;
+        if (metadata_stream != nullptr &&
+            metadata_stream->length() ==
+                cache_metadata.serialized.size()) {
+            luisa::string serialized;
+            serialized.resize(metadata_stream->length());
+            metadata_stream->read(luisa::span{
+                reinterpret_cast<std::byte *>(serialized.data()),
+                serialized.size()});
+            metadata_matches =
+                serialized == cache_metadata.serialized;
+        }
+        if (metadata_matches &&
+            object_stream != nullptr &&
+            object_stream->length() != 0u) {
+            auto object = object_stream->read(
+                object_stream->length());
+            auto object_buffer =
+                llvm::MemoryBuffer::getMemBufferCopy(
+                    llvm::StringRef{
+                        reinterpret_cast<const char *>(object.data()),
+                        object.size()},
+                    cache_metadata.object_name.c_str());
+            if (auto error =
+                    _jit->addObjectFile(std::move(object_buffer))) {
+                auto message = llvm::toString(std::move(error));
+                LUISA_WARNING_WITH_LOCATION(
+                    "Fallback shader cache object '{}' is invalid: {}. "
+                    "The shader will be recompiled.",
+                    cache_metadata.object_name, message);
+            } else if (lookup_kernel_entry()) {
+                LUISA_VERBOSE(
+                    "Fallback shader cache hit '{}' in {} ms.",
+                    cache_metadata.object_name,
+                    cache_clock.toc());
+                return;
+            }
+            _initialize_target_machine_jit(option);
+            define_common_symbols();
+        } else {
+            LUISA_VERBOSE(
+                "Fallback shader cache miss '{}'.",
+                cache_metadata.object_name);
+        }
+    } else if (option.enable_cache) {
+        LUISA_VERBOSE(
+            "Fallback shader cache disabled for kernel {:016x} "
+            "(named={}, printing={}, debug_break={}, dumping={}).",
+            kernel.hash(), !option.name.empty(),
+            kernel.requires_printing(), has_debug_break,
+            LUISA_SHOULD_DUMP_XIR ||
+                LUISA_SHOULD_DUMP_LLVM_IR ||
+                LUISA_SHOULD_DUMP_ASM);
+    }
+
+    LUISA_VERBOSE(
+        "======= Fallback Backend JIT Shader Compilation =======");
 
     Clock translate_clk;
     auto xir_module = xir::ast_to_xir_translate(kernel, {});
@@ -191,6 +580,18 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     if (!option.name.empty()) { xir_module->set_location(option.name); }
     verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
+
+    if (kernel.requires_autodiff()) {
+        auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
+        auto autodiff_info = xir::autodiff_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE(
+            "Fallback XIR AutoDiff lowering: inlined {} call(s), transformed {} "
+            "scope(s), removed {} instruction(s).",
+            inline_info.inlined_call_count,
+            autodiff_info.transformed_scope_count,
+            autodiff_info.removed_instruction_count);
+        verify_xir_or_error(xir_module.get(), "AutoDiff lowering");
+    }
 
     // dump for debugging
     if (LUISA_SHOULD_DUMP_XIR) {
@@ -202,7 +603,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     xir::PassPipeline pre_cfg;
     pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     pre_cfg.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::local_store_forward_pass_run_on_module(m, &r);
@@ -214,7 +615,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     });
     pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     // pre_cfg.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
     //     auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
@@ -228,11 +629,11 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     }
     pre_cfg.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::mem2reg_pass_run_on_module(m, &r);
-        return i.promoted_alloca_count > 0u;
+        return i.changed();
     });
     pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     auto pre_cfg_stats = pre_cfg.run(xir_module.get());
     pre_cfg_stats.log("Fallback backend pre-CFG optimization");
@@ -259,15 +660,11 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
                     "Fallback XIR destructuring failed (errors={}, leaked_blocks={}).",
                     i.error_count, i.leaked_block_count);
             }
-            return i.destructured_if_count > 0u ||
-                   i.destructured_loop_count > 0u ||
-                   i.destructured_simple_loop_count > 0u;
+            return i.changed();
         });
         cfg.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
-            return i.folded_constant_cond_br_count > 0u ||
-                   i.threaded_empty_block_count > 0u ||
-                   i.removed_unreachable_block_count > 0u;
+            return i.changed();
         });
         if (LUISA_XIR_RESTRUCTURE_CFG) {
             cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
@@ -278,7 +675,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
                         i.irreducible_region_count, i.unstructured_branch_count,
                         i.invalid_construct_count, i.iteration_limit_count);
                 }
-                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+                return i.changed();
             });
         }
     }
@@ -322,72 +719,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         LUISA_ERROR_WITH_LOCATION("LLVM module verification failed. IR dumped to '{}'.", filename);
     }
 
-    // map symbols
-    llvm::orc::SymbolMap symbol_map{};
-    auto map_symbol = [jit = _jit.get(), &symbol_map]<typename T>(const char *name, T *f) noexcept {
-        auto addr = llvm::orc::ExecutorAddr::fromPtr(f);
-        auto symbol = llvm::orc::ExecutorSymbolDef{addr, llvm::JITSymbolFlags::Callable};
-        symbol_map.try_emplace(jit->mangleAndIntern(name), symbol);
-    };
-
-#include "fallback_device_api_map_symbols.inl.h"
-
-    // asin, acos, atan, atan2
-    map_symbol("luisa.asin.f16", &luisa_fallback_asin_f16);
-    map_symbol("luisa.asin.f32", &luisa_fallback_asin_f32);
-    map_symbol("luisa.asin.f64", &luisa_fallback_asin_f64);
-    map_symbol("luisa.acos.f16", &luisa_fallback_acos_f16);
-    map_symbol("luisa.acos.f32", &luisa_fallback_acos_f32);
-    map_symbol("luisa.acos.f64", &luisa_fallback_acos_f64);
-    map_symbol("luisa.atan.f16", &luisa_fallback_atan_f16);
-    map_symbol("luisa.atan.f32", &luisa_fallback_atan_f32);
-    map_symbol("luisa.atan.f64", &luisa_fallback_atan_f64);
-    map_symbol("luisa.atan2.f16", &luisa_fallback_atan2_f16);
-    map_symbol("luisa.atan2.f32", &luisa_fallback_atan2_f32);
-    map_symbol("luisa.atan2.f64", &luisa_fallback_atan2_f64);
-
-    // luisa.coro.alloc and luisa.coro.free
-    map_symbol("luisa.coro.alloc", &luisa_coro_alloc);
-    map_symbol("luisa.coro.free", &luisa_coro_free);
-
-    // emulated shared memory
-    map_symbol("luisa.shared.memory", &luisa_shared_memory);
-
-    // assert
-    map_symbol("luisa.assert", &luisa_fallback_assert);
-
-    // bind print instructions
-    if (!codegen_feedback.print_inst_map.empty()) {
-        map_symbol("luisa.print.context", this);
-        _print_formatters.reserve(codegen_feedback.print_inst_map.size());
-        for (auto fmt_id = 0u; fmt_id < codegen_feedback.print_inst_map.size(); fmt_id++) {
-            auto &&[print_inst, llvm_symbol] = codegen_feedback.print_inst_map[fmt_id];
-            map_symbol(llvm_symbol.c_str(), &luisa_fallback_print);
-            LUISA_INFO("Mapping print instruction #{}: \"{}\" -> {}", fmt_id, print_inst->format(), llvm_symbol);
-            llvm::SmallVector<const Type *, 8u> arg_types;
-            for (auto o : print_inst->operand_uses()) {
-                arg_types.emplace_back(o->value()->type());
-            }
-            auto arg_pack_type = Type::structure(16u, arg_types);
-            _print_formatters.emplace_back(luisa::make_unique<ShaderPrintFormatter>(
-                print_inst->format(), arg_pack_type, false));
-        }
-    }
-
-    // bind debug callback functions
-    for (auto &&[callback, llvm_symbol] : codegen_feedback.debug_callback_map) {
-        map_symbol(llvm_symbol.c_str(), callback);
-        LUISA_INFO("Mapping debug callback: {} -> {}", reinterpret_cast<void *>(callback), llvm_symbol);
-    }
-
-    // define symbols
-    if (auto error = _jit->getMainJITDylib().define(
-            ::llvm::orc::absoluteSymbols(std::move(symbol_map)))) {
-        ::llvm::handleAllErrors(std::move(error), [](const ::llvm::ErrorInfoBase &err) {
-            LUISA_WARNING_WITH_LOCATION("LLJIT::define(): {}", err.message());
-        });
-        LUISA_ERROR_WITH_LOCATION("Failed to define symbols.");
-    }
+    define_codegen_symbols(codegen_feedback);
 
     llvm_module->setDataLayout(_target_machine->createDataLayout());
 #if LLVM_VERSION_MAJOR >= 21
@@ -424,12 +756,43 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     ::llvm::CGSCCAnalysisManager CGAM;
     ::llvm::ModuleAnalysisManager MAM;
     ::llvm::PipelineTuningOptions PTO;
+    std::size_t largest_function_instruction_count = 0u;
+    for (const auto &function : *llvm_module) {
+        std::size_t instruction_count = 0u;
+        for (const auto &block : function) {
+            instruction_count += block.size();
+        }
+        largest_function_instruction_count = std::max(
+            largest_function_instruction_count,
+            instruction_count);
+    }
+    // LLVM's O3 pipeline has superlinear compile-time behavior on very large
+    // generated dispatch functions (notably in SROA and SLP vectorization).
+    // Keep it for normal kernels, but use the minimal O0 pipeline once a
+    // single function is large enough that optimization time and memory
+    // dominate execution-time savings. Keep the IR pipeline at O0, but retain
+    // the O1 machine-code pipeline: LLVM's x86 O0 code generator can fold
+    // four-byte-aligned scalar spill slots into aligned vector loads in very
+    // large functions. O1 uses SelectionDAG with the optimizing register
+    // allocator while avoiding the superlinear IR transforms above.
+    const auto use_minimal_optimization =
+        largest_function_instruction_count >
+        LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT;
+    if (use_minimal_optimization) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Fallback LLVM function has {} instructions; using the minimal "
+            "O0 IR pipeline and O1 machine-code generation above the "
+            "{}-instruction scalability limit.",
+            largest_function_instruction_count,
+            LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT);
+        _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Less);
+    }
     PTO.LoopInterleaving = true;
 #if LLVM_VERSION_MAJOR >= 21
     PTO.LoopInterchange = true;
 #endif
     PTO.LoopVectorization = true;
-    PTO.SLPVectorization = true;
+    PTO.SLPVectorization = !use_minimal_optimization;
     PTO.LoopUnrolling = true;
     PTO.MergeFunctions = true;
     ::llvm::PassBuilder PB{_target_machine.get(), PTO};
@@ -445,7 +808,9 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
 #endif
     Clock clk;
     clk.tic();
-    auto MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
+    auto MPM = use_minimal_optimization
+                   ? PB.buildO0DefaultPipeline(::llvm::OptimizationLevel::O0)
+                   : PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
     MPM.run(*llvm_module, MAM);
 
     LUISA_VERBOSE("Optimized LLVM module in {} ms.", clk.toc());
@@ -479,55 +844,63 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         }
     }
 
-    // compile to machine code
-    auto m = llvm::orc::ThreadSafeModule(std::move(llvm_module), std::move(llvm_ctx));
-    if (auto error = _jit->addIRModule(std::move(m))) {
-        ::llvm::handleAllErrors(std::move(error), [](const ::llvm::ErrorInfoBase &err) {
-            LUISA_WARNING_WITH_LOCATION("LLJIT::addIRModule(): {}", err.message());
-        });
-    }
-    auto addr = _jit->lookup("kernel.main");
-    if (!addr) {
-        ::llvm::handleAllErrors(addr.takeError(), [](const ::llvm::ErrorInfoBase &err) {
-            LUISA_WARNING_WITH_LOCATION("LLJIT::lookup(): {}", err.message());
-        });
-    }
-    LUISA_ASSERT(addr, "JIT compilation failed.");
-    _kernel_entry = addr->toPtr<kernel_entry_t>();
-
-    // compute argument buffer size
-    _argument_buffer_size = 0u;
-    static constexpr auto argument_alignment = 16u;
-    for (auto arg : kernel.arguments()) {
-        switch (arg.tag()) {
-            case Variable::Tag::LOCAL: {
-                _argument_buffer_size += arg.type()->size();
-                _argument_buffer_size = luisa::align(_argument_buffer_size, argument_alignment);
-                break;
-            }
-            case Variable::Tag::BUFFER: {
-                _argument_buffer_size += sizeof(FallbackBufferView);
-                _argument_buffer_size = luisa::align(_argument_buffer_size, argument_alignment);
-                break;
-            }
-            case Variable::Tag::TEXTURE: {
-                _argument_buffer_size += sizeof(FallbackTextureView);
-                _argument_buffer_size = luisa::align(_argument_buffer_size, argument_alignment);
-                break;
-            }
-            case Variable::Tag::BINDLESS_ARRAY: {
-                _argument_buffer_size += sizeof(FallbackBindlessArray *);
-                _argument_buffer_size = luisa::align(_argument_buffer_size, argument_alignment);
-                break;
-            }
-            case Variable::Tag::ACCEL: {
-                _argument_buffer_size += sizeof(FallbackAccel *);
-                _argument_buffer_size = luisa::align(_argument_buffer_size, argument_alignment);
-                break;
-            }
-            default: LUISA_ERROR_WITH_LOCATION("Unsupported argument type.");
+    // Persist the fully optimized, host-specific relocatable object. This is
+    // the first representation that skips all expensive work on a cache hit:
+    // AST-to-XIR, XIR passes, LLVM IR generation, O3, and machine codegen.
+    if (cache_enabled) {
+        Clock object_clock;
+        llvm::SmallVector<char, 0u> object_code;
+        llvm::raw_svector_ostream object_stream{object_code};
+        llvm::legacy::PassManager object_pass;
+        if (_target_machine->addPassesToEmitFile(
+                object_pass, object_stream, nullptr,
+                llvm::CodeGenFileType::ObjectFile)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Fallback target machine cannot emit object files.");
+        }
+        object_pass.run(*llvm_module);
+        LUISA_VERBOSE(
+            "Fallback machine object generated in {} ms ({} bytes).",
+            object_clock.toc(), object_code.size());
+        luisa::span<const std::byte> object_bytes{
+            reinterpret_cast<const std::byte *>(object_code.data()),
+            object_code.size()};
+        static_cast<void>(
+            device->binary_io()->write_shader_cache(
+                cache_metadata.object_name, object_bytes));
+        luisa::span<const std::byte> metadata_bytes{
+            reinterpret_cast<const std::byte *>(
+                cache_metadata.serialized.data()),
+            cache_metadata.serialized.size()};
+        // Metadata is written last. A partial object write therefore cannot
+        // become a valid cache hit.
+        static_cast<void>(
+            device->binary_io()->write_shader_cache(
+                cache_metadata.metadata_name, metadata_bytes));
+        auto object_buffer =
+            llvm::MemoryBuffer::getMemBufferCopy(
+                llvm::StringRef{
+                    object_code.data(), object_code.size()},
+                cache_metadata.object_name.c_str());
+        if (auto error =
+                _jit->addObjectFile(std::move(object_buffer))) {
+            auto message = llvm::toString(std::move(error));
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to add fallback machine object '{}': {}.",
+                cache_metadata.object_name, message);
+        }
+    } else {
+        auto module = llvm::orc::ThreadSafeModule(
+            std::move(llvm_module), std::move(llvm_ctx));
+        if (auto error = _jit->addIRModule(std::move(module))) {
+            auto message = llvm::toString(std::move(error));
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to add fallback LLVM IR module: {}.",
+                message);
         }
     }
+    LUISA_ASSERT(
+        lookup_kernel_entry(), "Fallback JIT compilation failed.");
 }
 
 class FallbackShaderDispatchBuffer {

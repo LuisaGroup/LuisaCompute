@@ -17,7 +17,7 @@
 //   local_load_elimination, sroa, reg2mem
 // - callable_inline_corners: inline, dead_arg_elim, unused_callable_removal,
 //   promote_ref_arg
-// - loop_pass_corners: loop_unroll, indvar_simplify, licm, loop_rotation
+// - loop_pass_corners: indvar_simplify, licm, loop_rotation
 // - algebraic_pass_corners: algebraic_simplify, const_fold, simplify_libcalls,
 //   reassociate, div_rem_pairs, gvn, sccp, cvp
 // - scalarize_gep_corners: scalarizer, trace_gep, transpose_gep
@@ -1027,7 +1027,7 @@ void test_callable_inline_corners(Device &device) {
 // ---------------------------------------------------------------------------
 // Test 4: small loops, non-unit strides, loop-invariant code, while loops
 // Passes exercised:
-//   loop_unroll, indvar_simplify, licm, loop_rotation
+//   indvar_simplify, licm, loop_rotation
 // ---------------------------------------------------------------------------
 void test_loop_pass_corners(Device &device) {
     auto stream = device.create_stream();
@@ -1037,7 +1037,7 @@ void test_loop_pass_corners(Device &device) {
         set_block_size(64);
         auto idx = dispatch_id().x;
 
-        // Small constant-trip loop (loop_unroll candidate)
+        // Small constant-trip loop
         Float sum1 = 0.0f;
         $for (i, 4) {
             sum1 += i.cast<float>();
@@ -1369,7 +1369,7 @@ void test_matrix_multiply(Device &device) {
 // ---------------------------------------------------------------------------
 // New CFG corner tests: constant-folded branches, nested switches, tiny diamonds
 // Passes exercised: destructure_cfg, restructure_cfg, simplify_cfg,
-//                   lower_switch, convergence_region, if_conversion
+//                   convergence_region, if_conversion
 // ---------------------------------------------------------------------------
 void test_cfg_empty_constant_and_multi_predecessor_merge(Device &device) {
     auto stream = device.create_stream();
@@ -1620,11 +1620,6 @@ void test_structured_early_return(Device &device) {
 }
 
 void test_structured_ray_query_loop(Device &device) {
-    if (device.backend_name() == "cpu") {
-        LUISA_INFO("Skipping ray-query loop test on CPU backend.");
-        return;
-    }
-
     auto stream = device.create_stream();
     auto out = device.create_buffer<uint>(12);
 
@@ -2122,7 +2117,7 @@ void test_value_scalar_evolution(Device &device) {
 
 // ---------------------------------------------------------------------------
 // New loop corner tests
-// Passes exercised: loop_unroll, loop_rotation, indvar_simplify, licm
+// Passes exercised: loop_rotation, indvar_simplify, licm
 // ---------------------------------------------------------------------------
 void test_loop_zero_one_trip(Device &device) {
     auto stream = device.create_stream();

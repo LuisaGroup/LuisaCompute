@@ -19,6 +19,9 @@
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
 #include <luisa/xir/passes/coro_split.h>
+#include <luisa/xir/verifier.h>
+
+#include <initializer_list>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -38,6 +41,18 @@ namespace {
     frame_arg_out = cf->create_reference_argument(Type::structure(fields));
     body_out = cf->create_body_block();
     return cf;
+}
+
+[[nodiscard]] const Type *make_frame_type(
+    std::initializer_list<const Type *> user_fields = {}) noexcept {
+    luisa::vector<const Type *> fields;
+    fields.reserve(CoroFrameDesc::reserved_field_count +
+                   user_fields.size());
+    for (auto i = 0u; i < CoroFrameDesc::reserved_field_count; ++i) {
+        fields.emplace_back(Type::of<uint>());
+    }
+    fields.insert(fields.end(), user_fields.begin(), user_fields.end());
+    return Type::structure(fields);
 }
 
 [[nodiscard]] size_t count_inst_tag(Module &m, DerivedInstructionTag tag) noexcept {
@@ -122,6 +137,89 @@ void reg_coro_materialize() {
         // then: no CoroResumeInst left
         expect(count_inst_tag(m, DerivedInstructionTag::CORO_RESUME) == 0u);
         expect(info.resume_lowered_count == 1u);
+    };
+
+    "resume_metadata_moves_to_the_continuation_entry_block"_test = [] {
+        Module m;
+        Value *frame_arg;
+        BasicBlock *body;
+        auto *callable =
+            make_post_split_callable(m, frame_arg, body);
+        static_cast<void>(callable);
+        body->set_name("continuation_entry");
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *resume = b.coro_resume(1u, frame_arg);
+        resume->set_name("resume_boundary");
+        resume->add_comment("resume provenance");
+        b.return_void();
+
+        auto info = coro_materialize_pass_run_on_module(&m);
+
+        expect(info.succeeded());
+        expect(info.resume_lowered_count == 1u);
+        expect(!resume->is_linked());
+        expect(body->name().has_value());
+        if (body->name()) {
+            expect(*body->name() == "resume_boundary");
+        }
+        expect(body->metadata_list().count_size() == 3u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "split_aware_materialize_rejects_ambiguous_resume_boundary_atomically"_test = [] {
+        Module m;
+        auto *frame_type = make_frame_type();
+        auto *entry_callable = m.create_callable(nullptr);
+        auto *entry_frame =
+            entry_callable->create_reference_argument(frame_type);
+        auto *entry = entry_callable->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *entry_return = b.return_void();
+
+        auto *resume_callable = m.create_callable(nullptr);
+        auto *resume_frame =
+            resume_callable->create_reference_argument(frame_type);
+        auto *resume_body = resume_callable->create_body_block();
+        b.set_insertion_point(resume_body);
+        auto *first = b.coro_resume(1u, resume_frame);
+        auto *second = b.coro_resume(1u, resume_frame);
+        auto *resume_return = b.return_void();
+
+        CoroCfgDistillResult cfg;
+        cfg.scopes.resize(2u);
+        cfg.scopes[0u].trigger_token = 0u;
+        cfg.scopes[1u].trigger_token = 1u;
+        CoroSplitInfo split;
+        split.subroutines.emplace_back(
+            CoroSplitInfo::Subroutine{
+                .scope_index = 0u,
+                .trigger_token = 0u,
+                .callable = entry_callable,
+                .frame_argument = entry_frame});
+        split.subroutines.emplace_back(
+            CoroSplitInfo::Subroutine{
+                .scope_index = 1u,
+                .trigger_token = 1u,
+                .callable = resume_callable,
+                .frame_argument = resume_frame});
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info =
+            coro_materialize_pass_run_on_module_with_cfg(
+                &m, cfg, split);
+
+        expect(!info.succeeded());
+        expect(info.invalid_input_error_count == 1u);
+        expect(info.callable_count == 0u);
+        expect(first->is_linked());
+        expect(second->is_linked());
+        expect(entry->terminator() == entry_return);
+        expect(resume_body->terminator() == resume_return);
+        expect(count_inst_tag(
+                   m, DerivedInstructionTag::STORE) == 0u);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "terminate_lowered"_test = [] {
@@ -394,6 +492,135 @@ void reg_coro_materialize() {
         expect(info.callable_count == 0u);
         expect(count_inst_tag(m, DerivedInstructionTag::CORO_RESUME) == 1u);
         expect(resume->parent_block() == body);
+    };
+
+    "wide_integer_token_field_index_is_decoded_by_type"_test = [] {
+        Module m;
+        Value *frame_arg;
+        BasicBlock *body;
+        auto *callable =
+            make_post_split_callable(m, frame_arg, body);
+        static_cast<void>(callable);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *resume = b.coro_resume(17u, frame_arg);
+        uint64_t token_field = 6u;
+        auto *field_index =
+            m.create_constant(Type::of<uint64_t>(), &token_field);
+        auto *token_ptr =
+            b.gep(Type::of<uint32_t>(), frame_arg, {field_index});
+        uint32_t token = 17u;
+        b.store(token_ptr,
+                m.create_constant(Type::of<uint32_t>(), &token));
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = coro_materialize_pass_run_on_module(&m);
+
+        expect(info.succeeded());
+        expect(info.resume_lowered_count == 1u);
+        expect(!resume->is_linked());
+        expect(count_inst_tag(
+                   m, DerivedInstructionTag::CORO_RESUME) == 0u);
+        expect(count_inst_tag(
+                   m, DerivedInstructionTag::STORE) == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "legacy_materialize_rejects_frame_layout_mismatch_atomically"_test = [] {
+        Module m;
+        Value *frame_arg;
+        BasicBlock *body;
+        auto *callable =
+            make_post_split_callable(m, frame_arg, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<float>());
+        state->set_name("state");
+        auto *resume = b.coro_resume(19u, frame_arg);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = coro_materialize_pass_run_on_module(&m);
+
+        expect(!info.succeeded());
+        expect(info.invalid_input_error_count == 1u);
+        expect(info.callable_count == 0u);
+        expect(resume->is_linked());
+        expect(resume->parent_block() == body);
+        expect(state->is_linked());
+        expect(count_inst_tag(
+                   m, DerivedInstructionTag::CORO_RESUME) == 1u);
+        expect(xir_verify_module(&m).succeeded());
+        static_cast<void>(callable);
+    };
+
+    "legacy_materialize_rejects_cross_callable_register_type_collision"_test = [] {
+        Module m;
+        XIRBuilder b;
+        auto add_callable = [&](const Type *state_type) noexcept {
+            auto *callable = m.create_callable(nullptr);
+            auto *frame = callable->create_reference_argument(
+                make_frame_type({state_type}));
+            auto *body = callable->create_body_block();
+            b.set_insertion_point(body);
+            auto *state = b.alloca_local(state_type);
+            state->set_name("state");
+            auto *resume = b.coro_resume(23u, frame);
+            b.return_void();
+            return resume;
+        };
+        auto *float_resume = add_callable(Type::of<float>());
+        auto *int_resume = add_callable(Type::of<int>());
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = coro_materialize_pass_run_on_module(&m);
+
+        expect(!info.succeeded());
+        expect(info.invalid_input_error_count == 1u);
+        expect(info.callable_count == 0u);
+        expect(float_resume->is_linked());
+        expect(int_resume->is_linked());
+        expect(count_inst_tag(
+                   m, DerivedInstructionTag::CORO_RESUME) == 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "materialize_rejects_mixed_frame_operands_atomically"_test = [] {
+        Module m;
+        auto *callable = m.create_callable(nullptr);
+        auto *frame_type = make_frame_type();
+        auto *first_frame =
+            callable->create_reference_argument(frame_type);
+        auto *second_frame =
+            callable->create_reference_argument(frame_type);
+        auto *entry = callable->create_body_block();
+        auto *left = callable->create_basic_block();
+        auto *right = callable->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        b.cond_br(m.create_constant_one(Type::of<bool>()),
+                  left, right);
+        b.set_insertion_point(left);
+        auto *left_suspend =
+            b.coro_suspend(29u, "left", first_frame);
+        b.set_insertion_point(right);
+        auto *right_suspend =
+            b.coro_suspend(31u, "right", second_frame);
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = coro_materialize_pass_run_on_module(&m);
+
+        expect(!info.succeeded());
+        expect(info.invalid_input_error_count == 1u);
+        expect(info.callable_count == 0u);
+        expect(left->terminator() == left_suspend);
+        expect(right->terminator() == right_suspend);
+        expect(count_inst_tag(
+                   m, DerivedInstructionTag::CORO_SUSPEND) == 2u);
+        expect(count_inst_tag(
+                   m, DerivedInstructionTag::STORE) == 0u);
+        expect(xir_verify_module(&m).succeeded());
     };
 }
 

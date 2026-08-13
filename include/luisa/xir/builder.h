@@ -16,6 +16,7 @@
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/autodiff.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/loop.h>
@@ -61,6 +62,7 @@ public:
 
     IfInst *if_(Value *cond) noexcept;
     SwitchInst *switch_(Value *value) noexcept;
+    IndexedBranchInst *indexed_branch(Value *value) noexcept;
     LoopInst *loop() noexcept;
     SimpleLoopInst *simple_loop() noexcept;
 
@@ -93,13 +95,25 @@ public:
     ArithmeticInst *call(const Type *type, ArithmeticOp op, std::initializer_list<Value *> operands) noexcept;
 
     ResourceQueryInst *call(const Type *type, ResourceQueryOp op, luisa::span<Value *const> operands) noexcept;
+    ResourceQueryInst *call(const Type *type, ResourceQueryOp op, luisa::span<Value *const> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
     ResourceQueryInst *call(const Type *type, ResourceQueryOp op, std::initializer_list<Value *> operands) noexcept;
+    ResourceQueryInst *call(const Type *type, ResourceQueryOp op, std::initializer_list<Value *> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
 
     ResourceReadInst *call(const Type *type, ResourceReadOp op, luisa::span<Value *const> operands) noexcept;
+    ResourceReadInst *call(const Type *type, ResourceReadOp op, luisa::span<Value *const> operands,
+                           BindlessResourceAccess bindless_access) noexcept;
     ResourceReadInst *call(const Type *type, ResourceReadOp op, std::initializer_list<Value *> operands) noexcept;
+    ResourceReadInst *call(const Type *type, ResourceReadOp op, std::initializer_list<Value *> operands,
+                           BindlessResourceAccess bindless_access) noexcept;
 
     ResourceWriteInst *call(ResourceWriteOp op, luisa::span<Value *const> operands) noexcept;
+    ResourceWriteInst *call(ResourceWriteOp op, luisa::span<Value *const> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
     ResourceWriteInst *call(ResourceWriteOp op, std::initializer_list<Value *> operands) noexcept;
+    ResourceWriteInst *call(ResourceWriteOp op, std::initializer_list<Value *> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
 
     CastInst *cast_(const Type *type, CastOp op, Value *value) noexcept;
 
@@ -135,6 +149,10 @@ public:
     AutodiffScopeInst *forward_autodiff_scope(size_t n_forward_grads) noexcept;
 
     CoroSuspendInst *coro_suspend(uint32_t token, luisa::string name, Value *frame) noexcept;
+    CoroSuspendInst *coro_suspend(
+        uint32_t token, luisa::string name, Value *frame,
+        luisa::span<const luisa::string> frame_export_names,
+        luisa::span<Value *const> frame_export_values) noexcept;
     CoroResumeInst *coro_resume(uint32_t token, Value *frame) noexcept;
     CoroTerminateInst *coro_terminate() noexcept;
 

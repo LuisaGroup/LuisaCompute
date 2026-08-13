@@ -2,9 +2,9 @@
 // Exercises multiple optimization passes simultaneously in realistic kernels:
 // - consecutive buffer reads (fuse-consecutive-buffer-reads for byte buffers)
 // - adjacent stores with shared arithmetic (slp-vectorization)
-// - small-trip-count loops (loop-unroll)
+// - small-trip-count loops (ordinary structured-loop legalization)
 // - scaled induction-variable access (indvar strength reduction)
-// - adjacent loops (loop fusion legality/dependence)
+// - dependent adjacent loops preserved by the production pipeline
 // Verifies that all passes compose correctly and produce correct results.
 
 #include "ut/ut.hpp"

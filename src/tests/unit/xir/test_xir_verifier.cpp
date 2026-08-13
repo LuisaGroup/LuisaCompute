@@ -50,6 +50,153 @@ void reg_xir_verifier() {
         expect(result.succeeded());
     };
 
+    "xir_verifier_checks_one_bounded_function_set"_test = [] {
+        Module module;
+        auto *valid = module.create_kernel();
+        auto *valid_body = valid->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(valid_body);
+        builder.return_void();
+
+        auto *invalid = module.create_kernel();
+        invalid->create_body_block();
+        expect(!xir_verify_module(&module).succeeded());
+
+        luisa::vector<const Function *> selected{valid};
+        expect(xir_verify_functions(selected).succeeded());
+        selected.emplace_back(invalid);
+        expect(!xir_verify_functions(selected).succeeded());
+    };
+
+    "xir_verifier_use_list_membership_is_constant_in_fanout"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *one = module.create_constant_one(Type::of<int32_t>());
+        auto *zero =
+            module.create_constant_zero(Type::of<int32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        // Put a user of `zero` before the high-fanout users of `one`. In the
+        // wrong-owner case below this makes the verifier materialize zero's
+        // use-list first, proving that cached ownership still rejects a Use
+        // node linked into a different Value's list.
+        builder.call(
+            Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+            {zero, zero});
+        constexpr auto fanout = size_t{8192u};
+        ArithmeticInst *first_fanout = nullptr;
+        for (auto i = 0u; i < fanout; ++i) {
+            auto *call = builder.call(
+                Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+                {one, one});
+            if (first_fanout == nullptr) { first_fanout = call; }
+        }
+        builder.return_void();
+
+        auto result = xir_verify_module(&module);
+        expect(result.succeeded());
+        expect(result.statistics.instruction_tag_queries ==
+               fanout + 2u)
+            << "the verifier must classify each instruction exactly once";
+        expect(
+            result.statistics.use_list_owner_checks ==
+            fanout * 2u + 2u);
+        expect(
+            result.statistics.use_list_membership_traversal_steps == 0u)
+            << "exact membership must use the intrusive owner identity, not "
+               "walk any fraction of the high-fanout list";
+        expect(one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(!zero->use_list().contains(first_fanout->operand_use(0u)));
+
+        // Caching the exact Use-node identities must preserve the verifier's
+        // linkage semantics: a non-null operand detached from its Value's
+        // use-list remains invalid.
+        auto detached =
+            first_fanout->operand_use(0u)->remove_self();
+        expect(!one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(!zero->use_list().contains(first_fanout->operand_use(0u)));
+        auto invalid = xir_verify_module(&module);
+        expect(!invalid.succeeded());
+        expect(has_verification_error(
+            invalid, body, first_fanout,
+            "Operand use-list linkage is inconsistent."));
+
+        zero->use_list().push_front(std::move(detached));
+        expect(!one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(zero->use_list().contains(first_fanout->operand_use(0u)));
+        auto wrong_owner = xir_verify_module(&module);
+        expect(!wrong_owner.succeeded());
+        expect(has_verification_error(
+            wrong_owner, body, first_fanout,
+            "Operand use-list linkage is inconsistent."));
+        detached =
+            first_fanout->operand_use(0u)->remove_self();
+        one->use_list().push_front(std::move(detached));
+        expect(one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(!zero->use_list().contains(first_fanout->operand_use(0u)));
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "xir_verifier_dominance_storage_is_sparse_in_cfg_size"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *current = kernel->create_body_block();
+        auto *one =
+            module.create_constant_one(Type::of<int32_t>());
+        XIRBuilder builder;
+
+        // A long diamond chain is deliberately large enough that the old
+        // per-block set of all dominators required quadratic storage. The
+        // numbered sparse representation must retain only the CFG edges and
+        // one idom edge per block.
+        constexpr auto diamond_count = size_t{2048u};
+        for (auto i = size_t{0u}; i < diamond_count; ++i) {
+            auto *left = kernel->create_basic_block();
+            auto *right = kernel->create_basic_block();
+            auto *merge = kernel->create_basic_block();
+
+            builder.set_insertion_point(current);
+            auto *dominating_value = builder.call(
+                Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+                {one, one});
+            builder.cond_br(condition, left, right);
+            builder.set_insertion_point(left);
+            builder.br(merge);
+            builder.set_insertion_point(right);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            builder.call(
+                Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+                {dominating_value, one});
+            current = merge;
+        }
+        builder.return_void();
+
+        auto result = xir_verify_module(&module);
+        expect(result.succeeded());
+        constexpr auto expected_blocks =
+            size_t{1u} + diamond_count * 3u;
+        constexpr auto expected_cfg_edges = diamond_count * 4u;
+        expect(
+            result.statistics.dominance_tree_nodes ==
+            expected_blocks);
+        expect(
+            result.statistics.dominance_tree_edges ==
+            expected_blocks - 1u);
+        expect(
+            result.statistics.dominance_cfg_edges ==
+            expected_cfg_edges);
+        expect(
+            result.statistics.dominance_fixed_point_iterations <= 3u)
+            << "reverse-postorder CHK should converge in a constant number "
+               "of sweeps on a diamond chain";
+        expect(
+            result.statistics.dominance_queries >= diamond_count);
+    };
+
     "xir_verifier_accepts_valid_type_and_category_paths"_test = [] {
         Module module;
         auto int_type = Type::of<int32_t>();
@@ -265,6 +412,30 @@ void reg_xir_verifier() {
         expect(!result.succeeded());
     };
 
+    "xir_verifier_sanitizes_cross_function_cfg_edges_before_dominance"_test = [] {
+        Module module;
+        auto *source = module.create_kernel();
+        auto *source_body = source->create_body_block();
+        auto *foreign = module.create_kernel();
+        auto *foreign_body = foreign->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(source_body);
+        auto *invalid_branch = builder.br(foreign_body);
+        builder.set_insertion_point(foreign_body);
+        builder.return_void();
+
+        // The malformed edge is diagnosed, but it must never enter the
+        // numbered dominance CFG of either function.
+        auto result = xir_verify_module(&module);
+        expect(!result.succeeded());
+        expect(has_verification_error(
+            result, source_body, invalid_branch,
+            "Branch has an invalid target."));
+        expect(result.statistics.dominance_tree_nodes == 2u);
+        expect(result.statistics.dominance_tree_edges == 0u);
+        expect(result.statistics.dominance_cfg_edges == 0u);
+    };
+
     "xir_verifier_rejects_use_before_definition"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -348,7 +519,7 @@ void reg_xir_verifier() {
         expect(!structured.succeeded());
     };
 
-    "xir_verifier_accepts_terminal_null_merge_selections"_test = [] {
+    "xir_verifier_distinguishes_structured_switch_from_indexed_branch"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
         auto *condition = kernel->create_value_argument(Type::of<bool>());
@@ -372,7 +543,26 @@ void reg_xir_verifier() {
 
         expect(if_inst->merge_block() == nullptr);
         expect(switch_inst->merge_block() == nullptr);
-        expect(xir_verify_module(&module).succeeded());
+        auto invalid_switch = xir_verify_module(&module);
+        expect(!invalid_switch.succeeded());
+        expect(has_verification_error(
+            invalid_switch, false_block, switch_inst,
+            "Structured control flow has an invalid merge block."));
+
+        switch_inst->remove_self();
+        builder.set_insertion_point(false_block);
+        auto *indexed_branch = builder.indexed_branch(selector);
+        indexed_branch->add_case(1, case_block);
+        indexed_branch->set_default_block(default_block);
+
+        auto valid_raw_cfg = xir_verify_module(&module);
+        expect(valid_raw_cfg.succeeded());
+        auto structured_only = xir_verify_module(
+            &module, {.require_no_unstructured_control_flow = true});
+        expect(!structured_only.succeeded());
+        expect(has_verification_error(
+            structured_only, false_block, indexed_branch,
+            "Unstructured control flow is not allowed."));
     };
 
     "xir_verifier_accepts_nearest_structured_break_continue_targets"_test = [] {

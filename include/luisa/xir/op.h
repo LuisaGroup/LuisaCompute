@@ -7,10 +7,42 @@
 #ifndef LUISA_XIR_OP_H
 #define LUISA_XIR_OP_H
 
+#include <cstdint>
+
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/string.h>
 
 namespace luisa::compute::xir {
+
+// Bindless descriptor layout and index-uniformity are independent semantic
+// axes. Keeping them as instruction attributes avoids multiplying every
+// resource opcode into four variants while still making the distinction
+// visible to verification, optimization, interchange, and code generation.
+struct BindlessResourceAccess {
+    uint8_t typed : 1 {false};
+    uint8_t uniform : 1 {false};
+
+    [[nodiscard]] constexpr uint8_t encoded() const noexcept {
+        return static_cast<uint8_t>((typed ? 1u : 0u) |
+                                    (uniform ? 2u : 0u));
+    }
+
+    [[nodiscard]] static constexpr BindlessResourceAccess
+    decode(uint8_t value) noexcept {
+        return {
+            .typed = (value & 1u) != 0u,
+            .uniform = (value & 2u) != 0u};
+    }
+
+    [[nodiscard]] constexpr bool is_default() const noexcept {
+        return !typed && !uniform;
+    }
+
+    [[nodiscard]] constexpr bool operator==(
+        const BindlessResourceAccess &) const noexcept = default;
+};
+
+static_assert(sizeof(BindlessResourceAccess) == 1u);
 
 enum class AllocaOp {
     LOCAL,
@@ -55,8 +87,8 @@ enum class ArithmeticOp {
     SATURATE,// (vecN)
     LERP,    // (vecN, vecN, vecN)
 
-    SMOOTHSTEP,// (vecN, vecN, vecN)
-    STEP,      // (x, y): (x >= y) ? 1 : 0
+    SMOOTHSTEP,// (edge0, edge1, x)
+    STEP,      // (edge, x): (x >= edge) ? 1 : 0
 
     ABS,// (vecN)
     MIN,// (vecN)
@@ -127,7 +159,7 @@ enum class ArithmeticOp {
     MATRIX_COMP_SUB,   // (floatNxN, floatNxN) -> floatNxN | (floatNxN, float) -> floatNxN | (float, floatNxN) -> floatNxN
     MATRIX_COMP_MUL,   // (floatNxN, floatNxN) -> floatNxN | (floatNxN, float) -> floatNxN | (float, floatNxN) -> floatNxN
     MATRIX_COMP_DIV,   // (floatNxN, floatNxN) -> floatNxN | (floatNxN, float) -> floatNxN | (float, floatNxN) -> floatNxN
-    MATRIX_LINALG_MUL, // (floatNxN, floatNxN) -> floatNxN | (floatNxN, floatN) -> floatN
+    MATRIX_LINALG_MUL, // (floatNxN, floatNxN) -> floatNxN | (floatNxN, floatN) -> floatN | (floatN, floatNxN) -> floatN
     MATRIX_DETERMINANT,// (floatNxN) -> float
     MATRIX_TRANSPOSE,  // (floatNxN) -> floatNxN
     MATRIX_INVERSE,    // (floatNxN) -> floatNxN
@@ -316,6 +348,61 @@ enum class ResourceWriteOp {
     INDIRECT_DISPATCH_SET_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
     INDIRECT_DISPATCH_SET_COUNT, // (Buffer, uint count)
 };
+
+[[nodiscard]] constexpr bool is_bindless_resource_op(
+    ResourceQueryOp op) noexcept {
+    switch (op) {
+        case ResourceQueryOp::BINDLESS_BUFFER_SIZE:
+        case ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER:
+        case ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS:
+            return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] constexpr bool is_bindless_resource_op(
+    ResourceReadOp op) noexcept {
+    switch (op) {
+        case ResourceReadOp::BINDLESS_BUFFER_READ:
+        case ResourceReadOp::BINDLESS_BYTE_BUFFER_READ:
+        case ResourceReadOp::BINDLESS_TEXTURE2D_READ:
+        case ResourceReadOp::BINDLESS_TEXTURE3D_READ:
+        case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
+        case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL:
+            return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] constexpr bool is_bindless_resource_op(
+    ResourceWriteOp op) noexcept {
+    switch (op) {
+        case ResourceWriteOp::BINDLESS_BUFFER_WRITE:
+        case ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
+            return true;
+        default: return false;
+    }
+}
 
 enum class ThreadGroupOp {
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/function.h>
@@ -11,10 +13,14 @@ class DomTree;
 class LUISA_XIR_API DomTreeNode : public concepts::Noncopyable {
 
 private:
+    friend class DomTree;
+
     BasicBlock *_block;
     const DomTreeNode *_parent;
     luisa::vector<const DomTreeNode *> _children;
     luisa::vector<const DomTreeNode *> _frontiers;
+    size_t _preorder_index;
+    size_t _subtree_end_index;
 
 public:
     explicit DomTreeNode(BasicBlock *block) noexcept;
@@ -26,6 +32,7 @@ public:
     [[nodiscard]] auto block() const noexcept { return _block; }
     [[nodiscard]] auto children() const noexcept { return luisa::span{_children}; }
     [[nodiscard]] auto frontiers() const noexcept { return luisa::span{_frontiers}; }
+    [[nodiscard]] bool dominates(const DomTreeNode *other) const noexcept;
 };
 
 class LUISA_XIR_API DomTree : public concepts::Noncopyable {
@@ -38,6 +45,7 @@ public: /* for internal usage only */
     DomTree() noexcept;
     DomTreeNode *add_or_get_node(BasicBlock *block) noexcept;
     void set_root(DomTreeNode *root) noexcept;
+    void compute_ancestry_intervals() noexcept;
     void compute_dominance_frontiers() noexcept;
 
 public:
@@ -51,6 +59,30 @@ public:
     [[nodiscard]] auto immediate_dominator(BasicBlock *block) const noexcept -> BasicBlock *;
 };
 
-[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(Function *function) noexcept;
+struct DomTreeBuildStats {
+    size_t numbered_block_count{0u};
+    size_t numbered_edge_count{0u};
+    size_t fixed_point_iteration_count{0u};
+    size_t fixed_point_block_visit_count{0u};
+    size_t fixed_point_edge_visit_count{0u};
+    size_t intersect_step_count{0u};
+};
+
+struct DomTreeBuildOptions {
+    bool compute_dominance_frontiers{true};
+};
+
+/// Null and declaration-only functions yield an empty tree.
+[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(
+    Function *function) noexcept;
+[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(
+    Function *function,
+    DomTreeBuildOptions options) noexcept;
+/// Diagnostic overload. The original options overload remains ABI-stable;
+/// stats are written only when the supplied pointer is non-null.
+[[nodiscard]] LUISA_XIR_API DomTree compute_dom_tree(
+    Function *function,
+    DomTreeBuildOptions options,
+    DomTreeBuildStats *stats) noexcept;
 
 }// namespace luisa::compute::xir

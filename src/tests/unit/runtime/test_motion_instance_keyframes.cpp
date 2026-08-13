@@ -9,7 +9,6 @@
 #include <luisa/ast/type.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
-#include <luisa/runtime/remote/client_interface.h>
 #include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/rtx/motion_instance.h>
 #include <luisa/runtime/rtx/triangle.h>
@@ -25,7 +24,7 @@ using namespace boost::ut::literals;
 
 namespace {
 
-class MotionTestDevice final : public ClientInterface {
+class MotionTestDevice final : public DeviceInterface {
 private:
     uint64_t _next_handle{1u};
     size_t _motion_create_count{};
@@ -37,7 +36,11 @@ private:
 
 public:
     explicit MotionTestDevice(Context context) noexcept
-        : ClientInterface{std::move(context), nullptr} {}
+        : DeviceInterface{std::move(context)} {}
+
+    [[nodiscard]] void *native_handle() const noexcept override { return nullptr; }
+    [[nodiscard]] uint compute_warp_size() const noexcept override { return 1u; }
+    [[nodiscard]] uint64_t memory_granularity() const noexcept override { return 1u; }
 
     [[nodiscard]] BufferCreationInfo create_buffer(
         const Type *element, size_t element_count, void *) noexcept override {
@@ -50,12 +53,54 @@ public:
         return info;
     }
 
-    [[nodiscard]] BufferCreationInfo create_buffer(
-        const ir::CArc<ir::Type> *, size_t, void *) noexcept override {
-        return BufferCreationInfo::make_invalid();
-    }
-
     void destroy_buffer(uint64_t) noexcept override {}
+
+    [[nodiscard]] ResourceCreationInfo create_texture(
+        PixelFormat, uint, uint, uint, uint, uint, void *, bool, bool) noexcept override {
+        return ResourceCreationInfo::make_invalid();
+    }
+    void destroy_texture(uint64_t) noexcept override {}
+    [[nodiscard]] ResourceCreationInfo create_bindless_array(
+        size_t, BindlessSlotType) noexcept override {
+        return ResourceCreationInfo::make_invalid();
+    }
+    void destroy_bindless_array(uint64_t) noexcept override {}
+    [[nodiscard]] ResourceCreationInfo create_stream(StreamTag) noexcept override {
+        return ResourceCreationInfo::make_invalid();
+    }
+    void destroy_stream(uint64_t) noexcept override {}
+    void synchronize_stream(uint64_t) noexcept override {}
+    void dispatch(uint64_t, CommandList &&) noexcept override {}
+    [[nodiscard]] SwapchainCreationInfo create_swapchain(
+        const SwapchainOption &, uint64_t) noexcept override {
+        SwapchainCreationInfo info{};
+        info.invalidate();
+        return info;
+    }
+    void destroy_swapchain(uint64_t) noexcept override {}
+    void present_display_in_stream(uint64_t, uint64_t, uint64_t) noexcept override {}
+    [[nodiscard]] ShaderCreationInfo create_shader(
+        const ShaderOption &, Function) noexcept override {
+        return ShaderCreationInfo::make_invalid();
+    }
+    [[nodiscard]] ShaderCreationInfo load_shader(
+        luisa::string_view, luisa::span<const Type *const>) noexcept override {
+        return ShaderCreationInfo::make_invalid();
+    }
+    [[nodiscard]] Usage shader_argument_usage(uint64_t, size_t) noexcept override {
+        return Usage::NONE;
+    }
+    void destroy_shader(uint64_t) noexcept override {}
+    [[nodiscard]] ResourceCreationInfo create_event() noexcept override {
+        return ResourceCreationInfo::make_invalid();
+    }
+    void destroy_event(uint64_t) noexcept override {}
+    void signal_event(uint64_t, uint64_t, uint64_t) noexcept override {}
+    void wait_event(uint64_t, uint64_t, uint64_t) noexcept override {}
+    [[nodiscard]] bool is_event_completed(uint64_t, uint64_t) const noexcept override {
+        return false;
+    }
+    void synchronize_event(uint64_t, uint64_t) noexcept override {}
 
     [[nodiscard]] ResourceCreationInfo create_mesh(
         const AccelOption &) noexcept override {
@@ -63,6 +108,12 @@ public:
     }
 
     void destroy_mesh(uint64_t) noexcept override {}
+
+    [[nodiscard]] ResourceCreationInfo create_procedural_primitive(
+        const AccelOption &) noexcept override {
+        return ResourceCreationInfo::make_invalid();
+    }
+    void destroy_procedural_primitive(uint64_t) noexcept override {}
 
     [[nodiscard]] ResourceCreationInfo create_motion_instance(
         const AccelMotionOption &) noexcept override {
@@ -73,6 +124,13 @@ public:
     void destroy_motion_instance(uint64_t handle) noexcept override {
         _destroyed_motion_handles.emplace_back(handle);
     }
+
+    [[nodiscard]] ResourceCreationInfo create_accel(
+        const AccelOption &) noexcept override {
+        return ResourceCreationInfo::make_invalid();
+    }
+    void destroy_accel(uint64_t) noexcept override {}
+    void set_name(Resource::Tag, uint64_t, luisa::string_view) noexcept override {}
 
     [[nodiscard]] auto motion_create_count() const noexcept {
         return _motion_create_count;

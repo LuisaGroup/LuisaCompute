@@ -1,13 +1,6 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ast2ir.h>
-#include <luisa/ir/ir2ast.h>
-#include <luisa/ir/transform.h>
-#include "metal_codegen_ir.h"
-#endif
-
 #include "metal_builtin_embedded.hpp"
 #include "metal_codegen_ast.h"
 #include "metal_compiler.h"
@@ -30,6 +23,9 @@
 #include "metal_pinned_memory.h"
 #include "metal_debug_capture.h"
 #include "metal_tex_compress.h"
+#ifdef LUISA_ENABLE_XIR
+#include "../common/xir_autodiff.h"
+#endif
 
 #include <cstdlib>
 
@@ -269,20 +265,6 @@ BufferCreationInfo MetalDevice::create_buffer(const Type *element,
     });
 }
 
-BufferCreationInfo MetalDevice::create_buffer(const ir::CArc<ir::Type> *element,
-                                              size_t elem_count,
-                                              void *external_memory) noexcept {
-#ifdef LUISA_ENABLE_IR
-    return with_autorelease_pool([=, this] {
-        auto elem_size = MetalCodegenIR::type_size_bytes(element->get());
-        return create_device_buffer(_handle, elem_size, elem_count, external_memory);
-    });
-#else
-    LUISA_WARNING_WITH_LOCATION("IR is not enabled. Returning an invalid buffer.");
-    return BufferCreationInfo::make_invalid();
-#endif
-}
-
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
     with_autorelease_pool([=] {
         auto buffer = reinterpret_cast<MetalBufferBase *>(handle);
@@ -396,15 +378,12 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
     if (kernel.allowed_warp_size().value_or(32) != 32) [[unlikely]] {
         LUISA_ERROR("Metal backend only support warp size 32.");
     }
-    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
-#ifdef LUISA_ENABLE_IR
-        auto ir = AST2IR::build_kernel(kernel);
-        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
-        transform_ir_kernel_module_auto(ir->get());
-        return create_shader(option, ir->get());
+    if (kernel.requires_autodiff()) {
+#ifdef LUISA_ENABLE_XIR
+        auto lowered = backend_detail::lower_autodiff_to_ast(kernel);
+        return create_shader(option, lowered->function());
 #else
-        LUISA_ERROR_WITH_LOCATION("IR is not enabled in LuisaCompute. "
-                                  "AutoDiff support is not available.");
+        LUISA_ERROR_WITH_LOCATION("Metal AutoDiff requires XIR support.");
 #endif
     }
 
@@ -451,6 +430,8 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         StringScratch scratch;
         MetalCodegenAST codegen{scratch};
         codegen.emit(kernel, option.native_include);
+        metadata.argument_sampled.assign(
+            codegen.argument_sampled().begin(), codegen.argument_sampled().end());
 
         // kernel printing
         metadata.format_types.reserve(codegen.print_formats().size());
@@ -469,6 +450,7 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         auto shader = luisa::new_with_allocator<MetalShader>(
             this, std::move(pipeline),
             std::move(metadata.argument_usages),
+            std::move(metadata.argument_sampled),
             std::move(bound_arguments),
             std::move(metadata.format_types),
             kernel.block_size());
@@ -477,21 +459,6 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         info.native_handle = shader->pso();
         info.block_size = kernel.block_size();
         return info;
-    });
-}
-
-ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    // TODO: codegen from IR directly
-    return with_autorelease_pool([=, this] {
-#ifdef LUISA_ENABLE_IR
-        Clock clk;
-        auto function = IR2AST::build(kernel);
-        LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
-        return create_shader(option, function->function());
-#else
-        LUISA_ERROR_WITH_LOCATION("Metal device does not support creating shader from IR types.");
-        return ShaderCreationInfo{};
-#endif
     });
 }
 
@@ -515,6 +482,7 @@ ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span
         auto shader = new_with_allocator<MetalShader>(
             this, std::move(pipeline),
             std::move(metadata.argument_usages),
+            std::move(metadata.argument_sampled),
             luisa::vector<MetalShader::Argument>{},
             std::move(metadata.format_types),
             metadata.block_size);

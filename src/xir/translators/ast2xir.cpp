@@ -1,6 +1,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/ast/external_function.h>
 #include <luisa/ast/statement.h>
 #include <luisa/ast/function.h>
@@ -20,12 +21,48 @@ public:
         BasicBlock *continue_target{nullptr};
     };
 
+    class VariableBindings {
+
+    private:
+        // Variable equality is exactly UID equality, and FunctionBuilder
+        // assigns UIDs monotonically within one function. Current instances
+        // are function-local, so a direct UID index is the complete key; null
+        // slots represent builtin-variable gaps that are resolved separately.
+        luisa::vector<Value *> _values;
+
+    public:
+        [[nodiscard]] Value *lookup(Variable variable) const noexcept {
+            auto uid = static_cast<size_t>(variable.uid());
+            return uid < _values.size() ? _values[uid] : nullptr;
+        }
+
+        [[nodiscard]] bool contains(Variable variable) const noexcept {
+            return lookup(variable) != nullptr;
+        }
+
+        [[nodiscard]] Value *bind(Variable variable,
+                                  Value *value) noexcept {
+            LUISA_ASSERT(value != nullptr,
+                         "Cannot bind an AST variable to a null XIR value.");
+            auto uid = static_cast<size_t>(variable.uid());
+            if (uid >= _values.size()) {
+                _values.resize(uid + 1u, nullptr);
+            }
+            LUISA_ASSERT(
+                _values[uid] == nullptr,
+                "AST variable UID {} was bound more than once in one function.",
+                variable.uid());
+            _values[uid] = value;
+            return value;
+        }
+    };
+
     struct Current {
         FunctionDefinition *f{nullptr};
         const ASTFunction *ast{nullptr};
         const RayQueryStmt *rq{nullptr};
         BreakContinueTarget break_continue_target;
-        luisa::unordered_map<Variable, Value *> variables;
+        VariableBindings variables;
         luisa::vector<const CommentStmt *> comments;
     };
 
@@ -68,6 +105,7 @@ private:
     [[maybe_unused]] AST2XIRConfig _config;
     luisa::unique_ptr<Module> _module;
     luisa::unordered_map<const compute::detail::FunctionBuilder *, Function *> _generated_functions;
+    luisa::unordered_map<uint64_t, Function *> _generated_callable_definitions;
     luisa::unordered_map<uint64_t, ExternalFunction *> _generated_external_functions;
     luisa::unordered_map<ConstantData, Constant *> _generated_constants;
     luisa::unordered_map<TypedLiteral, Constant *> _generated_literals;
@@ -295,8 +333,7 @@ private:
     [[nodiscard]] Value *_translate_ref_expr(XIRBuilder &b, const RefExpr *expr, bool load_lval) noexcept {
         auto ast_var = expr->variable();
         LUISA_ASSERT(ast_var.type() == expr->type(), "Variable type mismatch.");
-        if (auto iter = _current.variables.find(ast_var); iter != _current.variables.end()) {
-            auto var = iter->second;
+        if (auto var = _current.variables.lookup(ast_var)) {
             return load_lval && var->is_lvalue() ? b.load(expr->type(), var) : var;
         }
         return _translate_builtin_variable(ast_var);
@@ -352,6 +389,11 @@ private:
             }
             return b.call(f->type(), f, args);
         }
+        auto ast_op = expr->op();
+        auto bindless_access = BindlessResourceAccess{
+            .typed = is_typed_bindless_resource_call(ast_op),
+            .uniform = is_uniform_bindless_resource_call(ast_op)};
+        auto canonical_op = canonical_bindless_resource_call(ast_op);
         auto alu_call = [&](ArithmeticOp target_op) noexcept {
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
@@ -392,9 +434,10 @@ private:
                 args.emplace_back(arg);
             }
             if constexpr (std::is_same_v<ResourceOp, ResourceWriteOp>) {
-                return b.call(target_op, args);
+                return b.call(target_op, args, bindless_access);
             } else {
-                return b.call(expr->type(), target_op, args);
+                return b.call(
+                    expr->type(), target_op, args, bindless_access);
             }
         };
         auto rq_call = [&]<typename T>(T target_op) noexcept {
@@ -487,7 +530,7 @@ private:
             return inst;
         };
         // builtin function
-        switch (expr->op()) {
+        switch (canonical_op) {
             case CallOp::CUSTOM: LUISA_ERROR_WITH_LOCATION("Unexpected custom call operation.");
             case CallOp::EXTERNAL: LUISA_ERROR_WITH_LOCATION("Unexpected external call operation.");
             case CallOp::ALL: return alu_call(ArithmeticOp::ALL);
@@ -543,6 +586,7 @@ private:
             case CallOp::FRACT: return alu_call(ArithmeticOp::FRACT);
             case CallOp::TRUNC: return alu_call(ArithmeticOp::TRUNC);
             case CallOp::ROUND: return alu_call(ArithmeticOp::ROUND);
+            case CallOp::RINT: return alu_call(ArithmeticOp::RINT);
             case CallOp::FMA: return alu_call(ArithmeticOp::FMA);
             case CallOp::COPYSIGN: return alu_call(ArithmeticOp::COPYSIGN);
             case CallOp::CROSS: return alu_call(ArithmeticOp::CROSS);
@@ -798,9 +842,14 @@ private:
                     b, expr->arguments().front(), false);
                 b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
                        {query});
-                return b.call(expr->type(),
-                              RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
-                              {query});
+                auto terminated = b.call(
+                    expr->type(),
+                    RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
+                    {query});
+                // AST proceed() returns whether traversal is still active;
+                // normalized XIR stores the complementary termination state.
+                return b.call(expr->type(), ArithmeticOp::UNARY_BIT_NOT,
+                              {terminated});
             }
             case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE);
             case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE);
@@ -844,7 +893,9 @@ private:
                     "SPIR-V events as uint32 values and exposes only ordinary lvalue references, "
                     "but OpUntypedGroupAsyncCopyKHR requires OpTypeEvent values and opposite "
                     "Workgroup/CrossWorkgroup untyped pointers.");
-            default: LUISA_NOT_IMPLEMENTED("AST Op {} is not implemented.", luisa::to_string(expr->op()));
+            default: LUISA_NOT_IMPLEMENTED(
+                "AST Op {} is not implemented.",
+                luisa::to_string(ast_op));
         }
         LUISA_NOT_IMPLEMENTED();
     }
@@ -1200,7 +1251,25 @@ private:
                     auto *parent_bb = b.insertion_point()->parent_block();
 
                     b.set_insertion_point(suspend_bb);
-                    _commented(b.coro_suspend(ast_suspend->token(), luisa::string{ast_suspend->name()}, nullptr));
+                    luisa::vector<luisa::string> frame_export_names;
+                    luisa::vector<Value *> frame_export_values;
+                    frame_export_names.reserve(
+                        ast_suspend->frame_exports().size());
+                    frame_export_values.reserve(
+                        ast_suspend->frame_exports().size());
+                    for (auto &&frame_export :
+                         ast_suspend->frame_exports()) {
+                        frame_export_names.emplace_back(
+                            frame_export.name);
+                        frame_export_values.emplace_back(
+                            _translate_expression(
+                                b, frame_export.value, true));
+                    }
+                    _commented(b.coro_suspend(
+                        ast_suspend->token(),
+                        luisa::string{ast_suspend->name()}, nullptr,
+                        luisa::span{frame_export_names},
+                        luisa::span{frame_export_values}));
 
                     auto *always_true = _module->create_constant_one(compute::Type::of<bool>());
                     b.set_insertion_point(parent_bb);
@@ -1228,15 +1297,18 @@ private:
                 auto local = b.alloca_local(arg->type());
                 local->add_comment("Local copy of argument");
                 b.store(local, arg);
-                _current.variables.emplace(ast_arg, local);
+                static_cast<void>(
+                    _current.variables.bind(ast_arg, local));
             } else {// otherwise, we can directly use the argument
-                _current.variables.emplace(ast_arg, arg);
+                static_cast<void>(
+                    _current.variables.bind(ast_arg, arg));
             }
         }
         for (auto ast_local : _current.ast->local_variables()) {
-            LUISA_DEBUG_ASSERT(_current.variables.find(ast_local) == _current.variables.end(),
+            LUISA_DEBUG_ASSERT(!_current.variables.contains(ast_local),
                                "Local variable already exists.");
-            auto v = _current.variables.emplace(ast_local, b.alloca_local(ast_local.type())).first->second;
+            auto v = _current.variables.bind(
+                ast_local, b.alloca_local(ast_local.type()));
             if (auto name = _current.ast->get_variable_name(ast_local.uid()); !name.empty()) {
                 v->set_name(name);
             } else {
@@ -1249,9 +1321,10 @@ private:
             }
         }
         for (auto ast_shared : _current.ast->shared_variables()) {
-            LUISA_DEBUG_ASSERT(_current.variables.find(ast_shared) == _current.variables.end(),
+            LUISA_DEBUG_ASSERT(!_current.variables.contains(ast_shared),
                                "Shared variable already exists.");
-            _current.variables.emplace(ast_shared, b.alloca_shared(ast_shared.type()));
+            static_cast<void>(_current.variables.bind(
+                ast_shared, b.alloca_shared(ast_shared.type())));
         }
         _translate_statements(b, _current.ast->body()->statements());
         if (!b.is_insertion_point_terminator()) {
@@ -1267,10 +1340,23 @@ public:
 
     Function *add_function(const ASTFunction &f) noexcept {
         LUISA_ASSERT(_module != nullptr, "Module has been finalized.");
-        // try emplace the function
-        auto [iter, just_inserted] = _generated_functions.try_emplace(f.builder(), nullptr);
-        // return the function if it has been translated
-        if (!just_inserted) { return iter->second; }
+        // Builder identity breaks recursive translation cycles. Equivalent
+        // CALLABLE builders additionally share one definition by structural
+        // hash; kernels and coroutines remain distinct entry points.
+        if (auto iter = _generated_functions.find(f.builder());
+            iter != _generated_functions.end()) {
+            return iter->second;
+        }
+        if (f.tag() == ASTFunction::Tag::CALLABLE) {
+            if (auto iter = _generated_callable_definitions.find(f.hash());
+                iter != _generated_callable_definitions.end()) {
+                _generated_functions.emplace(f.builder(), iter->second);
+                return iter->second;
+            }
+        }
+        auto [iter, just_inserted] =
+            _generated_functions.try_emplace(f.builder(), nullptr);
+        LUISA_ASSERT(just_inserted, "Function builder was inserted concurrently.");
         // create a new function
         auto def = [&]() noexcept -> FunctionDefinition * {
             switch (f.tag()) {
@@ -1293,6 +1379,12 @@ public:
             def->set_name(name);
         }
         iter->second = def;
+        if (f.tag() == ASTFunction::Tag::CALLABLE) {
+            auto [hash_iter, hash_inserted] =
+                _generated_callable_definitions.try_emplace(f.hash(), def);
+            LUISA_ASSERT(hash_inserted || hash_iter->second == def,
+                         "Callable hash canonicalization is inconsistent.");
+        }
         // translate the function
         auto old = std::exchange(_current, {.f = def, .ast = &f});
         _translate_current_function();
@@ -1329,8 +1421,9 @@ AST2XIRContext *ast_to_xir_translate_begin(const AST2XIRConfig &config) noexcept
     return luisa::new_with_allocator<AST2XIRContext>(config);
 }
 
-void ast_to_xir_translate_add_function(AST2XIRContext *ctx, const ASTFunction &f) noexcept {
-    ctx->add_function(f);
+Function *ast_to_xir_translate_add_function(
+    AST2XIRContext *ctx, const ASTFunction &f) noexcept {
+    return ctx->add_function(f);
 }
 
 void ast_to_xir_translate_add_external_function(AST2XIRContext *ctx, const ASTExternalFunction &f) noexcept {

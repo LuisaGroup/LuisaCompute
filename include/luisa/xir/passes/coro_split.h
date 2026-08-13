@@ -33,14 +33,17 @@ struct CoroSplitInfo {
     size_t structured_cfg_error_count{0u};
     size_t invalid_cfg_error_count{0u};
 
+    [[nodiscard]] bool changed() const noexcept {
+        return !subroutines.empty();
+    }
     [[nodiscard]] bool succeeded() const noexcept {
         return structured_cfg_error_count == 0u && invalid_cfg_error_count == 0u;
     }
 };
 
-// Coro split does not lower structured control flow. Call lower_switch first,
-// then destructure_cfg, before invoking this pass. SWITCH is treated as
-// structured/ambiguous even when its merge is null. Module entry points are
+// Coro split does not lower structured control flow or edge-sensitive Phis.
+// Call destructure_cfg and reg2mem before invoking this pass; destructure_cfg
+// converts SwitchInst to IndexedBranchInst. Module entry points are
 // atomic: if any coroutine definition is unsupported, no definition is split.
 // Explicit distilled CFG input must be non-empty and wholly owned by the module
 // passed to the entry point.

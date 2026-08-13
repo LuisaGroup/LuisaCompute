@@ -8,11 +8,13 @@ class PassReport;
 
 // Unstructured-CFG-only loop rotation pass. Callers must run an explicit CFG
 // destructuring pass first. Structured control flow is rejected and left
-// unchanged; see LoopRotationInfo::structured_cfg_error_count. Plain CFG is
-// currently accepted unchanged pending verifier-backed natural-loop support.
+// unchanged; see LoopRotationInfo::structured_cfg_error_count. Rotation is
+// limited to verifier-valid, innermost, top-tested natural loops whose header
+// is pure, whose exit has no PHIs, and whose loop values do not escape.
 struct LoopRotationInfo {
     size_t rotated_loop_count{0u};
     size_t structured_cfg_error_count{0u};
+    [[nodiscard]] bool changed() const noexcept { return rotated_loop_count != 0u; }
     [[nodiscard]] bool succeeded() const noexcept { return structured_cfg_error_count == 0u; }
 };
 

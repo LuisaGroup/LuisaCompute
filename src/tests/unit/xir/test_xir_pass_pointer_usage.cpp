@@ -48,6 +48,7 @@ int main() {
         auto info = analysis.analyze(function);
         expect(info.succeeded());
         expect(info.tracked_pointer_count == 3u);
+        expect(info.materialized_pointer_count == 3u);
         auto *root_in = analysis.in_usage(body, root);
         auto *root_out = analysis.out_usage(body, root);
         auto *field0_out = analysis.out_usage(body, field0);
@@ -241,6 +242,75 @@ int main() {
         expect(loop_in->live.access(1u).none());
     };
 
+    "pointer_usage_projection_equals_full_product_coordinate"_test = [] {
+        Module module;
+        auto *function = module.create_kernel();
+        auto *pair_type = Type::structure(
+            {Type::of<int32_t>(), Type::of<int32_t>()});
+        auto *reference = function->create_reference_argument(pair_type);
+        auto *condition = function->create_value_argument(Type::of<bool>());
+        auto *entry = function->create_body_block();
+        auto *left = function->create_basic_block();
+        auto *right = function->create_basic_block();
+        auto *merge = function->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *reference_field0 = builder.gep(
+            Type::of<int32_t>(), reference, {uint_constant(module, 0u)});
+        auto *reference_field1 = builder.gep(
+            Type::of<int32_t>(), reference, {uint_constant(module, 1u)});
+        auto *unrelated = builder.alloca_local(
+            Type::array(Type::of<int32_t>(), 128u));
+        auto *unrelated_field = builder.gep(
+            Type::of<int32_t>(), unrelated, {uint_constant(module, 17u)});
+        static_cast<void>(builder.load(Type::of<int32_t>(), reference_field0));
+        builder.store(unrelated_field,
+                      module.create_constant_one(Type::of<int32_t>()));
+        builder.cond_br(condition, left, right);
+        builder.set_insertion_point(left);
+        builder.store(reference_field1,
+                      module.create_constant_one(Type::of<int32_t>()));
+        builder.br(merge);
+        builder.set_insertion_point(right);
+        builder.store(reference_field0,
+                      module.create_constant_one(Type::of<int32_t>()));
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        static_cast<void>(builder.load(Type::of<int32_t>(), reference_field1));
+        builder.return_void();
+
+        PointerUsageAnalysis full;
+        auto full_info = full.analyze(function);
+        expect(full_info.succeeded());
+        expect(full_info.tracked_pointer_count > 1u);
+
+        PointerUsageAnalysis projected;
+        Value *requested[]{reference};
+        auto projected_info = projected.analyze(
+            function, luisa::span<Value *const>{requested});
+        expect(projected_info.succeeded());
+        expect(projected_info.tracked_pointer_count > 1u);
+        expect(projected_info.materialized_pointer_count == 1u);
+        expect(projected.in_usage(entry, unrelated) == nullptr)
+            << "unrequested coordinates must not be materialized";
+
+        BasicBlock *blocks[]{entry, left, right, merge};
+        for (auto *block : blocks) {
+            auto *full_in = full.in_usage(block, reference);
+            auto *full_out = full.out_usage(block, reference);
+            auto *projected_in = projected.in_usage(block, reference);
+            auto *projected_out = projected.out_usage(block, reference);
+            expect(full_in != nullptr && full_out != nullptr &&
+                   projected_in != nullptr && projected_out != nullptr);
+            expect(full_in->kill == projected_in->kill);
+            expect(full_in->touch == projected_in->touch);
+            expect(full_in->live == projected_in->live);
+            expect(full_out->kill == projected_out->kill);
+            expect(full_out->touch == projected_out->touch);
+            expect(full_out->live == projected_out->live);
+        }
+    };
+
     "pointer_usage_queries_reject_stale_and_destroyed_ir"_test = [] {
         PointerUsageAnalysis analysis;
         BasicBlock *expired_block = nullptr;
@@ -276,6 +346,58 @@ int main() {
         expect(analysis.function() == nullptr);
         expect(analysis.block_usage(expired_block) == nullptr);
         expect(analysis.out_usage(expired_block, expired_pointer) == nullptr);
+    };
+
+    "pointer_usage_rejects_pointer_passed_to_value_formal_fail_closed"_test = [] {
+        Module module;
+        auto *callee = module.create_callable(nullptr);
+        callee->create_value_argument(Type::of<int32_t>());
+        auto *callee_body = callee->create_body_block();
+        auto *function = module.create_kernel();
+        auto *body = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(callee_body);
+        builder.return_void();
+        builder.set_insertion_point(body);
+        auto *root = builder.alloca_local(Type::of<int32_t>());
+        // Deliberately verifier-invalid: lvalues may only bind reference
+        // formals. The analysis must reject this and model an opaque escape.
+        builder.call(nullptr, callee, {root});
+        builder.return_void();
+
+        PointerUsageAnalysis analysis;
+        auto info = analysis.analyze(function);
+        expect(!info.succeeded());
+        expect(info.invalid_access_count >= 1u);
+        expect(info.conservative_access_count >= 1u);
+        auto *usage = analysis.out_usage(body, root);
+        expect(usage != nullptr);
+        expect(usage->touch.access().all());
+        expect(usage->kill.access().none());
+        expect(analysis.in_usage(body, root)->live.access().all());
+    };
+
+    "pointer_usage_unknown_callee_pointer_escape_is_read_write"_test = [] {
+        Module module;
+        auto *function = module.create_kernel();
+        auto *body = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *root = builder.alloca_local(
+            Type::array(Type::of<int32_t>(), 2u));
+        builder.call(nullptr, static_cast<Function *>(nullptr), {root});
+        builder.return_void();
+
+        PointerUsageAnalysis analysis;
+        auto info = analysis.analyze(function);
+        expect(!info.succeeded());
+        expect(info.invalid_access_count >= 1u);
+        expect(info.conservative_access_count >= 1u);
+        auto *usage = analysis.out_usage(body, root);
+        expect(usage != nullptr);
+        expect(usage->touch.access().all());
+        expect(usage->kill.access().none());
+        expect(analysis.in_usage(body, root)->live.access().all());
     };
 
     return 0;

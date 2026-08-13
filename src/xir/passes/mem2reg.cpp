@@ -6,6 +6,8 @@
 #include <luisa/xir/passes/transpose_gep.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
+#include <luisa/xir/metadata/name.h>
 
 #include "helpers.h"
 
@@ -17,6 +19,21 @@ namespace detail {
     AllocaInst *inst,
     const luisa::unordered_set<BasicBlock *> &reachable_blocks) noexcept {
     if (inst->op() != AllocaOp::LOCAL) { return false; }
+    // A reg2mem spill slot carries synthetic provenance metadata that mem2reg
+    // is specifically responsible for consuming. Other annotated allocas need
+    // a distinct storage owner and are therefore not promotable.
+    auto is_reg2mem_spill =
+        inst->find_metadata<Reg2MemSpillMD>() != nullptr;
+    const NameMD *spill_reload_name = nullptr;
+    if (!is_reg2mem_spill) {
+        for (auto *metadata : inst->metadata_list()) {
+            // AST locals carry a debug name by default. A name describes the
+            // logical variable rather than the storage operation, so it can
+            // be copied to every Phi created for that variable. Other alloca
+            // metadata has no unique SSA owner and remains a hard boundary.
+            if (!metadata->isa<NameMD>()) { return false; }
+        }
+    }
     for (auto &&use : inst->use_list()) {
         LUISA_DEBUG_ASSERT(use->user() != nullptr && use->user()->isa<Instruction>(), "Invalid user.");
         auto user_inst = static_cast<Instruction *>(use->user());
@@ -28,8 +45,32 @@ namespace detail {
             parent == nullptr || !reachable_blocks.contains(parent)) {
             return false;
         }
-        if (user_inst->isa<LoadInst>()) { continue; }
+        if (user_inst->isa<LoadInst>()) {
+            // Replacing an annotated load with a shared SSA value has no
+            // unique metadata owner. The one exception is a variable name on
+            // a synthetic reg2mem reload: it came from the lowered Phi and is
+            // copied back to every Phi reconstructed for the spill slot.
+            if (!user_inst->metadata_list().empty()) {
+                if (!is_reg2mem_spill) { return false; }
+                for (auto *metadata :
+                     user_inst->metadata_list()) {
+                    if (!metadata->isa<NameMD>()) {
+                        return false;
+                    }
+                    auto *name =
+                        static_cast<const NameMD *>(metadata);
+                    if (spill_reload_name != nullptr &&
+                        spill_reload_name->name() !=
+                            name->name()) {
+                        return false;
+                    }
+                    spill_reload_name = name;
+                }
+            }
+            continue;
+        }
         if (!user_inst->isa<StoreInst>()) { return false; }
+        if (!user_inst->metadata_list().empty()) { return false; }
         // Reject allocas whose pointer value escapes via being stored.
         if (static_cast<StoreInst *>(user_inst)->value() == inst) { return false; }
     }
@@ -155,6 +196,22 @@ struct PhiInsertionAndRenaming {
         // insert new phi nodes by traversing the closure of dominance frontiers of the def blocks
         block_to_phi.clear();
         auto type = inst->type();
+        const NameMD *logical_name = nullptr;
+        if (inst->find_metadata<Reg2MemSpillMD>() ==
+            nullptr) {
+            logical_name = inst->find_metadata<NameMD>();
+        } else {
+            for (auto &[_, loads] : analysis.use_blocks) {
+                for (auto *load : loads) {
+                    if (auto *name =
+                            load->find_metadata<NameMD>()) {
+                        logical_name = name;
+                        break;
+                    }
+                }
+                if (logical_name != nullptr) { break; }
+            }
+        }
         {
             luisa::fixed_vector<BasicBlock *, 64> work_list;
             work_list.reserve(analysis.def_blocks.size());
@@ -173,6 +230,10 @@ struct PhiInsertionAndRenaming {
                             XIRBuilder b;
                             b.set_insertion_point(fb->instructions().head_sentinel());
                             auto phi = b.phi(type);
+                            if (logical_name != nullptr) {
+                                phi->metadata_list().push_front(
+                                    logical_name->clone());
+                            }
                             iter->second = phi;
                             inserted.emplace_back(phi);
                             // add the block to the work list to compute the closure
@@ -321,8 +382,10 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
 }
 
 static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &info) noexcept {
+    if (f == nullptr) { return; }
     if (auto def = f->definition()) {
-        
+        if (def->body_block() == nullptr) { return; }
+
         // run the transpose GEP pass first so we can possibly handle more aggregates (EDIT: disabled for better performance on CUDA)
         // if (auto transpose_gep_info = transpose_gep_pass_run_on_function(def);
         //     transpose_gep_info.transposed_load_count != 0 ||
@@ -415,14 +478,18 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
 
 Mem2RegInfo mem2reg_pass_run_on_function(Function *function) noexcept {
     Mem2RegInfo info;
-    detail::promote_alloca_instructions_in_function(function, info);
+    if (function != nullptr) {
+        detail::promote_alloca_instructions_in_function(function, info);
+    }
     return info;
 }
 
 Mem2RegInfo mem2reg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     Mem2RegInfo info;
-    for (auto f : module->function_list()) {
-        detail::promote_alloca_instructions_in_function(f, info);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            detail::promote_alloca_instructions_in_function(f, info);
+        }
     }
     if (report != nullptr) {
         report->set("promoted_alloca", info.promoted_alloca_count);

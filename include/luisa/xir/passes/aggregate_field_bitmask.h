@@ -2,6 +2,7 @@
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute {
 class Type;
@@ -47,10 +48,10 @@ public:
     class LUISA_XIR_API ConstBitSpan {
     protected:
         uint64_t *_bits;
-        uint32_t _offset;
-        uint32_t _size;
+        size_t _offset;
+        size_t _size;
     public:
-        ConstBitSpan(uint64_t *bits, uint32_t offset, uint32_t size) noexcept
+        ConstBitSpan(uint64_t *bits, size_t offset, size_t size) noexcept
             : _bits{bits}, _offset{offset}, _size{size} {}
         [[nodiscard]] const uint64_t *raw_bits() const noexcept { return _bits; }
         [[nodiscard]] size_t offset() const noexcept { return _offset; }
@@ -83,6 +84,14 @@ public:
     [[nodiscard]] ConstBitSpan access(luisa::span<const size_t> access_chain) const noexcept;
     [[nodiscard]] BitSpan access(std::initializer_list<size_t> access_chain) noexcept;
     [[nodiscard]] ConstBitSpan access(std::initializer_list<size_t> access_chain) const noexcept;
+
+    // Marks every primitive leaf selected by an access pattern. A present
+    // index selects one child; nullopt denotes a runtime index and selects
+    // the union of every possible child. Runtime indexing is valid only for
+    // homogeneous vector/matrix/array nodes. Failure is atomic and leaves the
+    // mask unchanged.
+    [[nodiscard]] bool mark_access_pattern(
+        luisa::span<const luisa::optional<size_t>> access_pattern) noexcept;
 
     template<typename... I>
         requires(std::conjunction_v<std::is_integral<I>...>)

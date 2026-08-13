@@ -92,6 +92,9 @@ struct SCEVInfo {
     }
 };
 
+// Null inputs and malformed bodyless kernels fail with
+// invalid_function_count. A bodyless callable is an external declaration and
+// produces a successful empty analysis.
 [[nodiscard]] LUISA_XIR_API SCEVInfo scev_pass_run_on_function(FunctionDefinition *def) noexcept;
 [[nodiscard]] LUISA_XIR_API SCEVInfo scev_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 [[nodiscard]] LUISA_XIR_API const SCEV *scev_get_for_value(Instruction *inst) noexcept;

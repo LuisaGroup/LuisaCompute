@@ -1,6 +1,7 @@
 #include <luisa/xir/passes/indvar_simplify.h>
 #include <luisa/xir/passes/scalar_evolution.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/core/logging.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/instructions/loop.h>
@@ -15,6 +16,7 @@
 
 #include <luisa/xir/builder.h>
 #include <luisa/xir/passes/dom_tree.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::xir {
 
@@ -90,6 +92,12 @@ struct IVInfo {
 }
 
 void remove_dead_iv(IVInfo &iv, IndVarSimplifyInfo &info) noexcept {
+    // Deadness does not imply that semantic/debug metadata has a valid
+    // replacement owner. Preserve annotated recurrence nodes.
+    if (!iv.phi->metadata_list().empty() ||
+        !iv.increment->metadata_list().empty()) {
+        return;
+    }
     for (auto *use : iv.phi->use_list()) {
         auto *user = use->user();
         if (user == iv.increment) { continue; }
@@ -139,6 +147,7 @@ void process_loop(LoopInst *loop, IndVarSimplifyInfo &info) noexcept {
 }
 
 void indvar_simplify_on_function_def(FunctionDefinition *def, IndVarSimplifyInfo &info) noexcept {
+    if (def == nullptr || def->body_block() == nullptr) { return; }
     static_cast<void>(scev_pass_run_on_function(def));
 
     luisa::vector<LoopInst *> loops;
@@ -195,6 +204,57 @@ struct ScaledIVCandidate {
     return true;
 }
 
+[[nodiscard]] uint32_t integer_bit_width(const Type *type) noexcept {
+    if (type == nullptr || !(type->is_int() || type->is_uint())) { return 0u; }
+    return static_cast<uint32_t>(type->size() * 8u);
+}
+
+[[nodiscard]] uint64_t truncate_integer_bits(uint64_t value,
+                                             uint32_t width) noexcept {
+    if (width == 0u) { return 0u; }
+    if (width >= 64u) { return value; }
+    return value & ((uint64_t{1u} << width) - 1u);
+}
+
+[[nodiscard]] Value *make_wrapped_integer_constant(
+    Module *module, const Type *type, uint64_t bits) noexcept {
+    auto width = integer_bit_width(type);
+    if (width == 0u) { return nullptr; }
+    bits = truncate_integer_bits(bits, width);
+    if (type->is_int8()) {
+        auto value = luisa::bit_cast<int8_t>(static_cast<uint8_t>(bits));
+        return module->create_constant(type, &value);
+    }
+    if (type->is_uint8()) {
+        auto value = static_cast<uint8_t>(bits);
+        return module->create_constant(type, &value);
+    }
+    if (type->is_int16()) {
+        auto value = luisa::bit_cast<int16_t>(static_cast<uint16_t>(bits));
+        return module->create_constant(type, &value);
+    }
+    if (type->is_uint16()) {
+        auto value = static_cast<uint16_t>(bits);
+        return module->create_constant(type, &value);
+    }
+    if (type->is_int32()) {
+        auto value = luisa::bit_cast<int32_t>(static_cast<uint32_t>(bits));
+        return module->create_constant(type, &value);
+    }
+    if (type->is_uint32()) {
+        auto value = static_cast<uint32_t>(bits);
+        return module->create_constant(type, &value);
+    }
+    if (type->is_int64()) {
+        auto value = luisa::bit_cast<int64_t>(bits);
+        return module->create_constant(type, &value);
+    }
+    if (type->is_uint64()) {
+        return module->create_constant(type, &bits);
+    }
+    return nullptr;
+}
+
 [[nodiscard]] bool match_scaled_iv(ArithmeticInst *inst, PhiInst *iv,
                                    const NaturalLoop &loop,
                                    int64_t &scale_out) noexcept {
@@ -211,10 +271,12 @@ struct ScaledIVCandidate {
         return false;
     }
     if (op == ArithmeticOp::BINARY_SHIFT_LEFT) {
-        if (inst->operand(0u) == iv) {
+        if (inst->operand(0u) == iv && iv->type()->is_uint()) {
             int64_t shift = 0;
+            auto width = integer_bit_width(iv->type());
             if (decode_constant_int64(inst->operand(1u), shift) &&
-                shift >= 0 && shift < 62) {
+                shift >= 0 && static_cast<uint64_t>(shift) < width &&
+                shift < 63) {
                 scale_out = int64_t{1} << shift;
                 return true;
             }
@@ -313,20 +375,48 @@ void strength_reduce_loop_ivs(FunctionDefinition *def, const NaturalLoop &loop,
 
     auto *module = def->parent_module();
     auto *iv_type = iv->type();
+    auto iv_width = integer_bit_width(iv_type);
+    if (iv_width == 0u) { return; }
     for (auto &candidate : candidates) {
         if (candidate.root == recurrence || candidate.mul == recurrence) { continue; }
+        // Replacing only a subset of an annotated value's uses would split
+        // one metadata owner into two values with no generally valid policy
+        // for semantic metadata. Leave annotated candidates intact.
+        if (!candidate.root->metadata_list().empty()) { continue; }
         auto feeds_iv = false;
         for (auto *use : candidate.root->use_list()) {
             if (use->user() == iv) { feeds_iv = true; }
         }
         if (feeds_iv) { continue; }
-        auto increment = bounds.stride * candidate.scale;
+        // Collect replacement uses before mutating. A candidate with no
+        // in-loop users must not create a dead accumulator or report a change.
+        luisa::vector<Use *> in_loop_uses;
+        for (auto *use : candidate.root->use_list()) {
+            auto *user = use->user();
+            if (user != nullptr && user->isa<Instruction>()) {
+                auto *user_block =
+                    static_cast<Instruction *>(user)->parent_block();
+                if (user_block != nullptr && loop.contains(user_block)) {
+                    in_loop_uses.emplace_back(use);
+                }
+            }
+        }
+        if (in_loop_uses.empty()) { continue; }
+
+        auto scale_bits = truncate_integer_bits(
+            static_cast<uint64_t>(candidate.scale), iv_width);
+        auto stride_bits = truncate_integer_bits(
+            static_cast<uint64_t>(bounds.stride), iv_width);
+        auto increment_bits = truncate_integer_bits(
+            stride_bits * scale_bits, iv_width);
         XIRBuilder builder;
         // Start value in the preheader: scale * iv_start (+ base).
         auto *preheader_terminator = preheader->terminator();
+        if (preheader_terminator == nullptr) { continue; }
         builder.set_insertion_point(preheader_terminator->prev());
-        auto scale_bits = candidate.scale;
-        auto *scale_const = module->create_constant(iv_type, &scale_bits);
+        auto *scale_const =
+            make_wrapped_integer_constant(module, iv_type, scale_bits);
+        if (scale_const == nullptr) { continue; }
         auto *start = builder.call(iv_type, ArithmeticOp::BINARY_MUL,
                                    {bounds.start_value, scale_const});
         if (candidate.base != nullptr) {
@@ -347,25 +437,18 @@ void strength_reduce_loop_ivs(FunctionDefinition *def, const NaturalLoop &loop,
         auto *acc = builder.phi(iv_type);
         // Advance in the latch: acc + stride * scale.
         auto *latch_terminator = latch->terminator();
+        LUISA_ASSERT(latch_terminator != nullptr,
+                     "Natural loop latch must be terminated.");
         builder.set_insertion_point(latch_terminator->prev());
-        auto increment_bits = increment;
-        auto *increment_const = module->create_constant(iv_type, &increment_bits);
+        auto *increment_const = make_wrapped_integer_constant(
+            module, iv_type, increment_bits);
+        LUISA_ASSERT(increment_const != nullptr,
+                     "Induction variable must have an integer type.");
         auto *acc_next = builder.call(iv_type, ArithmeticOp::BINARY_ADD,
                                       {acc, increment_const});
         acc->add_incoming(start, preheader);
         acc->add_incoming(acc_next, latch);
         // Replace in-loop uses of the candidate root with the accumulator.
-        // Collect first: set_value relinks the use lists being traversed.
-        luisa::vector<Use *> in_loop_uses;
-        for (auto *use : candidate.root->use_list()) {
-            auto *user = use->user();
-            if (user != nullptr && user->isa<Instruction>()) {
-                auto *user_block = static_cast<Instruction *>(user)->parent_block();
-                if (user_block != nullptr && loop.contains(user_block)) {
-                    in_loop_uses.emplace_back(use);
-                }
-            }
-        }
         for (auto *use : in_loop_uses) {
             auto owned_use = use->remove_self();
             owned_use->set_value(acc);
@@ -391,17 +474,21 @@ void strength_reduce_indvars_on_plain_cfg(FunctionDefinition *def,
 
 IndVarSimplifyInfo indvar_simplify_pass_run_on_function(FunctionDefinition *def) noexcept {
     IndVarSimplifyInfo info;
-    indvar_simplify_on_function_def(def, info);
-    strength_reduce_indvars_on_plain_cfg(def, info);
+    if (def != nullptr) {
+        indvar_simplify_on_function_def(def, info);
+        strength_reduce_indvars_on_plain_cfg(def, info);
+    }
     return info;
 }
 
 IndVarSimplifyInfo indvar_simplify_pass_run_on_module(Module *module, PassReport *report) noexcept {
     IndVarSimplifyInfo info;
-    for (auto f : module->function_list()) {
-        if (auto def = f->definition()) {
-            indvar_simplify_on_function_def(def, info);
-            strength_reduce_indvars_on_plain_cfg(def, info);
+    if (module != nullptr) {
+        for (auto *f : module->function_list()) {
+            if (auto *def = f == nullptr ? nullptr : f->definition()) {
+                indvar_simplify_on_function_def(def, info);
+                strength_reduce_indvars_on_plain_cfg(def, info);
+            }
         }
     }
     if (report != nullptr) {

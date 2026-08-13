@@ -7,6 +7,83 @@
 
 namespace luisa::compute::detail {
 
+namespace {
+
+// AST expressions form a DAG: one expression node may be referenced by many
+// statements or by both operands of another expression. The public recursive
+// traversal intentionally visits occurrences, but ownership and callable
+// discovery are value-set analyses and must visit each node only once. Keeping
+// this helper local avoids changing the public traversal contract while making
+// these analyses O(V + E) instead of proportional to the expanded expression
+// tree (which can be exponential in DAG depth).
+template<typename Visit>
+void traverse_function_expression_dag(
+    const FunctionBuilder &function,
+    Visit &&visit) noexcept {
+    luisa::unordered_set<const Expression *> visited;
+    luisa::vector<const Expression *> worklist;
+    traverse_expressions<false>(
+        function.body(),
+        [&](const Expression *expression) noexcept {
+            if (expression != nullptr) {
+                worklist.emplace_back(expression);
+            }
+        },
+        [](auto) noexcept {},
+        [](auto) noexcept {});
+    for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
+        auto *expression = worklist[cursor];
+        if (!visited.emplace(expression).second) { continue; }
+        visit(expression);
+        auto enqueue = [&](const Expression *child) noexcept {
+            if (child != nullptr) { worklist.emplace_back(child); }
+        };
+        switch (expression->tag()) {
+            case Expression::Tag::UNARY: {
+                enqueue(static_cast<const UnaryExpr *>(expression)->operand());
+                break;
+            }
+            case Expression::Tag::BINARY: {
+                auto *binary = static_cast<const BinaryExpr *>(expression);
+                enqueue(binary->lhs());
+                enqueue(binary->rhs());
+                break;
+            }
+            case Expression::Tag::MEMBER: {
+                enqueue(static_cast<const MemberExpr *>(expression)->self());
+                break;
+            }
+            case Expression::Tag::ACCESS: {
+                auto *access = static_cast<const AccessExpr *>(expression);
+                enqueue(access->range());
+                enqueue(access->index());
+                break;
+            }
+            case Expression::Tag::CALL: {
+                auto *call = static_cast<const CallExpr *>(expression);
+                for (auto *argument : call->arguments()) {
+                    enqueue(argument);
+                }
+                break;
+            }
+            case Expression::Tag::CAST: {
+                enqueue(static_cast<const CastExpr *>(expression)->expression());
+                break;
+            }
+            case Expression::Tag::LITERAL:
+            case Expression::Tag::REF:
+            case Expression::Tag::CONSTANT:
+            case Expression::Tag::FUNC_REF:
+            case Expression::Tag::TYPE_ID:
+            case Expression::Tag::STRING_ID:
+            case Expression::Tag::CPUCUSTOM:
+            case Expression::Tag::GPUCUSTOM: break;
+        }
+    }
+}
+
+}// namespace
+
 class FunctionDuplicator {
 
 private:
@@ -78,8 +155,8 @@ private:
         const FunctionBuilder &kernel,
         const FunctionBuilder &f) noexcept {
         if (!visited.emplace(&f).second) { return; }
-        traverse_expressions<true>(
-            f.body(),
+        traverse_function_expression_dag(
+            f,
             [&](const Expression *e) noexcept {
                 if (e->builder() != &f) {
                     // Only hoist foreign REF leaves whose source builder is
@@ -102,9 +179,7 @@ private:
                         _collect_leaked_refs(collected, visited, kernel, *call->custom().builder());
                     }
                 }
-            },
-            [](auto) noexcept {},
-            [](auto) noexcept {});
+            });
     }
 
     void _hoist_leaked_refs(
@@ -412,7 +487,15 @@ private:
             }
             case Statement::Tag::SUSPEND: {
                 auto s = static_cast<const SuspendStmt *>(stmt);
-                fb->suspend_(s->token(), luisa::string{s->name()});
+                luisa::vector<CoroFrameExport> frame_exports;
+                frame_exports.reserve(s->frame_exports().size());
+                for (auto &&frame_export : s->frame_exports()) {
+                    frame_exports.emplace_back(CoroFrameExport{
+                        .value = _dup_expr(frame_export.value),
+                        .name = frame_export.name});
+                }
+                fb->suspend_(s->token(), luisa::string{s->name()},
+                             std::move(frame_exports));
                 break;
             }
             case Statement::Tag::RAY_QUERY: {
@@ -476,19 +559,24 @@ private:
 
 private:
     static void _deduplicate_custom_callables_impl(
-        FuncBuilderMap &unique,
+        luisa::unordered_map<uint64_t, luisa::shared_ptr<const FunctionBuilder>> &unique,
         const FunctionBuilder *const_builder) noexcept {
         auto builder = const_cast<FunctionBuilder *>(const_builder);
         luisa::unordered_set<const FunctionBuilder *> used;
-        traverse_expressions<true>(
-            builder->body(),
+        traverse_function_expression_dag(
+            *builder,
             [&unique, &used](const Expression *expr) noexcept {
                 if (expr->tag() == Expression::Tag::CALL) {
                     auto call = static_cast<const CallExpr *>(expr);
                     if (call->is_custom()) {
                         auto custom = call->custom();
-                        auto [iter, is_new] = unique.emplace(custom.shared_builder());
-                        auto f = iter->get();
+                        // Call operands have already been materialized from the
+                        // original builder at this point, including captured
+                        // resources. It is therefore safe to canonicalize only
+                        // the callee definition while retaining those operands.
+                        auto [iter, is_new] = unique.try_emplace(
+                            custom.hash(), custom.shared_builder());
+                        auto f = iter->second.get();
                         used.emplace(f);
                         if (is_new) {
                             _deduplicate_custom_callables_impl(unique, f);
@@ -497,9 +585,7 @@ private:
                         }
                     }
                 }
-            },
-            [](auto) noexcept {},
-            [](auto) noexcept {});
+            });
         builder->_used_custom_callables.clear();
         builder->_used_custom_callables.reserve(used.size());
         for (auto f : used) { builder->_used_custom_callables.emplace(f->shared_from_this()); }
@@ -507,7 +593,7 @@ private:
 
 public:
     static void deduplicate_custom_callables(const FunctionBuilder *const_builder) noexcept {
-        FuncBuilderMap unique;
+        luisa::unordered_map<uint64_t, luisa::shared_ptr<const FunctionBuilder>> unique;
         _deduplicate_custom_callables_impl(unique, const_builder);
     }
 
@@ -524,24 +610,31 @@ luisa::shared_ptr<const FunctionBuilder> FunctionBuilder::duplicate() const noex
 }
 
 luisa::shared_ptr<const FunctionBuilder> FunctionBuilder::_duplicate_if_necessary() const noexcept {
-    auto check = [](auto &&check, auto f) noexcept -> bool {
-        auto necessary = false;
-        traverse_expressions<true>(
-            f->body(),
-            [&](const Expression *e) noexcept {
-                necessary |= e->builder() != f;
-                if (e->tag() == Expression::Tag::CALL) {
-                    auto call = static_cast<const CallExpr *>(e);
+    auto necessary = false;
+    luisa::unordered_set<const FunctionBuilder *> visited_functions;
+    luisa::vector<const FunctionBuilder *> function_worklist{this};
+    for (size_t cursor = 0u;
+         cursor < function_worklist.size() && !necessary; ++cursor) {
+        auto *function = function_worklist[cursor];
+        if (!visited_functions.emplace(function).second) { continue; }
+        traverse_function_expression_dag(
+            *function,
+            [&](const Expression *expression) noexcept {
+                if (necessary) { return; }
+                if (expression->builder() != function) {
+                    necessary = true;
+                    return;
+                }
+                if (expression->tag() == Expression::Tag::CALL) {
+                    auto *call = static_cast<const CallExpr *>(expression);
                     if (call->is_custom()) {
-                        necessary |= check(check, call->custom().builder());
+                        function_worklist.emplace_back(
+                            call->custom().builder());
                     }
                 }
-            },
-            [](auto) noexcept {},
-            [](auto) noexcept {});
-        return necessary;
-    };
-    if (check(check, this)) {
+            });
+    }
+    if (necessary) {
         auto f = duplicate();
         FunctionDuplicator::deduplicate_custom_callables(f.get());
         return f;

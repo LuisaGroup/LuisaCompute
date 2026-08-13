@@ -219,6 +219,28 @@ void reg_convergence_region() {
         expect(region != nullptr);
         expect(region->entry == body);
     };
+
+    "convergence_region_rejects_null_and_mismatched_dom_tree"_test = [] {
+        Module first;
+        BasicBlock *first_body;
+        auto *first_kernel = make_kernel_with_body(first, first_body);
+        XIRBuilder b;
+        b.set_insertion_point(first_body);
+        b.return_void();
+        auto first_dom = compute_dom_tree(first_kernel);
+
+        auto null_info = compute_convergence_regions(nullptr, first_dom);
+        expect(null_info.top_level == nullptr);
+
+        Module second;
+        BasicBlock *second_body;
+        auto *second_kernel = make_kernel_with_body(second, second_body);
+        b.set_insertion_point(second_body);
+        b.return_void();
+        auto mismatched =
+            compute_convergence_regions(second_kernel, first_dom);
+        expect(mismatched.top_level == nullptr);
+    };
 }
 
 int main(int argc, char *argv[]) {

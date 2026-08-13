@@ -106,12 +106,25 @@ namespace {
     return false;
 }
 
+// Rotation executes the original header only for iterations whose guard
+// succeeds. Therefore every non-Phi header instruction other than the branch
+// must be observationally pure: otherwise the zero-trip path, and the final
+// failing top check, would lose side effects.
+[[nodiscard]] bool header_is_speculatable(BasicBlock *header) noexcept {
+    for (auto *inst : header->instructions()) {
+        if (inst->isa<PhiInst>() || inst->is_terminator()) { continue; }
+        if (!get_memory_info(inst).is_pure()) { return false; }
+    }
+    return true;
+}
+
 [[nodiscard]] bool try_rotate_loop(FunctionDefinition *def, const NaturalLoop &loop) noexcept {
     auto *header = loop.header;
     // Require a canonical shape: a preheader, exactly one latch, and a single
     // exit reached from the header's conditional branch.
     if (loop.preheader == nullptr || loop.latches.size() != 1u ||
-        loop.exit_blocks.size() != 1u) {
+        loop.exit_blocks.size() != 1u || loop.exit_edges.size() != 1u ||
+        loop.exit_edges.front().first != loop.header) {
         return false;
     }
     auto *preheader = loop.preheader;
@@ -134,6 +147,7 @@ namespace {
         return false;
     }
     if (!loop.contains(body_target) || loop.contains(exit_block)) { return false; }
+    if (loop.exit_edges.front().second != exit_block) { return false; }
     // The preheader must unconditionally branch to the header, and the latch
     // must unconditionally branch back to it.
     auto *preheader_terminator = preheader->terminator();
@@ -151,7 +165,9 @@ namespace {
     }
     // Reject loops whose values escape (the guard path would bypass their
     // definitions) or whose exit blocks carry phis to rewrite.
-    if (loop_has_external_value_uses(loop) || exit_blocks_have_phis(loop)) {
+    if (!header_is_speculatable(header) ||
+        loop_has_external_value_uses(loop) ||
+        exit_blocks_have_phis(loop)) {
         return false;
     }
 
@@ -176,6 +192,16 @@ namespace {
     }
     if (!condition_is_clonable(condition, header, guard_substitution) ||
         !condition_is_clonable(condition, header, latch_substitution)) {
+        return false;
+    }
+    // Rotation replaces the header/latch branch roles and clones the
+    // condition into two dynamic sites. There is no generally correct owner
+    // for semantic metadata attached to those values after the rewrite.
+    if (!header_branch->metadata_list().empty() ||
+        (condition != nullptr &&
+         !condition->metadata_list().empty()) ||
+        (latch != header &&
+         !latch->terminator()->metadata_list().empty())) {
         return false;
     }
     if (latch == header && header_branch->prev() == nullptr) {
@@ -244,7 +270,7 @@ namespace {
 
 }// namespace
 
-static void run(FunctionDefinition *def, LoopRotationInfo &info) noexcept {
+static void loop_rotation_run(FunctionDefinition *def, LoopRotationInfo &info) noexcept {
     if (def == nullptr) { return; }
     if (contains_structured_control_flow(def)) {
         ++info.structured_cfg_error_count;
@@ -276,19 +302,43 @@ static void run(FunctionDefinition *def, LoopRotationInfo &info) noexcept {
     }
 }
 
+[[nodiscard]] static bool loop_rotation_preflight_module(
+    Module *module, LoopRotationInfo &info) noexcept {
+    if (module == nullptr) { return true; }
+    for (auto *function : module->function_list()) {
+        auto *def = function == nullptr ? nullptr : function->definition();
+        if (def != nullptr && contains_structured_control_flow(def)) {
+            ++info.structured_cfg_error_count;
+        }
+    }
+    if (info.structured_cfg_error_count != 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Loop rotation rejected a module containing structured CFG; "
+            "run destructure_cfg first. The entire module was left unchanged.");
+        return false;
+    }
+    return true;
+}
+
 }// namespace detail
 
 LoopRotationInfo loop_rotation_pass_run_on_function(FunctionDefinition *def) noexcept {
     LoopRotationInfo info;
-    detail::run(def, info);
+    detail::loop_rotation_run(def, info);
     return info;
 }
 
 LoopRotationInfo loop_rotation_pass_run_on_module(Module *module,
                                                   PassReport *report) noexcept {
     LoopRotationInfo info;
-    for (auto *function : module->function_list()) {
-        detail::run(function->definition(), info);
+    if (detail::loop_rotation_preflight_module(module, info)) {
+        if (module != nullptr) {
+            for (auto *function : module->function_list()) {
+                detail::loop_rotation_run(function == nullptr ? nullptr :
+                                                    function->definition(),
+                            info);
+            }
+        }
     }
     if (report != nullptr) {
         report->set("rotated_loop_count", info.rotated_loop_count);

@@ -298,6 +298,160 @@ ControlFlowPlan ControlFlowPlan::_create(
     // participate in executable SPIR-V and are deliberately omitted; codegen
     // legality must not depend on optional DCE at opt0.
 
+    auto dom = xir::compute_dom_tree(
+        const_cast<xir::FunctionDefinition *>(function));
+    // XIR keeps loop-exit guards as IfInst so every high-level transform sees
+    // structured control flow. SPIR-V deliberately has a narrower exception:
+    // a conditional branch that selects an enclosing loop break/continue path
+    // needs no OpSelectionMerge. Emitting one would create a selection whose
+    // non-merge arm immediately exits that selection.
+    struct LoopBoundaryGuardPlan {
+        const xir::BasicBlock *target{nullptr};
+        const xir::BasicBlock *logical_exit_predecessor{nullptr};
+        luisa::vector<const xir::BasicBlock *> pruned_blocks;
+    };
+    auto loop_boundary_guard_plan =
+        [&](const xir::IfInst *inst) noexcept
+        -> LoopBoundaryGuardPlan {
+        auto *header = inst->parent_block();
+        auto *merge = inst->merge_block();
+        auto true_is_merge = inst->true_block() == merge;
+        auto false_is_merge = inst->false_block() == merge;
+        if (true_is_merge == false_is_merge) { return {}; }
+        auto *exit_entry =
+            true_is_merge ? inst->false_block() :
+                            inst->true_block();
+
+        struct LoopBoundary {
+            const xir::BasicBlock *owner;
+            const xir::BasicBlock *continue_target;
+            const xir::BasicBlock *merge;
+        };
+        luisa::vector<LoopBoundary> candidates;
+        for (auto &block_plan : plan._blocks) {
+            auto *block = block_plan.block;
+            auto *term = block->terminator();
+            const xir::BasicBlock *continue_target = nullptr;
+            const xir::BasicBlock *loop_merge = nullptr;
+            if (term->isa<xir::LoopInst>()) {
+                auto *loop =
+                    static_cast<const xir::LoopInst *>(term);
+                continue_target = loop->update_block();
+                if (continue_target == nullptr) {
+                    continue_target = loop->prepare_block();
+                }
+                loop_merge = loop->merge_block();
+            } else if (term->isa<xir::SimpleLoopInst>()) {
+                auto *loop = static_cast<
+                    const xir::SimpleLoopInst *>(term);
+                continue_target = loop->body_block();
+                loop_merge = loop->merge_block();
+            } else {
+                continue;
+            }
+            if (continue_target == nullptr || loop_merge == nullptr ||
+                !dom.contains(const_cast<xir::BasicBlock *>(block)) ||
+                !dom.contains(const_cast<xir::BasicBlock *>(header)) ||
+                !dom.dominates(
+                    const_cast<xir::BasicBlock *>(block),
+                    const_cast<xir::BasicBlock *>(header)) ||
+                (dom.contains(
+                     const_cast<xir::BasicBlock *>(loop_merge)) &&
+                 dom.dominates(
+                     const_cast<xir::BasicBlock *>(loop_merge),
+                     const_cast<xir::BasicBlock *>(header)))) {
+                continue;
+            }
+            candidates.emplace_back(LoopBoundary{
+                block, continue_target, loop_merge});
+        }
+
+        for (auto boundary : candidates) {
+            luisa::unordered_set<const xir::BasicBlock *>
+                visited;
+            luisa::vector<const xir::BasicBlock *> pruned_blocks;
+            auto *expected_predecessor = header;
+            auto *block = exit_entry;
+            while (block != nullptr &&
+                   visited.emplace(block).second) {
+                if (block == boundary.continue_target ||
+                    block == boundary.merge) {
+                    return LoopBoundaryGuardPlan{
+                        .target = block,
+                        .logical_exit_predecessor =
+                            pruned_blocks.empty() ?
+                                nullptr :
+                                pruned_blocks.back(),
+                        .pruned_blocks =
+                            std::move(pruned_blocks)};
+                }
+                if (block == merge || !block->is_terminated()) {
+                    break;
+                }
+                auto *term = block->terminator();
+                auto iter = block->instructions().begin();
+                auto only_terminator =
+                    iter != block->instructions().end() &&
+                    *iter == term;
+                if (!only_terminator) { break; }
+
+                // Pruning is only semantics-preserving when this proxy
+                // chain is owned exclusively by the guard. A shared block
+                // could carry another physical entry and must remain a
+                // normal structured construct.
+                auto predecessor_count = size_t{0u};
+                auto has_unexpected_predecessor = false;
+                block->traverse_predecessors(
+                    false,
+                    [&](const xir::BasicBlock *predecessor) noexcept {
+                        ++predecessor_count;
+                        has_unexpected_predecessor |=
+                            predecessor != expected_predecessor;
+                    });
+                if (predecessor_count != 1u ||
+                    has_unexpected_predecessor) {
+                    break;
+                }
+                pruned_blocks.emplace_back(block);
+                if (term->isa<xir::BreakInst>()) {
+                    if (static_cast<const xir::BreakInst *>(
+                            term)
+                            ->target_block() ==
+                        boundary.merge) {
+                        return LoopBoundaryGuardPlan{
+                            .target = boundary.merge,
+                            .logical_exit_predecessor = block,
+                            .pruned_blocks =
+                                std::move(pruned_blocks)};
+                    }
+                    break;
+                }
+                if (term->isa<xir::ContinueInst>()) {
+                    if (static_cast<const xir::ContinueInst *>(
+                            term)
+                            ->target_block() ==
+                        boundary.continue_target) {
+                        return LoopBoundaryGuardPlan{
+                            .target =
+                                boundary.continue_target,
+                            .logical_exit_predecessor = block,
+                            .pruned_blocks =
+                                std::move(pruned_blocks)};
+                    }
+                    break;
+                }
+                if (!term->isa<xir::BranchInst>()) {
+                    break;
+                }
+                expected_predecessor = block;
+                block = static_cast<
+                            const xir::BranchInst *>(term)
+                            ->target_block();
+            }
+        }
+        return {};
+    };
+
     // First pass: freeze construct roles and allocate logical synthetic slots.
     // No ordinary edge is resolved until every loop entry/continue role is known.
     for (auto &block_plan : plan._blocks) {
@@ -313,18 +467,45 @@ ControlFlowPlan ControlFlowPlan::_create(
                 LUISA_ASSERT(inst->merge_block() != block,
                              "SPIR-V control-flow plan rejected If whose header is also its merge.");
                 auto index = plan._if_regions.size();
+                auto loop_boundary_guard =
+                    loop_boundary_guard_plan(inst);
+                auto *loop_boundary_exit_target =
+                    loop_boundary_guard.target;
+                auto emit_selection_merge =
+                    loop_boundary_exit_target == nullptr;
                 plan._if_regions.emplace_back(IfRegion{
                     .instruction = inst,
                     .header = block,
                     .true_target = Target::xir(inst->true_block()),
                     .false_target = Target::xir(inst->false_block()),
-                    .merge_target = Target::xir(inst->merge_block())});
+                    .merge_target = Target::xir(inst->merge_block()),
+                    .emit_selection_merge = emit_selection_merge,
+                    .loop_boundary_exit_target =
+                        loop_boundary_exit_target,
+                    .loop_boundary_exit_predecessor =
+                        loop_boundary_guard
+                            .logical_exit_predecessor});
+                for (auto *pruned_block :
+                     loop_boundary_guard.pruned_blocks) {
+                    auto &pruned_plan =
+                        plan._blocks.at(
+                            plan._block_indices.at(pruned_block));
+                    LUISA_ASSERT(
+                        !pruned_plan.physically_pruned,
+                        "SPIR-V loop-boundary proxy block was claimed "
+                        "by multiple guards.");
+                    pruned_plan.physically_pruned = true;
+                }
                 plan._if_indices.emplace(inst, index);
-                plan._register_merge(inst->merge_block(), inst);
                 plan._add_role(block, BlockRole::IF_HEADER);
                 plan._add_role(inst->true_block(), BlockRole::IF_TRUE_ENTRY);
                 plan._add_role(inst->false_block(), BlockRole::IF_FALSE_ENTRY);
-                plan._add_role(inst->merge_block(), BlockRole::SELECTION_MERGE);
+                if (emit_selection_merge) {
+                    plan._register_merge(inst->merge_block(), inst);
+                    plan._add_role(
+                        inst->merge_block(),
+                        BlockRole::SELECTION_MERGE);
+                }
                 break;
             }
             case xir::DerivedInstructionTag::LOOP: {
@@ -507,8 +688,6 @@ ControlFlowPlan ControlFlowPlan::_create(
     // entry or continue role: only edges leaving the owning construct may pass
     // through its merge proxy; loop backedges and sibling continues must retain
     // their own structural target.
-    auto dom = xir::compute_dom_tree(
-        const_cast<xir::FunctionDefinition *>(function));
     for (auto [merge, owner] : plan._merge_owners) {
         auto *header = owner->parent_block();
         LUISA_ASSERT(header != nullptr &&
@@ -982,6 +1161,7 @@ ControlFlowPlan ControlFlowPlan::_create(
         return target;
     };
     for (auto &region : plan._if_regions) {
+        if (!region.emit_selection_merge) { continue; }
         region.merge_target = bind_construct_merge(region.instruction, region.merge_target.xir_block);
         if (!plan._planning_diagnostic.empty()) { return plan; }
     }
@@ -1024,21 +1204,29 @@ ControlFlowPlan ControlFlowPlan::_create(
     // XIR can express a nested selection exit with two adjacent logical merge
     // blocks in payload order:
     //
-    //   outer merge A (also an inner arm) -> inner merge B
+    //   inner arm [-> forwarding blocks] -> outer merge A -> inner merge B
     //
     // Emitting A as the outer physical merge and B as the inner physical merge
     // would leave the inner construct through A and then branch back into it
-    // through B, which SPIR-V forbids. Preserve both blocks and their payload
-    // order, but rotate their physical roles: A becomes the inner merge and B
-    // becomes the outer merge, yielding the properly nested path A -> B.
+    // through B, which SPIR-V forbids. Preserve the optional one-edge arm
+    // forwarding blocks, both merge blocks, and their payload order, but
+    // rotate the physical merge roles: A becomes the inner merge and B becomes
+    // the outer merge, yielding the properly nested path A -> B.
     struct NestedSelectionMergeCandidate {
         const xir::Instruction *outer_instruction;
         const xir::Instruction *inner_instruction;
         const xir::BasicBlock *outer_merge;
         const xir::BasicBlock *inner_merge;
+        const xir::BasicBlock *inner_entry_predecessor;
     };
     auto is_ordinary_selection = [&](const xir::Instruction *instruction) noexcept {
-        if (instruction->isa<xir::IfInst>()) { return true; }
+        if (instruction->isa<xir::IfInst>()) {
+            auto *if_inst =
+                static_cast<const xir::IfInst *>(instruction);
+            return plan._if_regions.at(
+                                       plan._if_indices.at(if_inst))
+                .emit_selection_merge;
+        }
         if (instruction->isa<xir::SwitchInst>()) {
             auto *switch_inst = static_cast<const xir::SwitchInst *>(instruction);
             return !plan._switch_regions.at(
@@ -1047,22 +1235,59 @@ ControlFlowPlan ControlFlowPlan::_create(
         }
         return false;
     };
-    auto is_direct_selection_entry = [&](const xir::Instruction *instruction,
-                                         const xir::BasicBlock *block) noexcept {
-        if (instruction->isa<xir::IfInst>()) {
-            auto *if_inst = static_cast<const xir::IfInst *>(instruction);
-            return if_inst->true_block() == block ||
-                   if_inst->false_block() == block;
-        }
-        LUISA_ASSERT(instruction->isa<xir::SwitchInst>(),
-                     "SPIR-V nested selection rotation received a non-selection owner.");
-        auto *switch_inst = static_cast<const xir::SwitchInst *>(instruction);
-        if (switch_inst->default_block() == block) { return true; }
-        for (size_t i = 0u; i < switch_inst->case_count(); ++i) {
-            if (switch_inst->case_block(i) == block) { return true; }
-        }
-        return false;
-    };
+    auto find_selection_entry_predecessor =
+        [&](const xir::Instruction *instruction,
+            const xir::BasicBlock *block) noexcept {
+            auto *predecessor =
+                static_cast<const xir::BasicBlock *>(nullptr);
+            auto inspect_entry =
+                [&](const xir::BasicBlock *entry) noexcept {
+                    auto *candidate =
+                        static_cast<const xir::BasicBlock *>(nullptr);
+                    if (entry == block) {
+                        candidate = instruction->parent_block();
+                    } else {
+                        luisa::unordered_set<const xir::BasicBlock *> visited;
+                        auto *current = entry;
+                        while (visited.emplace(current).second &&
+                               current->terminator()->isa<xir::BranchInst>()) {
+                            auto *branch =
+                                static_cast<const xir::BranchInst *>(
+                                    current->terminator());
+                            if (branch->target_block() == block) {
+                                candidate = current;
+                                break;
+                            }
+                            current = branch->target_block();
+                        }
+                    }
+                    if (candidate == nullptr) { return; }
+                    if (predecessor == nullptr) {
+                        predecessor = candidate;
+                    }
+                };
+            if (instruction->isa<xir::IfInst>()) {
+                auto *if_inst =
+                    static_cast<const xir::IfInst *>(instruction);
+                inspect_entry(if_inst->true_block());
+                inspect_entry(if_inst->false_block());
+            } else {
+                LUISA_ASSERT(
+                    instruction->isa<xir::SwitchInst>(),
+                    "SPIR-V nested selection rotation received a non-selection owner.");
+                auto *switch_inst =
+                    static_cast<const xir::SwitchInst *>(instruction);
+                inspect_entry(switch_inst->default_block());
+                for (size_t i = 0u;
+                     i < switch_inst->case_count(); ++i) {
+                    inspect_entry(switch_inst->case_block(i));
+                }
+            }
+            // Return any matching predecessor here. The exact predecessor-set
+            // check below is authoritative and rejects distinct arm chains
+            // that enter the merge instead of silently skipping rotation.
+            return predecessor;
+        };
     luisa::vector<NestedSelectionMergeCandidate> rotation_candidates;
     for (auto [outer_merge, outer_instruction] : plan._merge_owners) {
         if (!is_ordinary_selection(outer_instruction) ||
@@ -1079,16 +1304,19 @@ ControlFlowPlan ControlFlowPlan::_create(
         }
         auto *inner_instruction = inner_owner_iter->second;
         auto *inner_header = inner_instruction->parent_block();
-        if (!is_direct_selection_entry(inner_instruction, outer_merge) ||
+        auto *inner_entry_predecessor =
+            find_selection_entry_predecessor(
+                inner_instruction, outer_merge);
+        if (inner_entry_predecessor == nullptr ||
             !plan._merge_scopes.at(outer_merge).contains(inner_header) ||
             !plan._merge_scopes.at(inner_merge).contains(outer_merge)) {
             continue;
         }
 
-        // Rotation is exact only when the inner arm is the logical merge's
-        // sole predecessor. Otherwise an ordinary outer exit would have to
-        // execute A's payload before reaching B, which cannot be represented
-        // by exchanging the two physical declarations alone.
+        // Rotation is exact only when the final inner-arm edge is the logical
+        // merge's sole predecessor. Otherwise an ordinary outer exit would
+        // have to execute A's payload before reaching B, which cannot be
+        // represented by exchanging the two physical declarations alone.
         luisa::unordered_set<const xir::BasicBlock *> predecessors_of_outer_merge;
         for (auto &source_plan : plan._blocks) {
             for (auto *operand_use :
@@ -1099,7 +1327,8 @@ ControlFlowPlan ControlFlowPlan::_create(
             }
         }
         if (predecessors_of_outer_merge.size() != 1u ||
-            !predecessors_of_outer_merge.contains(inner_header)) {
+            !predecessors_of_outer_merge.contains(
+                inner_entry_predecessor)) {
             if (reject_planning_precondition(
                     "SPIR-V control-flow plan cannot rotate a nested "
                     "selection merge with additional logical predecessors. "
@@ -1119,7 +1348,9 @@ ControlFlowPlan ControlFlowPlan::_create(
             .outer_instruction = outer_instruction,
             .inner_instruction = inner_instruction,
             .outer_merge = outer_merge,
-            .inner_merge = inner_merge});
+            .inner_merge = inner_merge,
+            .inner_entry_predecessor =
+                inner_entry_predecessor});
     }
     std::sort(
         rotation_candidates.begin(), rotation_candidates.end(),
@@ -1160,6 +1391,25 @@ ControlFlowPlan ControlFlowPlan::_create(
         static_cast<void>(inner_iter);
         LUISA_ASSERT(inner_inserted,
                      "SPIR-V nested selection received multiple merge rotations.");
+        if (candidate.inner_entry_predecessor !=
+            candidate.inner_instruction->parent_block()) {
+            auto *terminator =
+                candidate.inner_entry_predecessor->terminator();
+            LUISA_ASSERT(
+                terminator->isa<xir::BranchInst>() &&
+                    static_cast<const xir::BranchInst *>(terminator)
+                            ->target_block() ==
+                        candidate.outer_merge,
+                "SPIR-V nested selection rotation received an invalid "
+                "entry forwarding edge.");
+            auto [entry_iter, entry_inserted] =
+                plan._nested_selection_rotation_entry_edge_targets.emplace(
+                    terminator, inner_target);
+            static_cast<void>(entry_iter);
+            LUISA_ASSERT(
+                entry_inserted,
+                "SPIR-V nested selection entry edge was rotated twice.");
+        }
         auto [forward_iter, forward_inserted] =
             plan._nested_selection_merge_forward_targets.emplace(
                 candidate.outer_merge, candidate.inner_merge);
@@ -1170,8 +1420,11 @@ ControlFlowPlan ControlFlowPlan::_create(
     // The ordinary region records were initialized before rotations were
     // known. Refresh them from the final immutable merge-role table.
     for (auto &region : plan._if_regions) {
-        region.merge_target =
-            plan._merge_targets.at(region.instruction->merge_block());
+        if (region.emit_selection_merge) {
+            region.merge_target =
+                plan._merge_targets.at(
+                    region.instruction->merge_block());
+        }
     }
     for (auto &region : plan._switch_regions) {
         if (!region.loop_wrapped) {
@@ -1211,6 +1464,55 @@ ControlFlowPlan ControlFlowPlan::_create(
             }
             return plan._resolve_ordinary_target(source, logical_target);
         };
+    auto is_enclosing_boundary_target =
+        [&](const xir::Instruction *instruction,
+            const xir::BasicBlock *target) noexcept {
+            auto *header = instruction->parent_block();
+            if (auto owner_iter = plan._merge_owners.find(target);
+                owner_iter != plan._merge_owners.end() &&
+                owner_iter->second != instruction &&
+                plan._merge_scopes.at(target).contains(header)) {
+                return true;
+            }
+            auto construct_encloses_header =
+                [&](const xir::BasicBlock *owner,
+                    const xir::BasicBlock *merge) noexcept {
+                    return owner != header &&
+                           dom.contains(
+                               const_cast<xir::BasicBlock *>(owner)) &&
+                           dom.dominates(
+                               const_cast<xir::BasicBlock *>(owner),
+                               const_cast<xir::BasicBlock *>(header)) &&
+                           (merge == header ||
+                            !dom.contains(
+                                const_cast<xir::BasicBlock *>(merge)) ||
+                            !dom.dominates(
+                                const_cast<xir::BasicBlock *>(merge),
+                                const_cast<xir::BasicBlock *>(header)));
+                };
+            for (auto &loop : plan._loop_regions) {
+                if ((target == loop.prepare || target == loop.update) &&
+                    construct_encloses_header(loop.owner, loop.merge)) {
+                    return true;
+                }
+            }
+            for (auto &loop : plan._simple_loop_regions) {
+                if (target == loop.body &&
+                    construct_encloses_header(loop.owner, loop.merge)) {
+                    return true;
+                }
+            }
+            for (auto &outer_switch : plan._switch_regions) {
+                if (target == outer_switch.header &&
+                    outer_switch.instruction != instruction &&
+                    construct_encloses_header(
+                        outer_switch.header,
+                        outer_switch.instruction->merge_block())) {
+                    return true;
+                }
+            }
+            return false;
+        };
 
     // Third pass: resolve every executable edge against the frozen role table.
     for (auto &block_plan : plan._blocks) {
@@ -1220,12 +1522,47 @@ ControlFlowPlan ControlFlowPlan::_create(
             case xir::DerivedInstructionTag::IF: {
                 auto *inst = static_cast<const xir::IfInst *>(terminator);
                 auto &region = plan._if_regions[plan._if_indices.at(inst)];
-                region.true_target = resolve_selection_operand(
-                    inst, block, inst->true_block(), inst->merge_block(),
-                    region.merge_target);
-                region.false_target = resolve_selection_operand(
-                    inst, block, inst->false_block(), inst->merge_block(),
-                    region.merge_target);
+                luisa::vector<std::pair<Target, Target>> exit_trampolines;
+                auto resolve_if_operand =
+                    [&](const xir::BasicBlock *logical_target) noexcept {
+                        if (!region.emit_selection_merge &&
+                            logical_target !=
+                                inst->merge_block()) {
+                            LUISA_ASSERT(
+                                region.loop_boundary_exit_target !=
+                                    nullptr,
+                                "SPIR-V loop-boundary If lost its "
+                                "planned exit target.");
+                            return plan._resolve_ordinary_target(
+                                block,
+                                region.loop_boundary_exit_target);
+                        }
+                        auto target = resolve_selection_operand(
+                            inst, block, logical_target,
+                            inst->merge_block(), region.merge_target);
+                        if (target == region.merge_target ||
+                            !is_enclosing_boundary_target(
+                                inst, logical_target)) {
+                            return target;
+                        }
+                        for (auto [continuation, trampoline] :
+                             exit_trampolines) {
+                            if (continuation == target) {
+                                return trampoline;
+                            }
+                        }
+                        auto trampoline = Target::synthetic(
+                            plan._add_synthetic(
+                                SyntheticBlockKind::EDGE_TRAMPOLINE,
+                                inst, target));
+                        exit_trampolines.emplace_back(
+                            target, trampoline);
+                        return trampoline;
+                    };
+                region.true_target =
+                    resolve_if_operand(inst->true_block());
+                region.false_target =
+                    resolve_if_operand(inst->false_block());
                 break;
             }
             case xir::DerivedInstructionTag::SWITCH: {
@@ -1262,14 +1599,28 @@ ControlFlowPlan ControlFlowPlan::_create(
             }
             case xir::DerivedInstructionTag::BRANCH: {
                 auto *inst = static_cast<const xir::BranchInst *>(terminator);
-                auto forward_iter =
-                    plan._nested_selection_merge_forward_targets.find(block);
-                auto target = forward_iter !=
-                                          plan._nested_selection_merge_forward_targets.end() &&
-                                      forward_iter->second == inst->target_block() ?
-                                  Target::xir(inst->target_block()) :
-                                  plan._resolve_ordinary_target(
-                                      block, inst->target_block());
+                auto target = [&]() noexcept {
+                    if (auto entry_iter =
+                            plan._nested_selection_rotation_entry_edge_targets
+                                .find(inst);
+                        entry_iter !=
+                        plan._nested_selection_rotation_entry_edge_targets
+                            .end()) {
+                        return entry_iter->second;
+                    }
+                    auto forward_iter =
+                        plan._nested_selection_merge_forward_targets.find(
+                            block);
+                    if (forward_iter !=
+                            plan._nested_selection_merge_forward_targets
+                                .end() &&
+                        forward_iter->second ==
+                            inst->target_block()) {
+                        return Target::xir(inst->target_block());
+                    }
+                    return plan._resolve_ordinary_target(
+                        block, inst->target_block());
+                }();
                 if (auto loop_iter = plan._loop_prepare_indices.find(block);
                     loop_iter != plan._loop_prepare_indices.end()) {
                     auto &&loop = plan._loop_regions[loop_iter->second];
@@ -1333,6 +1684,7 @@ ControlFlowPlan ControlFlowPlan::_create(
     // be proved here rather than inferred from logical XIR predecessors.
     auto visit_physical_targets = [&](const BlockPlan &source_plan,
                                       auto &&visit) noexcept {
+        if (source_plan.physically_pruned) { return; }
         auto *terminator = source_plan.block->terminator();
         switch (terminator->derived_instruction_tag()) {
             case xir::DerivedInstructionTag::IF: {
@@ -1968,6 +2320,29 @@ ControlFlowPlan ControlFlowPlan::_create(
                 PhiIncomingPlan incoming_plan{
                     .value = incoming.value,
                     .predecessor = incoming.block};
+                const IfRegion *loop_boundary_guard = nullptr;
+                for (auto &if_region : plan._if_regions) {
+                    if (!if_region.emit_selection_merge &&
+                        if_region.loop_boundary_exit_target ==
+                            block &&
+                        if_region
+                                .loop_boundary_exit_predecessor ==
+                            incoming.block) {
+                        LUISA_ASSERT(
+                            loop_boundary_guard == nullptr,
+                            "SPIR-V Phi incoming is bypassed by multiple "
+                            "loop-boundary guards.");
+                        loop_boundary_guard = &if_region;
+                    }
+                }
+                if (loop_boundary_guard != nullptr) {
+                    // The empty proxy chain is physically dead. Its incoming
+                    // value is already available at the guard header (the
+                    // chain contains no value-producing instructions), and
+                    // the header is the real OpPhi predecessor.
+                    incoming_plan.predecessor =
+                        loop_boundary_guard->header;
+                }
                 if (incoming.block->terminator()->isa<xir::SwitchInst>()) {
                     auto *switch_inst = static_cast<const xir::SwitchInst *>(
                         incoming.block->terminator());
@@ -1982,7 +2357,20 @@ ControlFlowPlan ControlFlowPlan::_create(
                             switch_region.dispatch_synthetic_index);
                     }
                 }
-                auto target = resolved_edge_target(incoming.block, block);
+                auto target = [&] {
+                    if (loop_boundary_guard == nullptr) {
+                        return resolved_edge_target(
+                            incoming.block, block);
+                    }
+                    auto *inst =
+                        loop_boundary_guard->instruction;
+                    auto exit_is_true =
+                        inst->true_block() !=
+                        inst->merge_block();
+                    return exit_is_true ?
+                               loop_boundary_guard->true_target :
+                               loop_boundary_guard->false_target;
+                }();
                 if (!plan._planning_diagnostic.empty()) { return plan; }
                 auto forwarding_guard = size_t{0u};
                 while (!(target == result_target)) {

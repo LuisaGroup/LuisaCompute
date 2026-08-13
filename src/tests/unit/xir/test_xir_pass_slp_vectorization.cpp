@@ -77,6 +77,10 @@ void reg_slp_vectorization() {
         auto *v1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {xv, c1});
         auto *v2 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {xv, c2});
         auto *v3 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {xv, c3});
+        v0->set_name("lane0");
+        v1->set_name("lane1");
+        v2->set_name("lane2");
+        v3->set_name("lane3");
         auto *p0 = gep_array_element(b, m, arr, 0, Type::of<float>());
         auto *p1 = gep_array_element(b, m, arr, 1, Type::of<float>());
         auto *p2 = gep_array_element(b, m, arr, 2, Type::of<float>());
@@ -147,6 +151,15 @@ void reg_slp_vectorization() {
         expect(s1->variable() == p1);
         expect(s2->variable() == p2);
         expect(s3->variable() == p3);
+        auto expect_name = [](Value *value, luisa::string_view expected) noexcept {
+            auto name = value->name();
+            expect(name.has_value());
+            if (name.has_value()) { expect(*name == expected); }
+        };
+        expect_name(s0->value(), "lane0");
+        expect_name(s1->value(), "lane1");
+        expect_name(s2->value(), "lane2");
+        expect_name(s3->value(), "lane3");
     };
 
     "slp_vectorization_vectorizes_casts_with_lane_order"_test = [] {
@@ -259,6 +272,50 @@ void reg_slp_vectorization() {
         expect(is_lane_extract(s1->value(), vector_negate, 1u));
         expect(is_lane_extract(s2->value(), vector_negate, 2u));
         expect(is_lane_extract(s3->value(), vector_negate, 3u));
+    };
+
+    "slp_vectorization_rejects_nested_gep_offsets_without_mutation"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *body = k->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+
+        auto *row_type = Type::array(Type::of<int32_t>(), 4u);
+        auto *matrix_type = Type::array(row_type, 2u);
+        auto *matrix = b.alloca_local(matrix_type);
+        auto *row0 = gep_array_element(b, m, matrix, 0, row_type);
+        auto *row1 = gep_array_element(b, m, matrix, 1, row_type);
+        auto *p00 = gep_array_element(b, m, row0, 0, Type::of<int32_t>());
+        auto *p11 = gep_array_element(b, m, row1, 1, Type::of<int32_t>());
+        auto *v0 = b.call(
+            Type::of<int32_t>(), ArithmeticOp::UNARY_MINUS, {int_const(m, 1)});
+        auto *v1 = b.call(
+            Type::of<int32_t>(), ArithmeticOp::UNARY_MINUS, {int_const(m, 2)});
+        auto *s0 = b.store(p00, v0);
+        auto *s1 = b.store(p11, v1);
+        b.return_void();
+
+        expect(verify(m));
+        auto info = slp_vectorization_pass_run_on_function(k);
+        expect(info.vectorized_tree_count == 0u);
+        expect(info.vectorized_inst_count == 0u);
+        expect(info.rejected_candidate_count == 0u);
+        expect(s0->variable() == p00);
+        expect(s0->value() == v0);
+        expect(s1->variable() == p11);
+        expect(s1->value() == v1);
+        expect(v0->is_linked());
+        expect(v1->is_linked());
+        expect(verify(m));
+
+        size_t vector_instruction_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->type() != nullptr && inst->type()->is_vector()) {
+                vector_instruction_count++;
+            }
+        });
+        expect(vector_instruction_count == 0u);
     };
 
     "slp_vectorization_rejects_mixed_producers_without_mutation"_test = [] {

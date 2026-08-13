@@ -38,6 +38,16 @@ void CodegenVisitor::visit(const FuncRefExpr *expr) {
 void CodegenVisitor::visit(const BinaryExpr *expr) {
     auto lhs = expr->lhs();
     auto rhs = expr->rhs();
+    if (expr->op() == BinaryOp::MOD &&
+        lhs->type()->is_scalar() &&
+        lhs->type()->is_float()) {
+        sb << (lhs->type()->is_float64() ? "fmod(" : "fmodf(");
+        lhs->accept(*this);
+        sb << ',';
+        rhs->accept(*this);
+        sb << ')';
+        return;
+    }
     if (lhs->type()->is_scalar() && rhs->type()->is_scalar()) {
         sb << '(';
         lhs->accept(*this);

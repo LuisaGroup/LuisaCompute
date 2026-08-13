@@ -6,6 +6,7 @@
 
 #include <luisa/core/basic_types.h>
 #include <luisa/core/concepts.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/core/stl/functional.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/stream.h>
@@ -16,6 +17,21 @@ template<typename... Args>
 class CoroScheduler;
 
 namespace detail {
+
+// A scheduler expands one logical coroutine into several physical shaders.
+// Every generated shader must inherit the caller's compilation semantics
+// (fast-math, debug information, register limits, driver optimization, ...).
+// A user-provided AOT name must additionally be made unique per stage; an
+// empty name stays empty so ordinary hash-based shader caching remains active.
+[[nodiscard]] inline ShaderOption coro_scheduler_shader_option(
+    const ShaderOption &base,
+    luisa::string_view stage) noexcept {
+    auto result = base;
+    if (!result.name.empty()) {
+        result.name = luisa::format("{}_{}", result.name, stage);
+    }
+    return result;
+}
 
 template<typename... Args>
 class CoroSchedulerInvoke;

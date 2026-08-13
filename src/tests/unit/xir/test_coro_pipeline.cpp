@@ -128,8 +128,9 @@ void reg_coro_pipeline() {
         XIRBuilder b;
         b.set_insertion_point(body);
         // Keep both switch arms executable through phase-A DCE so the test
-        // actually reaches coro split/materialize instead of passing after the
-        // switch alone was lowered.
+        // actually reaches coro split/materialize. The raw coroutine interval
+        // uses IndexedBranchInst, and the final structured boundary must
+        // reconstruct a native SwitchInst rather than binary-lowering it.
         auto *selector = kernel->create_value_argument(Type::of<int>());
         auto *sw = b.switch_(selector);
         auto *suspend_block = sw->create_case_block(0);
@@ -149,7 +150,10 @@ void reg_coro_pipeline() {
         expect(count_tag_in_owned_blocks(m, DerivedInstructionTag::SWITCH) == 1u);
         xir_to_ast_normalize_module(&m);
 
-        expect(count_tag_in_owned_blocks(m, DerivedInstructionTag::SWITCH) == 0u);
+        expect(count_tag_in_owned_blocks(
+                   m, DerivedInstructionTag::INDEXED_BRANCH) == 0u);
+        expect(count_tag_in_owned_blocks(
+                   m, DerivedInstructionTag::SWITCH) >= 1u);
         expect(count_callables(m) >= 2u);
         size_t checked_continuations = 0u;
         for (auto *function : m.function_list()) {
@@ -167,6 +171,162 @@ void reg_coro_pipeline() {
         }
         expect(checked_continuations >= 2u);
         expect(all_blocks_terminated(m));
+    };
+
+    "generic_pipeline_projects_only_live_sparse_suspend_tokens"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *dead_suspend = kernel->create_basic_block();
+        auto *dead_resume = kernel->create_basic_block();
+        auto *live_suspend = kernel->create_basic_block();
+        auto *live_resume = kernel->create_basic_block();
+        constexpr uint32_t dead_token = 17u;
+        constexpr uint32_t live_token = 91u;
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        b.cond_br(
+            m.create_constant_zero(Type::of<bool>()),
+            dead_suspend, live_suspend);
+        b.set_insertion_point(dead_suspend);
+        b.coro_suspend(dead_token, "dead", nullptr);
+        b.set_insertion_point(dead_resume);
+        b.coro_resume(dead_token, nullptr);
+        b.br(live_suspend);
+        b.set_insertion_point(live_suspend);
+        b.coro_suspend(live_token, "live", nullptr);
+        b.set_insertion_point(live_resume);
+        b.coro_resume(live_token, nullptr);
+        b.coro_terminate();
+
+        xir_to_ast_normalize_module(&m);
+
+        expect(count_callables(m) == 2u)
+            << "entry plus the live sparse-token continuation must be materialized; the dead token must not be";
+        for (auto *function : m.function_list()) {
+            if (!function->isa<CallableFunction>() ||
+                function->definition() == nullptr) {
+                continue;
+            }
+            for (auto *block : function->definition()->basic_blocks()) {
+                expect(block->is_terminated());
+                for (auto *inst : block->instructions()) {
+                    auto tag = inst->derived_instruction_tag();
+                    expect(tag != DerivedInstructionTag::CORO_SUSPEND);
+                    expect(tag != DerivedInstructionTag::CORO_RESUME);
+                    expect(tag != DerivedInstructionTag::CORO_TERMINATE);
+                }
+            }
+        }
+    };
+
+    "generic_pipeline_lowers_empty_live_token_set_to_entry_callable"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *dead_suspend = kernel->create_basic_block();
+        auto *dead_resume = kernel->create_basic_block();
+        auto *terminal = kernel->create_basic_block();
+        constexpr uint32_t dead_token = 37u;
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        b.cond_br(
+            m.create_constant_zero(Type::of<bool>()),
+            dead_suspend, terminal);
+        b.set_insertion_point(dead_suspend);
+        b.coro_suspend(dead_token, "dead-only", nullptr);
+        b.set_insertion_point(dead_resume);
+        b.coro_resume(dead_token, nullptr);
+        b.br(terminal);
+        b.set_insertion_point(terminal);
+        b.coro_terminate();
+
+        xir_to_ast_normalize_module(&m);
+
+        expect(count_callables(m) == 1u)
+            << "T_live = empty is a one-scope coroutine, not a failed split";
+        expect(all_blocks_terminated(m));
+        size_t continuation_count = 0u;
+        for (auto *function : m.function_list()) {
+            if (!function->isa<CallableFunction>() ||
+                function->definition() == nullptr) {
+                continue;
+            }
+            ++continuation_count;
+            for (auto *block : function->definition()->basic_blocks()) {
+                for (auto *inst : block->instructions()) {
+                    auto tag = inst->derived_instruction_tag();
+                    expect(tag != DerivedInstructionTag::CORO_SUSPEND);
+                    expect(tag != DerivedInstructionTag::CORO_RESUME);
+                    expect(tag != DerivedInstructionTag::CORO_TERMINATE);
+                }
+            }
+        }
+        expect(continuation_count == 1u);
+    };
+
+    "generic_pipeline_reduces_multi_entry_continuation_scc"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *enter_suspend = kernel->create_value_argument(
+            Type::of<bool>());
+        auto *choose_loop_entry = kernel->create_value_argument(
+            Type::of<bool>());
+        auto *leave_left = kernel->create_value_argument(
+            Type::of<bool>());
+        auto *leave_right = kernel->create_value_argument(
+            Type::of<bool>());
+        auto *suspend = kernel->create_basic_block();
+        auto *resume = kernel->create_basic_block();
+        auto *left_predecessor = kernel->create_basic_block();
+        auto *right_predecessor = kernel->create_basic_block();
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *terminal = kernel->create_basic_block();
+        constexpr uint32_t token = 73u;
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        builder.cond_br(enter_suspend, suspend, resume);
+        builder.set_insertion_point(suspend);
+        builder.coro_suspend(token, "multi-entry", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(token, nullptr);
+        builder.cond_br(
+            choose_loop_entry,
+            left_predecessor,
+            right_predecessor);
+        builder.set_insertion_point(left_predecessor);
+        builder.br(left);
+        builder.set_insertion_point(right_predecessor);
+        builder.br(right);
+        builder.set_insertion_point(left);
+        builder.cond_br(leave_left, terminal, right);
+        builder.set_insertion_point(right);
+        builder.cond_br(leave_right, terminal, left);
+        builder.set_insertion_point(terminal);
+        builder.coro_terminate();
+
+        xir_to_ast_normalize_module(&module);
+
+        expect(count_callables(module) == 2u)
+            << "entry and resume continuations must both survive";
+        expect(all_blocks_terminated(module));
+        for (auto *function : module.function_list()) {
+            if (!function->isa<CallableFunction>() ||
+                function->definition() == nullptr) {
+                continue;
+            }
+            function->definition()->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    expect(!instruction->isa<CoroSuspendInst>());
+                    expect(!instruction->isa<CoroResumeInst>());
+                    expect(!instruction->isa<CoroTerminateInst>());
+                });
+        }
     };
 }
 

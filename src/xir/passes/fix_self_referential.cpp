@@ -13,17 +13,19 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static void fix_self_referential_instructions_on_function(Function *function, FixSelfReferentialInfo &info) noexcept {
+struct PendingFix {
+    Instruction *instruction;
+    Value *target;
+    luisa::vector<size_t> operand_indices;
+};
+
+static void collect_self_referential_fixes_on_function(
+    Function *function, luisa::vector<PendingFix> &pending,
+    FixSelfReferentialInfo &info) noexcept {
     if (function == nullptr) { return; }
     auto def = function->definition();
     if (def == nullptr || def->body_block() == nullptr) { return; }
     auto dom_tree = compute_dom_tree(function);
-    struct PendingFix {
-        Instruction *instruction;
-        Value *target;
-        luisa::vector<size_t> operand_indices;
-    };
-    luisa::vector<PendingFix> pending;
     def->traverse_instructions([&](Instruction *inst) noexcept {
         luisa::vector<size_t> self_operands;
         for (size_t i = 0; i < inst->operand_count(); ++i) {
@@ -38,6 +40,16 @@ static void fix_self_referential_instructions_on_function(Function *function, Fi
         if (inst->isa<PhiInst>()) { return; }
         if (!inst->isa<ArithmeticInst>() ||
             static_cast<ArithmeticInst *>(inst)->op() != ArithmeticOp::INSERT) {
+            info.unresolved_count += self_operands.size();
+            return;
+        }
+        // INSERT is (aggregate, element, index) -> aggregate. Only its
+        // aggregate operand may be repaired from the backing storage. Loading
+        // the aggregate into either of the other operand positions would
+        // replace a scalar/index value with an aggregate and create
+        // type-invalid IR. If any unsupported self-reference is present,
+        // reject the whole instruction before scheduling a mutation.
+        if (self_operands.size() != 1u || self_operands.front() != 0u) {
             info.unresolved_count += self_operands.size();
             return;
         }
@@ -84,6 +96,11 @@ static void fix_self_referential_instructions_on_function(Function *function, Fi
         }
         pending.emplace_back(PendingFix{inst, target, std::move(self_operands)});
     });
+}
+
+static void apply_self_referential_fixes(
+    const luisa::vector<PendingFix> &pending,
+    FixSelfReferentialInfo &info) noexcept {
     for (auto &&fix : pending) {
         auto replacement = luisa::make_managed<LoadInst>(
             fix.instruction->parent_block(), fix.instruction->type(), fix.target);
@@ -100,14 +117,26 @@ static void fix_self_referential_instructions_on_function(Function *function, Fi
 
 FixSelfReferentialInfo fix_self_referential_pass_run_on_function(Function *function) noexcept {
     FixSelfReferentialInfo info;
-    detail::fix_self_referential_instructions_on_function(function, info);
+    luisa::vector<detail::PendingFix> pending;
+    detail::collect_self_referential_fixes_on_function(
+        function, pending, info);
+    if (info.succeeded()) {
+        detail::apply_self_referential_fixes(pending, info);
+    }
     return info;
 }
 
 FixSelfReferentialInfo fix_self_referential_pass_run_on_module(Module *module, PassReport *report) noexcept {
     FixSelfReferentialInfo info;
-    for (auto f : module->function_list()) {
-        detail::fix_self_referential_instructions_on_function(f, info);
+    luisa::vector<detail::PendingFix> pending;
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            detail::collect_self_referential_fixes_on_function(
+                f, pending, info);
+        }
+        if (info.succeeded()) {
+            detail::apply_self_referential_fixes(pending, info);
+        }
     }
     if (report != nullptr) {
         report->set("fixed_inst", info.fixed_count);

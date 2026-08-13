@@ -7,8 +7,8 @@ namespace luisa::compute {
 uint64_t Statement::hash() const noexcept {
     if (!_hash_computed) {
         using namespace std::string_view_literals;
-        static auto seed = hash_value("__hash_statement"sv);
-        _hash = hash_combine({static_cast<uint64_t>(_tag), _compute_hash()}, seed);
+        static auto statement_seed = hash_value("__hash_statement"sv);
+        _hash = hash_combine({static_cast<uint64_t>(_tag), _compute_hash()}, statement_seed);
         _hash_computed = true;
     }
     return _hash;
@@ -58,7 +58,17 @@ uint64_t LoopStmt::_compute_hash() const noexcept {
 }
 
 uint64_t SuspendStmt::_compute_hash() const noexcept {
-    return hash_combine({static_cast<uint64_t>(_token), hash_value(_name)});
+    auto h = hash_combine(
+        {static_cast<uint64_t>(_token), hash_value(_name)});
+    // Export order is observable only as an ABI declaration order. Delimit
+    // each (name, value) pair so no concatenation ambiguity can alias another
+    // boundary contract.
+    h = hash_value(_frame_exports.size(), h);
+    for (auto &&frame_export : _frame_exports) {
+        h = hash_value(frame_export.name, h);
+        h = hash_value(frame_export.value->hash(), h);
+    }
+    return h;
 }
 
 uint64_t ExprStmt::_compute_hash() const noexcept {
@@ -112,7 +122,7 @@ PrintStmt::PrintStmt(luisa::string fmt, luisa::vector<const Expression *> args) 
 }
 
 uint64_t DebugBreakStmt::_compute_hash() const noexcept {
-    auto h = hash64_default_seed;
+    auto h = luisa::hash_value(_wrapper);
     for (auto &&w : _watches) {
         h = luisa::hash_value(w->hash(), h);
     }

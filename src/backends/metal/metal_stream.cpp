@@ -42,19 +42,24 @@ MetalStageBufferPool *MetalStream::download_pool() noexcept {
 void MetalStream::signal(MetalEvent *event, uint64_t value) noexcept {
     auto command_buffer = _queue->commandBufferWithUnretainedReferences();
     event->signal(command_buffer, value);
-    command_buffer->commit();
+    submit(command_buffer, {});
 }
 
 void MetalStream::wait(MetalEvent *event, uint64_t value) noexcept {
     auto command_buffer = _queue->commandBufferWithUnretainedReferences();
     event->wait(command_buffer, value);
-    command_buffer->commit();
+    submit(command_buffer, {});
 }
 
 void MetalStream::synchronize() noexcept {
     auto command_buffer = _queue->commandBufferWithUnretainedReferences();
     command_buffer->commit();
     command_buffer->waitUntilCompleted();
+    if (auto error = command_buffer->error()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Metal synchronization command buffer failed: {}.",
+            error->localizedDescription()->utf8String());
+    }
 }
 
 void MetalStream::set_name(luisa::string_view name) noexcept {
@@ -121,17 +126,18 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
             for (auto callback : callbacks) { callback->recycle(); }
         });
     }
-#ifndef NDEBUG
     command_buffer->addCompletedHandler(^(MTL::CommandBuffer *cb) noexcept {
-        if (auto error = cb->error()) {
-            LUISA_WARNING("CommandBuffer execution error: {}.",
-                          error->localizedDescription()->utf8String());
-        }
+#ifndef NDEBUG
         if (auto logs = cb->logs()) {
             luisa_compute_metal_stream_print_function_logs(logs);
         }
-    });
 #endif
+        if (auto error = cb->error()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Metal command buffer execution failed: {}.",
+                error->localizedDescription()->utf8String());
+        }
+    });
     command_buffer->commit();
 }
 

@@ -31,7 +31,6 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
-#include <luisa/xir/passes/lower_switch.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/phi_cleanup.h>
@@ -188,7 +187,7 @@ create_spirv_codegen_post_restructure_pipeline() noexcept {
     pipeline.add("mem2reg-post-restructure", [](xir::Module *m,
                                                 xir::PassReport &r) {
         auto i = xir::mem2reg_pass_run_on_module(m, &r);
-        return i.promoted_alloca_count > 0u;
+        return i.changed();
     });
     pipeline.add("audit-reg2mem-spills", [](xir::Module *m,
                                             xir::PassReport &r) {
@@ -215,6 +214,20 @@ namespace {
         return luisa::string_view{env} != "1";
     }
     return true;
+}
+
+// The scalarizer is an optional optimization, not a legalization step.
+// Keeping vector operations intact is the default because it preserves
+// vector-level CSE and produces smaller SPIR-V for representative workloads.
+// An explicit environment setting has process-wide precedence over the
+// per-shader option, including an explicit "0" that disables it.
+[[nodiscard]] bool scalarizer_enabled(
+    const ShaderOption &option) noexcept {
+    if (auto *env =
+            std::getenv("LUISA_XIR_ENABLE_SCALARIZER")) {
+        return luisa::string_view{env} == "1";
+    }
+    return option.enable_scalarizer;
 }
 
 [[nodiscard]] bool has_autodiff_scope(const xir::Module *module) noexcept {
@@ -270,13 +283,22 @@ void verify_xir_or_error(
     // intentionally deferred to the final explicitly destructured interval;
     // otherwise a constant Loop.prepare condition can be rewritten before its
     // owner is lowered.
-    pipeline.add("scalarizer", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::scalarizer_pass_run_on_module(m, &r);
-        return i.scalarized_inst_count > 0u;
-    });
-    pipeline.add("trace-gep", [](xir::Module *m, xir::PassReport &) {
+    if (scalarizer_enabled(option)) {
+        pipeline.add(
+            "scalarizer",
+            [](xir::Module *m,
+               xir::PassReport &r) {
+                auto i =
+                    xir::scalarizer_pass_run_on_module(
+                        m, &r);
+                return i.scalarized_inst_count > 0u;
+            });
+    }
+    pipeline.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::trace_gep_pass_run_on_module(m);
-        return i.traced_gep_count > 0u;
+        r.set("traced_gep", i.traced_gep_count);
+        r.set("removed_noop_gep", i.removed_noop_gep_count);
+        return i.changed();
     });
     pipeline.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::local_store_forward_pass_run_on_module(m, &r);
@@ -311,8 +333,7 @@ void verify_xir_or_error(
     });
     pipeline.add("indvar-simplify", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::indvar_simplify_pass_run_on_module(m, &r);
-        return i.simplified_iv_count > 0u ||
-               i.removed_dead_iv_count > 0u;
+        return i.changed();
     });
     pipeline.add("div-rem-pairs", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::div_rem_pairs_pass_run_on_module(m, &r);
@@ -328,11 +349,11 @@ void verify_xir_or_error(
             .decompose_matrices = false,
             .aggressive = false};
         auto i = xir::sroa_pass_run_on_module(m, options, &r);
-        return i.decomposed_alloca_count > 0u;
+        return i.changed();
     });
     pipeline.add("gvn", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::gvn_pass_run_on_module(m, &r);
-        return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+        return i.changed();
     });
     pipeline.add("dead-store-elimination", [](xir::Module *m,
                                               xir::PassReport &r) {
@@ -355,18 +376,6 @@ void add_lower_ray_query_loop_to_loop(xir::PassPipeline &pipeline) noexcept {
     });
 }
 
-void add_lower_switch(xir::PassPipeline &pipeline) noexcept {
-    pipeline.add("lower-switch", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::lower_switch_pass_run_on_module(m, &r);
-        if (!i.succeeded()) {
-            LUISA_ERROR_WITH_LOCATION(
-                "SPIR-V XIR legalization rejected {} switch(es).",
-                i.rejected_switch_count);
-        }
-        return i.lowered_switch_count > 0u;
-    });
-}
-
 void add_destructure_cfg(xir::PassPipeline &pipeline) noexcept {
     pipeline.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
@@ -375,9 +384,7 @@ void add_destructure_cfg(xir::PassPipeline &pipeline) noexcept {
                 "SPIR-V XIR destructuring failed (errors={}, leaked_blocks={}).",
                 i.error_count, i.leaked_block_count);
         }
-        return i.destructured_if_count > 0u ||
-               i.destructured_loop_count > 0u ||
-               i.destructured_simple_loop_count > 0u;
+        return i.changed();
     });
 }
 
@@ -397,35 +404,158 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                            i.planned_pointer_call_count);
                      r.set("blocking_function",
                            i.blocking_function_count);
-                     r.set("lowered_blocking_function",
-                           i.lowered_blocking_function_count);
-                     r.set("lowered_blocking_switch",
-                           i.lowered_switch_count);
+                     r.set("destructured_blocking_function",
+                           i.destructured_blocking_function_count);
+                     r.set("destructured_blocking_switch",
+                           i.destructured_switch_count);
+                     r.set("pruned_unreachable_callable",
+                           i.pruned_unreachable_callable_count);
                      r.set("inlined_call",
                            i.inline_info.inlined_call_count);
+                     r.set(
+                         "consumed_call_site_diagnostic_metadata",
+                         i.inline_info
+                             .consumed_call_site_diagnostic_metadata_count);
+                     r.set("skipped_structured_call",
+                           i.inline_info.skipped_structured_call_count);
+                     r.set("skipped_constrained_call",
+                           i.inline_info.skipped_constrained_call_count);
+                     r.set("skipped_metadata_call",
+                           i.inline_info.skipped_metadata_call_count);
+                     r.set("skipped_declaration_call",
+                           i.inline_info.skipped_declaration_call_count);
+                     r.set("rejected_malformed_call",
+                           i.inline_info.rejected_malformed_call_count);
+                     r.set("skipped_recursive_callable",
+                           i.inline_info
+                               .skipped_recursive_callable_count);
                      r.set("remaining_pointer_call",
                            i.remaining_pointer_call_count);
+                     r.set("argument_usage_analysis",
+                           i.argument_usage_analysis_count);
+                     r.set("indexed_call_site",
+                           i.indexed_call_site_count);
+                     r.set("argument_usage_structural_closure",
+                           i.argument_usage_structural_closure_count);
+                     r.set("argument_usage_instruction_scan",
+                           i.argument_usage_instruction_scan_count);
+                     r.set("argument_usage_call_dependency",
+                           i.argument_usage_call_dependency_count);
+                     r.set("argument_usage_worklist_pop",
+                           i.argument_usage_worklist_pop_count);
+                     r.set("argument_usage_dependency_visit",
+                           i.argument_usage_dependency_visit_count);
+                     r.set("inline_summary_function",
+                           i.inline_info.call_site_summary_function_count);
+                     r.set(
+                         "inline_summary_instruction_scan",
+                         i.inline_info
+                             .call_site_summary_instruction_scan_count);
+                     r.set("inline_cached_apply",
+                           i.inline_info.call_site_cached_apply_count);
+                     r.set(
+                         "inline_revalidated_apply",
+                         i.inline_info
+                             .call_site_revalidated_apply_count);
+                     r.set(
+                         "inline_clone_layout_function",
+                         i.inline_info
+                             .call_site_clone_layout_function_count);
+                     r.set(
+                         "inline_clone_layout_value",
+                         i.inline_info
+                             .call_site_clone_layout_value_count);
+                     r.set(
+                         "inline_dense_resolver_apply",
+                         i.inline_info
+                             .call_site_dense_resolver_apply_count);
+                     r.set(
+                         "inline_dense_resolver_fallback",
+                         i.inline_info
+                             .call_site_dense_resolver_fallback_count);
+                     r.set(
+                         "ordinary_inline_summary_function",
+                         i.inline_info
+                             .inline_pass_summary_function_count);
+                     r.set(
+                         "ordinary_inline_summary_instruction_scan",
+                         i.inline_info
+                             .inline_pass_summary_instruction_scan_count);
+                     r.set(
+                         "ordinary_inline_clone_layout_function",
+                         i.inline_info
+                             .inline_pass_clone_layout_function_count);
+                     r.set(
+                         "ordinary_inline_clone_layout_value",
+                         i.inline_info
+                             .inline_pass_clone_layout_value_count);
+                     r.set(
+                         "ordinary_inline_dense_resolver_apply",
+                         i.inline_info
+                             .inline_pass_dense_resolver_apply_count);
+                     r.set(
+                         "ordinary_inline_dense_resolver_fallback",
+                         i.inline_info
+                             .inline_pass_dense_resolver_fallback_count);
+                     r.set(
+                         "ordinary_inline_caller_barrier_function",
+                         i.inline_info
+                             .inline_pass_caller_barrier_function_count);
+                     r.set(
+                         "ordinary_inline_caller_barrier_instruction_scan",
+                         i.inline_info
+                             .inline_pass_caller_barrier_instruction_scan_count);
+                     r.set(
+                         "ordinary_inline_caller_barrier_cache_hit",
+                         i.inline_info
+                             .inline_pass_caller_barrier_cache_hit_count);
+                     r.set(
+                         "inline_recursion_function",
+                         i.inline_info
+                             .recursion_analysis_function_count);
+                     r.set(
+                         "inline_recursion_call_use_visit",
+                         i.inline_info
+                             .recursion_analysis_call_use_visit_count);
+                     r.set("inline_recursion_edge",
+                           i.inline_info
+                               .recursion_analysis_edge_count);
+                     r.set(
+                         "inline_recursion_vertex_visit",
+                         i.inline_info
+                             .recursion_analysis_vertex_visit_count);
+                     r.set(
+                         "inline_recursion_edge_visit",
+                         i.inline_info
+                             .recursion_analysis_edge_visit_count);
                      if (!i.succeeded()) {
                          LUISA_ERROR_WITH_LOCATION(
                              "SPIR-V reference-argument legalization failed: {}",
                              i.diagnostic);
                      }
-                     return i.inline_info.inlined_call_count > 0u ||
-                            i.lowered_switch_count > 0u;
+                     return i.inline_info.changed() ||
+                            i.destructured_switch_count > 0u;
                  });
 }
 
 void add_reg2mem(xir::PassPipeline &pipeline, luisa::string name) noexcept {
     pipeline.add(std::move(name), [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::reg2mem_pass_run_on_module(m, &r);
-        return i.lowered_phi_count > 0u ||
-               i.lowered_cross_block_value_count > 0u;
+        return i.changed();
     });
 }
 
 void add_restructure_cfg(xir::PassPipeline &pipeline) noexcept {
     pipeline.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+        // AST-to-XIR produces a fresh, exclusively owned legalization module.
+        // A failed pass terminates code generation below, so the module is
+        // discarded and does not need transactional shadow/replay. Successful
+        // inputs still receive the same complete pre/post boundary checks.
+        auto i = xir::restructure_cfg_pass_run_on_module(
+            m, &r,
+            {.mutation_mode =
+                 xir::RestructureCFGMutationMode::
+                     IN_PLACE_DISCARDABLE});
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "SPIR-V XIR restructuring failed (irreducible={}, "
@@ -433,8 +563,7 @@ void add_restructure_cfg(xir::PassPipeline &pipeline) noexcept {
                 i.irreducible_region_count, i.unstructured_branch_count,
                 i.invalid_construct_count, i.iteration_limit_count);
         }
-        return i.restructured_loop_count > 0u ||
-               i.restructured_if_count > 0u;
+        return i.changed();
     });
 }
 
@@ -457,7 +586,6 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
         .enable_fast_math = option.enable_fast_math};
     xir::PassPipeline pipeline;
     add_lower_ray_query_loop_to_loop(pipeline);
-    add_lower_switch(pipeline);
     add_destructure_cfg(pipeline);
 
     // Autodiff requires a whole-program body. Multi-block callables are only
@@ -465,23 +593,19 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
     pipeline.add("inline-all", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::inline_all_pass_run_on_module(
             m, {.allow_autodiff_scope_in_caller = true}, &r);
-        return i.inlined_call_count > 0u;
+        return i.changed();
     });
     if (optimize) {
-        pipeline.add_fixed_point(
+        pipeline.add_sequence(
             "post-inline-cleanup",
-            xir::create_post_inline_cleanup_pipeline(optimization_options), 1u);
+            xir::create_post_inline_cleanup_pipeline(optimization_options));
         pipeline.add("dead-arg-elim", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::dead_arg_elim_pass_run_on_module(m, &r);
             return i.removed_arg_count > 0u;
         });
         pipeline.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
-            return i.folded_constant_cond_br_count > 0u ||
-                   i.folded_switch_count > 0u ||
-                   i.threaded_empty_block_count > 0u ||
-                   i.merged_straight_line_count > 0u ||
-                   i.removed_unreachable_block_count > 0u;
+            return i.changed();
         });
     }
     add_reg2mem(pipeline, "reg2mem-pre-restructure");
@@ -500,8 +624,7 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
         auto i = xir::autodiff_pass_run_on_module(m);
         r.set("transformed_scope_count", i.transformed_scope_count);
         r.set("removed_instruction_count", i.removed_instruction_count);
-        return i.transformed_scope_count > 0u ||
-               i.removed_instruction_count > 0u;
+        return i.changed();
     });
     pipeline.add("scalarizer", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::scalarizer_pass_run_on_module(m, &r);
@@ -510,7 +633,7 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
     pipeline.add("sroa", [](xir::Module *m, xir::PassReport &r) {
         auto options = xir::SROAOptions{.decompose_vectors = true};
         auto i = xir::sroa_pass_run_on_module(m, options, &r);
-        return i.decomposed_alloca_count > 0u;
+        return i.changed();
     });
     // Pre-autodiff legalization reconstructed structured roles. Do not run
     // generic DCE or mem2reg on them here. Autodiff output deliberately stays
@@ -549,18 +672,18 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
         // callables before destructure_cfg changes their control ownership.
         pipeline.add("inline", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::inline_pass_run_on_module(m, &r);
-            return i.inlined_call_count > 0u;
+            return i.changed();
         });
-        pipeline.add_fixed_point(
+        pipeline.add_sequence(
             "post-inline-cleanup",
-            xir::create_post_inline_cleanup_pipeline(optimization_options), 1u);
+            xir::create_post_inline_cleanup_pipeline(optimization_options));
         pipeline.add("dead-arg-elim", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::dead_arg_elim_pass_run_on_module(m, &r);
             return i.removed_arg_count > 0u;
         });
         pipeline.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::mem2reg_pass_run_on_module(m, &r);
-            return i.promoted_alloca_count > 0u;
+            return i.changed();
         });
         pipeline.add("algebraic-simplify", [algebraic_options](
                                                xir::Module *m,
@@ -580,13 +703,11 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
         });
         pipeline.add("sccp", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::sccp_pass_run_on_module(m, &r);
-            return i.folded_inst_count > 0u ||
-                   i.removed_branch_count > 0u;
+            return i.changed();
         });
         pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::dce_pass_run_on_module(m, &r);
-            return i.removed_inst_count > 0u ||
-                   i.removed_block_count > 0u;
+            return i.changed();
         });
         pipeline.add("early-cse", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::early_cse_pass_run_on_module(m, &r);
@@ -609,15 +730,14 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
         });
         pipeline.add("gvn", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::gvn_pass_run_on_module(m, &r);
-            return i.replaced_inst_count > 0u ||
-                   i.removed_inst_count > 0u;
+            return i.changed();
         });
         // After destructure_cfg, all structured regions are lowered to plain
         // CFG. if_conversion can safely convert eligible diamonds to select
         // instructions, enabling downstream GVN/CSE to value-number across them.
         pipeline.add("if-conversion", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::if_conversion_pass_run_on_module(m, &r);
-            return i.converted_diamond_count > 0u;
+            return i.changed();
         });
         pipeline.add("phi-cleanup", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::phi_cleanup_pass_run_on_module(m, &r);
@@ -630,11 +750,7 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
         });
         pipeline.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
-            return i.folded_constant_cond_br_count > 0u ||
-                   i.folded_switch_count > 0u ||
-                   i.threaded_empty_block_count > 0u ||
-                   i.merged_straight_line_count > 0u ||
-                   i.removed_unreachable_block_count > 0u;
+            return i.changed();
         });
     }
 
@@ -651,9 +767,9 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
     // and contains no generic DCE/CFG simplification: those passes can change
     // the prepare form or erase one of a structured construct's role arms.
     // Native OpPhi emission, rather than spirv-opt, owns SSA reconstruction.
-    pipeline.add_fixed_point(
+    pipeline.add_sequence(
         "post-restructure-boundary",
-        create_spirv_codegen_post_restructure_pipeline(), 1u);
+        create_spirv_codegen_post_restructure_pipeline());
 
     add_fix_self_referential(pipeline);
     return pipeline;

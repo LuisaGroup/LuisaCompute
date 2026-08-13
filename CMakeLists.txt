@@ -42,6 +42,19 @@ else ()
     set(LUISA_COMPUTE_MASTER_PROJECT OFF)
 endif ()
 
+option(LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION
+        "Configure a relocatable CPack distribution build" OFF)
+
+set(_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES ON)
+set(_LUISA_COMPUTE_DEFAULT_BUILD_TESTS ${LUISA_COMPUTE_MASTER_PROJECT})
+if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
+    # The fallback backend has additional toolchain/runtime distribution
+    # requirements. It remains opt-in for a binary SDK while the native GPU
+    # backend for the host platform is packaged and tested end to end.
+    set(_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES OFF)
+    set(_LUISA_COMPUTE_DEFAULT_BUILD_TESTS OFF)
+endif ()
+
 if (NOT SKBUILD AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/options.cmake")
     message(STATUS "Loading bootstrap options from \"scripts/options.cmake\"")
     include(scripts/options.cmake)
@@ -54,27 +67,34 @@ else ()
     option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
     option(LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB "Enable CUDA extension: LCUB" OFF)
     option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" ON)
-    option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" ON)
-    option(LUISA_COMPUTE_ENABLE_FALLBACK "Enable Fallback backend" ON)
-    option(LUISA_COMPUTE_ENABLE_REMOTE "Enable Remote backend" ON)
+    option(LUISA_COMPUTE_ENABLE_FALLBACK "Enable Fallback backend" ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
     option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
     option(LUISA_COMPUTE_ENABLE_CLANG_CXX "Enable ClangTooling-based C++ shading language" OFF)
-    option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
+    option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${_LUISA_COMPUTE_DEFAULT_BUILD_TESTS})
     option(LUISA_COMPUTE_ENABLE_SAFE_MODE "Enable safe mode for runtime" OFF)
-    option(LUISA_COMPUTE_EMBREE_ZIP_PATH "Path to embree zip file. Use this if embree fails to download" "")
 endif ()
 
 option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR to SPIR-V code generation for Vulkan backend" ON)
 option(LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV "Use AST LLVM codegen for Vulkan backend SPIR-V generation" OFF)
+option(LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY
+        "Enable legacy Vulkan HLSL-to-SPIR-V compatibility through DXC" ON)
 if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV AND LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
     message(FATAL_ERROR "Vulkan compute shader codegen options are mutually exclusive. "
             "Use LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV for the default native SPIR-V path, "
             "or LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV for the experimental LLVM SPIR-V path.")
 endif ()
 
-option(LUISA_COMPUTE_USE_SYSTEM_LIBS "Prefer system libraries over bundled ones" OFF)
+option(LUISA_COMPUTE_USE_SYSTEM_LIBS "Prefer system libraries over bundled ones"
+        ${LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION})
 
-option(LUISA_COMPUTE_USE_SYSTEM_STL "Use system STL instead of the bundled EASTL" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
+option(LUISA_COMPUTE_PACKAGE_REQUIRE_SYSTEM_LIBS
+        "Fail a distribution build when a preferred system library is unavailable" OFF)
+
+option(LUISA_COMPUTE_ENABLE_DX_CUDA_INTEROP
+        "Enable CUDA interop in the DirectX backend when CUDAToolkit is available"
+        ${_LUISA_COMPUTE_DEFAULT_DEVELOPER_FEATURES})
+
+option(LUISA_COMPUTE_USE_SYSTEM_STL "Use system STL instead of the bundled EASTL" ON)
 option(LUISA_COMPUTE_USE_SYSTEM_GLFW "Use system GLFW instead of the bundled one" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
 option(LUISA_COMPUTE_USE_SYSTEM_LMDB "Use system LMDB instead of the bundled one" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
 option(LUISA_COMPUTE_USE_SYSTEM_REPROC "Use system reproc instead of the bundled one" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
@@ -85,12 +105,19 @@ option(LUISA_COMPUTE_USE_SYSTEM_MAGIC_ENUM "Use system magic enum instead of the
 option(LUISA_COMPUTE_USE_SYSTEM_MARL "Use system marl instead of the bundled one" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})
 option(LUISA_COMPUTE_DISABLE_WIN_MESSAGE_BOX "Disable windows message box" ${LUISA_COMPUTE_DISABLE_WIN_MESSAGE_BOX})
 
+if (LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION AND
+        LUISA_COMPUTE_USE_SYSTEM_LIBS)
+    include(cmake/LuisaComputeSystemDependencies.cmake)
+endif ()
+
 option(LUISA_COMPUTE_ENABLE_SANITIZERS "Enable sanitizers" OFF)
 option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build (which might accelerate the compilation but could break VS Code's clangd indexing)" OFF)
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 
 if (UNIX AND NOT APPLE)
     option(LUISA_COMPUTE_ENABLE_WAYLAND "Enable Wayland support in GUI and Vulkan swapchains" OFF)
+else ()
+    set(LUISA_COMPUTE_ENABLE_WAYLAND OFF)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_HIP)
@@ -128,7 +155,10 @@ set(CMAKE_MACOSX_RPATH ON)
 set(CMAKE_SKIP_BUILD_RPATH OFF)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
+# Keep installed binaries relocatable. Appending linker search directories here
+# leaks dependency build paths into RUNPATH (for example, a locally built
+# libuuid directory) even when the exported CMake targets themselves are clean.
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH OFF)
 
 if (APPLE)
     set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../bin;@loader_path/../lib")
@@ -151,6 +181,10 @@ if (SKBUILD)
     set(CMAKE_INSTALL_BINDIR ${SKBUILD_PLATLIB_DIR}/luisa/dylibs)
 else ()
     include(GNUInstallDirs)
+    set(LUISA_COMPUTE_INSTALL_CMAKEDIR
+            "${CMAKE_INSTALL_LIBDIR}/cmake/LuisaCompute"
+            CACHE STRING "Installation directory for LuisaCompute CMake package files")
+    mark_as_advanced(LUISA_COMPUTE_INSTALL_CMAKEDIR)
 endif ()
 
 install(FILES README.md LICENSE
@@ -162,12 +196,9 @@ file(GLOB_RECURSE LUISA_COMPUTE_HEADERS CONFIGURE_DEPENDS
         "include/luisa/*.hpp")
 add_library(luisa-compute-include INTERFACE ${LUISA_COMPUTE_HEADERS})
 target_include_directories(luisa-compute-include INTERFACE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
-
-if (LUISA_COMPUTE_ENABLE_RUST)
-    target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_IR=1)
-endif ()
 
 if (UNIX AND NOT APPLE AND LUISA_COMPUTE_ENABLE_WAYLAND)
     target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_WAYLAND=1)
@@ -217,8 +248,47 @@ endif ()
 add_subdirectory(utils)
 add_subdirectory(src)
 
+if (NOT SKBUILD)
+    include(CMakePackageConfigHelpers)
+    get_property(LUISA_COMPUTE_BUILT_BACKENDS
+            GLOBAL PROPERTY LUISA_COMPUTE_BUILT_BACKENDS)
+    if (NOT LUISA_COMPUTE_BUILT_BACKENDS)
+        set(LUISA_COMPUTE_BUILT_BACKENDS "")
+    endif ()
+    get_property(LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED
+            GLOBAL PROPERTY LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED)
+    if (NOT LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED)
+        set(LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED OFF)
+    endif ()
+    if (PROJECT_VERSION_MAJOR EQUAL 0)
+        set(LUISA_COMPUTE_VERSION_COMPATIBILITY SameMinorVersion)
+    else ()
+        set(LUISA_COMPUTE_VERSION_COMPATIBILITY SameMajorVersion)
+    endif ()
+    configure_package_config_file(
+            cmake/LuisaComputeConfig.cmake.in
+            "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfig.cmake"
+            INSTALL_DESTINATION "${LUISA_COMPUTE_INSTALL_CMAKEDIR}"
+            PATH_VARS
+            CMAKE_INSTALL_BINDIR
+            CMAKE_INSTALL_LIBDIR
+            CMAKE_INSTALL_INCLUDEDIR)
+    write_basic_package_version_file(
+            "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfigVersion.cmake"
+            VERSION "${PROJECT_VERSION}"
+            COMPATIBILITY ${LUISA_COMPUTE_VERSION_COMPATIBILITY})
+    install(FILES
+            "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfig.cmake"
+            "${CMAKE_CURRENT_BINARY_DIR}/LuisaComputeConfigVersion.cmake"
+            DESTINATION "${LUISA_COMPUTE_INSTALL_CMAKEDIR}")
+endif ()
+
 if (LUISA_COMPUTE_BUILD_TESTS)
     enable_testing()
     add_subdirectory(examples)
     add_subdirectory(tutorials)
 endif()
+
+if (NOT SKBUILD AND LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION)
+    include(cmake/LuisaComputeCPack.cmake)
+endif ()

@@ -2,8 +2,10 @@
 
 #include <luisa/ast/type.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
+#include <luisa/xir/verifier.h>
 
 using namespace luisa::compute;
 using namespace luisa::compute::xir;
@@ -33,6 +35,7 @@ int main() {
         expect(info.removed_callable_count == 0u);
         expect(callee->is_linked());
         expect(call->callee() == callee);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "unused_callable_chain_removed_callers_first"_test = [] {
@@ -53,6 +56,7 @@ int main() {
         auto info = unused_callable_removal_pass_run_on_module(&m);
         expect(info.removed_callable_count == 2u);
         expect(m.function_list().empty());
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "unused_recursive_scc_is_conservatively_retained"_test = [] {
@@ -73,5 +77,38 @@ int main() {
         expect(info.removed_callable_count == 0u);
         expect(a->is_linked());
         expect(b_fn->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "unused_bodyless_callable_is_conservatively_retained"_test = [] {
+        Module m;
+        auto *declaration = m.create_callable(Type::of<void>());
+
+        auto info = unused_callable_removal_pass_run_on_module(&m);
+
+        expect(info.removed_callable_count == 0u);
+        expect(declaration->is_linked());
+        expect(declaration->body_block() == nullptr);
+    };
+
+    "unused_signature_constrained_callable_is_retained"_test = [] {
+        Module m;
+        auto *callback = m.create_callable(Type::of<void>());
+        static_cast<void>(callback->create_metadata<SignatureConstraintMD>());
+        auto *body = callback->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.return_void();
+
+        auto info = unused_callable_removal_pass_run_on_module(&m);
+
+        expect(info.removed_callable_count == 0u);
+        expect(callback->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "unused_callable_removal_accepts_null_module"_test = [] {
+        auto info = unused_callable_removal_pass_run_on_module(nullptr);
+        expect(info.removed_callable_count == 0u);
     };
 }

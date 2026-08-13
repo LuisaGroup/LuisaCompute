@@ -6,6 +6,7 @@
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
 
 #include <algorithm>
+#include <limits>
 
 namespace luisa::compute::xir {
 
@@ -78,6 +79,11 @@ AggregateFieldTree::AggregateFieldTree(const Type *type) noexcept : _type{type},
                 child_type = Type::vector(child_type, dim);
             }
             auto child = register_aggregate_type(child_type);
+            LUISA_ASSERT(
+                child->size() == 0u ||
+                    dim <= std::numeric_limits<size_t>::max() /
+                               child->size(),
+                "Aggregate field count overflows size_t.");
             _size = dim * child->size();
             _children.emplace_back(child);
             break;
@@ -89,6 +95,10 @@ AggregateFieldTree::AggregateFieldTree(const Type *type) noexcept : _type{type},
             auto offset = size_t{0};
             for (auto m : members) {
                 auto child = register_aggregate_type(m);
+                LUISA_ASSERT(
+                    child->size() <=
+                        std::numeric_limits<size_t>::max() - offset,
+                    "Aggregate field count overflows size_t.");
                 _child_offsets.emplace_back(offset);
                 _children.emplace_back(child);
                 offset += child->size();
@@ -186,7 +196,7 @@ size_t AggregateFieldBitmask::size_bytes() const noexcept {
 }
 
 size_t AggregateFieldBitmask::size_buckets() const noexcept {
-    return (size() + 63) / 64;
+    return size() / 64u + static_cast<size_t>(size() % 64u != 0u);
 }
 
 const Type *AggregateFieldBitmask::type() const noexcept { return _field_tree->type(); }
@@ -221,30 +231,30 @@ void AggregateFieldBitmask::flip() noexcept {
 
 namespace {
 
-[[nodiscard]] constexpr uint64_t low_bits_mask(uint32_t count) noexcept {
+[[nodiscard]] constexpr uint64_t low_bits_mask(size_t count) noexcept {
     return count == 0u ? 0ull :
            count >= 64u ? ~0ull :
                           (1ull << count) - 1ull;
 }
 
-[[nodiscard]] constexpr uint64_t span_bucket_mask(uint32_t offset,
-                                                  uint32_t size,
-                                                  uint32_t bucket) noexcept {
-    auto bucket_begin = static_cast<uint64_t>(bucket) * 64u;
+[[nodiscard]] constexpr uint64_t span_bucket_mask(size_t offset,
+                                                  size_t size,
+                                                  size_t bucket) noexcept {
+    auto bucket_begin = bucket * 64u;
     auto bucket_end = bucket_begin + 64u;
-    auto span_begin = static_cast<uint64_t>(offset);
+    auto span_begin = offset;
     auto span_end = span_begin + size;
     auto begin = std::max(bucket_begin, span_begin);
     auto end = std::min(bucket_end, span_end);
     if (begin >= end) { return 0ull; }
-    auto local_begin = static_cast<uint32_t>(begin - bucket_begin);
-    auto local_end = static_cast<uint32_t>(end - bucket_begin);
+    auto local_begin = begin - bucket_begin;
+    auto local_end = end - bucket_begin;
     return low_bits_mask(local_end) & (~0ull << local_begin);
 }
 
 [[nodiscard]] bool span_bit(const AggregateFieldBitmask::ConstBitSpan &span,
-                            uint32_t index) noexcept {
-    auto bit = static_cast<uint32_t>(span.offset()) + index;
+                            size_t index) noexcept {
+    auto bit = span.offset() + index;
     return ((span.raw_bits()[bit / 64u] >> (bit % 64u)) & 1ull) != 0ull;
 }
 
@@ -276,7 +286,7 @@ void AggregateFieldBitmask::BitSpan::flip() noexcept {
 // TODO: Implement the following methods in a SIMD-friendly way
 AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator|=(const ConstBitSpan &rhs) noexcept {
     LUISA_DEBUG_ASSERT(_size == rhs.size(), "Size mismatch.");
-    for (uint32_t i = 0; i < _size; i++) {
+    for (size_t i = 0; i < _size; i++) {
         if (auto rhs_bucket = rhs.raw_bits()[(i + rhs.offset()) / 64];
             (rhs_bucket >> ((i + rhs.offset()) % 64)) & 1ull) {
             _bits[(_offset + i) / 64] |= 1ull << ((_offset + i) % 64);
@@ -287,7 +297,7 @@ AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator|=(const
 
 AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator&=(const ConstBitSpan &rhs) noexcept {
     LUISA_DEBUG_ASSERT(_size == rhs.size(), "Size mismatch.");
-    for (uint32_t i = 0; i < _size; i++) {
+    for (size_t i = 0; i < _size; i++) {
         if (!span_bit(rhs, i)) {
             _bits[(_offset + i) / 64u] &= ~(1ull << ((_offset + i) % 64u));
         }
@@ -297,7 +307,7 @@ AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator&=(const
 
 AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator^=(const ConstBitSpan &rhs) noexcept {
     LUISA_DEBUG_ASSERT(_size == rhs.size(), "Size mismatch.");
-    for (uint32_t i = 0; i < _size; i++) {
+    for (size_t i = 0; i < _size; i++) {
         if (auto rhs_bucket = rhs.raw_bits()[(i + rhs.offset()) / 64];
             (rhs_bucket >> ((i + rhs.offset()) % 64)) & 1ull) {
             _bits[(_offset + i) / 64] ^= 1ull << ((_offset + i) % 64);
@@ -309,7 +319,7 @@ AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator^=(const
 bool AggregateFieldBitmask::BitSpan::operator==(const ConstBitSpan &rhs) const noexcept {
     if (_size != rhs.size()) { return false; }
     if (this != &rhs) {
-        for (uint32_t i = 0; i < _size; i++) {
+        for (size_t i = 0; i < _size; i++) {
             auto lhs_bit = ((_bits[(_offset + i) / 64u] >> ((_offset + i) % 64u)) & 1ull) != 0ull;
             if (lhs_bit != span_bit(rhs, i)) { return false; }
         }
@@ -351,7 +361,7 @@ bool AggregateFieldBitmask::ConstBitSpan::none() const noexcept {
 AggregateFieldBitmask::BitSpan AggregateFieldBitmask::access(luisa::span<const size_t> access_chain) noexcept {
     auto bits = raw_bits();
     auto range = _field_tree->bit_range(access_chain);
-    return {bits, static_cast<uint32_t>(range.offset), static_cast<uint32_t>(range.size)};
+    return {bits, range.offset, range.size};
 }
 
 AggregateFieldBitmask::ConstBitSpan AggregateFieldBitmask::access(luisa::span<const size_t> access_chain) const noexcept {
@@ -364,6 +374,66 @@ AggregateFieldBitmask::BitSpan AggregateFieldBitmask::access(std::initializer_li
 
 AggregateFieldBitmask::ConstBitSpan AggregateFieldBitmask::access(std::initializer_list<size_t> access_chain) const noexcept {
     return access(luisa::span{access_chain.begin(), access_chain.end()});
+}
+
+bool AggregateFieldBitmask::mark_access_pattern(
+    luisa::span<const luisa::optional<size_t>> access_pattern) noexcept {
+    AggregateFieldBitmask selected{type()};
+    luisa::vector<size_t> concrete_path;
+    concrete_path.reserve(access_pattern.size());
+    auto visit = [&](auto &&self, const Type *node_type,
+                     size_t depth) noexcept -> bool {
+        if (depth == access_pattern.size()) {
+            selected.access(luisa::span{concrete_path}).set(true);
+            return true;
+        }
+        if (node_type == nullptr) { return false; }
+        auto descend = [&](size_t index, const Type *child_type) noexcept {
+            concrete_path.emplace_back(index);
+            auto valid = self(self, child_type, depth + 1u);
+            concrete_path.pop_back();
+            return valid;
+        };
+        auto index = access_pattern[depth];
+        switch (node_type->tag()) {
+            case Type::Tag::VECTOR:
+            case Type::Tag::ARRAY: {
+                auto dimension = node_type->dimension();
+                auto *child_type = node_type->element();
+                if (index) {
+                    return *index < dimension &&
+                           descend(*index, child_type);
+                }
+                for (size_t i = 0u; i < dimension; ++i) {
+                    if (!descend(i, child_type)) { return false; }
+                }
+                return true;
+            }
+            case Type::Tag::MATRIX: {
+                auto dimension = node_type->dimension();
+                auto *child_type = Type::vector(
+                    node_type->element(), dimension);
+                if (index) {
+                    return *index < dimension &&
+                           descend(*index, child_type);
+                }
+                for (size_t i = 0u; i < dimension; ++i) {
+                    if (!descend(i, child_type)) { return false; }
+                }
+                return true;
+            }
+            case Type::Tag::STRUCTURE: {
+                if (!index) { return false; }
+                auto members = node_type->members();
+                return *index < members.size() &&
+                       descend(*index, members[*index]);
+            }
+            default: return false;
+        }
+    };
+    if (!visit(visit, type(), 0u)) { return false; }
+    *this |= selected;
+    return true;
 }
 
 AggregateFieldBitmask &AggregateFieldBitmask::operator|=(const AggregateFieldBitmask &rhs) noexcept {

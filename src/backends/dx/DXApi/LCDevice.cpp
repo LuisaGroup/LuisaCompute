@@ -30,17 +30,15 @@
 #include <Resource/SparseTexture.h>
 #include <Resource/SparseBuffer.h>
 #include <Resource/SparseHeap.h>
+#ifdef LUISA_ENABLE_XIR
+#include "../../common/xir_autodiff.h"
+#endif
 
 #include <DXApi/dml_ext.h>
 #ifdef LUISA_BACKEND_ENABLE_OIDN
 #include <DXApi/dx_oidn_denoiser_ext.h>
 #endif
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ast2ir.h>
-#include <luisa/ir/ir2ast.h>
-#include <luisa/ir/transform.h>
-#endif
 namespace lc::dx {
 using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
@@ -342,15 +340,12 @@ void LCDevice::set_stream_log_callback(uint64_t stream_handle,
 
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     LUISA_ASSERT(Device::compiler(), "Shader compiler not loaded.");
-    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
-#ifdef LUISA_ENABLE_IR
-        auto ir = AST2IR::build_kernel(kernel);
-        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
-        transform_ir_kernel_module_auto(ir->get());
-        return create_shader(option, ir->get());
+    if (kernel.requires_autodiff()) {
+#ifdef LUISA_ENABLE_XIR
+        auto lowered = luisa::compute::backend_detail::lower_autodiff_to_ast(kernel);
+        return create_shader(option, lowered->function());
 #else
-        LUISA_ERROR_WITH_LOCATION("IR is not enabled in LuisaCompute. "
-                                  "AutoDiff support is not available.");
+        LUISA_ERROR_WITH_LOCATION("DirectX AutoDiff requires XIR support.");
 #endif
     }
 
@@ -366,7 +361,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     constexpr uint compiler_version = 202403u;// dxc version at march 2024
     mask |= (1 << 2);
     mask |= compiler_version << 3u;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info);
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math);
     // TODO get result from codegen
     auto choose_shader_model = [&]() -> uint {
         if (kernel.use_cooperative_operations() || code.use_8bit) {
@@ -569,7 +564,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math);
     vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());
@@ -586,7 +581,38 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
             option.enable_debug_info);
         return ResourceCreationInfo::make_invalid();
     } else {
+        vstd::string_view file_name;
+        vstd::string str_cache;
+        CacheType cache_type{};
+        if (option.enable_cache) {
+            if (option.name.empty()) {
+                str_cache << check_md5.to_string(false) << ".dxil"sv;
+                file_name = str_cache;
+                cache_type = CacheType::Cache;
+            } else {
+                file_name = option.name;
+                cache_type = CacheType::ByteCode;
+            }
+        }
+        auto res = RasterShader::compile_raster(
+            _native_device.file_io,
+            &_native_device,
+            vert,
+            pixel,
+            [&]() { return std::move(code); },
+            check_md5,
+            kShaderModel,
+            file_name,
+            cache_type,
+            option.enable_fast_math,
+            option.enable_debug_info);
         ResourceCreationInfo info{};
+        if (res) {
+            info.handle = reinterpret_cast<uint64>(res);
+            info.native_handle = nullptr;
+        } else {
+            info.invalidate();
+        }
         return info;
     }
 }
@@ -792,27 +818,6 @@ void LCDevice::update_sparse_resources(
     queue_ptr.signal();
 }
 
-BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element,
-                                           size_t elem_count,
-                                           void *external_memory) noexcept {
-#ifdef LUISA_ENABLE_IR
-    auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count, external_memory);
-#else
-    LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");
-#endif
-}
-
-ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-#ifdef LUISA_ENABLE_IR
-    Clock clk;
-    auto function = IR2AST::build(kernel);
-    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
-    return create_shader(option, function->function());
-#else
-    LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");
-#endif
-}
 ResourceCreationInfo LCDevice::allocate_sparse_buffer_heap(size_t byte_size) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
     heap->allocation = native_device.default_allocator->AllocateBufferHeap(&native_device, "sparse buffer heap", byte_size, D3D12_HEAP_TYPE_DEFAULT, &heap->heap, &heap->offset, D3D12_HEAP_FLAG_NONE, true);

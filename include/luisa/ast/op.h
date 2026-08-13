@@ -534,9 +534,14 @@ enum struct CallOp : uint32_t {
 
     // Clock
     CLOCK,// (): uint64
+
+    // Appended to preserve the numeric values of all existing public ops.
+    // Unlike ROUND (half away from zero), RINT follows the target's
+    // round-to-integral mode (round-to-nearest-even on supported GPU targets).
+    RINT,// (floatN)
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;
+static constexpr size_t call_op_count = to_underlying(CallOp::RINT) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -587,6 +592,72 @@ static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;
                          CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) &&
             value <= luisa::to_underlying(
                          CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS));
+}
+
+/// Returns the ordinary (mixed-layout, potentially divergent) bindless
+/// opcode corresponding to any of the four typed/uniform variants. The four
+/// CallOp blocks are deliberately kept isomorphic; these assertions make a
+/// future enum edit fail at compile time instead of silently changing the
+/// lowering.
+[[nodiscard]] constexpr auto canonical_bindless_resource_call(CallOp op) noexcept {
+    constexpr auto base_begin = luisa::to_underlying(
+        CallOp::BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto base_end = luisa::to_underlying(
+        CallOp::BINDLESS_BUFFER_ADDRESS);
+    constexpr auto uniform_begin = luisa::to_underlying(
+        CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto uniform_end = luisa::to_underlying(
+        CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS);
+    constexpr auto typed_uniform_begin = luisa::to_underlying(
+        CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto typed_uniform_end = luisa::to_underlying(
+        CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS);
+    constexpr auto typed_begin = luisa::to_underlying(
+        CallOp::TYPED_BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto typed_end = luisa::to_underlying(
+        CallOp::TYPED_BINDLESS_BUFFER_ADDRESS);
+    static_assert(base_end - base_begin == uniform_end - uniform_begin);
+    static_assert(base_end - base_begin ==
+                  typed_uniform_end - typed_uniform_begin);
+    static_assert(base_end - base_begin == typed_end - typed_begin);
+
+    auto value = luisa::to_underlying(op);
+    if (value >= uniform_begin && value <= uniform_end) {
+        return static_cast<CallOp>(base_begin + value - uniform_begin);
+    }
+    if (value >= typed_uniform_begin && value <= typed_uniform_end) {
+        return static_cast<CallOp>(
+            base_begin + value - typed_uniform_begin);
+    }
+    if (value >= typed_begin && value <= typed_end) {
+        return static_cast<CallOp>(base_begin + value - typed_begin);
+    }
+    return op;
+}
+
+/// Applies typed/uniform bindless semantics to a canonical bindless opcode.
+/// Non-bindless operations are returned unchanged; XIR verification rejects
+/// non-default bindless attributes on the resulting non-bindless instruction.
+[[nodiscard]] constexpr auto specialize_bindless_resource_call(
+    CallOp op, bool typed, bool uniform) noexcept {
+    constexpr auto base_begin = luisa::to_underlying(
+        CallOp::BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto base_end = luisa::to_underlying(
+        CallOp::BINDLESS_BUFFER_ADDRESS);
+    auto value = luisa::to_underlying(op);
+    if (value < base_begin || value > base_end) { return op; }
+    auto offset = value - base_begin;
+    auto begin = typed ?
+                     (uniform ?
+                          luisa::to_underlying(
+                              CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) :
+                          luisa::to_underlying(
+                              CallOp::TYPED_BINDLESS_TEXTURE2D_SAMPLE)) :
+                     (uniform ?
+                          luisa::to_underlying(
+                              CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) :
+                          base_begin);
+    return static_cast<CallOp>(begin + offset);
 }
 
 /// Returns whether the operation is a cluster launch control or mbarrier operation.

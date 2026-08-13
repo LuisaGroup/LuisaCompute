@@ -572,6 +572,474 @@ void test_hip_ray_query_paired_triangle_resume(Device &device) {
                 host_committed_detail[transformed_case].w, 3.0f);
 }
 
+void test_ray_query_near_surface_resume(Device &device) {
+    if (device.backend_name() != "hip" &&
+        device.backend_name() != "fallback") {
+        LUISA_INFO(
+            "Skipping near-surface ray-query test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+
+    constexpr auto case_count = 6u;
+    constexpr std::array separations{
+        0x1p-20f,
+        0x1p-16f,
+        0x1p-12f,
+        1.0e-3f,
+        1.0e-2f,
+        1.0e-1f};
+    constexpr auto direction =
+        make_float3(-0.300768f, -0.520893f, 0.798636f);
+    constexpr auto instance_offset =
+        make_float3(18.0f, 28.0f, 5.0f);
+
+    // Each pair consists of a source triangle and an otherwise identical
+    // blocker translated a small positive distance along the ray. The query
+    // begins exactly on the source, rejects that exact primitive, and must
+    // still expose and commit the blocker. This is the semantic invariant
+    // required by explicit primitive self-exclusion: candidate rejection may
+    // not advance past any other in-range candidate, including a triangle
+    // buffered in the same hardware leaf packet.
+    std::array<float3, case_count * 6u> vertices{};
+    std::array<Triangle, case_count * 2u> triangles{};
+    for (auto i = 0u; i < case_count; i++) {
+        const auto center_x = static_cast<float>(i) * 4.0f;
+        const std::array source{
+            make_float3(center_x - 1.0f, -1.0f, 0.0f),
+            make_float3(center_x + 1.0f, -1.0f, 0.0f),
+            make_float3(center_x, 1.0f, 0.0f)};
+        const auto vertex_base = i * 6u;
+        for (auto j = 0u; j < 3u; j++) {
+            vertices[vertex_base + j] = source[j];
+            vertices[vertex_base + 3u + j] =
+                source[j] + separations[i] * direction;
+        }
+        triangles[i * 2u] = Triangle{
+            vertex_base, vertex_base + 1u, vertex_base + 2u};
+        triangles[i * 2u + 1u] = Triangle{
+            vertex_base + 3u,
+            vertex_base + 4u,
+            vertex_base + 5u};
+    }
+
+    auto stream = device.create_stream();
+    auto vertex_buffer =
+        device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer =
+        device.create_buffer<Triangle>(triangles.size());
+    auto separation_buffer =
+        device.create_buffer<float>(separations.size());
+    auto mesh = device.create_mesh(
+        vertex_buffer,
+        triangle_buffer,
+        AccelOption{.allow_update = true});
+    auto accel = device.create_accel();
+    accel.emplace_back(
+        mesh,
+        translation(
+            instance_offset.x,
+            instance_offset.y,
+            instance_offset.z),
+        0xffu,
+        false);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << separation_buffer.copy_from(luisa::span{separations})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    auto metadata = device.create_buffer<uint4>(case_count);
+    auto callback_order =
+        device.create_buffer<uint4>(case_count);
+    auto detail = device.create_buffer<float4>(case_count);
+    Kernel1D trace = [](
+                         AccelVar accel,
+                         BufferFloat separations,
+                         BufferUInt4 metadata,
+                         BufferUInt4 callback_order,
+                         BufferFloat4 detail) noexcept {
+        const auto index = dispatch_x();
+        const auto source_primitive = index * 2u;
+        const auto origin =
+            make_float3(
+                18.0f + cast<float>(index) * 4.0f,
+                28.0f - 0.25f,
+                5.0f);
+        const auto direction =
+            make_float3(
+                -0.300768f,
+                -0.520893f,
+                0.798636f);
+        const auto ray = make_ray(
+            origin, direction, 0.0f, 1.0f);
+        UInt callback_count = 0u;
+        UInt first_primitive = ~0u;
+        UInt second_primitive = ~0u;
+        Float first_t = -1.0f;
+        Float second_t = -1.0f;
+        UInt4 callbacks = make_uint4(~0u);
+        auto committed =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        const auto hit = candidate.hit();
+                        $if (callback_count == 0u) {
+                            first_primitive = hit->prim;
+                            first_t = hit->distance();
+                            callbacks.x = hit->prim;
+                        }
+                        $else {
+                            $if (callback_count == 1u) {
+                                second_primitive = hit->prim;
+                                second_t = hit->distance();
+                                callbacks.y = hit->prim;
+                            }
+                            $else {
+                                $if (callback_count == 2u) {
+                                    callbacks.z = hit->prim;
+                                }
+                                $else {
+                                    $if (callback_count == 3u) {
+                                        callbacks.w = hit->prim;
+                                    };
+                                };
+                            };
+                        };
+                        callback_count += 1u;
+                        $if (hit->prim != source_primitive) {
+                            candidate.commit();
+                        };
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
+        metadata.write(
+            index,
+            make_uint4(
+                committed->hit_type,
+                committed->inst,
+                committed->prim,
+                callback_count));
+        callback_order.write(index, callbacks);
+        detail.write(
+            index,
+            make_float4(
+                committed->distance(),
+                separations.read(index),
+                first_t,
+                second_t));
+    };
+
+    auto shader = device.compile(
+        trace, ShaderOption{.enable_cache = false});
+    std::array<uint4, case_count> host_metadata{};
+    std::array<uint4, case_count> host_callback_order{};
+    std::array<float4, case_count> host_detail{};
+    stream << shader(
+                  accel,
+                  separation_buffer,
+                  metadata,
+                  callback_order,
+                  detail)
+                  .dispatch(case_count)
+           << metadata.copy_to(luisa::span{host_metadata})
+           << callback_order.copy_to(
+                  luisa::span{host_callback_order})
+           << detail.copy_to(luisa::span{host_detail})
+           << synchronize();
+
+    constexpr auto surface =
+        static_cast<uint>(HitType::Surface);
+    for (auto i = 0u; i < case_count; i++) {
+        const auto expected_primitive = i * 2u + 1u;
+        const auto actual = host_metadata[i];
+        expect(actual.x == surface)
+            << luisa::format(
+                   "near-surface case {} ({}) missed blocker at distance {}",
+                   i, device.backend_name(), separations[i]);
+        expect(actual.y == 0u);
+        expect(actual.z == expected_primitive)
+            << luisa::format(
+                   "near-surface case {} ({}) committed primitive {}, expected {}",
+                   i, device.backend_name(), actual.z,
+                   expected_primitive);
+        expect(actual.w >= 1u && actual.w <= 2u)
+            << luisa::format(
+                   "near-surface case {} ({}) observed {} callbacks; "
+                   "order [{}, {}, {}, {}], first t {}, second t {}",
+                   i, device.backend_name(), actual.w,
+                   host_callback_order[i].x,
+                   host_callback_order[i].y,
+                   host_callback_order[i].z,
+                   host_callback_order[i].w,
+                   host_detail[i].z, host_detail[i].w);
+        const auto tolerance =
+            max(2.0e-6f, separations[i] * 2.0e-3f);
+        expect(std::abs(host_detail[i].x - separations[i]) <=
+               tolerance)
+            << luisa::format(
+                   "near-surface case {} ({}) committed t {}, expected {}",
+                   i, device.backend_name(), host_detail[i].x,
+                   separations[i]);
+    }
+}
+
+void test_ray_query_coincident_surface_resume(Device &device) {
+    if (device.backend_name() != "hip" &&
+        device.backend_name() != "fallback") {
+        LUISA_INFO(
+            "Skipping coincident-surface ray-query test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+
+    // Rejecting one candidate must not discard a distinct candidate at the
+    // exact same ray parameter. This is the traversal invariant required by
+    // identity-based self exclusion for intentionally coincident geometry:
+    // the callback order is unspecified, but both primitives remain separate
+    // candidates and the second one must still be eligible for commit.
+    constexpr std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f),
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    constexpr std::array triangles{
+        Triangle{0u, 1u, 2u},
+        Triangle{3u, 4u, 5u}};
+
+    auto stream = device.create_stream();
+    auto vertex_buffer =
+        device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer =
+        device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(
+        vertex_buffer,
+        triangle_buffer,
+        AccelOption{.allow_update = true});
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    auto result_buffer = device.create_buffer<uint4>(1u);
+    auto distance_buffer = device.create_buffer<float>(1u);
+    Kernel1D trace = [](
+                         AccelVar accel,
+                         BufferUInt4 result,
+                         BufferFloat distance) noexcept {
+        const auto ray = make_ray(
+            make_float3(0.0f, -0.25f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f,
+            2.0f);
+        UInt callback_count = 0u;
+        UInt first_primitive = ~0u;
+        UInt second_primitive = ~0u;
+        auto committed =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        const auto hit = candidate.hit();
+                        $if (callback_count == 0u) {
+                            first_primitive = hit->prim;
+                        }
+                        $else {
+                            second_primitive = hit->prim;
+                            candidate.commit();
+                            candidate.terminate();
+                        };
+                        callback_count += 1u;
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
+        result.write(
+            0u,
+            make_uint4(
+                committed->hit_type,
+                committed->prim,
+                callback_count,
+                select(
+                    0u,
+                    1u,
+                    first_primitive == second_primitive)));
+        distance.write(0u, committed->distance());
+    };
+
+    auto shader = device.compile(
+        trace, ShaderOption{.enable_cache = false});
+    std::array<uint4, 1u> result{};
+    std::array<float, 1u> distance{};
+    stream << shader(
+                  accel, result_buffer, distance_buffer)
+                  .dispatch(1u)
+           << result_buffer.copy_to(luisa::span{result})
+           << distance_buffer.copy_to(luisa::span{distance})
+           << synchronize();
+
+    constexpr auto surface =
+        static_cast<uint>(HitType::Surface);
+    expect(result[0].x == surface)
+        << luisa::format(
+               "coincident query ({}) did not commit the sibling",
+               device.backend_name());
+    expect(result[0].y < 2u);
+    expect(result[0].z == 2u)
+        << luisa::format(
+               "coincident query ({}) observed {} callbacks",
+               device.backend_name(), result[0].z);
+    expect(result[0].w == 0u);
+    expect(std::abs(distance[0] - 1.0f) < 1.0e-6f);
+}
+
+void test_ray_query_reconstructed_coincident_surface(Device &device) {
+    if (device.backend_name() != "hip" &&
+        device.backend_name() != "fallback") {
+        LUISA_INFO(
+            "Skipping reconstructed coincident-surface test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+
+    constexpr std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f),
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    constexpr std::array triangles{
+        Triangle{0u, 1u, 2u},
+        Triangle{3u, 4u, 5u}};
+
+    auto stream = device.create_stream();
+    auto vertex_buffer =
+        device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer =
+        device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(
+        vertex_buffer,
+        triangle_buffer,
+        AccelOption{.allow_update = true});
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    auto result_buffer = device.create_buffer<uint4>(1u);
+    auto detail_buffer = device.create_buffer<float4>(1u);
+    auto callback_tmin_buffer = device.create_buffer<float>(1u);
+    Kernel1D trace = [](
+                         AccelVar accel,
+                         BufferUInt4 result,
+                         BufferFloat4 detail,
+                         BufferFloat callback_tmin_output) noexcept {
+        const auto primary_ray = make_ray(
+            make_float3(0.125f, -0.25f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f,
+            2.0f);
+        auto primary =
+            accel.traverse(primary_ray, {})
+                .on_surface_candidate(
+                    [](SurfaceCandidate &candidate) noexcept {
+                        candidate.commit();
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
+        const auto p0 =
+            make_float3(-1.0f, -1.0f, 0.0f);
+        const auto p1 =
+            make_float3(1.0f, -1.0f, 0.0f);
+        const auto p2 =
+            make_float3(0.0f, 1.0f, 0.0f);
+        const auto origin =
+            p0 +
+            primary->bary.x * (p1 - p0) +
+            primary->bary.y * (p2 - p0);
+        const auto shadow_ray = make_ray(
+            origin,
+            make_float3(0.0f, 0.0f, 1.0f),
+            0.0f,
+            1.0f);
+        UInt callback_count = 0u;
+        Float callback_tmin = -1.0f;
+        auto sibling =
+            accel.traverse(shadow_ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        const auto hit = candidate.hit();
+                        callback_tmin = candidate.ray()->t_min();
+                        callback_count += 1u;
+                        $if (hit->prim != primary->prim) {
+                            candidate.commit();
+                            candidate.terminate();
+                        };
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
+        result.write(
+            0u,
+            make_uint4(
+                primary->hit_type,
+                primary->prim,
+                sibling->hit_type,
+                callback_count));
+        detail.write(
+            0u,
+            make_float4(
+                primary->bary,
+                origin.z,
+                sibling->distance()));
+        callback_tmin_output.write(0u, callback_tmin);
+    };
+
+    auto shader = device.compile(
+        trace, ShaderOption{.enable_cache = false});
+    std::array<uint4, 1u> result{};
+    std::array<float4, 1u> detail{};
+    std::array<float, 1u> callback_tmin{};
+    stream << shader(
+                  accel, result_buffer, detail_buffer,
+                  callback_tmin_buffer)
+                  .dispatch(1u)
+           << result_buffer.copy_to(luisa::span{result})
+           << detail_buffer.copy_to(luisa::span{detail})
+           << callback_tmin_buffer.copy_to(
+                  luisa::span{callback_tmin})
+           << synchronize();
+
+    constexpr auto surface =
+        static_cast<uint>(HitType::Surface);
+    expect(result[0].x == surface);
+    expect(result[0].y < 2u);
+    expect(result[0].z == surface)
+        << luisa::format(
+               "reconstructed coincident query ({}) missed sibling; "
+               "callbacks {}, source {}, bary ({}, {}), origin z {}",
+               device.backend_name(), result[0].w, result[0].y,
+               detail[0].x, detail[0].y, detail[0].z);
+    expect(result[0].w >= 1u);
+    expect(std::abs(detail[0].z) < 1.0e-7f);
+    expect(std::abs(detail[0].w) < 1.0e-7f);
+    expect(callback_tmin[0] == 0.0f)
+        << luisa::format(
+               "reconstructed coincident query ({}) exposed internal tmin {}",
+               device.backend_name(), callback_tmin[0]);
+}
+
 void test_hip_ray_query_any_automatic_termination(Device &device) {
     if (device.backend_name() != "hip") {
         LUISA_INFO(
@@ -729,6 +1197,15 @@ int main(int argc, char *argv[]) {
     };
     "HIP ray-query paired-triangle resume state"_test = [&] {
         test_hip_ray_query_paired_triangle_resume(dc->device);
+    };
+    "ray-query resumes after exact source exclusion"_test = [&] {
+        test_ray_query_near_surface_resume(dc->device);
+    };
+    "ray-query resumes at a coincident sibling"_test = [&] {
+        test_ray_query_coincident_surface_resume(dc->device);
+    };
+    "ray-query sees reconstructed coincident sibling"_test = [&] {
+        test_ray_query_reconstructed_coincident_surface(dc->device);
     };
     "HIP ray-query ANY commit terminates automatically"_test = [&] {
         test_hip_ray_query_any_automatic_termination(dc->device);

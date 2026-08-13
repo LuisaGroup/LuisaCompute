@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <numeric>
 #include <sstream>
+#include <type_traits>
 #include <luisa/core/logging.h>
 #include <luisa/ast/function.h>
 #include <luisa/xir/module.h>
@@ -93,6 +95,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _global_invocation_id_var = spv::NoResult;
     _dispatch_metadata = {};
     _functions_requiring_dispatch_metadata.clear();
+    _readonly_resource_origins.clear();
 }
 
 bool SpirvCodegenEntry::_is_indirect_dispatch_type(
@@ -220,21 +223,30 @@ void SpirvCodegenEntry::_analyze_instruction_usage(
                         _print_formats.emplace_back(print->format(), s);
                         break;
                     }
-                    case xir::DerivedInstructionTag::RESOURCE_QUERY:
+                    case xir::DerivedInstructionTag::RESOURCE_QUERY: {
+                        auto resource = static_cast<
+                            const xir::ResourceQueryInst *>(inst);
                         analysis.bindless_resources.merge(
                             spirv_bindless_resource_usage(
-                                static_cast<const xir::ResourceQueryInst *>(inst)->op()));
+                                resource->op(), resource->bindless_access()));
                         break;
-                    case xir::DerivedInstructionTag::RESOURCE_READ:
+                    }
+                    case xir::DerivedInstructionTag::RESOURCE_READ: {
+                        auto resource = static_cast<
+                            const xir::ResourceReadInst *>(inst);
                         analysis.bindless_resources.merge(
                             spirv_bindless_resource_usage(
-                                static_cast<const xir::ResourceReadInst *>(inst)->op()));
+                                resource->op(), resource->bindless_access()));
                         break;
-                    case xir::DerivedInstructionTag::RESOURCE_WRITE:
+                    }
+                    case xir::DerivedInstructionTag::RESOURCE_WRITE: {
+                        auto resource = static_cast<
+                            const xir::ResourceWriteInst *>(inst);
                         analysis.bindless_resources.merge(
                             spirv_bindless_resource_usage(
-                                static_cast<const xir::ResourceWriteInst *>(inst)->op()));
+                                resource->op(), resource->bindless_access()));
                         break;
+                    }
                     default: break;
                 }
                 analysis.used_types.emplace(inst->type());
@@ -422,7 +434,12 @@ spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
         auto ptr = _create_access_chain(
             spv::StorageClass::Uniform, _constant_ubo_var,
             std::vector<spv::Id>{_builder.makeUintConstant(ubo_it->second)});
-        return _builder.createLoad(ptr, spv::NoPrecision);
+        auto loaded = _builder.createLoad(ptr, spv::NoPrecision);
+        auto logical_type = _convert_type(c->type(), Usage::READ);
+        return _builder.getTypeId(loaded) == logical_type ?
+                   loaded :
+                   _builder.createUnaryOp(
+                       spv::Op::OpCopyLogical, logical_type, loaded);
     }
     auto id = _emit_literal(c->type(), c->data());
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit constant.");
@@ -1047,6 +1064,20 @@ bool SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb) noexcept {
     auto *saved_xir_block = _current_xir_block;
     _current_xir_block = bb;
     _builder.setBuildPoint(tail);
+    if (_control_flow_plan->block(bb).physically_pruned) {
+        auto first = bb->instructions().begin();
+        LUISA_ASSERT(
+            first != bb->instructions().end() &&
+                *first == bb->terminator() &&
+                (bb->terminator()->isa<xir::BranchInst>() ||
+                 bb->terminator()->isa<xir::BreakInst>() ||
+                 bb->terminator()->isa<xir::ContinueInst>()),
+            "SPIR-V physically pruned block is not an empty loop-boundary "
+            "proxy.");
+        _builder.createNoResultOp(spv::Op::OpUnreachable);
+        _current_xir_block = saved_xir_block;
+        return true;
+    }
     for (auto *inst : bb->instructions()) {
         LUISA_ASSERT(_builder.getBuildPoint() != nullptr && !_builder.getBuildPoint()->isTerminated(),
                      "SPIR-V attempted to emit instruction {} after a physical block terminator.",
@@ -1127,7 +1158,9 @@ void SpirvCodegenEntry::_emit_function_blocks(const xir::FunctionDefinition *def
     _finalize_phis();
 }
 
-void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept {
+void SpirvCodegenEntry::_emit_kernel(
+    const xir::KernelFunction *kernel,
+    const SpirvKernelArgumentLayoutPlan &argument_layout) noexcept {
     _reset_function_codegen_state();
     auto uniformity_blocks =
         collect_spirv_codegen_structural_closure(kernel);
@@ -1135,13 +1168,15 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
         kernel, luisa::span<const xir::BasicBlock *const>{
                     uniformity_blocks.data(), uniformity_blocks.size()});
     auto ret_type = _builder.makeVoidType();
-    auto argument_layout =
-        plan_spirv_kernel_argument_layout(kernel);
     LUISA_ASSERT(
         argument_layout.succeeded(),
-        "SPIR-V dialect validation failed to reject an invalid kernel "
-        "argument-block layout: {}",
-        argument_layout.diagnostic);
+        "SPIR-V kernel emission requires the validated module-wide argument "
+        "layout plan.");
+    LUISA_ASSERT(
+        _buffer_metadata_offset ==
+            argument_layout.buffer_metadata_offset,
+        "SPIR-V kernel emission observed a direct-buffer metadata offset "
+        "different from the layout frozen before callable emission.");
     spv::Block *entry = nullptr;
     // Entry point must have no parameters in SPIR-V
     auto func = _builder.makeFunctionEntry(spv::NoPrecision, ret_type, "main",
@@ -1170,9 +1205,6 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
             _value_map.emplace(arg, loaded);
         }
     }
-    _buffer_metadata_offset =
-        argument_layout.buffer_metadata_offset;
-
     _entry_point_inst = _builder.addEntryPoint(spv::ExecutionModel::GLCompute, func, "main");
     for (auto id : _property_ids) {
         _register_entry_point_interface(id);
@@ -1326,11 +1358,18 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
         auto analyzed_usage = spirv_function_argument_usage_of(
             _function_argument_usage, callable, arg);
         bool used = analyzed_usage != Usage::NONE;
-        arg_used.push_back(used);
-        if (!used && _is_kernel_resource_argument(arg)) {
+        auto module_specialized =
+            arg->is_resource() &&
+            _readonly_resource_origins.contains(arg);
+        arg_used.push_back(used && !module_specialized);
+        if ((!used || module_specialized) &&
+            _is_kernel_resource_argument(arg)) {
             // Skip unused resource arguments to avoid type mismatches
             // between kernel globals (which may be arrays or have different
-            // sampled/storage qualifiers) and callable parameters.
+            // sampled/storage qualifiers) and callable parameters. A
+            // module-specialized read-only resource is skipped for the same
+            // ABI reason and resolved to its unique kernel binding at each
+            // use inside the callable.
             continue;
         }
         auto usage = _function_argument_usage_of(callable, arg);
@@ -1464,6 +1503,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     _print_formats.clear();
     _requires_printing = false;
     _direct_buffer_metadata_indices.clear();
+    _bound_direct_buffer_bias_alignments.clear();
     _bindless_buffer_metadata_ids.clear();
     LUISA_ASSERT(
         _atomic_buffer_plan_installed,
@@ -1476,12 +1516,62 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     auto analysis = _analyze_module_usage(module);
     _analyze_dispatch_metadata_requirements(analysis);
     _analyze_function_argument_usage(module);
+    _readonly_resource_origins =
+        analyze_spirv_readonly_resource_origins(
+            module, _function_argument_usage);
     LUISA_ASSERT(!analysis.used_functions_post_order.empty() &&
                      analysis.used_functions_post_order.back()->isa<xir::KernelFunction>(),
                  "SPIR-V module plan requires the kernel to be last in callable post-order.");
-    _kernel_block_size = static_cast<const xir::KernelFunction *>(
-                             analysis.used_functions_post_order.back())
-                             ->block_size();
+    auto *kernel = static_cast<const xir::KernelFunction *>(
+        analysis.used_functions_post_order.back());
+    {
+        luisa::vector<const xir::Argument *> xir_arguments;
+        for (auto *argument : kernel->arguments()) {
+            xir_arguments.emplace_back(argument);
+        }
+        LUISA_ASSERT(
+            bindings.size() <= xir_arguments.size(),
+            "SPIR-V kernel has {} bound AST arguments but only {} XIR arguments.",
+            bindings.size(), xir_arguments.size());
+        for (auto i = 0u; i < bindings.size(); ++i) {
+            auto *argument = xir_arguments[i];
+            luisa::visit(
+                [&](auto &&binding) noexcept {
+                    using Binding = std::remove_cvref_t<decltype(binding)>;
+                    if constexpr (std::is_same_v<
+                                      Binding,
+                                      Function::BufferBinding>) {
+                        if (argument->type() != nullptr &&
+                            argument->type()->is_buffer() &&
+                            argument->type()->element() == nullptr) {
+                            // storage_buffer_descriptor_range() chooses a
+                            // descriptor base divisible by four. Therefore
+                            // bias = logical_offset - descriptor_offset has
+                            // every power-of-two divisor shared by offset and
+                            // four. Offset zero denotes the strongest fact.
+                            _bound_direct_buffer_bias_alignments.emplace(
+                                argument,
+                                std::gcd(binding.offset, size_t{4u}));
+                        }
+                    }
+                },
+                bindings[i]);
+        }
+    }
+    auto argument_layout =
+        plan_spirv_kernel_argument_layout(kernel);
+    LUISA_ASSERT(
+        argument_layout.succeeded(),
+        "SPIR-V dialect validation failed to reject an invalid kernel "
+        "argument-block layout: {}",
+        argument_layout.diagnostic);
+    // Callables are emitted before their kernel in post-order. Any callable
+    // specialized to a direct kernel buffer may load that buffer view's
+    // offset, size, or address from the shared argument block, so the complete
+    // kernel ABI must be frozen before the first function is emitted.
+    _buffer_metadata_offset =
+        argument_layout.buffer_metadata_offset;
+    _kernel_block_size = kernel->block_size();
 
     // Storage capabilities must be fixed before function emission. Buffer
     // resources are StorageBuffer-backed; non-resource kernel arguments use the
@@ -1581,7 +1671,10 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
         if (auto def = f->definition()) {
             switch (f->derived_function_tag()) {
                 case xir::DerivedFunctionTag::KERNEL:
-                    _emit_kernel(static_cast<const xir::KernelFunction *>(f));
+                    LUISA_ASSERT(
+                        f == kernel,
+                        "SPIR-V module plan contains more than one kernel.");
+                    _emit_kernel(kernel, argument_layout);
                     break;
                 case xir::DerivedFunctionTag::CALLABLE:
                     _emit_callable(static_cast<const xir::CallableFunction *>(f), module);

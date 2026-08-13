@@ -73,9 +73,10 @@ void CodegenUtility::GenerateCBuffer(
     size_t struct_size = 0;
     size_t func_idx = 0;
     for (auto &&f : fs) {
-        size_t size_cache = 0;
+        size_t max_uid = 0;
         Type const *last_type = nullptr;
         for (auto &&i : *f) {
+            max_uid = std::max(max_uid, static_cast<size_t>(i.uid() + 1));
             if (!detail::IsCBuffer(i.tag())) {
                 if (generate_debug_info && detail::IsValidateResource(i.tag())) {
                     if (func_idx < func_hashes.size()) {
@@ -85,7 +86,6 @@ void CodegenUtility::GenerateCBuffer(
                     ++validation_count;
                 }
             } else {
-                size_cache++;
                 StructGenerator::ProvideAlignVariable(last_type, i.type()->alignment(), align, struct_size, result);
                 if (last_type && (StructGenerator::half_type_adjacent_with_bool(last_type, i.type()) ||
                                   StructGenerator::half_type_adjacent_with_bool(i.type(), last_type))) [[unlikely]] {
@@ -123,7 +123,7 @@ void CodegenUtility::GenerateCBuffer(
                 }
             }
         }
-        size += size_cache;
+        size += max_uid;
         ++func_idx;
     }
     // generate _validate_* variable in kernel

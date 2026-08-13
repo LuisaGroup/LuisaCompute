@@ -13,6 +13,10 @@ struct LowerBreakContinueInfo {
     size_t lowered_continue_count{0u};
     size_t rejected_break_count{0u};
     size_t rejected_continue_count{0u};
+    [[nodiscard]] bool changed() const noexcept {
+        return lowered_break_count != 0u ||
+               lowered_continue_count != 0u;
+    }
     [[nodiscard]] bool succeeded() const noexcept {
         return rejected_break_count == 0u && rejected_continue_count == 0u;
     }

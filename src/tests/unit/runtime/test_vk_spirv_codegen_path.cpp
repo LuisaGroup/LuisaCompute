@@ -18,8 +18,15 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/backends/ext/raster_ext.hpp>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/indexed_branch.h>
+#include <luisa/xir/instructions/return.h>
+#include <luisa/xir/module.h>
+#include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/verifier.h>
 #include "indirect_dispatch_layout.h"
 #include "spirv_codegen/entry.h"
+#include "spirv_codegen/utils.h"
 
 #include <algorithm>
 #include <array>
@@ -1092,6 +1099,22 @@ inspect_spirv_u64_switches(
     return switches;
 }
 
+[[nodiscard]] size_t count_spirv_binary_opcode(
+    luisa::span<const uint32_t> words, spv::Op expected) noexcept {
+    if (words.size() < 5u) { return 0u; }
+    auto count = size_t{0u};
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        auto word_count = static_cast<size_t>(words[offset] >> 16u);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            return 0u;
+        }
+        auto opcode = static_cast<spv::Op>(words[offset] & 0xffffu);
+        count += opcode == expected;
+        offset += word_count;
+    }
+    return count;
+}
+
 struct SpirvIndirectRecordGuardFacts {
     bool exact_capacity_dataflow{false};
     bool record_stores_are_control_dependent{false};
@@ -1993,7 +2016,7 @@ OpName %8 "Fma"
         }
     };
 
-    "vk_user_compute_inlines_structured_callable_after_cfg_destructure"_test = [&] {
+    "vk_user_compute_outlines_unique_readonly_resources_after_cfg_destructure"_test = [&] {
         ScopedEnvironmentVariable disable_xir_optimization{
             "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
         ScopedEnvironmentVariable disable_spirv_optimization{
@@ -2079,21 +2102,79 @@ OpName %8 "Fma"
         auto normalized_xir = std::string{
             std::istreambuf_iterator<char>{xir_stream},
             std::istreambuf_iterator<char>{}};
-        expect(normalized_xir.find("callable ") == std::string::npos)
-            << "buffer- and bindless-argument callables should each be specialized and inlined after CFG destructuring";
+        expect(count_substring(normalized_xir, "callable ") == 2u)
+            << "uniquely rooted read-only buffer and bindless callables "
+               "should remain outlined after CFG destructuring";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "Vulkan structured callable should dump exactly one native SPIR-V module";
         if (dumps.size() == 1u) {
             auto disassembly = read_text_file(dumps.front());
-            expect(count_spirv_opcode(disassembly, "FunctionCall") == 0u)
-                << "specialized buffer/bindless-argument callables must not survive as OpFunctionCall";
+            expect(count_spirv_opcode(disassembly, "FunctionCall") == 2u)
+                << "each uniquely rooted read-only resource callable must "
+                   "survive as one OpFunctionCall";
             expect(disassembly.find("VariablePointersStorageBuffer") ==
                    std::string::npos)
                 << "buffer/bindless callable specialization must not request VariablePointersStorageBuffer";
             expect(disassembly.find("SPV_KHR_variable_pointers") ==
                    std::string::npos)
                 << "buffer/bindless callable specialization must not request SPV_KHR_variable_pointers";
+        }
+    };
+
+    "vk_user_compute_outlined_readonly_buffer_uses_frozen_kernel_argument_layout"_test = [&] {
+        ScopedEnvironmentVariable disable_xir_optimization{
+            "LUISA_XIR_DISABLE_OPTIMIZATION", "1"};
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_outlined_buffer_metadata_layout"};
+        ScopedSourceDump source_dump;
+
+        auto dc = luisa::test::create_device(argc, argv);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+        auto backing = device.create_buffer<uint32_t>(8u);
+        auto output = device.create_buffer<uint32_t>(4u);
+
+        Callable inspect = [](BufferUInt source,
+                              UInt index) noexcept {
+            return source.read(index);
+        };
+        Kernel1D kernel = [&](BufferUInt source,
+                              BufferUInt destination,
+                              UInt salt) noexcept {
+            auto i = dispatch_x();
+            destination.write(i, inspect(source, i) + salt);
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array source{
+            1000u, 2000u, 11u, 22u, 33u, 44u, 3000u, 4000u};
+        std::array<uint32_t, 4u> result{};
+        stream << backing.copy_from(luisa::span{source})
+               << shader(backing.view(2u, 4u), output, 7u)
+                      .dispatch(4u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+
+        constexpr std::array expected{18u, 29u, 40u, 51u};
+        expect(result == expected)
+            << "an outlined read-only callable must use the kernel ABI's "
+               "nonzero metadata offset for the direct-buffer subview bias";
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "outlined direct-buffer metadata regression should emit one "
+               "native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(disassembly, "FunctionCall") == 1u)
+                << "the regression must cross a real outlined callable boundary";
         }
     };
 
@@ -2176,6 +2257,43 @@ OpName %8 "Fma"
             << "autodiff callable should be inlined after CFG destructuring";
         expect(normalized_xir.find("autodiff_scope") == std::string::npos)
             << "autodiff scope should be lowered before SPIR-V emission";
+    };
+
+    "vk_user_compute_autodiff_array_store_uses_logical_type"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto dc = luisa::test::create_device(argc, argv);
+        auto input = dc.device.create_buffer<std::array<float, 1u>>(1u);
+        auto output = dc.device.create_buffer<float>(1u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferVar<std::array<float, 1u>> in,
+                             BufferFloat out) noexcept {
+            auto i = dispatch_x();
+            auto p = in.read(i);
+            $autodiff {
+                requires_grad(p);
+                ArrayFloat<1> scratch;
+                scratch = p;
+                auto used = scratch[0];
+                auto loss = used * used;
+                scratch[0] = p[0] * 7.0f;
+                backward(loss);
+                out.write(i, grad(p)[0]);
+            };
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+        constexpr std::array source{std::array<float, 1u>{3.0f}};
+        std::array<float, 1u> result{};
+        stream << input.copy_from(luisa::span{source})
+               << shader(input, output).dispatch(1u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        expect(result[0] == 6.0f)
+            << "aggregate autodiff stores should preserve the logical array type";
     };
 
     "vk_user_compute_aot_uses_spirv_not_hlsl"_test = [&] {
@@ -2385,13 +2503,21 @@ OpName %8 "Fma"
                 std::filesystem::exists(normalized_xir_path)) {
                 auto disassembly = read_text_file(dumps.front());
                 auto normalized_xir = read_text_file(normalized_xir_path);
-                expect(count_spirv_opcode(disassembly, "Phi") >= 2u)
-                    << "opt0 must preserve at least the two source "
-                       "loop-carried Phis; backend-owned control metadata "
-                       "may add more";
-                expect(count_substring(normalized_xir, " = phi") == 2u)
-                    << "final XIR should contain exactly the two "
-                       "loop-carried SSA Phi nodes";
+                auto spirv_phi_count =
+                    count_spirv_opcode(disassembly, "Phi");
+                auto xir_phi_count =
+                    count_substring(normalized_xir, " = phi");
+                expect(spirv_phi_count >= 2u)
+                    << luisa::format(
+                           "opt0 must preserve at least the two source "
+                           "loop-carried Phis; found {} (backend-owned "
+                           "control metadata may add more)",
+                           spirv_phi_count);
+                expect(xir_phi_count == 2u)
+                    << luisa::format(
+                           "final XIR should contain exactly the two "
+                           "loop-carried SSA Phi nodes; found {}",
+                           xir_phi_count);
                 expect(normalized_xir.find("reg2mem_spill") ==
                        std::string::npos)
                     << "final XIR must not retain typed reg2mem spill "
@@ -3198,6 +3324,14 @@ OpName %8 "Fma"
     };
 
     "vk_user_compute_unaligned_byte_buffer_cross_word_io"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_unaligned_byte_buffer"};
+        ScopedSourceDump source_dump;
+
         constexpr auto byte_count = 24u;
         auto dc = luisa::test::create_device(argc, argv);
         auto bytes = dc.device.create_byte_buffer(byte_count);
@@ -3254,6 +3388,73 @@ OpName %8 "Fma"
             << "unaligned scalar/vector reads must reconstruct every crossed word exactly";
         expect(result_bytes == expected_bytes)
             << "unaligned scalar/vector writes must preserve every surrounding canary byte";
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "the unaligned byte-buffer fixture should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly, "AtomicCompareExchange") >= 1u)
+                << "an unbound byte-buffer argument with unaligned accesses must "
+                   "retain masked CAS writes";
+        }
+    };
+
+    "vk_user_compute_captured_aligned_byte_buffer_uses_direct_words"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_captured_aligned_byte_buffer"};
+        ScopedSourceDump source_dump;
+
+        constexpr auto frame_capacity = 7u;
+        constexpr auto field_capacity_stride = 12u;
+        constexpr auto frame_stride = 4u;
+        constexpr auto dispatch_size = 8u;
+        constexpr auto byte_count =
+            frame_capacity * field_capacity_stride +
+            dispatch_size * frame_stride;
+        auto dc = luisa::test::create_device(argc, argv);
+        auto bytes = dc.device.create_byte_buffer(byte_count);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [&bytes](UInt capacity) noexcept {
+            auto byte_offset =
+                capacity * 12u + dispatch_x() * 4u;
+            bytes->write(byte_offset, 0x10203040u + dispatch_x());
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<uint8_t, byte_count> source{};
+        std::array<uint8_t, byte_count> result{};
+        auto expected = source;
+        for (auto i = 0u; i < dispatch_size; ++i) {
+            auto value = 0x10203040u + i;
+            auto offset = frame_capacity * field_capacity_stride +
+                          i * frame_stride;
+            std::memcpy(expected.data() + offset, &value, sizeof(value));
+        }
+        stream << bytes.copy_from(source.data())
+               << shader(frame_capacity).dispatch(dispatch_size)
+               << bytes.copy_to(result.data())
+               << synchronize();
+
+        expect(result == expected)
+            << "captured aligned byte-buffer writes must preserve the SoA address contract";
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "the captured aligned byte-buffer fixture should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly, "AtomicCompareExchange") == 0u)
+                << "a zero-bias captured byte buffer plus a four-byte-aligned "
+                   "XIR offset must lower to direct word stores";
+        }
     };
 
     "vk_user_compute_volatile_buffer_is_coherent"_test = [&] {
@@ -3651,9 +3852,11 @@ OpName %8 "Fma"
         constexpr auto second_offset = 2u;
         constexpr auto second_count = 2u;
         auto dc = luisa::test::create_device(argc, argv);
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
         auto first = dc.device.create_buffer<uint32_t>(6u);
         auto second = dc.device.create_buffer<uint32_t>(6u);
-        auto output = dc.device.create_buffer<uint32_t>(6u);
+        auto output = dc.device.create_buffer<uint32_t>(8u);
         auto heap = dc.device.create_bindless_array(
             1u, BindlessSlotType::BUFFER_ONLY);
         auto stream = dc.device.create_stream();
@@ -3665,6 +3868,11 @@ OpName %8 "Fma"
             out.write(0u, view.read(0u));
             out.write(1u, view.read(count - 1u));
             out.write(2u, count);
+            out.write(
+                3u,
+                bindless.byte_buffer(0u, true, true)
+                    .read<uint32_t>((count - 1u) * 4u));
+            view.write(count - 1u, view.read(0u) + 100u);
         };
         auto shader = dc.device.compile(
             kernel, ShaderOption{.enable_cache = false,
@@ -3681,27 +3889,262 @@ OpName %8 "Fma"
             0xdead0000u, 11u, 12u, 13u, 0xdead0004u, 0xdead0005u};
         constexpr std::array second_source{
             0xbeef0000u, 0xbeef0001u, 21u, 22u, 0xbeef0004u, 0xbeef0005u};
-        std::array<uint32_t, 6u> result{};
+        std::array<uint32_t, 8u> result{};
+        std::array<uint32_t, 6u> first_after{};
+        std::array<uint32_t, 6u> second_after{};
         stream << first.copy_from(luisa::span{first_source})
                << second.copy_from(luisa::span{second_source})
                << std::move(bind_first)
-               << shader(heap, output.view(0u, 3u)).dispatch(1u)
+               << shader(heap, output.view(0u, 4u)).dispatch(1u)
                << std::move(bind_second)
-               << shader(heap, output.view(3u, 3u)).dispatch(1u)
+               << shader(heap, output.view(4u, 4u)).dispatch(1u)
                << output.copy_to(luisa::span{result})
+               << first.copy_to(luisa::span{first_after})
+               << second.copy_to(luisa::span{second_after})
                << synchronize();
 
         constexpr std::array expected{
             first_source[first_offset],
             first_source[first_offset + first_count - 1u],
             first_count,
+            first_source[first_offset + first_count - 1u],
             second_source[second_offset],
             second_source[second_offset + second_count - 1u],
-            second_count};
+            second_count,
+            second_source[second_offset + second_count - 1u]};
         expect(result == expected)
             << "typed BUFFER_ONLY records must be versioned in command order "
                "and retain each sliced view's bias and exact logical size";
+        auto expected_first_after = first_source;
+        expected_first_after[first_offset + first_count - 1u] =
+            first_source[first_offset] + 100u;
+        auto expected_second_after = second_source;
+        expected_second_after[second_offset + second_count - 1u] =
+            second_source[second_offset] + 100u;
+        expect(first_after == expected_first_after);
+        expect(second_after == expected_second_after);
     };
+
+    "vk_typed_texture_only_uses_native_slot_layout_and_sampler"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
+        constexpr auto extent = make_uint2(2u, 1u);
+        auto first = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, extent);
+        auto second = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, extent);
+        auto heap = dc.device.create_bindless_array(
+            2u, BindlessSlotType::TEXTURE2D_ONLY);
+        auto sizes = dc.device.create_buffer<uint2>(2u);
+        auto colors = dc.device.create_buffer<float4>(7u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](BindlessVar bindless,
+                             BufferUInt2 size_output,
+                             BufferFloat4 color_output) noexcept {
+            auto lane = dispatch_x();
+            auto texture = bindless.tex2d(lane, true, false);
+            Float default_u = 0.5f;
+            $if (lane == 0u) { default_u = 0.75f; };
+            size_output.write(lane, texture.size());
+            color_output.write(
+                lane * 3u,
+                texture.read(make_uint2(1u, 0u)));
+            color_output.write(
+                lane * 3u + 1u,
+                texture.sample(make_float2(default_u, 0.5f)));
+            color_output.write(
+                lane * 3u + 2u,
+                texture.sample(
+                    make_float2(0.75f, 0.5f),
+                    SamplerFilter::POINT, SamplerAddress::EDGE));
+            $if (lane == 0u) {
+                color_output.write(
+                    6u,
+                    bindless.tex2d(0u, true, true)
+                        .read(make_uint2(0u)));
+            };
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array first_source{
+            float4{1.0f, 0.0f, 0.0f, 1.0f},
+            float4{0.0f, 1.0f, 0.0f, 1.0f}};
+        constexpr std::array second_source{
+            float4{0.0f, 0.0f, 1.0f, 1.0f},
+            float4{1.0f, 1.0f, 0.0f, 1.0f}};
+        heap.emplace_on_update(
+            0u, first, Sampler::point_edge());
+        heap.emplace_on_update(
+            1u, second, Sampler::linear_linear_edge());
+        std::array<uint2, 2u> size_result{};
+        std::array<float4, 7u> color_result{};
+        stream << first.copy_from(luisa::span{first_source})
+               << second.copy_from(luisa::span{second_source})
+               << heap.update()
+               << shader(heap, sizes, colors).dispatch(2u)
+               << sizes.copy_to(luisa::span{size_result})
+               << colors.copy_to(luisa::span{color_result})
+               << synchronize();
+
+        expect(size_result[0].x == extent.x &&
+               size_result[0].y == extent.y &&
+               size_result[1].x == extent.x &&
+               size_result[1].y == extent.y);
+        expect_vector_equal(color_result[0], first_source[1]);
+        expect_vector_equal(color_result[1], first_source[1]);
+        expect_vector_equal(color_result[2], first_source[1]);
+        expect_vector_equal(color_result[3], second_source[1]);
+        constexpr auto linear_midpoint =
+            (second_source[0] + second_source[1]) * 0.5f;
+        for (auto component = 0u; component < 4u; ++component) {
+            expect(std::abs(color_result[4][component] -
+                            linear_midpoint[component]) < 1e-6f)
+                << luisa::format(
+                       "typed default sampler component {} mismatch",
+                       component);
+        }
+        expect_vector_equal(color_result[5], second_source[1]);
+        expect_vector_equal(color_result[6], first_source[0]);
+    };
+
+    "vk_typed_volume_only_uses_native_slot_layout_and_sampler"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
+        constexpr auto extent = make_uint3(2u, 1u, 1u);
+        auto volume = dc.device.create_volume<float>(
+            PixelStorage::FLOAT4, extent);
+        auto heap = dc.device.create_bindless_array(
+            1u, BindlessSlotType::TEXTURE3D_ONLY);
+        auto size_output = dc.device.create_buffer<uint3>(1u);
+        auto color_output = dc.device.create_buffer<float4>(4u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](BindlessVar bindless,
+                             BufferUInt3 sizes,
+                             BufferFloat4 colors) noexcept {
+            auto texture = bindless.tex3d(
+                dispatch_x(), true, false);
+            sizes.write(0u, texture.size());
+            colors.write(
+                0u, texture.read(make_uint3(1u, 0u, 0u)));
+            colors.write(
+                1u, texture.sample(make_float3(0.5f)));
+            colors.write(
+                2u, texture.sample(
+                        make_float3(0.75f, 0.5f, 0.5f),
+                        SamplerFilter::POINT, SamplerAddress::EDGE));
+            colors.write(
+                3u, bindless.tex3d(0u, true, true)
+                        .read(make_uint3(0u)));
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array source{
+            float4{1.0f, 0.0f, 0.0f, 1.0f},
+            float4{0.0f, 0.0f, 1.0f, 1.0f}};
+        heap.emplace_on_update(
+            0u, volume, Sampler::linear_linear_edge());
+        std::array<uint3, 1u> size_result{};
+        std::array<float4, 4u> color_result{};
+        stream << volume.copy_from(luisa::span{source})
+               << heap.update()
+               << shader(heap, size_output, color_output).dispatch(1u)
+               << size_output.copy_to(luisa::span{size_result})
+               << color_output.copy_to(luisa::span{color_result})
+               << synchronize();
+
+        expect(size_result[0].x == extent.x &&
+               size_result[0].y == extent.y &&
+               size_result[0].z == extent.z);
+        expect_vector_equal(color_result[0], source[1]);
+        constexpr auto midpoint = (source[0] + source[1]) * 0.5f;
+        for (auto component = 0u; component < 4u; ++component) {
+            expect(std::abs(color_result[1][component] -
+                            midpoint[component]) < 1e-6f);
+        }
+        expect_vector_equal(color_result[2], source[1]);
+        expect_vector_equal(color_result[3], source[0]);
+    };
+
+#if LUISA_TEST_VK_HAS_DXC_COMPATIBILITY
+    "vk_dxc_fallback_retains_typed_bindless_slot_abis"_test = [&] {
+        ScopedEnvironmentVariable allow_hlsl_fallback{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", nullptr};
+        auto dc = luisa::test::create_device(argc, argv);
+        auto source_buffer = dc.device.create_buffer<uint32_t>(4u);
+        auto source_image = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, make_uint2(2u, 1u));
+        auto buffer_heap = dc.device.create_bindless_array(
+            1u, BindlessSlotType::BUFFER_ONLY);
+        auto texture_heap = dc.device.create_bindless_array(
+            1u, BindlessSlotType::TEXTURE2D_ONLY);
+        auto integers = dc.device.create_buffer<uint32_t>(5u);
+        auto colors = dc.device.create_buffer<float4>(2u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](BindlessVar buffers,
+                             BindlessVar textures,
+                             BufferUInt integer_output,
+                             BufferFloat4 color_output) noexcept {
+            auto buffer = buffers.buffer<uint32_t>(0u, true);
+            auto texture = textures.tex2d(0u, true, false);
+            auto extent = texture.size();
+            integer_output.write(0u, buffer.size());
+            integer_output.write(1u, buffer.read(0u));
+            integer_output.write(2u, buffer.read(buffer.size() - 1u));
+            integer_output.write(3u, extent.x);
+            integer_output.write(4u, extent.y);
+            color_output.write(
+                0u, texture.read(make_uint2(1u, 0u)));
+            color_output.write(
+                1u, texture.sample(
+                        make_float2(0.75f, 0.5f),
+                        SamplerFilter::POINT,
+                        SamplerAddress::EDGE));
+        };
+        ShaderOption fallback_option{.enable_cache = false,
+                                     .enable_fast_math = false};
+        fallback_option.native_include = R"(
+uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
+)";
+        auto shader = dc.device.compile(kernel, fallback_option);
+
+        constexpr std::array buffer_source{
+            0xdead0000u, 41u, 42u, 0xdead0003u};
+        constexpr std::array image_source{
+            float4{1.0f, 0.0f, 0.0f, 1.0f},
+            float4{0.0f, 1.0f, 0.0f, 1.0f}};
+        buffer_heap.emplace_on_update(
+            0u, source_buffer.view(1u, 2u));
+        texture_heap.emplace_on_update(
+            0u, source_image, Sampler::linear_linear_edge());
+        std::array<uint32_t, 5u> integer_result{};
+        std::array<float4, 2u> color_result{};
+        stream << source_buffer.copy_from(luisa::span{buffer_source})
+               << source_image.copy_from(luisa::span{image_source})
+               << buffer_heap.update()
+               << texture_heap.update()
+               << shader(buffer_heap, texture_heap, integers, colors)
+                      .dispatch(1u)
+               << integers.copy_to(luisa::span{integer_result})
+               << colors.copy_to(luisa::span{color_result})
+               << synchronize();
+
+        constexpr std::array expected_integers{2u, 41u, 42u, 2u, 1u};
+        expect(integer_result == expected_integers)
+            << "DXC fallback must retain typed buffer bias/size and typed "
+               "texture descriptor layout";
+        expect_vector_equal(color_result[0], image_source[1]);
+        expect_vector_equal(color_result[1], image_source[1]);
+    };
+#endif
 
     "vk_bindless_texture_sampler_bits_do_not_escape_descriptor_recycling"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
@@ -5205,6 +5648,8 @@ OpName %8 "Fma"
     };
 
     "vk_user_compute_width_preserving_bitcasts_are_exact"_test = [&] {
+        ScopedEnvironmentVariable use_default_scalarizer{
+            "LUISA_XIR_ENABLE_SCALARIZER", nullptr};
         ScopedEnvironmentVariable disable_spirv_optimization{
             "LUISA_SPIRV_OPT_LEVEL", "0"};
         ScopedEnvironmentVariable clear_spirv_pass_override{
@@ -5282,10 +5727,93 @@ OpName %8 "Fma"
             // scalar/vector shape-changing casts are also single
             // instructions. (With LUISA_XIR_ENABLE_SCALARIZER=1 the lane
             // cast scalarizes into four casts, i.e. seven Bitcasts total.)
-            expect(count_spirv_opcode(disassembly, "Bitcast") == 4u)
-                << "SPIR-V opt0 must preserve the vector lane cast "
-                   "and three width-preserving shape casts";
+            auto bitcast_count =
+                count_spirv_opcode(disassembly, "Bitcast");
+            expect(bitcast_count == 4u)
+                << luisa::format(
+                       "SPIR-V opt0 must preserve the vector lane cast "
+                       "and three width-preserving shape casts; found {}",
+                       bitcast_count);
         }
+    };
+
+    "vk_user_compute_scalarizer_option_and_environment_precedence"_test = [&] {
+        auto run_case = [&](const char *environment,
+                            bool option_enabled,
+                            size_t expected_bitcasts,
+                            luisa::string_view label) {
+            ScopedEnvironmentVariable scalarizer_environment{
+                "LUISA_XIR_ENABLE_SCALARIZER", environment};
+            ScopedEnvironmentVariable disable_spirv_optimization{
+                "LUISA_SPIRV_OPT_LEVEL", "0"};
+            ScopedEnvironmentVariable clear_spirv_pass_override{
+                "LUISA_SPIRV_OPT_PASSES", nullptr};
+            ScopedTemporaryCurrentPath work_dir{luisa::format(
+                "luisa_vk_spirv_scalarizer_{}", label)};
+            ScopedSourceDump source_dump;
+
+            auto dc = luisa::test::create_device(argc, argv);
+            auto input = dc.device.create_buffer<uint4>(1u);
+            auto output = dc.device.create_buffer<float4>(1u);
+            auto stream = dc.device.create_stream();
+            Kernel1D kernel = [](BufferUInt4 in,
+                                 BufferFloat4 out) noexcept {
+                out.write(
+                    0u, in.read(0u).bitcast<float4>());
+            };
+            auto shader = dc.device.compile(
+                kernel,
+                ShaderOption{
+                    .enable_cache = false,
+                    .enable_fast_math = false,
+                    .enable_scalarizer =
+                        option_enabled});
+
+            constexpr uint4 source{
+                0x3f800000u, 0xc0000000u,
+                0x7f800000u, 0x80000000u};
+            constexpr std::array source_data{source};
+            std::array<float4, 1u> result{};
+            stream << input.copy_from(
+                          luisa::span{source_data})
+                   << shader(input, output).dispatch(1u)
+                   << output.copy_to(luisa::span{result})
+                   << synchronize();
+            for (auto i = 0u; i < 4u; ++i) {
+                expect(std::bit_cast<uint32_t>(
+                           result[0][i]) == source[i])
+                    << luisa::format(
+                           "scalarizer configuration '{}' "
+                           "changed lane {}",
+                           label, i);
+            }
+
+            auto dumps = find_spirv_dumps();
+            expect(dumps.size() == 1u)
+                << luisa::format(
+                       "scalarizer configuration '{}' "
+                       "should emit one SPIR-V module",
+                       label);
+            if (dumps.size() == 1u) {
+                auto disassembly =
+                    read_text_file(dumps.front());
+                auto bitcast_count =
+                    count_spirv_opcode(
+                        disassembly, "Bitcast");
+                expect(bitcast_count ==
+                       expected_bitcasts)
+                    << luisa::format(
+                           "scalarizer configuration '{}' "
+                           "expected {} Bitcast(s), found {}",
+                           label, expected_bitcasts,
+                           bitcast_count);
+            }
+        };
+
+        run_case(nullptr, false, 1u, "default");
+        run_case(nullptr, true, 4u, "option");
+        run_case("0", true, 1u, "environment_off");
+        run_case("1", false, 4u, "environment_on");
     };
 
     "vk_user_compute_wide_integer_boolean_casts_are_exact"_test = [&] {
@@ -5805,6 +6333,134 @@ OpName %8 "Fma"
         constexpr std::array expected{5u, 29u, 55u, 103u, 3u};
         expect(result == expected)
             << "the outer merge must execute exactly once after early and normal loop exits";
+    };
+
+    "vk_user_compute_sibling_one_sided_loop_exits_preserve_continuation"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+        auto output = device.create_buffer<uint32_t>(4u);
+
+        Kernel1D kernel = [](BufferUInt out) noexcept {
+            auto lane = dispatch_x();
+            UInt value = 0u;
+            UInt iteration = 0u;
+            $while (iteration < 1u) {
+                iteration += 1u;
+                $if ((lane & 1u) == 0u) {
+                    $if (lane < 2u) {
+                        value = 11u;
+                        $break;
+                    };
+                    value = 12u;
+                    $break;
+                }
+                $else {
+                    $if (lane < 3u) {
+                        value = 21u;
+                        $break;
+                    };
+                    value = 22u;
+                    $break;
+                };
+            };
+            out.write(lane, value + 1000u);
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<uint32_t, 4u> result{};
+        stream << shader(output).dispatch(4u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        constexpr std::array expected{
+            1011u, 1021u, 1012u, 1022u};
+        expect(result == expected)
+            << "sibling one-sided exits must preserve each path-local value "
+               "and execute the loop continuation exactly once";
+    };
+
+    "vk_native_xir_spirv_recovers_cyclic_indexed_branch_before_emission"_test = [] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+
+        // Build the exact raw-CFG category that caused the production volume
+        // kernel to clone its complete loop body: the IndexedBranch itself has
+        // a target that dominates it. A source-level switch/continue does not
+        // necessarily retain this shape after destructuring, so this is an
+        // explicit XIR-to-SPIR-V conformance test.
+        Kernel1D ast_kernel = [](Int) noexcept {};
+        auto ast_function = ast_kernel.function()->function();
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(ast_function.block_size());
+        auto *selector =
+            kernel->create_value_argument(Type::of<int32_t>());
+        auto *body = kernel->create_body_block();
+        auto *header = kernel->create_basic_block();
+        auto *payload = kernel->create_basic_block();
+        auto *latch = kernel->create_basic_block();
+        auto *case_exit = kernel->create_basic_block();
+        auto *default_exit = kernel->create_basic_block();
+
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.br(header);
+        builder.set_insertion_point(header);
+        builder.br(payload);
+        builder.set_insertion_point(payload);
+        builder.br(latch);
+        builder.set_insertion_point(latch);
+        auto *indexed = builder.indexed_branch(selector);
+        indexed->add_case(0u, header);
+        indexed->add_case(1u, case_exit);
+        indexed->set_default_block(default_exit);
+        builder.set_insertion_point(case_exit);
+        builder.return_void();
+        builder.set_insertion_point(default_exit);
+        builder.return_void();
+
+        expect(xir::xir_verify_module(&module).succeeded());
+        auto restructure =
+            xir::restructure_cfg_pass_run_on_function(kernel);
+        expect(restructure.succeeded());
+        expect(restructure.restructured_loop_count == 1u);
+        expect(restructure.canonicalized_cfg_count != 0u);
+        expect(xir::xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        // compile_spirv_xir accepts the production legalization boundary,
+        // not merely a structurally valid module. Preserve block identities
+        // while clearing disconnected raw-CFG payloads exactly as the Vulkan
+        // translation pipeline does before the direct handoff.
+        auto post_restructure = luisa::compute::spirv::
+            create_spirv_codegen_post_restructure_pipeline();
+        [[maybe_unused]] auto cleanup_stats =
+            post_restructure.run(&module);
+        expect(xir::xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto spirv = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            ast_function, &module,
+            ShaderOption{.enable_cache = false,
+                         .enable_fast_math = false});
+        auto words = luisa::span<const uint32_t>{spirv.spv_bin};
+        expect(count_spirv_binary_opcode(
+                   words, spv::Op::OpLoopMerge) >= 1u)
+            << "cyclic indexed control flow must reach SPIR-V as a loop";
+        expect(count_spirv_binary_opcode(
+                   words, spv::Op::OpSwitch) == 0u)
+            << "the cyclic IndexedBranch must be lowered to conditional "
+               "control flow before native SPIR-V emission";
     };
 
     "vk_user_compute_native_switch_nested_in_loop"_test = [&] {

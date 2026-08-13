@@ -6,6 +6,8 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include "vk_shader_untyped_pointers.h"
+
 namespace lc::vk::detail {
 
 // The three global update-after-bind heaps contain C storage buffers, C 2D
@@ -23,6 +25,7 @@ inline constexpr uint32_t local_per_stage_descriptor_budget = 256u;
 inline constexpr uint32_t fixed_sampler_descriptor_count = 16u;
 
 struct BindlessHeapLimits {
+    uint32_t max_per_set_descriptors{};
     uint32_t max_per_stage_update_after_bind_samplers{};
     uint32_t max_descriptor_set_update_after_bind_samplers{};
     uint32_t max_per_stage_update_after_bind_storage_buffers{};
@@ -54,6 +57,7 @@ struct BindlessHeapLimits {
     // local storage + C, local sampled + 2C, and local resources + 3C. The
     // all-pools limit covers only the three persistent update-after-bind pools.
     return std::min({requested_capacity,
+                     limits.max_per_set_descriptors,
                      reserve_local_descriptors(
                          limits.max_per_stage_update_after_bind_storage_buffers),
                      reserve_local_descriptors(
@@ -68,6 +72,36 @@ struct BindlessHeapLimits {
                          limits.max_per_stage_update_after_bind_resources) /
                          3u,
                      limits.max_update_after_bind_descriptors_in_all_pools / 3u});
+}
+
+template<typename F>
+[[nodiscard]] uint32_t negotiate_bindless_heap_capacity(
+    uint32_t upper_bound, F &&supports_capacity) noexcept {
+    auto lower = 0u;
+    while (lower < upper_bound) {
+        auto capacity = lower + (upper_bound - lower + 1u) / 2u;
+        if (supports_capacity(capacity)) {
+            lower = capacity;
+        } else {
+            upper_bound = capacity - 1u;
+        }
+    }
+    return lower;
+}
+
+struct DefaultDeviceCandidate {
+    bool supports_graphics_compute{false};
+    uint32_t bindless_heap_capacity{};
+};
+
+[[nodiscard]] constexpr bool prefer_default_device_candidate(
+    DefaultDeviceCandidate candidate, DefaultDeviceCandidate current,
+    bool require_bindless) noexcept {
+    auto usable = [require_bindless](DefaultDeviceCandidate value) noexcept {
+        return value.supports_graphics_compute &&
+               (!require_bindless || value.bindless_heap_capacity != 0u);
+    };
+    return usable(candidate) && !usable(current);
 }
 
 // robustBufferAccess and storage-buffer update-after-bind can only be enabled
@@ -85,6 +119,31 @@ struct RobustBufferAccessSupport {
     return support.physical_device_feature &&
            (!support.storage_buffer_update_after_bind ||
             support.robust_buffer_access_update_after_bind);
+}
+
+// Formatless storage-image access is optional in Vulkan. Preserve the exact
+// physical-device support bits for backend-owned devices; never fabricate
+// support, and do not advertise physical support as enabled for an imported
+// logical device whose enabled VkPhysicalDeviceFeatures are unknowable.
+struct StorageImageFormatFeatureSupport {
+    bool read_without_format{false};
+    bool write_without_format{false};
+    bool imported_device{false};
+};
+
+struct StorageImageFormatFeaturePlan {
+    bool read_without_format{false};
+    bool write_without_format{false};
+};
+
+[[nodiscard]] constexpr auto plan_storage_image_format_features(
+    StorageImageFormatFeatureSupport support) noexcept {
+    if (support.imported_device) {
+        return StorageImageFormatFeaturePlan{};
+    }
+    return StorageImageFormatFeaturePlan{
+        .read_without_format = support.read_without_format,
+        .write_without_format = support.write_without_format};
 }
 
 // device_feature_settings() may extend the logical-device feature chain, but
@@ -114,6 +173,7 @@ inline constexpr VkStructureType backend_owned_device_feature_structure_types[]{
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_FEATURES_KHR,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR,
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR,
 
     // Aliases promoted into VkPhysicalDeviceVulkan11Features (VUID 02829).
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,

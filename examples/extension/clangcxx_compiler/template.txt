@@ -1,7 +1,7 @@
 ::luisa::compute::ShaderBase const* load_shader(luisa::filesystem::path const& shader_path){
 $TypeNameDecl
 auto arg_types = {$declArgTypes};
-return ::rbq::ShaderManager::instance()->load_typeless(
+return ::rbc::ShaderManager::instance()->load_typeless(
     shader_path,
     arg_types
 );
@@ -13,3 +13,140 @@ $StructTemplate
 $EncodeArg
 return std::move(_cmd_encoder).build();
 }
+
+template<size_t N>
+struct ShaderArgumentName {
+char value[N];
+
+consteval ShaderArgumentName(char const (&name)[N]) noexcept {
+for (size_t i = 0u; i < N; ++i) value[i] = name[i];
+}
+
+template<size_t M>
+[[nodiscard]] consteval bool operator==(ShaderArgumentName<M> const& rhs) const noexcept {
+if constexpr (N != M) {
+return false;
+} else {
+for (size_t i = 0u; i < N; ++i) {
+if (value[i] != rhs.value[i]) return false;
+}
+return true;
+}
+}
+
+template<size_t M>
+[[nodiscard]] consteval bool operator==(char const (&rhs)[M]) const noexcept {
+if constexpr (N != M) {
+return false;
+} else {
+for (size_t i = 0u; i < N; ++i) {
+if (value[i] != rhs[i]) return false;
+}
+return true;
+}
+}
+};
+
+template<ShaderArgumentName Name, typename T>
+struct ShaderNamedArgument {
+using shader_argument_tag = void;
+static constexpr auto name = Name;
+T value;
+
+[[nodiscard]] constexpr decltype(auto) get() & noexcept { return (value); }
+[[nodiscard]] constexpr decltype(auto) get() const& noexcept { return (value); }
+[[nodiscard]] constexpr decltype(auto) get() && noexcept {
+return ::std::forward<T>(value);
+}
+};
+
+struct ShaderInterface {
+template<typename T>
+[[nodiscard]] static constexpr decltype(auto) materialize(T&& value) {
+using value_type = ::std::remove_cvref_t<T>;
+if constexpr (requires { typename value_type::EvalType; }) {
+using eval_type = typename value_type::EvalType;
+if constexpr (requires {
+::std::forward<T>(value).operator eval_type();
+}) {
+return ::std::forward<T>(value).operator eval_type();
+} else {
+return ::std::forward<T>(value);
+}
+} else {
+return ::std::forward<T>(value);
+}
+}
+
+template<ShaderArgumentName Name, typename T>
+[[nodiscard]] static constexpr auto arg(T&& value) {
+using storage_type = ::std::conditional_t<
+::std::is_lvalue_reference_v<T>, T, ::std::remove_cvref_t<T>>;
+return ShaderNamedArgument<Name, storage_type>{::std::forward<T>(value)};
+}
+
+template<typename T>
+static constexpr bool is_argument = requires {
+typename ::std::remove_cvref_t<T>::shader_argument_tag;
+};
+
+template<ShaderArgumentName Name, typename T>
+[[nodiscard]] static consteval bool argument_matches() noexcept {
+if constexpr (is_argument<T>) {
+return ::std::remove_cvref_t<T>::name == Name.value;
+} else {
+return false;
+}
+}
+
+template<ShaderArgumentName Name, typename... Args>
+static constexpr size_t argument_count =
+(size_t{0u} + ... + size_t{argument_matches<Name, Args>()});
+
+template<typename Lhs, typename Rhs>
+[[nodiscard]] static consteval bool argument_names_match() noexcept {
+if constexpr (is_argument<Lhs> && is_argument<Rhs>) {
+return ::std::remove_cvref_t<Lhs>::name ==
+::std::remove_cvref_t<Rhs>::name.value;
+} else {
+return false;
+}
+}
+
+template<typename T, typename... Args>
+static constexpr size_t equivalent_argument_count =
+(size_t{0u} + ... + size_t{argument_names_match<T, Args>()});
+
+template<typename... Args>
+[[nodiscard]] static consteval bool arguments_unique() noexcept {
+if constexpr ((is_argument<Args> && ...)) {
+return ((equivalent_argument_count<Args, Args...> == 1u) && ...);
+} else {
+return false;
+}
+}
+
+template<ShaderArgumentName Name, typename First, typename... Rest>
+requires(argument_count<Name, First, Rest...> == 1u)
+[[nodiscard]] static constexpr decltype(auto) argument(
+First&& first, Rest&&... rest) {
+if constexpr (argument_matches<Name, First>()) {
+return materialize(::std::forward<First>(first).get());
+} else {
+return argument<Name>(::std::forward<Rest>(rest)...);
+}
+}
+
+template<ShaderArgumentName Name>
+static constexpr bool has_arg = $NamedHasArgs;
+
+template<typename... NamedArgs>
+requires(
+arguments_unique<NamedArgs...>()$NamedRequiredArgs)
+[[nodiscard]] static auto dispatch(
+::luisa::compute::ShaderBase const* shader,
+$DispatchSizeType dispatch_size,
+NamedArgs&&... args) {
+return dispatch_shader(shader, dispatch_size$NamedDispatchArgs);
+}
+};

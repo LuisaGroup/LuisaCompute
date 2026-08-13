@@ -267,6 +267,14 @@ private:
         _main << "coro_suspend " << inst->token() << " ";
         _emit_string_escaped(_main, inst->name());
         _main << " " << _value_ident(inst->frame());
+        for (size_t i = 0u;
+             i < inst->frame_export_count(); ++i) {
+            _main << ", export ";
+            _emit_string_escaped(
+                _main, inst->frame_export_name(i));
+            _main << "="
+                  << _value_ident(inst->frame_export_value(i));
+        }
     }
 
     void _emit_coro_resume_inst(const CoroResumeInst *inst) noexcept {
@@ -319,8 +327,10 @@ private:
         _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
 
-    void _emit_switch_inst(const SwitchInst *inst, int indent) noexcept {
-        _main << "switch " << _value_ident(inst->value()) << ", ";
+    void _emit_indexed_branch_edges(
+        const IndexedBranchTerminatorInstruction *inst,
+        int indent) noexcept {
+        _main << _value_ident(inst->value()) << ", ";
         for (auto i = 0u; i < inst->case_count(); i++) {
             auto value = inst->case_value(i);
             _main << "case ";
@@ -352,8 +362,19 @@ private:
         }
         _main << "default ";
         _flat_blocks ? _emit_basic_block_ref(inst->default_block()) : _emit_basic_block(inst->default_block(), indent);
+    }
+
+    void _emit_switch_inst(const SwitchInst *inst, int indent) noexcept {
+        _main << "switch ";
+        _emit_indexed_branch_edges(inst, indent);
         _main << ", merge ";
         _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
+    }
+
+    void _emit_indexed_branch_inst(
+        const IndexedBranchInst *inst, int indent) noexcept {
+        _main << "indexed_branch ";
+        _emit_indexed_branch_edges(inst, indent);
     }
 
     void _emit_loop_inst(const LoopInst *inst, int indent) noexcept {
@@ -508,18 +529,33 @@ private:
         _emit_operands(inst);
     }
 
+    void _emit_bindless_access(BindlessResourceAccess access) noexcept {
+        if (access.is_default()) { return; }
+        _main << " [";
+        if (access.typed) { _main << "typed"; }
+        if (access.typed && access.uniform) { _main << ", "; }
+        if (access.uniform) { _main << "uniform"; }
+        _main << "]";
+    }
+
     void _emit_resource_query_inst(const ResourceQueryInst *inst) noexcept {
-        _main << "resource_query " << xir::to_string(inst->op()) << " ";
+        _main << "resource_query " << xir::to_string(inst->op());
+        _emit_bindless_access(inst->bindless_access());
+        _main << " ";
         _emit_operands(inst);
     }
 
     void _emit_resource_read_inst(const ResourceReadInst *inst) noexcept {
-        _main << "resource_read " << xir::to_string(inst->op()) << " ";
+        _main << "resource_read " << xir::to_string(inst->op());
+        _emit_bindless_access(inst->bindless_access());
+        _main << " ";
         _emit_operands(inst);
     }
 
     void _emit_resource_write_inst(const ResourceWriteInst *inst) noexcept {
-        _main << "resource_write " << xir::to_string(inst->op()) << " ";
+        _main << "resource_write " << xir::to_string(inst->op());
+        _emit_bindless_access(inst->bindless_access());
+        _main << " ";
         _emit_operands(inst);
     }
 
@@ -558,6 +594,10 @@ private:
                 break;
             case DerivedInstructionTag::SWITCH:
                 _emit_switch_inst(static_cast<const SwitchInst *>(inst), indent);
+                break;
+            case DerivedInstructionTag::INDEXED_BRANCH:
+                _emit_indexed_branch_inst(
+                    static_cast<const IndexedBranchInst *>(inst), indent);
                 break;
             case DerivedInstructionTag::LOOP:
                 _emit_loop_inst(static_cast<const LoopInst *>(inst), indent);

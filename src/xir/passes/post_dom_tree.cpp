@@ -91,6 +91,7 @@ bool PostDomTree::contains(BasicBlock *block) const noexcept {
 }
 
 bool PostDomTree::post_dominates(BasicBlock *a, BasicBlock *b) const noexcept {
+    if (!contains(b) || (a != nullptr && !contains(a))) { return false; }
     if (a == b) { return true; }
     if (a == nullptr) { return true; }
     auto a_node = node(a);
@@ -115,8 +116,11 @@ auto PostDomTree::immediate_post_dominator(BasicBlock *block) const noexcept -> 
 static const auto kUnknownDom = reinterpret_cast<BasicBlock *>(uintptr_t(-1));
 
 PostDomTree compute_post_dom_tree(Function *function) noexcept {
-    auto definition = function->definition();
-    LUISA_ASSERT(definition != nullptr, "Function has no definition.");
+    auto definition =
+        function == nullptr ? nullptr : function->definition();
+    if (definition == nullptr || definition->body_block() == nullptr) {
+        return {};
+    }
     // Collect all blocks and identify real exits. Testing the CFG successor set
     // instead of enumerating instruction tags also covers CoroTerminateInst and
     // future zero-successor terminators.
@@ -132,6 +136,11 @@ PostDomTree compute_post_dom_tree(Function *function) noexcept {
         if (!has_successor) { real_sinks.emplace(block); }
     });
 
+    // Post-dominance here is defined over all maximal executions, including
+    // executions that remain in a reachable cycle forever. A DFS back edge
+    // therefore contributes a conservative virtual-exit source even when the
+    // cycle also has a path to a real sink. This prevents a return on the
+    // alternate path from being claimed as a post-dominator of the cycle.
     luisa::unordered_map<BasicBlock *, uint8_t> color;
     luisa::unordered_set<BasicBlock *> virtual_exit_sources;
     struct DFSFrame {

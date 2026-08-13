@@ -41,6 +41,7 @@ set_showmenu(false)
 add_deps("lc_dx_backend", "lc_vk_backend", "lc_cuda_backend", "lc_metal_backend", "lc_enable_tests", "lc_py_include",
     "lc_cuda_ext_lcub", "lc_enable_dsl", "lc_enable_gui", "lc_bin_dir", "lc_dx_cuda_interop", "lc_vk_cuda_interop",
     "_lc_enable_py", "lc_enable_py", "lc_enable_xir", 'lc_vk_backend_use_xir_spirv', 'lc_vk_backend_use_ast_llvm_spirv',
+    "lc_vk_backend_enable_dxc_compatibility",
     "lc_fallback_backend", "lc_llvm_path", "lc_embree_path")
 
 before_check(function(option)
@@ -465,39 +466,7 @@ end)
 target_end()
 
 -- ============================================================================
--- SECTION 4: Cargo/Rust Build Support
--- ============================================================================
-
--- Rule for building Rust projects using Cargo
-rule("build_cargo")
-set_extensions(".toml")
-on_buildcmd_file(function(target, batchcmds, sourcefile, opt)
-    local lib = import("lib")
-    local sb = lib.StringBuilder("cargo build -q ")
-    sb:add("--no-default-features ")
-    sb:add("--manifest-path ")
-    sb:add(sourcefile):add(' ')
-
-    local features = target:get('features')
-    if features then
-        sb:add("--features ")
-        sb:add(features):add(' ')
-    end
-
-    -- Use release mode for non-debug builds
-    if not is_mode("debug") then
-        sb:add("--release ")
-    end
-
-    local cargo_cmd = sb:to_string()
-    batchcmds:show(cargo_cmd)
-    batchcmds:vrun(cargo_cmd)
-    sb:dispose()
-end)
-rule_end()
-
--- ============================================================================
--- SECTION 5: SDK Installation Rule
+-- SECTION 4: SDK Installation Rule
 -- ============================================================================
 
 --[[
@@ -534,7 +503,7 @@ end)
 rule_end()
 
 -- ============================================================================
--- SECTION 6: LLVM Integration Rule
+-- SECTION 5: LLVM Integration Rule
 -- ============================================================================
 
 -- Rule for linking against LLVM libraries

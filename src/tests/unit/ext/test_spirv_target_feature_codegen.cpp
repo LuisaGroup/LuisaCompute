@@ -42,6 +42,7 @@ struct CompiledSpirv {
     std::vector<uint32_t> words;
     lc::spirv::SpirvTargetFeatureMask required_features{};
     std::vector<lc::hlsl::ShaderVariableType> property_types;
+    vstd::vector<Usage> argument_usages;
     vstd::vector<lc::spirv::SpirvKernelArgumentRoleMask> argument_roles;
 };
 
@@ -106,11 +107,18 @@ template<typename Kernel>
     for (auto property : result.properties) {
         property_types.emplace_back(property.type);
     }
+    vstd::vector<Usage> argument_usages;
+    argument_usages.reserve(result.argument_usages.size());
+    for (auto &&[argument, usage] : result.argument_usages) {
+        static_cast<void>(argument);
+        argument_usages.emplace_back(usage);
+    }
     return {
         .text = std::move(text),
         .words = std::move(result.spv_bin),
         .required_features = result.required_target_features,
         .property_types = std::move(property_types),
+        .argument_usages = std::move(argument_usages),
         .argument_roles = std::move(result.argument_roles)};
 }
 
@@ -1118,6 +1126,10 @@ int main(int argc, char *argv[]) {
         expect(eq(
             dead.argument_roles.front(),
             lc::spirv::kernel_argument_role::none));
+        expect(!dead.argument_usages.empty());
+        expect(dead.argument_usages.front() == Usage::NONE)
+            << "optimized-away accel traversal must not retain a synthetic "
+               "read usage beside its exact zero-role mask";
 
         Kernel1D unused_accel = [](AccelVar, BufferUInt output) noexcept {
             output.write(0u, 7u);
@@ -1136,6 +1148,9 @@ int main(int argc, char *argv[]) {
         expect(eq(
             unused.argument_roles.front(),
             lc::spirv::kernel_argument_role::none));
+        expect(!unused.argument_usages.empty());
+        expect(unused.argument_usages.front() == Usage::NONE)
+            << "unused accel must preserve the optimized XIR usage exactly";
 
         Kernel1D read_instance = [](AccelVar accel,
                                     BufferUInt output) noexcept {
@@ -1157,6 +1172,8 @@ int main(int argc, char *argv[]) {
         expect(eq(
             read.argument_roles.front(),
             lc::spirv::kernel_argument_role::accel_instance));
+        expect(!read.argument_usages.empty());
+        expect(read.argument_usages.front() == Usage::READ);
 
         Kernel1D write_instance = [](AccelVar accel) noexcept {
             accel.set_instance_visibility(0u, 0xa5u);
@@ -1177,6 +1194,8 @@ int main(int argc, char *argv[]) {
         expect(eq(
             write.argument_roles.front(),
             lc::spirv::kernel_argument_role::accel_instance));
+        expect(!write.argument_usages.empty());
+        expect(write.argument_usages.front() == Usage::WRITE);
     };
 
     "spirv_target_features_sampler_selectors_are_exact"_test = [] {
@@ -1380,9 +1399,17 @@ int main(int argc, char *argv[]) {
                 0u, bindless.tex2d(slot, false, true)
                         .read(make_uint2(0u)));
         };
+        Kernel1D typed_argument_index = [](BindlessVar bindless,
+                                           BufferFloat4 output,
+                                           UInt slot) noexcept {
+            output.write(
+                0u, bindless.tex2d(slot, true, true)
+                        .read(make_uint2(0u)));
+        };
         for (auto compiled : {
                  compile_spirv_fixture(constant_index, features),
-                 compile_spirv_fixture(argument_index, features)}) {
+                 compile_spirv_fixture(argument_index, features),
+                 compile_spirv_fixture(typed_argument_index, features)}) {
             expect(eq(compiled.required_features, expected));
             expect(contains(compiled.text,
                             "OpCapability RuntimeDescriptorArray"));
@@ -1426,22 +1453,31 @@ int main(int argc, char *argv[]) {
                 0u, bindless.tex2d(dispatch_id().x)
                         .read(make_uint2(0u)));
         };
-        auto compiled = compile_spirv_fixture(kernel, features);
-        expect(eq(compiled.required_features, expected));
-        expect(contains(compiled.text,
-                        "OpCapability RuntimeDescriptorArray"));
-        expect(contains(
-            compiled.text,
-            "OpCapability SampledImageArrayNonUniformIndexing"));
-        expect(contains(compiled.text,
-                        "OpCapability ShaderNonUniform"));
-        expect(!contains(
-            compiled.text,
-            "OpCapability SampledImageArrayDynamicIndexing"));
-        expect(contains(compiled.text, " NonUniform"));
-        auto facts = inspect_configured_sampler_path(
-            luisa::span<const uint32_t>{compiled.words});
-        expect_bindless_image_fetch_path(facts, true);
+        Kernel1D typed_kernel = [](BindlessVar bindless,
+                                   BufferFloat4 output) noexcept {
+            output.write(
+                0u, bindless.tex2d(dispatch_id().x, true, false)
+                        .read(make_uint2(0u)));
+        };
+        for (auto compiled : {
+                 compile_spirv_fixture(kernel, features),
+                 compile_spirv_fixture(typed_kernel, features)}) {
+            expect(eq(compiled.required_features, expected));
+            expect(contains(compiled.text,
+                            "OpCapability RuntimeDescriptorArray"));
+            expect(contains(
+                compiled.text,
+                "OpCapability SampledImageArrayNonUniformIndexing"));
+            expect(contains(compiled.text,
+                            "OpCapability ShaderNonUniform"));
+            expect(!contains(
+                compiled.text,
+                "OpCapability SampledImageArrayDynamicIndexing"));
+            expect(contains(compiled.text, " NonUniform"));
+            auto facts = inspect_configured_sampler_path(
+                luisa::span<const uint32_t>{compiled.words});
+            expect_bindless_image_fetch_path(facts, true);
+        }
     };
 
     "spirv_target_features_uniform_bindless_buffer_indexing_is_exact"_test = [] {
@@ -1464,9 +1500,16 @@ int main(int argc, char *argv[]) {
             output.write(
                 0u, bindless.buffer<uint32_t>(slot, false, true).read(0u));
         };
+        Kernel1D typed_argument_index = [](BindlessVar bindless,
+                                           BufferUInt output,
+                                           UInt slot) noexcept {
+            output.write(
+                0u, bindless.buffer<uint32_t>(slot, true, true).read(0u));
+        };
         for (auto compiled : {
                  compile_spirv_fixture(constant_index, features),
-                 compile_spirv_fixture(argument_index, features)}) {
+                 compile_spirv_fixture(argument_index, features),
+                 compile_spirv_fixture(typed_argument_index, features)}) {
             expect(eq(compiled.required_features, expected));
             expect(contains(compiled.text,
                             "OpCapability RuntimeDescriptorArray"));
@@ -1496,18 +1539,28 @@ int main(int argc, char *argv[]) {
             output.write(
                 0u, bindless.buffer<uint32_t>(dispatch_id().x).read(0u));
         };
-        auto compiled = compile_spirv_fixture(kernel, features);
-        expect(eq(compiled.required_features, expected));
-        expect(contains(compiled.text,
-                        "OpCapability RuntimeDescriptorArray"));
-        expect(contains(
-            compiled.text,
-            "OpCapability StorageBufferArrayNonUniformIndexing"));
-        expect(contains(compiled.text,
-                        "OpCapability ShaderNonUniform"));
-        expect(!contains(
-            compiled.text,
-            "OpCapability StorageBufferArrayDynamicIndexing"));
-        expect(contains(compiled.text, " NonUniform"));
+        Kernel1D typed_kernel = [](BindlessVar bindless,
+                                   BufferUInt output) noexcept {
+            output.write(
+                0u, bindless.buffer<uint32_t>(
+                                dispatch_id().x, true, false)
+                        .read(0u));
+        };
+        for (auto compiled : {
+                 compile_spirv_fixture(kernel, features),
+                 compile_spirv_fixture(typed_kernel, features)}) {
+            expect(eq(compiled.required_features, expected));
+            expect(contains(compiled.text,
+                            "OpCapability RuntimeDescriptorArray"));
+            expect(contains(
+                compiled.text,
+                "OpCapability StorageBufferArrayNonUniformIndexing"));
+            expect(contains(compiled.text,
+                            "OpCapability ShaderNonUniform"));
+            expect(!contains(
+                compiled.text,
+                "OpCapability StorageBufferArrayDynamicIndexing"));
+            expect(contains(compiled.text, " NonUniform"));
+        }
     };
 }

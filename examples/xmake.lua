@@ -34,10 +34,6 @@ example_proj("example_procedural", "rendering/procedural.cpp", true)
 example_proj("example_shader_toy", "rendering/shader_toy.cpp", true)
 example_proj("example_shader_toy_spacex", "rendering/shader_toy_spacex.cpp", true)
 example_proj("example_shader_visuals_present", "rendering/shader_visuals_present.cpp", true)
-if has_config("lc_enable_ir") then
-    example_proj("example_path_tracing_ir", "rendering/path_tracing_ir.cpp", true)
-    example_proj("example_sdf_renderer_ir", "rendering/sdf_renderer_ir.cpp", true)
-end
 if has_config("lc_enable_xir") then
     example_proj("example_path_tracing_xir2ast", "rendering/path_tracing_xir2ast.cpp", true)
     example_proj("example_sdf_renderer_xir2ast", "rendering/sdf_renderer_xir2ast.cpp", true)
@@ -62,6 +58,7 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
+    -- example_proj("example_tensor_stub", "compute/tensor_stub.cpp", false)
     example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
     example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)

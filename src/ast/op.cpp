@@ -378,15 +378,19 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
             break;
         }
         case CallOp::ASYNC_COPY: {
-            if (!(return_type->is_uint32() &&
+            // The op is emitted as a statement (void) by the DSL; the uint return
+            // type is kept for the SPIR-V event handle in the AST contract.
+            // dst is an lvalue of the shared-memory destination; src is the
+            // 64-bit device address of the global source.
+            if (!((return_type == nullptr || return_type->is_uint32()) &&
                   args.size() == 7 &&
                   args[0]->type()->is_uint32() &&
+                  is_lvalue_expression(args[1]) &&
+                  args[2]->type()->is_uint64() &&
                   args[3]->type()->is_uint32() &&
                   args[4]->type()->is_uint32() &&
                   args[5]->type()->is_uint32() &&
-                  args[6]->type()->is_uint32() &&
-                  is_lvalue_expression(args[1]) &&
-                  is_lvalue_expression(args[2]))) [[unlikely]] {
+                  args[6]->type()->is_uint32())) [[unlikely]] {
                 LUISA_ERROR("ASYNC_COPY argument type mismatch.");
             }
             break;

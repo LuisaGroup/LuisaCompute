@@ -16,6 +16,7 @@ struct MetalShaderMetadata {
     uint3 block_size;
     luisa::vector<luisa::string> argument_types;
     luisa::vector<Usage> argument_usages;
+    luisa::vector<uint8_t> argument_sampled;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
 
     [[nodiscard]] auto operator==(const MetalShaderMetadata &rhs) const noexcept {
@@ -24,6 +25,7 @@ struct MetalShaderMetadata {
                all(block_size == rhs.block_size) &&
                argument_types == rhs.argument_types &&
                argument_usages == rhs.argument_usages &&
+               argument_sampled == rhs.argument_sampled &&
                format_types == rhs.format_types;
     }
 };

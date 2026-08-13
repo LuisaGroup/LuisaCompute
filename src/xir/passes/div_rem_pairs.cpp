@@ -28,6 +28,7 @@ struct DivModKey {
 }
 
 static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &info) noexcept {
+    if (def == nullptr || def->body_block() == nullptr) { return; }
     luisa::vector<ArithmeticInst *> div_insts;
     luisa::vector<ArithmeticInst *> mod_insts;
     luisa::unordered_map<Instruction *, size_t> instruction_indices;
@@ -82,6 +83,12 @@ static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &
         auto y = mod_inst->operand(1);
         auto mul = b.call(div_inst->type(), ArithmeticOp::BINARY_MUL, {div_inst, y});
         auto sub = b.call(mod_inst->type(), ArithmeticOp::BINARY_SUB, {x, mul});
+        // The subtraction is the semantic replacement for the remainder.
+        // Keep source/debug metadata on that value rather than on the
+        // implementation-detail multiplication.
+        for (auto *metadata : mod_inst->metadata_list()) {
+            sub->metadata_list().push_front(metadata->clone());
+        }
 
         mod_inst->replace_all_uses_with(sub);
         mod_inst->remove_self();
@@ -99,9 +106,11 @@ DivRemPairsInfo div_rem_pairs_pass_run_on_function(FunctionDefinition *def) noex
 
 DivRemPairsInfo div_rem_pairs_pass_run_on_module(Module *module, PassReport *report) noexcept {
     DivRemPairsInfo info;
-    for (auto f : module->function_list()) {
-        if (auto def = f->definition()) {
-            detail::div_rem_pairs_on_function(def, info);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            if (auto def = f->definition()) {
+                detail::div_rem_pairs_on_function(def, info);
+            }
         }
     }
     if (report != nullptr) {

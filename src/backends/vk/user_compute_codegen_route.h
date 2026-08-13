@@ -15,9 +15,7 @@ enum class UserComputeHlslFallbackReason : uint32_t {
     PRINTING = 1u << 1u,
     COOPERATIVE_OPERATIONS = 1u << 2u,
     ASYNC_COPY = 1u << 3u,
-    TYPED_BINDLESS_RESOURCES = 1u << 4u,
-    UNIFORM_BINDLESS_RESOURCES = 1u << 5u,
-    MOTION_BLUR = 1u << 6u,
+    MOTION_BLUR = 1u << 4u,
 };
 
 using UserComputeHlslFallbackReasonMask = uint32_t;
@@ -27,46 +25,8 @@ struct UserComputeCodegenRequirements {
     bool printing{};
     bool cooperative_operations{};
     bool async_copy{};
-    bool typed_bindless_resources{};
-    bool uniform_bindless_resources{};
     bool motion_blur{};
 };
-
-// Device-address queries are served from the per-array metadata buffer in the
-// native path. They neither index the typed descriptor heap nor need a
-// NonUniform decoration, so the AST typed/uniform representation is not a
-// reason to route these four opcodes through HLSL.
-[[nodiscard]] constexpr bool
-native_xir_spirv_bindless_address_query(
-    luisa::compute::CallOp op) noexcept {
-    using luisa::compute::CallOp;
-    return op == CallOp::BINDLESS_BUFFER_ADDRESS ||
-           op == CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS ||
-           op == CallOp::TYPED_BINDLESS_BUFFER_ADDRESS ||
-           op == CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS;
-}
-
-[[nodiscard]] inline bool requires_typed_bindless_hlsl_fallback(
-    const luisa::compute::CallOpSet &calls) noexcept {
-    for (auto op : calls) {
-        if (luisa::compute::is_typed_bindless_resource_call(op) &&
-            !native_xir_spirv_bindless_address_query(op)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-[[nodiscard]] inline bool requires_uniform_bindless_hlsl_fallback(
-    const luisa::compute::CallOpSet &calls) noexcept {
-    for (auto op : calls) {
-        if (luisa::compute::is_uniform_bindless_resource_call(op) &&
-            !native_xir_spirv_bindless_address_query(op)) {
-            return true;
-        }
-    }
-    return false;
-}
 
 struct UserComputeCodegenRoute {
     UserComputeHlslFallbackReasonMask hlsl_fallback_reasons{};
@@ -132,10 +92,6 @@ plan_user_compute_codegen_route(
         UserComputeHlslFallbackReason::COOPERATIVE_OPERATIONS);
     add(requirements.async_copy,
         UserComputeHlslFallbackReason::ASYNC_COPY);
-    add(requirements.typed_bindless_resources,
-        UserComputeHlslFallbackReason::TYPED_BINDLESS_RESOURCES);
-    add(requirements.uniform_bindless_resources,
-        UserComputeHlslFallbackReason::UNIFORM_BINDLESS_RESOURCES);
     add(requirements.motion_blur,
         UserComputeHlslFallbackReason::MOTION_BLUR);
     return {.hlsl_fallback_reasons = reasons};
@@ -154,10 +110,6 @@ user_compute_hlsl_fallback_reason_name(
             return "cooperative operations"sv;
         case UserComputeHlslFallbackReason::ASYNC_COPY:
             return "async copy"sv;
-        case UserComputeHlslFallbackReason::TYPED_BINDLESS_RESOURCES:
-            return "typed bindless resources"sv;
-        case UserComputeHlslFallbackReason::UNIFORM_BINDLESS_RESOURCES:
-            return "uniform bindless resources"sv;
         case UserComputeHlslFallbackReason::MOTION_BLUR:
             return "motion blur"sv;
     }

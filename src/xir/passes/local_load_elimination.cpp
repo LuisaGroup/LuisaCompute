@@ -4,6 +4,7 @@
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/core/logging.h>
 
 #include "helpers.h"
 #include <luisa/xir/passes/local_load_elimination.h>
@@ -54,7 +55,11 @@ static void run_local_load_elimination_on_basic_block(luisa::unordered_set<Basic
                     auto alloca_inst = trace_pointer_base_local_alloca_inst(load->variable());
                     if (alloca_inst == nullptr) { break; }
                     if (auto iter = already_loaded.find(load->variable()); iter != already_loaded.end()) {
-                        removable_loads.emplace(load, iter->second);
+                        // Replacing a load with a shared earlier value has no
+                        // unique owner for instruction-local metadata.
+                        if (load->metadata_list().empty()) {
+                            removable_loads.emplace(load, iter->second);
+                        }
                     } else {
                         variable_pointers[alloca_inst].emplace_back(load->variable());
                         already_loaded[load->variable()] = load;
@@ -105,14 +110,23 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
     function->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
         rpo.push_back(block);
     });
+    using ReachingMap = luisa::unordered_map<Value *, LoadInst *>;
     luisa::unordered_map<BasicBlock *, luisa::vector<BasicBlock *>> predecessors;
+    luisa::unordered_map<BasicBlock *, ReachingMap> reaching_load;
     for (auto block : rpo) {
+        auto &block_predecessors = predecessors[block];
+        reaching_load.try_emplace(block);
         block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-            predecessors[block].push_back(pred);
+            block_predecessors.push_back(pred);
+            reaching_load.try_emplace(pred);
         });
     }
-    using ReachingMap = luisa::unordered_map<Value *, LoadInst *>;
-    luisa::unordered_map<BasicBlock *, ReachingMap> reaching_load;
+
+    auto reaching_load_for = [&](BasicBlock *block) noexcept -> ReachingMap & {
+        auto iter = reaching_load.find(block);
+        LUISA_ASSERT(iter != reaching_load.end(), "Missing local-load data-flow block.");
+        return iter->second;
+    };
 
     auto block_input = [&](BasicBlock *block) noexcept {
         ReachingMap in;
@@ -120,11 +134,13 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
         // backedge to the body block must never make a value available on the
         // first invocation of the function.
         if (block == function->body_block()) { return in; }
-        auto &preds = predecessors[block];
+        auto pred_iter = predecessors.find(block);
+        LUISA_ASSERT(pred_iter != predecessors.end(), "Missing local-load predecessor block.");
+        auto &preds = pred_iter->second;
         if (!preds.empty()) {
-            in = reaching_load[preds.front()];
+            in = reaching_load_for(preds.front());
             for (size_t i = 1; i < preds.size(); ++i) {
-                auto &pred_map = reaching_load[preds[i]];
+                auto &pred_map = reaching_load_for(preds[i]);
                 for (auto it = in.begin(); it != in.end();) {
                     auto jt = pred_map.find(it->first);
                     if (jt == pred_map.end() || jt->second != it->second) {
@@ -147,7 +163,10 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
                 if (trace_pointer_base_local_alloca_inst(ptr) == nullptr) { continue; }
                 auto it = current.find(ptr);
                 if (it != current.end() && it->second != load) {
-                    if (removable != nullptr) { removable->emplace_back(load, it->second); }
+                    if (removable != nullptr &&
+                        load->metadata_list().empty()) {
+                        removable->emplace_back(load, it->second);
+                    }
                 } else {
                     current[ptr] = load;
                 }
@@ -198,7 +217,7 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
     while (changed) {
         changed = false;
         for (auto block : rpo) {
-            auto &block_reaching = reaching_load[block];
+            auto &block_reaching = reaching_load_for(block);
             auto current = transfer(block, block_input(block), nullptr);
             if (block_reaching != current) {
                 block_reaching = std::move(current);
@@ -222,7 +241,9 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
 }
 
 static void run_local_load_elimination_on_function(Function *function, LocalLoadEliminationInfo &info) noexcept {
+    if (function == nullptr) { return; }
     if (auto definition = function->definition()) {
+        if (definition->body_block() == nullptr) { return; }
         luisa::unordered_set<BasicBlock *> visited;
         definition->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
             run_local_load_elimination_on_basic_block(visited, block, info);
@@ -241,6 +262,10 @@ LocalLoadEliminationInfo local_load_elimination_pass_run_on_function(Function *f
 
 LocalLoadEliminationInfo local_load_elimination_pass_run_on_module(Module *module, PassReport *report) noexcept {
     LocalLoadEliminationInfo info;
+    if (module == nullptr) {
+        if (report != nullptr) { report->set("removed_load", 0u); }
+        return info;
+    }
     for (auto f : module->function_list()) {
         detail::run_local_load_elimination_on_function(f, info);
     }

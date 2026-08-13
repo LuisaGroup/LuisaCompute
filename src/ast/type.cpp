@@ -32,9 +32,10 @@ LUISA_AST_API luisa::string make_buffer_description(luisa::string_view elem) noe
 }
 
 struct TypeImpl final : public Type {
-    uint64_t hash{};
-    Tag tag{};
+    // Type::_tag occupies the first four bytes. Pair it with size before the
+    // eight-byte hash so the non-empty base does not grow TypeImpl by padding.
     uint size{};
+    uint64_t hash{};
     uint16_t alignment{};
     uint dimension{};
     uint index{};
@@ -75,8 +76,8 @@ private:
     [[nodiscard]] const TypeImpl *_decode(luisa::string_view desc) noexcept;
     [[nodiscard]] static auto _compute_hash(luisa::string_view desc) noexcept {
         using namespace std::string_view_literals;
-        static auto seed = hash_value("__hash_type"sv);
-        return hash_value(desc, seed);
+        static auto type_seed = hash_value("__hash_type"sv);
+        return hash_value(desc, type_seed);
     };
     [[nodiscard]] auto _register(TypeImpl *type) noexcept {
         LUISA_ASSERT(_types.size() <= std::numeric_limits<uint>::max(),
@@ -172,7 +173,7 @@ const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
 
     auto t = _type_pool.create();
     t->hash = h;
-    t->tag = Type::Tag::CUSTOM;
+    t->_tag = Type::Tag::CUSTOM;
     t->size = Type::custom_struct_size;
     t->alignment = Type::custom_struct_alignment;
     t->dimension = 1u;
@@ -317,7 +318,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     auto type_identifier = read_identifier();
 #define TRY_PARSE_SCALAR_TYPE(T, TAG, s) \
     if (type_identifier == #T##sv) {     \
-        info->tag = Type::Tag::TAG;      \
+        info->_tag = Type::Tag::TAG;     \
         info->size = s;                  \
         info->alignment = s;             \
         info->dimension = 1u;            \
@@ -338,7 +339,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     TRY_PARSE_SCALAR_TYPE(float8e5m2, FLOAT8_E5M2, 1u)
 #undef TRY_PARSE_SCALAR_TYPE
     if (type_identifier == "vector"sv) {
-        info->tag = Type::Tag::VECTOR;
+        info->_tag = Type::Tag::VECTOR;
         match('<');
         info->members.emplace_back(_decode(split()));
         match(',');
@@ -361,7 +362,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
             static_cast<size_t>(16u));
         info->size = luisa::align(elem->size() * info->dimension, info->alignment);
     } else if (type_identifier == "matrix"sv) {
-        info->tag = Type::Tag::MATRIX;
+        info->_tag = Type::Tag::MATRIX;
         match('<');
         auto dimension = read_number();
         match('>');
@@ -384,7 +385,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
                 dimension);
         }
     } else if (type_identifier == "array"sv) {
-        info->tag = Type::Tag::ARRAY;
+        info->_tag = Type::Tag::ARRAY;
         match('<');
         info->members.emplace_back(_decode(split()));
         match(',');
@@ -401,7 +402,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->alignment = m->alignment();
         info->size = checked_layout_product(m->size(), dimension);
     } else if (type_identifier == "coopvec"sv) {
-        info->tag = Type::Tag::COOPERATIVE_VECTOR;
+        info->_tag = Type::Tag::COOPERATIVE_VECTOR;
         match('<');
         info->members.emplace_back(_decode(split()));
         match(',');
@@ -417,7 +418,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->alignment = m->alignment();
         info->size = checked_layout_product(m->size(), dimension);
     } else if (type_identifier == "coopvec_ref"sv) {
-        info->tag = Type::Tag::COOPERATIVE_VECTOR_REF;
+        info->_tag = Type::Tag::COOPERATIVE_VECTOR_REF;
         match('<');
         auto dimension = read_number();
         match(',');
@@ -430,7 +431,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->alignment = static_cast<uint16_t>(element_type);
     } else if (type_identifier == "coopmat_ref"sv) {
         // coopmat_ref<N, M, type>
-        info->tag = Type::Tag::COOPERATIVE_MATRIX_REF;
+        info->_tag = Type::Tag::COOPERATIVE_MATRIX_REF;
         match('<');
         auto n = read_number();
         match(',');
@@ -445,7 +446,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->size = checked_dimension(m, "Cooperative matrix column count");
         info->alignment = static_cast<uint16_t>(element_type);
     } else if (type_identifier == "struct"sv) {
-        info->tag = Type::Tag::STRUCTURE;
+        info->_tag = Type::Tag::STRUCTURE;
         match('<');
         auto alignment = read_number();
         if (alignment != 1u && alignment != 4u &&
@@ -493,7 +494,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         }
         info->size = checked_layout_append(layout_size, alignment, 0u);
     } else if (type_identifier == "buffer"sv) {
-        info->tag = Type::Tag::BUFFER;
+        info->_tag = Type::Tag::BUFFER;
         while (try_match('[')) {
             auto attr_key = read_identifier();
             luisa::string_view attr_value;
@@ -523,7 +524,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->alignment = 8u;
         info->size = 8u;
     } else if (type_identifier == "texture"sv) {
-        info->tag = Type::Tag::TEXTURE;
+        info->_tag = Type::Tag::TEXTURE;
         while (try_match('[')) {
             auto attr_key = read_identifier();
             luisa::string_view attr_value;
@@ -556,11 +557,11 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->size = 8u;
         info->alignment = 8u;
     } else if (type_identifier == "bindless_array"sv) {
-        info->tag = Type::Tag::BINDLESS_ARRAY;
+        info->_tag = Type::Tag::BINDLESS_ARRAY;
         info->size = 8u;
         info->alignment = 8u;
     } else if (type_identifier == "accel"sv) {
-        info->tag = Type::Tag::ACCEL;
+        info->_tag = Type::Tag::ACCEL;
         info->size = 8u;
         info->alignment = 8u;
     } else [[unlikely]] {
@@ -657,10 +658,6 @@ size_t Type::alignment() const noexcept {
     return static_cast<const detail::TypeImpl *>(this)->alignment;
 }
 
-Type::Tag Type::tag() const noexcept {
-    return static_cast<const detail::TypeImpl *>(this)->tag;
-}
-
 luisa::string_view Type::description() const noexcept {
     return static_cast<const detail::TypeImpl *>(this)->description;
 }
@@ -683,66 +680,6 @@ auto Type::coop_vec_ref_type() const noexcept -> CoopRefVecType {
     LUISA_ASSERT(is_cooperative_vector_ref() || is_cooperative_matrix_ref(), "Calling coop_vec_ref_type() on a non-cooperative vector ref");
     return static_cast<CoopRefVecType>(static_cast<const detail::TypeImpl *>(this)->alignment);
 }
-
-bool Type::is_scalar() const noexcept {
-    switch (tag()) {
-        case Tag::BOOL:
-        case Tag::INT32:
-        case Tag::UINT32:
-        case Tag::INT64:
-        case Tag::UINT64:
-        case Tag::INT16:
-        case Tag::UINT16:
-        case Tag::INT8:
-        case Tag::UINT8:
-        case Tag::FLOAT16:
-        case Tag::FLOAT32:
-        case Tag::FLOAT64:
-        case Tag::FLOAT8_E4M3:
-        case Tag::FLOAT8_E5M2:
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool Type::is_arithmetic() const noexcept {
-    switch (tag()) {
-        case Tag::FLOAT16:
-        case Tag::FLOAT32:
-        case Tag::FLOAT64:
-        case Tag::FLOAT8_E4M3:
-        case Tag::FLOAT8_E5M2:
-        case Tag::INT8:
-        case Tag::UINT8:
-        case Tag::INT16:
-        case Tag::UINT16:
-        case Tag::INT32:
-        case Tag::UINT32:
-        case Tag::INT64:
-        case Tag::UINT64:
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool Type::is_basic() const noexcept {
-    return is_scalar() || is_vector() || is_matrix();
-}
-
-bool Type::is_array() const noexcept { return tag() == Tag::ARRAY; }
-bool Type::is_cooperative_vector() const noexcept { return tag() == Tag::COOPERATIVE_VECTOR; }
-bool Type::is_cooperative_vector_ref() const noexcept { return tag() == Tag::COOPERATIVE_VECTOR_REF; }
-bool Type::is_cooperative_matrix_ref() const noexcept { return tag() == Tag::COOPERATIVE_MATRIX_REF; }
-bool Type::is_vector() const noexcept { return tag() == Tag::VECTOR; }
-bool Type::is_matrix() const noexcept { return tag() == Tag::MATRIX; }
-bool Type::is_structure() const noexcept { return tag() == Tag::STRUCTURE; }
-bool Type::is_buffer() const noexcept { return tag() == Tag::BUFFER; }
-bool Type::is_texture() const noexcept { return tag() == Tag::TEXTURE; }
-bool Type::is_bindless_array() const noexcept { return tag() == Tag::BINDLESS_ARRAY; }
-bool Type::is_accel() const noexcept { return tag() == Tag::ACCEL; }
-bool Type::is_custom() const noexcept { return tag() == Tag::CUSTOM; }
 
 const Type *Type::array(const Type *elem, size_t n) noexcept {
     LUISA_ASSERT(elem != nullptr && !elem->is_resource() && !elem->is_custom() &&
@@ -897,21 +834,6 @@ const Type *Type::custom(luisa::string_view name) noexcept {
     return detail::TypeRegistry::instance().custom_type(name);
 }
 
-bool Type::is_bool() const noexcept { return tag() == Tag::BOOL; }
-bool Type::is_int32() const noexcept { return tag() == Tag::INT32; }
-bool Type::is_uint32() const noexcept { return tag() == Tag::UINT32; }
-bool Type::is_float16() const noexcept { return tag() == Tag::FLOAT16; }
-bool Type::is_float32() const noexcept { return tag() == Tag::FLOAT32; }
-bool Type::is_float64() const noexcept { return tag() == Tag::FLOAT64; }
-bool Type::is_float8_e4m3() const noexcept { return tag() == Tag::FLOAT8_E4M3; }
-bool Type::is_float8_e5m2() const noexcept { return tag() == Tag::FLOAT8_E5M2; }
-bool Type::is_float8() const noexcept { return is_float8_e4m3() || is_float8_e5m2(); }
-bool Type::is_int8() const noexcept { return tag() == Tag::INT8; }
-bool Type::is_uint8() const noexcept { return tag() == Tag::UINT8; }
-bool Type::is_int16() const noexcept { return tag() == Tag::INT16; }
-bool Type::is_uint16() const noexcept { return tag() == Tag::UINT16; }
-
-bool Type::is_scalar_or_vector() const noexcept { return is_scalar() || is_vector(); }
 bool Type::is_bool_or_bool_vector() const noexcept { return is_bool() || is_bool_vector(); }
 bool Type::is_int_or_int_vector() const noexcept { return is_int() || is_int_vector(); }
 bool Type::is_uint_or_uint_vector() const noexcept { return is_uint() || is_uint_vector(); }
@@ -920,9 +842,6 @@ bool Type::is_float_or_float_vector() const noexcept { return is_float() || is_f
 bool Type::is_int_vector() const noexcept { return is_vector() && element()->is_int(); }
 bool Type::is_uint_vector() const noexcept { return is_vector() && element()->is_uint(); }
 bool Type::is_float_vector() const noexcept { return is_vector() && element()->is_float(); }
-
-bool Type::is_int64() const noexcept { return tag() == Tag::INT64; }
-bool Type::is_uint64() const noexcept { return tag() == Tag::UINT64; }
 
 bool Type::is_bool_vector() const noexcept { return is_vector() && element()->is_bool(); }
 bool Type::is_int32_vector() const noexcept { return is_vector() && element()->is_int32(); }
@@ -936,14 +855,6 @@ bool Type::is_int16_vector() const noexcept { return is_vector() && element()->i
 bool Type::is_uint16_vector() const noexcept { return is_vector() && element()->is_uint16(); }
 bool Type::is_int64_vector() const noexcept { return is_vector() && element()->is_int64(); }
 bool Type::is_uint64_vector() const noexcept { return is_vector() && element()->is_uint64(); }
-
-bool Type::is_float() const noexcept { return is_float16() || is_float32() || is_float64() || is_float8(); }
-bool Type::is_int() const noexcept { return is_int8() || is_int16() || is_int32() || is_int64(); }
-bool Type::is_uint() const noexcept { return is_uint8() || is_uint16() || is_uint32() || is_uint64(); }
-
-bool Type::is_resource() const noexcept {
-    return is_buffer() || is_texture() || is_bindless_array() || is_accel();
-}
 
 void Type::reset_type_registry() noexcept {
     ::luisa::compute::detail::TypeRegistry::reset();

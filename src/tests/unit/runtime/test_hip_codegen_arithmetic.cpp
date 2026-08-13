@@ -1,4 +1,6 @@
-// Test for HIP XIR-to-LLVM arithmetic lowering.
+// Cross-backend arithmetic-lowering regression tests. The historical target
+// name mentions HIP, but the executable intentionally accepts any backend so
+// the same XIR arithmetic contract can be checked on HIP, CUDA, and Vulkan.
 // This test covers:
 // - Scalar operands broadcast into vector lerp, step, and smoothstep
 // - Signed, unsigned-wide, scalar-broadcast, and per-lane integer powers
@@ -14,6 +16,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -33,21 +36,26 @@ void test_scalar_vector_broadcast(Device &device) {
     auto upper = device.create_buffer<float2>(1u);
     auto edge0 = device.create_buffer<float>(1u);
     auto edge1 = device.create_buffer<float>(1u);
+    auto nan_input = device.create_buffer<float2>(1u);
     auto lerp_output = device.create_buffer<float2>(1u);
     auto step_output = device.create_buffer<float2>(1u);
+    auto nan_step_output = device.create_buffer<float2>(1u);
     auto smoothstep_output = device.create_buffer<float2>(1u);
 
     Kernel1D kernel = [](BufferFloat2 lower_buffer,
                          BufferFloat2 upper_buffer,
                          BufferFloat edge0_buffer,
                          BufferFloat edge1_buffer,
+                         BufferFloat2 nan_input_buffer,
                          BufferFloat2 lerp_out,
                          BufferFloat2 step_out,
+                         BufferFloat2 nan_step_out,
                          BufferFloat2 smoothstep_out) noexcept {
         auto lower_value = lower_buffer.read(0u);
         auto upper_value = upper_buffer.read(0u);
         auto edge0_value = edge0_buffer.read(0u);
         auto edge1_value = edge1_buffer.read(0u);
+        auto nan_input_value = nan_input_buffer.read(0u);
         auto builder = luisa::compute::detail::FunctionBuilder::current();
         auto lerp_value = def<float2>(builder->call(
             Type::of<float2>(), CallOp::LERP,
@@ -60,8 +68,12 @@ void test_scalar_vector_broadcast(Device &device) {
             Type::of<float2>(), CallOp::SMOOTHSTEP,
             {edge0_value.expression(), edge1_value.expression(),
              lower_value.expression()}));
+        auto nan_step_value = def<float2>(builder->call(
+            Type::of<float2>(), CallOp::STEP,
+            {edge0_value.expression(), nan_input_value.expression()}));
         lerp_out.write(0u, lerp_value);
         step_out.write(0u, step_value);
+        nan_step_out.write(0u, nan_step_value);
         smoothstep_out.write(0u, smoothstep_value);
     };
 
@@ -69,19 +81,25 @@ void test_scalar_vector_broadcast(Device &device) {
     std::array upper_source{float2{2.1f, 2.5f}};
     std::array edge0_source{0.25f};
     std::array edge1_source{0.75f};
+    std::array nan_input_source{
+        float2{std::numeric_limits<float>::quiet_NaN(), 0.1f}};
     std::array<float2, 1u> lerp_result{};
     std::array<float2, 1u> step_result{};
+    std::array<float2, 1u> nan_step_result{};
     std::array<float2, 1u> smoothstep_result{};
     auto shader = device.compile(kernel, ShaderOption{.enable_fast_math = false});
     stream << lower.copy_from(luisa::span{lower_source})
            << upper.copy_from(luisa::span{upper_source})
            << edge0.copy_from(luisa::span{edge0_source})
            << edge1.copy_from(luisa::span{edge1_source})
-           << shader(lower, upper, edge0, edge1,
-                     lerp_output, step_output, smoothstep_output)
+           << nan_input.copy_from(luisa::span{nan_input_source})
+           << shader(lower, upper, edge0, edge1, nan_input,
+                     lerp_output, step_output, nan_step_output,
+                     smoothstep_output)
                   .dispatch(1u)
            << lerp_output.copy_to(luisa::span{lerp_result})
            << step_output.copy_to(luisa::span{step_result})
+           << nan_step_output.copy_to(luisa::span{nan_step_result})
            << smoothstep_output.copy_to(luisa::span{smoothstep_result})
            << synchronize();
 
@@ -89,6 +107,8 @@ void test_scalar_vector_broadcast(Device &device) {
     expect(approx(lerp_result[0].y, 1.0f));
     expect(approx(step_result[0].x, 0.0f));
     expect(approx(step_result[0].y, 1.0f));
+    expect(approx(nan_step_result[0].x, 1.0f));
+    expect(approx(nan_step_result[0].y, 0.0f));
     expect(approx(smoothstep_result[0].x, 0.0f));
     expect(approx(smoothstep_result[0].y, 0.5f));
 }
@@ -137,7 +157,9 @@ void test_integer_power(Device &device) {
         vector_out.write(1u, per_lane_result);
     };
 
-    std::array scalar_base_source{2.0f, -1.0f};
+    // 0.5^(2^32) underflows to zero. A backend that illegally truncates the
+    // uint64 exponent to i32 instead computes 0.5^0 == 1.
+    std::array scalar_base_source{2.0f, 0.5f};
     std::array signed_exponent_source{int32_t{-3}};
     std::array unsigned_exponent_source{luisa::ulong{1} << 32u};
     std::array vector_base_source{
@@ -161,7 +183,7 @@ void test_integer_power(Device &device) {
            << synchronize();
 
     expect(approx(scalar_result[0], 0.125f));
-    expect(approx(scalar_result[1], 1.0f));
+    expect(approx(scalar_result[1], 0.0f));
     expect(approx(vector_result[0].x, 0.125f));
     expect(approx(vector_result[0].y, -0.125f));
     expect(approx(vector_result[1].x, 0.25f));

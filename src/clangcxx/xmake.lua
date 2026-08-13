@@ -53,6 +53,7 @@ if not is_mode("debug") then
         target:add("defines", "LUISA_CLANGCXX_EXPORT_DLL", 'CLANG_BUILD_STATIC')
         target:add("deps", "lc-core", "lc-runtime", "lc-vstl")
         if is_plat("windows") then
+            target:add("cxxflags", "/bigobj", {tools = "cl"})
             target:add("syslinks", "Version", "advapi32", "Shcore", "user32", "shell32", "Ole32", 'Ws2_32', 'ntdll', {
                 public = true
             })

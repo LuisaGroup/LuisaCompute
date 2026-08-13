@@ -170,6 +170,13 @@ struct ShaderOption {
     ///   The `LUISA_XIR_ENABLE_SCALARIZER` environment variable, when set,
     ///   overrides this field.
     bool enable_scalarizer{false};
+    /// \brief Whether the native driver may run its full optimization
+    ///   pipeline while creating the shader.
+    /// \details Disabling this option provides a bounded-compilation escape
+    ///   hatch for unusually large shaders whose driver optimizer would
+    ///   otherwise consume excessive time or memory. It can reduce execution
+    ///   performance and currently only affects Vulkan compute pipelines.
+    bool enable_driver_optimization{true};
     /// \brief A user-defined name for the shader.
     /// \details If provided, the shader will be read from or written to disk
     ///   via the `BinaryIO` object (passed to backends on device creation)
@@ -290,11 +297,15 @@ struct hash<compute::ShaderOption> {
         constexpr auto enable_debug_info_shift = 2u;
         constexpr auto compile_only_shift = 3u;
         constexpr auto enable_extended_accel_limits_shift = 4u;
+        constexpr auto enable_driver_optimization_shift = 5u;
+        constexpr auto enable_scalarizer_shift = 6u;
         auto opt_hash = hash_value((static_cast<uint>(option.enable_cache) << enable_cache_shift) |
                                        (static_cast<uint>(option.enable_fast_math) << enable_fast_math_shift) |
                                        (static_cast<uint>(option.enable_debug_info) << enable_debug_info_shift) |
                                        (static_cast<uint>(option.compile_only) << compile_only_shift) |
-                                       (static_cast<uint>(option.enable_extended_accel_limits) << enable_extended_accel_limits_shift),
+                                       (static_cast<uint>(option.enable_extended_accel_limits) << enable_extended_accel_limits_shift) |
+                                       (static_cast<uint>(option.enable_driver_optimization) << enable_driver_optimization_shift) |
+                                       (static_cast<uint>(option.enable_scalarizer) << enable_scalarizer_shift),
                                    seed);
         auto name_hash = hash_value(option.name, seed);
         return hash_combine({opt_hash, name_hash}, seed);

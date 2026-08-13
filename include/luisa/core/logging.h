@@ -20,9 +20,6 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/core/platform.h>
 
-// forward declaration for Rust binding
-struct LCLoggerMessage;
-
 namespace luisa {
 #ifndef LUISA_CUSTOM_LOGGER
 using spdlog::logger;
@@ -51,8 +48,6 @@ namespace detail {
 
 LUISA_CORE_API void default_logger_set_sink(spdlog::sink_ptr sink) noexcept;
 LUISA_CORE_API void default_logger_add_sink(spdlog::sink_ptr sink) noexcept;
-
-LUISA_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLoggerMessage)) noexcept;
 
 LUISA_CORE_API spdlog::sink_ptr create_sink_with_callback(
     luisa::function<void(const char *level,

@@ -7,6 +7,7 @@
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/instructions/autodiff.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/switch.h>
@@ -78,17 +79,23 @@ plan_spirv_codegen_structural_closure(
                            xir::ConditionalBranchTerminatorInstruction::
                                operand_index_false_target,
                            "false target");
-            case xir::DerivedInstructionTag::SWITCH: {
-                auto *switch_inst =
-                    static_cast<const xir::SwitchInst *>(terminator);
+            case xir::DerivedInstructionTag::SWITCH:
+            case xir::DerivedInstructionTag::INDEXED_BRANCH: {
+                auto *indexed_branch = static_cast<
+                    const xir::IndexedBranchTerminatorInstruction *>(
+                    terminator);
                 if (!visit_operand(
-                        xir::SwitchInst::operand_index_default_block,
+                        xir::IndexedBranchTerminatorInstruction::
+                            operand_index_default_block,
                         "default target")) {
                     return false;
                 }
-                for (auto i = size_t{0u}; i < switch_inst->case_count(); ++i) {
+                for (auto i = size_t{0u};
+                     i < indexed_branch->case_count(); ++i) {
                     if (!visit_operand(
-                            xir::SwitchInst::operand_index_case_block_offset + i,
+                            xir::IndexedBranchTerminatorInstruction::
+                                    operand_index_case_block_offset +
+                                i,
                             "case target")) {
                         return false;
                     }

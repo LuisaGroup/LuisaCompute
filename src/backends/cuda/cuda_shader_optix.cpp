@@ -352,8 +352,8 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
     encoder.with_upload_buffer(_argument_buffer_size, [&](CUDAHostBufferPool::View *argument_buffer) noexcept {
         auto argument_buffer_offset = static_cast<size_t>(0u);
         auto allocate_argument = [&](size_t bytes) noexcept {
-            static constexpr auto alignment = 16u;
-            auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
+            static constexpr auto cuda_shader_optix_alignment = 16u;
+            auto offset = (argument_buffer_offset + cuda_shader_optix_alignment - 1u) / cuda_shader_optix_alignment * cuda_shader_optix_alignment;
             LUISA_ASSERT(offset + bytes <= _argument_buffer_size,
                          "Too many arguments in ShaderDispatchCommand");
             argument_buffer_offset = offset + bytes;

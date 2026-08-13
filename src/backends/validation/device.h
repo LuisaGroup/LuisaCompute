@@ -37,6 +37,9 @@ public:
     DeviceStats* device_stats;
     [[nodiscard]] auto underlying_device() const noexcept { return _native.get(); }
     uint compute_warp_size() const noexcept override { return _native->compute_warp_size(); }
+    size_t compute_max_shared_memory_size() const noexcept override {
+        return _native->compute_max_shared_memory_size();
+    }
     uint64_t memory_granularity() const noexcept override { return _native->memory_granularity(); }
     static void check_stream(uint64_t stream, StreamFunc func, uint64_t custom_cmd_id = 0);
     static void add_custom_stream(uint64_t handle, StreamOption &&opt);
@@ -45,7 +48,6 @@ public:
     Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;
     ~Device() override;
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
 
     // texture
@@ -80,7 +82,6 @@ public:
 
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
     ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
     // event

@@ -183,7 +183,9 @@ static void walk_lexical_scopes_recursively(const BasicBlock *block,
 static void analyze_lexical_scopes_in_function(const Function *function,
                                                const LexScopeAnalysisConfig &config,
                                                LexScopeInfo &info) noexcept {
-    if (auto def = function->definition()) {
+    if (function == nullptr) { return; }
+    if (auto def = function->definition();
+        def != nullptr && def->body_block() != nullptr) {
         LexScopeStack stack;
         stack.with_scope([&] {
             walk_lexical_scopes_recursively(def->body_block(), config, stack, info);

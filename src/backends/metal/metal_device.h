@@ -59,7 +59,6 @@ public:
     uint compute_warp_size() const noexcept override;
     uint64_t memory_granularity() const noexcept override;
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     ResourceCreationInfo create_texture(PixelFormat format, uint dimension,
                                         uint width, uint height, uint depth,
@@ -76,7 +75,6 @@ public:
     void destroy_swapchain(uint64_t handle) noexcept override;
     void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
     ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;

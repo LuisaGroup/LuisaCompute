@@ -10,17 +10,45 @@ class LUISA_XIR_API CoroSuspendInst final : public DerivedTerminatorInstruction<
 private:
     uint32_t _token;
     luisa::string _name;
+    // Scheduler-visible values are part of the coroutine ABI rather than
+    // diagnostic names attached to ordinary SSA values. Operand zero remains
+    // the optional materialized frame; operands [1, n) are explicitly named
+    // values. Distillation makes each exported value resident on this exact
+    // suspension edge, where a scheduler can inspect the waiting frame before
+    // the target continuation resumes.
+    luisa::vector<luisa::string> _frame_export_names;
 
 public:
     static constexpr size_t operand_index_frame = 0u;
+    static constexpr size_t operand_index_frame_export_offset = 1u;
 
 public:
     CoroSuspendInst(BasicBlock *parent_block, uint32_t token, luisa::string name, Value *frame) noexcept;
+    CoroSuspendInst(BasicBlock *parent_block, uint32_t token,
+                    luisa::string name, Value *frame,
+                    luisa::span<const luisa::string> frame_export_names,
+                    luisa::span<Value *const> frame_export_values) noexcept;
 
     [[nodiscard]] auto token() const noexcept { return _token; }
     [[nodiscard]] const luisa::string &name() const noexcept { return _name; }
     [[nodiscard]] auto frame() noexcept { return operand(operand_index_frame); }
     [[nodiscard]] auto frame() const noexcept { return operand(operand_index_frame); }
+    [[nodiscard]] auto frame_export_count() const noexcept {
+        return _frame_export_names.size();
+    }
+    [[nodiscard]] auto frame_export_names() const noexcept {
+        return luisa::span<const luisa::string>{_frame_export_names};
+    }
+    [[nodiscard]] auto frame_export_name(size_t index) const noexcept
+        -> const luisa::string & {
+        return _frame_export_names[index];
+    }
+    [[nodiscard]] auto frame_export_value(size_t index) noexcept {
+        return operand(operand_index_frame_export_offset + index);
+    }
+    [[nodiscard]] auto frame_export_value(size_t index) const noexcept {
+        return operand(operand_index_frame_export_offset + index);
+    }
 
     template<typename Visitor>
     decltype(auto) accept(Visitor &&visitor) noexcept {

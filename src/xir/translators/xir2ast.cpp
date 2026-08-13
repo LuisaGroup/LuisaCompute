@@ -1,3 +1,6 @@
+#include <algorithm>
+
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/vector.h>
@@ -5,6 +8,7 @@
 #include <luisa/ast/op.h>
 #include <luisa/ast/constant_data.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/debug_printer.h>
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/arithmetic.h>
@@ -24,6 +28,7 @@
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/print.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
@@ -44,13 +49,13 @@
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/lower_irreducible_cfg.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
-#include <luisa/xir/passes/lower_switch.h>
-#include <luisa/xir/passes/loop_unroll.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/post_dom_tree.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
+#include <luisa/xir/passes/pass_verification.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -60,7 +65,11 @@
 #include <luisa/xir/translators/coro_xir2ast.h>
 #include <luisa/xir/verifier.h>
 
+#include <cstdlib>
+#include <limits>
 #include <type_traits>
+
+#include "../pointer_containers.h"
 
 namespace luisa::compute::xir {
 
@@ -152,8 +161,8 @@ namespace detail {
         case ArithmeticOp::FLOOR: return CallOp::FLOOR;
         case ArithmeticOp::FRACT: return CallOp::FRACT;
         case ArithmeticOp::TRUNC: return CallOp::TRUNC;
-        case ArithmeticOp::ROUND: [[fallthrough]];
-        case ArithmeticOp::RINT: return CallOp::ROUND;
+        case ArithmeticOp::ROUND: return CallOp::ROUND;
+        case ArithmeticOp::RINT: return CallOp::RINT;
         case ArithmeticOp::FMA: return CallOp::FMA;
         case ArithmeticOp::COPYSIGN: return CallOp::COPYSIGN;
         case ArithmeticOp::CROSS: return CallOp::CROSS;
@@ -232,6 +241,13 @@ namespace detail {
     LUISA_ERROR_WITH_LOCATION("Unsupported resource query operation {}.", xir::to_string(op));
 }
 
+[[nodiscard]] static CallOp xir2ast_resource_query_op(
+    ResourceQueryOp op, BindlessResourceAccess access) noexcept {
+    auto base = xir2ast_resource_query_op(op);
+    return specialize_bindless_resource_call(
+        base, access.typed, access.uniform);
+}
+
 [[nodiscard]] static CallOp xir2ast_resource_read_op(ResourceReadOp op) noexcept {
     switch (op) {
         case ResourceReadOp::BUFFER_READ: return CallOp::BUFFER_READ;
@@ -249,6 +265,13 @@ namespace detail {
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Unsupported resource read operation {}.", xir::to_string(op));
+}
+
+[[nodiscard]] static CallOp xir2ast_resource_read_op(
+    ResourceReadOp op, BindlessResourceAccess access) noexcept {
+    auto base = xir2ast_resource_read_op(op);
+    return specialize_bindless_resource_call(
+        base, access.typed, access.uniform);
 }
 
 [[nodiscard]] static CallOp xir2ast_resource_write_op(ResourceWriteOp op) noexcept {
@@ -275,6 +298,53 @@ namespace detail {
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Unsupported resource write operation {}.", xir::to_string(op));
+}
+
+[[nodiscard]] static CallOp xir2ast_resource_write_op(
+    ResourceWriteOp op, BindlessResourceAccess access) noexcept {
+    auto base = xir2ast_resource_write_op(op);
+    return specialize_bindless_resource_call(
+        base, access.typed, access.uniform);
+}
+
+[[nodiscard]] static CallOp xir2ast_ray_query_object_read_op(
+    RayQueryObjectReadOp op) noexcept {
+    switch (op) {
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
+            return CallOp::RAY_QUERY_WORLD_SPACE_RAY;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT:
+            return CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT:
+            return CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT:
+            return CallOp::RAY_QUERY_COMMITTED_HIT;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE:
+            return CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE:
+            return CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED:
+            break;
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Ray-query termination state has no standalone AST operation; "
+        "it must be paired with the immediately preceding proceed write.");
+}
+
+[[nodiscard]] static CallOp xir2ast_ray_query_object_write_op(
+    RayQueryObjectWriteOp op) noexcept {
+    switch (op) {
+        case RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE:
+            return CallOp::RAY_QUERY_COMMIT_TRIANGLE;
+        case RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL:
+            return CallOp::RAY_QUERY_COMMIT_PROCEDURAL;
+        case RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE:
+            return CallOp::RAY_QUERY_TERMINATE;
+        case RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED:
+            break;
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Ray-query proceed writes have no standalone AST operation; "
+        "they must be paired with the immediately following termination read.");
 }
 
 [[nodiscard]] static CallOp xir2ast_atomic_op(AtomicOp op) noexcept {
@@ -325,9 +395,9 @@ namespace detail {
 
 namespace {
 
-void verify_xir_for_ast(const Function *function, luisa::string_view stage,
-                        const XIRVerificationOptions &options = {}) noexcept {
-    auto verification = xir_verify_function(function, options);
+void require_xir_for_ast(
+    const XIRVerificationResult &verification,
+    luisa::string_view stage) noexcept {
     if (!verification.succeeded()) {
         auto &first = verification.errors.front();
         auto function_name = first.function == nullptr ?
@@ -345,44 +415,92 @@ void verify_xir_for_ast(const Function *function, luisa::string_view stage,
     }
 }
 
+void verify_xir_for_ast(const Function *function, luisa::string_view stage,
+                        const XIRVerificationOptions &options = {}) noexcept {
+    auto verification = xir_verify_function(function, options);
+    require_xir_for_ast(verification, stage);
+}
+
 void verify_xir_for_ast(const Module *module, luisa::string_view stage,
                         const XIRVerificationOptions &options = {}) noexcept {
     auto verification = xir_verify_module(module, options);
-    if (!verification.succeeded()) {
-        auto &first = verification.errors.front();
-        auto function_name = first.function == nullptr ?
-                                 luisa::string_view{"<none>"} :
-                                 first.function->name().value_or("<unnamed>");
-        auto instruction_name = first.instruction == nullptr ?
-                                    luisa::string_view{"<none>"} :
-                                    to_string(first.instruction->derived_instruction_tag());
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid XIR at XIR-to-AST {} in {} '{}' at {}: {} ({} error(s) total).",
-            stage,
-            first.function == nullptr ? luisa::string_view{"unknown"} :
-                                        to_string(first.function->derived_function_tag()),
-            function_name, instruction_name, first.message, verification.errors.size());
-    }
+    require_xir_for_ast(verification, stage);
 }
 
 }// namespace
 
 class XIR2ASTContext {
 private:
+    // Bindings are short-lived translation state. No iterator or element
+    // address survives insertion/erase, so node stability has no semantic
+    // value here. Keep exact pointer identity while storing entries
+    // contiguously: system-STL builds otherwise allocate one node and run the
+    // general hash64 path for every materialized XIR value.
+    using ValueMap = detail::DensePointerMap<
+        const Value *, const Expression *>;
+    struct ValueMapFrame {
+        ValueMap map;
+        luisa::vector<const Value *> insertion_log;
+    };
+
     XIR2ASTConfig _config;
+    const Module *_verified_module;
     luisa::shared_ptr<const ASTFunctionBuilder> _builder;
     luisa::unordered_map<const FunctionDefinition *, luisa::shared_ptr<const ASTFunctionBuilder>> _function_map;
     luisa::unordered_set<const FunctionDefinition *> _translating_functions;
     luisa::unordered_set<const BasicBlock *> _active_blocks;
-    luisa::unordered_map<const Value *, const Expression *> _value_map;
-    luisa::vector<luisa::unordered_map<const Value *, const Expression *>> _value_map_stack;
+    ValueMap _value_map;
+    luisa::vector<const Value *> _value_map_insertion_log;
+    luisa::vector<ValueMapFrame> _value_map_stack;
     struct LoopUpdateContext {
         const BasicBlock *prepare;
         const BasicBlock *update;
+        bool emit_update_slice;
     };
     luisa::vector<LoopUpdateContext> _loop_update_stack;
 
 private:
+    void _verify_translation_input(
+        const FunctionDefinition &function,
+        luisa::string_view stage) noexcept {
+        if (_verified_module != nullptr) {
+            LUISA_ASSERT(
+                function.parent_module() == _verified_module,
+                "A whole-module-verified XIR-to-AST batch reached a function "
+                "from a different module.");
+            return;
+        }
+        if (auto statistics = _config.statistics) {
+            statistics->function_verification_count++;
+        }
+        luisa::Clock verification_clock;
+        verify_xir_for_ast(
+            &function, stage,
+            {.require_no_phi = true,
+             .require_canonical_break_continue_targets = true});
+        if (auto statistics = _config.statistics) {
+            statistics->verification_milliseconds +=
+                verification_clock.toc();
+        }
+    }
+
+    void _bind_value(const Value *value,
+                     const Expression *expression) noexcept {
+        auto [iter, inserted] =
+            _value_map.emplace(value, expression);
+        LUISA_ASSERT(
+            inserted || iter->second == expression,
+            "XIR-to-AST attempted to change an existing value binding.");
+        if (!inserted) { return; }
+        _value_map_insertion_log.emplace_back(value);
+        if (auto statistics = _config.statistics) {
+            statistics->value_binding_insertions++;
+            statistics->peak_value_map_size =
+                std::max(statistics->peak_value_map_size,
+                         _value_map.size());
+        }
+    }
+
     [[nodiscard]] ASTFunctionBuilder *_current_builder() const noexcept {
         return ASTFunctionBuilder::current();
     }
@@ -448,6 +566,123 @@ private:
         return args;
     }
 
+    [[nodiscard]] static bool _is_canonical_ray_query_proceed_pair(
+        const RayQueryObjectWriteInst *write,
+        const RayQueryObjectReadInst *read) noexcept {
+        return write != nullptr && read != nullptr &&
+               write->op() ==
+                   RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED &&
+               read->op() ==
+                   RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED &&
+               write->operand_count() == 1u && read->operand_count() == 1u &&
+               write->operand(0u) == read->operand(0u) &&
+               write->next() == read && read->prev() == write;
+    }
+
+    void _emit_ray_query_object_write(
+        const RayQueryObjectWriteInst *write) noexcept {
+        if (write->op() ==
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED) {
+            auto next = write->next();
+            LUISA_ASSERT(
+                next != nullptr && !next->is_sentinel() &&
+                    next->isa<RayQueryObjectReadInst>() &&
+                    _is_canonical_ray_query_proceed_pair(
+                        write,
+                        static_cast<const RayQueryObjectReadInst *>(next)),
+                "XIR-to-AST requires each ray-query proceed write to be "
+                "immediately followed by an is-terminated read of the same "
+                "query object. The AST represents that pair as one stateful "
+                "proceed expression.");
+            // Emitted atomically when translating the paired read below. The
+            // pair is adjacent, so moving the transition to the value-producing
+            // half cannot cross another instruction or observable effect.
+            return;
+        }
+        _current_builder()->call(
+            detail::xir2ast_ray_query_object_write_op(write->op()),
+            _operands(write));
+    }
+
+    [[nodiscard]] const Expression *_ray_query_object_read(
+        const RayQueryObjectReadInst *read) noexcept {
+        if (read->op() ==
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED) {
+            auto prev = read->prev();
+            LUISA_ASSERT(
+                prev != nullptr && !prev->is_sentinel() &&
+                    prev->isa<RayQueryObjectWriteInst>() &&
+                    _is_canonical_ray_query_proceed_pair(
+                        static_cast<const RayQueryObjectWriteInst *>(prev),
+                        read),
+                "XIR-to-AST cannot represent a standalone ray-query "
+                "is-terminated read. It must immediately follow a proceed "
+                "write of the same query object.");
+            // AST proceed returns `active`, while normalized XIR exposes the
+            // complementary `terminated` state. Materialize the stateful call
+            // exactly once, then reconstruct the XIR value by negation.
+            auto active = _materialize(
+                Type::of<bool>(),
+                _current_builder()->call(
+                    Type::of<bool>(), CallOp::RAY_QUERY_PROCEED,
+                    _operands(read)));
+            return _current_builder()->unary(
+                Type::of<bool>(), UnaryOp::NOT, active);
+        }
+        return _materialize(
+            read->type(),
+            _current_builder()->call(
+                read->type(),
+                detail::xir2ast_ray_query_object_read_op(read->op()),
+                _operands(read)));
+    }
+
+    void _emit_ray_query_pipeline(
+        const RayQueryPipelineInst *pipeline) noexcept {
+        auto query = _expr(pipeline->query_object());
+        LUISA_ASSERT(
+            query->tag() == Expression::Tag::REF,
+            "XIR ray-query pipeline object must translate to an AST "
+            "reference expression, got expression tag {}.",
+            luisa::to_underlying(query->tag()));
+        auto query_ref = static_cast<const RefExpr *>(query);
+        auto ray_query = _current_builder()->ray_query_(query_ref);
+
+        auto emit_handler = [&](ScopeStmt *scope,
+                                const Function *handler) noexcept {
+            LUISA_ASSERT(
+                handler != nullptr &&
+                    handler->derived_function_tag() ==
+                        DerivedFunctionTag::CALLABLE &&
+                    handler->definition() != nullptr,
+                "XIR ray-query pipeline handler must be a callable "
+                "definition.");
+            auto handler_builder = _translate_callable(
+                *handler->definition());
+            auto args = luisa::vector<const Expression *>{};
+            args.reserve(pipeline->captured_argument_count() + 1u);
+            args.emplace_back(query_ref);
+            for (auto i = 0u;
+                 i < pipeline->captured_argument_count(); ++i) {
+                args.emplace_back(
+                    _expr(pipeline->captured_argument(i)));
+            }
+            LUISA_ASSERT(
+                args.size() == handler_builder->arguments().size(),
+                "XIR ray-query pipeline handler argument mismatch: "
+                "pipeline provides {}, callable expects {}.",
+                args.size(), handler_builder->arguments().size());
+            _current_builder()->with(scope, [&] {
+                _current_builder()->call(
+                    handler_builder->function(), args);
+            });
+        };
+        emit_handler(ray_query->on_triangle_candidate(),
+                     pipeline->on_surface_function());
+        emit_handler(ray_query->on_procedural_candidate(),
+                     pipeline->on_procedural_function());
+    }
+
     [[nodiscard]] const Expression *_gep(const GEPInst *inst) noexcept {
         auto expr = _expr(inst->base());
         for (auto i = 0u; i < inst->index_count(); i++) {
@@ -498,6 +733,17 @@ private:
             case ArithmeticOp::BINARY_GREATER_EQUAL: return b->binary(inst->type(), BinaryOp::GREATER_EQUAL, args[0], args[1]);
             case ArithmeticOp::BINARY_EQUAL: return b->binary(inst->type(), BinaryOp::EQUAL, args[0], args[1]);
             case ArithmeticOp::BINARY_NOT_EQUAL: return b->binary(inst->type(), BinaryOp::NOT_EQUAL, args[0], args[1]);
+            // AST binary multiplication is linear algebra whenever either
+            // operand has the matrix/vector shape recognized by AST-to-XIR.
+            // Component-wise matrix multiplication remains the explicit
+            // MATRIX_COMPONENT_WISE_MULTIPLICATION call below. Keeping these
+            // cases at the BinaryExpr boundary makes the two translators exact
+            // inverses for every matrix arithmetic opcode.
+            case ArithmeticOp::MATRIX_COMP_NEG: return b->unary(inst->type(), UnaryOp::MINUS, args[0]);
+            case ArithmeticOp::MATRIX_COMP_ADD: return b->binary(inst->type(), BinaryOp::ADD, args[0], args[1]);
+            case ArithmeticOp::MATRIX_COMP_SUB: return b->binary(inst->type(), BinaryOp::SUB, args[0], args[1]);
+            case ArithmeticOp::MATRIX_COMP_DIV: return b->binary(inst->type(), BinaryOp::DIV, args[0], args[1]);
+            case ArithmeticOp::MATRIX_LINALG_MUL: return b->binary(inst->type(), BinaryOp::MUL, args[0], args[1]);
             case ArithmeticOp::AGGREGATE: {
                 if (inst->type()->is_vector()) { return b->call(inst->type(), detail::xir2ast_make_vector_op(inst->type()), args); }
                 if (inst->type()->is_matrix()) { return b->call(inst->type(), detail::xir2ast_make_matrix_op(inst->type()), args); }
@@ -621,7 +867,19 @@ private:
                 case DerivedInstructionTag::RESOURCE_QUERY:
                     return _resource_query(
                         static_cast<const ResourceQueryInst *>(inst));
-                case DerivedInstructionTag::RESOURCE_READ: return _materialize(inst->type(), _current_builder()->call(inst->type(), detail::xir2ast_resource_read_op(static_cast<const ResourceReadInst *>(inst)->op()), _operands(inst)));
+                case DerivedInstructionTag::RESOURCE_READ: {
+                    auto read = static_cast<const ResourceReadInst *>(inst);
+                    return _materialize(
+                        inst->type(),
+                        _current_builder()->call(
+                            inst->type(),
+                            detail::xir2ast_resource_read_op(
+                                read->op(), read->bindless_access()),
+                            _operands(inst)));
+                }
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+                    return _ray_query_object_read(
+                        static_cast<const RayQueryObjectReadInst *>(inst));
                 case DerivedInstructionTag::ATOMIC: return _materialize(inst->type(), _atomic(static_cast<const AtomicInst *>(inst)));
                 case DerivedInstructionTag::THREAD_GROUP: {
                     auto expr = _current_builder()->call(inst->type(), detail::xir2ast_thread_group_op(static_cast<const ThreadGroupInst *>(inst)->op()), _operands(inst));
@@ -634,7 +892,7 @@ private:
             }
             LUISA_ERROR_WITH_LOCATION("Unsupported expression instruction {}.", xir::to_string(inst->derived_instruction_tag()));
         }();
-        _value_map.emplace(value, expr);
+        _bind_value(value, expr);
         return expr;
     }
 
@@ -663,14 +921,78 @@ private:
                 _current_builder()->literal(Type::of<uint32_t>(), 1u));
         }
         return _current_builder()->call(
-            inst->type(), detail::xir2ast_resource_query_op(inst->op()), args);
+            inst->type(),
+            detail::xir2ast_resource_query_op(
+                inst->op(), inst->bindless_access()),
+            args);
     }
 
     template<typename F>
     void _with_value_map_checkpoint(F &&f) noexcept {
-        auto value_map = _value_map;
+        // Value bindings are monotone along one structured CFG path: a value
+        // is inserted at most once and never rebound. A checkpoint therefore
+        // needs only the insertion-log length. Restoring erases exactly the
+        // branch-local suffix, so nested checkpoints compose and the work is
+        // O(number of bindings created in the branch), independent of the
+        // number of dominating bindings retained across it.
+        auto checkpoint = _value_map_insertion_log.size();
+        ValueMap oracle_snapshot;
+        if (_config.verify_value_map_checkpoints) {
+            oracle_snapshot = _value_map;
+        }
+        if (auto statistics = _config.statistics) {
+            statistics->value_map_checkpoint_count++;
+        }
         f();
-        _value_map = std::move(value_map);
+        auto rollback_work =
+            _value_map_insertion_log.size() - checkpoint;
+        for (auto i = _value_map_insertion_log.size();
+             i > checkpoint; --i) {
+            auto *value = _value_map_insertion_log[i - 1u];
+            LUISA_ASSERT(
+                _value_map.erase(value) == 1u,
+                "XIR-to-AST value checkpoint lost a logged binding.");
+        }
+        _value_map_insertion_log.resize(checkpoint);
+        if (auto statistics = _config.statistics) {
+            statistics->value_map_rollback_work += rollback_work;
+        }
+        if (_config.verify_value_map_checkpoints) {
+            LUISA_ASSERT(
+                _value_map.size() == oracle_snapshot.size(),
+                "XIR-to-AST incremental checkpoint changed the retained value-map size ({} != {}).",
+                _value_map.size(), oracle_snapshot.size());
+            for (auto [value, expression] : oracle_snapshot) {
+                auto iter = _value_map.find(value);
+                LUISA_ASSERT(
+                    iter != _value_map.end() &&
+                        iter->second == expression,
+                    "XIR-to-AST incremental checkpoint changed a retained value binding.");
+            }
+        }
+    }
+
+    void _emit_selection_path(
+        const BasicBlock *target,
+        const BasicBlock *stop) noexcept {
+        if (target == nullptr || target == stop) { return; }
+        // Restructuring represents a physical loop-boundary guard as a
+        // structured selection without an OpSelectionMerge. One arm may point
+        // directly at the enclosing loop's canonical update block instead of
+        // owning a ContinueInst proxy. Recursing through that block as an
+        // ordinary selection arm walks back to the loop prepare and invents an
+        // unstructured cycle. Preserve the edge semantics explicitly: execute
+        // the update slice once, then continue the AST loop.
+        if (!_loop_update_stack.empty() &&
+            target == _loop_update_stack.back().update) {
+            auto context = _loop_update_stack.back();
+            if (context.emit_update_slice) {
+                _emit_block(context.update, context.prepare);
+            }
+            _current_builder()->continue_();
+            return;
+        }
+        _emit_block(target, stop);
     }
 
     [[nodiscard]] luisa::optional<const BasicBlock *> _find_conditional_branch_merge(
@@ -757,7 +1079,7 @@ private:
             } else {
                 expr = b->argument(arg->type());
             }
-            _value_map.emplace(arg, expr);
+            _bind_value(arg, expr);
             index++;
         }
     }
@@ -817,7 +1139,20 @@ private:
                 }
                 case DerivedInstructionTag::RESOURCE_WRITE: {
                     auto write = static_cast<const ResourceWriteInst *>(inst);
-                    _current_builder()->call(detail::xir2ast_resource_write_op(write->op()), _operands(write));
+                    _current_builder()->call(
+                        detail::xir2ast_resource_write_op(
+                            write->op(), write->bindless_access()),
+                        _operands(write));
+                    break;
+                }
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
+                    _emit_ray_query_object_write(
+                        static_cast<const RayQueryObjectWriteInst *>(inst));
+                    break;
+                }
+                case DerivedInstructionTag::RAY_QUERY_PIPELINE: {
+                    _emit_ray_query_pipeline(
+                        static_cast<const RayQueryPipelineInst *>(inst));
                     break;
                 }
                 case DerivedInstructionTag::ASSERT: [[fallthrough]];
@@ -826,6 +1161,7 @@ private:
                 case DerivedInstructionTag::THREAD_GROUP: [[fallthrough]];
                 case DerivedInstructionTag::RESOURCE_QUERY: [[fallthrough]];
                 case DerivedInstructionTag::RESOURCE_READ: [[fallthrough]];
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: [[fallthrough]];
                 case DerivedInstructionTag::LOAD: [[fallthrough]];
                 case DerivedInstructionTag::GEP: [[fallthrough]];
                 case DerivedInstructionTag::CLOCK: [[fallthrough]];
@@ -920,7 +1256,20 @@ private:
                 }
                 case DerivedInstructionTag::RESOURCE_WRITE: {
                     auto write = static_cast<const ResourceWriteInst *>(inst);
-                    _current_builder()->call(detail::xir2ast_resource_write_op(write->op()), _operands(write));
+                    _current_builder()->call(
+                        detail::xir2ast_resource_write_op(
+                            write->op(), write->bindless_access()),
+                        _operands(write));
+                    break;
+                }
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
+                    _emit_ray_query_object_write(
+                        static_cast<const RayQueryObjectWriteInst *>(inst));
+                    break;
+                }
+                case DerivedInstructionTag::RAY_QUERY_PIPELINE: {
+                    _emit_ray_query_pipeline(
+                        static_cast<const RayQueryPipelineInst *>(inst));
                     break;
                 }
                 case DerivedInstructionTag::ASSERT: [[fallthrough]];
@@ -929,6 +1278,7 @@ private:
                 case DerivedInstructionTag::THREAD_GROUP: [[fallthrough]];
                 case DerivedInstructionTag::RESOURCE_QUERY: [[fallthrough]];
                 case DerivedInstructionTag::RESOURCE_READ: [[fallthrough]];
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: [[fallthrough]];
                 case DerivedInstructionTag::LOAD: [[fallthrough]];
                 case DerivedInstructionTag::GEP: [[fallthrough]];
                 case DerivedInstructionTag::CLOCK: [[fallthrough]];
@@ -969,7 +1319,9 @@ private:
                     if (continue_inst->target_block() == stop) { return; }
                     if (!_loop_update_stack.empty() && continue_inst->target_block() == _loop_update_stack.back().update) {
                         auto context = _loop_update_stack.back();
-                        _emit_block(context.update, context.prepare);
+                        if (context.emit_update_slice) {
+                            _emit_block(context.update, context.prepare);
+                        }
                     }
                     _current_builder()->continue_();
                     return;
@@ -992,18 +1344,72 @@ private:
                     auto false_block = br->false_block();
                     auto merge = _find_conditional_branch_merge(br, stop);
                     if (!merge) {
-                        LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires structured control flow.");
+                        auto *function = br->parent_function();
+                        auto block_index = [&](const BasicBlock *needle) noexcept {
+                            auto index = size_t{0u};
+                            if (function != nullptr) {
+                                for (auto *candidate : function->basic_blocks()) {
+                                    if (candidate == needle) { return index; }
+                                    ++index;
+                                }
+                            }
+                            return std::numeric_limits<size_t>::max();
+                        };
+                        auto name = function == nullptr ?
+                                        luisa::optional<luisa::string_view>{} :
+                                        function->name();
+                        if (function != nullptr) {
+                            auto trace = false;
+                            if (auto *value = std::getenv(
+                                    "LUISA_XIR_TRACE_PASSES")) {
+                                trace = luisa::string_view{value} == "1";
+                            }
+                            auto block_count = size_t{0u};
+                            auto instruction_count = size_t{0u};
+                            for (auto *block : function->basic_blocks()) {
+                                ++block_count;
+                                for ([[maybe_unused]] auto *instruction :
+                                     block->instructions()) {
+                                    ++instruction_count;
+                                }
+                            }
+                            if (trace && block_count <= 128u &&
+                                instruction_count <= 4096u) {
+                                luisa::string dump;
+                                XIRDebugPrinter printer;
+                                printer.emit_function(dump, function);
+                                LUISA_VERBOSE_WITH_LOCATION(
+                                    "XIR-to-AST unstructured function "
+                                    "dump:\n{}",
+                                    dump);
+                            }
+                        }
+                        LUISA_ERROR_WITH_LOCATION(
+                            "XIR-to-AST requires structured control flow in "
+                            "function '{}' at conditional block {} "
+                            "(true={}, false={}, stop={}).",
+                            name ? *name : luisa::string_view{"<unnamed>"},
+                            block_index(br->parent_block()),
+                            block_index(true_block),
+                            block_index(false_block),
+                            block_index(stop));
                     }
                     auto merge_block = *merge;
                     auto ast_if = _current_builder()->if_(_expr(br->condition()));
                     if (true_block != merge_block) {
                         _current_builder()->with(ast_if->true_branch(), [&] {
-                            _with_value_map_checkpoint([&] { _emit_block(true_block, merge_block); });
+                            _with_value_map_checkpoint([&] {
+                                _emit_selection_path(
+                                    true_block, merge_block);
+                            });
                         });
                     }
                     if (false_block != merge_block) {
                         _current_builder()->with(ast_if->false_branch(), [&] {
-                            _with_value_map_checkpoint([&] { _emit_block(false_block, merge_block); });
+                            _with_value_map_checkpoint([&] {
+                                _emit_selection_path(
+                                    false_block, merge_block);
+                            });
                         });
                     }
                     if (merge_block != stop) { _emit_block(merge_block, stop); }
@@ -1013,10 +1419,18 @@ private:
                     auto if_inst = static_cast<const IfInst *>(inst);
                     auto ast_if = _current_builder()->if_(_expr(if_inst->condition()));
                     _current_builder()->with(ast_if->true_branch(), [&] {
-                        _with_value_map_checkpoint([&] { _emit_block(if_inst->true_block(), if_inst->merge_block()); });
+                        _with_value_map_checkpoint([&] {
+                            _emit_selection_path(
+                                if_inst->true_block(),
+                                if_inst->merge_block());
+                        });
                     });
                     _current_builder()->with(ast_if->false_branch(), [&] {
-                        _with_value_map_checkpoint([&] { _emit_block(if_inst->false_block(), if_inst->merge_block()); });
+                        _with_value_map_checkpoint([&] {
+                            _emit_selection_path(
+                                if_inst->false_block(),
+                                if_inst->merge_block());
+                        });
                     });
                     _emit_block(if_inst->merge_block(), stop);
                     return;
@@ -1024,9 +1438,15 @@ private:
                 case DerivedInstructionTag::SIMPLE_LOOP: {
                     auto loop = static_cast<const SimpleLoopInst *>(inst);
                     auto ast_loop = _current_builder()->loop_();
+                    _loop_update_stack.emplace_back(
+                        LoopUpdateContext{
+                            loop->body_block(),
+                            loop->body_block(),
+                            false});
                     _current_builder()->with(ast_loop->body(), [&] {
                         _with_value_map_checkpoint([&] { _emit_block(loop->body_block(), loop->merge_block()); });
                     });
+                    _loop_update_stack.pop_back();
                     _emit_block(loop->merge_block(), stop);
                     return;
                 }
@@ -1076,12 +1496,20 @@ private:
                             }();
                             auto ast_case = _current_builder()->case_(case_expr);
                             _current_builder()->with(ast_case->body(), [&] {
-                                _with_value_map_checkpoint([&] { _emit_block(sw->case_block(i), sw->merge_block()); });
+                                _with_value_map_checkpoint([&] {
+                                    _emit_selection_path(
+                                        sw->case_block(i),
+                                        sw->merge_block());
+                                });
                             });
                         }
                         auto ast_default = _current_builder()->default_();
                         _current_builder()->with(ast_default->body(), [&] {
-                            _with_value_map_checkpoint([&] { _emit_block(sw->default_block(), sw->merge_block()); });
+                            _with_value_map_checkpoint([&] {
+                                _emit_selection_path(
+                                    sw->default_block(),
+                                    sw->merge_block());
+                            });
                         });
                     });
                     _emit_block(sw->merge_block(), stop);
@@ -1091,14 +1519,24 @@ private:
                     auto loop = static_cast<const LoopInst *>(inst);
                     if (auto for_loop = _match_for_loop(loop)) {
                         auto ast_for = _current_builder()->for_(_expr(for_loop->variable), _expr(for_loop->condition), _expr(for_loop->step));
+                        _loop_update_stack.emplace_back(
+                            LoopUpdateContext{
+                                loop->prepare_block(),
+                                loop->update_block(),
+                                false});
                         _current_builder()->with(ast_for->body(), [&] {
                             _with_value_map_checkpoint([&] { _emit_block(loop->body_block(), loop->update_block()); });
                         });
+                        _loop_update_stack.pop_back();
                         _emit_block(loop->merge_block(), stop);
                         return;
                     }
                     auto ast_loop = _current_builder()->loop_();
-                    _loop_update_stack.emplace_back(LoopUpdateContext{loop->prepare_block(), loop->update_block()});
+                    _loop_update_stack.emplace_back(
+                        LoopUpdateContext{
+                            loop->prepare_block(),
+                            loop->update_block(),
+                            true});
                     _current_builder()->with(ast_loop->body(), [&] {
                         _with_value_map_checkpoint([&] {
                             _emit_loop_prepare_prefix(loop->prepare_block());
@@ -1142,18 +1580,29 @@ private:
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> _translate_callable(const FunctionDefinition &f) noexcept {
         LUISA_ASSERT(f.derived_function_tag() == DerivedFunctionTag::CALLABLE, "Expected callable function.");
-        if (auto iter = _function_map.find(&f); iter != _function_map.end()) { return iter->second; }
-        verify_xir_for_ast(
-            &f, "callable translation input",
-            {.require_no_phi = true,
-             .require_canonical_break_continue_targets = true});
+        if (auto iter = _function_map.find(&f); iter != _function_map.end()) {
+            if (auto statistics = _config.statistics) {
+                statistics->function_cache_hits++;
+            }
+            return iter->second;
+        }
+        _verify_translation_input(
+            f, "callable translation input");
         if (!_translating_functions.emplace(&f).second) {
             LUISA_ERROR_WITH_LOCATION("Recursive XIR callables are not supported by XIR-to-AST.");
         }
-        _value_map_stack.emplace_back(std::move(_value_map));
+        _value_map_stack.emplace_back(ValueMapFrame{
+            std::move(_value_map),
+            std::move(_value_map_insertion_log)});
         _value_map = {};
+        _value_map_insertion_log = {};
+        if (auto statistics = _config.statistics) {
+            statistics->function_translations++;
+        }
         auto builder = _translate(f);
-        _value_map = std::move(_value_map_stack.back());
+        _value_map = std::move(_value_map_stack.back().map);
+        _value_map_insertion_log =
+            std::move(_value_map_stack.back().insertion_log);
         _value_map_stack.pop_back();
         _function_map.emplace(&f, builder);
         _translating_functions.erase(&f);
@@ -1161,16 +1610,54 @@ private:
     }
 
 public:
-    explicit XIR2ASTContext(const XIR2ASTConfig &config) noexcept : _config{config} {}
+    explicit XIR2ASTContext(
+        const XIR2ASTConfig &config,
+        const Module *verified_module = nullptr) noexcept
+        : _config{config},
+          _verified_module{verified_module} {}
+
+    [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder>
+    translate_function(const FunctionDefinition &f) noexcept {
+        // A context may translate several roots from one immutable module.
+        // Per-root expression/CFG state must never cross that boundary; only
+        // completed ordinary callable builders in _function_map are shared.
+        LUISA_ASSERT(
+            _value_map_stack.empty() && _active_blocks.empty() &&
+                _loop_update_stack.empty() && _translating_functions.empty(),
+            "XIR-to-AST root translation started with live per-root state.");
+        _value_map.clear();
+        _value_map_insertion_log.clear();
+        if (auto iter = _function_map.find(&f);
+            iter != _function_map.end()) {
+            if (auto statistics = _config.statistics) {
+                statistics->function_cache_hits++;
+            }
+            return iter->second;
+        }
+        _verify_translation_input(f, "translation input");
+        if (!_translating_functions.emplace(&f).second) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Recursive XIR root functions are not supported by XIR-to-AST.");
+        }
+        if (auto statistics = _config.statistics) {
+            statistics->function_translations++;
+        }
+        auto builder = _translate(f);
+        _translating_functions.erase(&f);
+        auto [iter, inserted] = _function_map.emplace(&f, builder);
+        LUISA_ASSERT(
+            inserted || iter->second == builder,
+            "XIR-to-AST root cache changed during translation.");
+        LUISA_ASSERT(
+            _value_map_stack.empty() && _active_blocks.empty() &&
+                _loop_update_stack.empty() && _translating_functions.empty(),
+            "XIR-to-AST root translation leaked per-root state.");
+        return builder;
+    }
 
     void add_function(const FunctionDefinition &f) noexcept {
         LUISA_ASSERT(_builder == nullptr, "XIR2ASTContext currently accepts one function.");
-        verify_xir_for_ast(
-            &f, "translation input",
-            {.require_no_phi = true,
-             .require_canonical_break_continue_targets = true});
-        _builder = _translate(f);
-        _function_map.emplace(&f, _builder);
+        _builder = translate_function(f);
     }
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> finalize() noexcept {
@@ -1201,12 +1688,12 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     // full source-coroutine ownership belongs to compile_coroutine_pipeline.
     auto preserve_generated_coro_continuations = false;
     PassPipeline pipeline;
-    pipeline.add_fixed_point("phase-A", create_basic_optimization_pipeline(), 1u);
+    pipeline.add_sequence("phase-A", create_basic_optimization_pipeline());
     pipeline.add("inline-all", [](Module *m, PassReport &r) {
         auto i = inline_all_pass_run_on_module(m, &r);
-        return i.inlined_call_count > 0u;
+        return i.changed();
     });
-    pipeline.add_fixed_point("post-inline-cleanup", create_post_inline_cleanup_pipeline(), 1u);
+    pipeline.add_sequence("post-inline-cleanup", create_post_inline_cleanup_pipeline());
     pipeline.add("lower-ray-query-loop-to-loop", [](Module *m, PassReport &r) {
         auto i = lower_ray_query_loop_to_loop_pass_run_on_module(m, &r);
         if (!i.succeeded()) {
@@ -1217,16 +1704,6 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
         }
         return i.lowered_ray_query_loop_count > 0u;
     });
-    pipeline.add("lower-switch", [](Module *m, PassReport &r) {
-        auto i = lower_switch_pass_run_on_module(m, &r);
-        if (!i.succeeded()) {
-            LUISA_ERROR_WITH_LOCATION(
-                "XIR-to-AST normalization rejected {} structured switch(es); "
-                "the normalization pipeline cannot continue safely.",
-                i.rejected_switch_count);
-        }
-        return i.lowered_switch_count > 0u;
-    });
     pipeline.add("destructure-cfg", [](Module *m, PassReport &r) {
         auto i = destructure_cfg_pass_run_on_module(m, &r);
         if (i.error_count != 0u) {
@@ -1234,11 +1711,22 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
                 "XIR-to-AST destructuring failed (errors={}, leaked_blocks={}).",
                 i.error_count, i.leaked_block_count);
         }
-        return i.destructured_if_count > 0u ||
-               i.destructured_loop_count > 0u ||
-               i.destructured_simple_loop_count > 0u;
+        return i.changed();
     });
-    // Coroutine pipeline: runs only if module contains CoroSuspendInst.
+    // Structured constant branches become ordinary CFG only after
+    // destructuring. Canonicalize reachability at this exact boundary so the
+    // coroutine scope/token domain is derived from executable suspend edges,
+    // not from the original front-end statement set.
+    pipeline.add("coro-pre-distill-simplify-cfg", [](Module *m, PassReport &r) {
+        auto i = simplify_cfg_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    pipeline.add("coro-pre-distill-dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    // Coroutine pipeline: runs only for definitions that still carry a
+    // coroutine suspend/resume/terminate marker.
     // Must run after destructure_cfg (needs destructured CFG) but BEFORE
     // mem2reg/ssa-opt which may eliminate dead resume blocks.
     pipeline.add("coro-pipeline", [&preserve_generated_coro_continuations](Module *m, PassReport & /*r*/) {
@@ -1247,12 +1735,26 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
             if (auto *def = f->definition()) {
                 bool has_coro = false;
                 def->traverse_instructions([&](Instruction *inst) noexcept {
-                    if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
-                        has_coro = true;
+                    switch (inst->derived_instruction_tag()) {
+                        case DerivedInstructionTag::CORO_SUSPEND:
+                        case DerivedInstructionTag::CORO_RESUME:
+                        case DerivedInstructionTag::CORO_TERMINATE:
+                            has_coro = true;
+                            break;
+                        default: break;
                     }
                 });
                 if (!has_coro) { continue; }
                 auto cfg = coro_cfg_distill_pass_run_on_function(f);
+                if (!cfg.succeeded()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "XIR-to-AST coroutine CFG distillation rejected its input "
+                        "(structured={}, invalid_input={}, invalid_cfg={}); "
+                        "the pipeline cannot continue safely.",
+                        cfg.structured_cfg_error_count,
+                        cfg.invalid_input_error_count,
+                        cfg.invalid_cfg_error_count);
+                }
                 auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(m, cfg, nullptr);
                 if (!split.succeeded()) {
                     LUISA_ERROR_WITH_LOCATION(
@@ -1282,9 +1784,9 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     });
     pipeline.add("mem2reg", [](Module *m, PassReport &r) {
         auto i = mem2reg_pass_run_on_module(m, &r);
-        return i.promoted_alloca_count > 0u;
+        return i.changed();
     });
-    pipeline.add_fixed_point("ssa-opt", create_ssa_optimization_pipeline(), 1u);
+    pipeline.add_sequence("ssa-opt", create_ssa_optimization_pipeline());
     pipeline.add("unused-callable-removal", [&preserve_generated_coro_continuations](Module *m, PassReport &r) {
         if (preserve_generated_coro_continuations) {
             r.set("skipped_for_coro_continuations", 1u);
@@ -1295,14 +1797,29 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     });
     pipeline.add("simplify-cfg", [](Module *m, PassReport &r) {
         auto i = simplify_cfg_pass_run_on_module(m, &r);
-        return i.folded_constant_cond_br_count > 0u ||
-               i.threaded_empty_block_count > 0u ||
-               i.merged_straight_line_count > 0u ||
-               i.removed_unreachable_block_count > 0u;
+        return i.changed();
     });
     pipeline.add("reg2mem-pre", [](Module *m, PassReport &r) {
         auto i = reg2mem_pass_run_on_module(m, &r);
-        return i.lowered_phi_count > 0u;
+        return i.changed();
+    });
+    // Coroutine splitting can cut a reducible source loop at a suspend-scope
+    // boundary, leaving the source coroutine and one or more generated
+    // continuations with multi-entry cyclic SCCs. More generally, XIR-to-AST
+    // normalization accepts raw CFG, so make reducibility an explicit pipeline
+    // invariant before the strictly structural rewriter. The lowering is
+    // semantics-preserving and linear: incoming edges select their original
+    // target through one dispatcher instead of cloning any shader body.
+    pipeline.add("lower-irreducible-cfg", [](Module *m, PassReport &r) {
+        auto i = lower_irreducible_cfg_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "XIR-to-AST irreducible-CFG lowering failed "
+                "(remaining={}, errors={}).",
+                i.remaining_irreducible_region_count,
+                i.error_count);
+        }
+        return i.changed();
     });
     pipeline.add("restructure-cfg", [](Module *m, PassReport &r) {
         auto i = restructure_cfg_pass_run_on_module(m, &r);
@@ -1312,20 +1829,20 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
                 i.irreducible_region_count, i.unstructured_branch_count,
                 i.invalid_construct_count, i.iteration_limit_count);
         }
-        return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+        return i.changed();
     });
     pipeline.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        return i.changed();
     });
     pipeline.add("reg2mem-mid", [](Module *m, PassReport &r) {
         auto i = reg2mem_pass_run_on_module(m, &r);
-        return i.lowered_phi_count > 0u;
+        return i.changed();
     });
-    pipeline.add_fixed_point("post-restructure-cleanup", create_post_restructure_cleanup_pipeline(), 1u);
+    pipeline.add_sequence("post-restructure-cleanup", create_post_restructure_cleanup_pipeline());
     pipeline.add("reg2mem-post", [](Module *m, PassReport &r) {
         auto i = reg2mem_pass_run_on_module(m, &r);
-        return i.lowered_phi_count > 0u;
+        return i.changed();
     });
     pipeline.add("unused-callable-removal-final", [&preserve_generated_coro_continuations](Module *m, PassReport &r) {
         if (preserve_generated_coro_continuations) {
@@ -1357,6 +1874,81 @@ xir_to_ast_translate_continuation(const FunctionDefinition &function,
     XIR2ASTContext ctx{config};
     ctx.add_function(function);
     return ctx.finalize();
+}
+
+luisa::vector<luisa::shared_ptr<const ASTFunctionBuilder>>
+xir_to_ast_translate_continuations(
+    luisa::span<const FunctionDefinition *const> functions,
+    const XIR2ASTConfig &config) noexcept {
+    luisa::vector<luisa::shared_ptr<const ASTFunctionBuilder>> builders;
+    builders.reserve(functions.size());
+    LUISA_ASSERT(
+        !(config.verify_same_module_once &&
+          config.verification_transaction != nullptr),
+        "A continuation batch cannot independently verify a module while "
+        "also closing an enclosing verification transaction.");
+    if (functions.empty()) {
+        LUISA_ASSERT(
+            config.verification_transaction == nullptr,
+            "An enclosing verification transaction cannot be closed by an "
+            "empty continuation batch.");
+        return builders;
+    }
+
+    const Module *verified_module = nullptr;
+    for (auto *function : functions) {
+        LUISA_ASSERT(
+            function != nullptr &&
+                function->derived_function_tag() ==
+                    DerivedFunctionTag::CALLABLE,
+            "xir_to_ast_translate_continuations requires CallableFunction definitions.");
+    }
+    if (config.verify_same_module_once ||
+        config.verification_transaction != nullptr) {
+        verified_module =
+            config.verification_transaction == nullptr ?
+                functions.front()->parent_module() :
+                config.verification_transaction->module();
+        LUISA_ASSERT(
+            verified_module != nullptr,
+            "Whole-module XIR-to-AST verification requires owned functions.");
+        for (auto *function : functions) {
+            LUISA_ASSERT(
+                function->parent_module() == verified_module,
+                "Whole-module XIR-to-AST verification requires all roots to "
+                "belong to the same module.");
+        }
+        luisa::Clock verification_clock;
+        constexpr XIRVerificationOptions verification_options{
+            .require_no_phi = true,
+            .require_canonical_break_continue_targets = true};
+        if (config.verification_transaction == nullptr) {
+            verify_xir_for_ast(
+                verified_module, "continuation batch input",
+                verification_options);
+        } else {
+            auto verification =
+                config.verification_transaction->verify_output(
+                    verification_options);
+            require_xir_for_ast(
+                verification,
+                "continuation batch transaction output");
+        }
+        if (auto statistics = config.statistics) {
+            statistics->whole_module_verification_count++;
+            statistics->verification_milliseconds +=
+                verification_clock.toc();
+        }
+    }
+
+    // The verified-module capability never escapes this synchronous call.
+    // Translation is read-only, and every root/dependency is checked against
+    // the exact verified module before per-function verification is elided.
+    XIR2ASTContext ctx{config, verified_module};
+    for (auto *function : functions) {
+        builders.emplace_back(ctx.translate_function(*function));
+    }
+    return builders;
 }
 
 }// namespace luisa::compute::xir

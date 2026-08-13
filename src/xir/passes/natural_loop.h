@@ -8,6 +8,7 @@
 namespace luisa::compute::xir {
 
 class PhiInst;
+class ArithmeticInst;
 
 // A natural loop discovered on a plain (destructured) CFG: a header block
 // with one or more back-edges from blocks dominated by the header.
@@ -23,10 +24,13 @@ struct LUISA_XIR_API NaturalLoop {
     luisa::vector<BasicBlock *> body_blocks;
     // Blocks outside the loop that are successors of in-loop blocks.
     luisa::vector<BasicBlock *> exit_blocks;
+    // Unique executable exit edges (source in the loop, destination outside).
+    // Transforms that rewrite a header exit must require exactly one such edge,
+    // rather than merely one distinct exit block.
+    luisa::vector<std::pair<BasicBlock *, BasicBlock *>> exit_edges;
     luisa::vector<std::pair<BasicBlock *, BasicBlock *>> back_edges;
 
     [[nodiscard]] bool contains(BasicBlock *block) const noexcept;
-    [[nodiscard]] bool is_innermost() const noexcept;
 };
 
 // Discover all natural loops in a plain-CFG function definition. Loops are
@@ -42,7 +46,15 @@ struct LoopBoundsInfo {
     PhiInst *induction_phi{nullptr};
     Value *start_value{nullptr};
     Value *bound_value{nullptr};
+    ArithmeticInst *comparison_inst{nullptr};
     ArithmeticOp comparison{ArithmeticOp::BINARY_ADD};// actual comparison op found
+    BasicBlock *body_entry{nullptr};
+    BasicBlock *exit_block{nullptr};
+    bool continue_on_true{false};
+    bool induction_is_lhs{false};
+    // True exactly when the executable continuation predicate is equivalent
+    // to `induction_phi < bound_value`.
+    bool normalized_strict_less{false};
     int64_t stride{0};
     bool stride_is_constant{false};
     // Valid only when start, bound, and stride are all constants.

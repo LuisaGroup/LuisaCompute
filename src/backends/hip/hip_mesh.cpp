@@ -322,20 +322,13 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
             LUISA_CHECK_HIPRT(hiprtGetGeometryBuildTemporaryBufferSize(
                 _hiprt_ctx, build_input, build_options,
                 temporary_buffer_size));
-            hipDeviceptr_t temporary_buffer{};
-            if (temporary_buffer_size > 0u) {
-                LUISA_CHECK_HIP(hipMallocAsync(
-                    reinterpret_cast<void **>(&temporary_buffer),
-                    temporary_buffer_size, hip_stream));
-            }
+            auto temporary_buffer =
+                encoder.stream()->rt_scratch_buffer(
+                    temporary_buffer_size);
             LUISA_CHECK_HIPRT(hiprtBuildGeometry(
                 _hiprt_ctx, hiprtBuildOperationBuild,
                 build_input, build_options, temporary_buffer,
                 hip_stream, _geometry));
-            if (temporary_buffer) {
-                LUISA_CHECK_HIP(hipFreeAsync(
-                    reinterpret_cast<void *>(temporary_buffer), hip_stream));
-            }
             if (_option.allow_compaction) {
                 LUISA_CHECK_HIPRT(hiprtCompactGeometry(
                     _hiprt_ctx, hip_stream, _geometry, _geometry));
@@ -394,19 +387,13 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
 
         size_t temp_size = 0;
         LUISA_CHECK_HIPRT(hiprtGetGeometryBuildTemporaryBufferSize(_hiprt_ctx, build_input, build_options, temp_size));
-
-        hipDeviceptr_t temp_buffer{};
-        if (temp_size > 0) {
-            LUISA_CHECK_HIP(hipMallocAsync(reinterpret_cast<void **>(&temp_buffer), temp_size, hip_stream));
-        }
+        auto temp_buffer =
+            encoder.stream()->rt_scratch_buffer(temp_size);
 
         LUISA_CHECK_HIPRT(hiprtBuildGeometry(_hiprt_ctx, hiprtBuildOperationBuild,
                                              build_input, build_options,
                                              temp_buffer, hip_stream, _geometry));
 
-        if (temp_buffer) {
-            LUISA_CHECK_HIP(hipFreeAsync(reinterpret_cast<void *>(temp_buffer), hip_stream));
-        }
         if (_option.allow_compaction) {
             LUISA_CHECK_HIPRT(hiprtCompactGeometry(
                 _hiprt_ctx, hip_stream, _geometry, _geometry));

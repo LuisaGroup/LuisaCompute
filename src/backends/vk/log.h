@@ -4,15 +4,13 @@
 #include "VulkanTools.h"
 
 namespace lc::vk {
-#ifdef NDEBUG
-#define VK_CHECK_RESULT(f) static_cast<void>(f)
-#else
-#define VK_CHECK_RESULT(f)                                                                                    \
-    do {                                                                                                      \
-        VkResult res = (f);                                                                                   \
-        if (res != VK_SUCCESS) [[unlikely]] {                                                                 \
-            LUISA_ERROR("Fatal : VkResult is \"{}\" in {} at line {}", vks::tools::error_string(res), __FILE__, __LINE__); \
-        }                                                                                                     \
+#define VK_CHECK_RESULT(f)                                                              \
+    do {                                                                                \
+        const VkResult vk_check_result = (f);                                           \
+        if (vk_check_result != VK_SUCCESS) [[unlikely]] {                               \
+            LUISA_ERROR(                                                               \
+                "Fatal: Vulkan call '{}' returned \"{}\" in {} at line {}.",            \
+                #f, vks::tools::error_string(vk_check_result), __FILE__, __LINE__);      \
+        }                                                                               \
     } while (false)
-#endif
 }// namespace lc::vk

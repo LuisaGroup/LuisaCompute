@@ -153,6 +153,76 @@ void test_accel_visibility(Device &device) {
     run(updated_masks, updated_expected, {0x4u, 0x8u}, "TLAS update");
 }
 
+void test_accel_invisible_instance_padding(Device &device) {
+    auto stream = device.create_stream();
+
+    std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    std::array triangles{Triangle{0u, 1u, 2u}};
+
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+
+    // Adding instances that no ray can see is observationally equivalent to
+    // not adding them. Keep the visible instance away from either end of the
+    // array so the test also covers nonzero instance indices in a large TLAS.
+    constexpr auto instance_count = 1024u;
+    constexpr auto visible_instance = 8u;
+    auto baseline = device.create_accel();
+    baseline.emplace_back(mesh, make_float4x4(1.0f), 0x1u, false);
+    auto padded = device.create_accel();
+    for (auto i = 0u; i < instance_count; i++) {
+        auto visible = i == visible_instance;
+        padded.emplace_back(
+            mesh, make_float4x4(1.0f), visible ? 0x1u : 0u, false);
+    }
+
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << baseline.build()
+           << padded.build()
+           << synchronize();
+
+    Kernel1D trace = [](BufferUInt4 result, AccelVar accel) noexcept {
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f));
+        AccelTraceOptions options{.visibility_mask = 0x1u};
+        auto closest = accel.intersect(ray, options);
+        auto any = accel.intersect_any(ray, options);
+        auto committed = accel.traverse(ray, options)
+                             .on_surface_candidate([](SurfaceCandidate &candidate) noexcept {
+                                 candidate.commit();
+                             })
+                             .on_procedural_candidate([](ProceduralCandidate &) noexcept {})
+                             .trace();
+        result.write(0u, make_uint4(
+                             closest->inst, cast<uint>(any),
+                             committed->inst, committed->hit_type));
+    };
+    auto shader = device.compile(trace);
+    auto result = device.create_buffer<uint4>(1u);
+    auto run = [&](Accel &accel, uint expected_instance,
+                   luisa::string_view phase) {
+        std::array<uint4, 1u> host_result{};
+        stream << shader(result, accel).dispatch(1u)
+               << result.copy_to(luisa::span{host_result})
+               << synchronize();
+        auto expected = make_uint4(
+            expected_instance, 1u, expected_instance,
+            static_cast<uint>(HitType::Surface));
+        expect(static_cast<bool>(all(host_result[0] == expected)))
+            << luisa::format(
+                   "{} invisible-instance padding changed the visible hit: got {}, expected {}",
+                   phase, host_result[0], expected);
+    };
+    run(baseline, 0u, "baseline TLAS");
+    run(padded, visible_instance, "padded TLAS");
+}
+
 void test_accel_device_mutation(Device &device) {
     auto stream = device.create_stream();
 
@@ -372,12 +442,9 @@ void test_accel_opacity(Device &device) {
     auto mutate_shader = device.compile(mutate);
     auto results = device.create_buffer<uint4>(2u);
 
-    auto run = [&](uint expected_callback_count,
-                   luisa::string_view phase) {
-        std::array<uint4, 2u> host_results{};
-        stream << trace_shader(results, accel).dispatch(1u)
-               << results.copy_to(luisa::span{host_results})
-               << synchronize();
+    auto verify_results = [&](const std::array<uint4, 2u> &host_results,
+                              uint expected_callback_count,
+                              luisa::string_view phase) {
         for (auto query = 0u; query < 2u; query++) {
             auto result = host_results[query];
             auto query_name = query == 0u ? "closest" : "any";
@@ -395,26 +462,104 @@ void test_accel_opacity(Device &device) {
                                  phase, query_name, result.w, expected_callback_count);
         }
     };
+    auto run = [&](auto &target_accel,
+                   uint expected_callback_count,
+                   luisa::string_view phase) {
+        std::array<uint4, 2u> host_results{};
+        stream << trace_shader(results, target_accel).dispatch(1u)
+               << results.copy_to(luisa::span{host_results})
+               << synchronize();
+        verify_results(host_results, expected_callback_count, phase);
+    };
 
     // Opaque hits must commit in traversal and skip user filtering.
-    run(0u, "initial host opaque");
+    run(accel, 0u, "initial host opaque");
+
+    // Shader arguments are encoded when commands are submitted. Building a
+    // fresh accel and tracing it in the same stream must not depend on a
+    // pre-build instance-array pointer.
+    constexpr auto same_stream_visibility = 0x5au;
+    constexpr auto same_stream_user_id = 0x00c0ffeeu;
+    const auto same_stream_transform = make_float4x4(
+        float4{2.0f, 0.0f, 0.0f, 0.0f},
+        float4{0.0f, 3.0f, 0.0f, 0.0f},
+        float4{0.0f, 0.0f, 1.0f, 0.0f},
+        float4{0.0f, 0.0f, 0.0f, 1.0f});
+    auto same_stream_accel = device.create_accel();
+    same_stream_accel.emplace_back(
+        mesh, same_stream_transform,
+        same_stream_visibility, true,
+        same_stream_user_id);
+    Kernel1D inspect = [](
+                           BufferUInt2 metadata,
+                           BufferFloat4x4 transforms,
+                           AccelVar accel) noexcept {
+        metadata.write(
+            0u,
+            make_uint2(
+                accel.instance_visibility_mask(0u),
+                accel.instance_user_id(0u)));
+        transforms.write(
+            0u, accel.instance_transform(0u));
+    };
+    auto inspect_shader = device.compile(inspect);
+    auto metadata = device.create_buffer<uint2>(1u);
+    auto transforms =
+        device.create_buffer<float4x4>(1u);
+    std::array<uint4, 2u> same_stream_results{};
+    std::array<uint2, 1u> same_stream_metadata{};
+    std::array<float4x4, 1u> same_stream_transforms{};
+    stream << same_stream_accel.build()
+           << trace_shader(
+                  results, same_stream_accel)
+                  .dispatch(1u)
+           << inspect_shader(
+                  metadata, transforms,
+                  same_stream_accel)
+                  .dispatch(1u)
+           << results.copy_to(luisa::span{same_stream_results})
+           << metadata.copy_to(
+                  luisa::span{same_stream_metadata})
+           << transforms.copy_to(
+                  luisa::span{same_stream_transforms})
+           << synchronize();
+    verify_results(
+        same_stream_results, 0u, "same-stream host opaque build");
+    expect(static_cast<bool>(
+        all(
+            same_stream_metadata[0] ==
+            make_uint2(
+                same_stream_visibility,
+                same_stream_user_id))))
+        << luisa::format(
+               "same-stream accel metadata view is stale: got {}",
+               same_stream_metadata[0]);
+    for (auto column = 0u; column < 4u; column++) {
+        expect(static_cast<bool>(
+            all(
+                same_stream_transforms[0][column] ==
+                same_stream_transform[column])))
+            << luisa::format(
+                   "same-stream accel transform column {} is stale",
+                   column);
+    }
 
     accel.set_opaque_on_update(0u, false);
     stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(1u, "host non-opaque update");
+    run(accel, 1u, "host non-opaque update");
 
     accel.set_opaque_on_update(0u, true);
     stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(0u, "host opaque update");
+    run(accel, 0u, "host opaque update");
 
     // Device-side mutation must use the same opacity bit as host updates.
     stream << mutate_shader(accel, false).dispatch(1u)
            << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(1u, "device non-opaque update");
+    run(accel, 1u, "device non-opaque update");
 
     stream << mutate_shader(accel, true).dispatch(1u)
            << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(0u, "device opaque update");
+    run(accel, 0u, "device opaque update");
 }
 
 int main(int argc, char *argv[]) {
@@ -423,6 +568,7 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     test_accel_visibility(dc->device);
+    test_accel_invisible_instance_padding(dc->device);
     test_accel_device_mutation(dc->device);
     test_accel_opacity(dc->device);
 }

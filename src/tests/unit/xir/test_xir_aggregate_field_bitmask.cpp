@@ -6,13 +6,24 @@
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
 
 #include <utility>
+#include <limits>
 
+using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::xir;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
 int main() {
+
+    "bitmask_span_coordinates_do_not_truncate_at_uint32"_test = [] {
+        auto above_u32 =
+            static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 17u;
+        AggregateFieldBitmask::ConstBitSpan span{
+            nullptr, above_u32, above_u32 + 9u};
+        expect(span.offset() == above_u32);
+        expect(span.size() == above_u32 + 9u);
+    };
 
     "bitmask_exact_bucket_span"_test = [] {
         AggregateFieldBitmask mask{Type::array(Type::of<int>(), 64u)};
@@ -104,5 +115,40 @@ int main() {
         AggregateFieldBitmask move_assigned{type};
         move_assigned = std::move(copy_assigned);
         expect(move_assigned == source);
+    };
+
+    "bitmask_runtime_index_marks_only_the_selected_subaggregate_union"_test = [] {
+        auto *pair = Type::structure(
+            {Type::of<int>(), Type::of<float>()});
+        auto *pairs = Type::array(pair, 3u);
+        auto *outer = Type::structure({pairs, Type::of<uint>()});
+        AggregateFieldBitmask mask{outer};
+        luisa::vector<luisa::optional<size_t>> pattern{
+            size_t{0u}, luisa::nullopt, size_t{1u}};
+
+        expect(mask.mark_access_pattern(pattern));
+        expect(mask.access(0u, 0u, 0u).none());
+        expect(mask.access(0u, 1u, 0u).none());
+        expect(mask.access(0u, 2u, 0u).none());
+        expect(mask.access(0u, 0u, 1u).all());
+        expect(mask.access(0u, 1u, 1u).all());
+        expect(mask.access(0u, 2u, 1u).all());
+        expect(mask.access(1u).none());
+    };
+
+    "bitmask_invalid_runtime_structure_index_is_atomic"_test = [] {
+        auto *type = Type::structure(
+            {Type::of<int>(), Type::of<float>()});
+        AggregateFieldBitmask mask{type};
+        mask.access(1u).set();
+        auto before = mask;
+        luisa::vector<luisa::optional<size_t>> dynamic_structure{
+            luisa::nullopt};
+        expect(!mask.mark_access_pattern(dynamic_structure));
+        expect(mask == before);
+        luisa::vector<luisa::optional<size_t>> out_of_range{
+            size_t{2u}};
+        expect(!mask.mark_access_pattern(out_of_range));
+        expect(mask == before);
     };
 }

@@ -2440,22 +2440,22 @@ __device__ void lc_synchronize_block() noexcept {
 // === Cluster Launch Control (CUDA Blackwell SM 10.0+) ===
 
 // Initialize mbarrier with arrival count
-__device__ inline void lc_mbarrier_init(uint64_t *bar, uint32_t count) noexcept {
+__device__ inline void lc_mbarrier_init(lc_ulong *bar, lc_uint count) noexcept {
     asm("mbarrier.init.shared.b64 [%0], %1;"
         :: "l"(bar), "r"(count));
 }
 
 // Arrive on mbarrier with expected transaction count
 __device__ inline void lc_mbarrier_arrive_expect_tx(
-    uint64_t *bar, uint32_t tx_bytes) noexcept {
+    lc_ulong *bar, lc_uint tx_bytes) noexcept {
     asm("mbarrier.arrive.expect_tx.shared.b64 _, [%0], %1;"
         :: "l"(bar), "r"(tx_bytes));
 }
 
 // Try-wait on mbarrier with parity
 __device__ inline bool lc_mbarrier_try_wait_parity(
-    uint64_t *bar, uint32_t phase) noexcept {
-    uint32_t result;
+    lc_ulong *bar, lc_uint phase) noexcept {
+    lc_uint result;
     asm("mbarrier.try_wait.parity.shared.b64 %0, [%1], %2;"
         : "=r"(result) : "l"(bar), "r"(phase));
     return result != 0;
@@ -2472,39 +2472,39 @@ __device__ inline void lc_fence_proxy_async_release() noexcept {
 }
 
 // Try cancel — single thread block via invoke_one
-__device__ inline void lc_clc_try_cancel(uint4 *result, uint64_t *bar) noexcept {
+__device__ inline void lc_clc_try_cancel(lc_uint4 *result, lc_ulong *bar) noexcept {
     asm("clusterlaunchcontrol.try_cancel.shared.b64 [%0], [%1];"
         :: "l"(result), "l"(bar));
 }
 
 // Try cancel — multicast (cluster-wide)
-__device__ inline void lc_clc_try_cancel_multicast(uint4 *result, uint64_t *bar) noexcept {
+__device__ inline void lc_clc_try_cancel_multicast(lc_uint4 *result, lc_ulong *bar) noexcept {
     asm("clusterlaunchcontrol.try_cancel.multicast.shared.b64 [%0], [%1];"
         :: "l"(result), "l"(bar));
 }
 
 // Query — is canceled
-__device__ inline bool lc_clc_query_is_canceled(uint4 result) noexcept {
-    uint32_t r;
+__device__ inline bool lc_clc_query_is_canceled(lc_uint4 result) noexcept {
+    lc_uint r;
     asm("clusterlaunchcontrol.query_cancel.is_canceled.b32 %0, [%1];"
         : "=r"(r) : "l"(&result));
     return r != 0;
 }
 
 // Query — get first ctaid x/y/z
-__device__ inline int lc_clc_query_get_ctaid_x(uint4 result) noexcept {
+__device__ inline int lc_clc_query_get_ctaid_x(lc_uint4 result) noexcept {
     int bx;
     asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_x.s32 %0, [%1];"
         : "=r"(bx) : "l"(&result));
     return bx;
 }
-__device__ inline int lc_clc_query_get_ctaid_y(uint4 result) noexcept {
+__device__ inline int lc_clc_query_get_ctaid_y(lc_uint4 result) noexcept {
     int by;
     asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_y.s32 %0, [%1];"
         : "=r"(by) : "l"(&result));
     return by;
 }
-__device__ inline int lc_clc_query_get_ctaid_z(uint4 result) noexcept {
+__device__ inline int lc_clc_query_get_ctaid_z(lc_uint4 result) noexcept {
     int bz;
     asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_z.s32 %0, [%1];"
         : "=r"(bz) : "l"(&result));
@@ -2512,15 +2512,45 @@ __device__ inline int lc_clc_query_get_ctaid_z(uint4 result) noexcept {
 }
 
 // Async copy wrappers (optional thin wrappers for NVRTC compatibility)
+extern "C" __device__ lc_uint __nvvm_get_smem_pointer(void *);
+
 __device__ inline void lc_pipeline_memcpy_async(
     void *dst, const void *src, size_t size) noexcept {
-    __pipeline_memcpy_async(dst, src, size);
+    auto shared_dst = __nvvm_get_smem_pointer(dst);
+    switch (size) {
+        case 4u:
+            asm volatile("cp.async.ca.shared.global [%0], [%1], 4;"
+                         :: "r"(shared_dst), "l"(src)
+                         : "memory");
+            return;
+        case 8u:
+            asm volatile("cp.async.ca.shared.global [%0], [%1], 8;"
+                         :: "r"(shared_dst), "l"(src)
+                         : "memory");
+            return;
+        case 16u:
+            asm volatile("cp.async.cg.shared.global [%0], [%1], 16;"
+                         :: "r"(shared_dst), "l"(src)
+                         : "memory");
+            return;
+        default: lc_unreachable(__FILE__, __LINE__);
+    }
 }
 __device__ inline void lc_pipeline_commit() noexcept {
-    __pipeline_commit();
+    asm volatile("cp.async.commit_group;" ::: "memory");
 }
-__device__ inline void lc_pipeline_wait_prior(uint32_t n) noexcept {
-    __pipeline_wait_prior(n);
+__device__ inline void lc_pipeline_wait_prior(lc_uint n) noexcept {
+    switch (n) {
+        case 0u: asm volatile("cp.async.wait_group 0;" ::: "memory"); return;
+        case 1u: asm volatile("cp.async.wait_group 1;" ::: "memory"); return;
+        case 2u: asm volatile("cp.async.wait_group 2;" ::: "memory"); return;
+        case 3u: asm volatile("cp.async.wait_group 3;" ::: "memory"); return;
+        case 4u: asm volatile("cp.async.wait_group 4;" ::: "memory"); return;
+        case 5u: asm volatile("cp.async.wait_group 5;" ::: "memory"); return;
+        case 6u: asm volatile("cp.async.wait_group 6;" ::: "memory"); return;
+        case 7u: asm volatile("cp.async.wait_group 7;" ::: "memory"); return;
+        default: asm volatile("cp.async.wait_group 8;" ::: "memory"); return;
+    }
 }
 
 #endif

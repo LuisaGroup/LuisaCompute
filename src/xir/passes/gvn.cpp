@@ -18,6 +18,7 @@
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
+#include "coro_semantic_graph.h"
 #include "helpers.h"
 
 namespace luisa::compute::xir {
@@ -81,6 +82,8 @@ struct GVNState {
     luisa::unordered_map<uint64_t, luisa::vector<GVNLeader>> hash_to_leaders;
     uint64_t next_vn = 1;
     const DomTree *dom_tree = nullptr;
+    const CoroSemanticGraph *coro_graph = nullptr;
+    size_t rejected_cross_suspend_count = 0u;
 
     [[nodiscard]] uint64_t get_vn(Value *value) noexcept {
         if (value == nullptr) return 0;
@@ -104,9 +107,26 @@ struct GVNState {
         auto it = hash_to_leaders.find(hash);
         if (it == hash_to_leaders.end()) return nullptr;
         for (auto &leader : it->second) {
-            if (dom_tree->dominates(leader.block, block) && is_structurally_equal(leader.inst, inst, *this)) {
-                return leader.inst;
+            auto dominates = coro_graph != nullptr ?
+                                 coro_graph->dominates(leader.block, block) :
+                                 dom_tree->dominates(leader.block, block);
+            if (!dominates ||
+                !is_structurally_equal(leader.inst, inst, *this)) {
+                continue;
             }
+            // Dominance proves semantic availability, but it does not model
+            // the storage cost of a coroutine boundary. Replacing `inst` by a
+            // leader on the other side of a suspend would create a new
+            // cross-continuation use and force the leader into the frame.
+            // Same-block leaders are always earlier in instruction order and
+            // re-execute on every visit, even when the block is in a cycle.
+            if (coro_graph != nullptr && leader.block != block &&
+                coro_graph->may_cross_suspend_between(
+                    leader.block, block)) {
+                ++rejected_cross_suspend_count;
+                continue;
+            }
+            return leader.inst;
         }
         return nullptr;
     }
@@ -121,8 +141,9 @@ struct GVNState {
         case DerivedInstructionTag::ARITHMETIC:
         case DerivedInstructionTag::CAST:
         case DerivedInstructionTag::GEP:
-        case DerivedInstructionTag::RESOURCE_QUERY:
             return true;
+        case DerivedInstructionTag::RESOURCE_QUERY:
+            return get_memory_info(inst).is_safe_to_value_number();
         case DerivedInstructionTag::CALL: {
             // Only value-number calls that are guaranteed pure.
             // Without function attribute analysis, conservatively
@@ -175,13 +196,19 @@ struct GVNState {
         case DerivedInstructionTag::RESOURCE_QUERY: {
             auto rq_a = static_cast<ResourceQueryInst *>(a);
             auto rq_b = static_cast<ResourceQueryInst *>(b);
-            if (rq_a->op() != rq_b->op()) return false;
+            if (rq_a->op() != rq_b->op() ||
+                rq_a->bindless_access() != rq_b->bindless_access()) {
+                return false;
+            }
             break;
         }
         case DerivedInstructionTag::RESOURCE_READ: {
             auto rr_a = static_cast<ResourceReadInst *>(a);
             auto rr_b = static_cast<ResourceReadInst *>(b);
-            if (rr_a->op() != rr_b->op()) return false;
+            if (rr_a->op() != rr_b->op() ||
+                rr_a->bindless_access() != rr_b->bindless_access()) {
+                return false;
+            }
             break;
         }
         case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: {
@@ -236,6 +263,8 @@ struct GVNState {
             auto rq = static_cast<ResourceQueryInst *>(inst);
             auto op = rq->op();
             h = luisa::hash64(&op, sizeof(op), h);
+            auto access = rq->bindless_access().encoded();
+            h = luisa::hash64(&access, sizeof(access), h);
             auto vns = state.get_operand_vns(inst);
             h = hash_operand_vns(vns, false, h);
             break;
@@ -250,9 +279,16 @@ static void process_instruction_for_gvn(Instruction *inst, BasicBlock *block, GV
     if (!can_value_number(inst)) return;
     auto hash = compute_instruction_hash(inst, state);
     if (auto leader = state.find_leader(hash, block, inst)) {
-        inst->replace_all_uses_with(leader);
+        // A shared instruction is not a unique metadata owner. Keep either
+        // instruction distinct when the duplicate or the leader is annotated:
+        // otherwise the leader's source identity would also be assigned to an
+        // occurrence that originally had no such metadata.
+        if (inst->metadata_list().empty() &&
+            leader->metadata_list().empty()) {
+            inst->replace_all_uses_with(leader);
+            ++info.replaced_inst_count;
+        }
         state.value_to_vn[inst] = state.value_to_vn[leader];
-        ++info.replaced_inst_count;
     } else {
         auto vn = state.next_vn++;
         state.record_leader(hash, vn, inst, block);
@@ -275,9 +311,24 @@ static void gvn_pass_on_function(Function *function, GVNInfo &info) noexcept {
     auto def = static_cast<FunctionDefinition *>(function);
     if (def->body_block() == nullptr) return;
     auto dom_tree = compute_dom_tree(function);
+    CoroSemanticGraph coro_graph{def};
     GVNState state;
     state.dom_tree = &dom_tree;
-    def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
+    state.coro_graph = coro_graph.valid() ? &coro_graph : nullptr;
+    luisa::vector<BasicBlock *> blocks;
+    if (coro_graph.valid()) {
+        blocks.reserve(coro_graph.block_count());
+        for (size_t i = 0u; i < coro_graph.block_count(); ++i) {
+            blocks.emplace_back(coro_graph.block(i));
+        }
+    } else {
+        def->traverse_basic_blocks(
+            BasicBlockTraversalOrder::REVERSE_POST_ORDER,
+            [&](BasicBlock *block) noexcept {
+                blocks.emplace_back(block);
+            });
+    }
+    for (auto *block : blocks) {
         luisa::vector<Instruction *> insts;
         block->traverse_instructions([&](Instruction *inst) noexcept {
             if (!inst->isa<PhiInst>()) insts.push_back(inst);
@@ -286,28 +337,41 @@ static void gvn_pass_on_function(Function *function, GVNInfo &info) noexcept {
             if (inst->isa<PhiInst>()) continue;
             process_instruction_for_gvn(inst, block, state, info);
         }
-    });
+    }
+    info.rejected_cross_suspend_count +=
+        state.rejected_cross_suspend_count;
     luisa::vector<Instruction *> to_remove;
-    def->traverse_instructions([&](Instruction *inst) noexcept {
-        if (inst->type() != nullptr && inst->use_list().empty() && !inst->is_terminator() && is_safe_to_remove(inst)) {
-            to_remove.push_back(inst);
-        }
-    });
-    for (auto inst : to_remove) {
+    for (auto *block : blocks) {
+        block->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->type() != nullptr && inst->use_list().empty() &&
+                !inst->is_terminator() && is_safe_to_remove(inst)) {
+                to_remove.push_back(inst);
+            }
+        });
+    }
+    for (auto *inst : to_remove) {
         inst->remove_self();
         ++info.removed_inst_count;
     }
     // Coalesce phis that GVN's value-numbering reduced to a single source
-    // (typical after mem2reg + GVN finds equivalent incoming values).
+    // (typical after mem2reg + GVN finds equivalent incoming values). The
+    // generic helper currently accepts an ordinary-CFG DomTree, so resume
+    // components outside that tree are deliberately left to post-split
+    // cleanup rather than applying an invalid dominance proof.
     bool changed;
     do {
         changed = false;
         luisa::vector<PhiInst *> phis;
-        def->traverse_instructions([&](Instruction *inst) noexcept {
-            if (inst->isa<PhiInst>()) phis.push_back(static_cast<PhiInst *>(inst));
-        });
-        for (auto phi : phis) {
-            if (simplify_phi_instruction(phi, &dom_tree)) {
+        for (auto *block : blocks) {
+            block->traverse_instructions([&](Instruction *inst) noexcept {
+                if (inst->isa<PhiInst>()) {
+                    phis.push_back(static_cast<PhiInst *>(inst));
+                }
+            });
+        }
+        for (auto *phi : phis) {
+            if (dom_tree.contains(phi->parent_block()) &&
+                simplify_phi_instruction(phi, &dom_tree)) {
                 ++info.removed_inst_count;
                 changed = true;
             }
@@ -325,15 +389,20 @@ GVNInfo gvn_pass_run_on_function(Function *function) noexcept {
 
 GVNInfo gvn_pass_run_on_module(Module *module, PassReport *report) noexcept {
     GVNInfo info;
-    if (module == nullptr) return info;
-    for (auto f : module->function_list()) {
-        auto sub = gvn_pass_run_on_function(f);
-        info.replaced_inst_count += sub.replaced_inst_count;
-        info.removed_inst_count += sub.removed_inst_count;
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            auto sub = gvn_pass_run_on_function(f);
+            info.replaced_inst_count += sub.replaced_inst_count;
+            info.removed_inst_count += sub.removed_inst_count;
+            info.rejected_cross_suspend_count +=
+                sub.rejected_cross_suspend_count;
+        }
     }
     if (report != nullptr) {
         report->set("replaced_inst", info.replaced_inst_count);
         report->set("removed_inst", info.removed_inst_count);
+        report->set("rejected_cross_suspend",
+                    info.rejected_cross_suspend_count);
     }
     return info;
 }

@@ -30,10 +30,17 @@ public:
         const xir::CallableFunction *callable{nullptr};// pointer to the continuation callable
         luisa::vector<size_t> input_fields;
         luisa::vector<size_t> output_fields;
+        // Physical frame fields in live_begin(scope). Unlike input_fields,
+        // this includes dormant state that passes through this continuation
+        // and is first consumed by a later one. A compacting scheduler must
+        // preserve this complete token-indexed payload while relocating a
+        // queued frame.
+        luisa::vector<size_t> relocation_fields;
         luisa::vector<size_t> targets;
 
         [[nodiscard]] auto input_field_span() const noexcept { return luisa::span{input_fields}; }
         [[nodiscard]] auto output_field_span() const noexcept { return luisa::span{output_fields}; }
+        [[nodiscard]] auto relocation_field_span() const noexcept { return luisa::span{relocation_fields}; }
         [[nodiscard]] auto target_span() const noexcept { return luisa::span{targets}; }
     };
 

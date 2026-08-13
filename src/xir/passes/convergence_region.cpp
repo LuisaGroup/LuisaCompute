@@ -150,8 +150,12 @@ const ConvergenceRegion *ConvergenceRegionInfo::find_region(BasicBlock *bb) cons
 ConvergenceRegionInfo compute_convergence_regions(
     Function *function, const DomTree &dom) noexcept {
 
+    if (function == nullptr) { return {}; }
     auto *def = function->definition();
-    if (def == nullptr) { return {}; }
+    if (def == nullptr || def->body_block() == nullptr ||
+        !dom.contains(def->body_block())) {
+        return {};
+    }
 
     auto loop_headers = collect_loop_headers(def, dom);
     auto flat = collect_flat_constructs(def, dom);

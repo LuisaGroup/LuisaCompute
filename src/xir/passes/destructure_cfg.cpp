@@ -9,6 +9,7 @@
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
@@ -17,16 +18,31 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/verifier.h>
 
 namespace luisa::compute::xir {
 
 namespace detail {
 
-[[nodiscard]] static DestructureCFGInfo preflight_destructure_input(Function *function) noexcept {
+[[nodiscard]] static DestructureCFGInfo preflight_destructure_input(
+    Function *function,
+    const XIRPassVerificationTransaction *
+        verification_transaction) noexcept {
     DestructureCFGInfo info;
     if (function == nullptr) { return info; }
     auto *def = function->definition();
     if (def == nullptr) { return info; }
+    if (def->body_block() == nullptr) {
+        // A declaration-like callable owns no CFG and is therefore outside
+        // the transform domain, not malformed input. Kernels cannot be
+        // declarations, so a bodyless kernel remains invalid.
+        info.error_count =
+            function->derived_function_tag() ==
+                    DerivedFunctionTag::CALLABLE ?
+                0u :
+                1u;
+        return info;
+    }
     auto valid_block = [&](BasicBlock *block) noexcept {
         return block != nullptr && block->parent_function() == function;
     };
@@ -84,9 +100,22 @@ namespace detail {
                 info.error_count += malformed ? 1u : 0u;
                 break;
             }
+            case DerivedInstructionTag::SWITCH: {
+                auto *switch_inst = static_cast<SwitchInst *>(term);
+                auto malformed =
+                    switch_inst->value() == nullptr ||
+                    !valid_block(switch_inst->default_block()) ||
+                    !valid_block(switch_inst->merge_block());
+                for (auto i = 0u;
+                     i < switch_inst->case_count() && !malformed; i++) {
+                    malformed = !valid_block(switch_inst->case_block(i));
+                }
+                info.error_count += malformed ? 1u : 0u;
+                break;
+            }
             case DerivedInstructionTag::BRANCH:
             case DerivedInstructionTag::CONDITIONAL_BRANCH:
-            case DerivedInstructionTag::SWITCH:
+            case DerivedInstructionTag::INDEXED_BRANCH:
             case DerivedInstructionTag::AUTODIFF_SCOPE:
             case DerivedInstructionTag::UNREACHABLE:
             case DerivedInstructionTag::RASTER_DISCARD:
@@ -96,25 +125,27 @@ namespace detail {
             default: info.error_count += 1u; break;
         }
     }
+    // The local checks above classify unsupported structured constructs and
+    // preserve the dedicated leaked-block counter. If they pass, use the
+    // canonical verifier as the single source of truth for the remaining IR
+    // invariants (notably selector type, canonical/unique case labels, raw-CFG
+    // targets, use-def linkage, and SSA dominance). Collapse all verifier
+    // diagnostics to one rejected input so this preflight remains a
+    // function-level transaction predicate rather than a diagnostic counter.
+    if (info.error_count == 0u &&
+        xir_pass_has_standalone_verification(
+            verification_transaction, function)) {
+        ++info.boundary_verifier_count;
+        auto verification = xir_verify_function(
+            function, {.require_terminated_blocks = false});
+        if (!verification.succeeded()) {
+            LUISA_WARNING_WITH_LOCATION(
+                "destructure_cfg preflight verifier rejected the input: {}",
+                verification.errors.front().message);
+            ++info.error_count;
+        }
+    }
     return info;
-}
-
-static void terminate_leaked_blocks(Function *function, DestructureCFGInfo &info) noexcept {
-    if (function == nullptr) { return; }
-    auto def = function->definition();
-    if (def == nullptr) { return; }
-    luisa::vector<BasicBlock *> leaked;
-    for (auto *block : def->basic_blocks()) {
-        if (block == nullptr) { continue; }
-        if (!block->is_terminated()) { leaked.emplace_back(block); }
-    }
-    if (leaked.empty()) { return; }
-    XIRBuilder b;
-    for (auto block : leaked) {
-        b.set_insertion_point(block);
-        b.unreachable_("destructure_cfg: unterminated block patched with unreachable");
-        info.leaked_block_count += 1;
-    }
 }
 
 static void spill_early_returns(Function *function, DestructureCFGInfo &info) noexcept {
@@ -188,7 +219,7 @@ static size_t verify_terminators(Function *function) noexcept {
         switch (term->derived_instruction_tag()) {
             case DerivedInstructionTag::BRANCH:
             case DerivedInstructionTag::CONDITIONAL_BRANCH:
-            case DerivedInstructionTag::SWITCH:
+            case DerivedInstructionTag::INDEXED_BRANCH:
             case DerivedInstructionTag::AUTODIFF_SCOPE:
             case DerivedInstructionTag::UNREACHABLE:
             case DerivedInstructionTag::RASTER_DISCARD:
@@ -222,6 +253,7 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
     if (def == nullptr) { return; }
     for (;;) {
         luisa::vector<IfInst *> if_insts;
+        luisa::vector<SwitchInst *> switch_insts;
         luisa::vector<LoopInst *> loop_insts;
         luisa::vector<SimpleLoopInst *> simple_loop_insts;
         luisa::vector<BreakInst *> break_insts;
@@ -234,6 +266,11 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
                 case DerivedInstructionTag::IF:
                     if_insts.emplace_back(static_cast<IfInst *>(term));
                     break;
+                case DerivedInstructionTag::SWITCH: {
+                    auto *switch_inst = static_cast<SwitchInst *>(term);
+                    switch_insts.emplace_back(switch_inst);
+                    break;
+                }
                 case DerivedInstructionTag::LOOP:
                     loop_insts.emplace_back(static_cast<LoopInst *>(term));
                     break;
@@ -249,7 +286,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
                 default: break;
             }
         }
-        if (if_insts.empty() && loop_insts.empty() && simple_loop_insts.empty() &&
+        if (if_insts.empty() && switch_insts.empty() &&
+            loop_insts.empty() && simple_loop_insts.empty() &&
             break_insts.empty() && continue_insts.empty()) {
             break;
         }
@@ -263,9 +301,12 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
                 LUISA_WARNING_WITH_LOCATION("destructure_cfg: skipping break with null parent/target.");
                 continue;
             }
-            brk->remove_self();
+            auto removed = brk->remove_self();
             b.set_insertion_point(block);
-            b.br(target);
+            auto *branch = b.br(target);
+            for (auto *metadata : removed->metadata_list()) {
+                branch->metadata_list().push_front(metadata->clone());
+            }
             ++info.destructured_break_count;
             any_destructured = true;
         }
@@ -277,9 +318,12 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
                 LUISA_WARNING_WITH_LOCATION("destructure_cfg: skipping continue with null parent/target.");
                 continue;
             }
-            cont->remove_self();
+            auto removed = cont->remove_self();
             b.set_insertion_point(block);
-            b.br(target);
+            auto *branch = b.br(target);
+            for (auto *metadata : removed->metadata_list()) {
+                branch->metadata_list().push_front(metadata->clone());
+            }
             ++info.destructured_continue_count;
             any_destructured = true;
         }
@@ -293,10 +337,42 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
                 LUISA_WARNING_WITH_LOCATION("destructure_cfg: skipping IfInst with null operand.");
                 continue;
             }
-            if_inst->remove_self();
+            auto removed = if_inst->remove_self();
             b.set_insertion_point(block);
-            b.cond_br(cond, true_block, false_block);
+            auto *branch = b.cond_br(cond, true_block, false_block);
+            for (auto *metadata : removed->metadata_list()) {
+                branch->metadata_list().push_front(metadata->clone());
+            }
             ++info.destructured_if_count;
+            any_destructured = true;
+        }
+        for (auto *switch_inst : switch_insts) {
+            if (switch_inst == nullptr) { continue; }
+            auto *block = switch_inst->parent_block();
+            auto *value = switch_inst->value();
+            auto *default_block = switch_inst->default_block();
+            luisa::vector<std::pair<
+                IndexedBranchTerminatorInstruction::case_value_type,
+                BasicBlock *>>
+                cases;
+            cases.reserve(switch_inst->case_count());
+            for (auto i = 0u; i < switch_inst->case_count(); i++) {
+                cases.emplace_back(
+                    switch_inst->case_value(i),
+                    switch_inst->case_block(i));
+            }
+            auto removed = switch_inst->remove_self();
+            b.set_insertion_point(block);
+            auto *indexed_branch = b.indexed_branch(value);
+            indexed_branch->set_default_block(default_block);
+            for (auto [case_value, case_block] : cases) {
+                indexed_branch->add_case(case_value, case_block);
+            }
+            for (auto *metadata : removed->metadata_list()) {
+                indexed_branch->metadata_list().push_front(
+                    metadata->clone());
+            }
+            ++info.destructured_switch_count;
             any_destructured = true;
         }
         for (auto loop_inst : loop_insts) {
@@ -307,9 +383,12 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
                 LUISA_WARNING_WITH_LOCATION("destructure_cfg: skipping LoopInst with null parent/prepare block.");
                 continue;
             }
-            loop_inst->remove_self();
+            auto removed = loop_inst->remove_self();
             b.set_insertion_point(block);
-            b.br(prepare);
+            auto *branch = b.br(prepare);
+            for (auto *metadata : removed->metadata_list()) {
+                branch->metadata_list().push_front(metadata->clone());
+            }
             ++info.destructured_loop_count;
             any_destructured = true;
         }
@@ -321,9 +400,12 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
                 LUISA_WARNING_WITH_LOCATION("destructure_cfg: skipping SimpleLoopInst with null parent/body block.");
                 continue;
             }
-            sl->remove_self();
+            auto removed = sl->remove_self();
             b.set_insertion_point(block);
-            b.br(body);
+            auto *branch = b.br(body);
+            for (auto *metadata : removed->metadata_list()) {
+                branch->metadata_list().push_front(metadata->clone());
+            }
             ++info.destructured_simple_loop_count;
             any_destructured = true;
         }
@@ -331,21 +413,28 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
         // warning. Do not spin forever or claim they were transformed.
         if (!any_destructured) { break; }
     }
-    terminate_leaked_blocks(function, info);
     spill_early_returns(function, info);
     info.error_count += verify_terminators(function);
 }
 
 }// namespace detail
 
-DestructureCFGInfo destructure_cfg_pass_run_on_function(Function *function) noexcept {
+DestructureCFGInfo destructure_cfg_pass_run_on_function(
+    Function *function,
+    const DestructureCFGOptions &options) noexcept {
     DestructureCFGInfo info;
     if (function == nullptr) { return info; }
-    info.error_count = detail::preflight_destructure_input(function).error_count;
-    if (info.error_count != 0u) {
+    auto preflight = detail::preflight_destructure_input(
+        function, options.verification_transaction);
+    info.error_count = preflight.error_count;
+    info.leaked_block_count = preflight.leaked_block_count;
+    info.boundary_verifier_count =
+        preflight.boundary_verifier_count;
+    if (!info.succeeded()) {
         LUISA_WARNING_WITH_LOCATION(
-            "destructure_cfg: rejecting function with {} malformed or unsupported construct(s).",
-            info.error_count);
+            "destructure_cfg: rejecting function with {} malformed or "
+            "unsupported construct(s) and {} unterminated owned block(s).",
+            info.error_count, info.leaked_block_count);
         return info;
     }
     detail::destructure_in_function(function, info);
@@ -354,37 +443,55 @@ DestructureCFGInfo destructure_cfg_pass_run_on_function(Function *function) noex
 
 DestructureCFGInfo destructure_cfg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     DestructureCFGInfo info;
-    if (module == nullptr) { return info; }
-    for (auto *f : module->function_list()) {
-        info.error_count += detail::preflight_destructure_input(f).error_count;
+    auto set_report = [&]() noexcept {
+        if (report == nullptr) { return; }
+        report->set("destructured_if", info.destructured_if_count);
+        report->set("destructured_switch",
+                    info.destructured_switch_count);
+        report->set("destructured_loop", info.destructured_loop_count);
+        report->set("destructured_simple_loop",
+                    info.destructured_simple_loop_count);
+        report->set("destructured_break", info.destructured_break_count);
+        report->set("destructured_continue",
+                    info.destructured_continue_count);
+        report->set("destructured_early_return",
+                    info.destructured_early_return_count);
+        report->set("leaked_block", info.leaked_block_count);
+        report->set("error", info.error_count);
+        report->set(
+            "boundary_verifier",
+            info.boundary_verifier_count);
+    };
+    if (module == nullptr) {
+        set_report();
+        return info;
     }
-    if (info.error_count != 0u) {
+    for (auto *f : module->function_list()) {
+        auto preflight = detail::preflight_destructure_input(
+            f, nullptr);
+        info.error_count += preflight.error_count;
+        info.leaked_block_count += preflight.leaked_block_count;
+        info.boundary_verifier_count +=
+            preflight.boundary_verifier_count;
+    }
+    if (!info.succeeded()) {
         LUISA_WARNING_WITH_LOCATION(
-            "destructure_cfg: rejecting module with {} malformed or unsupported construct(s).",
-            info.error_count);
-        if (report != nullptr) {
-            report->set("error", info.error_count);
-        }
+            "destructure_cfg: rejecting module with {} malformed or unsupported "
+            "construct(s) and {} unterminated owned block(s).",
+            info.error_count, info.leaked_block_count);
+        set_report();
         return info;
     }
     for (auto f : module->function_list()) {
         detail::destructure_in_function(f, info);
     }
-    if (report != nullptr) {
-        report->set("destructured_if", info.destructured_if_count);
-        report->set("destructured_loop", info.destructured_loop_count);
-        report->set("destructured_simple_loop", info.destructured_simple_loop_count);
-        report->set("destructured_break", info.destructured_break_count);
-        report->set("destructured_continue", info.destructured_continue_count);
-        report->set("destructured_early_return", info.destructured_early_return_count);
-        report->set("leaked_block", info.leaked_block_count);
-        report->set("error", info.error_count);
-    }
+    set_report();
     return info;
 }
 
 DestructureCFGInfo destructure_cfg_pass_preflight_function(Function *function) noexcept {
-    return detail::preflight_destructure_input(function);
+    return detail::preflight_destructure_input(
+        function, nullptr);
 }
 
 }// namespace luisa::compute::xir

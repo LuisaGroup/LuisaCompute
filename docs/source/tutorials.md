@@ -67,7 +67,7 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
     // Step 1: Create context and device
     Context context{argv[0]};
-    Device device = context.create_device("cuda");  // or "cpu", "metal", "dx"
+    Device device = context.create_device("cuda");  // or "metal", "dx", "vk", "hip", "fallback"
     Stream stream = device.create_stream();
     
     // Step 2: Create an image to render to

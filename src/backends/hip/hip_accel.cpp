@@ -156,19 +156,13 @@ void HIPAccel::_build(HIPCommandEncoder &encoder) noexcept {
 
     size_t temp_size = 0;
     LUISA_CHECK_HIPRT(hiprtGetSceneBuildTemporaryBufferSize(_hiprt_ctx, build_input, build_options, temp_size));
-
-    hipDeviceptr_t temp_buffer{};
-    if (temp_size > 0) {
-        LUISA_CHECK_HIP(hipMallocAsync(reinterpret_cast<void **>(&temp_buffer), temp_size, hip_stream));
-    }
+    auto temp_buffer =
+        encoder.stream()->rt_scratch_buffer(temp_size);
 
     LUISA_CHECK_HIPRT(hiprtBuildScene(_hiprt_ctx, hiprtBuildOperationBuild,
                                       build_input, build_options,
                                       temp_buffer, hip_stream, _scene));
 
-    if (temp_buffer) {
-        LUISA_CHECK_HIP(hipFreeAsync(reinterpret_cast<void *>(temp_buffer), hip_stream));
-    }
     if (_option.allow_compaction) {
         LUISA_CHECK_HIPRT(hiprtCompactScene(
             _hiprt_ctx, hip_stream, _scene, _scene));

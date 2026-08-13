@@ -1,52 +1,28 @@
 ---
 name: ir_pipeline
-description: Legacy IR and XIR compiler pipeline, AST lowering, SSA IR, and optimization passes.
+description: XIR compiler pipeline, AST lowering, SSA representation, and optimization passes.
 ---
 
-# IR and XIR Pipeline
+# XIR Pipeline
 
-Two IRs, both starting from AST (`src/ast/`), feeding into backend codegen:
-
-| | IR (Legacy) | XIR (Preferred) |
-|---|---|---|
-| **Location** | `src/ir/`, `include/luisa/ir/` | `src/xir/`, `include/luisa/xir/` |
-| **Impl** | Rust (`src/rust/`) | Pure C++ |
-| **Serialization** | `ast2json` → Rust IR | `xir2json`/`json2xir` (yyjson) |
-| **SSA** | Yes | Yes (mem2reg) |
-| **Status** | Maintained (compat) | Active development |
-| **Basic Blocks** | Yes | Yes |
+XIR is the native C++ intermediate representation between the AST and backend
+code generation. Its implementation lives in `src/xir/`, with public headers
+under `include/luisa/xir/`.
 
 ## Pipeline Flow
 
 ```
-DSL Tracing (src/dsl/) → AST (src/ast/)
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-              XIR (ast2xir)       IR (ast2ir → JSON → Rust FFI)
-                    │                   │
-                    └─────────┬─────────┘
-                              ▼
-                    Backend Codegen (src/backends/<name>/)
-                              │
-                              ▼
-                    GPU Execution (src/runtime/)
+DSL Tracing (src/dsl/) → AST (src/ast/) → XIR (ast2xir)
+                                              │
+                                              ▼
+                              Optimization / lowering passes
+                                              │
+                                              ▼
+                              Backend codegen or xir2ast
+                                              │
+                                              ▼
+                                      Runtime execution
 ```
-
-**Rust IR path**: `src/rust/luisa_compute_ir/` does autodiff, DCE, SSA, vectorize.
-**XIR path**: Pure C++ with `ast2xir` translator, `xir2ast` round-trip, and optimization passes.
-
-## AST → IR Translation (Legacy)
-
-**File**: `src/ir/ast2ir.cpp`
-
-```
-AST Function → to_json() → JSON string → Rust FFI → CArc<KernelModule/CallableModule>
-```
-
-FFI: `luisa_compute_ir_ast_json_to_ir_kernel()`, `..._callable()`, `..._type()`.
-
-Key IR classes (Rust, via C FFI): `KernelModule`, `CallableModule`, `Node`, `Instruction` (Local, Call, Phi, Loop, If, Switch, RayQuery, AdScope), `Type`, `BasicBlock`.
 
 ## AST → XIR Translation
 
@@ -169,7 +145,6 @@ EXCHANGE, COMPARE_EXCHANGE, FETCH_ADD/SUB/AND/OR/XOR/MIN/MAX
 | Post-Dominance Tree | `post_dom_tree.cpp` | Post-dominance analysis |
 | Early Return Elim | `early_return_elimination.cpp` | Early returns → structured control flow |
 | Lower Break/Continue | `lower_break_continue.cpp` | Lower break/continue to explicit branches |
-| Lower Switch | `lower_switch.cpp` | Switch → structured if/branch ladder |
 | Lower Ray Query Loop | `lower_ray_query_loop.cpp` | Ray query loop lowering |
 | Lower Ray Query Loop → Loop | `lower_ray_query_loop_to_loop.cpp` | Convert ray query loops to plain loops |
 | Destructure CFG | `destructure_cfg.cpp` | Flatten structured CFG to basic branches |
@@ -213,7 +188,6 @@ EXCHANGE, COMPARE_EXCHANGE, FETCH_ADD/SUB/AND/OR/XOR/MIN/MAX
 | IndVar Simplify | `indvar_simplify.cpp` | Simplify induction variables |
 | LICM | `licm.cpp` | Loop-invariant code motion |
 | Loop Rotation | `loop_rotation.cpp` | Rotate loops for simpler CFG |
-| Loop Unroll | `loop_unroll.cpp` | Loop unrolling |
 
 ### Memory / Local
 | Pass | File | Purpose |
@@ -250,16 +224,23 @@ IfInst:   condition, true_block, false_block, merge_block
 LoopInst: prepare_block, body_block, update_block, merge_block
 ```
 
-Design: maintains SSA, enables structured transforms, maps well to GPU shaders, supports PHI nodes at merges. Passes such as `lower_break_continue`, `lower_switch`, `destructure_cfg`, and `restructure_cfg` convert between structured and branch-oriented forms as backends require.
+Design: maintains SSA, enables structured transforms, maps well to GPU shaders,
+and supports PHI nodes at merges. `SwitchInst` is a first-class structured
+terminator. Only the explicit `destructure_cfg` boundary maps it to raw
+`IndexedBranchInst`; `restructure_cfg` reconstructs the switch and its merge.
+There is no generic switch-lowering or XIR loop-unroll pass. Autodiff's private
+bounded semantic expansion and SPIRV-Tools loop unrolling are separate
+mechanisms with separate contracts.
 
 ## Metadata
 
 **Headers**: `include/luisa/xir/metadata.h` plus `include/luisa/xir/metadata/{name,location,comment,curve_basis}.h`. Types: `NAME`, `LOCATION`, `COMMENT`, `CURVE_BASIS`. Applied via `MetadataListMixin`.
 
-## JSON Serialization / Translators
+## Serialization / Translators
 
-- **IR (legacy)**: `ast2json` → Rust IR, C API `luisa_compute_ir_ast_json_to_ir_*`
-- **XIR**: `src/xir/translators/xir2json.cpp`, `json2xir.cpp`, `xir2ast.cpp`, `xir2text.cpp` — yyjson-based module serialization and AST round-tripping, useful for cross-process transport and debugging
+`src/xir/translators/xir2json.cpp`, `json2xir.cpp`, `xir2ast.cpp`, and
+`xir2text.cpp` provide yyjson-based module serialization, text dumps, and AST
+round-tripping for transport, backend handoff, and debugging.
 
 ## Key Design Patterns
 

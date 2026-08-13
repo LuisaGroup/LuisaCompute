@@ -221,17 +221,11 @@ void HIPCurve::build(HIPCommandEncoder &encoder, CurveBuildCommand *command) noe
         size_t temp_size = 0u;
         LUISA_CHECK_HIPRT(hiprtGetGeometryBuildTemporaryBufferSize(
             _hiprt_ctx, build_input, build_options, temp_size));
-        hipDeviceptr_t temp_buffer{};
-        if (temp_size != 0u) {
-            LUISA_CHECK_HIP(hipMallocAsync(reinterpret_cast<void **>(&temp_buffer),
-                                           temp_size, hip_stream));
-        }
+        auto temp_buffer =
+            encoder.stream()->rt_scratch_buffer(temp_size);
         LUISA_CHECK_HIPRT(hiprtBuildGeometry(
             _hiprt_ctx, hiprtBuildOperationBuild, build_input, build_options,
             temp_buffer, hip_stream, _geometry));
-        if (temp_buffer) {
-            LUISA_CHECK_HIP(hipFreeAsync(reinterpret_cast<void *>(temp_buffer), hip_stream));
-        }
         if (_option.allow_compaction) {
             // HIPRT destroys the input geometry as part of compaction and permits
             // in-place replacement of the handle.

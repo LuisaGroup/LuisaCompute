@@ -22,11 +22,15 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     LUISA_ASSERT(true_target != nullptr && false_target != nullptr && merge_target != nullptr,
                  "SPIR-V If region contains an unbound physical block.");
 
-    auto merge = std::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
-    merge->reserveOperands(2u);
-    merge->addIdOperand(merge_target->getId());
-    merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
-    _builder.getBuildPoint()->addInstruction(std::move(merge));
+    if (region.emit_selection_merge) {
+        auto merge = std::make_unique<spv::Instruction>(
+            spv::Op::OpSelectionMerge);
+        merge->reserveOperands(2u);
+        merge->addIdOperand(merge_target->getId());
+        merge->addImmediateOperand(
+            spv::SelectionControlMask::MaskNone);
+        _builder.getBuildPoint()->addInstruction(std::move(merge));
+    }
     _builder.createConditionalBranch(condition, true_target, false_target);
 }
 

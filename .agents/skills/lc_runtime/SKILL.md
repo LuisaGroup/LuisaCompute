@@ -24,7 +24,7 @@ Device device = ctx.create_default_device();
 
 ```cpp
 #include <luisa/runtime/device.h>
-Device device = ctx.create_device("cuda");  // or "dx", "cpu", "metal"
+Device device = ctx.create_device("cuda");  // or "dx", "metal", "vk", "hip", "fallback"
 
 DeviceConfig cfg{.device_index = 0, .inqueue_buffer_limit = false};
 Device device = ctx.create_device("cuda", &cfg, true/*validation*/);

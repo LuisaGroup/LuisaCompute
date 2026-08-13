@@ -48,6 +48,10 @@ public:
     [[nodiscard]] Constant *create_constant(const Type *type, const void *data = nullptr) noexcept;
     [[nodiscard]] Constant *create_constant_zero(const Type *type) noexcept;
     [[nodiscard]] Constant *create_constant_one(const Type *type) noexcept;
+    // Removes an interned constant only when it belongs to this module and has
+    // no users. This is primarily used to roll back constants created by a
+    // failed transactional transform.
+    [[nodiscard]] bool remove_constant_if_unused(Constant *constant) noexcept;
     [[nodiscard]] auto &constant_list() noexcept { return _constant_list; }
     [[nodiscard]] auto &constant_list() const noexcept { return _constant_list; }
 

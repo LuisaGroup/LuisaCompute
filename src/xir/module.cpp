@@ -4,6 +4,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace luisa::compute::xir {
@@ -59,6 +60,24 @@ Constant *Module::create_constant_zero(const Type *type) noexcept {
 Constant *Module::create_constant_one(const Type *type) noexcept {
     Constant temp{this, type, Constant::ctor_tag_one{}};
     return _get_or_create_constant(temp);
+}
+
+bool Module::remove_constant_if_unused(Constant *constant) noexcept {
+    if (constant == nullptr || constant->parent_module() != this ||
+        !constant->is_linked() || !constant->use_list().empty()) {
+        return false;
+    }
+    auto bucket = _hash_to_constants.find(constant->hash());
+    LUISA_ASSERT(bucket != _hash_to_constants.end(),
+                 "Interned constant is missing from its hash bucket.");
+    auto &constants = bucket->second;
+    auto iter = std::find(constants.begin(), constants.end(), constant);
+    LUISA_ASSERT(iter != constants.end(),
+                 "Interned constant is missing from its hash bucket.");
+    constants.erase(iter);
+    if (constants.empty()) { _hash_to_constants.erase(bucket); }
+    constant->remove_self();
+    return true;
 }
 
 Undefined *Module::create_undefined(const Type *type) noexcept {

@@ -1199,6 +1199,97 @@ LUISA_GENERIC_RAY_QUERY_WRAPPER(terminate)(void *state_ptr) {
 
 #if HIPRT_RTIP >= 31 && (defined(__gfx1200__) || defined(__gfx1201__))
 
+// HIPRT's hardware stack wrapper maps both the normal terminal sentinel and
+// the overflow sentinel to InvalidValue. Direct traversal must distinguish
+// them: the GFX12 short stack is circular, so treating overflow as completion
+// silently drops still-unvisited BVH nodes. Preserve the raw overflow state
+// and let the entry point restart with HIPRT's complete private stack.
+class LuisaHwBvhStack : public hiprt::HwBvhStack {
+  public:
+    explicit __device__ LuisaHwBvhStack(uint32_t *lds_base)
+        : hiprt::HwBvhStack{lds_base} {}
+
+    __device__ uint32_t pop() {
+        const uint32_t all_invalid[8] = {
+            hiprt::InvalidValue, hiprt::InvalidValue,
+            hiprt::InvalidValue, hiprt::InvalidValue,
+            hiprt::InvalidValue, hiprt::InvalidValue,
+            hiprt::InvalidValue, hiprt::InvalidValue};
+        return pushChildrenAndPopClosest(hiprt::InvalidValue, all_invalid);
+    }
+
+    __device__ uint32_t pushChildrenAndPopClosest(
+        uint32_t last_node, const uint32_t children[8]) {
+        hiprt::__luisa_uint8_v child_vector;
+        for (auto i = 0u; i < 8u; i++) {
+            child_vector[i] = children[i];
+        }
+        auto raw = hiprt::luisa_amdgcn_ds_bvh_stack_push8_pop1_rtn(
+            m_addr, last_node, child_vector);
+        m_addr = raw[1];
+        auto node = raw[0];
+        if (node == hiprt::InvalidValue) {
+            _overflowed = true;
+            return hiprt::InvalidValue;
+        }
+        return node == HwStackTerminalNode ? hiprt::InvalidValue : node;
+    }
+
+    [[nodiscard]] __device__ bool overflowed() const {
+        return _overflowed;
+    }
+
+  private:
+    bool _overflowed{false};
+};
+
+// HIPRT's public private stack has 64 entries. The overflow path is cold and
+// out of line, so use a larger exact stack there instead of risking a second
+// silent truncation on deliberately adversarial, highly overlapping BVHs.
+// The 256-entry bound is four times HIPRT's public private-stack capacity and
+// covers seven deferred siblings across 36 balanced BVH8 levels. If an
+// adversarial hierarchy exceeds it, trap instead of returning a wrong hit.
+class LuisaCompleteTraversalStack {
+  public:
+    static constexpr auto capacity = 256u;
+
+    __device__ LuisaCompleteTraversalStack() = default;
+
+    __device__ uint32_t pop() {
+        return _entries[--_top];
+    }
+
+    __device__ void push(uint32_t node) {
+        if (_top >= capacity) {
+            __builtin_trap();
+        }
+        _entries[_top++] = node;
+    }
+
+    [[nodiscard]] __device__ bool empty() const {
+        return _top == 0u;
+    }
+
+    [[nodiscard]] __device__ uint32_t vacancy() const {
+        auto remaining = capacity - _top;
+        // HIPRT turns an insufficient-vacancy report into a traversal state
+        // that the one-shot API exposes as a miss. Fail explicitly instead:
+        // a complete BVH8 expansion needs at most seven deferred children.
+        if (remaining < 7u) {
+            __builtin_trap();
+        }
+        return remaining;
+    }
+
+    __device__ void reset() {
+        _top = 0u;
+    }
+
+  private:
+    uint32_t _entries[capacity];
+    uint32_t _top{0u};
+};
+
 // ---------------------------------------------------------------------------
 // Flat traversal functions — no templates, no virtual dispatch.
 // These replace HIPRT's deep template hierarchy to minimize ISA instruction
@@ -1260,7 +1351,7 @@ luisa_hiprt_resolve_static_motion_geometry(
     return child.m_geometry;
 }
 
-static __device__ void luisa_hiprt_hw_trace_closest(
+static __device__ bool luisa_hiprt_hw_trace_closest(
     hiprtScene scene_handle, const LuisaAccelInstance *instances,
     const hiprtRay &in_ray, uint32_t mask, uint32_t hint, hiprtHit &result) {
     using namespace hiprt;
@@ -1277,7 +1368,7 @@ static __device__ void luisa_hiprt_hw_trace_closest(
 
     hiprtRay ray = in_ray;
 
-    HwBvhStack stack(luisa_hiprt_shared_stack_cache);
+    LuisaHwBvhStack stack(luisa_hiprt_shared_stack_cache);
 
     uint32_t nodeIndex = RootIndex;
     result = hiprtHit();
@@ -1433,11 +1524,13 @@ static __device__ void luisa_hiprt_hw_trace_closest(
             nodeIndex = stack.pop();
         }
     }
+    return stack.overflowed();
 }
 
 static __device__ bool luisa_hiprt_hw_trace_any(
     hiprtScene scene_handle, const LuisaAccelInstance *instances,
-    const hiprtRay &in_ray, uint32_t mask, uint32_t hint) {
+    const hiprtRay &in_ray, uint32_t mask, uint32_t hint,
+    bool &overflowed) {
     using namespace hiprt;
 
     const uint4 descriptor = luisa_hiprt_pack_descriptor(hint & 0x3);
@@ -1452,7 +1545,7 @@ static __device__ bool luisa_hiprt_hw_trace_any(
 
     hiprtRay ray = in_ray;
 
-    HwBvhStack stack(luisa_hiprt_shared_stack_cache);
+    LuisaHwBvhStack stack(luisa_hiprt_shared_stack_cache);
 
     uint32_t nodeIndex = RootIndex;
 
@@ -1530,6 +1623,7 @@ static __device__ bool luisa_hiprt_hw_trace_any(
             candidate.primID = customNodes[getNodeAddr(nodeIndex)].m_primIndex;
             if (luisa_intersect_surface(instances, ray, 0.0f, candidate) &&
                 ray.minT <= candidate.t && candidate.t <= ray.maxT) {
+                overflowed = stack.overflowed();
                 return true;
             }
             nodeIndex = stack.pop();
@@ -1557,11 +1651,17 @@ static __device__ bool luisa_hiprt_hw_trace_any(
 
                 {
                     float t = __int_as_float(triResult[0]);
-                    if (ray.minT <= t && t <= ray.maxT) return true;
+                    if (ray.minT <= t && t <= ray.maxT) {
+                        overflowed = stack.overflowed();
+                        return true;
+                    }
                 }
                 {
                     float t = __int_as_float(triResult[4]);
-                    if (ray.minT <= t && t <= ray.maxT) return true;
+                    if (ray.minT <= t && t <= ray.maxT) {
+                        overflowed = stack.overflowed();
+                        return true;
+                    }
                 }
 
                 uint32_t status = triResult[8] & 3;
@@ -1587,12 +1687,45 @@ static __device__ bool luisa_hiprt_hw_trace_any(
         }
     }
 
+    overflowed = stack.overflowed();
     return false;
 }
 
 // ---------------------------------------------------------------------------
 // Wrapper entry points calling flat traversal functions above
 // ---------------------------------------------------------------------------
+
+static __device__ __attribute__((noinline)) hiprtHit
+luisa_hiprt_stack_overflow_fallback_closest(
+    hiprtScene scene, const LuisaAccelInstance *instances,
+    const hiprtRay &ray, uint32_t mask) {
+    LuisaTracePayload payload{instances, 0.0f};
+    LuisaCompleteTraversalStack stack;
+    hiprtPrivateInstanceStack instance_stack;
+    hiprtSceneTraversalClosestCustomStack<
+        LuisaCompleteTraversalStack, hiprtPrivateInstanceStack>
+        traversal(scene, ray, stack, instance_stack,
+                  static_cast<hiprtRayMask>(mask),
+                  hiprtTraversalHintReflectionRays,
+                  &payload, nullptr, 0u, 0.0f);
+    return traversal.getNextHit();
+}
+
+static __device__ __attribute__((noinline)) bool
+luisa_hiprt_stack_overflow_fallback_any(
+    hiprtScene scene, const LuisaAccelInstance *instances,
+    const hiprtRay &ray, uint32_t mask) {
+    LuisaTracePayload payload{instances, 0.0f};
+    LuisaCompleteTraversalStack stack;
+    hiprtPrivateInstanceStack instance_stack;
+    hiprtSceneTraversalAnyHitCustomStack<
+        LuisaCompleteTraversalStack, hiprtPrivateInstanceStack>
+        traversal(scene, ray, stack, instance_stack,
+                  static_cast<hiprtRayMask>(mask),
+                  hiprtTraversalHintShadowRays,
+                  &payload, nullptr, 0u, 0.0f);
+    return traversal.getNextHit().hasHit();
+}
 
 extern "C" __device__ void luisa_hiprt_trace_closest_hwstack(
     uint64_t scene_handle,
@@ -1616,9 +1749,14 @@ extern "C" __device__ void luisa_hiprt_trace_closest_hwstack(
     hiprtScene scene = reinterpret_cast<hiprtScene>(scene_handle);
 
     hiprtHit hit;
-    luisa_hiprt_hw_trace_closest(
+    auto overflowed = luisa_hiprt_hw_trace_closest(
         scene, reinterpret_cast<const LuisaAccelInstance *>(instance_data),
         ray, mask, static_cast<uint32_t>(hiprtTraversalHintReflectionRays), hit);
+    if (overflowed) {
+        hit = luisa_hiprt_stack_overflow_fallback_closest(
+            scene, reinterpret_cast<const LuisaAccelInstance *>(instance_data),
+            ray, mask);
+    }
 
     if (hit.hasHit()) {
         *out_inst_id = static_cast<int32_t>(hit.instanceID);
@@ -1651,9 +1789,18 @@ extern "C" __device__ bool luisa_hiprt_trace_any_hwstack(
 
     hiprtScene scene = reinterpret_cast<hiprtScene>(scene_handle);
 
-    return luisa_hiprt_hw_trace_any(
-        scene, reinterpret_cast<const LuisaAccelInstance *>(instance_data),
-        ray, mask, static_cast<uint32_t>(hiprtTraversalHintShadowRays));
+    auto instances =
+        reinterpret_cast<const LuisaAccelInstance *>(instance_data);
+    auto overflowed = false;
+    auto hit = luisa_hiprt_hw_trace_any(
+        scene, instances,
+        ray, mask, static_cast<uint32_t>(hiprtTraversalHintShadowRays),
+        overflowed);
+    if (!hit && overflowed) {
+        hit = luisa_hiprt_stack_overflow_fallback_any(
+            scene, instances, ray, mask);
+    }
+    return hit;
 }
 
 // ---------------------------------------------------------------------------
@@ -1719,8 +1866,8 @@ struct LuisaRayQueryStateHw {
     // address while in_leaf is true. The latter avoids encode/decode work on
     // every filtered triangle callback.
     uint32_t node_or_leaf_addr;
-    uint32_t hw_addr;
-    uint32_t hw_saved_addr;
+    uint32_t stack_top;
+    uint32_t instance_stack_bottom;
     uint32_t flags;// bit 0: any-hit mode (terminate on first commit)
 
     // Persist the active traversal pointers directly. Reloading SceneHeader
@@ -1751,18 +1898,24 @@ struct LuisaRayQueryStateHw {
     // Avoiding reconstruction reduces proceed() code size and scratch spills.
     hiprtRay ray;
     hiprtRay original_ray;
+
+    // Ray queries may suspend after exposing a candidate, so their traversal
+    // stack must persist in the query object. A complete software stack avoids
+    // the circular GFX12 short-stack overflow and, unlike restarting after an
+    // overflow, never repeats already-observed callbacks.
+    uint32_t stack[hiprtPrivateStack::StackSize];
 };
 
 // gfx12 codegen reserves exactly this amount in private memory. An exact check
 // is intentional: the state is address-taken across out-of-line traversal
 // calls, so hidden ABI growth must fail the build instead of overflowing the
 // codegen allocation (and unused headroom would become per-thread scratch).
-static_assert(sizeof(LuisaRayQueryStateHw) == 192,
+static_assert(sizeof(LuisaRayQueryStateHw) == 448,
               "LuisaRayQueryStateHw size no longer matches the codegen alloca");
 static_assert(alignof(LuisaRayQueryStateHw) == 16);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, node_or_leaf_addr) == 0);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, hw_addr) == 4);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, hw_saved_addr) == 8);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, stack_top) == 4);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, instance_stack_bottom) == 8);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, flags) == 12);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tlas_box_nodes) == 16);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, instance_nodes) == 24);
@@ -1783,6 +1936,7 @@ static_assert(__builtin_offsetof(LuisaRayQueryStateHw, committed_hit) == 92);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, pending) == 112);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, ray) == 128);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, original_ray) == 160);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, stack) == 192);
 
 using LuisaRayQueryPrivatePtr = void __attribute__((address_space(5))) *;
 using LuisaRayQueryStateHwPrivatePtr = LuisaRayQueryStateHw __attribute__((address_space(5))) *;
@@ -1791,6 +1945,55 @@ static __device__ __forceinline__ LuisaRayQueryStateHwPrivatePtr
 luisa_ray_query_hw_state(LuisaRayQueryPrivatePtr state_ptr) {
     return reinterpret_cast<LuisaRayQueryStateHwPrivatePtr>(state_ptr);
 }
+
+class LuisaRayQuerySoftwareStack {
+  public:
+    explicit __device__ LuisaRayQuerySoftwareStack(
+        LuisaRayQueryStateHwPrivatePtr state)
+        : _state{state} {}
+
+    __device__ uint32_t pop() {
+        auto bottom = insideInstance() ?
+                          _state->instance_stack_bottom :
+                          0u;
+        if (_state->stack_top == bottom) {
+            return hiprt::InvalidValue;
+        }
+        return _state->stack[--_state->stack_top];
+    }
+
+    __device__ uint32_t pushChildrenAndPopClosest(
+        uint32_t, const uint32_t children[8]) {
+        for (auto i = 8u; i-- > 1u;) {
+            if (children[i] != hiprt::InvalidValue) {
+                if (_state->stack_top >=
+                    hiprtPrivateStack::StackSize) {
+                    __builtin_trap();
+                }
+                _state->stack[_state->stack_top++] = children[i];
+            }
+        }
+        return children[0] != hiprt::InvalidValue ?
+                   children[0] :
+                   pop();
+    }
+
+    __device__ void enterInstance() {
+        _state->instance_stack_bottom = _state->stack_top;
+    }
+
+    __device__ void exitInstance() {
+        _state->stack_top = _state->instance_stack_bottom;
+        _state->instance_stack_bottom = hiprt::InvalidValue;
+    }
+
+    [[nodiscard]] __device__ bool insideInstance() const {
+        return _state->instance_stack_bottom != hiprt::InvalidValue;
+    }
+
+  private:
+    LuisaRayQueryStateHwPrivatePtr _state;
+};
 
 static __device__ __forceinline__ LuisaRayQueryHit
 luisa_make_ray_query_hit(uint32_t instance_id, uint32_t primitive_id,
@@ -1846,13 +2049,8 @@ luisa_ray_query_initialize(
     s->instance_id = hiprt::InvalidValue;
     s->node_or_leaf_addr = hiprt::RootIndex;
 
-    // HwBvhStack: construct a fresh stack to get properly initialized fields,
-    // then snapshot its state. The LDS is initialized by the constructor.
-    {
-        hiprt::HwBvhStack stack(luisa_hiprt_shared_stack_cache);
-        s->hw_addr = stack.m_addr;
-        s->hw_saved_addr = stack.m_savedAddr;
-    }
+    s->stack_top = 0u;
+    s->instance_stack_bottom = hiprt::InvalidValue;
 
     // Committed-hit miss sentinel. Candidate fields are fully overwritten
     // before every candidate callback and need no eager initialization.
@@ -1908,9 +2106,7 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
         s->pending_valid = false;
     }
 
-    hiprt::HwBvhStack stack(luisa_hiprt_shared_stack_cache);
-    stack.m_addr = s->hw_addr;
-    stack.m_savedAddr = s->hw_saved_addr;
+    LuisaRayQuerySoftwareStack stack{s};
 
     // Match the traversal ordering used by the direct closest/any paths.
     // Reflection ordering prioritizes the closest candidate for ALL queries,
@@ -2021,8 +2217,6 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
             // backend to save the traversal's large live VGPR set on every
             // proceed(), including triangle-only workloads.
             s->node_or_leaf_addr = nodeIndex;
-            s->hw_addr = stack.m_addr;
-            s->hw_saved_addr = stack.m_savedAddr;
             s->box_nodes = boxNodes;
             s->prim_nodes = primNodes;
             s->instance_id = instanceId;
@@ -2107,8 +2301,6 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                     s->in_leaf = true;
 
                     // Save traversal state
-                    s->hw_addr = stack.m_addr;
-                    s->hw_saved_addr = stack.m_savedAddr;
                     s->box_nodes = boxNodes;
                     s->prim_nodes = primNodes;
                     s->instance_id = instanceId;
@@ -2131,8 +2323,6 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                     s->in_leaf = true;
 
                     // Save traversal state
-                    s->hw_addr = stack.m_addr;
-                    s->hw_saved_addr = stack.m_savedAddr;
                     s->box_nodes = boxNodes;
                     s->prim_nodes = primNodes;
                     s->instance_id = instanceId;
@@ -2155,8 +2345,6 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                     s->in_leaf = true;
 
                     // Save traversal state
-                    s->hw_addr = stack.m_addr;
-                    s->hw_saved_addr = stack.m_savedAddr;
                     s->box_nodes = boxNodes;
                     s->prim_nodes = primNodes;
                     s->instance_id = instanceId;

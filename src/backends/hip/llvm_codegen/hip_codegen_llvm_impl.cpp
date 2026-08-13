@@ -13,6 +13,7 @@
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/IR/PassInstrumentation.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Constants.h>
@@ -28,8 +29,10 @@
 #include <algorithm>
 
 #include <luisa/core/clock.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
+#include "hip_llvm_pipeline.h"
 #include "hiprt_device_wrapper.hip"
 #include "hip_codegen_llvm_device_bitcode.h"
 
@@ -43,6 +46,51 @@
 #undef None
 
 namespace luisa::compute::hip {
+
+namespace {
+
+[[nodiscard]] luisa::span<const std::byte>
+hip_codegen_llvm_embedded_rt_wrapper(
+    luisa::string_view amdgpu_arch) noexcept {
+    const unsigned char *data = nullptr;
+    size_t size = 0u;
+    if (amdgpu_arch == "gfx1030") {
+        data = luisa_compute_hip_hiprt_wrapper_gfx1030;
+        size = luisa_compute_hip_hiprt_wrapper_gfx1030_size;
+    } else if (amdgpu_arch == "gfx1100") {
+        data = luisa_compute_hip_hiprt_wrapper_gfx1100;
+        size = luisa_compute_hip_hiprt_wrapper_gfx1100_size;
+    } else if (amdgpu_arch == "gfx1200") {
+        data = luisa_compute_hip_hiprt_wrapper_gfx1200;
+        size = luisa_compute_hip_hiprt_wrapper_gfx1200_size;
+    } else if (amdgpu_arch == "gfx1201") {
+        data = luisa_compute_hip_hiprt_wrapper_gfx1201;
+        size = luisa_compute_hip_hiprt_wrapper_gfx1201_size;
+    } else {
+        LUISA_ERROR_WITH_LOCATION(
+            "HIP ray tracing does not have an embedded wrapper for "
+            "AMDGPU architecture '{}'.",
+            amdgpu_arch);
+    }
+    LUISA_ASSERT(
+        data != nullptr && size != 0u,
+        "HIPRT wrapper bitcode is empty for architecture '{}'.",
+        amdgpu_arch);
+    return {
+        reinterpret_cast<const std::byte *>(data),
+        size};
+}
+
+}// namespace
+
+uint64_t hip_codegen_llvm_embedded_rt_wrapper_hash(
+    luisa::string_view amdgpu_arch) noexcept {
+    constexpr auto seed = 0x4849505254575241ull;
+    const auto wrapper =
+        hip_codegen_llvm_embedded_rt_wrapper(amdgpu_arch);
+    return luisa::hash64(
+        wrapper.data(), wrapper.size_bytes(), seed);
+}
 
 HIPCodegenLLVMImpl::FunctionContext::FunctionContext(llvm::Function *f) noexcept
     : llvm_func{f},
@@ -499,30 +547,12 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
     if (!_rt_analysis.uses_ray_tracing) { return; }
 
     // Step 1: Link the per-arch RT wrapper bitcode (hiprt traversal wrappers)
-    const unsigned char *wrapper_data = nullptr;
-    unsigned long long wrapper_size = 0;
-    if (_config.amdgpu_arch == "gfx1030") {
-        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1030;
-        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1030_size;
-    } else if (_config.amdgpu_arch == "gfx1100") {
-        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1100;
-        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1100_size;
-    } else if (_config.amdgpu_arch == "gfx1200") {
-        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1200;
-        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1200_size;
-    } else if (_config.amdgpu_arch == "gfx1201") {
-        wrapper_data = luisa_compute_hip_hiprt_wrapper_gfx1201;
-        wrapper_size = luisa_compute_hip_hiprt_wrapper_gfx1201_size;
-    } else {
-        LUISA_ERROR_WITH_LOCATION(
-            "HIP ray tracing does not have an embedded wrapper for AMDGPU architecture '{}'.",
+    const auto wrapper =
+        hip_codegen_llvm_embedded_rt_wrapper(
             _config.amdgpu_arch);
-    }
-    LUISA_ASSERT(wrapper_data != nullptr && wrapper_size > 0,
-                 "HIPRT wrapper bitcode is empty for architecture '{}'.", _config.amdgpu_arch);
-
-    llvm::StringRef wrapper_bc{reinterpret_cast<const char *>(wrapper_data),
-                               static_cast<size_t>(wrapper_size)};
+    llvm::StringRef wrapper_bc{
+        reinterpret_cast<const char *>(wrapper.data()),
+        wrapper.size_bytes()};
     auto wrapper_buf = llvm::MemoryBuffer::getMemBuffer(wrapper_bc, "hiprt_wrapper", false);
     auto wrapper_module = llvm::parseBitcodeFile(*wrapper_buf, _llvm_context);
     if (!wrapper_module) {
@@ -776,7 +806,30 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
             auto is_ray_query_wrapper =
                 name.starts_with("luisa_ray_query_") ||
                 name.starts_with("luisa_motion_ray_query_");
-            if (is_ray_query_wrapper) {
+            auto is_stack_overflow_fallback =
+                name.starts_with(
+                    "luisa_hiprt_stack_overflow_fallback_");
+            auto is_generated_callable =
+                func.hasFnAttribute(
+                    llvm_generated_callable_attribute);
+            if (is_generated_callable) {
+                // Luisa Callable is an intentional DSL/JIT-stage function
+                // boundary. LLVM gives a large bonus to single-call-site local
+                // functions, which can otherwise inline an entire generated
+                // continuation into its scheduler kernel. Bound that growth by
+                // the callee's structural IR size; small callables still use the
+                // normal whole-module cost model.
+                func.removeFnAttr(llvm::Attribute::AlwaysInline);
+                if (preserve_generated_callable_boundary(
+                        func.getInstructionCount())) {
+                    func.addFnAttr(llvm::Attribute::NoInline);
+                } else {
+                    func.removeFnAttr(llvm::Attribute::NoInline);
+                }
+            } else if (is_stack_overflow_fallback) {
+                func.removeFnAttr(llvm::Attribute::AlwaysInline);
+                func.addFnAttr(llvm::Attribute::NoInline);
+            } else if (is_ray_query_wrapper) {
                 auto is_inline_wrapper = _uses_hardware_rt_stack &&
                                          (name == "luisa_ray_query_state" ||
                                           name == "luisa_ray_query_advance" ||
@@ -850,7 +903,10 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     PTO.SLPVectorization = true;
     PTO.LoopUnrolling = true;
     PTO.MergeFunctions = true;
-    llvm::PassBuilder PB{_target_machine, PTO};
+    llvm::PassInstrumentationCallbacks instrumentation;
+    llvm::PassBuilder PB{
+        _target_machine, PTO, std::nullopt,
+        &instrumentation};
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
     PB.registerFunctionAnalyses(FAM);
@@ -870,7 +926,40 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         case HIPCodegenLLVMConfig::OptLevel::LEVEL_DEFAULT: opt_level = llvm::OptimizationLevel::O2; break;
         case HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE: opt_level = llvm::OptimizationLevel::O3; break;
     }
-    llvm::ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(opt_level);
+    auto MPM = PB.buildPerModuleDefaultPipeline(opt_level);
+    // gfx12 ray queries lower to resumable traversal loops whose state is
+    // carried through nested callback loops. LLVM's pre-SLP cleanup normally
+    // opts out of preserving canonical loops; on AMDGPU this can collapse the
+    // unique latches into a multi-latch CFG that the downstream structurizer
+    // miscompiles. Keep the exact default pipeline, but retain canonical loop
+    // form at that one stage for hardware ray-query modules.
+    auto preserve_hardware_ray_query_loops =
+        _uses_hardware_rt_stack && _rt_analysis.uses_ray_query &&
+        (_config.opt_level == HIPCodegenLLVMConfig::OptLevel::LEVEL_DEFAULT ||
+         _config.opt_level == HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE);
+    if (preserve_hardware_ray_query_loops) {
+        auto pipeline = std::string{};
+        auto stream = llvm::raw_string_ostream{pipeline};
+        MPM.printPipeline(
+            stream,
+            [&instrumentation](llvm::StringRef class_name) noexcept {
+                return instrumentation.getPassNameForClassName(class_name);
+            });
+        stream.flush();
+        auto replacement_count =
+            preserve_hardware_ray_query_loop_form(pipeline);
+        LUISA_ASSERT(replacement_count == 1u,
+                     "Expected exactly one non-canonical loop optimization "
+                     "stage in the HIP LLVM pipeline, found {}.",
+                     replacement_count);
+        auto canonical_mpm = llvm::ModulePassManager{};
+        if (auto error = PB.parsePassPipeline(canonical_mpm, pipeline)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to rebuild the canonical-loop HIP LLVM pipeline: {}.",
+                llvm::toString(std::move(error)));
+        }
+        MPM = std::move(canonical_mpm);
+    }
     MPM.run(*_llvm_module, MAM);
 
     // make hiprt/hiprtc happy
@@ -969,17 +1058,23 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     auto max_vgpr_count = std::min(_config.max_register_count, 256u);
     auto max_vgpr_count_string = std::to_string(max_vgpr_count);
     for (auto &func : *_llvm_module) {
-        // The optimization pipeline deliberately keeps mutating ray-query
-        // wrappers out of line. In particular, the gfx12 proceed helper is a
-        // large resumable traversal state machine; letting the backend inline
-        // it after the IR optimization pipeline has finished causes severe
-        // register pressure and scratch spills. Preserve these two semantic
-        // attributes across the ABI-attribute cleanup below.
+        // Preserve every function boundary deliberately retained by the
+        // module optimizer across the ABI-attribute cleanup below. This
+        // includes large shared DSL callables and mutating ray-query wrappers.
+        // In particular, the gfx12 proceed helper is a large resumable
+        // traversal state machine; letting the downstream compiler inline it
+        // causes severe register pressure and scratch spills.
         auto name = func.getName();
+        auto preserve_generated_callable =
+            func.hasFnAttribute(
+                llvm_generated_callable_attribute);
         auto preserve_noinline =
-            (name.starts_with("luisa_ray_query_") ||
-             name.starts_with("luisa_motion_ray_query_")) &&
-            func.hasFnAttribute(llvm::Attribute::NoInline);
+            preserve_generated_callable ||
+            ((name.starts_with("luisa_ray_query_") ||
+              name.starts_with("luisa_motion_ray_query_") ||
+              name.starts_with(
+                  "luisa_hiprt_stack_overflow_fallback_")) &&
+             func.hasFnAttribute(llvm::Attribute::NoInline));
         auto preserve_convergent = preserve_noinline &&
                                    func.hasFnAttribute(llvm::Attribute::Convergent);
 
@@ -1037,6 +1132,13 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
                 func.addFnAttr("amdgpu-num-vgpr", max_vgpr_count_string);
             }
         }
+    }
+
+    if (dump_ir) {
+        auto final_filename = fmt::format(
+            "hip_kernel_final_{}.ll", dump_idx);
+        _dump_module(final_filename);
+        LUISA_INFO("Dumped final LLVM IR to: {}", final_filename);
     }
 
     static auto print_ir = [] {

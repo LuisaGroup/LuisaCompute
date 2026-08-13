@@ -62,6 +62,9 @@ target_include_directories(test_sparse_texture_tile_plan PRIVATE ../runtime)
 luisa_compute_add_test(test_hip_curve_bounds   unit/core/test_hip_curve_bounds.cpp   LABELS "unit;unit_core")
 target_sources(test_hip_curve_bounds PRIVATE ../backends/hip/hip_curve_bounds.cpp)
 target_include_directories(test_hip_curve_bounds PRIVATE ../backends/hip)
+luisa_compute_add_test(test_hip_llvm_pipeline unit/core/test_hip_llvm_pipeline.cpp LABELS "unit;unit_core")
+target_sources(test_hip_llvm_pipeline PRIVATE ../backends/hip/llvm_codegen/hip_llvm_pipeline.cpp)
+target_include_directories(test_hip_llvm_pipeline PRIVATE ../backends/hip/llvm_codegen)
 luisa_compute_add_test(test_glslang_spirv      unit/ext/test_glslang_spirv.cpp       LABELS "unit;unit_ext")
 target_link_libraries(test_glslang_spirv PRIVATE glslang-default-resource-limits)
 luisa_compute_add_test(test_command_reorder_bindless unit/ext/test_command_reorder_bindless.cpp LABELS "unit;unit_ext")
@@ -70,8 +73,8 @@ luisa_compute_add_test(test_spirv_motion_patch unit/ext/test_spirv_motion_patch.
 target_sources(test_spirv_motion_patch PRIVATE ../backends/vk/spirv_motion_patch.cpp)
 target_include_directories(test_spirv_motion_patch PRIVATE ../backends/vk)
 if (TARGET luisa-compute-backend-vk)
-    luisa_compute_add_test(test_vk_device_feature_plan unit/ext/test_vk_device_feature_plan.cpp LABELS "unit;unit_ext;vk")
-    target_include_directories(test_vk_device_feature_plan PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_user_compute_codegen_route unit/ext/test_vk_user_compute_codegen_route.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_user_compute_codegen_route PRIVATE ../backends/vk)
     luisa_compute_add_test(test_vk_sparse_residency_registry unit/ext/test_vk_sparse_residency_registry.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_sparse_residency_registry PRIVATE ../backends/vk)
     target_sources(test_vk_sparse_residency_registry PRIVATE ../backends/vk/sparse_residency_registry.cpp)
@@ -92,11 +95,14 @@ if (TARGET luisa-compute-backend-vk)
     target_include_directories(test_vk_indirect_dispatch PRIVATE ../backends/common ../backends/vk)
     luisa_compute_add_test(test_vk_resource_barrier_contract unit/ext/test_vk_resource_barrier_contract.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_resource_barrier_contract PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_result_contract unit/ext/test_vk_result_contract.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_result_contract PRIVATE ../backends/vk)
+    target_sources(test_vk_result_contract PRIVATE ../backends/vk/VulkanTools.cpp)
     luisa_compute_add_test(test_vk_cuda_interop_texture_plan unit/ext/test_vk_cuda_interop_texture_plan.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_cuda_interop_texture_plan PRIVATE ../backends/vk)
     foreach (_vulkan_header_test IN ITEMS
-            test_vk_device_feature_plan
             test_vk_resource_barrier_contract
+            test_vk_result_contract
             test_vk_cuda_interop_texture_plan)
         # These tests consume backend planning headers that expose Vulkan
         # types. Inherit the vendored Vulkan headers from Volk instead of
@@ -122,6 +128,9 @@ endif ()
 luisa_compute_add_test(test_argument_block_layout unit/ext/test_argument_block_layout.cpp LABELS "unit;unit_ext")
 target_include_directories(test_argument_block_layout PRIVATE ../backends/common)
 luisa_compute_add_test(test_pixel_storage unit/core/test_pixel_storage.cpp LABELS "unit;unit_core")
+if (NOT LUISA_COMPUTE_USE_SYSTEM_STL)
+    luisa_compute_add_test(test_eastl_allocation unit/core/test_eastl_allocation.cpp LABELS "unit;unit_core")
+endif ()
 if (TARGET luisa-compute-hlsl-codegen)
     luisa_compute_add_test(test_hlsl_validation_codegen unit/ext/test_hlsl_validation_codegen.cpp LABELS "unit;unit_ext;hlsl")
     target_include_directories(test_hlsl_validation_codegen PRIVATE ../backends/common/hlsl)
@@ -184,6 +193,7 @@ endif ()
 # --- unit/ast: standalone tests (backend-free tests are labeled for CTest) ---
 luisa_compute_add_test(test_ast             unit/ast/test_ast.cpp)
 luisa_compute_add_test(test_ast_basic       unit/ast/test_ast_basic.cpp)
+luisa_compute_add_test(test_function_builder_dag unit/ast/test_function_builder_dag.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_async_copy_ast  unit/ast/test_async_copy_ast.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_bindless_write_usage unit/ast/test_bindless_write_usage.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_builtin_kernel  unit/ast/test_builtin_kernel.cpp)
@@ -218,6 +228,10 @@ luisa_compute_add_test(test_cluster_launch_control  unit/runtime/test_cluster_la
 # --- unit/runtime: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_accel_build_modes   unit/runtime/test_accel_build_modes.cpp)
 luisa_compute_add_test(test_accel_visibility    unit/runtime/test_accel_visibility.cpp)
+luisa_compute_add_test(test_hip_rt_scratch_reuse unit/runtime/test_hip_rt_scratch_reuse.cpp)
+luisa_compute_add_test(test_hip_shader_cache    unit/runtime/test_hip_shader_cache.cpp)
+luisa_compute_add_test(test_hip_callable_boundary unit/runtime/test_hip_callable_boundary.cpp)
+luisa_compute_add_test(test_hip_float_atomic_memory_model unit/runtime/test_hip_float_atomic_memory_model.cpp)
 luisa_compute_add_test(test_atomic              unit/runtime/test_atomic.cpp)
 luisa_compute_add_test(test_atomic_queue        unit/runtime/test_atomic_queue.cpp)
 luisa_compute_add_test(test_byte_buffer         unit/runtime/test_byte_buffer.cpp)
@@ -226,8 +240,16 @@ luisa_compute_add_test(test_copy                unit/runtime/test_copy.cpp)
 luisa_compute_add_test(test_cpu_callable        unit/runtime/test_cpu_callable.cpp)
 luisa_compute_add_test(test_decoupled_look_back unit/runtime/test_decoupled_look_back.cpp)
 luisa_compute_add_test(test_complex_kernel      unit/runtime/test_complex_kernel.cpp)
+if (TARGET luisa-compute-backend-fallback)
+    # Uses two independent fallback Device instances and a shared in-memory
+    # BinaryIO to verify cold compilation, object-cache reuse, and dynamic
+    # uniform arguments. Kept out of unattended CTest because it requires the
+    # optional LLVM/Embree fallback backend at runtime.
+    luisa_compute_add_test(test_fallback_shader_cache unit/runtime/test_fallback_shader_cache.cpp)
+endif ()
 luisa_compute_add_test(test_bindless_mip        unit/runtime/test_bindless_mip.cpp)
 luisa_compute_add_test(test_direct_texture_sampling unit/runtime/test_direct_texture_sampling.cpp)
+luisa_compute_add_test(test_metal_codegen_regressions unit/runtime/test_metal_codegen_regressions.cpp)
 luisa_compute_add_test(test_mipmap              unit/runtime/test_mipmap.cpp)
 luisa_compute_add_test(test_motion_instance_keyframes unit/runtime/test_motion_instance_keyframes.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_pinned_mem          unit/runtime/test_pinned_mem.cpp)
@@ -251,11 +273,21 @@ luisa_compute_add_test(test_mha_warp_reduction  unit/runtime/test_mha_warp_reduc
 if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # Requires an explicit backend argument and a physical Vulkan device, so
     # build it for the native path but keep it out of unattended CTest runs.
+    luisa_compute_add_test(test_vk_shader_cache unit/runtime/test_vk_shader_cache.cpp)
     luisa_compute_add_test(test_vk_spirv_codegen_path unit/runtime/test_vk_spirv_codegen_path.cpp)
     target_link_libraries(test_vk_spirv_codegen_path PRIVATE
             luisa-compute-spirv
             luisa-compute-ext-volk)
     target_include_directories(test_vk_spirv_codegen_path PRIVATE ../backends/common)
+    target_compile_options(test_vk_spirv_codegen_path PRIVATE
+            $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
+    if (LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY)
+        target_compile_definitions(test_vk_spirv_codegen_path PRIVATE
+                LUISA_TEST_VK_HAS_DXC_COMPATIBILITY=1)
+    else ()
+        target_compile_definitions(test_vk_spirv_codegen_path PRIVATE
+                LUISA_TEST_VK_HAS_DXC_COMPATIBILITY=0)
+    endif ()
 endif ()
 luisa_compute_add_test(test_ray_query_world_ray unit/runtime/test_ray_query_world_ray.cpp)
 luisa_compute_add_test(test_buffer_io           unit/runtime/test_buffer_io.cpp)
@@ -278,6 +310,15 @@ luisa_compute_add_test(test_hip_ray_query_pipeline unit/runtime/test_hip_ray_que
 luisa_compute_add_test(test_hip_signed_texture_io unit/runtime/test_hip_signed_texture_io.cpp)
 luisa_compute_add_test(test_shared_mem          unit/runtime/test_shared_mem.cpp)
 
+# XIR optimization integration executables. These require an explicit backend
+# argument (and the native XIR -> SPIR-V path for the Vulkan-specific coverage),
+# so build them in every configured test build but keep them out of unattended
+# CTest runs.
+luisa_compute_add_test(test_dsl_fuse_buffer_reads unit/runtime/test_dsl_fuse_buffer_reads.cpp)
+luisa_compute_add_test(test_dsl_indvar_strength_reduce unit/runtime/test_dsl_indvar_strength_reduce.cpp)
+luisa_compute_add_test(test_dsl_slp_vectorization unit/runtime/test_dsl_slp_vectorization.cpp)
+luisa_compute_add_test(test_dsl_xir_optimize_vk unit/runtime/test_dsl_xir_optimize_vk.cpp)
+
 # --- unit/xir: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_ast_to_xir unit/xir/test_ast_to_xir.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_module      unit/xir/test_xir_module.cpp      LABELS "unit;unit_xir")
@@ -290,8 +331,12 @@ luisa_compute_add_test(test_xir_passes      unit/xir/test_xir_passes.cpp      LA
 luisa_compute_add_test(test_xir_aggregate_field_bitmask unit/xir/test_xir_aggregate_field_bitmask.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_alias_analysis unit/xir/test_xir_pass_alias_analysis.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_core_analyses unit/xir/test_xir_pass_core_analyses.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_defer_local_aggregate_load unit/xir/test_xir_pass_defer_local_aggregate_load.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_coro_rematerialize unit/xir/test_xir_pass_coro_rematerialize.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_coro_alloca_scope unit/xir/test_xir_pass_coro_alloca_scope.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_pointer_usage unit/xir/test_xir_pass_pointer_usage.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_scalar_evolution unit/xir/test_xir_pass_scalar_evolution.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_integer_alignment unit/xir/test_xir_integer_alignment.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_unused_callable_removal unit/xir/test_xir_pass_unused_callable_removal.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_licm unit/xir/test_xir_pass_licm.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_lower_break_continue unit/xir/test_xir_pass_lower_break_continue.cpp LABELS "unit;unit_xir")
@@ -310,6 +355,7 @@ luisa_compute_add_test(test_coro_compile_trigger unit/dsl/test_coro_compile_trig
 luisa_compute_add_test(test_coro_func            unit/dsl/test_coro_func.cpp            LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_suspend         unit/dsl/test_coro_suspend.cpp         LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_graph unit/coro/test_coro_graph.cpp LABELS "unit;unit_coro")
+luisa_compute_add_test(test_coro_graph_wavefront_policy unit/coro/test_coro_graph_wavefront_policy.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_scheduler_base unit/coro/test_coro_scheduler_base.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_state_machine unit/coro/test_coro_state_machine.cpp)
 luisa_compute_add_test(test_coro_persistent    unit/coro/test_coro_persistent.cpp)
@@ -327,8 +373,8 @@ luisa_compute_add_test(test_coro_pipeline_3suspend unit/coro/test_coro_pipeline_
 luisa_compute_add_test(test_xir_pass_destructure_cfg unit/xir/test_xir_pass_destructure_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_simplify_cfg unit/xir/test_xir_pass_simplify_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_early_cse unit/xir/test_xir_pass_early_cse.cpp LABELS "unit;unit_xir")
-luisa_compute_add_test(test_xir_pass_lower_switch unit/xir/test_xir_pass_lower_switch.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_lower_ray_query_loop unit/xir/test_xir_pass_lower_ray_query_loop.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_lower_irreducible_cfg unit/xir/test_xir_pass_lower_irreducible_cfg.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_fuse_consecutive_buffer_reads unit/xir/test_xir_pass_fuse_consecutive_buffer_reads.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_restructure_cfg unit/xir/test_xir_pass_restructure_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_convergence_region unit/xir/test_xir_pass_convergence_region.cpp LABELS "unit;unit_xir")
@@ -336,6 +382,7 @@ luisa_compute_add_test(test_xir_pass_post_dom_tree unit/xir/test_xir_pass_post_d
 luisa_compute_add_test(test_xir_pass_autodiff_cfg unit/xir/test_xir_pass_autodiff_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_early_return_elimination unit/xir/test_xir_pass_early_return_elimination.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_indvar_simplify unit/xir/test_xir_pass_indvar_simplify.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_loop_rotation unit/xir/test_xir_pass_loop_rotation.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_loop_fusion unit/xir/test_xir_pass_loop_fusion.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_loop_vectorization unit/xir/test_xir_pass_loop_vectorization.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_sccp unit/xir/test_xir_pass_sccp.cpp LABELS "unit;unit_xir")
@@ -399,21 +446,8 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
     luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
 endif ()
 
-# --- integration/ir: standalone tests ---
-if (LUISA_COMPUTE_ENABLE_RUST)
-    luisa_compute_add_test(test_autodiff        integration/ir/test_autodiff.cpp)
-    luisa_compute_add_test(test_autodiff_full    integration/ir/test_autodiff_full.cpp)
-    luisa_compute_add_test(test_ast2ir           integration/ir/test_ast2ir.cpp)
-    luisa_compute_add_test(test_ast2ir_headless  integration/ir/test_ast2ir_headless.cpp)
-    luisa_compute_add_test(test_ast2ir_ir2ast    integration/ir/test_ast2ir_ir2ast.cpp)
-    luisa_compute_add_test(test_hip_legacy_ir_device integration/ir/test_hip_legacy_ir_device.cpp)
-
-    if (LUISA_COMPUTE_ENABLE_GUI)
-        luisa_compute_add_test(test_kernel_ir integration/ir/test_kernel_ir.cpp)
-    endif ()
-endif ()
-
-luisa_compute_add_test(test_xir2ast_roundtrip integration/ir/test_xir2ast_roundtrip.cpp LABELS "unit;unit_xir")
+# --- integration/xir: standalone tests ---
+luisa_compute_add_test(test_xir2ast_roundtrip integration/xir/test_xir2ast_roundtrip.cpp LABELS "unit;unit_xir")
 
 # --- unit/dsl: standalone GPU tests ---
 luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cpp)

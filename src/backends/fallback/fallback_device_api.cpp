@@ -319,6 +319,7 @@ struct alignas(16) RayQueryObject {
     AccelView accel;
     RayQueryCandidate candidate;
     RTCRayHit ray_hit;
+    Ray world_ray;
 };
 
 struct alignas(16) RayQueryContext {
@@ -334,7 +335,7 @@ struct RayQueryContextEx {
     RayQueryContext base;
     const void *capture;
     float current_t;
-    float pad;
+    float original_tnear;
     RayQueryOnSurfaceFunc *on_surface;
     RayQueryOnProceduralFunc *on_procedural;
 };
@@ -410,6 +411,29 @@ size_t luisa_fallback_ray_query_object_alignment() noexcept {
 
 static void ray_query_update_current_t(RayQueryContextEx *ctx, float new_t) noexcept {
     ctx->current_t = std::min(ctx->current_t, new_t);
+    ctx->base.q->world_ray.t_max = ctx->current_t;
+}
+
+// Luisa ray queries use a closed lower bound, as do the hardware backends.
+// Embree's triangle intersector may reject an exactly reconstructed tnear
+// hit before its filter callback runs. Widen only the internal traversal
+// interval by one representable value, then reject candidates below the
+// original bound in the filter. The smallest-normal fallback keeps the
+// widening effective when FTZ/DAZ would erase a subnormal nextafter result.
+[[nodiscard]] static float ray_query_embree_tnear(float tnear) noexcept {
+    if (!std::isfinite(tnear)) { return tnear; }
+    auto widened = std::nextafter(
+        tnear, -std::numeric_limits<float>::infinity());
+    if (std::abs(widened) <
+        std::numeric_limits<float>::min()) {
+        widened = -std::numeric_limits<float>::min();
+    }
+    return widened;
+}
+
+[[nodiscard]] static bool ray_query_candidate_in_range(
+    const RayQueryContextEx *ctx, float t) noexcept {
+    return t >= ctx->original_tnear;
 }
 
 static void ray_query_decode_surface_candidate(RayQueryCandidate *out, const RTCRay *ray, const RTCHit *hit) noexcept {
@@ -428,6 +452,23 @@ static void ray_query_decode_procedural_candidate(RayQueryCandidate *out, const 
     out->terminated = false;
 }
 
+[[nodiscard]] static uint64_t ray_query_surface_instance_flags(
+    const RayQueryContextEx *ctx, const RTCHit *hit) noexcept {
+    auto scene = static_cast<RTCScene>(
+        ctx->base.q->accel.embree_scene);
+    auto inst = hit->instID[0];
+    LUISA_DEBUG_ASSERT(
+        inst != RTC_INVALID_GEOMETRY_ID,
+        "Ray query surface hit is missing its top-level instance ID.");
+#if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
+    return reinterpret_cast<uint64_t>(
+        rtcGetGeometryUserData(rtcGetGeometry(scene, inst)));
+#else
+    return reinterpret_cast<uint64_t>(
+        rtcGetGeometryUserDataFromScene(scene, inst));
+#endif
+}
+
 void luisa_fallback_ray_query_terminate_ray(RTCRay *ray) noexcept {
     ray->tfar = -std::numeric_limits<float>::infinity();
 }
@@ -443,11 +484,17 @@ void luisa_fallback_ray_query_procedural_intersect_function(const RayQueryInters
             auto candidate = &q->candidate;
             auto ray_hit = reinterpret_cast<RTCRayHit *>(args->rayhit);
             ray_query_decode_procedural_candidate(candidate, &ctx->base, &ray_hit->ray, args->primID);
+            const auto embree_tnear = ray_hit->ray.tnear;
+            ray_hit->ray.tnear = ctx->original_tnear;
             on_procedural(reinterpret_cast<LC_RayQueryObject *>(q), ctx->capture);
-            if (candidate->committed && candidate->t >= ray_hit->ray.tnear && candidate->t <= ray_hit->ray.tfar) {
+            ray_hit->ray.tnear = embree_tnear;
+            if (candidate->committed &&
+                ray_query_candidate_in_range(ctx, candidate->t) &&
+                candidate->t <= ray_hit->ray.tfar) {
                 args->valid[0] = -1;
                 ray_hit->ray.tfar = candidate->t;
                 ray_query_update_current_t(ctx, candidate->t);
+                candidate->committed_hit_type = HitType::Procedural;
                 ray_hit->hit = {
                     .Ng_x = 0.f,
                     .Ng_y = 0.f,
@@ -477,10 +524,16 @@ void luisa_fallback_ray_query_procedural_occluded_function(const RayQueryOcclude
             auto candidate = &q->candidate;
             auto ray = reinterpret_cast<RTCRay *>(args->ray);
             ray_query_decode_procedural_candidate(candidate, &ctx->base, ray, args->primID);
+            const auto embree_tnear = ray->tnear;
+            ray->tnear = ctx->original_tnear;
             on_procedural(reinterpret_cast<LC_RayQueryObject *>(q), ctx->capture);
-            if (candidate->committed && candidate->t >= ray->tnear && candidate->t <= ray->tfar) {
+            ray->tnear = embree_tnear;
+            if (candidate->committed &&
+                ray_query_candidate_in_range(ctx, candidate->t) &&
+                candidate->t <= ray->tfar) {
                 args->valid[0] = -1;
                 ray->tfar = candidate->t;
+                candidate->committed_hit_type = HitType::Procedural;
                 q->ray_hit.hit = {
                     .Ng_z = candidate->t,
                     .u = -1.f,
@@ -502,19 +555,28 @@ static void luisa_fallback_ray_query_surface_intersect_filter_function(const RTC
     auto ctx = reinterpret_cast<RayQueryContextEx *>(args->context);
     auto ray = reinterpret_cast<RTCRay *>(args->ray);
     auto hit = reinterpret_cast<RTCHit *>(args->hit);
-    auto flags = reinterpret_cast<uint64_t>(args->geometryUserPtr);
+    auto flags = ray_query_surface_instance_flags(ctx, hit);
     if (flags & luisa_fallback_embree_accel_user_data_flags_curve) {// curve
         hit->v = -1.f;
     }
+    if (!ray_query_candidate_in_range(ctx, ray->tfar)) {
+        args->valid[0] = 0;
+        return;
+    }
     if (flags & luisa_fallback_embree_accel_user_data_flags_opaque) {// opaque, always commit
         ray_query_update_current_t(ctx, ray->tfar);
+        ctx->base.q->candidate.committed_hit_type = HitType::Surface;
     } else if (auto on_surface = ctx->on_surface) {
         auto q = ctx->base.q;
         auto candidate = &q->candidate;
         ray_query_decode_surface_candidate(candidate, ray, hit);
+        const auto embree_tnear = ray->tnear;
+        ray->tnear = ctx->original_tnear;
         on_surface(reinterpret_cast<LC_RayQueryObject *>(q), ctx->capture);
+        ray->tnear = embree_tnear;
         if (candidate->committed) {
             ray_query_update_current_t(ctx, ray->tfar);
+            candidate->committed_hit_type = HitType::Surface;
         } else {
             args->valid[0] = 0;
         }
@@ -530,6 +592,7 @@ static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCF
     LUISA_DEBUG_ASSERT(args->N == 1u, "Only single ray is support.");
     LUISA_DEBUG_ASSERT(args->valid[0] == -1, "Only valid ray is support.");
     static constexpr auto record_hit_data = [](RayQueryObject *q, const RTCRay *ray, const RTCHit *hit) noexcept {
+        q->candidate.committed_hit_type = HitType::Surface;
         q->ray_hit.hit.Ng_x = 0.f;
         q->ray_hit.hit.Ng_y = 0.f;
         q->ray_hit.hit.Ng_z = ray->tfar;
@@ -542,9 +605,13 @@ static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCF
     auto ctx = reinterpret_cast<RayQueryContextEx *>(args->context);
     auto ray = reinterpret_cast<RTCRay *>(args->ray);
     auto hit = reinterpret_cast<RTCHit *>(args->hit);
-    auto flags = reinterpret_cast<uint64_t>(args->geometryUserPtr);
+    auto flags = ray_query_surface_instance_flags(ctx, hit);
     if (flags & luisa_fallback_embree_accel_user_data_flags_curve) {// curve
         hit->v = -1.f;
+    }
+    if (!ray_query_candidate_in_range(ctx, ray->tfar)) {
+        args->valid[0] = 0;
+        return;
     }
     auto q = ctx->base.q;
     if (flags & luisa_fallback_embree_accel_user_data_flags_opaque) {// opaque
@@ -552,7 +619,10 @@ static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCF
     } else if (auto on_surface = ctx->on_surface) {
         auto candidate = &q->candidate;
         ray_query_decode_surface_candidate(candidate, ray, hit);
+        const auto embree_tnear = ray->tnear;
+        ray->tnear = ctx->original_tnear;
         on_surface(reinterpret_cast<LC_RayQueryObject *>(q), ctx->capture);
+        ray->tnear = embree_tnear;
         if (candidate->committed) {
             record_hit_data(q, ray, hit);
         } else {
@@ -579,9 +649,12 @@ void luisa_fallback_ray_query_pipeline_all(LC_RayQueryObject *query_object, cons
 #endif
     ctx.base.q = q;
     ctx.capture = capture;
-    ctx.current_t = std::numeric_limits<float>::max();
+    ctx.current_t = q->world_ray.t_max;
+    ctx.original_tnear = q->ray_hit.ray.tnear;
     ctx.on_surface = on_surface;
     ctx.on_procedural = on_procedural;
+    q->ray_hit.ray.tnear =
+        ray_query_embree_tnear(ctx.original_tnear);
 
 #if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
     ctx.base.rtc_ctx.filter = luisa_fallback_ray_query_surface_intersect_filter_function;
@@ -594,6 +667,7 @@ void luisa_fallback_ray_query_pipeline_all(LC_RayQueryObject *query_object, cons
     args.filter = luisa_fallback_ray_query_surface_intersect_filter_function;
     rtcIntersect1(scene, &q->ray_hit, &args);
 #endif
+    q->ray_hit.ray.tnear = ctx.original_tnear;
     q->ray_hit.hit.Ng_z = ctx.current_t;
     ray_trace_fix_hit_for_curves(scene, &q->ray_hit);
 }
@@ -611,8 +685,12 @@ void luisa_fallback_ray_query_pipeline_any(LC_RayQueryObject *query_object, cons
 #endif
     ctx.base.q = q;
     ctx.capture = capture;
+    ctx.current_t = q->world_ray.t_max;
+    ctx.original_tnear = q->ray_hit.ray.tnear;
     ctx.on_surface = on_surface;
     ctx.on_procedural = on_procedural;
+    q->ray_hit.ray.tnear =
+        ray_query_embree_tnear(ctx.original_tnear);
 
 #if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
     ctx.base.rtc_ctx.filter = luisa_fallback_ray_query_surface_occluded_filter_function;
@@ -625,6 +703,7 @@ void luisa_fallback_ray_query_pipeline_any(LC_RayQueryObject *query_object, cons
     args.filter = luisa_fallback_ray_query_surface_occluded_filter_function;
     rtcOccluded1(scene, &q->ray_hit.ray, &args);
 #endif
+    q->ray_hit.ray.tnear = ctx.original_tnear;
 }
 
 }// namespace luisa::compute::fallback::api

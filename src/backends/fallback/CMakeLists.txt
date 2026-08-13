@@ -50,6 +50,7 @@ if (LLVM_FOUND AND embree_FOUND)
             fallback_buffer.cpp
             fallback_swapchain.cpp
             fallback_tex_compress.cpp
+            ../common/default_binary_io.cpp
     )
 
     luisa_compute_add_backend(fallback SOURCES ${LUISA_FALLBACK_BACKEND_SOURCES})

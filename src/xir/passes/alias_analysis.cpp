@@ -173,13 +173,54 @@ static size_t get_global_index_count(Instruction *inst) noexcept {
     switch (inst->derived_instruction_tag()) {
         case DerivedInstructionTag::ATOMIC:
             return static_cast<AtomicInst *>(inst)->index_count();
-        case DerivedInstructionTag::RESOURCE_READ:
-            return inst->operand_count() > 0 ? inst->operand_count() - 1 : 0;
-        case DerivedInstructionTag::RESOURCE_WRITE:
-            return inst->operand_count() > 1 ? inst->operand_count() - 2 : 0;
+        case DerivedInstructionTag::RESOURCE_READ: {
+            switch (static_cast<ResourceReadInst *>(inst)->op()) {
+                case ResourceReadOp::BUFFER_READ:
+                case ResourceReadOp::BUFFER_VOLATILE_READ:
+                case ResourceReadOp::BYTE_BUFFER_READ:
+                case ResourceReadOp::BYTE_BUFFER_VOLATILE_READ:
+                case ResourceReadOp::TEXTURE2D_READ:
+                case ResourceReadOp::TEXTURE3D_READ:
+                case ResourceReadOp::DEVICE_ADDRESS_READ: return 1u;
+                case ResourceReadOp::BINDLESS_BUFFER_READ:
+                case ResourceReadOp::BINDLESS_BYTE_BUFFER_READ:
+                case ResourceReadOp::BINDLESS_TEXTURE2D_READ:
+                case ResourceReadOp::BINDLESS_TEXTURE3D_READ: return 2u;
+                case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
+                case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: return 3u;
+            }
+            break;
+        }
+        case DerivedInstructionTag::RESOURCE_WRITE: {
+            switch (static_cast<ResourceWriteInst *>(inst)->op()) {
+                case ResourceWriteOp::BUFFER_WRITE:
+                case ResourceWriteOp::BUFFER_VOLATILE_WRITE:
+                case ResourceWriteOp::BYTE_BUFFER_WRITE:
+                case ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE:
+                case ResourceWriteOp::TEXTURE2D_WRITE:
+                case ResourceWriteOp::TEXTURE3D_WRITE:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID:
+                case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL:
+                    return 1u;
+                case ResourceWriteOp::BINDLESS_BUFFER_WRITE:
+                case ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX:
+                case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT:
+                    return 2u;
+                case ResourceWriteOp::DEVICE_ADDRESS_WRITE:
+                    return 1u;
+                case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT:
+                    return 0u;
+            }
+            break;
+        }
         default:
-            return 0;
+            break;
     }
+    return 0u;
 }
 
 static Value *get_global_index(Instruction *inst, size_t i) noexcept {
@@ -223,10 +264,13 @@ AliasAnalysisInfo alias_analysis_pass_run_on_function(FunctionDefinition *def) n
 
 AliasAnalysisInfo alias_analysis_pass_run_on_module(Module *module, PassReport *report) noexcept {
     AliasAnalysisInfo info;
-    for (auto f : module->function_list()) {
-        if (auto def = f->definition()) {
-            auto func_info = alias_analysis_pass_run_on_function(def);
-            info.queried_count += func_info.queried_count;
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            if (auto def = f->definition()) {
+                auto func_info =
+                    alias_analysis_pass_run_on_function(def);
+                info.queried_count += func_info.queried_count;
+            }
         }
     }
     if (report != nullptr) {
@@ -244,6 +288,27 @@ AliasResult alias_analysis_query(Instruction *a, Instruction *b) noexcept {
 
     if (mem_a.is_pure() || mem_b.is_pure()) {
         return AliasResult::NoAlias;
+    }
+
+    // A call or autodiff operation can access storage through reference
+    // operands. Its single summary scope is therefore not an exclusion proof
+    // against LOCAL or SHARED memory. Likewise, an effectful instruction whose
+    // scope is not classified must remain conservative.
+    auto has_unknown_scope = [](Instruction *inst,
+                                InstructionMemoryInfo info) noexcept {
+        switch (inst->derived_instruction_tag()) {
+            case DerivedInstructionTag::CALL:
+            case DerivedInstructionTag::AUTODIFF_SCOPE:
+            case DerivedInstructionTag::AUTODIFF_INTRINSIC:
+                return true;
+            default:
+                return info.scope == MemoryScope::NONE &&
+                       !info.is_pure();
+        }
+    };
+    if (has_unknown_scope(a, mem_a) ||
+        has_unknown_scope(b, mem_b)) {
+        return AliasResult::MayAlias;
     }
 
     if (mem_a.scope != mem_b.scope) {

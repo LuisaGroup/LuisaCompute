@@ -238,9 +238,10 @@ void SpirvCodegenEntry::generate_binding(
         _runtime_target_plan.bindless_resources.buffer_heap;
     _use_buffer_bindless_metadata =
         _runtime_target_plan.bindless_resources.buffer_metadata;
-    LUISA_ASSERT(
-        !_use_buffer_bindless || _use_buffer_bindless_metadata,
-        "SPIR-V bindless buffer heap access has no per-slot metadata plan.");
+    // These are independent descriptor domains. Mixed-layout buffer reads
+    // take their bias/size/address from the metadata buffer, while typed
+    // buffer reads carry bias and size in the four-word slot record and need
+    // only the global heap. Device-address queries still request metadata.
     _use_tex2d_bindless =
         _runtime_target_plan.bindless_resources.texture_2d;
     _use_tex3d_bindless =
@@ -474,7 +475,7 @@ void SpirvCodegenEntry::generate_binding(
                 space_idx++,
                 0u,
                 std::numeric_limits<uint32_t>::max()},
-                nullptr, "tex2d_heap",
+            nullptr, "tex2d_heap",
             PropertyRole::BINDLESS_TEXTURE_2D_HEAP);
     }
     if (_use_tex3d_bindless) {
@@ -812,7 +813,8 @@ void SpirvCodegenEntry::generate_binding(
         LUISA_ASSERT(
             is_bindless_texture_heap ==
                 (property.type == ShaderVariableType::SRVTextureHeap &&
-                 std::numeric_limits<uint32_t>::max()),
+                 property.array_size ==
+                     std::numeric_limits<uint32_t>::max()),
             "SPIR-V unbounded texture property {} is missing its exact 2D/3D "
             "emission role.",
             i);

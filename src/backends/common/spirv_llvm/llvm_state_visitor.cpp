@@ -710,6 +710,13 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
         }
+        case CallOp::RINT: {
+            auto *v = EvalExpr(args[0]);
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
+                &_module, llvm::Intrinsic::rint, {v->getType()});
+            _last_value = _builder.CreateCall(intrinsic, {v});
+            break;
+        }
 
         // --- ISINF ---
         case CallOp::ISINF: {

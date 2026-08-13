@@ -27,7 +27,8 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     add_library(luisa-compute-gui SHARED ${LUISA_COMPUTE_GUI_SOURCES})
     target_include_directories(luisa-compute-gui PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../ext/imgui>
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../ext/imgui/backends>)
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../ext/imgui/backends>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     target_link_libraries(luisa-compute-gui PUBLIC luisa-compute-runtime luisa-compute-dsl)
     target_compile_definitions(luisa-compute-gui
             PRIVATE LUISA_GUI_EXPORT_DLL

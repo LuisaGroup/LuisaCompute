@@ -23,16 +23,16 @@ static constexpr size_t kIfConversionInstructionCap = 16u;
 [[nodiscard]] static bool is_speculation_safe(Instruction *inst) noexcept {
     auto info = get_memory_info(inst);
     if (!info.is_pure()) return false;
-    if (inst->isa<CastInst>()) { return true; }
-    if (!inst->isa<ArithmeticInst>()) { return false; }
-    switch (static_cast<ArithmeticInst *>(inst)->op()) {
-        case ArithmeticOp::BINARY_DIV:
-        case ArithmeticOp::BINARY_MOD:
-        case ArithmeticOp::BINARY_SHIFT_LEFT:
-        case ArithmeticOp::BINARY_SHIFT_RIGHT:
-            return false;
-        default: return true;
+    // Numeric casts can be undefined for verifier-valid values (notably an
+    // out-of-range float-to-integer conversion). Only representation-
+    // preserving bit casts are total on an untaken arm.
+    if (inst->isa<CastInst>()) {
+        return static_cast<CastInst *>(inst)->op() ==
+               CastOp::BITWISE_CAST;
     }
+    if (!inst->isa<ArithmeticInst>()) { return false; }
+    return is_arithmetic_op_safe_to_speculate(
+        static_cast<ArithmeticInst *>(inst)->op());
 }
 
 [[nodiscard]] static bool can_rewrite_phis(BasicBlock *merge,
@@ -77,10 +77,17 @@ static constexpr size_t kIfConversionInstructionCap = 16u;
 [[nodiscard]] static BasicBlock *eligible_side(BasicBlock *side, BasicBlock *b,
                                                size_t &out_inst_count) noexcept {
     if (side == nullptr) return nullptr;
+    // The side block itself is deleted. Unlike its instructions, block-local
+    // metadata has no unique owner after both arms are merged into `b`.
+    if (!side->metadata_list().empty()) return nullptr;
     if (!side->is_terminated()) return nullptr;
     if (single_predecessor(side) != b) return nullptr;
     auto term = side->terminator();
     if (term->derived_instruction_tag() != DerivedInstructionTag::BRANCH) return nullptr;
+    // The two arm-exit branches are both deleted, but there is only one
+    // replacement branch. Merging metadata lists can also create duplicate
+    // metadata kinds, which is verifier-invalid. Retain annotated exits.
+    if (!term->metadata_list().empty()) return nullptr;
     auto br = static_cast<BranchInst *>(term);
     auto m = br->target_block();
     if (m == nullptr) return nullptr;
@@ -158,6 +165,12 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
     auto cond = cond_br->condition();
     if (cond == nullptr || cond->type() == nullptr || !cond->type()->is_bool()) { return false; }
     if (!can_rewrite_phis(merge, t_block, f_block)) { return false; }
+    auto clone_metadata = [](const MetadataListMixin &source,
+                             MetadataListMixin &target) noexcept {
+        for (auto *metadata : source.metadata_list()) {
+            target.metadata_list().push_front(metadata->clone());
+        }
+    };
     // Hoist non-terminator instructions from each side into b before the
     // current cond_br terminator.
     auto hoist = [&](BasicBlock *side) noexcept {
@@ -175,12 +188,13 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
     // The cond_br is removed first so we can emit selects + br at the end of
     // the parent block via set_insertion_point(BasicBlock*), which points the
     // builder at the new last instruction (insert-after semantics).
-    term->remove_self();
+    auto removed_parent_term = term->remove_self();
     XIRBuilder builder;
     builder.set_insertion_point(b);
     auto replaced = rewrite_phis_in_merge(merge, b, t_block, f_block, cond, builder);
     info.replaced_phi_count += replaced;
-    builder.br(merge);
+    auto *replacement_branch = builder.br(merge);
+    clone_metadata(*removed_parent_term, *replacement_branch);
     // The two sides now have no predecessors and no live uses.
     t_block->terminator()->remove_self();
     t_block->remove_self();
@@ -224,15 +238,35 @@ IfConversionInfo if_conversion_pass_run_on_function(Function *function) noexcept
 
 IfConversionInfo if_conversion_pass_run_on_module(Module *module, PassReport *report) noexcept {
     IfConversionInfo info;
-    for (auto f : module->function_list()) {
-        detail::run_if_conversion_on_function(f, info);
-    }
-    if (report != nullptr) {
+    auto set_report = [&]() noexcept {
+        if (report == nullptr) { return; }
         report->set("converted_diamonds", info.converted_diamond_count);
         report->set("hoisted_insts", info.hoisted_inst_count);
         report->set("replaced_phis", info.replaced_phi_count);
         report->set("structured_cfg_error_count", info.structured_cfg_error_count);
+    };
+    if (module == nullptr) {
+        set_report();
+        return info;
     }
+    for (auto *function : module->function_list()) {
+        if (auto *def = function->definition();
+            def != nullptr && contains_structured_control_flow(def)) {
+            ++info.structured_cfg_error_count;
+        }
+    }
+    if (info.structured_cfg_error_count != 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "If conversion rejected module containing {} structured "
+            "function(s); IR was left unchanged.",
+            info.structured_cfg_error_count);
+        set_report();
+        return info;
+    }
+    for (auto *function : module->function_list()) {
+        detail::run_if_conversion_on_function(function, info);
+    }
+    set_report();
     return info;
 }
 

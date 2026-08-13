@@ -22,7 +22,9 @@ namespace luisa::compute::xir {
 namespace detail {
 
 [[nodiscard]] static ReturnInst *find_final_return_instruction(FunctionDefinition *def) noexcept {
+    luisa::unordered_set<BasicBlock *> visited;
     for (auto block = def->body_block();;) {
+        if (block == nullptr || !visited.emplace(block).second) { return nullptr; }
         auto terminator = block->terminator();
         if (terminator->isa<ReturnInst>()) { return static_cast<ReturnInst *>(terminator); }
         auto control_merge = terminator->control_flow_merge();
@@ -33,7 +35,12 @@ namespace detail {
 
 [[nodiscard]] static luisa::vector<BasicBlock *> build_full_merge_chain(FunctionDefinition *def) noexcept {
     luisa::vector<BasicBlock *> chain;
+    luisa::unordered_set<BasicBlock *> visited;
     for (auto block = def->body_block();;) {
+        if (block == nullptr || !visited.emplace(block).second) {
+            chain.clear();
+            break;
+        }
         chain.emplace_back(block);
         auto term = block->terminator();
         if (term->isa<ReturnInst>()) { break; }
@@ -245,12 +252,21 @@ static void eliminate_early_return(ReturnInst *return_inst, AllocaInst *not_retu
         if (val != nullptr) { b.store(return_value_slot, val); }
     }
     b.store(not_returned_flag, const_false);
-    b.br(merge_target);
+    auto *replacement_branch = b.br(merge_target);
+    for (auto *metadata : return_inst->metadata_list()) {
+        replacement_branch->metadata_list().push_front(metadata->clone());
+    }
+    // The ReturnInst had no CFG successor. Replacing it with an explicit edge
+    // makes `parent` a new predecessor of the selected merge. Values produced
+    // by merge Phis are guarded by not_returned_flag on this path, so an undef
+    // incoming is both structurally required and semantically unobservable.
+    add_undef_phi_predecessor(merge_target, parent, module);
     return_inst->remove_self();
 }
 
 static void eliminate_early_return_in_function(Function *function, EarlyReturnEliminationInfo &info) noexcept {
-    if (auto def = function->definition()) {
+    if (auto def = function == nullptr ? nullptr : function->definition()) {
+        if (def->body_block() == nullptr) { return; }
         luisa::vector<ReturnInst *> early_returns;
         auto final_return = find_final_return_instruction(def);
         def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
@@ -330,8 +346,10 @@ EarlyReturnEliminationInfo early_return_elimination_pass_run_on_function(Functio
 
 EarlyReturnEliminationInfo early_return_elimination_pass_run_on_module(Module *module, PassReport *report) noexcept {
     EarlyReturnEliminationInfo info;
-    for (auto f : module->function_list()) {
-        detail::eliminate_early_return_in_function(f, info);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            detail::eliminate_early_return_in_function(f, info);
+        }
     }
     if (report != nullptr) {
         report->set("removed_return", info.removed_return_count);

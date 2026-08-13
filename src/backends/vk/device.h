@@ -1,5 +1,6 @@
 #pragma once
 #include <volk.h>
+#include "vk_shader_untyped_pointers.h"
 #include <luisa/runtime/device.h>
 #include "VulkanDevice.h"
 #include <luisa/vstl/common.h>
@@ -208,6 +209,7 @@ public:
     bool subgroup_extended_types_enabled : 1 {false};
     bool cooperative_vector_enabled : 1 {false};
     bool cooperative_vector_fp32_enabled : 1 {false};
+    bool shader_untyped_pointers_enabled : 1 {false};
     bool async_copy_enabled : 1 {false};
     bool sampler_anisotropy_enabled : 1 {false};
     auto &graphics_queue_mtx() { return *_graphics_queue_lock; }
@@ -244,6 +246,9 @@ public:
     [[nodiscard]] bool enable_sampler_anisotropy() const noexcept {
         return sampler_anisotropy_enabled;
     }
+    [[nodiscard]] bool enable_shader_untyped_pointers() const noexcept {
+        return shader_untyped_pointers_enabled;
+    }
     // Exact optional Vulkan features enabled on this logical device that may
     // be consumed by persisted SPIR-V artifacts. Imported logical devices are
     // deliberately fail-closed for enable-chain features that Vulkan cannot
@@ -258,6 +263,7 @@ public:
     static VkAllocationCallbacks *alloc_callbacks();
     [[nodiscard]] VkInstance instance() const noexcept;
     uint compute_warp_size() const noexcept override;
+    size_t compute_max_shared_memory_size() const noexcept override;
     uint64_t memory_granularity() const noexcept override;
     auto &allocator() { return *_allocator; }
     [[nodiscard]] const UploadBuffer *indirect_dispatch_dummy() const noexcept {
@@ -289,7 +295,6 @@ public:
     ~Device();
     void *native_handle() const noexcept override;
     BufferCreationInfo create_buffer(const luisa::compute::Type *element, size_t elem_count, void *external_ptr) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_ptr) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     auto graphics_queue() const { return _graphics_queue; }
     auto compute_queue() const { return _compute_queue; }
@@ -322,7 +327,6 @@ public:
 
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
     ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const luisa::compute::Type *const> arg_types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;

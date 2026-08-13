@@ -5,6 +5,10 @@
 #include <luisa/vstl/stack_allocator.h>
 namespace luisa::compute {
 static constexpr auto raster_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT | VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+// The NV spellings predate the identical EXT aliases and remain available in
+// Vulkan-Headers versions that do not yet expose the synchronization2 aliases.
+static constexpr auto command_preprocess_read_access = VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV;
+static constexpr auto command_preprocess_write_access = VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_NV;
 
 static constexpr VkPipelineStageFlagBits2 BarrierSyncMap[] = {
     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,                                                    // ComputeRead,
@@ -146,8 +150,7 @@ private:
                                         VK_ACCESS_2_VIDEO_ENCODE_READ_BIT_KHR |
                                         VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT |
                                         VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT |
-                                        VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV |
-                                        VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_EXT |
+                                        command_preprocess_read_access |
                                         VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR |
                                         VK_ACCESS_2_SHADING_RATE_IMAGE_READ_BIT_NV |
                                         VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR |
@@ -169,8 +172,7 @@ private:
                                          VK_ACCESS_2_VIDEO_ENCODE_WRITE_BIT_KHR |
                                          VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT |
                                          VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT |
-                                         VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_NV |
-                                         VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_EXT |
+                                         command_preprocess_write_access |
                                          VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR |
                                          VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT |
                                          VK_ACCESS_2_OPTICAL_FLOW_WRITE_BIT_NV;

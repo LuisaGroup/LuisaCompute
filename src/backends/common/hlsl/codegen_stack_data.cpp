@@ -47,6 +47,7 @@ void CodegenStackData::Clear() {
     useTex2DBindless = false;
     useTex3DBindless = false;
     useBufferBindless = false;
+    enable_fast_math = false;
     use_8bit = false;
     pixelUseBarycentric = false;
     internalStruct.clear();

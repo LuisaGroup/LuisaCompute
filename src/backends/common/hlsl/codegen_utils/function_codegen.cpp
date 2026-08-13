@@ -16,11 +16,6 @@ extern bool shown_buffer_warning;
 
 namespace lc::hlsl {
 
-#ifdef LUISA_ENABLE_IR
-// Defined in entry_points.cpp — collects gradient variables from a function body.
-void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept;
-#endif
-
 namespace {
 
 [[nodiscard]] bool is_validation_resource(Type const *type) noexcept {
@@ -408,13 +403,29 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "isnan"sv;
             break;
         case CallOp::ACOS:
-            str << "acos"sv;
+            if (opt->isSpirv &&
+                !opt->enable_fast_math &&
+                (expr->type()->is_float32() ||
+                 (expr->type()->is_vector() &&
+                  expr->type()->element()->is_float32()))) {
+                str << "_lc_strict_acos"sv;
+            } else {
+                str << "acos"sv;
+            }
             break;
         case CallOp::ACOSH:
             str << "_acosh"sv;
             break;
         case CallOp::ASIN:
-            str << "asin"sv;
+            if (opt->isSpirv &&
+                !opt->enable_fast_math &&
+                (expr->type()->is_float32() ||
+                 (expr->type()->is_vector() &&
+                  expr->type()->element()->is_float32()))) {
+                str << "_lc_strict_asin"sv;
+            } else {
+                str << "asin"sv;
+            }
             break;
         case CallOp::ASINH:
             str << "_asinh"sv;
@@ -484,6 +495,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::ROUND:
             str << "_round"sv;
+            break;
+        case CallOp::RINT:
+            // HLSL round is the round-to-nearest-even intrinsic. ROUND uses
+            // the separate _round helper to implement half-away-from-zero.
+            str << "round"sv;
             break;
         case CallOp::FMA:
             str << "_fma"sv;
@@ -2182,18 +2198,10 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> grad_vars;
-    glob_variables_with_grad(vert, grad_vars);
-#endif
     {
         StringStateVisitor vis(vert, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-            grad_vars,
-#endif
-            vert);
+        vis.VisitFunction(vert);
     }
     result << "}\n"sv;
 }
@@ -2232,18 +2240,10 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> grad_vars;
-    glob_variables_with_grad(pixel, grad_vars);
-#endif
     {
         StringStateVisitor vis(pixel, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-            grad_vars,
-#endif
-            pixel);
+        vis.VisitFunction(pixel);
     }
     result << "\n}\nvoid main(v2p p"sv;
     result << ",uint primId:SV_PrimitiveID"sv;

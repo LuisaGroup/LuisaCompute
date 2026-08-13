@@ -1,5 +1,6 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
@@ -30,15 +31,30 @@ static void collect_reachable_callables(Function *f, luisa::unordered_set<Functi
 
 UnusedCallableRemovalInfo unused_callable_removal_pass_run_on_module(Module *module, PassReport *report) noexcept {
     luisa::unordered_set<Function *> reachable;
-    for (auto f : module->function_list()) {
-        if (f->isa<KernelFunction>()) {
-            detail::collect_reachable_callables(f, reachable);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            if (f->isa<KernelFunction>()) {
+                detail::collect_reachable_callables(f, reachable);
+            }
         }
     }
     luisa::unordered_set<Function *> removable;
-    for (auto f : module->function_list()) {
-        if (f->isa<CallableFunction>() && !reachable.contains(f)) {
-            removable.emplace(f);
+    if (module != nullptr) {
+        for (auto f : module->function_list()) {
+            if (!f->isa<CallableFunction>() || reachable.contains(f)) {
+                continue;
+            }
+            auto *callable = static_cast<CallableFunction *>(f);
+            // A bodyless callable is declaration-like: without an explicit
+            // internal-linkage contract it may be implemented or referenced
+            // outside this module. Signature-constrained callables likewise
+            // have an externally fixed ABI (for example callback entry
+            // points). Neither is locally provable dead.
+            if (callable->body_block() == nullptr ||
+                callable->find_metadata<SignatureConstraintMD>() != nullptr) {
+                continue;
+            }
+            removable.emplace(callable);
         }
     }
     // Destroy callers before callees so removing a caller first drops its

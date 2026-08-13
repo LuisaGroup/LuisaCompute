@@ -1,4 +1,5 @@
 #include <luisa/runtime/rhi/command.h>
+#include <luisa/core/clock.h>
 #include <hip/hiprtc.h>
 #include <hiprt/hiprt.h>
 #include <algorithm>
@@ -35,7 +36,125 @@ void validate_register_limit(hipFunction_t function,
                   actual_register_count, effective_limit);
 }
 
+class HIPRTCLinkState {
+
+private:
+    hiprtcLinkState _state{};
+
+public:
+    HIPRTCLinkState() noexcept {
+        auto result = hiprtcLinkCreate(
+            0, nullptr, nullptr, &_state);
+        LUISA_ASSERT(
+            result == hiprtcResult::HIPRTC_SUCCESS,
+            "Failed to create hiprtc link state: {}.",
+            hiprtcGetErrorString(result));
+    }
+
+    ~HIPRTCLinkState() noexcept {
+        if (_state != nullptr) {
+            auto result = hiprtcLinkDestroy(_state);
+            LUISA_ASSERT(
+                result == hiprtcResult::HIPRTC_SUCCESS,
+                "Failed to destroy hiprtc link state: {}.",
+                hiprtcGetErrorString(result));
+        }
+    }
+
+    HIPRTCLinkState(HIPRTCLinkState &&) noexcept = delete;
+    HIPRTCLinkState(const HIPRTCLinkState &) noexcept = delete;
+    HIPRTCLinkState &operator=(HIPRTCLinkState &&) noexcept = delete;
+    HIPRTCLinkState &operator=(const HIPRTCLinkState &) noexcept = delete;
+
+    void add_llvm_bitcode(
+        luisa::string_view bitcode,
+        const char *entry) noexcept {
+        auto result = hiprtcLinkAddData(
+            _state, hipJitInputLLVMBitcode,
+            const_cast<char *>(bitcode.data()),
+            bitcode.size(), entry, 0, nullptr, nullptr);
+        LUISA_ASSERT(
+            result == hiprtcResult::HIPRTC_SUCCESS,
+            "Failed to add LLVM bitcode to hiprtc linker: {}.",
+            hiprtcGetErrorString(result));
+    }
+
+    [[nodiscard]] luisa::vector<std::byte>
+    complete() noexcept {
+        void *linked_binary = nullptr;
+        size_t linked_binary_size = 0u;
+        auto result = hiprtcLinkComplete(
+            _state, &linked_binary, &linked_binary_size);
+        LUISA_ASSERT(
+            result == hiprtcResult::HIPRTC_SUCCESS,
+            "Failed to complete hiprtc linking: {}.",
+            hiprtcGetErrorString(result));
+        LUISA_ASSERT(
+            linked_binary != nullptr &&
+                linked_binary_size != 0u,
+            "hiprtc produced an empty code object.");
+        auto bytes =
+            static_cast<const std::byte *>(linked_binary);
+        return luisa::vector<std::byte>{
+            bytes, bytes + linked_binary_size};
+    }
+};
+
 }// namespace
+
+luisa::vector<std::byte> hip_link_llvm_bitcode(
+    luisa::string_view bitcode, const char *entry) noexcept {
+    Clock clock;
+    HIPRTCLinkState linker;
+    linker.add_llvm_bitcode(bitcode, entry);
+    auto code_object = linker.complete();
+    LUISA_INFO(
+        "Linked HIP LLVM bitcode to AMDGPU code object "
+        "({} bytes) in {} ms.",
+        code_object.size(), clock.toc());
+    return code_object;
+}
+
+void HIPShaderNative::_load_code_object(
+    luisa::span<const std::byte> code_object,
+    const HIPShaderMetadata &metadata,
+    bool ray_tracing) noexcept {
+    LUISA_ASSERT(
+        !code_object.empty(),
+        "Cannot load an empty HIP code object.");
+    Clock clock;
+    LUISA_CHECK_HIP(hipModuleLoadData(
+        &_module, code_object.data()));
+
+    if (auto dump_dir = std::getenv("LUISA_DUMP_HIP_ISA")) {
+        static int compute_isa_counter = 0;
+        static int ray_tracing_isa_counter = 0;
+        auto index = ray_tracing ?
+                         ray_tracing_isa_counter++ :
+                         compute_isa_counter++;
+        auto path = fmt::format(
+            "{}/hip_{}isa_{}.co", dump_dir,
+            ray_tracing ? "rt_" : "", index);
+        std::ofstream ofs(path, std::ios::binary);
+        ofs.write(
+            reinterpret_cast<const char *>(
+                code_object.data()),
+            static_cast<std::streamsize>(
+                code_object.size_bytes()));
+        LUISA_INFO(
+            "Dumped HIP{} code object ({} bytes) to: {}",
+            ray_tracing ? " RT" : "",
+            code_object.size_bytes(), path);
+    }
+
+    LUISA_CHECK_HIP(hipModuleGetFunction(
+        &_function, _module, _entry.c_str()));
+    validate_register_limit(
+        _function, metadata.max_register_count);
+    LUISA_INFO(
+        "Loaded HIP{} code object in {} ms.",
+        ray_tracing ? " RT" : "", clock.toc());
+}
 
 HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
                                  const char *entry, const HIPShaderMetadata &metadata,
@@ -49,51 +168,10 @@ HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
       _bound_arguments{std::move(bound_arguments)},
       _device{device},
       _requires_global_rt_stack{false} {
-
-    hiprtcLinkState link_state{};
-    auto create_result = hiprtcLinkCreate(0, nullptr, nullptr, &link_state);
-    if (create_result != hiprtcResult::HIPRTC_SUCCESS) {
-        LUISA_ERROR_WITH_LOCATION("Failed to create hiprtc link state: {}",
-                                  hiprtcGetErrorString(create_result));
-    }
-
-    auto add_result = hiprtcLinkAddData(link_state,
-                                        hipJitInputLLVMBitcode,
-                                        code.data(),
-                                        code.size(),
-                                        entry,
-                                        0, nullptr, nullptr);
-    if (add_result != hiprtcResult::HIPRTC_SUCCESS) {
-        hiprtcLinkDestroy(link_state);
-        LUISA_ERROR_WITH_LOCATION("Failed to add LLVM bitcode to hiprtc linker: {}",
-                                  hiprtcGetErrorString(add_result));
-    }
-
-    void *linked_binary = nullptr;
-    size_t linked_binary_size = 0;
-    auto complete_result = hiprtcLinkComplete(link_state, &linked_binary, &linked_binary_size);
-    if (complete_result != hiprtcResult::HIPRTC_SUCCESS) {
-        hiprtcLinkDestroy(link_state);
-        LUISA_ERROR_WITH_LOCATION("Failed to complete hiprtc linking: {}",
-                                  hiprtcGetErrorString(complete_result));
-    }
-
-    auto ret = hipModuleLoadData(&_module, linked_binary);
-
-    if (auto dump_dir = std::getenv("LUISA_DUMP_HIP_ISA")) {
-        static int _isa_counter = 0;
-        auto path = fmt::format("{}/hip_isa_{}.co", dump_dir, _isa_counter++);
-        std::ofstream ofs(path, std::ios::binary);
-        ofs.write(static_cast<const char *>(linked_binary), linked_binary_size);
-        LUISA_INFO("Dumped HIP code object ({} bytes) to: {}", linked_binary_size, path);
-    }
-
-    hiprtcLinkDestroy(link_state);
-    if (ret != hipSuccess) {
-        LUISA_ERROR_WITH_LOCATION("Failed to load HIP module: {}", hipGetErrorString(ret));
-    }
-    LUISA_CHECK_HIP(hipModuleGetFunction(&_function, _module, entry));
-    validate_register_limit(_function, metadata.max_register_count);
+    auto code_object =
+        hip_link_llvm_bitcode(code, entry);
+    _load_code_object(
+        code_object, metadata, false);
 }
 
 HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
@@ -111,54 +189,59 @@ HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
       _requires_global_rt_stack{metadata.requires_global_rt_stack} {
 
     LUISA_ASSERT(hiprt_ctx != nullptr, "HIPRT context is null for ray-tracing shader.");
+    auto code_object =
+        hip_link_llvm_bitcode(code, entry);
+    _load_code_object(
+        code_object, metadata, true);
+}
 
-    // RT shaders now have HIPRT library fully inlined by our LLVM pipeline.
-    // Use the same hiprtc ISA-generation path as non-RT shaders.
-    hiprtcLinkState link_state{};
-    auto create_result = hiprtcLinkCreate(0, nullptr, nullptr, &link_state);
-    if (create_result != hiprtcResult::HIPRTC_SUCCESS) {
-        LUISA_ERROR_WITH_LOCATION("Failed to create hiprtc link state for RT shader: {}",
-                                  hiprtcGetErrorString(create_result));
-    }
+HIPShaderNative::HIPShaderNative(
+    HIPDevice *device,
+    luisa::span<const std::byte> code_object,
+    const char *entry,
+    const HIPShaderMetadata &metadata,
+    luisa::vector<ShaderDispatchCommand::Argument>
+        bound_arguments) noexcept
+    : HIPShader{
+          HIPShaderPrinter::create(metadata.format_types),
+          metadata.argument_usages},
+      _entry{entry},
+      _block_size{
+          metadata.block_size.x,
+          metadata.block_size.y,
+          metadata.block_size.z},
+      _bound_arguments{std::move(bound_arguments)},
+      _device{device},
+      _requires_global_rt_stack{false} {
+    _load_code_object(
+        code_object, metadata, false);
+}
 
-    auto add_result = hiprtcLinkAddData(link_state,
-                                        hipJitInputLLVMBitcode,
-                                        code.data(),
-                                        code.size(),
-                                        entry,
-                                        0, nullptr, nullptr);
-    if (add_result != hiprtcResult::HIPRTC_SUCCESS) {
-        hiprtcLinkDestroy(link_state);
-        LUISA_ERROR_WITH_LOCATION("Failed to add LLVM bitcode to hiprtc linker for RT shader: {}",
-                                  hiprtcGetErrorString(add_result));
-    }
-
-    void *linked_binary = nullptr;
-    size_t linked_binary_size = 0;
-    auto complete_result = hiprtcLinkComplete(link_state, &linked_binary, &linked_binary_size);
-    if (complete_result != hiprtcResult::HIPRTC_SUCCESS) {
-        hiprtcLinkDestroy(link_state);
-        LUISA_ERROR_WITH_LOCATION("Failed to complete hiprtc linking for RT shader: {}",
-                                  hiprtcGetErrorString(complete_result));
-    }
-
-    auto ret = hipModuleLoadData(&_module, linked_binary);
-
-    if (auto dump_dir = std::getenv("LUISA_DUMP_HIP_ISA")) {
-        static int _rt_isa_counter = 0;
-        auto path = fmt::format("{}/hip_rt_isa_{}.co", dump_dir, _rt_isa_counter++);
-        std::ofstream ofs(path, std::ios::binary);
-        ofs.write(static_cast<const char *>(linked_binary), linked_binary_size);
-        LUISA_INFO("Dumped HIP RT code object ({} bytes) to: {}", linked_binary_size, path);
-    }
-
-    hiprtcLinkDestroy(link_state);
-    if (ret != hipSuccess) {
-        LUISA_ERROR_WITH_LOCATION("Failed to load HIP RT module: {}", hipGetErrorString(ret));
-    }
-    LUISA_CHECK_HIP(hipModuleGetFunction(&_function, _module, entry));
-    validate_register_limit(_function, metadata.max_register_count);
-    LUISA_INFO("RT shader compiled via LTO pipeline (bypassing HIPRT compiler).");
+HIPShaderNative::HIPShaderNative(
+    HIPDevice *device,
+    luisa::span<const std::byte> code_object,
+    const char *entry,
+    const HIPShaderMetadata &metadata,
+    hiprtContext hiprt_ctx,
+    luisa::vector<ShaderDispatchCommand::Argument>
+        bound_arguments) noexcept
+    : HIPShader{
+          HIPShaderPrinter::create(metadata.format_types),
+          metadata.argument_usages},
+      _entry{entry},
+      _block_size{
+          metadata.block_size.x,
+          metadata.block_size.y,
+          metadata.block_size.z},
+      _bound_arguments{std::move(bound_arguments)},
+      _device{device},
+      _requires_global_rt_stack{
+          metadata.requires_global_rt_stack} {
+    LUISA_ASSERT(
+        hiprt_ctx != nullptr,
+        "HIPRT context is null for ray-tracing shader.");
+    _load_code_object(
+        code_object, metadata, true);
 }
 
 HIPShaderNative::~HIPShaderNative() noexcept {

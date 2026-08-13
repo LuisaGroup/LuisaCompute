@@ -2,7 +2,9 @@
 // Created by mike on 1/9/26.
 //
 
+#include <bit>
 #include <cstdlib>
+#include <limits>
 
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/logging.h>
@@ -117,8 +119,39 @@ HIPStream::~HIPStream() noexcept {
                    _total_gpu_time_ms / static_cast<double>(_dispatch_count));
     }
     _shutdown_callback_thread();
+    if (_rt_scratch_buffer != nullptr) {
+        LUISA_CHECK_HIP(hipFree(_rt_scratch_buffer));
+    }
     _destroy_callback_semaphore();
     LUISA_CHECK_HIP(hipStreamDestroy(_stream));
+}
+
+hipDeviceptr_t HIPStream::rt_scratch_buffer(size_t required_size) noexcept {
+    if (required_size == 0u) { return nullptr; }
+    if (required_size > _rt_scratch_capacity) {
+        constexpr auto maximum_power_of_two =
+            size_t{1u}
+            << (std::numeric_limits<size_t>::digits - 1u);
+        LUISA_ASSERT(
+            required_size <= maximum_power_of_two,
+            "HIP ray-tracing scratch-buffer request {} cannot be "
+            "rounded to a representable power-of-two capacity.",
+            required_size);
+        auto new_capacity = std::bit_ceil(required_size);
+        if (_rt_scratch_buffer != nullptr) {
+            // Every consumer submits all scratch uses to this stream, and
+            // dispatch() serializes command encoding. Thus successive uses are
+            // totally ordered and may alias. Drain the old lifetime only on
+            // this rare growth path before replacing its backing allocation.
+            LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
+            LUISA_CHECK_HIP(hipFree(_rt_scratch_buffer));
+        }
+        LUISA_CHECK_HIP(hipMalloc(
+            reinterpret_cast<void **>(&_rt_scratch_buffer),
+            new_capacity));
+        _rt_scratch_capacity = new_capacity;
+    }
+    return _rt_scratch_buffer;
 }
 
 void HIPStream::dispatch(CommandList &&command_list) noexcept {
