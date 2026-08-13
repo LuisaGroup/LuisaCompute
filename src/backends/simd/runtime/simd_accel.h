@@ -42,7 +42,9 @@ private:
         .ray_query_proceed_wide_status = simd_host_ray_query_proceed_status};
     bool _has_curve_instances{false};
     bool _has_procedural_instances{false};
+    uint32_t _warp_width{8u};
     bool _enable_triangle_only_ray_query{true};
+    bool _enable_procedural_dense_status{true};
 
     friend struct triangle_ray_query::SIMDAccelAccess;
 
@@ -64,7 +66,9 @@ private:
         uint64_t bit, uint64_t &pending) noexcept;
 
 public:
-    SIMDAccel(RTCDevice device, const AccelOption &option) noexcept;
+    SIMDAccel(
+        RTCDevice device, const AccelOption &option,
+        uint32_t warp_width) noexcept;
     ~SIMDAccel() noexcept;
 
     void build(const AccelBuildCommand &command) noexcept;

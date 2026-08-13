@@ -15,7 +15,10 @@ sidecar and caches the corresponding fixed-vector state handles at W4/W8/W16
 while leaving the public query state and plain Embree providers unchanged.
 The current final stage treats the cached status entry and its construction-
 selected plain provider as an audited internal pair, removing one redundant
-JIT callback gather while retaining provider-side fail-closed validation.
+JIT callback gather while retaining provider-side fail-closed validation. A
+new W16-only procedural specialization also packs a fully active post-proceed
+status with one sequential state-pointer pass; narrower widths and every
+non-procedural acceleration structure retain the established callback.
 
 ## Test host and method
 
@@ -779,6 +782,48 @@ probe versus three with the pairing oracle, executes divergent cohorts and
 inactive tails, and uses a fatal subprocess to reject mismatched plain
 providers. W1/W2 query objects and W4/W8/W16 non-query GEMM assembly are byte-
 identical under the oracle.
+
+### W16 procedural dense status packing
+
+The generic status callback scans an arbitrary active mask by repeatedly
+finding and clearing its lowest set bit. Procedural W16 workloads frequently
+return all sixteen lanes from one provider call. Acceleration structures built
+on a W16 device and proven to contain at least one procedural instance now
+install a separate status entry: it calls the same plain provider and retains
+its provider-agreement validation, then uses one fixed sequential pass when
+the post-call cohort is `0xffff`. Sparse cohorts still use the original set-bit
+packer, so inactive or null state pointers are never inspected. Every accel
+build recomputes the procedural summary; W1/W2/W4/W8 and triangle/curve-only
+accels keep the original callback pointer. The same-binary oracle is
+`LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK=1`, sampled at accel creation.
+
+This width restriction is measured rather than architectural. An initial
+W8/W16 selection was rejected after seven W8 procedural-callable renderer
+pairs measured 0.9861x with only 1/7 wins. Restricting the specialization to
+W16 leaves that path and the triangle-only path unchanged. Seven final-binary
+16-candidate microbenchmark pairs measured:
+
+| Width | Candidate/oracle | Wins | Selection |
+| ---: | ---: | ---: | --- |
+| W4 | 1.0027x | 3/7 | original callback |
+| W8 | 1.0037x | 4/7 | original callback |
+| W16 | 1.0122x | 6/7 | enable dense full-mask pack |
+
+Five alternating W16 `perf stat` pairs measured candidate/oracle ratios of
+0.9830 for user cycles, 0.9800 for retired instructions, and 1.0014 for
+branches. Branch misses were about 0.06% of branches and did not provide a
+stable directional signal. Disassembly keeps the original generic wrapper
+instruction-for-instruction identical at 237 bytes. The W16 entry is 405 bytes
+and the complete backend `.text` grows by 704 bytes.
+
+The real mixed procedural-callable renderer (1280x720, 1024 spp) measured a
+1.0067x paired geometric-mean speedup across fourteen alternating W16 pairs,
+with 10/14 wins and a log-ratio 95% interval of 1.0007x--1.0127x. Median times
+were 2,617.6 ms candidate and 2,633.0 ms oracle. All 28 outputs passed the
+gallery comparison and were byte-identical. As a non-procedural control, seven
+W16 64-spp cutout pairs measured 1.0001x with 4/7 wins; all fourteen output
+hashes matched. This is therefore recorded as a small W16 procedural latency
+win, not as a general ray-query or W8 improvement.
 
 ## Same-algorithm ISPC control and provenance
 

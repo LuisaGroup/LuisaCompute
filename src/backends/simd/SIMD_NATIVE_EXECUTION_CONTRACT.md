@@ -940,6 +940,21 @@ performance oracle, while
 `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING=1` restores only the
 redundant JIT check.
 
+A W16 device may install a specialized paired status entry only when the
+acceleration structure's latest complete build summary contains a procedural
+instance and `LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK` is unset. The
+summary and entry selection must be refreshed after every build; W1/W2/W4/W8
+and acceleration structures without procedural instances must retain the
+generic entry. The specialization must invoke the same plain provider and
+preserve its fail-closed callback-agreement validation. After that call, an
+exact physical mask of `0xffff` may be packed by a sequential sixteen-entry
+pass. Any other mask must use an inactive-safe sparse scan; no inactive or null
+state pointer may be dereferenced. Candidate-kind, termination, reserved bits,
+and high input-mask bits have exactly the generic packer's interpretation.
+This refinement changes neither the query-state ABI nor the W16 Embree packet
+width and must remain independently disableable from JIT status caching and
+callback pairing.
+
 Each normal accel build recomputes whether the complete current instance table
 contains a curve or procedural primitive. Motion instances are classified by
 their child. When both summaries are false, the host view may select the

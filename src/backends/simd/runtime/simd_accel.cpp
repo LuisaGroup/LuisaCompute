@@ -11,6 +11,7 @@
 
 #include <luisa/core/logging.h>
 
+#include "../../common/env_flag.h"
 #include "simd_motion_instance.h"
 #include "simd_procedural_primitive.h"
 
@@ -1309,10 +1310,15 @@ void simd_procedural_occluded(
 }
 
 SIMDAccel::SIMDAccel(
-    RTCDevice device, const AccelOption &option) noexcept
+    RTCDevice device, const AccelOption &option,
+    uint32_t warp_width) noexcept
     : _scene{rtcNewScene(device)},
+      _warp_width{warp_width},
       _enable_triangle_only_ray_query{
-          triangle_ray_query::triangle_only_ray_query_enabled()} {
+          triangle_ray_query::triangle_only_ray_query_enabled()},
+      _enable_procedural_dense_status{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK")} {
     simd_accel_set_flags(_scene, option);
 }
 
@@ -1505,6 +1511,15 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                    static_cast<uint8_t>(
                        SIMDHostAccelGeometryKind::procedural);
         });
+    _instance_table.ray_query_proceed_status =
+        simd_host_ray_query_proceed_status;
+    _instance_table.ray_query_proceed_wide_status =
+        simd_host_ray_query_use_procedural_wide_status(
+            _warp_width,
+            _has_procedural_instances,
+            _enable_procedural_dense_status) ?
+            simd_host_ray_query_proceed_wide_procedural_status :
+            simd_host_ray_query_proceed_status;
     rtcCommitScene(_scene);
 }
 

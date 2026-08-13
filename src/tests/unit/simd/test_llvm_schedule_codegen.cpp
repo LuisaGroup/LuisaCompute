@@ -3581,6 +3581,96 @@ struct RayQueryStatusProbe {
     bool valid{true};
 };
 
+[[nodiscard]] uint64_t ray_query_status_reference(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
+    auto active = active_mask_bits & lane_mask;
+    auto status = uint64_t{0u};
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        auto bit = uint64_t{1u} << lane;
+        if ((active & bit) == 0u) { continue; }
+        auto *state = states[lane];
+        if (state->terminated != 0u) {
+            status |= bit << simd_host_ray_query_terminated_status_shift;
+        }
+        switch (static_cast<SIMDHostRayQueryCandidateKind>(
+            state->candidate_kind)) {
+            case SIMDHostRayQueryCandidateKind::surface:
+                status |= bit << simd_host_ray_query_surface_status_shift;
+                break;
+            case SIMDHostRayQueryCandidateKind::procedural:
+                status |= bit << simd_host_ray_query_procedural_status_shift;
+                break;
+            default: break;
+        }
+    }
+    return status;
+}
+
+[[nodiscard]] bool run_ray_query_status_pack() {
+    constexpr std::array widths{1u, 2u, 4u, 8u, 16u};
+    for (auto width : widths) {
+        std::array<SIMDHostRayQueryState, 16u> storage{};
+        std::array<SIMDHostRayQueryState *, 16u> states{};
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            auto &state = storage[lane];
+            state.terminated = (lane % 3u) == 0u ? 1u : 0u;
+            state.candidate_kind = lane % 4u;
+            states[lane] = &state;
+        }
+        auto lane_mask = (uint64_t{1u} << width) - 1u;
+        constexpr std::array sparse_patterns{
+            uint64_t{0u}, uint64_t{1u}, uint64_t{0xaaaau},
+            uint64_t{0x8421u}, ~uint64_t{0u}};
+        for (auto pattern : sparse_patterns) {
+            auto mask = pattern & lane_mask;
+            auto sparse_states = states;
+            for (auto lane = uint32_t{0u}; lane < width; lane++) {
+                if ((mask & (uint64_t{1u} << lane)) == 0u) {
+                    sparse_states[lane] = nullptr;
+                }
+            }
+            auto input_mask = mask | (uint64_t{1u} << 63u);
+            CHECK(simd_host_ray_query_pack_status(
+                      width, input_mask, sparse_states.data()) ==
+                  ray_query_status_reference(
+                      width, input_mask, sparse_states.data()));
+        }
+        CHECK(simd_host_ray_query_pack_status(
+                  width, lane_mask, states.data()) ==
+              ray_query_status_reference(
+                  width, lane_mask, states.data()));
+        if (width == 16u) {
+            for (auto pattern : sparse_patterns) {
+                auto mask = pattern & lane_mask;
+                auto sparse_states = states;
+                for (auto lane = uint32_t{0u}; lane < width; lane++) {
+                    if ((mask & (uint64_t{1u} << lane)) == 0u) {
+                        sparse_states[lane] = nullptr;
+                    }
+                }
+                auto input_mask = mask | (uint64_t{1u} << 63u);
+                CHECK(simd_host_ray_query_pack_procedural_wide_status(
+                          width, input_mask, sparse_states.data()) ==
+                      ray_query_status_reference(
+                          width, input_mask, sparse_states.data()));
+            }
+        }
+    }
+    CHECK(!simd_host_ray_query_use_procedural_wide_status(
+        8u, true, true));
+    CHECK(!simd_host_ray_query_use_procedural_wide_status(
+        16u, false, false));
+    CHECK(!simd_host_ray_query_use_procedural_wide_status(
+        16u, false, true));
+    CHECK(!simd_host_ray_query_use_procedural_wide_status(
+        16u, true, false));
+    CHECK(simd_host_ray_query_use_procedural_wide_status(
+        16u, true, true));
+    return true;
+}
+
 [[nodiscard]] uint64_t ray_query_status_probe_impl(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states) {
@@ -5661,6 +5751,7 @@ int main() {
          &run_accel_direct_packet_codegen},
         {"XIR ray-query packet callback",
          &run_ray_query_packet_codegen},
+        {"ray-query status packing", &run_ray_query_status_pack},
         {"XIR ray-query status cache",
          &run_ray_query_status_cache_codegen},
         {"sequential ray-query scratch coloring",

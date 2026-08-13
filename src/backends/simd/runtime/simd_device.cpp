@@ -404,7 +404,7 @@ void SIMDDevice::destroy_motion_instance(uint64_t handle) noexcept {
 ResourceCreationInfo SIMDDevice::create_accel(
     const AccelOption &option) noexcept {
     auto *accel = luisa::new_with_allocator<SIMDAccel>(
-        _rtc_device, option);
+        _rtc_device, option, _warp_width);
     return {
         .handle = reinterpret_cast<uint64_t>(accel),
         .native_handle = accel->native_handle(),

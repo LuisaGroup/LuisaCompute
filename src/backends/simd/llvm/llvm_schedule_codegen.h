@@ -237,6 +237,41 @@ struct alignas(16) SIMDHostRayQueryState {
     return status;
 }
 
+// Procedural W16 queries commonly return a fully active cohort. In that
+// case a sequential pass is cheaper than repeatedly finding and clearing the
+// next set bit. Sparse cohorts retain the baseline packer so inactive entries
+// may remain null and are never accessed.
+[[nodiscard]] inline uint64_t simd_host_ray_query_pack_procedural_wide_status(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
+    auto active = active_mask_bits & lane_mask;
+    if (active != lane_mask) {
+        return simd_host_ray_query_pack_status(
+            lane_count, active, states);
+    }
+    auto terminated = uint64_t{0u};
+    auto surface = uint64_t{0u};
+    auto procedural = uint64_t{0u};
+    auto bit = uint64_t{1u};
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++, bit <<= 1u) {
+        auto *state = states[lane];
+        auto kind = state->candidate_kind;
+        terminated |= state->terminated != 0u ? bit : 0u;
+        surface |= kind == static_cast<uint32_t>(
+                               SIMDHostRayQueryCandidateKind::surface) ?
+                       bit :
+                       0u;
+        procedural |= kind == static_cast<uint32_t>(
+                                  SIMDHostRayQueryCandidateKind::procedural) ?
+                          bit :
+                          0u;
+    }
+    return terminated |
+           (surface << simd_host_ray_query_surface_status_shift) |
+           (procedural << simd_host_ray_query_procedural_status_shift);
+}
+
 // Status-aware JIT kernels call this side entry. The status entry and the
 // construction-selected plain provider form an internal ABI pair: the entry
 // dispatches through that provider, which must reject any active state carrying
@@ -246,6 +281,23 @@ struct alignas(16) SIMDHostRayQueryState {
 [[nodiscard]] uint64_t simd_host_ray_query_proceed_status(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states) noexcept;
+
+// A W16 procedural accel selects this entry. Dense cohorts pack
+// post-proceed status with one sequential state-pointer pass; sparse cohorts
+// retain the bit-scan baseline so inactive/null lanes are never touched.
+[[nodiscard]] uint64_t simd_host_ray_query_proceed_wide_procedural_status(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept;
+
+[[nodiscard]] constexpr bool
+simd_host_ray_query_use_procedural_wide_status(
+    uint32_t lane_count,
+    bool has_procedural_instances,
+    bool enable_procedural_dense_status) noexcept {
+    return lane_count == 16u &&
+           has_procedural_instances &&
+           enable_procedural_dense_status;
+}
 
 // Device-side instance metadata reads use this stable plain-data table rather
 // than depending on SIMDAccel's C++ object or vector layout. The table object

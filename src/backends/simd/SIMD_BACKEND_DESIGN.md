@@ -9,7 +9,9 @@ independently implemented precise and fast tiers for twenty f32 operations:
 the initial twelve unary operations, binary `atan2` and `pow`, and six
 hyperbolic/inverse-hyperbolic operations. Static, vertex-motion, and
 instance-motion triangle traversal now includes both closest/any traces and
-stateful query-all/query-any handlers at W1/W2/W4/W8/W16.
+stateful query-all/query-any handlers at W1/W2/W4/W8/W16. W16 acceleration
+structures containing procedural instances additionally use a measured dense
+full-cohort status pack while retaining the sparse inactive-safe path.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -2076,6 +2078,30 @@ from the same binary, and `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the
 number of allocated status colors.
 `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING=1` retains the status
 sidecar but restores the redundant JIT plain-callback gather and comparison.
+
+The paired status ABI has one host-side W16 procedural refinement. A W16 accel
+whose latest build contains a procedural instance installs a distinct status
+entry in its stable instance table. The entry invokes the same construction-
+selected plain provider and therefore retains its active-lane callback
+agreement checks. After the provider returns, an exactly full `0xffff` cohort
+is packed by a fixed sequential pass over the sixteen state pointers; every
+sparse cohort uses the original set-bit scan and never dereferences an inactive
+entry. The accel owns its immutable device width, recomputes the procedural
+summary on every build, and restores the generic status entry if a later build
+contains no procedural instance. W1/W2/W4/W8 never select this specialization.
+`LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK=1`, sampled at accel creation,
+is the same-binary oracle.
+
+The W16-only choice follows the performance gate. A broader W8/W16 experiment
+made the real W8 procedural-callable renderer 0.9861x as fast with 1/7 wins and
+was rejected. The retained W16 implementation measures 1.0122x with 6/7 wins
+on the 16-candidate procedural microbenchmark and 1.0067x with 10/14 wins on
+the 1280x720 1024-spp procedural-callable renderer; all renderer outputs are
+byte-identical and pass the gallery comparison. Five counter pairs reduce
+cycles to 0.9830x and instructions to 0.9800x of the oracle. A seven-pair W16
+triangle-only cutout control is neutral at 1.0001x. The original generic
+status wrapper remains instruction-for-instruction identical and 237 bytes;
+the isolated W16 entry adds 704 backend `.text` bytes.
 
 An eligible status color additionally owns one fixed-vector cache of its query
 state handles. The construction result is not published early: the ordinary
