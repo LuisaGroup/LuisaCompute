@@ -88,6 +88,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     _ray_query_status_slots.assign(value_count, invalid);
     _ray_query_status_storage.clear();
     _ray_query_status_callback_storage.clear();
+    _ray_query_state_handle_storage.clear();
 
     std::vector<schedule::ValueId> constructions;
     std::vector<uint32_t> construction_for_value(value_count, invalid);
@@ -660,6 +661,16 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         _ray_query_status_storage.assign(status_slot_count, nullptr);
         _ray_query_status_callback_storage.assign(status_slot_count, nullptr);
         _result.ray_query_status_slot_count = status_slot_count;
+        // The status proof already establishes one published local owner per
+        // active lane and non-overlapping lifetimes per color. Reuse that
+        // proof for a contiguous packet of state handles; unproven queries and
+        // W1/W2 retain their authoritative local gathers.
+        if (!luisa::compute::detail::env_flag(
+                "LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE")) {
+            _ray_query_state_handle_storage.assign(
+                status_slot_count, nullptr);
+            _result.ray_query_state_handle_slot_count = status_slot_count;
+        }
     } else {
         std::fill(
             _ray_query_status_slots.begin(),
@@ -833,15 +844,17 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         plain_proceed, offsetof(SIMDHostRayQueryState, proceed), alignof(void *));
     if (cache_status) {
         auto status_slot = _ray_query_status_slots[instruction.result->value];
-        auto *old_callbacks = _builder.CreateLoad(
+        auto *old_callbacks = _builder.CreateAlignedLoad(
             pointer_lanes,
-            _ray_query_status_callback_storage[status_slot]);
-        _builder.CreateStore(
+            _ray_query_status_callback_storage[status_slot],
+            ::llvm::Align{alignof(void *)});
+        _builder.CreateAlignedStore(
             _builder.CreateSelect(
                 _active_mask,
                 _builder.CreateVectorSplat(_width, status_proceed),
                 old_callbacks),
-            _ray_query_status_callback_storage[status_slot]);
+            _ray_query_status_callback_storage[status_slot],
+            ::llvm::Align{alignof(void *)});
     }
 
     auto *zero_offsets = ::llvm::Constant::getNullValue(
@@ -1002,15 +1015,25 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_ray_query_state_handles(
     schedule::ValueId object_id) {
     auto *object = _source.value(object_id);
-    auto *local = _load_value(object_id);
+    auto *handle_slot = _ray_query_state_handle_slot(object_id);
+    auto *local = handle_slot == nullptr ? _load_value(object_id) : nullptr;
     if (object == nullptr || !is_ray_query_type(object->type) ||
-        !_is_local_lvalue(object_id) || local == nullptr) {
+        !_is_local_lvalue(object_id) ||
+        (handle_slot == nullptr && local == nullptr)) {
         _fail("ray-query object is not a valid thread-local lvalue");
         return nullptr;
     }
-    auto *states = _gather_data(
-        _local_base(_builder, local),
-        _local_offsets(_builder, local), object->type);
+    auto *states = handle_slot == nullptr ?
+                       _gather_data(
+                           _local_base(_builder, local),
+                           _local_offsets(_builder, local), object->type) :
+                       _builder.CreateAlignedLoad(
+                           ::llvm::FixedVectorType::get(
+                               ::llvm::PointerType::getUnqual(
+                                   _module.getContext()),
+                               _width),
+                           handle_slot, ::llvm::Align{alignof(void *)},
+                           "ray.query.cached.state.handles");
     if (states == nullptr) { return nullptr; }
     auto *null_states = ::llvm::Constant::getNullValue(states->getType());
     auto *invalid = _builder.CreateAnd(
@@ -1020,6 +1043,18 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         _builder.CreateOrReduce(invalid),
         "ray.query.active.state.null");
     return states;
+}
+
+[[nodiscard]] ::llvm::AllocaInst *ScheduleEmitter::_ray_query_state_handle_slot(
+    schedule::ValueId object_id) const noexcept {
+    constexpr auto invalid = std::numeric_limits<uint32_t>::max();
+    auto slot = object_id.value < _ray_query_status_slots.size() ?
+                    _ray_query_status_slots[object_id.value] :
+                    invalid;
+    return slot == invalid ||
+                   slot >= _ray_query_state_handle_storage.size() ?
+               nullptr :
+               _ray_query_state_handle_storage[slot];
 }
 
 [[nodiscard]] ::llvm::AllocaInst *ScheduleEmitter::_ray_query_status_slot(
@@ -1262,9 +1297,10 @@ void ScheduleEmitter::_ray_query_write(
             auto *status_callbacks = static_cast<::llvm::Value *>(nullptr);
             if (cache_status) {
                 auto slot = _ray_query_status_slots[instruction.operands[0u].value];
-                status_callbacks = _builder.CreateLoad(
+                status_callbacks = _builder.CreateAlignedLoad(
                     pointer_lanes,
                     _ray_query_status_callback_storage[slot],
+                    ::llvm::Align{alignof(void *)},
                     "ray.query.status.callbacks");
                 callback = _builder.CreateExtractElement(
                     status_callbacks, _safe_first_lane(_active_mask));

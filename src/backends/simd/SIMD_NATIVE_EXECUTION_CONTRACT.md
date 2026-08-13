@@ -208,8 +208,8 @@ before the two SROA/`mem2reg` stages;
 `LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` controls the typed-buffer
 refinement, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` controls proven
 lane-consecutive typed-buffer accesses. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`
-logs per-shader transform, scheduler-state, ray-query scratch, and ray-query
-status-color counters.
+logs per-shader transform, scheduler-state, ray-query scratch, ray-query
+status-color, and cached state-handle counters.
 `LUISA_SIMD_REPORT_ASSEMBLY=1` additionally captures optimized target assembly
 and reports its static instruction/call/branch counts, stack references, the
 x86 stack allocation when recognizable, and scalar-math symbols.
@@ -226,6 +226,8 @@ symbol/section offsets. `LUISA_SIMD_DISABLE_COLD_STATE_PARTITION=1` and
 for the two state-layout refinements.
 `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1` restores authoritative AoS
 predicate gathers for eligible ray queries.
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1` keeps the packed status
+sidecar but restores the query-local pointer gathers.
 These process-wide variables are diagnostic controls, not shader semantics or
 a replacement for the public configuration extension. Invalid width text or a
 width outside the supported set is rejected.
@@ -905,6 +907,19 @@ by the current active cohort so stale inactive bits remain unobservable. A
 terminate update merges the active terminated bits. Candidate commits may use
 the cached kind only for validation/masking; payload and interval data remain
 authoritative in the public state.
+
+The same ownership, alias, construction-store, and scratch-color proof may
+also allocate one JIT-owned fixed-vector state-handle cache per status color.
+The authoritative pointer is still stored in the lane-private query local.
+Only after that masked store completes may lowering merge the written pointer
+into the cache under the current active mask. Every use checks that all active
+cached handles are non-null before passing a null-sanitized packet to the host
+callback. Lanes outside the current cohort may retain another definition's
+handle, but cannot be read or passed as active. W1/W2, an unproven query, a
+disabled status cache, or disabled scratch coloring must retain the original
+query-local gather path. The cache does not change the public state, accel
+descriptor, or Embree ABI. `LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1`
+is its same-binary semantic/performance oracle.
 
 The status-aware host entry must first invoke the plain callback stored in the
 query state, preserving generic versus triangle-only and narrow versus wide

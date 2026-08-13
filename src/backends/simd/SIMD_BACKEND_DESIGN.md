@@ -2069,7 +2069,22 @@ state. `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1` restores the old JIT path
 from the same binary, and `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the
 number of allocated status colors.
 
-The final W8 rejection object trades 32 additional instructions for five fewer
+An eligible status color additionally owns one fixed-vector cache of its query
+state handles. The construction result is not published early: the ordinary
+masked local store first updates the authoritative lane-private query pointer,
+then merges exactly those written lanes into the cache. Query reads and writes
+load this contiguous vector instead of gathering pointers back from the local
+AoS handles, validate every active element against null, and keep inactive
+elements unobservable at the callback packet boundary. This reuses the status
+sidecar's fail-closed ownership/liveness proof and color assignment; it is not
+enabled independently for W1/W2, copied or ambiguous handles, disabled status
+caching, or disabled scratch coloring. It changes neither the public query
+state nor the host/Embree provider ABI. The independent same-binary oracle is
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1`, and the optimization
+report records the allocated handle-cache color count.
+
+At the status-sidecar checkpoint, the W8 rejection object trades 32 additional
+instructions for five fewer
 gathers (`13 -> 8`), grows `.text` from 6,134 to 6,266 bytes, and retains one
 callback callsite with no scalar-math or unresolved symbol. Seven paired
 processes measure status enabled/disabled at 1.0253x/1.0201x/1.0026x for
@@ -2394,6 +2409,10 @@ on 2026-08-11. The repository now contains:
   publishes validity only after the owner-local pointer store, preserves
   divergent cohort bits, and falls back to authoritative AoS gathers for W1/W2,
   unknown aliases, copied handles, or disabled scratch coloring;
+- a state-handle packet cache under the same proof and colors, published by the
+  authoritative masked local store and active-null-checked before use, which
+  removes repeated query-local pointer gathers without changing host or Embree
+  ABIs and falls back independently through a same-binary oracle;
 - a dynamically selected triangle-only query provider whose build-time accel
   summary excludes curve/procedural instances (including motion children),
   whose compact scan context and surface filter never touch procedural/curve

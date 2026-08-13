@@ -186,6 +186,20 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
     // this masked store, so publishing validity in _ray_query_create would let
     // an intervening read observe the new status with the old object pointer.
     if (_ray_query_status_slot(instruction.operands[0u]) != nullptr) {
+        auto *state_handle_slot = _ray_query_state_handle_slot(
+            instruction.operands[0u]);
+        if (state_handle_slot != nullptr) {
+            // Publish only the lanes whose authoritative local pointer was
+            // just written. Other divergent cohorts sharing this color keep
+            // their handles until their own masked construction store.
+            auto *old_states = _builder.CreateAlignedLoad(
+                written->getType(), state_handle_slot,
+                ::llvm::Align{alignof(void *)});
+            _builder.CreateAlignedStore(
+                _builder.CreateSelect(
+                    _active_mask, written, old_states),
+                state_handle_slot, ::llvm::Align{alignof(void *)});
+        }
         _ray_query_update_status(
             instruction.operands[0u], _builder.getInt64(0u));
     }

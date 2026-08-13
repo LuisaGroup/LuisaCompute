@@ -134,6 +134,17 @@ struct ScopedEnvironmentVariable {
     return count;
 }
 
+[[nodiscard]] std::string_view line_containing(
+    std::string_view text, std::string_view needle) noexcept {
+    auto position = text.find(needle);
+    if (position == std::string_view::npos) { return {}; }
+    auto begin = text.rfind('\n', position);
+    begin = begin == std::string_view::npos ? 0u : begin + 1u;
+    auto end = text.find('\n', position);
+    if (end == std::string_view::npos) { end = text.size(); }
+    return text.substr(begin, end - begin);
+}
+
 [[nodiscard]] std::optional<schedule::Function>
 make_divergent_collective(uint32_t width) {
     xir::Module module;
@@ -3616,13 +3627,17 @@ void ray_query_status_plain_probe(
 
 [[nodiscard]] bool run_ray_query_status_cache_codegen_case(
     uint32_t width, uint32_t active_lanes,
-    bool disable_cache, bool disable_coloring = false) {
+    bool disable_cache, bool disable_coloring = false,
+    bool disable_state_handles = false) {
     ScopedEnvironmentVariable cache{
         "LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE",
         disable_cache ? "1" : nullptr};
     ScopedEnvironmentVariable coloring{
         "LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING",
         disable_coloring ? "1" : nullptr};
+    ScopedEnvironmentVariable state_handles{
+        "LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE",
+        disable_state_handles ? "1" : nullptr};
     xir::Module module;
     auto *kernel = module.create_kernel();
     kernel->set_name("ray_query_status_cache");
@@ -3709,7 +3724,9 @@ void ray_query_status_plain_probe(
     auto name = std::string{"simd_ray_query_status_cache_"} +
                 std::to_string(width) +
                 (disable_cache ? "_disabled" : "_enabled") +
-                (disable_coloring ? "_uncolored" : "_colored");
+                (disable_coloring ? "_uncolored" : "_colored") +
+                (disable_state_handles ? "_handles_disabled" :
+                                         "_handles_enabled");
     auto codegen = lower_schedule_to_llvm(
         *llvm_module, *lowered.function, width, name);
     if (!codegen.succeeded()) {
@@ -3722,6 +3739,9 @@ void ray_query_status_plain_probe(
         !disable_cache && !disable_coloring && width >= 4u;
     CHECK(codegen.ray_query_status_slot_count ==
           (expect_cache ? 1u : 0u));
+    auto expect_state_handles = expect_cache && !disable_state_handles;
+    CHECK(codegen.ray_query_state_handle_slot_count ==
+          (expect_state_handles ? 1u : 0u));
     CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
     std::string ir;
     ::llvm::raw_string_ostream stream{ir};
@@ -3729,6 +3749,31 @@ void ray_query_status_plain_probe(
     stream.flush();
     CHECK((ir.find("ray.query.status.slot.0") != std::string::npos) ==
           expect_cache);
+    CHECK((ir.find("ray.query.state.handles.slot.0") != std::string::npos) ==
+          expect_state_handles);
+    if (expect_state_handles) {
+        auto state_alloca = line_containing(
+            ir, "ray.query.state.handles.slot.0 = alloca");
+        auto state_load = line_containing(
+            ir, "ray.query.cached.state.handles = load");
+        auto callback_load = line_containing(
+            ir, "ray.query.status.callbacks = load");
+        CHECK(state_alloca.find("align 8") != std::string_view::npos);
+        CHECK(state_load.find("align 8") != std::string_view::npos);
+        CHECK(callback_load.find("align 8") != std::string_view::npos);
+    }
+    auto gather_count = count_occurrences(ir, "llvm.masked.gather");
+    auto expected_gather_count = expect_cache ?
+                                     (expect_state_handles ? 3u : 6u) :
+                                     13u;
+    if (gather_count != expected_gather_count) {
+        std::cerr << "ray-query gather count W" << width
+                  << " cache=" << expect_cache
+                  << " handles=" << expect_state_handles
+                  << ": " << gather_count << " expected "
+                  << expected_gather_count << '\n';
+    }
+    CHECK(gather_count == expected_gather_count);
     CHECK(count_occurrences(ir, expect_cache ? "call i64 %" : "call void %") == 2u);
 
     LLVMJIT jit;
@@ -3802,7 +3847,13 @@ void ray_query_status_plain_probe(
         }
     }
     return run_ray_query_status_cache_codegen_case(
-        8u, 5u, false, true);
+               8u, 5u, false, true) &&
+           run_ray_query_status_cache_codegen_case(
+               4u, 3u, false, false, true) &&
+           run_ray_query_status_cache_codegen_case(
+               8u, 5u, false, false, true) &&
+           run_ray_query_status_cache_codegen_case(
+               16u, 3u, false, false, true);
 }
 
 struct RayQueryScratchProbe {
@@ -3980,6 +4031,7 @@ void ray_query_scratch_plain_probe(
     CHECK(codegen.ray_query_scratch_bytes ==
           expected_slots * width * sizeof(SIMDHostRayQueryState));
     CHECK(codegen.ray_query_status_slot_count == 0u);
+    CHECK(codegen.ray_query_state_handle_slot_count == 0u);
     CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
     std::string ir;
     ::llvm::raw_string_ostream stream{ir};
@@ -4167,6 +4219,7 @@ void ray_query_scratch_plain_probe(
     CHECK(codegen.ray_query_scratch_bytes ==
           width * sizeof(SIMDHostRayQueryState));
     CHECK(codegen.ray_query_status_slot_count == 1u);
+    CHECK(codegen.ray_query_state_handle_slot_count == 1u);
     CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
     std::string ir;
     ::llvm::raw_string_ostream stream{ir};
@@ -4174,6 +4227,8 @@ void ray_query_scratch_plain_probe(
     stream.flush();
     CHECK(count_occurrences(ir, "alloca [9728 x i8]") == 1u);
     CHECK(count_occurrences(ir, "ray.query.status.slot.0") >= 1u);
+    CHECK(count_occurrences(
+              ir, "ray.query.state.handles.slot.0") >= 1u);
     CHECK(count_occurrences(ir, "call i64 %") == 2u);
 
     LLVMJIT jit;

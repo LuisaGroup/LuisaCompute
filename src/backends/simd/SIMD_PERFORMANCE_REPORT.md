@@ -11,8 +11,8 @@ remain independent SoA SSA values instead of repeatedly crossing an AoS
 storage boundary, and selects a surface-only ray-query runtime for acceleration
 structures whose current instances are all triangle meshes. The latest stage
 also retains hot ray-query predicates in a proven JIT-side packed status
-sidecar at W4/W8/W16 while leaving the public query state and plain Embree
-providers unchanged.
+sidecar and caches the corresponding fixed-vector state handles at W4/W8/W16
+while leaving the public query state and plain Embree providers unchanged.
 
 ## Test host and method
 
@@ -24,20 +24,22 @@ providers unchanged.
 - unrelated work was active, so every result uses alternating forward/reverse
   order and a median rather than a best run.
 
-Graphics and SDF cells below are medians of seven independent processes.
-Image processing repeats its four-dispatch pipeline 32 times, voxel repeats 16
-renders, and Spacex renders four frames after its upload/update synchronization.
+Unless a row states a newer paired sweep, graphics and SDF cells below are
+medians of seven independent processes. Image processing repeats its four-
+dispatch pipeline 32 times, voxel repeats 16 renders, and Spacex renders four
+frames after its upload/update synchronization.
 Cutout path tracing uses 64 spp and ordinary path tracing uses 128 spp; both
 force one spp per dispatch on both backends to remove a batching asymmetry.
 Their current rows use three adjacent fallback/SIMD pairs per width with
 reversed order on alternating pairs. The focused triangle-only-provider result
 uses twelve W8 pairs, while the other widths use four to six pairs. Image,
-voxel, Spacex, and path tracing compare
-every measured output with the repository gallery reference. SDF uses its
-internal four-SPP throughput metric; high-SPP SDF image comparison remains a
-separate conformance gate. Image/SDF/voxel/Spacex/GEMM cells retain the earlier
-seven-process sweep because the relevant kernels have no eligible aggregate
-local and unchanged JIT code under this transform.
+voxel, Spacex, and ordinary path tracing compare every measured output with
+the repository gallery reference. The refreshed 64-spp cutout processes are
+performance-only; a separate 1024-spp run supplies its gallery conformance
+gate. SDF uses its internal four-SPP throughput metric; high-SPP SDF image
+comparison remains a separate conformance gate. Image/SDF/voxel/Spacex/GEMM
+cells retain the earlier seven-process sweep because the relevant kernels have
+no eligible aggregate local and unchanged JIT code under this transform.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -51,7 +53,7 @@ Speedup is always `fallback time / SIMD time`, or
 | voxel render, ms/iteration | 6.904 | 8.127 (0.850x) | 24.122 (0.286x) | 16.128 (0.428x) | 9.386 (0.736x) | 6.479 (1.066x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
 | ordinary path tracing, fixed 1 spp/dispatch, spp/s | 69.784 | 61.813 (0.863x) | 51.087 (0.730x) | 63.853 (0.932x) | 74.108 (1.108x) | 79.461 (1.133x) |
-| cutout path tracing, fixed 1 spp/dispatch, spp/s | 64.827 | 48.501 (0.688x) | 31.862 (0.482x) | 37.967 (0.597x) | 42.747 (0.661x) | 42.313 (0.652x) |
+| cutout path tracing, fixed 1 spp/dispatch, spp/s | 59.366 | 45.860 (0.770x) | 29.919 (0.511x) | 36.802 (0.619x) | 42.791 (0.730x) | 42.283 (0.711x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
 The GEMM row is a compute diagnostic rather than a graphics result. It uses
@@ -67,12 +69,16 @@ unrelated host tasks moved the load average during the sweeps. The displayed
 fallback cell is the pooled fallback median; each SIMD cell is its three-process
 median and the parenthesized speedup is the preferred geometric mean of three
 adjacent SIMD/fallback ratios. Every one of the 60 performance processes passed
-its gallery comparison. Ordinary W8 and W16 won all three pairs and exceed
-fallback by 1.1081x and 1.1329x respectively. W1/W2/W4 remain at
-0.8627x/0.7303x/0.9325x. Cutout remains below fallback at every width despite
-the surface-only runtime improvement: 0.6885x/0.4820x/0.5966x/0.6607x/0.6521x
-from W1 through W16. Its JIT-side query state machine and sparse cohorts remain
-the dominant unresolved deficit.
+its required correctness gate: all 30 ordinary processes passed their gallery
+comparison, while cutout used the separate 1024-spp comparison described
+above. Ordinary W8 and W16 won all three pairs and exceed fallback by 1.1081x
+and 1.1329x respectively. W1/W2/W4 remain at
+0.8627x/0.7303x/0.9325x. The final-binary cutout row was refreshed with three
+adjacent alternating pairs per width after the state-handle cache landed. It
+remains below fallback at every width: 0.7695x/0.5105x/0.6193x/0.7298x/0.7111x
+from W1 through W16. The displayed throughput cells are process medians; those
+ratios are the preferred paired geometric means. Its JIT-side query payload
+crossings and sparse cohorts remain the dominant unresolved deficit.
 
 ### Pre-schedule aggregate promotion
 
@@ -647,13 +653,76 @@ outputs passed their gallery comparisons. Ordinary direct-trace path tracing
 allocates zero status colors: all five JIT objects and their assembly are
 byte-identical with the oracle toggled, and the output comparison passes.
 
-The final public triangle rejection sweep remains below fallback despite this
-incremental win. Five alternating pairs give W1/W2/W4/W8/W16 ratios of
+At the status-sidecar checkpoint, the public triangle rejection sweep remained
+below fallback despite that incremental win. Five alternating pairs gave
+W1/W2/W4/W8/W16 ratios of
 0.7709x/0.6318x/0.7601x/0.8476x/0.8532x. W1 and W2 deliberately generate
 byte-identical objects with the status oracle on or off. This result keeps
 sparse cohort compaction and a more structural query-state SoA/register
 layout, rather than further predicate-cache bookkeeping, as the next major
 ray-query targets.
+
+### Proven ray-query state-handle cache
+
+Even with cached status, each query operation previously gathered the state
+pointer packet back from the query local. Eligible W4/W8/W16 queries now keep
+one fixed-vector state-handle packet per status color. The ordinary masked
+local store remains authoritative and publishes the same active lanes to the
+cache only afterward. Loads validate every active cached pointer; inactive
+lanes are nulled before the host callback. This reuses the status proof for
+ownership, construction order, aliasing, and color interference. W1/W2 and
+every fail-closed path are unchanged. The independent same-binary oracle is
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1`.
+
+The exact final W8 16-candidate triangle rejection object changes as follows:
+
+| Main kernel | handle cache disabled | handle cache enabled |
+| --- | ---: | ---: |
+| handle-cache colors | 0 | 1 |
+| `.text` bytes | 6,266 | 6,208 |
+| static instructions | 1,324 | 1,316 |
+| vector instructions | 572 | 563 |
+| branches / calls | 132 / 1 | 133 / 1 |
+| stack references | 281 | 284 |
+| stack allocation | 12,736 B | 12,800 B |
+| gather / scatter instructions | 8 / 26 | 4 / 26 |
+| scalar-math calls / undefined symbols | 0 / 0 | 0 / 0 |
+
+The extra 64-byte packet removes four pointer gathers and eight static
+instructions. Five `perf stat` repetitions on the final explicitly aligned IR
+measured 77.854/79.389 billion cycles and 213.880/214.180 billion instructions
+enabled/disabled: ratios of 0.9807 and 0.9986. Branch count was effectively
+unchanged at 0.99996; branch misses were 1.0064x but only about 0.01% of retired
+branches. This points to gather latency, not scheduler branching, as the source
+of the wall-time win.
+
+Seven alternating same-binary pairs per width measured these incremental
+enabled/disabled results; no outlier was removed:
+
+| Query benchmark | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: |
+| 16 rejected triangle candidates | 1.0174x (6/7) | 1.0170x (7/7) | 1.0104x (6/7) |
+| 16 rejected procedural candidates | 1.0514x (7/7) | 1.0639x (7/7) | 1.0438x (7/7) |
+
+The real W8 cutout renderer measured 1.0242x across seven 64-spp pairs with
+7/7 wins. The 1024-spp procedural-callable renderer measured 1.0188x across
+five pairs with 5/5 wins; geometric-mean times were 3,127.9 and 3,186.7 ms.
+A separate 1024-spp cutout output passed at 44.17 dB RGB PSNR and procedural
+callable passed at 58.37 dB. W1/W2 query objects, all five ordinary-path-tracer
+objects at W8, and non-query GEMM objects at W4/W8/W16 are byte-identical with
+the oracle toggled.
+
+A more aggressive candidate-payload SoA experiment was rejected. Copying the
+AoS payload into a second packet after the host provider removed the candidate
+gather but added another active-lane scan at the ABI wrapper: W8 triangle was
+only 1.0067x (5/7), procedural was 0.996x (3/7), and cutout was about 0.997x
+(1/5). A future payload split must be populated directly by the provider or a
+new packet ABI; duplicating the scan is not retained.
+
+The refreshed final-binary 16-candidate triangle-query sweep against fallback
+is W1/W2/W4/W8/W16 = 0.7753x/0.6283x/0.7560x/0.8458x/0.8504x across five
+adjacent alternating pairs per width. The cache therefore gives a repeatable
+incremental improvement but does not close the public query gap.
 
 ## Same-algorithm ISPC control and provenance
 
@@ -693,10 +762,11 @@ identical.
 
 ## Next measured optimization targets
 
-1. Extend the accepted local aggregate promotion to scheduler-generated and
-   ray-query state: split proven hot fields into register-resident/SoA regions
-   and rematerialize immutable fields across suspension, following the
-   liveness/frame principles merged from `next`.
+1. Extend the accepted local aggregate promotion to the remaining ray-query
+   payload: publish candidate fields directly into provider-owned packet/SoA
+   storage and rematerialize immutable fields across suspension, following the
+   liveness/frame principles merged from `next`. A wrapper-side second scan is
+   measured and rejected; the accepted state-handle cache covers pointers only.
 2. Compact or rebatch sparse ray cohorts before Embree and reduce the remaining
    JIT-side ray-query state crossings. The accepted triangle-only host provider
    removes surface-runtime bookkeeping but does not compact lanes; inlining
@@ -758,10 +828,21 @@ including in-place packet codegen, accel, curve/procedural summary replacement,
 local memory, atomics, bindless resources, and three graphics tests. After a
 full Release build, the current configured repository CTest suite passes
 140/140. The examples runner accepts its default backend matrix and explicit
-backend lists, its Python parser has 13 passing unit tests, and clangd syntax
-checks pass for the status wrapper, emitter, and regression fixture.
+backend lists, the C++ syntax-check script has 13 passing Python unit tests,
+and clangd syntax checks pass for the status wrapper, emitter, and regression
+fixture.
 This also includes the coroutine-frame tests merged from `next`, the repaired
 lazy-dispatch scalar snapshot regression, and the W1/W2/W4/W8/W16 aggregate-
 promotion differential test. Separate 1024-SPP gallery gates pass ordinary
 and cutout path tracing at all five widths, and non-coro SDF W8 passes at
 63.13 dB RGB PSNR.
+
+The state-handle-cache stage reran the required three-test native-math/runtime-
+width gate, the accel/curve/procedural/world-ray focus gate (7/7), the complete
+SIMD-only Release configuration (129/129, including `integration_simd` 26/26),
+and the complete SIMD+fallback Release configuration (140/140). Its dedicated
+W4/W8/W16 IR regression fixes the handle-cache gather count at three versus
+six for the status-only oracle, while W1/W2/fail-closed paths retain thirteen;
+it also executes divergent cohorts and inactive tails. Separate object gates
+prove W1/W2 query kernels and W4/W8/W16 non-query GEMM kernels are byte-
+identical under the independent handle-cache oracle.

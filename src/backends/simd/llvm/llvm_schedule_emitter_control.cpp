@@ -1149,10 +1149,20 @@ void ScheduleEmitter::_allocate_state() {
             callback_type, nullptr,
             "ray.query.status.callback.slot." + std::to_string(slot));
         callback->setAlignment(::llvm::Align{alignof(void *)});
-        _builder.CreateStore(
+        _builder.CreateAlignedStore(
             ::llvm::Constant::getNullValue(callback_type),
-            callback);
+            callback, ::llvm::Align{alignof(void *)});
         _ray_query_status_callback_storage[slot] = callback;
+        if (slot < _ray_query_state_handle_storage.size()) {
+            auto *state_handles = _builder.CreateAlloca(
+                callback_type, nullptr,
+                "ray.query.state.handles.slot." + std::to_string(slot));
+            state_handles->setAlignment(::llvm::Align{alignof(void *)});
+            _builder.CreateAlignedStore(
+                ::llvm::Constant::getNullValue(callback_type),
+                state_handles, ::llvm::Align{alignof(void *)});
+            _ray_query_state_handle_storage[slot] = state_handles;
+        }
     }
     _state_slots.resize(_source.values().size(), nullptr);
     for (auto &&value : _source.values()) {

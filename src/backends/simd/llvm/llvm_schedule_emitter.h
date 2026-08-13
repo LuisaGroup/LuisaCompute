@@ -85,6 +85,7 @@ private:
     std::vector<uint32_t> _ray_query_status_slots{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_callback_storage{};
+    std::vector<::llvm::AllocaInst *> _ray_query_state_handle_storage{};
     std::vector<::llvm::Value *> _external_values{};
     std::vector<size_t> _parameter_offsets{};
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
@@ -314,6 +315,8 @@ private:
     [[nodiscard]] ::llvm::Value *_ray_query_state_handles(
         schedule::ValueId object_id);
     [[nodiscard]] ::llvm::AllocaInst *_ray_query_status_slot(
+        schedule::ValueId object_id) const noexcept;
+    [[nodiscard]] ::llvm::AllocaInst *_ray_query_state_handle_slot(
         schedule::ValueId object_id) const noexcept;
     [[nodiscard]] ::llvm::Value *_ray_query_status_mask(
         schedule::ValueId object_id, uint32_t shift);
