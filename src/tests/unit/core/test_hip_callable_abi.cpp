@@ -155,6 +155,357 @@ static auto suite = [] {
         expect(dead_chain->arg_size() == 1u);
         expect(dead_chain->getFunctionType()->getParamType(0u)->isStructTy());
     };
+
+    "HIP callable ABI keeps returns within the AMDGPU VGPR convention"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private [32 x i32] @fits([32 x i32] %value) #0 {
+            entry:
+              ret [32 x i32] %value
+            }
+            define [32 x i32] @caller([32 x i32] %actual) {
+            entry:
+              %result = call [32 x i32] @fits([32 x i32] %actual)
+              ret [32 x i32] %result
+            }
+            attributes #0 = { noinline "luisa-generated-callable" }
+        )");
+        expect(module != nullptr);
+        auto stats = demote_generated_callable_large_returns(*module);
+        expect(stats.rewritten_function_count == 0u);
+        expect(stats.rewritten_call_count == 0u);
+        expect(stats.shared_result_slot_count == 0u);
+        expect(stats.demoted_return_bytes == 0u);
+        expect(!llvm::verifyModule(*module));
+        auto *fits = module->getFunction("fits");
+        expect(fits != nullptr);
+        expect(fits->getReturnType()->isArrayTy());
+    };
+
+    "HIP callable ABI shares one post-IPO large-return slot per caller"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private [33 x i32] @large_a([33 x i32] %value) #0 {
+            entry:
+              ret [33 x i32] %value
+            }
+            define private [33 x i32] @large_b([33 x i32] %value) #0 {
+            entry:
+              %head = extractvalue [33 x i32] %value, 0
+              %next = add i32 %head, 1
+              %result = insertvalue [33 x i32] %value, i32 %next, 0
+              ret [33 x i32] %result
+            }
+            define i32 @caller([33 x i32] %actual) {
+            entry:
+              %a = call [33 x i32] @large_a([33 x i32] %actual)
+              %b = call [33 x i32] @large_b([33 x i32] %a)
+              %result = extractvalue [33 x i32] %b, 0
+              ret i32 %result
+            }
+            attributes #0 = { "luisa-generated-callable" }
+        )");
+        expect(module != nullptr);
+        auto stats = demote_generated_callable_large_returns(*module);
+        expect(stats.rewritten_function_count == 2u);
+        expect(stats.rewritten_call_count == 2u);
+        expect(stats.shared_result_slot_count == 1u);
+        expect(stats.demoted_return_bytes == 264u);
+        expect(!llvm::verifyModule(*module));
+
+        auto *large_a = module->getFunction("large_a");
+        auto *large_b = module->getFunction("large_b");
+        expect(large_a != nullptr);
+        expect(large_b != nullptr);
+        expect(large_a->getReturnType()->isVoidTy());
+        expect(large_b->getReturnType()->isVoidTy());
+        expect(large_a->arg_size() == 2u);
+        expect(large_b->arg_size() == 2u);
+        expect(large_a->getFunctionType()
+                   ->getParamType(0u)
+                   ->getPointerAddressSpace() == 5u);
+
+        auto *caller = module->getFunction("caller");
+        expect(caller != nullptr);
+        auto alloca_count = 0u;
+        auto call_count = 0u;
+        auto load_count = 0u;
+        llvm::AllocaInst *shared_slot = nullptr;
+        for (auto &instruction : caller->getEntryBlock()) {
+            if (auto *alloca = llvm::dyn_cast<llvm::AllocaInst>(&instruction)) {
+                alloca_count++;
+                shared_slot = alloca;
+            }
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction)) {
+                call_count++;
+                expect(call->getType()->isVoidTy());
+                expect(call->arg_size() == 2u);
+                expect(call->getArgOperand(0u) == shared_slot);
+                auto *next = call->getNextNode();
+                expect(next != nullptr);
+                auto *load = llvm::dyn_cast_or_null<llvm::LoadInst>(next);
+                expect(load != nullptr);
+                if (load != nullptr) {
+                    expect(load->getPointerOperand() == shared_slot);
+                }
+            }
+            if (llvm::isa<llvm::LoadInst>(instruction)) { load_count++; }
+        }
+        expect(alloca_count == 1u);
+        expect(call_count == 2u);
+        expect(load_count == 2u);
+    };
+
+    "HIP callable ABI models packed half aggregate return boundaries"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private { [16 x i32], <32 x half> } @fits(
+                { [16 x i32], <32 x half> } %value) #0 {
+            entry:
+              ret { [16 x i32], <32 x half> } %value
+            }
+            define private { [16 x i32], <34 x half> } @large(
+                { [16 x i32], <34 x half> } %value) #0 {
+            entry:
+              ret { [16 x i32], <34 x half> } %value
+            }
+            define i32 @caller(
+                { [16 x i32], <32 x half> } %fits.value,
+                { [16 x i32], <34 x half> } %large.value) {
+            entry:
+              %fits.result = call { [16 x i32], <32 x half> } @fits(
+                  { [16 x i32], <32 x half> } %fits.value)
+              %large.result = call { [16 x i32], <34 x half> } @large(
+                  { [16 x i32], <34 x half> } %large.value)
+              %fits.head = extractvalue { [16 x i32], <32 x half> } %fits.result, 0, 0
+              %large.head = extractvalue { [16 x i32], <34 x half> } %large.result, 0, 0
+              %result = add i32 %fits.head, %large.head
+              ret i32 %result
+            }
+            attributes #0 = { noinline "luisa-generated-callable" }
+        )");
+        expect(module != nullptr);
+        auto *original_large = module->getFunction("large");
+        expect(original_large != nullptr);
+        const auto expected_large_bytes =
+            module->getDataLayout()
+                .getTypeAllocSize(original_large->getReturnType())
+                .getFixedValue();
+        auto stats = demote_generated_callable_large_returns(*module);
+        expect(stats.rewritten_function_count == 1u);
+        expect(stats.rewritten_call_count == 1u);
+        expect(stats.shared_result_slot_count == 1u);
+        expect(stats.demoted_return_bytes == expected_large_bytes);
+        expect(!llvm::verifyModule(*module));
+        auto *fits = module->getFunction("fits");
+        auto *large = module->getFunction("large");
+        expect(fits != nullptr);
+        expect(large != nullptr);
+        expect(fits->getReturnType()->isStructTy());
+        expect(large->getReturnType()->isVoidTy());
+    };
+
+    "HIP callable ABI removes invalidated returned and speculatable attributes"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private [33 x i32] @large(
+                [33 x i32] returned %value) #0 {
+            entry:
+              ret [33 x i32] %value
+            }
+            define i32 @caller([33 x i32] %actual) {
+            entry:
+              %result = call [33 x i32] @large(
+                  [33 x i32] returned %actual) #0
+              %head = extractvalue [33 x i32] %result, 0
+              ret i32 %head
+            }
+            attributes #0 = { noinline speculatable memory(none) "luisa-generated-callable" }
+        )");
+        expect(module != nullptr);
+        expect(!llvm::verifyModule(*module));
+        auto stats = demote_generated_callable_large_returns(*module);
+        expect(stats.rewritten_function_count == 1u);
+        expect(stats.rewritten_call_count == 1u);
+        expect(!llvm::verifyModule(*module));
+
+        auto *large = module->getFunction("large");
+        expect(large != nullptr);
+        expect(!large->hasFnAttribute(llvm::Attribute::Speculatable));
+        expect(!large->getAttributes().hasParamAttr(
+            1u, llvm::Attribute::Returned));
+        expect(large->getMemoryEffects().getModRef(
+                   llvm::MemoryEffects::Location::ArgMem) ==
+               llvm::ModRefInfo::Mod);
+        auto *caller = module->getFunction("caller");
+        expect(caller != nullptr);
+        for (auto &instruction : caller->getEntryBlock()) {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction)) {
+                expect(!call->hasFnAttr(llvm::Attribute::Speculatable));
+                expect(!call->getAttributes().hasParamAttr(
+                    1u, llvm::Attribute::Returned));
+            }
+        }
+    };
+
+    "HIP callable ABI rejects externally visible and indexed-attribute ABIs"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define [33 x i32] @external_large(i32 %count) #0 {
+            entry:
+              ret [33 x i32] zeroinitializer
+            }
+            define private [33 x i32] @function_allocsize(i32 %count) #1 {
+            entry:
+              ret [33 x i32] zeroinitializer
+            }
+            define private [33 x i32] @call_allocsize(i32 %count) #0 {
+            entry:
+              ret [33 x i32] zeroinitializer
+            }
+            define private fastcc [33 x i32] @fastcc_large(i32 %count) #0 {
+            entry:
+              ret [33 x i32] zeroinitializer
+            }
+            define private [33 x i32] @bundled_large(i32 %count) #0 {
+            entry:
+              ret [33 x i32] zeroinitializer
+            }
+            define private [33 x i32] @function_metadata(i32 %count) #0 !custom !0 {
+            entry:
+              ret [33 x i32] zeroinitializer
+            }
+            define private [33 x i32] @call_metadata(i32 %count) #0 {
+            entry:
+              ret [33 x i32] zeroinitializer
+            }
+            define private [33 x i32] @return_metadata(i32 %count) #0 {
+            entry:
+              ret [33 x i32] zeroinitializer, !custom !0
+            }
+            define i32 @caller(i32 %count) {
+            entry:
+              %a = call [33 x i32] @external_large(i32 %count)
+              %b = call [33 x i32] @function_allocsize(i32 %count)
+              %c = call [33 x i32] @call_allocsize(i32 %count) #2
+              %d = call fastcc [33 x i32] @fastcc_large(i32 %count)
+              %e = call [33 x i32] @bundled_large(i32 %count) [ "deopt"(i32 %count) ]
+              %f = call [33 x i32] @function_metadata(i32 %count)
+              %g = call [33 x i32] @call_metadata(i32 %count), !custom !0
+              %h = call [33 x i32] @return_metadata(i32 %count)
+              %a.head = extractvalue [33 x i32] %a, 0
+              %b.head = extractvalue [33 x i32] %b, 0
+              %c.head = extractvalue [33 x i32] %c, 0
+              %d.head = extractvalue [33 x i32] %d, 0
+              %e.head = extractvalue [33 x i32] %e, 0
+              %f.head = extractvalue [33 x i32] %f, 0
+              %g.head = extractvalue [33 x i32] %g, 0
+              %h.head = extractvalue [33 x i32] %h, 0
+              %ab = add i32 %a.head, %b.head
+              %abc = add i32 %ab, %c.head
+              %abcd = add i32 %abc, %d.head
+              %abcde = add i32 %abcd, %e.head
+              %abcdef = add i32 %abcde, %f.head
+              %abcdefg = add i32 %abcdef, %g.head
+              %result = add i32 %abcdefg, %h.head
+              ret i32 %result
+            }
+            attributes #0 = { noinline "luisa-generated-callable" }
+            attributes #1 = { noinline allocsize(0) "luisa-generated-callable" }
+            attributes #2 = { allocsize(0) }
+            !0 = !{!"unmodeled semantic metadata"}
+        )");
+        expect(module != nullptr);
+        expect(!llvm::verifyModule(*module));
+        auto stats = demote_generated_callable_large_returns(*module);
+        expect(stats.rewritten_function_count == 0u);
+        expect(stats.rewritten_call_count == 0u);
+        expect(stats.shared_result_slot_count == 0u);
+        expect(stats.demoted_return_bytes == 0u);
+        expect(!llvm::verifyModule(*module));
+        expect(module->getFunction("external_large")
+                   ->getReturnType()
+                   ->isArrayTy());
+        expect(module->getFunction("function_allocsize")
+                   ->getReturnType()
+                   ->isArrayTy());
+        expect(module->getFunction("call_allocsize")
+                   ->getReturnType()
+                   ->isArrayTy());
+        expect(module->getFunction("fastcc_large")
+                   ->getReturnType()
+                   ->isArrayTy());
+        expect(module->getFunction("bundled_large")
+                   ->getReturnType()
+                   ->isArrayTy());
+        expect(module->getFunction("function_metadata")
+                   ->getReturnType()
+                   ->isArrayTy());
+        expect(module->getFunction("call_metadata")
+                   ->getReturnType()
+                   ->isArrayTy());
+        expect(module->getFunction("return_metadata")
+                   ->getReturnType()
+                   ->isArrayTy());
+    };
+
+    "HIP callable ABI rejects a musttail large-return use atomically"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private [33 x i32] @large([33 x i32] %value) #0 {
+            entry:
+              ret [33 x i32] %value
+            }
+            define [33 x i32] @caller([33 x i32] %actual) {
+            entry:
+              %result = musttail call [33 x i32] @large([33 x i32] %actual)
+              ret [33 x i32] %result
+            }
+            attributes #0 = { noinline "luisa-generated-callable" }
+        )");
+        expect(module != nullptr);
+        expect(!llvm::verifyModule(*module));
+        auto stats = demote_generated_callable_large_returns(*module);
+        expect(stats.rewritten_function_count == 0u);
+        expect(stats.rewritten_call_count == 0u);
+        expect(!llvm::verifyModule(*module));
+        auto *large = module->getFunction("large");
+        expect(large != nullptr);
+        expect(large->getReturnType()->isArrayTy());
+    };
+
+    "HIP callable ABI rejects a notail large-return use atomically"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private [33 x i32] @large([33 x i32] %value) #0 {
+            entry:
+              ret [33 x i32] %value
+            }
+            define i32 @caller([33 x i32] %actual) {
+            entry:
+              %result = notail call [33 x i32] @large([33 x i32] %actual)
+              %head = extractvalue [33 x i32] %result, 0
+              ret i32 %head
+            }
+            attributes #0 = { noinline "luisa-generated-callable" }
+        )");
+        expect(module != nullptr);
+        expect(!llvm::verifyModule(*module));
+        auto stats = demote_generated_callable_large_returns(*module);
+        expect(stats.rewritten_function_count == 0u);
+        expect(stats.rewritten_call_count == 0u);
+        expect(!llvm::verifyModule(*module));
+        auto *large = module->getFunction("large");
+        expect(large != nullptr);
+        expect(large->getReturnType()->isArrayTy());
+    };
     return 0;
 }();
 

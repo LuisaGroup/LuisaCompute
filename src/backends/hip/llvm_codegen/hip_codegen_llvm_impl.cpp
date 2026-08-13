@@ -1125,6 +1125,25 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             callable_abi_stats.removed_aggregate_bytes);
     }
 
+    // GlobalISel demotes a return wider than RetCC_AMDGPU_Func's 32 VGPRs to
+    // one hidden private frame object per static call site. Make that ABI
+    // explicit after IPO and share the result storage within each caller.
+    // Doing this here preserves all SSA optimization inside the callable while
+    // preventing mutually exclusive polymorphic calls from accumulating a
+    // linear amount of private memory.
+    auto large_return_stats =
+        demote_generated_callable_large_returns(*_llvm_module);
+    if (large_return_stats.rewritten_function_count != 0u) {
+        LUISA_VERBOSE(
+            "Demoted {} large generated HIP callable return(s) at {} "
+            "call site(s) into {} shared private result slot(s), moving {} "
+            "return ABI bytes behind explicit storage.",
+            large_return_stats.rewritten_function_count,
+            large_return_stats.rewritten_call_count,
+            large_return_stats.shared_result_slot_count,
+            large_return_stats.demoted_return_bytes);
+    }
+
     if (dump_ir) {
         auto after_opt_filename = fmt::format("hip_kernel_after_opt_{}.ll", dump_idx);
         _dump_module(after_opt_filename);
