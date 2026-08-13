@@ -210,6 +210,7 @@ test_proj("test_builtin_kernel", "unit/ast/test_builtin_kernel.cpp", false, func
 end)
 test_proj("test_manual_ast", "unit/ast/test_manual_ast.cpp")
 test_proj("test_tensor_ast", "unit/ast/test_tensor_ast.cpp")
+test_proj("test_tile_function_builder", "unit/ast/test_tile_function_builder.cpp")
 test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")

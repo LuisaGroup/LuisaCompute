@@ -41,12 +41,12 @@ bool roundtrip(Stmt *stmt, Stmt &out) {
 }
 
 // Build a fresh tensor of rank 2, dtype float, global scope, extent 16x16.
-TensorExpr *make_tile(luisa::vector<int64_t> offset = {}) {
+TensorExpr *make_tile(luisa::fixed_vector<int32_t, 4> offset = {}) {
     return new TensorExpr{2, TensorElementType::F32, TensorScope::Global,
                           {16, 16}, std::move(offset), {}};
 }
 
-bool same_span(luisa::span<const int64_t> a, std::initializer_list<int64_t> b) {
+bool same_span(luisa::span<const int32_t> a, std::initializer_list<int32_t> b) {
     if (a.size() != b.size()) { return false; }
     size_t i = 0u;
     for (auto v : b) {
@@ -56,8 +56,8 @@ bool same_span(luisa::span<const int64_t> a, std::initializer_list<int64_t> b) {
 }
 
 // Expression nodes can only be constructed while a FunctionBuilder is on the
-// stack (Expression::Expression reads FunctionBuilder::current()).  These
-// helpers materialize R2 literal / string constants under a short-lived guard.
+// stack (Expression::Expression reads FunctionBuilder::current()).  This
+// helper materializes R2 literal constants under a short-lived guard.
 template<typename F>
 void with_builder(F &&f) {
     luisa::compute::detail::FunctionBuilder builder;
@@ -68,12 +68,6 @@ void with_builder(F &&f) {
 const LiteralExpr *new_literal(const Type *type, LiteralExpr::Value value) {
     const LiteralExpr *out = nullptr;
     with_builder([&] { out = new LiteralExpr{type, std::move(value)}; });
-    return out;
-}
-
-const StringIDExpr *new_sid(luisa::string s) {
-    const StringIDExpr *out = nullptr;
-    with_builder([&] { out = new StringIDExpr{std::move(s)}; });
     return out;
 }
 
@@ -214,33 +208,28 @@ int main(int argc, char *argv[]) {
     "stmt_reduce_sum"_test = [] {
         auto *x = make_tile();
         auto *y = make_tile();
-        auto *dim = new_literal(Type::of<int>(), 1);
-        ReduceSumStmt stmt{x, y, dim};
+        ReduceSumStmt stmt{x, y, 1u};
         expect(stmt.x() == x);
         expect(stmt.y() == y);
-        expect(stmt.dim() == dim);
+        expect(stmt.dim() == 1u);
 
         ReduceSumStmt out;
         expect(roundtrip(&stmt, out));
         expect(out.x() != nullptr && out.y() != nullptr);
-        expect(out.dim() != nullptr && out.dim() != dim);
-        expect(out.dim()->type() == Type::of<int>());
-        expect(luisa::get<int>(out.dim()->value().to_variant()) == 1);
+        expect(out.dim() == 1u);
     };
 
     "stmt_print"_test = [] {
         auto *t = make_tile();
-        auto *msg = new_sid("hello tile");
-        TilePrintStmt stmt{t, msg};
+        TilePrintStmt stmt{t, "hello tile"};
         expect(stmt.t() == t);
-        expect(stmt.msg() == msg);
+        expect(stmt.msg() == "hello tile");
         expect(stmt.output() == nullptr);
 
         TilePrintStmt out;
         expect(roundtrip(&stmt, out));
         expect(out.t() != nullptr);
-        expect(out.msg() != nullptr && out.msg() != msg);
-        expect(out.msg()->data() == "hello tile");
+        expect(out.msg() == "hello tile");
     };
 
     "stmt_alloc"_test = [] {
@@ -408,14 +397,12 @@ int main(int argc, char *argv[]) {
     };
 
     "serialize_literal_values"_test = [] {
-        // scalar int dim
+        // scalar uint dim (R1 host-side value)
         {
-            auto *dim = new_literal(Type::of<int>(), -7);
-            ReduceSumStmt stmt{make_tile(), make_tile(), dim};
+            ReduceSumStmt stmt{make_tile(), make_tile(), 7u};
             ReduceSumStmt out;
             expect(roundtrip(&stmt, out));
-            expect(luisa::get<int>(out.dim()->value().to_variant()) == -7);
-            expect(out.dim()->type() == Type::of<int>());
+            expect(out.dim() == 7u);
         }
         // scalar half
         {
@@ -520,34 +507,34 @@ int main(int argc, char *argv[]) {
     };
 
     "deserialize_malformed_literal"_test = [] {
-        // ReduceSum buffer with a literal whose variant index is out of range.
+        // Max buffer with a literal whose variant index is out of range.
         luisa::vector<char> buf;
         auto put32 = [&](uint32_t v) {
             for (int i = 0; i < 4; ++i) { buf.push_back(static_cast<char>((v >> (8 * i)) & 0xffu)); }
         };
-        put32(static_cast<uint32_t>(TileOpKind::REDUCE_SUM));// op
-        put32(0);                                            // no output
-        put32(0);                                            // no inputs
-        put32(0);                                            // no annotations
-        put32(3);                                            // literal dtype "int"
+        put32(static_cast<uint32_t>(TileOpKind::MAX));// op
+        put32(0);                                     // no output
+        put32(0);                                     // no inputs
+        put32(0);                                     // no annotations
+        put32(3);                                     // literal dtype "int"
         buf.push_back('i');
         buf.push_back('n');
         buf.push_back('t');
         buf.push_back(static_cast<char>(0xE7));// variant index 999 (invalid)
         buf.push_back(static_cast<char>(0x03));
         char const *p = buf.data();
-        ReduceSumStmt out;
+        MaxStmt out;
         expect(!out.deserialize(p, p + buf.size()));
     };
 
     "serialize_size_is_compact"_test = [] {
         // The layout of one rank-2 float tensor: rank(4) + dtype(4) + scope(4)
-        // + 3 vectors (each 4 + 2*8).  Only statically meaningful members are
-        // stored — no padding, no pointers.
+        // + 3 vectors (each 4 + 2*4, int32 dims).  Only statically meaningful
+        // members are stored — no padding, no pointers.
         TensorExpr t{2, TensorElementType::F32, TensorScope::Global, {16, 16}};
         luisa::vector<char> buf;
         auto n = t.serialize(buf);
-        expect(n == 4u + 4u + 4u + 3u * (4u + 16u));
+        expect(n == 4u + 4u + 4u + 3u * (4u + 8u));
         expect(n == buf.size());
     };
 }

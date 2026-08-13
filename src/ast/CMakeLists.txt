@@ -11,6 +11,7 @@ set(LUISA_COMPUTE_AST_SOURCES
         op.cpp
         statement.cpp
         tensor.cpp
+        tile_function_builder.cpp
         type.cpp
         variable.cpp)
 

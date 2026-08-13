@@ -13,9 +13,9 @@ namespace {
 
 // Expression sub-classes can only be constructed while a FunctionBuilder is on
 // the builder stack (Expression::Expression reads FunctionBuilder::current()).
-// Deserialization must therefore materialize LiteralExpr / StringIDExpr under a
-// short-lived builder guard; the freshly allocated nodes are NOT registered in
-// the builder's expression pool, so they stay owned by the tensor statement.
+// Deserialization must therefore materialize LiteralExpr under a short-lived
+// builder guard; the freshly allocated nodes are NOT registered in the
+// builder's expression pool, so they stay owned by the tensor statement.
 template<typename F>
 decltype(auto) with_builder(F &&f) noexcept {
     detail::FunctionBuilder builder;
@@ -83,17 +83,17 @@ bool read_string(char const *&p, char const *end, luisa::string &s) noexcept {
     return true;
 }
 
-void write_i64_vector(luisa::vector<char> &buf, luisa::span<const int64_t> v) noexcept {
+void write_i32_vector(luisa::vector<char> &buf, luisa::span<const int32_t> v) noexcept {
     write_u32(buf, static_cast<uint32_t>(v.size()));
-    write_bytes(buf, v.data(), v.size() * sizeof(int64_t));
+    write_bytes(buf, v.data(), v.size() * sizeof(int32_t));
 }
 
-bool read_i64_vector(char const *&p, char const *end, luisa::vector<int64_t> &v) noexcept {
+bool read_i32_vector(char const *&p, char const *end, luisa::fixed_vector<int32_t, 4> &v) noexcept {
     uint32_t n;
     if (!read_u32(p, end, n)) [[unlikely]] { return false; }
-    if (static_cast<size_t>(end - p) < static_cast<size_t>(n) * sizeof(int64_t)) [[unlikely]] { return false; }
+    if (static_cast<size_t>(end - p) < static_cast<size_t>(n) * sizeof(int32_t)) [[unlikely]] { return false; }
     v.resize(n);
-    return read_bytes(p, end, v.data(), n * sizeof(int64_t));
+    return read_bytes(p, end, v.data(), n * sizeof(int32_t));
 }
 
 // --- literal payload: type description + variant index + raw value bytes ----
@@ -136,17 +136,6 @@ bool read_literal(char const *&p, char const *end, const LiteralExpr *&out) noex
     return true;
 }
 
-void write_sid(luisa::vector<char> &buf, const StringIDExpr *sid) noexcept {
-    write_string(buf, sid == nullptr ? luisa::string_view{} : sid->data());
-}
-
-bool read_sid(char const *&p, char const *end, const StringIDExpr *&out) noexcept {
-    luisa::string s;
-    if (!read_string(p, end, s)) [[unlikely]] { return false; }
-    out = with_builder([&] { return new StringIDExpr(std::move(s)); });
-    return true;
-}
-
 }// namespace
 
 // ---------------------------------------------------------------------------
@@ -178,9 +167,9 @@ const char *tensor_element_type_name(TensorElementType e) noexcept {
 TensorExpr::TensorExpr(int32_t rank,
                        TensorElementType dtype,
                        TensorScope scope,
-                       luisa::vector<int64_t> dims,
-                       luisa::vector<int64_t> offset,
-                       luisa::vector<int64_t> extent,
+                       luisa::fixed_vector<int32_t, 4> &&dims,
+                       luisa::fixed_vector<int32_t, 4> &&offset,
+                       luisa::fixed_vector<int32_t, 4> &&extent,
                        const RefExpr *handle) noexcept
     : _rank{rank}, _dtype{dtype}, _scope{scope},
       _dims{std::move(dims)}, _offset{std::move(offset)},
@@ -190,7 +179,7 @@ TensorExpr::TensorExpr(int32_t rank,
 }
 
 luisa::string TensorExpr::describe() const {
-    auto join = [](luisa::span<const int64_t> v) noexcept {
+    auto join = [](luisa::span<const int32_t> v) noexcept {
         luisa::string s;
         for (size_t i = 0u; i < v.size(); ++i) {
             if (i != 0u) { s += ","; }
@@ -209,9 +198,9 @@ size_t TensorExpr::serialize(luisa::vector<char> &output_buffer) {
     write_i32(output_buffer, _rank);
     write_u32(output_buffer, static_cast<uint32_t>(_dtype));
     write_u32(output_buffer, static_cast<uint32_t>(_scope));
-    write_i64_vector(output_buffer, _dims);
-    write_i64_vector(output_buffer, _offset);
-    write_i64_vector(output_buffer, _extent);
+    write_i32_vector(output_buffer, _dims);
+    write_i32_vector(output_buffer, _offset);
+    write_i32_vector(output_buffer, _extent);
     // _handle: RefExpr* — a pointer, non-serializable (R3 runtime variable).
     return output_buffer.size() - start;
 }
@@ -226,9 +215,9 @@ bool TensorExpr::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!read_u32(input_ptr, end_ptr, scope)) [[unlikely]] { return false; }
     if (scope > static_cast<uint32_t>(TensorScope::Fragment)) [[unlikely]] { return false; }
     _scope = static_cast<TensorScope>(scope);
-    if (!read_i64_vector(input_ptr, end_ptr, _dims)) [[unlikely]] { return false; }
-    if (!read_i64_vector(input_ptr, end_ptr, _offset)) [[unlikely]] { return false; }
-    if (!read_i64_vector(input_ptr, end_ptr, _extent)) [[unlikely]] { return false; }
+    if (!read_i32_vector(input_ptr, end_ptr, _dims)) [[unlikely]] { return false; }
+    if (!read_i32_vector(input_ptr, end_ptr, _offset)) [[unlikely]] { return false; }
+    if (!read_i32_vector(input_ptr, end_ptr, _extent)) [[unlikely]] { return false; }
     _handle = nullptr;// pointer, non-serializable
     return true;
 }
@@ -369,32 +358,28 @@ bool CopyStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
 size_t ReduceSumStmt::serialize(luisa::vector<char> &output_buffer) {
     auto start = output_buffer.size();
     TensorStmt::serialize(output_buffer);
-    write_literal(output_buffer, _dim);
+    write_u32(output_buffer, _dim);
     return output_buffer.size() - start;
 }
 bool ReduceSumStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!TensorStmt::deserialize(input_ptr, end_ptr)) [[unlikely]] { return false; }
-    delete _dim;
-    _dim = nullptr;
-    return read_literal(input_ptr, end_ptr, _dim);
+    return read_u32(input_ptr, end_ptr, _dim);
 }
 
 // --- TilePrint ---
 size_t TilePrintStmt::serialize(luisa::vector<char> &output_buffer) {
     auto start = output_buffer.size();
     TensorStmt::serialize(output_buffer);
-    write_sid(output_buffer, _msg);
+    write_string(output_buffer, _msg);
     return output_buffer.size() - start;
 }
 bool TilePrintStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!TensorStmt::deserialize(input_ptr, end_ptr)) [[unlikely]] { return false; }
-    delete _msg;
-    _msg = nullptr;
-    return read_sid(input_ptr, end_ptr, _msg);
+    return read_string(input_ptr, end_ptr, _msg);
 }
 
 // --- Alloc ---
-AllocStmt::AllocStmt(luisa::vector<int64_t> dims, TensorElementType dtype, TensorScope scope,
+AllocStmt::AllocStmt(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype, TensorScope scope,
                      const RefExpr *handle) noexcept
     : TensorStmt{TileOpKind::ALLOC,
                  new TensorExpr{static_cast<int32_t>(dims.size()), dtype, scope,
@@ -428,7 +413,6 @@ bool TileStoreStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!read_i32(input_ptr, end_ptr, _op)) [[unlikely]] { return false; }
     uint8_t has_literal;
     if (!read_u8(input_ptr, end_ptr, has_literal)) [[unlikely]] { return false; }
-    delete _rhs_literal;
     _rhs_literal = nullptr;
     if (has_literal != 0u) [[likely]] {
         if (!read_literal(input_ptr, end_ptr, _rhs_literal)) [[unlikely]] { return false; }
@@ -461,7 +445,6 @@ bool TileBinaryStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     _op = static_cast<BinaryOp>(op);
     uint8_t has_literal;
     if (!read_u8(input_ptr, end_ptr, has_literal)) [[unlikely]] { return false; }
-    delete _rhs_literal;
     _rhs_literal = nullptr;
     if (has_literal != 0u) [[likely]] {
         if (!read_literal(input_ptr, end_ptr, _rhs_literal)) [[unlikely]] { return false; }
@@ -479,7 +462,6 @@ size_t MaxStmt::serialize(luisa::vector<char> &output_buffer) {
 }
 bool MaxStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!TensorStmt::deserialize(input_ptr, end_ptr)) [[unlikely]] { return false; }
-    delete _b;
     _b = nullptr;
     return read_literal(input_ptr, end_ptr, _b);
 }

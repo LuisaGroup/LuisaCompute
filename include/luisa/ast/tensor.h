@@ -55,8 +55,8 @@ i32   int32_t                    member is a host-side value fixed on the
                                  host during the compiling stage (rank,
                                  extents, scope, grid, stages...)
 ten   TensorExpr *               member is a tensor operand (section 4)
-lit   const LiteralExpr *        member is a constant value embedded in the
-                                 kernel IR (0.0f, 1e-12f, dim=1, block 0)
+lit const LiteralExpr * member is a constant value embedded in the
+                                 kernel IR (0.0f, 1e-12f, block 0)
 sid   const StringIDExpr *       member is a constant string in the kernel
                                  (print message / format tag)
 ref   const RefExpr *            member is a real kernel variable (tensor,
@@ -119,8 +119,9 @@ namespace luisa::compute {
 //
 // Ownership:
 //   - a TensorStmt OWNS its `output` and `inputs` TensorExpr operands;
-//   - a statement also OWNS any LiteralExpr / StringIDExpr members it was
-//     constructed with;
+//   - LiteralExpr members (R2) are BORROWED and never deleted by the
+//     statement; all Expression nodes and TensorStmt nodes are managed by
+//     include/luisa/ast/tile_function_builder.h;
 //   - RefExpr members (`handle`, runtime scalars, kernel binders) are borrowed
 //     (created by a FunctionBuilder) and are never deleted by the statement.
 //
@@ -130,44 +131,43 @@ namespace luisa::compute {
 //   appended.  `bool deserialize(char const*&, char const*)` reads the same
 //   encoding back (advancing the cursor) and returns false on any failure.
 //   Pointers are non-serializable (e.g. `RefExpr*`), so they are skipped;
-//   the *values* carried by LiteralExpr / StringIDExpr (host-side constants
-//   fixed at the compiling stage) ARE serialized because they do not change
-//   between runs.
+//   the *values* carried by LiteralExpr (host-side constants fixed at the
+//   compiling stage) ARE serialized because they do not change between runs.
 // =============================================================================
 
 /// Memory scope of a tensor (R1, stored as a host-side value).
 enum struct TensorScope : uint32_t {
-    Global = 0,  // kernel argument / result buffer
-    Shared = 1,  // per-block on-chip memory
-    Fragment = 2 // per-thread registers
+    Global = 0, // kernel argument / result buffer
+    Shared = 1, // per-block on-chip memory
+    Fragment = 2// per-thread registers
 };
 
 /// Element dtype tag of a tensor (host-side, R1).  TensorExpr stores the
 /// element dtype directly as this tag; only scalar element types are
 /// supported (F16 / F32 / I32).
 enum struct TensorElementType : uint32_t {
-    F16 = 0, // half
-    F32 = 1, // float
-    I32 = 2  // int32_t
+    F16 = 0,// half
+    F32 = 1,// float
+    I32 = 2 // int32_t
 };
 
 /// Discriminator of every tensor statement (the `op` metadata member).
 /// Maps 1:1 to the TensorStmt sub-classes implemented in this header.
 enum struct TileOpKind : uint32_t {
-    ALLOC,       // T.empty / T.alloc_shared / T.alloc_fragment
-    CLEAR,       // T.clear
-    COPY,        // T.copy
-    GEMM,        // T.gemm
-    REDUCE_SUM,  // T.reduce_sum
-    PRINT,       // T.print
-    STORE,       // tile-store: lhs = rhs / lhs *= rhs
-    BINARY,      // whole-tile elementwise binary op (T.Parallel lowering)
-    MAX,         // T.max(a, b)
-    RSQRT,       // T.rsqrt(a)
-    CEILDIV,     // T.ceildiv(a, b)
-    KERNEL_1D,   // T.Kernel(gx, threads)
-    KERNEL_2D,   // T.Kernel(gx, gy, threads)
-    PIPELINED    // T.Pipelined(count, stages)
+    ALLOC,     // T.empty / T.alloc_shared / T.alloc_fragment
+    CLEAR,     // T.clear
+    COPY,      // T.copy
+    GEMM,      // T.gemm
+    REDUCE_SUM,// T.reduce_sum
+    PRINT,     // T.print
+    STORE,     // tile-store: lhs = rhs / lhs *= rhs
+    BINARY,    // whole-tile elementwise binary op (T.Parallel lowering)
+    MAX,       // T.max(a, b)
+    RSQRT,     // T.rsqrt(a)
+    CEILDIV,   // T.ceildiv(a, b)
+    KERNEL_1D, // T.Kernel(gx, threads)
+    KERNEL_2D, // T.Kernel(gx, gy, threads)
+    PIPELINED  // T.Pipelined(count, stages)
 };
 
 [[nodiscard]] LUISA_AST_API const char *scope_name(TensorScope scope) noexcept;
@@ -180,12 +180,13 @@ class LUISA_AST_API TensorExpr {
 
 private:
     int32_t _rank{}; // R1: host-side rank
-    TensorElementType _dtype{TensorElementType::F32}; // R1: element type (scalar only)
-    TensorScope _scope{TensorScope::Global};// R1: Global / Shared / Fragment
-    luisa::vector<int64_t> _dims;          // R1: M, N, K ... (host)
-    luisa::vector<int64_t> _offset;        // R1: tile anchor (host); runtime anchor is R3 `ref`
-    luisa::vector<int64_t> _extent;        // R1: tile size BM, BN (host)
-    const RefExpr *_handle{nullptr};       // R3: kernel-side variable (BUFFER/SHARED/LOCAL)
+    TensorElementType _dtype{TensorElementType::F32};// R1: element type (scalar only)
+    TensorScope _scope{TensorScope::Global}; // R1: Global / Shared / Fragment
+    // R1: layout extents; dims are non-negative 32-bit host values
+    luisa::fixed_vector<int32_t, 4> _dims;   // R1: M, N, K ... (host)
+    luisa::fixed_vector<int32_t, 4> _offset; // R1: tile anchor (host); runtime anchor is R3 `ref`
+    luisa::fixed_vector<int32_t, 4> _extent; // R1: tile size BM, BN (host)
+    const RefExpr *_handle{nullptr};// R3: kernel-side variable (BUFFER/SHARED/LOCAL)
 
 public:
     TensorExpr() noexcept = default;
@@ -196,17 +197,17 @@ public:
     TensorExpr(int32_t rank,
                TensorElementType dtype,
                TensorScope scope,
-               luisa::vector<int64_t> dims,
-               luisa::vector<int64_t> offset = {},
-               luisa::vector<int64_t> extent = {},
+               luisa::fixed_vector<int32_t, 4> &&dims,
+               luisa::fixed_vector<int32_t, 4> &&offset = {},
+               luisa::fixed_vector<int32_t, 4> &&extent = {},
                const RefExpr *handle = nullptr) noexcept;
 
     [[nodiscard]] auto rank() const noexcept { return _rank; }
     [[nodiscard]] auto dtype() const noexcept { return _dtype; }
     [[nodiscard]] auto scope() const noexcept { return _scope; }
-    [[nodiscard]] auto dims() const noexcept { return luisa::span<const int64_t>{_dims.data(), _dims.size()}; }
-    [[nodiscard]] auto offset() const noexcept { return luisa::span<const int64_t>{_offset.data(), _offset.size()}; }
-    [[nodiscard]] auto extent() const noexcept { return luisa::span<const int64_t>{_extent.data(), _extent.size()}; }
+    [[nodiscard]] auto dims() const noexcept { return luisa::span<const int32_t>{_dims.data(), _dims.size()}; }
+    [[nodiscard]] auto offset() const noexcept { return luisa::span<const int32_t>{_offset.data(), _offset.size()}; }
+    [[nodiscard]] auto extent() const noexcept { return luisa::span<const int32_t>{_extent.data(), _extent.size()}; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
 
     /// Human readable description, e.g. "A(16,16)@(0,0)".
@@ -228,10 +229,10 @@ public:
 class LUISA_AST_API TensorStmt {
 
 private:
-    TileOpKind _op{TileOpKind::ALLOC};               // meta: op discriminator
-    TensorExpr *_output{nullptr};                    // result tensor (owned; may be null)
-    luisa::vector<TensorExpr *> _inputs;             // input argument tensors (owned)
-    luisa::vector<std::pair<luisa::string, int64_t>> _annotations; // host-side meta
+    TileOpKind _op{TileOpKind::ALLOC};                            // meta: op discriminator
+    TensorExpr *_output{nullptr};                                 // result tensor (owned; may be null)
+    luisa::vector<TensorExpr *> _inputs;                          // input argument tensors (owned)
+    luisa::vector<std::pair<luisa::string, int64_t>> _annotations;// host-side meta
 
 protected:
     void _clear_owned() noexcept;
@@ -267,8 +268,8 @@ public:
 // --- Gemm: T.gemm(a, b, c) --------------------------------------------------
 // c (accum, READ+WRITE) is the result tensor; a, b are the READ operands.
 class LUISA_AST_API GemmStmt final : public TensorStmt {
-    int32_t _trans_a{}; // R1: 0|1
-    int32_t _trans_b{}; // R1: 0|1
+    int32_t _trans_a{};// R1: 0|1
+    int32_t _trans_b{};// R1: 0|1
 
 public:
     GemmStmt() noexcept : TensorStmt{TileOpKind::GEMM} {}
@@ -306,16 +307,14 @@ public:
     [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
     bool deserialize(char const *&input_ptr, char const *end_ptr) override;
 };
-
 // --- ReduceSum: T.reduce_sum(x, y, dim) -------------------------------------
 class LUISA_AST_API ReduceSumStmt final : public TensorStmt {
-    const LiteralExpr *_dim{nullptr}; // R2: e.g. LiteralExpr(Type::of<int>(), 1)
+    uint32_t _dim{};// R1: reduction dimension
 
 public:
     ReduceSumStmt() noexcept : TensorStmt{TileOpKind::REDUCE_SUM} {}
-    ReduceSumStmt(TensorExpr *x, TensorExpr *y, const LiteralExpr *dim) noexcept
+    ReduceSumStmt(TensorExpr *x, TensorExpr *y, uint32_t dim) noexcept
         : TensorStmt{TileOpKind::REDUCE_SUM, y, {x}}, _dim{dim} {}
-    ~ReduceSumStmt() override { delete _dim; }
     [[nodiscard]] auto x() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
     [[nodiscard]] auto y() const noexcept { return output(); }
     [[nodiscard]] auto dim() const noexcept { return _dim; }
@@ -325,15 +324,14 @@ public:
 
 // --- TilePrint: T.print(t, "msg") --------------------------------------------
 class LUISA_AST_API TilePrintStmt final : public TensorStmt {
-    const StringIDExpr *_msg{nullptr}; // R2 string: StringIDExpr("msg")
+    luisa::string _msg;// R1: print message (host-side string)
 
 public:
     TilePrintStmt() noexcept : TensorStmt{TileOpKind::PRINT} {}
-    TilePrintStmt(TensorExpr *t, const StringIDExpr *msg) noexcept
-        : TensorStmt{TileOpKind::PRINT, nullptr, {t}}, _msg{msg} {}
-    ~TilePrintStmt() override { delete _msg; }
+    TilePrintStmt(TensorExpr *t, luisa::string msg) noexcept
+        : TensorStmt{TileOpKind::PRINT, nullptr, {t}}, _msg{std::move(msg)} {}
     [[nodiscard]] auto t() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
-    [[nodiscard]] auto msg() const noexcept { return _msg; }
+    [[nodiscard]] auto msg() const noexcept { return luisa::string_view{_msg}; }
     [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
     bool deserialize(char const *&input_ptr, char const *end_ptr) override;
 };
@@ -345,12 +343,12 @@ public:
 class LUISA_AST_API AllocStmt final : public TensorStmt {
 public:
     AllocStmt() noexcept : TensorStmt{TileOpKind::ALLOC} {}
-    AllocStmt(luisa::vector<int64_t> dims, TensorElementType dtype, TensorScope scope,
+    AllocStmt(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype, TensorScope scope,
               const RefExpr *handle = nullptr) noexcept;
     [[nodiscard]] auto tensor() const noexcept { return output(); }
     [[nodiscard]] auto rank() const noexcept { return output() == nullptr ? 0 : output()->rank(); }
     [[nodiscard]] auto dims() const noexcept {
-        return output() == nullptr ? luisa::span<const int64_t>{} : output()->dims();
+        return output() == nullptr ? luisa::span<const int32_t>{} : output()->dims();
     }
     [[nodiscard]] auto dtype() const noexcept {
         return output() == nullptr ? TensorElementType::F32 : output()->dtype();
@@ -367,16 +365,15 @@ public:
 // rhs is a tensor (stored in base inputs), or a scalar literal (R2), or a
 // runtime scalar RefExpr (R3, not serializable).
 class LUISA_AST_API TileStoreStmt final : public TensorStmt {
-    int32_t _op{};                        // R1: 0 = `=`, 1 = `*=` row-broadcast
-    const LiteralExpr *_rhs_literal{nullptr}; // R2 (owned)
-    const RefExpr *_rhs_ref{nullptr};     // R3 (borrowed, non-serializable)
+    int32_t _op{};                           // R1: 0 = `=`, 1 = `*=` row-broadcast
+    const LiteralExpr *_rhs_literal{nullptr};// R2 (borrowed, managed by TileFunctionBuilder)
+    const RefExpr *_rhs_ref{nullptr};        // R3 (borrowed, non-serializable)
 
 public:
     TileStoreStmt() noexcept : TensorStmt{TileOpKind::STORE} {}
     TileStoreStmt(int32_t op, TensorExpr *lhs, TensorExpr *rhs_tensor = nullptr,
                   const LiteralExpr *rhs_literal = nullptr,
                   const RefExpr *rhs_ref = nullptr) noexcept;
-    ~TileStoreStmt() override { delete _rhs_literal; }
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto lhs() const noexcept { return output(); }
     [[nodiscard]] auto rhs_tensor() const noexcept {
@@ -391,16 +388,15 @@ public:
 // --- TileBinary: whole-tile elementwise A+B, A*B, A/2.0f ---------------------
 // lhs/rhs are READ operands; the result is a temporary tile (no output).
 class LUISA_AST_API TileBinaryStmt final : public TensorStmt {
-    BinaryOp _op{BinaryOp::ADD};              // R1: BinaryOp as int32_t
-    const LiteralExpr *_rhs_literal{nullptr}; // R2 (owned)
-    const RefExpr *_rhs_ref{nullptr};         // R3 (borrowed, non-serializable)
+    BinaryOp _op{BinaryOp::ADD};             // R1: BinaryOp as int32_t
+    const LiteralExpr *_rhs_literal{nullptr};// R2 (borrowed, managed by TileFunctionBuilder)
+    const RefExpr *_rhs_ref{nullptr};        // R3 (borrowed, non-serializable)
 
 public:
     TileBinaryStmt() noexcept : TensorStmt{TileOpKind::BINARY} {}
     TileBinaryStmt(BinaryOp op, TensorExpr *lhs, TensorExpr *rhs_tensor = nullptr,
                    const LiteralExpr *rhs_literal = nullptr,
                    const RefExpr *rhs_ref = nullptr) noexcept;
-    ~TileBinaryStmt() override { delete _rhs_literal; }
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto lhs() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
     [[nodiscard]] auto rhs_tensor() const noexcept {
@@ -414,13 +410,12 @@ public:
 
 // --- Max: T.max(a, b) -------------------------------------------------------
 class LUISA_AST_API MaxStmt final : public TensorStmt {
-    const LiteralExpr *_b{nullptr}; // R2: e.g. LiteralExpr(Type::of<float>(), 1e-12f)
+    const LiteralExpr *_b{nullptr};// R2 (borrowed, managed by TileFunctionBuilder): e.g. LiteralExpr(Type::of<float>(), 1e-12f)
 
 public:
     MaxStmt() noexcept : TensorStmt{TileOpKind::MAX} {}
     MaxStmt(TensorExpr *a, const LiteralExpr *b) noexcept
         : TensorStmt{TileOpKind::MAX, nullptr, {a}}, _b{b} {}
-    ~MaxStmt() override { delete _b; }
     [[nodiscard]] auto a() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
     [[nodiscard]] auto b() const noexcept { return _b; }
     [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
@@ -440,8 +435,8 @@ public:
 
 // --- CeilDiv: T.ceildiv(a, b) (host-side helper, no tensors) ----------------
 class LUISA_AST_API CeilDivStmt final : public TensorStmt {
-    int32_t _a{}; // R1
-    int32_t _b{}; // R1; result (a + b - 1) / b
+    int32_t _a{};// R1
+    int32_t _b{};// R1; result (a + b - 1) / b
 
 public:
     CeilDivStmt() noexcept : TensorStmt{TileOpKind::CEILDIV} {}
@@ -461,9 +456,9 @@ public:
 /// T.Kernel(gx, threads) — grid loop is host-side; bx is the yielded builtin
 /// Variable{Tag::BLOCK_ID, uid=0} (R3, not serializable).
 class LUISA_AST_API Kernel1DStmt final : public TensorStmt {
-    int32_t _gx{};         // R1
-    int32_t _threads{};    // R1
-    const RefExpr *_bx{nullptr}; // R3 (borrowed)
+    int32_t _gx{};              // R1
+    int32_t _threads{};         // R1
+    const RefExpr *_bx{nullptr};// R3 (borrowed)
 
 public:
     Kernel1DStmt() noexcept : TensorStmt{TileOpKind::KERNEL_1D} {}
@@ -478,11 +473,11 @@ public:
 
 /// T.Kernel(gx, gy, threads).
 class LUISA_AST_API Kernel2DStmt final : public TensorStmt {
-    int32_t _gx{};         // R1
-    int32_t _gy{};         // R1
-    int32_t _threads{};    // R1
-    const RefExpr *_bx{nullptr}; // R3 (borrowed)
-    const RefExpr *_by{nullptr}; // R3 (borrowed)
+    int32_t _gx{};              // R1
+    int32_t _gy{};              // R1
+    int32_t _threads{};         // R1
+    const RefExpr *_bx{nullptr};// R3 (borrowed)
+    const RefExpr *_by{nullptr};// R3 (borrowed)
 
 public:
     Kernel2DStmt() noexcept : TensorStmt{TileOpKind::KERNEL_2D} {}
@@ -502,9 +497,9 @@ public:
 /// T.Pipelined(count, stages) — software pipeline metadata (R1); k is the
 /// yielded runtime loop variable (R3, not serializable).
 class LUISA_AST_API PipelinedStmt final : public TensorStmt {
-    int32_t _count{};      // R1
-    int32_t _stages{};     // R1
-    const RefExpr *_k{nullptr}; // R3 (borrowed)
+    int32_t _count{};          // R1
+    int32_t _stages{};         // R1
+    const RefExpr *_k{nullptr};// R3 (borrowed)
 
 public:
     PipelinedStmt() noexcept : TensorStmt{TileOpKind::PIPELINED} {}
@@ -518,4 +513,3 @@ public:
 };
 
 }// namespace luisa::compute
-
