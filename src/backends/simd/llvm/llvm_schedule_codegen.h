@@ -289,6 +289,15 @@ struct alignas(16) SIMDHostRayQueryState {
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states) noexcept;
 
+// Provider-native W16 procedural entry. Unlike the generic paired wrapper,
+// this publishes each lane's status while advancing an already cached batch
+// or installing a newly scanned Embree batch, so it does not reread the large
+// per-lane state in a separate post-proceed pass.
+[[nodiscard]] uint64_t
+simd_host_ray_query_proceed_wide_procedural_fused_status(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept;
+
 [[nodiscard]] constexpr bool
 simd_host_ray_query_use_procedural_wide_status(
     uint32_t lane_count,

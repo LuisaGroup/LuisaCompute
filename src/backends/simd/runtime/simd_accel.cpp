@@ -1042,6 +1042,119 @@ void install_ray_query_candidate_batches_wide(
     }
 }
 
+[[nodiscard]] LUISA_FORCE_INLINE uint64_t ray_query_lane_status(
+    const SIMDHostRayQueryState &state, uint64_t bit) noexcept {
+    auto status = state.terminated != 0u ? bit : 0u;
+    if (state.candidate_kind == static_cast<uint32_t>(
+                                    SIMDHostRayQueryCandidateKind::surface)) {
+        status |= bit << simd_host_ray_query_surface_status_shift;
+    } else if (state.candidate_kind == static_cast<uint32_t>(
+                                           SIMDHostRayQueryCandidateKind::procedural)) {
+        status |= bit << simd_host_ray_query_procedural_status_shift;
+    }
+    return status;
+}
+
+[[nodiscard]] LUISA_NEVER_INLINE uint64_t
+install_ray_query_candidate_batches_status(
+    RayQueryScanContext &context, uint64_t active_mask_bits,
+    const SIMDHostAccelInstanceTable &instances) noexcept {
+    auto status = uint64_t{0u};
+    for (auto lane = 0u; lane < context.lane_count; lane++) {
+        auto bit = uint64_t{1u} << lane;
+        if ((active_mask_bits & bit) == 0u) { continue; }
+        auto *state = context.states[lane];
+        auto &build = context.batch_build[lane];
+        auto begin = std::begin(state->candidate_batch);
+        auto end = begin + state->candidate_batch_count;
+        if (build.heapified) {
+            std::sort_heap(begin, end, ray_query_candidate_before);
+        } else if (build.descending && !build.ascending) {
+            std::reverse(begin, end);
+        } else if (!build.ascending) {
+            std::sort(begin, end, ray_query_candidate_before);
+        }
+        auto &procedural_build =
+            context.procedural_batch_build[lane];
+        auto procedural_begin = std::begin(state->procedural_batch);
+        auto procedural_end =
+            procedural_begin + state->procedural_batch_count;
+        if (procedural_build.heapified) {
+            std::sort_heap(
+                procedural_begin, procedural_end,
+                ray_query_procedural_before);
+        } else if (procedural_build.descending &&
+                   !procedural_build.ascending) {
+            std::reverse(procedural_begin, procedural_end);
+        } else if (!procedural_build.ascending) {
+            std::sort(
+                procedural_begin, procedural_end,
+                ray_query_procedural_before);
+        }
+        state->candidate_batch_index = 0u;
+        state->candidate_batch_initialized = 1u;
+        state->procedural_batch_index = 0u;
+        state->procedural_batch_initialized = 1u;
+        auto advanced = advance_ray_query_candidate(*state, instances);
+        LUISA_ASSERT(
+            advanced != RayQueryCandidateAdvance::needs_scan,
+            "A newly scanned SIMD ray-query batch made no progress.");
+        status |= ray_query_lane_status(*state, bit);
+    }
+    return status;
+}
+
+[[nodiscard]] LUISA_NEVER_INLINE uint64_t
+install_ray_query_candidate_batches_wide_status(
+    RayQueryScanContext &context, uint64_t active_mask_bits,
+    const SIMDHostAccelInstanceTable &instances) noexcept {
+    auto status = uint64_t{0u};
+    while (active_mask_bits != 0u) {
+        auto lane = static_cast<uint32_t>(
+            std::countr_zero(active_mask_bits));
+        auto bit = uint64_t{1u} << lane;
+        active_mask_bits &= active_mask_bits - 1u;
+        auto *state = context.states[lane];
+        auto &build = context.batch_build[lane];
+        auto begin = std::begin(state->candidate_batch);
+        auto end = begin + state->candidate_batch_count;
+        if (build.heapified) {
+            std::sort_heap(begin, end, ray_query_candidate_before);
+        } else if (build.descending && !build.ascending) {
+            std::reverse(begin, end);
+        } else if (!build.ascending) {
+            std::sort(begin, end, ray_query_candidate_before);
+        }
+        auto &procedural_build =
+            context.procedural_batch_build[lane];
+        auto procedural_begin = std::begin(state->procedural_batch);
+        auto procedural_end =
+            procedural_begin + state->procedural_batch_count;
+        if (procedural_build.heapified) {
+            std::sort_heap(
+                procedural_begin, procedural_end,
+                ray_query_procedural_before);
+        } else if (procedural_build.descending &&
+                   !procedural_build.ascending) {
+            std::reverse(procedural_begin, procedural_end);
+        } else if (!procedural_build.ascending) {
+            std::sort(
+                procedural_begin, procedural_end,
+                ray_query_procedural_before);
+        }
+        state->candidate_batch_index = 0u;
+        state->candidate_batch_initialized = 1u;
+        state->procedural_batch_index = 0u;
+        state->procedural_batch_initialized = 1u;
+        auto advanced = advance_ray_query_candidate(*state, instances);
+        LUISA_ASSERT(
+            advanced != RayQueryCandidateAdvance::needs_scan,
+            "A newly scanned SIMD ray-query batch made no progress.");
+        status |= ray_query_lane_status(*state, bit);
+    }
+    return status;
+}
+
 template<size_t packet_width, typename RayHitPacket, typename RayPacket>
 void scan_ray_query_packet(
     RTCScene scene, const SIMDHostAccelInstanceTable &instances,
@@ -1234,6 +1347,91 @@ void scan_ray_query_packet_wide(
     }
 }
 
+template<size_t packet_width, typename RayHitPacket, typename RayPacket>
+[[nodiscard]] LUISA_NEVER_INLINE uint64_t
+scan_ray_query_packet_wide_status(
+    RTCScene scene, const SIMDHostAccelInstanceTable &instances,
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    bool terminate_on_first) noexcept {
+    static_assert(packet_width == 16u);
+    alignas(64) std::array<float, 8u * 16u> components{};
+    alignas(64) std::array<uint32_t, 16u> visibility_masks{};
+    alignas(64) std::array<float, 16u> times{};
+    auto fully_active = packet_fully_active<packet_width>(
+        lane_count, active_mask_bits);
+    if (fully_active) {
+        initialize_ray_query_inputs(
+            lane_count, active_mask_bits, states,
+            components.data(), visibility_masks.data(), times.data());
+    } else {
+        initialize_ray_query_inputs_wide(
+            lane_count, active_mask_bits, states,
+            components.data(), visibility_masks.data(), times.data());
+    }
+    RayQueryScanContext context{};
+    if (fully_active) {
+        initialize_ray_query_context(
+            context, lane_count, active_mask_bits, states, instances);
+    } else {
+        initialize_ray_query_context_wide(
+            context, lane_count, active_mask_bits, states, instances);
+    }
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+    context.rtc.filter = detail::ray_query_filter_wide;
+#endif
+    alignas(64) std::array<int, packet_width> valid{};
+    ScopedRayQueryScanContext active_context{context};
+    if (terminate_on_first) {
+        alignas(64) RayPacket packet{};
+        initialize_ray_packet<packet_width>(
+            packet, valid, lane_count, active_mask_bits,
+            components.data(), visibility_masks.data(), times.data());
+        for (auto lane = 0u; lane < packet_width; lane++) {
+            packet.id[lane] = lane;
+        }
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+        rtcOccluded16(valid.data(), scene, &context.rtc, &packet);
+#else
+        RTCOccludedArguments arguments{};
+        rtcInitOccludedArguments(&arguments);
+        arguments.context = &context.rtc;
+        arguments.flags = static_cast<RTCRayQueryFlags>(
+            arguments.flags |
+            RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
+        arguments.filter = detail::ray_query_filter_wide;
+        rtcOccluded16(valid.data(), scene, &packet, &arguments);
+#endif
+    } else {
+        alignas(64) RayHitPacket packet{};
+        initialize_ray_packet<packet_width>(
+            packet.ray, valid, lane_count, active_mask_bits,
+            components.data(), visibility_masks.data(), times.data());
+        initialize_hit_packet<packet_width>(packet.hit);
+        for (auto lane = 0u; lane < packet_width; lane++) {
+            packet.ray.id[lane] = lane;
+        }
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+        rtcIntersect16(valid.data(), scene, &context.rtc, &packet);
+#else
+        RTCIntersectArguments arguments{};
+        rtcInitIntersectArguments(&arguments);
+        arguments.context = &context.rtc;
+        arguments.flags = static_cast<RTCRayQueryFlags>(
+            arguments.flags |
+            RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
+        arguments.filter = detail::ray_query_filter_wide;
+        rtcIntersect16(valid.data(), scene, &packet, &arguments);
+#endif
+    }
+    if (fully_active) {
+        return install_ray_query_candidate_batches_status(
+            context, active_mask_bits, instances);
+    }
+    return install_ray_query_candidate_batches_wide_status(
+        context, active_mask_bits, instances);
+}
+
 void scan_ray_query_scalar(
     RTCScene scene, const SIMDHostAccelInstanceTable &instances,
     uint64_t active_mask_bits,
@@ -1318,7 +1516,10 @@ SIMDAccel::SIMDAccel(
           triangle_ray_query::triangle_only_ray_query_enabled()},
       _enable_procedural_dense_status{
           !luisa::compute::detail::env_flag(
-              "LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK")} {
+              "LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK")},
+      _enable_procedural_fused_status{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS")} {
     simd_accel_set_flags(_scene, option);
 }
 
@@ -1518,7 +1719,9 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             _warp_width,
             _has_procedural_instances,
             _enable_procedural_dense_status) ?
-            simd_host_ray_query_proceed_wide_procedural_status :
+            (_enable_procedural_fused_status ?
+                 simd_host_ray_query_proceed_wide_procedural_fused_status :
+                 simd_host_ray_query_proceed_wide_procedural_status) :
             simd_host_ray_query_proceed_status;
     rtcCommitScene(_scene);
 }
@@ -1976,6 +2179,95 @@ void SIMDAccel::_ray_query_proceed_wide(
         }
         pending &= ~group;
     }
+}
+
+uint64_t simd_host_ray_query_proceed_wide_procedural_fused_status(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    LUISA_ASSERT(
+        states != nullptr && lane_count == 16u,
+        "Invalid fused procedural SIMD ray-query packet width {}.",
+        lane_count);
+    auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
+    active_mask_bits &= lane_mask;
+    if (active_mask_bits == 0u) { return 0u; }
+    auto fully_active = active_mask_bits == lane_mask;
+    auto pending = uint64_t{0u};
+    auto status = uint64_t{0u};
+    if (fully_active) [[likely]] {
+        for (auto lane = 0u; lane < lane_count; lane++) {
+            auto bit = uint64_t{1u} << lane;
+            SIMDAccel::_ray_query_proceed_wide_lane(
+                states[lane], lane, bit, pending);
+            if ((pending & bit) == 0u) {
+                status |= ray_query_lane_status(*states[lane], bit);
+            }
+        }
+    } else {
+        auto remaining_active = active_mask_bits;
+        while (remaining_active != 0u) {
+            auto lane = static_cast<uint32_t>(
+                std::countr_zero(remaining_active));
+            auto bit = uint64_t{1u} << lane;
+            remaining_active &= remaining_active - 1u;
+            SIMDAccel::_ray_query_proceed_wide_lane(
+                states[lane], lane, bit, pending);
+            if ((pending & bit) == 0u) {
+                status |= ray_query_lane_status(*states[lane], bit);
+            }
+        }
+    }
+    while (pending != 0u) {
+        auto first_lane = fully_active ? uint32_t{0u} :
+                                         static_cast<uint32_t>(
+                                             std::countr_zero(pending));
+        if (fully_active) [[likely]] {
+            while (((pending >> first_lane) & 1u) == 0u) {
+                first_lane++;
+            }
+        }
+        auto *first_state = states[first_lane];
+        auto *self = static_cast<SIMDAccel *>(first_state->accel);
+        auto terminate_on_first =
+            first_state->terminate_on_first != 0u;
+        auto group = uint64_t{0u};
+        if (fully_active) [[likely]] {
+            for (auto lane = 0u; lane < lane_count; lane++) {
+                auto bit = uint64_t{1u} << lane;
+                if ((pending & bit) == 0u) { continue; }
+                auto *state = states[lane];
+                if (state->accel == self &&
+                    (state->terminate_on_first != 0u) ==
+                        terminate_on_first) {
+                    group |= bit;
+                }
+            }
+        } else {
+            auto remaining_pending = pending;
+            while (remaining_pending != 0u) {
+                auto lane = static_cast<uint32_t>(
+                    std::countr_zero(remaining_pending));
+                auto bit = uint64_t{1u} << lane;
+                remaining_pending &= remaining_pending - 1u;
+                auto *state = states[lane];
+                if (state->accel == self &&
+                    (state->terminate_on_first != 0u) ==
+                        terminate_on_first) {
+                    group |= bit;
+                }
+            }
+        }
+        LUISA_ASSERT(
+            group != 0u,
+            "Empty fused wide SIMD ray-query packet group.");
+        status |= scan_ray_query_packet_wide_status<
+            16u, RTCRayHit16, RTCRay16>(
+            self->_scene, self->_instance_table,
+            lane_count, group, states,
+            terminate_on_first);
+        pending &= ~group;
+    }
+    return status;
 }
 
 }// namespace luisa::compute::simd

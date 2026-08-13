@@ -859,6 +859,42 @@ W16 64-spp cutout pairs measured 1.0001x with 4/7 wins; all fourteen output
 hashes matched. This is therefore recorded as a small W16 procedural latency
 win, not as a general ray-query or W8 improvement.
 
+### W16 provider-native procedural status publication
+
+The paired W16 entry still crossed the 1216-byte lane records twice: the plain
+provider advanced cached candidates or installed an Embree batch, then the
+status wrapper reread every active lane. A provider-native entry now publishes
+the terminated/surface/procedural bits in those existing passes. Cached lanes
+publish immediately after candidate advance; traversal lanes publish while the
+newly scanned batch is sorted, installed, and advanced. It adds neither a
+sidecar nor a lane pass, and it retains W16 packet traversal. Sparse masks and
+multiple accel/terminate-mode groups keep the original grouping semantics. The
+exact previous paired-call-plus-pack entry is selected by
+`LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS=1`.
+
+Before the change, a fixed-affinity W16 procedural-callable cycle profile put
+10.73% in the plain wide provider, 6.17% in candidate-batch installation, and
+1.47% in the separate status wrapper. Fourteen alternating strict-oracle
+16-candidate microbenchmark pairs measured 1.0710x with 14/14 wins and a 95%
+log-ratio interval of 1.0566x--1.0855x.
+
+The real 1280x720, 1024-SPP mixed procedural-callable renderer measured 1.0297x
+across fourteen alternating pairs with 11/14 wins and a 95% interval of
+1.0110x--1.0486x. All 28 images were byte-identical (SHA-256
+`4e3730fa871c450e44b02b77301ca3bb4041cb177c03b1fc786fae8db7f41cac`).
+Five additional `perf stat` pairs measured a 1.0469x wall-time ratio; candidate
+to oracle ratios were 0.9741 for cycles, 0.9839 for instructions, 0.9846 for
+branches, 0.9927 for branch misses, and 0.9359 for cache references. Cache
+misses rose to 1.0243x but remained too small to offset the removed state pass.
+
+The original `_ray_query_proceed_wide` retains its exact `0x3556`-byte function
+size in an independently compiled HEAD object; only source-line immediates in
+diagnostic metadata differ. Cold fused batch-install helpers are outlined, and
+the fused entry itself is `0x1fb6` bytes. The permanent W16 procedural gate
+runs both implementations and covers the 35-thread inactive tail, query-all/
+query-any commit/reject/terminate, 40-candidate continuation, motion, and mixed
+surface/procedural rebuilds.
+
 ## Same-algorithm ISPC control and provenance
 
 `benchmark_ispc_gemm.ispc` was independently written to match the DSL loop and
@@ -901,8 +937,9 @@ identical.
    payload only through a provider-native packet/SoA representation or a
    larger host/state-boundary elimination, following the liveness/frame
    principles merged from `next`. Both a wrapper-side second scan and a fused
-   two-field status scan are measured and rejected on real graphics; the
-   accepted state-handle cache covers pointers only.
+   two-field payload cache are measured and rejected on real graphics; the
+   accepted provider-native status publication removes the full status scan,
+   while the state-handle cache covers pointers only.
 2. Compact or rebatch sparse ray cohorts before Embree and reduce the remaining
    JIT-side ray-query state crossings. The accepted triangle-only host provider
    removes surface-runtime bookkeeping but does not compact lanes; inlining

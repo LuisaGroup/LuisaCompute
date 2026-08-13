@@ -9,6 +9,9 @@
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
+#include <optional>
+#include <string>
 
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/dsl/sugar.h>
@@ -22,6 +25,44 @@ namespace {
 
 constexpr auto dispatch_size = 35u;
 constexpr auto long_candidate_count = 40u;
+
+void set_environment_variable(
+    const char *name, const char *value) noexcept {
+#ifdef _WIN32
+    _putenv_s(name, value == nullptr ? "" : value);
+#else
+    if (value == nullptr) {
+        unsetenv(name);
+    } else {
+        setenv(name, value, 1);
+    }
+#endif
+}
+
+struct ScopedEnvironmentVariable {
+    std::string name;
+    std::optional<std::string> previous;
+
+    explicit ScopedEnvironmentVariable(
+        const char *env_name, const char *value)
+        : name{env_name} {
+        if (auto *old_value = std::getenv(env_name)) {
+            previous.emplace(old_value);
+        }
+        set_environment_variable(name.c_str(), value);
+    }
+
+    ~ScopedEnvironmentVariable() noexcept {
+        set_environment_variable(
+            name.c_str(),
+            previous ? previous->c_str() : nullptr);
+    }
+
+    ScopedEnvironmentVariable(
+        const ScopedEnvironmentVariable &) = delete;
+    ScopedEnvironmentVariable &operator=(
+        const ScopedEnvironmentVariable &) = delete;
+};
 
 void expect_near(
     float actual, float expected,
@@ -588,7 +629,7 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     Context context{argc > 0 ? argv[0] : ""};
-    for (auto width : std::array{1u, 2u, 4u, 8u, 16u}) {
+    auto run_width = [&](uint32_t width) {
         DeviceConfig config{};
         config.extension =
             luisa::make_unique<SIMDDeviceConfigExt>(width);
@@ -598,6 +639,20 @@ int main(int argc, char *argv[]) {
         test_long_candidate_chain(device, stream, width);
         test_procedural_summary_refresh(device, stream, width);
         test_mixed_surface_and_motion(device, stream, width);
+    };
+    for (auto width : std::array{1u, 2u, 4u, 8u}) {
+        run_width(width);
+    }
+    // The W16 procedural status provider fuses status publication into the
+    // candidate advance/install passes. Keep the original provider as an
+    // executable semantic oracle: both paths must survive inactive tails,
+    // divergent query-all/query-any control, commits, explicit termination,
+    // continuation scans, and mixed procedural/surface rebuilds.
+    run_width(16u);
+    {
+        ScopedEnvironmentVariable disable_fused_status{
+            "LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS", "1"};
+        run_width(16u);
     }
     return 0;
 }

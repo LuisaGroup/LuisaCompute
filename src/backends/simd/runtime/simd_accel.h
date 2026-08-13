@@ -45,8 +45,13 @@ private:
     uint32_t _warp_width{8u};
     bool _enable_triangle_only_ray_query{true};
     bool _enable_procedural_dense_status{true};
+    bool _enable_procedural_fused_status{true};
 
     friend struct triangle_ray_query::SIMDAccelAccess;
+    friend uint64_t
+    simd_host_ray_query_proceed_wide_procedural_fused_status(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        SIMDHostRayQueryState *const *states) noexcept;
 
 private:
     static void _trace_closest(

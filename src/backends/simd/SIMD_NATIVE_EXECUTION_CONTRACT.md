@@ -237,6 +237,10 @@ predicate gathers for eligible ray queries.
 sidecar but restores the query-local pointer gathers.
 `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING=1` keeps both caches but
 restores the JIT-side plain-callback gather and cohort check.
+`LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK=1` disables W16 procedural
+status specialization entirely;
+`LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS=1` retains that specialization
+but restores its preceding plain-provider-plus-pack implementation.
 These process-wide variables are diagnostic controls, not shader semantics or
 a replacement for the public configuration extension. Invalid width text or a
 width outside the supported set is rejected.
@@ -961,6 +965,22 @@ and high input-mask bits have exactly the generic packer's interpretation.
 This refinement changes neither the query-state ABI nor the W16 Embree packet
 width and must remain independently disableable from JIT status caching and
 callback pairing.
+
+The production W16 procedural entry fuses status publication into the two
+passes that already finalize a query step. A lane satisfied from an existing
+candidate batch publishes immediately after advance; a lane requiring Embree
+traversal publishes while the newly scanned candidate batch is sorted,
+installed, and advanced. No post-proceed state scan is permitted on this path.
+The status still describes the exact final public state: pending lanes publish
+only after traversal, terminated and candidate-kind fields remain independent,
+and inactive/null lanes are never inspected. The entry validates every active
+state against the same plain W16 provider, retains `rtcIntersect16`/
+`rtcOccluded16`, and supports multiple accel/terminate-mode groups in one
+cohort. `LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS=1` restores the
+previous paired-call-plus-pack implementation as a same-binary semantic and
+performance oracle. The permanent procedural regression executes W16 with
+both entries, including an inactive tail, divergent commit/reject/terminate,
+and a continuation beyond the 32-candidate batch.
 
 Each normal accel build recomputes whether the complete current instance table
 contains a curve or procedural primitive. Motion instances are classified by

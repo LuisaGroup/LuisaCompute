@@ -1918,9 +1918,22 @@ permanent regression covers W1/W2/W4/W8/W16, a 35-thread inactive tail,
 query-all/query-any commit/reject/terminate, invalid commit distances,
 deterministic order, visibility, a 40-candidate continuation, mixed triangle
 and procedural hits, primitive motion, and procedural motion instances. It has
-970 exact assertions. Rebuilding a child BLAS also exposed an independent TLAS
+985 exact assertions in the ordinary width sweep. W16 is additionally rerun
+with its fused status provider disabled, bringing the gate to 1,182 assertions
+and making the prior provider an executable oracle. Rebuilding a child BLAS
+also exposed an independent TLAS
 refit bug: every parent instance geometry is now recommitted before the scene,
 even when transform/mask metadata is clean, so updated child bounds propagate.
+
+For W16 procedural acceleration structures, the status callback no longer
+calls the plain provider and then scans all active query records again. Lanes
+advanced from a cached batch publish their three status bits during the
+provider's existing advance pass; lanes that require traversal publish during
+the existing scanned-batch installation pass. Sparse cohorts retain set-bit
+iteration, while a full cohort retains fixed sequential iteration. The public
+1216-byte state, status bit layout, status-color ownership proof, and Embree
+packet ABI are unchanged. `LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS=1`
+selects the exact previous provider/packer pair for same-binary A/B.
 
 The public rejection-chain benchmark uses 65,536 rays per dispatch, 128 timed
 dispatches per sample, and seven samples per process. On the shared 9950X3D
@@ -2053,10 +2066,12 @@ same-block construction store, and no intervening query observation. Unknown
 aliases, copied query handles, disabled scratch coloring, and W1/W2 all retain
 the original state gathers.
 
-The host status entry is deliberately separate from every Embree provider. It
-calls the plain provider already stored in the active query state, then scans
-only active lanes once and returns the packed classification. This keeps the
-1216-byte state ABI and the generic/triangle-only provider code unchanged.
+The generic host status entry is deliberately separate from every Embree
+provider. It calls the plain provider already stored in the active query
+state, then scans only active lanes once and returns the packed classification.
+This keeps the 1216-byte state ABI and generic/triangle-only provider code
+unchanged. The measured W16 procedural specialization described below is the
+one exception: it publishes status inside its existing advance/install passes.
 The entry's assertion formatting lives in no-inline cold helpers: optimized
 host assembly leaves a 237-byte hot wrapper with a 40-byte frame instead of
 pulling logging/backtrace construction into every `PROCEED`. JIT construction
@@ -2086,16 +2101,20 @@ sidecar but restores the redundant JIT plain-callback gather and comparison.
 
 The paired status ABI has one host-side W16 procedural refinement. A W16 accel
 whose latest build contains a procedural instance installs a distinct status
-entry in its stable instance table. The entry invokes the same construction-
-selected plain provider and therefore retains its active-lane callback
-agreement checks. After the provider returns, an exactly full `0xffff` cohort
-is packed by a fixed sequential pass over the sixteen state pointers; every
-sparse cohort uses the original set-bit scan and never dereferences an inactive
-entry. The accel owns its immutable device width, recomputes the procedural
-summary on every build, and restores the generic status entry if a later build
-contains no procedural instance. W1/W2/W4/W8 never select this specialization.
-`LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK=1`, sampled at accel creation,
-is the same-binary oracle.
+entry in its stable instance table. Its original form invoked the same plain
+provider and then packed an exactly full `0xffff` cohort with a fixed
+sequential pass; sparse cohorts used the original set-bit scan. The production
+entry now performs the same provider work directly and publishes status while
+advancing cached candidates or installing a newly scanned batch. This removes
+the post-provider pass without weakening active-lane callback agreement or
+touching inactive pointers. The accel owns its immutable device width,
+recomputes the procedural summary on every build, and restores the generic
+status entry if a later build contains no procedural instance. W1/W2/W4/W8
+never select this specialization. `LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK=1`
+disables the whole W16 specialization;
+`LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS=1` selects its immediately
+preceding plain-provider-plus-pack implementation as the strict same-binary
+oracle. Both are sampled at accel creation.
 
 The W16-only choice follows the performance gate. A broader W8/W16 experiment
 made the real W8 procedural-callable renderer 0.9861x as fast with 1/7 wins and
@@ -2105,8 +2124,15 @@ the 1280x720 1024-spp procedural-callable renderer; all renderer outputs are
 byte-identical and pass the gallery comparison. Five counter pairs reduce
 cycles to 0.9830x and instructions to 0.9800x of the oracle. A seven-pair W16
 triangle-only cutout control is neutral at 1.0001x. The original generic
-status wrapper remains instruction-for-instruction identical and 237 bytes;
-the isolated W16 entry adds 704 backend `.text` bytes.
+entry is therefore retained everywhere else. The subsequent provider-native
+publication is independently positive: fourteen strict-oracle procedural
+microbenchmark pairs are 1.0710x (14/14, 95% interval 1.0566x--1.0855x), and
+fourteen real 1024-SPP renderer pairs are 1.0297x (11/14, interval
+1.0110x--1.0486x) with byte-identical output.
+The original generic status wrapper remains instruction-for-instruction
+identical and 237 bytes. The preceding dense-packer W16 entry added 704 backend
+`.text` bytes; the provider-native entry is intentionally larger and isolates
+its cold batch-install paths out of line.
 
 An eligible status color additionally owns one fixed-vector cache of its query
 state handles. The construction result is not published early: the ordinary
