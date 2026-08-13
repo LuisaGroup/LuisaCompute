@@ -104,7 +104,9 @@ struct CompileResult {
 evaluate_normalized_vectors_through_callable(
     Device &device,
     luisa::span<const float3> inputs,
-    uint32_t seed) noexcept {
+    uint32_t seed,
+    bool enable_fast_math,
+    uint64_t *structure_hash = nullptr) noexcept {
     Callable project = [](Float3 direction, UInt value) noexcept {
         for (auto round = 0u;
              round < callable_round_count; round++) {
@@ -131,9 +133,15 @@ evaluate_normalized_vectors_through_callable(
             index,
             project(direction, initial_value + index));
     };
+    if (structure_hash != nullptr) {
+        *structure_hash = kernel.function()->function().hash();
+    }
 
     auto shader = device.compile(
-        kernel, ShaderOption{.enable_cache = false});
+        kernel,
+        ShaderOption{
+            .enable_cache = false,
+            .enable_fast_math = enable_fast_math});
     auto input = device.create_buffer<float3>(inputs.size());
     auto output = device.create_buffer<float>(inputs.size());
     luisa::vector<float> values(inputs.size());
@@ -143,6 +151,39 @@ evaluate_normalized_vectors_through_callable(
            << output.copy_to(values.data())
            << synchronize();
     return values;
+}
+
+[[nodiscard]] std::string read_text_file(
+    const std::filesystem::path &path) {
+    std::ifstream stream{path};
+    return {
+        std::istreambuf_iterator<char>{stream},
+        std::istreambuf_iterator<char>{}};
+}
+
+[[nodiscard]] std::string_view amdgpu_kernel_body(
+    const std::string &module) noexcept {
+    constexpr auto kernel_prefix =
+        std::string_view{"define amdgpu_kernel "};
+    auto begin = module.find(kernel_prefix);
+    if (begin == std::string::npos) { return {}; }
+    auto end = module.find("\n}", begin);
+    if (end == std::string::npos) { return {}; }
+    return std::string_view{module}.substr(
+        begin, end + 2u - begin);
+}
+
+[[nodiscard]] bool contains_dynamic_fp_operation(
+    std::string_view body) noexcept {
+    constexpr std::array operations{
+        " fadd ", " fsub ", " fmul ", " fdiv ",
+        " frem ", " fneg ", " fcmp "};
+    for (auto operation : operations) {
+        if (body.find(operation) != std::string_view::npos) {
+            return true;
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] CompileResult compile_reused_callable(
@@ -277,8 +318,14 @@ int main(int argc, char *argv[]) {
                 float3{9.0f, -3.0f, 2.0f},
                 float3{0.0625f, 0.125f, 0.25f},
                 float3{-6.0f, 5.0f, 4.0f}};
-            auto actual = evaluate_normalized_vectors_through_callable(
-                device, inputs, seed);
+            uint64_t fast_structure_hash{};
+            uint64_t strict_structure_hash{};
+            auto fast = evaluate_normalized_vectors_through_callable(
+                device, inputs, seed, true, &fast_structure_hash);
+            auto strict = evaluate_normalized_vectors_through_callable(
+                device, inputs, seed, false, &strict_structure_hash);
+            expect(fast_structure_hash == strict_structure_hash)
+                << "fast-math policy unexpectedly changed the DSL AST";
             for (auto i = 0u; i < inputs.size(); i++) {
                 const auto &v = inputs[i];
                 const auto squared_length =
@@ -291,13 +338,16 @@ int main(int argc, char *argv[]) {
                     4.0f * direction.z +
                     static_cast<float>(
                         scramble_reference(seed + i) & 255u);
-                expect(std::abs(actual[i] - expected) <= 2.0e-5f)
+                expect(std::abs(fast[i] - expected) <= 2.0e-5f)
                     << "fixed-vector reduction changed across an "
-                       "out-of-line HIP Callable";
+                       "out-of-line HIP Callable in fast mode";
+                expect(std::abs(strict[i] - expected) <= 2.0e-5f)
+                    << "fixed-vector reduction changed across an "
+                       "out-of-line HIP Callable in strict mode";
             }
         };
 
-    "HIP lowers fixed-vector dot products without LLVM reductions"_test =
+    "HIP lowers fixed-vector dot products and preserves FP mode"_test =
         [&] {
             auto dumped_module_count = 0u;
             auto retained_vector_reduction = false;
@@ -310,19 +360,37 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
                 ++dumped_module_count;
-                std::ifstream stream{entry.path()};
-                const std::string module{
-                    std::istreambuf_iterator<char>{stream},
-                    std::istreambuf_iterator<char>{}};
+                const auto module = read_text_file(entry.path());
                 retained_vector_reduction |=
                     module.find("llvm.vector.reduce.fadd") !=
                     std::string::npos;
             }
-            expect(dumped_module_count == 3u)
+            expect(dumped_module_count == 4u)
                 << "expected one final HIP LLVM module per compiled shader";
             expect(!retained_vector_reduction)
                 << "fixed-vector dot product retained the target-unstable "
                    "LLVM reduction intrinsic";
+
+            // The two normalize kernels have an identical DSL AST and differ
+            // only in ShaderOption::enable_fast_math. The dump counter follows
+            // compile order: module 2 is fast and module 3 is strict. Inspect
+            // the generated root rather than linked OCML helpers so this is a
+            // direct test of option propagation into user instructions.
+            const auto fast_module = read_text_file(
+                dump_directory / "hip_kernel_final_2.ll");
+            const auto strict_module = read_text_file(
+                dump_directory / "hip_kernel_final_3.ll");
+            const auto fast_root = amdgpu_kernel_body(fast_module);
+            const auto strict_root = amdgpu_kernel_body(strict_module);
+            expect(!fast_root.empty() && !strict_root.empty())
+                << "failed to locate generated AMDGPU root kernels";
+            expect(contains_dynamic_fp_operation(fast_root) &&
+                   contains_dynamic_fp_operation(strict_root))
+                << "fast/strict regression kernel lost its dynamic FP work";
+            expect(fast_root.find(" fast ") != std::string_view::npos)
+                << "ShaderOption::enable_fast_math did not reach HIP LLVM IR";
+            expect(strict_root.find(" fast ") == std::string_view::npos)
+                << "strict HIP LLVM IR unexpectedly retained fast-math flags";
         };
 
     std::filesystem::current_path(
