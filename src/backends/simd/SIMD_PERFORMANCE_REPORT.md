@@ -936,8 +936,10 @@ FMA disabled, `--cpu=znver5`, and eight workers. Seven-sample medians are:
 | `avx512skx-x8` | 8 | 142.812 |
 | `avx512skx-x16` | 16 | 223.911 |
 
-The compiler is optional and supplied only through
-`LUISA_COMPUTE_ISPC_EXECUTABLE`; no machine-local path enters source or tests.
+The compiler is supplied explicitly to a standalone benchmark driver. ISPC
+objects and host launchers are created in a temporary directory; no ISPC
+compiler path, target, generated object, or comparison executable enters the
+project CMake graph or CTest suite, and no machine-local path enters source.
 No ISPC implementation, SLEEF implementation, or approximation coefficient is
 copied into production. The benchmark tool provenance is official
 [ISPC 1.31.0](https://github.com/ispc/ispc/releases/tag/v1.31.0), whose

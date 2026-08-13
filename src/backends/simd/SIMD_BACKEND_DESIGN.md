@@ -1609,7 +1609,8 @@ ISPC 1.31.0 with precise arithmetic, FMA disabled, `--cpu=znver5`, and eight
 workers. It reaches 93.170/139.472 GFLOP/s for AVX2 i32x4/i32x8 and
 92.101/142.812/223.911 GFLOP/s for AVX-512 x4/x8/x16. No ISPC source or
 coefficient is incorporated into production; the optional benchmark compiler
-is an explicit CMake cache path. ISPC is BSD-3-Clause licensed; provenance is
+is passed explicitly to a standalone benchmark driver and is absent from the
+project CMake graph. ISPC is BSD-3-Clause licensed; provenance is
 recorded in [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
 
 The real-example gate was repeated rather than extrapolated from GEMM. Seven

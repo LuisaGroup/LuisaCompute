@@ -480,61 +480,6 @@ luisa_compute_add_test(test_device_test         unit/runtime/test_device.cpp)
 luisa_compute_add_test(test_external_buffer     unit/runtime/test_external_buffer.cpp)
 luisa_compute_add_test(test_gemm                unit/runtime/test_gemm.cpp)
 luisa_compute_add_test(benchmark_simd_gemm      unit/simd/benchmark_simd_gemm.cpp)
-
-set(LUISA_COMPUTE_ISPC_EXECUTABLE "" CACHE FILEPATH
-        "Optional ISPC compiler used only by SIMD comparison benchmarks")
-set(LUISA_COMPUTE_ISPC_CPU "" CACHE STRING
-        "Optional explicit ISPC --cpu value for SIMD comparison benchmarks")
-if (TARGET luisa-compute-backend-simd AND
-        LUISA_COMPUTE_ISPC_EXECUTABLE AND
-        CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
-    set(_luisa_ispc_cpu_args)
-    if (LUISA_COMPUTE_ISPC_CPU)
-        list(APPEND _luisa_ispc_cpu_args
-                "--cpu=${LUISA_COMPUTE_ISPC_CPU}")
-    endif ()
-    set(_luisa_ispc_gemm_objects)
-    set(_luisa_ispc_gemm_variants
-            "avx2_w4|avx2-i32x4|1"
-            "avx2_w8|avx2-i32x8|2"
-            "avx512_w4|avx512skx-x4|3"
-            "avx512_w8|avx512skx-x8|4"
-            "avx512_w16|avx512skx-x16|5")
-    foreach (_luisa_ispc_spec IN LISTS _luisa_ispc_gemm_variants)
-        string(REPLACE "|" ";" _luisa_ispc_fields "${_luisa_ispc_spec}")
-        list(GET _luisa_ispc_fields 0 _luisa_ispc_name)
-        list(GET _luisa_ispc_fields 1 _luisa_ispc_target)
-        list(GET _luisa_ispc_fields 2 _luisa_ispc_variant)
-        set(_luisa_ispc_object
-                "${CMAKE_CURRENT_BINARY_DIR}/ispc/${_luisa_ispc_name}.o")
-        add_custom_command(
-                OUTPUT "${_luisa_ispc_object}"
-                COMMAND ${CMAKE_COMMAND} -E make_directory
-                        "${CMAKE_CURRENT_BINARY_DIR}/ispc"
-                COMMAND "${LUISA_COMPUTE_ISPC_EXECUTABLE}"
-                        "${CMAKE_CURRENT_SOURCE_DIR}/unit/simd/benchmark_ispc_gemm.ispc"
-                        -o "${_luisa_ispc_object}"
-                        -O2 --arch=x86-64
-                        "--target=${_luisa_ispc_target}"
-                        --opt=disable-fma
-                        ${_luisa_ispc_cpu_args}
-                        "-DLUISA_ISPC_GEMM_VARIANT=${_luisa_ispc_variant}"
-                DEPENDS unit/simd/benchmark_ispc_gemm.ispc
-                VERBATIM)
-        list(APPEND _luisa_ispc_gemm_objects "${_luisa_ispc_object}")
-    endforeach ()
-    set_source_files_properties(${_luisa_ispc_gemm_objects} PROPERTIES
-            GENERATED TRUE EXTERNAL_OBJECT TRUE)
-    add_executable(benchmark_ispc_gemm
-            unit/simd/benchmark_ispc_gemm.cpp
-            ../backends/simd/runtime/simd_thread_pool.cpp
-            ${_luisa_ispc_gemm_objects})
-    target_compile_features(benchmark_ispc_gemm PRIVATE cxx_std_20)
-    target_include_directories(benchmark_ispc_gemm PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/runtime)
-    target_link_libraries(benchmark_ispc_gemm PRIVATE
-            luisa-compute-core)
-endif ()
 luisa_compute_add_test(test_hip_codegen_arithmetic unit/runtime/test_hip_codegen_arithmetic.cpp)
 luisa_compute_add_test(test_hip_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
 luisa_compute_add_test(test_hip_motion_instance_matrix unit/runtime/test_hip_motion_instance_matrix.cpp)
