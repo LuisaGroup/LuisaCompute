@@ -5544,6 +5544,226 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_predicated_memory_diamond() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferUInt input, BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint value = 0x12345678u;
+        $if (index != 0u) {
+            // Lane zero forms UINT_MAX here. The address is legal to form but
+            // must be masked before the gather touches memory.
+            value = input.read(index - 1u) + 7u;
+        };
+        output.write(index, value);
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_predicated_memory_diamond");
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(compiled.predicated_memory_diamond_count == 1u);
+    CHECK(compiled.predicated_memory_instruction_count == 3u);
+    CHECK(compiled.direct_control_flow);
+    // One value crosses the ordinary direct-CFG block boundary. LLVM's
+    // mem2reg removes this logical spill; the stackless shape below audits
+    // the optimized machine code separately.
+    CHECK(compiled.spilled_instruction_count == 1u);
+    CHECK(compiled.contiguous_buffer_read_count == 1u);
+
+    Kernel1D stackless_kernel = [](
+                                    BufferUInt input, BufferUInt mask,
+                                    BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint value = 0u;
+        $if (mask.read(index) != 0u) {
+            value = input.read(index) + 7u;
+        };
+        output.write(index, value);
+    };
+    auto stackless = compile_simd_kernel(
+        stackless_kernel.function()->function(), width,
+        "simd_ast_stackless_predicated_memory_diamond", false, true);
+    CHECK(stackless.succeeded());
+    CHECK(stackless.predicated_memory_diamond_count == 1u);
+    CHECK(stackless.spilled_instruction_count == 1u);
+    CHECK(stackless.contiguous_buffer_read_count == 2u);
+    CHECK(!stackless.assembly.empty());
+    if (stackless.target_triple.starts_with("x86_64")) {
+        CHECK(stackless.assembly.find("%rsp") == std::string::npos);
+        CHECK(stackless.assembly.find("%rbp") == std::string::npos);
+    }
+
+    // Exercise a completely empty read arm with an invalid input pointer.
+    // Masked lowering must sanitize the dynamic seed before extraction and
+    // must not touch the input address in any lane.
+    std::array<uint32_t, count> zero_mask{};
+    std::array<uint32_t, count> zero_output{};
+    zero_output.fill(0xdeadbeefu);
+    alignas(16) std::array<SIMDHostBufferView, 3u> stackless_arguments{
+        SIMDHostBufferView{nullptr, 0u},
+        SIMDHostBufferView{zero_mask.data(), sizeof(zero_mask)},
+        SIMDHostBufferView{zero_output.data(), sizeof(zero_output)},
+    };
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto stackless_entry = reinterpret_cast<Entry *>(stackless.entry);
+    CHECK(stackless_entry != nullptr);
+    auto stackless_config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        stackless_config.thread_index = first;
+        stackless_entry(
+            stackless_arguments.data(), nullptr,
+            &stackless_config, width);
+    }
+    CHECK(std::all_of(
+        zero_output.begin(), zero_output.end(),
+        [](uint32_t value) noexcept { return value == 0u; }));
+
+    auto scalar = compile_simd_kernel(
+        kernel.function()->function(), 1u,
+        "simd_ast_scalar_memory_diamond");
+    CHECK(scalar.succeeded());
+    CHECK(scalar.predicated_memory_diamond_count == 0u);
+    CHECK(scalar.direct_control_flow);
+
+    {
+        ScopedEnvironmentVariable disable_predication{
+            "LUISA_SIMD_DISABLE_PREDICATED_IF", "1"};
+        auto scheduled = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_scheduled_memory_diamond");
+        CHECK(scheduled.succeeded());
+        CHECK(scheduled.predicated_memory_diamond_count == 0u);
+        CHECK(scheduled.predicated_memory_instruction_count == 0u);
+        CHECK(!scheduled.direct_control_flow);
+    }
+
+    Kernel1D volatile_kernel = [](BufferUInt input,
+                                  BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint value = 0u;
+        $if (index != 0u) {
+            value = input.volatile_read(index - 1u);
+        };
+        output.write(index, value);
+    };
+    auto volatile_read = compile_simd_kernel(
+        volatile_kernel.function()->function(), width,
+        "simd_ast_volatile_memory_diamond");
+    CHECK(volatile_read.succeeded());
+    CHECK(volatile_read.predicated_memory_diamond_count == 0u);
+    CHECK(!volatile_read.direct_control_flow);
+
+    Kernel1D unsafe_arithmetic_kernel = [](
+                                            BufferUInt input,
+                                            BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint value = 0u;
+        $if (index != 0u) {
+            value = input.read(index - 1u) / index;
+        };
+        output.write(index, value);
+    };
+    auto unsafe_arithmetic = compile_simd_kernel(
+        unsafe_arithmetic_kernel.function()->function(), width,
+        "simd_ast_unsafe_arithmetic_memory_diamond");
+    CHECK(unsafe_arithmetic.succeeded());
+    CHECK(unsafe_arithmetic.predicated_memory_diamond_count == 0u);
+    CHECK(!unsafe_arithmetic.direct_control_flow);
+
+    std::array<uint32_t, count> input{};
+    std::array<uint32_t, count> output{};
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        input[i] = i * 11u + 5u;
+        output[i] = 0xdeadbeefu;
+    }
+    alignas(16) std::array<SIMDHostBufferView, 2u> arguments{
+        SIMDHostBufferView{input.data(), sizeof(input)},
+        SIMDHostBufferView{output.data(), sizeof(output)},
+    };
+    auto entry = reinterpret_cast<Entry *>(compiled.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(arguments.data(), nullptr, &config, width);
+    }
+    CHECK(output[0u] == 0x12345678u);
+    for (auto i = uint32_t{1u}; i < count; i++) {
+        CHECK(output[i] == input[i - 1u] + 7u);
+    }
+
+    for (auto test_width : {2u, 4u, 16u}) {
+        auto candidate = compile_simd_kernel(
+            kernel.function()->function(), test_width,
+            "simd_ast_predicated_memory_diamond_w" +
+                std::to_string(test_width));
+        CHECK(candidate.succeeded());
+        CHECK(candidate.predicated_memory_diamond_count == 1u);
+        CHECK(candidate.direct_control_flow);
+        CHECK(candidate.contiguous_buffer_read_count ==
+              (test_width >= 4u ? 1u : 0u));
+        output.fill(0xdeadbeefu);
+        auto candidate_entry = reinterpret_cast<Entry *>(candidate.entry);
+        CHECK(candidate_entry != nullptr);
+        auto candidate_config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += test_width) {
+            candidate_config.thread_index = first;
+            candidate_entry(
+                arguments.data(), nullptr,
+                &candidate_config, test_width);
+        }
+        CHECK(output[0u] == 0x12345678u);
+        for (auto i = uint32_t{1u}; i < count; i++) {
+            CHECK(output[i] == input[i - 1u] + 7u);
+        }
+    }
+
+    Kernel1D nested_kernel = [](BufferUInt input,
+                                BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint value = 0x11111111u;
+        $if ((index & 1u) == 0u) {
+            $if (index != 0u) {
+                value = input.read(index - 1u) + 9u;
+            };
+        }
+        $else {
+            value = 0x22222222u;
+        };
+        output.write(index, value);
+    };
+    auto nested = compile_simd_kernel(
+        nested_kernel.function()->function(), width,
+        "simd_ast_nested_predicated_memory_diamond");
+    CHECK(nested.succeeded());
+    CHECK(nested.predicated_memory_diamond_count == 1u);
+    CHECK(!nested.direct_control_flow);
+    output.fill(0xdeadbeefu);
+    auto nested_entry = reinterpret_cast<Entry *>(nested.entry);
+    CHECK(nested_entry != nullptr);
+    auto nested_config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        nested_config.thread_index = first;
+        nested_entry(
+            arguments.data(), nullptr,
+            &nested_config, width);
+    }
+    CHECK(output[0u] == 0x11111111u);
+    for (auto i = uint32_t{1u}; i < count; i++) {
+        auto expected = (i & 1u) == 0u ? input[i - 1u] + 9u :
+                                        0x22222222u;
+        CHECK(output[i] == expected);
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_loop_unswitch() {
     static constexpr auto width = 8u;
     static constexpr auto count = 13u;
@@ -5780,6 +6000,8 @@ int main() {
          &run_ast_fast_math_canonicalization},
         {"AST predicated varying diamond",
          &run_ast_predicated_diamond},
+        {"AST predicated memory diamond",
+         &run_ast_predicated_memory_diamond},
         {"AST invariant varying loop unswitch",
          &run_ast_loop_unswitch},
         {"AST shader execution reorder hint",

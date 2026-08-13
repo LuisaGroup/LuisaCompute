@@ -42,12 +42,9 @@ namespace luisa::compute::simd::detail {
                 schedule::ValueClass::cohort_uniform) {
             return lanes;
         }
-        auto *first = _collectives.first_active_lane(
-            _builder, participants);
-        auto *safe = _builder.CreateSelect(
-            _builder.CreateOrReduce(participants), first,
-            _builder.getInt32(0u));
-        return _extract_lane(lanes, result_value->type, safe);
+        return _extract_lane(
+            lanes, result_value->type,
+            _safe_first_lane(participants));
     };
     auto reduce_components = [&](const UnaryLeaf &leaf) {
         if (!require(1u) || result_value == nullptr) {

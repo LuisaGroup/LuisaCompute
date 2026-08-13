@@ -131,6 +131,10 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.contiguous_buffer_read_count;
     result.contiguous_buffer_write_count =
         llvm_result.contiguous_buffer_write_count;
+    result.predicated_memory_diamond_count =
+        llvm_result.predicated_memory_diamond_count;
+    result.predicated_memory_instruction_count =
+        llvm_result.predicated_memory_instruction_count;
     result.direct_control_flow = llvm_result.direct_control_flow;
     auto llvm_entry_name = llvm_result.entry->getName().str();
     result.jit = std::make_unique<LLVMJIT>(capture_assembly);

@@ -474,6 +474,8 @@ struct LLVMScheduleCodegenResult {
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};
+    size_t predicated_memory_diamond_count{0u};
+    size_t predicated_memory_instruction_count{0u};
     bool direct_control_flow{false};
     std::string error{};
 

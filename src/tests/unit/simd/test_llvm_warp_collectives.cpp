@@ -2,6 +2,7 @@
 #include "reference_warp_collectives.h"
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -275,6 +276,10 @@ template<size_t Width>
     CHECK(ir.find(lane_spelling) != std::string::npos);
     CHECK(ir.find("llvm.vector.reduce.add.v" +
                   std::to_string(Width) + "i32") != std::string::npos);
+    if constexpr (std::endian::native == std::endian::little) {
+        CHECK(ir.find("bitcast <" + std::to_string(Width) +
+                      " x i1>") != std::string::npos);
+    }
     CHECK(ir.find("shufflevector") != std::string::npos);
     CHECK(ir.find("llvm.x86.") == std::string::npos);
     CHECK(ir.find("llvm.aarch64.") == std::string::npos);
@@ -335,8 +340,11 @@ int main() {
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"LLVM vector warp1", [] { return test_jit<1u>(0x01u, 0x01u, 0u); }},
+        {"LLVM vector warp2", [] { return test_jit<2u>(0x02u, 0x02u, 1u); }},
         {"LLVM vector warp4", [] { return test_jit<4u>(0x0bu, 0x09u, 3u); }},
         {"LLVM vector warp8", [] { return test_jit<8u>(0x43u, 0x41u, 6u); }},
+        {"LLVM vector warp16", [] { return test_jit<16u>(0x8102u, 0x8002u, 15u); }},
     };
     auto failures = 0u;
     for (auto test : tests) {

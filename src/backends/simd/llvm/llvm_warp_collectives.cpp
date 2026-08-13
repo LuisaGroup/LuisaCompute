@@ -1,5 +1,6 @@
 #include "llvm_warp_collectives.h"
 
+#include <bit>
 #include <vector>
 
 #include <llvm/ADT/APInt.h>
@@ -75,10 +76,14 @@ bool LLVMWarpCollectives::_validate_mask(::llvm::Value *value,
     if (!_validate_mask(mask, "mask bit packing requires an i1 lane vector")) {
         return nullptr;
     }
-    // Spell the packing as lane-wise vector operations instead of relying on
-    // the target data layout of a vector-to-integer bitcast. LLVM remains
-    // free to recognize the idiom while Luisa lane 0 is unambiguously bit 0.
     auto *integer = ::llvm::IntegerType::get(builder.getContext(), _width);
+    // This backend JITs for the process host. LLVM's little-endian
+    // vector-to-integer bitcast is the cheapest mask pack and maps Luisa lane
+    // 0 to bit 0. Keep the explicit lane-wise spelling on any other host so
+    // physical lane order never depends on a target data layout convention.
+    if constexpr (std::endian::native == std::endian::little) {
+        return builder.CreateBitCast(mask, integer);
+    }
     auto *wide_vector = ::llvm::FixedVectorType::get(integer, _width);
     auto *extended = builder.CreateZExt(mask, wide_vector);
     std::vector<::llvm::Constant *> shifts;

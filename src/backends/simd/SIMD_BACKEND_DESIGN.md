@@ -1613,6 +1613,48 @@ is passed explicitly to a standalone benchmark driver and is absent from the
 project CMake graph. ISPC is BSD-3-Clause licensed; provenance is
 recorded in [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
 
+The ISPC 1.31.0 compiler itself was also audited at source revision
+`c6adb4f86f56` under its BSD-3-Clause license. Its most relevant techniques
+are not target intrinsics: varying `if` lowering distinguishes all-on, all-off,
+and mixed masks; a small cost model chooses straight-line predication or
+`any(mask)` branches that skip empty/heavy arms; gather coalescing combines a
+bounded window of compatible reads and stops at possible writes; and constant
+prefix masks shrink masked memory operations. These are recorded as design
+inputs only. No ISPC implementation is copied into production. The existing
+XIR consecutive-buffer-read pass was separately inspected and only fuses
+absolute constant byte offsets, so it is not reused as a dynamic typed-buffer
+packet gather coalescer.
+
+### Predicated memory-diamond checkpoint
+
+Schedule-to-LLVM now straightens a fail-closed subset of small varying
+direct-buffer-read diamonds. Each arm executes under `outer & condition` or
+`outer & !condition`; reads and edge assignments retain that submask, so an
+inactive or empty arm cannot access its address. If every convergence in the
+function is covered by this refinement, the whole kernel uses direct LLVM CFG
+and omits the scheduler. W1 keeps its scalar branch. The implementation is
+split into `llvm_schedule_emitter_predication.cpp` rather than growing the
+already large control emitter.
+
+The initial masked-stream fixture changes at W8 from approximately 744 static
+instructions, 71 branches, 152 stack-reference instructions, and a 480-byte
+frame to 36 object instructions, one branch, no calls, and no stack frame.
+W4/W16 contain 34/36 instructions with the same one-branch, stackless shape. A
+lane-consecutive index defined before the split reuses the outer packet seed;
+an arm-local index uses the submask seed to preserve inactive-lane poison
+safety. Little-endian mask packing uses the target-independent `<W x i1>` to
+`iW` bitcast before `cttz`; the explicit lane-wise representation remains the
+portable fallback for other byte orders.
+
+Execution coverage includes W1 scalar control, W8 with a 13-thread inactive
+tail and an untaken underflowing index, disabled predication, volatile-read and
+integer-division rejection, PHI results, and optimized stackless assembly.
+Runtime reports `predicated_memory_diamonds` and
+`predicated_memory_instructions`. The remaining ISPC ideas above stay as
+measured follow-up work: dynamic all/none/mixed dispatch for larger regions,
+costed empty-arm skips, bounded compatible-gather coalescing, and prefix-tail
+narrowing must each retain a same-binary oracle and real-example gate.
+
 The real-example gate was repeated rather than extrapolated from GEMM. Seven
 forward/reverse process rounds produced these fallback-relative steady-state
 medians:
@@ -2424,7 +2466,8 @@ on 2026-08-11. The repository now contains:
   64-block ready bitmap and its CFG-size limit have been removed;
 - bounded speculation-safe diamond if-conversion, common-operation/select
   factoring, and invariant-condition loop unswitching before Schedule
-  emission, each with a same-binary disable control and inactive-tail proof;
+  emission, plus a fail-closed Schedule-emitter predicated direct-buffer-read
+  diamond; each retains a same-binary disable control and inactive-tail proof;
 - two-stage, fail-closed local struct/array SROA before scheduling, followed by
   `mem2reg`, so constant-member aggregate state can cross blocks as independent
   SoA SSA leaves rather than lane-private AoS round trips;
@@ -2447,7 +2490,8 @@ on 2026-08-11. The repository now contains:
   block-row proof, first-active-lane base reconstruction, and target-independent
   masked contiguous load/store at W4/W8/W16; sparse cohorts and partial tails
   retain the exact source mask while W2 keeps its measured gather/scatter
-  policy;
+  policy; predicated arms may reuse an outer affine seed only when the index
+  was already defined for the full packet;
 - runtime-owned bindless slot tables with offset buffer and 2D/3D texture
   views, update/remove commands, bounds-checked slot lookup, and varying or
   uniform slot indices; typed and byte-addressed bindless reads, writes, sizes,

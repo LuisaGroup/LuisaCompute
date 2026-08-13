@@ -663,18 +663,28 @@ void ScheduleEmitter::_texture_write(
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_contiguous_data(
     ::llvm::Value *base, ::llvm::Value *index,
-    const Type *type) {
+    const Type *type, ::llvm::Value *seed_lane,
+    ::llvm::Value *seed_mask) {
     if (!_is_scalar_data(type) || index == nullptr ||
-        !index->getType()->isVectorTy()) {
+        seed_lane == nullptr || !index->getType()->isVectorTy()) {
         _fail("contiguous buffer load requires a scalar type and lane index");
         return nullptr;
     }
-    auto *seed = _builder.CreateExtractElement(index, _seed_lane);
+    // An empty predicated arm still reaches this IR. Sanitize the complete
+    // source vector before dynamically extracting a seed so an inactive
+    // poison element cannot become scalar poison while merely forming the
+    // masked-off address.
+    auto *safe_index = seed_mask == nullptr ? index :
+                                               _builder.CreateSelect(
+                                                   seed_mask, index,
+                                                   ::llvm::Constant::getNullValue(
+                                                       index->getType()));
+    auto *seed = _builder.CreateExtractElement(safe_index, seed_lane);
     auto *seed_index = _builder.CreateZExtOrTrunc(
         seed, _builder.getInt64Ty());
-    auto *seed_lane = _builder.CreateZExtOrTrunc(
-        _seed_lane, _builder.getInt64Ty());
-    auto *offset = _builder.CreateSub(seed_index, seed_lane);
+    auto *scalar_seed_lane = _builder.CreateZExtOrTrunc(
+        seed_lane, _builder.getInt64Ty());
+    auto *offset = _builder.CreateSub(seed_index, scalar_seed_lane);
     if (type->size() != 1u) {
         offset = _builder.CreateMul(
             offset, _builder.getInt64(type->size()));
@@ -750,7 +760,9 @@ void ScheduleEmitter::_store_contiguous_data(
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_resource_read(
-    const schedule::Instruction &instruction) {
+    const schedule::Instruction &instruction,
+    ::llvm::Value *lane_affine_seed,
+    ::llvm::Value *operand_sanitization_mask) {
     if (!instruction.result || !instruction.source_op) {
         _fail("buffer read instruction is malformed");
         return nullptr;
@@ -862,7 +874,11 @@ void ScheduleEmitter::_store_contiguous_data(
         index = _as_lane_vector(index, *index_value);
         if (index == nullptr) { return nullptr; }
         auto *loaded = _load_contiguous_data(
-            base, index, result_value->type);
+            base, index, result_value->type,
+            lane_affine_seed == nullptr ? _seed_lane :
+                                          lane_affine_seed,
+            lane_affine_seed == nullptr ? operand_sanitization_mask :
+                                          nullptr);
         if (loaded != nullptr) {
             _result.contiguous_buffer_read_count++;
         }
@@ -871,6 +887,11 @@ void ScheduleEmitter::_store_contiguous_data(
 
     index = _as_lane_vector(index, *index_value);
     if (index == nullptr) { return nullptr; }
+    if (operand_sanitization_mask != nullptr) {
+        index = _builder.CreateSelect(
+            operand_sanitization_mask, index,
+            ::llvm::Constant::getNullValue(index->getType()));
+    }
     return _gather_data(
         base, _lane_offsets(index, stride), result_value->type);
 }

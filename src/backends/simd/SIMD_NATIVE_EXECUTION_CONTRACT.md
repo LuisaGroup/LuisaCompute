@@ -159,20 +159,27 @@ refine the independent-lane model with the bounded scalar-target/vector-mask
 worklist described by the scheduler formal model.
 
 The same refinement applies at W2/W4/W8/W16 when static uniformity proves that
-the whole reachable Schedule CFG cannot split a cohort: it has no convergence
-point, and every conditional or indexed selector is `warp_uniform` or
-`cohort_uniform`. The LLVM function then contains direct scalar branches around
-fixed-vector values. Its active mask is the immutable dispatch-tail mask;
-cohort-uniform state remains scalar across blocks, and varying memory/effects
-remain predicated by that mask. A cohort-uniform selector may choose a
-different edge for different packet invocations, but never chooses different
-edges for active lanes in one packet.
+the whole reachable Schedule CFG cannot split a cohort: every conditional or
+indexed selector is `warp_uniform` or `cohort_uniform`. The LLVM function then
+contains direct scalar branches around fixed-vector values. Its active mask is
+the immutable dispatch-tail mask; cohort-uniform state remains scalar across
+blocks, and varying memory/effects remain predicated by that mask. A
+cohort-uniform selector may choose a different edge for different packet
+invocations, but never chooses different edges for active lanes in one packet.
 
-This proof is fail-closed. Any varying selector, convergence point, or
-unsupported terminator retains the general worklist scheduler. Separately, the
-general scheduler may discover at runtime that every active lane of one
-varying branch chose the same successor and directly thread that edge; this
-does not make subsequent control statically direct or discard scheduler state.
+A second, deliberately local refinement permits a convergence point only when
+its complete varying diamond satisfies the predicated-memory rules in Section
+4.4.1. Both arm blocks and that convergence are then eliminated from emitted
+LLVM control flow. Whole-function direct lowering is allowed only if every
+remaining convergence point has been eliminated this way and every other
+terminator satisfies the coherent proof.
+
+This proof is fail-closed. Any varying selector or convergence point not
+covered by Section 4.4.1, or any unsupported terminator, retains the general
+worklist scheduler. Separately, the general scheduler may discover at runtime
+that every active lane of one varying branch chose the same successor and
+directly thread that edge; this does not make subsequent control statically
+direct or discard scheduler state.
 `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces the scheduled implementation
 for differential diagnostics. Permanent tests cover all widths, partial tails,
 cohort-uniform branches with packet-dependent outcomes, and the forced fallback.
@@ -303,6 +310,46 @@ extension. IR-shape, inactive-tail execution, final assembly, and throughput
 are permanent gates in `benchmark_simd_predicated_if` and the Schedule-codegen
 regressions.
 
+#### 4.4.1 Predicated direct-memory diamond
+
+Schedule-to-LLVM may also straighten a small varying diamond containing direct
+typed-buffer reads. This is separate from the XIR transformation above: memory
+is not speculated under the outer packet mask. The emitter computes
+`A_true = A & condition` and `A_false = A & !condition`, executes each arm
+under its own mask, applies its edge assignments with that same mask, restores
+`A`, and continues at the common merge. A masked-off lane therefore neither
+loads memory nor updates a PHI/state destination.
+
+The current candidate is fail-closed and requires all of the following:
+
+- W2/W4/W8/W16, a varying conditional split, two distinct single-predecessor
+  arm blocks, one common merge, exact convergence joins, and no loop back;
+- no split-edge assignments and only varying/mask destinations on arm exits;
+- at most eight arm instructions in total and at least one nonvolatile direct
+  typed `BUFFER_READ` with varying index and result;
+- only total arithmetic, comparisons, selects, bit operations, and safe casts
+  around those reads. Division/remainder, float-to-integer conversion, calls,
+  stores, atomics, byte/bindless/texture/accel access, and every other effect
+  remain rejected.
+
+The direct buffer implementation forms a non-`inbounds` address and issues the
+load with the arm mask before any result is observed. For an arm-local or
+non-affine index, inactive elements are selected to zero before either a
+dynamic seed extraction or gather-pointer formation. An empty arm therefore
+forms only a benign masked-off address and touches no memory. If a proven
+lane-consecutive index was defined outside the arm, its conceptual packet base
+may be reconstructed from the outer packet's safe seed; this avoids a
+horizontal extract and spill caused only by the submask. An arm-local index
+must instead use the arm's safe first lane because its inactive elements may
+be poison. W1 retains the ordinary scalar branch.
+
+`LUISA_SIMD_DISABLE_PREDICATED_IF=1` disables both predication refinements for
+differential diagnostics. Permanent coverage includes an underflowing index
+in the untaken lane, a completely empty arm with a null input pointer,
+W2/W4/W8/W16 inactive tails, nesting under an outer scheduled convergence,
+volatile and division rejection, the W1 path, optimized assembly with no stack
+frame, and runtime counters for accepted diamonds/instructions.
+
 ### 4.5 Bounded loop-unswitch refinement
 
 The production SIMD compiler may replace a repeated internal conditional with
@@ -401,6 +448,12 @@ present: a sparse cohort may leave that lane inactive with stale or invalid
 state. The GEP is non-`inbounds`, and masked-off elements perform no memory
 access. This makes partial tails and sparse masks observationally identical to
 the original per-active-lane typed accesses.
+
+Inside a predicated direct-memory diamond, `A` in this construction is the arm
+mask unless the index was already produced under the outer packet mask. In
+that latter case the full-packet lane-step proof permits the outer safe seed;
+the same algebra reconstructs `b`, while the memory access still uses the arm
+mask. No such substitution is made for an arm-local index.
 
 The current profitability policy enables the transformation only for
 W4/W8/W16. W2 retains the proven provenance but lowers to gather/scatter
@@ -651,6 +704,13 @@ they never fall through to scalar libm calls.
   system-math mode explicitly performs one scalar call per active instance and
   is not suitable for this backend's varying path:
   <https://ispc.github.io/ispc.html>
+- ISPC 1.31.0 control-flow and memory optimizers were independently audited at
+  source revision `c6adb4f86f56`. Its BSD-3-Clause implementation uses
+  all/none/mixed mask paths, costed predication versus `any(mask)` arm skips,
+  bounded gather coalescing, and constant-prefix masked-memory narrowing. These
+  are design references only; no ISPC source or coefficient is copied into
+  production:
+  <https://github.com/ispc/ispc>
 - Google Highway provides portable SIMD and a smaller contrib math surface;
   it is useful as a portability reference but is not the complete baseline:
   <https://github.com/google/highway>

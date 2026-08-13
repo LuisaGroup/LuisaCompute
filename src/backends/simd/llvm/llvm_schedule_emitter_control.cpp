@@ -4,7 +4,10 @@
 
 namespace luisa::compute::simd::detail {
 
-void ScheduleEmitter::_emit_instruction(const schedule::Instruction &instruction) {
+void ScheduleEmitter::_emit_instruction(
+    const schedule::Instruction &instruction,
+    ::llvm::Value *lane_affine_seed,
+    ::llvm::Value *operand_sanitization_mask) {
     ::llvm::Value *value = nullptr;
     switch (instruction.opcode) {
         case schedule::Opcode::alloca:
@@ -35,7 +38,9 @@ void ScheduleEmitter::_emit_instruction(const schedule::Instruction &instruction
             _ray_query_write(instruction);
             break;
         case schedule::Opcode::resource_read:
-            value = _resource_read(instruction);
+            value = _resource_read(
+                instruction, lane_affine_seed,
+                operand_sanitization_mask);
             break;
         case schedule::Opcode::resource_write:
             _resource_write(instruction);
@@ -501,7 +506,15 @@ void ScheduleEmitter::_emit_arrival(const schedule::ControlEdge &edge,
     }
 }
 
-void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
+void ScheduleEmitter::_emit_terminator(
+    const schedule::BasicBlock &block) {
+    if (auto diamond = _find_predicated_memory_diamond(block)) {
+        auto *split = std::get_if<schedule::SplitTerminator>(
+            &block.terminator);
+        _emit_predicated_memory_diamond(
+            block, *split, *diamond, nullptr);
+        return;
+    }
     std::visit(
         [&](const auto &control) {
             using T = std::decay_t<decltype(control)>;
@@ -827,12 +840,19 @@ void ScheduleEmitter::_emit_terminator(const schedule::Terminator &terminator) {
                 _fail("unsupported Schedule IR terminator reached LLVM emission");
             }
         },
-        terminator);
+        block.terminator);
 }
 
 void ScheduleEmitter::_emit_direct_terminator(
-    const schedule::Terminator &terminator,
+    const schedule::BasicBlock &block,
     const std::vector<::llvm::BasicBlock *> &blocks) {
+    if (auto diamond = _find_predicated_memory_diamond(block)) {
+        auto *split = std::get_if<schedule::SplitTerminator>(
+            &block.terminator);
+        _emit_predicated_memory_diamond(
+            block, *split, *diamond, &blocks);
+        return;
+    }
     auto scalar = [&](::llvm::Value *value) -> ::llvm::Value * {
         if (value == nullptr) { return nullptr; }
         return value->getType()->isVectorTy() ?
@@ -929,23 +949,42 @@ void ScheduleEmitter::_emit_direct_terminator(
                 _fail("unsupported Schedule IR terminator reached direct LLVM emission");
             }
         },
-        terminator);
+        block.terminator);
 }
 
 void ScheduleEmitter::_find_instruction_spills() {
     _spilled_instruction_values.assign(
         _source.values().size(), uint8_t{0u});
+    std::vector<schedule::BlockId> emission_blocks;
+    emission_blocks.reserve(_source.blocks().size());
+    for (auto &&block : _source.blocks()) {
+        emission_blocks.emplace_back(block.id);
+    }
+    if (_direct_control_flow) {
+        for (auto &&block : _source.blocks()) {
+            if (auto diamond =
+                    _find_predicated_memory_diamond(block)) {
+                emission_blocks[diamond->true_block->id.value] = block.id;
+                emission_blocks[diamond->false_block->id.value] = block.id;
+            }
+        }
+    }
     auto mark = [&](schedule::ValueId id,
                     schedule::BlockId use_block) noexcept {
         auto *value = _source.value(id);
         if (value != nullptr &&
             value->origin == schedule::ValueOrigin::instruction &&
             value->defining_block &&
-            *value->defining_block != use_block) {
+            emission_blocks[value->defining_block->value] !=
+                emission_blocks[use_block.value]) {
             _spilled_instruction_values[id.value] = 1u;
         }
     };
     for (auto &&block : _source.blocks()) {
+        // Predicated direct-control diamonds emit both arms in the split
+        // block. Compare definition and use after that emission-block remap:
+        // arm-local/outer values remain LLVM SSA, while a value genuinely
+        // produced by an earlier emitted block still receives a spill slot.
         for (auto &&instruction : block.instructions) {
             for (auto operand : instruction.operands) {
                 mark(operand, block.id);
@@ -1240,7 +1279,8 @@ void ScheduleEmitter::_partition_state_residency() {
 }
 
 bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
-    if (!_source.convergence_points().empty()) { return false; }
+    std::vector<bool> covered_convergences(
+        _source.convergence_points().size(), false);
     for (auto &&block : _source.blocks()) {
         auto supported = std::visit(
             [&](const auto &control) noexcept {
@@ -1248,9 +1288,17 @@ bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
                 if constexpr (std::is_same_v<
                                   T, schedule::SplitTerminator>) {
                     auto *condition = _source.value(control.condition);
-                    return condition != nullptr &&
-                           schedule::is_uniform(
-                               condition->value_class);
+                    if (condition != nullptr &&
+                        schedule::is_uniform(condition->value_class)) {
+                        return true;
+                    }
+                    auto diamond =
+                        _find_predicated_memory_diamond(block);
+                    if (diamond && control.convergence) {
+                        covered_convergences[control.convergence->value] =
+                            true;
+                    }
+                    return diamond.has_value();
                 } else if constexpr (std::is_same_v<
                                          T,
                                          schedule::SwitchTerminator>) {
@@ -1270,18 +1318,30 @@ bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
             block.terminator);
         if (!supported) { return false; }
     }
-    return true;
+    return std::all_of(
+        covered_convergences.begin(), covered_convergences.end(),
+        [](bool covered) noexcept { return covered; });
 }
 
 void ScheduleEmitter::_build_direct(::llvm::Value *initial_mask) {
     auto &context = _module.getContext();
-    std::vector<::llvm::BasicBlock *> blocks;
-    blocks.reserve(_source.blocks().size());
+    std::vector<bool> inlined_blocks(
+        _source.blocks().size(), false);
     for (auto &&block : _source.blocks()) {
-        blocks.emplace_back(::llvm::BasicBlock::Create(
-            context,
-            "direct.schedule." + std::to_string(block.id.value),
-            _entry));
+        if (auto diamond = _find_predicated_memory_diamond(block)) {
+            inlined_blocks[diamond->true_block->id.value] = true;
+            inlined_blocks[diamond->false_block->id.value] = true;
+        }
+    }
+    std::vector<::llvm::BasicBlock *> blocks(
+        _source.blocks().size(), nullptr);
+    for (auto &&block : _source.blocks()) {
+        if (!inlined_blocks[block.id.value]) {
+            blocks[block.id.value] = ::llvm::BasicBlock::Create(
+                context,
+                "direct.schedule." + std::to_string(block.id.value),
+                _entry);
+        }
     }
     auto *activate = ::llvm::BasicBlock::Create(
         context, "direct.activate", _entry);
@@ -1314,13 +1374,14 @@ void ScheduleEmitter::_build_direct(::llvm::Value *initial_mask) {
                      _safe_first_lane(_active_mask);
     _builder.CreateBr(blocks[_source.entry().value]);
     for (auto &&block : _source.blocks()) {
+        if (inlined_blocks[block.id.value]) { continue; }
         _builder.SetInsertPoint(blocks[block.id.value]);
         _locals.clear();
         for (auto &&instruction : block.instructions) {
             _emit_instruction(instruction);
             if (_failed()) { return; }
         }
-        _emit_direct_terminator(block.terminator, blocks);
+        _emit_direct_terminator(block, blocks);
         if (_failed()) { return; }
     }
 }
@@ -1511,7 +1572,7 @@ void ScheduleEmitter::_build() {
             _emit_instruction(instruction);
             if (_failed()) { return; }
         }
-        _emit_terminator(block.terminator);
+        _emit_terminator(block);
         if (_failed()) { return; }
     }
 

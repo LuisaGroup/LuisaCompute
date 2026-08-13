@@ -1021,12 +1021,9 @@ void ScheduleEmitter::_create_external_values() {
             _state_slots[id.value], value->name + ".state");
         if (value->value_class == schedule::ValueClass::cohort_uniform &&
             !_direct_control_flow) {
-            auto *first = _collectives.first_active_lane(
-                _builder, _active_mask);
-            auto *any = _builder.CreateOrReduce(_active_mask);
-            auto *safe = _builder.CreateSelect(
-                any, first, _builder.getInt32(0u));
-            return _extract_lane(state, value->type, safe);
+            return _extract_lane(
+                state, value->type,
+                _safe_first_lane(_active_mask));
         }
         return state;
     }
@@ -1040,12 +1037,9 @@ void ScheduleEmitter::_create_external_values() {
             _state_slots[id.value], value->name + ".spill.load");
         if (value->value_class == schedule::ValueClass::cohort_uniform &&
             !_direct_control_flow) {
-            auto *first = _collectives.first_active_lane(
-                _builder, _active_mask);
-            auto *any = _builder.CreateOrReduce(_active_mask);
-            auto *safe = _builder.CreateSelect(
-                any, first, _builder.getInt32(0u));
-            return _extract_lane(state, value->type, safe);
+            return _extract_lane(
+                state, value->type,
+                _safe_first_lane(_active_mask));
         }
         return state;
     }

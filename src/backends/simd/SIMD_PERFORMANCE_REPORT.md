@@ -130,10 +130,11 @@ regressed SDF.
 
 ## Scheduler cost and assembly evidence
 
-The coherent direct-CFG proof accepts a function only when it has no
-convergence point and all branch/switch selectors are warp- or cohort-uniform.
-It emits ordinary LLVM control flow, keeps cohort values scalar, preserves the
-initial inactive-tail mask, and allocates no ready queue or convergence frame.
+The coherent direct-CFG proof accepts a function when all branch/switch
+selectors are warp- or cohort-uniform and no convergence remains after the
+local predicated-memory refinement described below. It emits ordinary LLVM
+control flow, keeps cohort values scalar, preserves the initial inactive-tail
+mask, and allocates no ready queue or convergence frame.
 
 For the exact DSL GEMM, optimized assembly changes as follows:
 
@@ -154,6 +155,50 @@ instructions and hot state loads, rather than DRAM or failed LLVM vector
 selection, were the dominant gap. The direct W8 body is now close to the ISPC
 code shape and contains packed arithmetic, masked contiguous memory, no stack
 references, and no scalar-libm lane loop.
+
+### Predicated masked-memory control
+
+The standalone `masked_stream` control contains one varying diamond whose
+taken arm reads two lane-affine typed buffers. Before Schedule-emitter
+predication, optimized W8 contained about 744 static instructions, 71 branches,
+152 stack-reference instructions, and a 480-byte frame. The accepted lowering
+executes the two arms under disjoint masks and removes the complete scheduler
+for this CFG. Final W4/W8/W16 objects contain 34/36/36 instructions, one branch,
+no calls, no stack references, and no scalar-math symbol. The runtime reports
+one predicated-memory diamond and three arm instructions.
+
+Three independent clean seven-process runs were made after an earlier run was
+discarded because an unrelated build/test occupied the host. Combining the 21
+process medians gives:
+
+| Variant | Mitems/s median | Geomean vs fallback | 95% interval |
+| --- | ---: | ---: | ---: |
+| fallback | 5,082.447 | 1.000x | [1.000, 1.000] |
+| SIMD W1 | 5,861.242 | 1.159x | [1.132, 1.186] |
+| SIMD W2 | 5,907.414 | 1.165x | [1.139, 1.191] |
+| SIMD W4 | 6,247.237 | 1.220x | [1.188, 1.253] |
+| SIMD W8 | 5,852.716 | 1.166x | [1.141, 1.192] |
+| SIMD W16 | 5,696.662 | 1.122x | [1.100, 1.145] |
+
+The same-width ISPC/Luisa ratios are 1.034x
+([1.013, 1.055]) for AVX2 W4, 1.069x ([1.049, 1.088]) for AVX2 W8,
+1.019x ([0.991, 1.047]) for AVX-512 W4, 1.077x
+([1.061, 1.093]) for AVX-512 W8, and 1.103x
+([1.084, 1.122]) for AVX-512 W16. Thus W4 is statistically tied with the
+AVX-512 control, while W8 and W16 retain stable 7.7% and 10.3% gaps. The old
+order-of-magnitude scheduler deficit is gone; the remaining difference is in a
+small stackless body and width/memory throughput.
+
+This local optimization must not be generalized to graphics. W8 optimization
+reports show zero predicated-memory diamonds in all five image-processing
+kernels, both game-of-life kernels, the shader-toy main kernel, the 37-block
+voxel kernel, and the 31-block ordinary non-coroutine path-tracing kernel. The
+image, game-of-life, shader-toy, and voxel gallery comparisons pass; the
+one-SPP ordinary path tracer also completes. Image processing was already
+single-block/direct, while voxel and path tracing contain larger nested
+regions. No real-example speedup is claimed for this stage. Branch
+splitting/code motion must expose safe read subregions before this mechanism
+can help those kernels.
 
 The remaining divergent path-tracing deficit has a different signature. One
 16-SPP W8/fallback `perf stat` pair measured:
@@ -945,6 +990,43 @@ copied into production. The benchmark tool provenance is official
 [ISPC 1.31.0](https://github.com/ispc/ispc/releases/tag/v1.31.0), whose
 [license](https://github.com/ispc/ispc/blob/main/LICENSE.txt) is BSD-3-Clause.
 
+The compiler source was independently inspected at revision `c6adb4f86f56`.
+The relevant mechanisms are its all-on/all-off/mixed varying-control paths,
+the small statement-cost threshold used to choose predication versus
+`any(mask)` arm skips, a compatible-gather scan bounded to four operations and
+stopped by possible writes, and constant-prefix masked-memory narrowing. No
+implementation was copied. Luisa's existing consecutive-buffer-read XIR pass
+only joins absolute constant byte offsets and is not a substitute for ISPC's
+dynamic typed-buffer gather coalescing.
+
+A fresh 32-worker, seven-process sweep covers four additional algorithms. The
+table reports `ISPC / Luisa SIMD` at the same semantic width; values above one
+mean ISPC is faster:
+
+| Workload | W4 AVX2 | W4 AVX-512 | W8 AVX2 | W8 AVX-512 | W16 AVX-512 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mandelbrot | 1.358x | 1.367x | 1.413x | 1.358x | 1.514x |
+| AoS to SoA | 0.980x | 0.988x | 1.073x | 1.066x | 1.063x |
+| GEMM | 0.756x | 0.758x | 0.760x | 0.765x | 0.810x |
+| analytic path trace | 3.843x | 3.666x | 3.102x | 2.809x | 2.623x |
+
+All exact workloads are bit-identical; the asset-free analytic path tracer
+passes the independent absolute-plus-relative output gate. Luisa's fallback-
+relative geomeans at W1/W2/W4/W8/W16 are
+1.241/1.165/2.321/4.051/6.038x for Mandelbrot,
+1.202/1.225/1.203/1.126/1.113x for AoS-to-SoA,
+0.869/0.745/3.994/5.208/6.562x for GEMM, and
+1.126/0.416/0.725/1.238/1.605x for analytic path tracing. The fallback
+process was visibly noisier in the analytic path-tracing run, but the paired
+same-width ISPC/Luisa intervals are tight: at W16 the ratio is 2.623x with a
+95% interval of [2.543, 2.705].
+
+This split result rules out a blanket LLVM-code-quality explanation. The
+coherent GEMM body is already faster than the matched ISPC implementation;
+the large gap appears specifically in dynamically varying iteration/control
+and memory patterns. The analytic benchmark does not call Embree and must not
+be presented as the real renderer's traversal comparison.
+
 ## Interpreting widths
 
 W8 is a semantic fixed-vector width, not an AVX-512 contract. On this host LLVM
@@ -961,24 +1043,33 @@ identical.
 
 ## Next measured optimization targets
 
-1. Extend the accepted local aggregate promotion to the remaining ray-query
+1. Generalize the predicated-memory result through branch splitting and pure
+   code motion: hoist or sink total operations to expose a safe read subregion,
+   then use a cost model to choose straight-line masks or `any(mask)` empty-arm
+   skips. The first gate is a nonzero hit count and stable gain in voxel or
+   ordinary path tracing; the current complete-diamond recognizer hits neither.
+2. Coalesce only compatible nearby gathers with the same base, dynamic offset,
+   scale, and mask, cap the scan window to control register pressure, and stop
+   at any possible write. Separately narrow known constant prefix-tail masks.
+   Both need inactive-address and final assembly gates.
+3. Extend the accepted local aggregate promotion to the remaining ray-query
    payload only through a provider-native packet/SoA representation or a
    larger host/state-boundary elimination, following the liveness/frame
    principles merged from `next`. Both a wrapper-side second scan and a fused
    two-field payload cache are measured and rejected on real graphics; the
    accepted provider-native status publication removes the full status scan,
    while the state-handle cache covers pointers only.
-2. Compact or rebatch sparse ray cohorts before Embree and reduce the remaining
+4. Compact or rebatch sparse ray cohorts before Embree and reduce the remaining
    JIT-side ray-query state crossings. The accepted triangle-only host provider
    removes surface-runtime bookkeeping but does not compact lanes; inlining
    Embree LLVM IR is exploratory and cannot replace this measured scheduler
    work.
-3. Move fixed-vector texture tap selection into JIT IR or introduce a measured
+5. Move fixed-vector texture tap selection into JIT IR or introduce a measured
    tile/swizzle upload boundary. Preserve row-major public image semantics.
-4. Generalize lane-affine recognition into bounded lane/value axis rotation
+6. Generalize lane-affine recognition into bounded lane/value axis rotation
    only for coherent affine tiles; divergent control and warp operations pin
    lane identity.
-5. Add software prefetch only for proven affine lookahead with a stable A/B.
+7. Add software prefetch only for proven affine lookahead with a stable A/B.
    Immediate masked gathers and L1-sized textures have not justified it.
 
 Device-side instance-opacity mutation is now complete but is intentionally not

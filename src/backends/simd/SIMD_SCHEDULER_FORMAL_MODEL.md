@@ -52,6 +52,18 @@ direct scalar CFG because it has no divergence to remove. Consequently, the
 bounded scheduler checker and its reachable-CFG claim apply unchanged to the
 transformed graph.
 
+A second Schedule-to-LLVM refinement may retain a small diamond in `G` but
+emit its two direct-buffer-read arms consecutively under
+`A_t = A & condition` and `A_f = A & !condition`. Each read and edge transfer
+uses its arm mask, after which the outer mask `A` continues at the merge. This
+is observationally the same split/execute/join sequence with no suspended
+work: the two masks are disjoint, their union is `A`, and masked-off lanes
+perform neither memory access nor assignment. It is permitted only for the
+fail-closed structural and instruction subset in the native-execution
+contract. If every convergence in a function is eliminated by this local
+refinement, LLVM may omit the general scheduler; otherwise the ordinary
+transitions below remain authoritative. W1 again retains scalar control flow.
+
 The subscript `T` is significant for natural loops. The repository's default
 post-dominator analysis conservatively treats a reachable cycle as a possible
 infinite maximal execution. SIMD scheduling instead requests
@@ -470,6 +482,13 @@ an inactive lane-zero value. The access mask remains exactly `A`, so sparse
 cohorts, partial tails, and the per-lane memory trace are unchanged. A failed
 proof retains masked gather/scatter and cannot affect lane ownership,
 continuation identity, convergence, or scheduling order.
+
+For the predicated-memory refinement, the memory mask is the arm mask. A
+lane-consecutive index defined before the split may use the outer packet's safe
+seed because the proof covers every physical lane and reconstructs the same
+`b`; an index defined inside an arm must use that arm's first active lane. This
+distinction prevents an empty or inactive arm operand from becoming observable
+while allowing LLVM to keep an outer affine index in SSA/registers.
 
 The generated LLVM remains target-independent fixed-vector IR. Machine ISA
 selection, legalization, register allocation, and scheduling remain LLVM's

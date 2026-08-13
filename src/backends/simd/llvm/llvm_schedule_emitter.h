@@ -130,6 +130,13 @@ private:
         ::llvm::Value *frame{nullptr};
     };
 
+    struct PredicatedMemoryDiamond {
+        const schedule::BasicBlock *true_block{nullptr};
+        const schedule::BasicBlock *false_block{nullptr};
+        schedule::BlockId merge{};
+        size_t instruction_count{0u};
+    };
+
 private:
     void _fail(std::string message);
     [[nodiscard]] bool _failed() const noexcept;
@@ -281,7 +288,8 @@ private:
         const Type *type, size_t leaf_offset = 0u);
     [[nodiscard]] ::llvm::Value *_load_contiguous_data(
         ::llvm::Value *base, ::llvm::Value *index,
-        const Type *type);
+        const Type *type, ::llvm::Value *seed_lane,
+        ::llvm::Value *seed_mask);
     void _scatter_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type, ::llvm::Value *value,
@@ -342,13 +350,18 @@ private:
     void _accel_motion_write(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_resource_read(
-        const schedule::Instruction &instruction);
+        const schedule::Instruction &instruction,
+        ::llvm::Value *lane_affine_seed = nullptr,
+        ::llvm::Value *operand_sanitization_mask = nullptr);
     void _resource_write(const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_resource_query(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_collective(
         const schedule::Instruction &instruction);
-    void _emit_instruction(const schedule::Instruction &instruction);
+    void _emit_instruction(
+        const schedule::Instruction &instruction,
+        ::llvm::Value *lane_affine_seed = nullptr,
+        ::llvm::Value *operand_sanitization_mask = nullptr);
     void _assign(schedule::EdgeAssignment assignment,
                  ::llvm::Value *mask);
     void _apply_assignments(
@@ -384,9 +397,17 @@ private:
         schedule::BlockId target, ::llvm::Value *mask);
     void _emit_arrival(const schedule::ControlEdge &edge,
                        ::llvm::Value *mask);
-    void _emit_terminator(const schedule::Terminator &terminator);
+    [[nodiscard]] std::optional<PredicatedMemoryDiamond>
+    _find_predicated_memory_diamond(
+        const schedule::BasicBlock &block) const noexcept;
+    void _emit_predicated_memory_diamond(
+        const schedule::BasicBlock &block,
+        const schedule::SplitTerminator &control,
+        const PredicatedMemoryDiamond &diamond,
+        const std::vector<::llvm::BasicBlock *> *direct_blocks);
+    void _emit_terminator(const schedule::BasicBlock &block);
     void _emit_direct_terminator(
-        const schedule::Terminator &terminator,
+        const schedule::BasicBlock &block,
         const std::vector<::llvm::BasicBlock *> &blocks);
     [[nodiscard]] bool _can_emit_direct_control_flow() const noexcept;
     void _find_instruction_spills();
