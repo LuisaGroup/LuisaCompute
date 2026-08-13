@@ -59,10 +59,10 @@ specialize_generated_callable_aggregate_arguments(
 // every call makes this safe even when calls are not mutually exclusive. This
 // prevents AMDGPU instruction selection from allocating one hidden result
 // frame object per static call site. Uses whose ABI cannot be remapped without
-// additional semantic information (for example external linkage, non-default
-// calling conventions, COMDAT membership, semantic metadata, operand bundles,
-// tail-call annotations, call-site fast-math assumptions, or allocsize) are
-// rejected atomically.
+// additional semantic information (for example external linkage, calling
+// conventions other than C/Fast, COMDAT membership, semantic metadata,
+// operand bundles, tail-call annotations, call-site fast-math assumptions, or
+// allocsize) are rejected atomically.
 [[nodiscard]] LargeReturnDemotionStats
 demote_generated_callable_large_returns(
     llvm::Module &module,

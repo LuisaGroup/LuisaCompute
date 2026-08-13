@@ -43,6 +43,18 @@ struct LargeReturnPlan {
     size_t return_bytes;
 };
 
+// Luisa's retained generated callables use FastCC so LLVM can optimize their
+// internal ABI. Some focused/runtime-generated modules retain the default C
+// convention. Both conventions use RetCC_AMDGPU_Func for AMDGPU function
+// returns, and the transform preserves the convention identically on the
+// replacement function and every direct call. Other conventions may carry
+// target- or language-specific ABI rules that are not modeled here.
+[[nodiscard]] bool supported_large_return_calling_convention(
+    llvm::CallingConv::ID convention) noexcept {
+    return convention == llvm::CallingConv::C ||
+           convention == llvm::CallingConv::Fast;
+}
+
 // RetCC_AMDGPU_Func exposes 32 32-bit VGPR return locations. This computes a
 // conservative upper bound on the number of those locations occupied after
 // the calling convention's aggregate decomposition. Aggregates are decomposed
@@ -439,7 +451,8 @@ LargeReturnDemotionStats demote_generated_callable_large_returns(
         if (function.isDeclaration() ||
             !function.hasFnAttribute(callable_attribute) ||
             !function.hasLocalLinkage() || function.isVarArg() ||
-            function.getCallingConv() != llvm::CallingConv::C ||
+            !supported_large_return_calling_convention(
+                function.getCallingConv()) ||
             function.hasAddressTaken() || function.hasMetadata() ||
             function.hasComdat() || function.hasGC() ||
             function.hasPersonalityFn() || function.hasPrefixData() ||

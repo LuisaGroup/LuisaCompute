@@ -352,7 +352,7 @@ static auto suite = [] {
         }
     };
 
-    "HIP callable ABI rejects externally visible and indexed-attribute ABIs"_test = [] {
+    "HIP callable ABI preserves FastCC and rejects unmodeled ABIs"_test = [] {
         llvm::LLVMContext context;
         auto module = parse_module(context, R"(
             target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
@@ -369,6 +369,10 @@ static auto suite = [] {
               ret [33 x i32] zeroinitializer
             }
             define private fastcc [33 x i32] @fastcc_large(i32 %count) #0 {
+            entry:
+              ret [33 x i32] zeroinitializer
+            }
+            define private coldcc [33 x i32] @coldcc_large(i32 %count) #0 {
             entry:
               ret [33 x i32] zeroinitializer
             }
@@ -394,10 +398,11 @@ static auto suite = [] {
               %b = call [33 x i32] @function_allocsize(i32 %count)
               %c = call [33 x i32] @call_allocsize(i32 %count) #2
               %d = call fastcc [33 x i32] @fastcc_large(i32 %count)
-              %e = call [33 x i32] @bundled_large(i32 %count) [ "deopt"(i32 %count) ]
-              %f = call [33 x i32] @function_metadata(i32 %count)
-              %g = call [33 x i32] @call_metadata(i32 %count), !custom !0
-              %h = call [33 x i32] @return_metadata(i32 %count)
+              %e = call coldcc [33 x i32] @coldcc_large(i32 %count)
+              %f = call [33 x i32] @bundled_large(i32 %count) [ "deopt"(i32 %count) ]
+              %g = call [33 x i32] @function_metadata(i32 %count)
+              %h = call [33 x i32] @call_metadata(i32 %count), !custom !0
+              %i = call [33 x i32] @return_metadata(i32 %count)
               %a.head = extractvalue [33 x i32] %a, 0
               %b.head = extractvalue [33 x i32] %b, 0
               %c.head = extractvalue [33 x i32] %c, 0
@@ -406,13 +411,15 @@ static auto suite = [] {
               %f.head = extractvalue [33 x i32] %f, 0
               %g.head = extractvalue [33 x i32] %g, 0
               %h.head = extractvalue [33 x i32] %h, 0
+              %i.head = extractvalue [33 x i32] %i, 0
               %ab = add i32 %a.head, %b.head
               %abc = add i32 %ab, %c.head
               %abcd = add i32 %abc, %d.head
               %abcde = add i32 %abcd, %e.head
               %abcdef = add i32 %abcde, %f.head
               %abcdefg = add i32 %abcdef, %g.head
-              %result = add i32 %abcdefg, %h.head
+              %abcdefgh = add i32 %abcdefg, %h.head
+              %result = add i32 %abcdefgh, %i.head
               ret i32 %result
             }
             attributes #0 = { noinline "luisa-generated-callable" }
@@ -423,10 +430,10 @@ static auto suite = [] {
         expect(module != nullptr);
         expect(!llvm::verifyModule(*module));
         auto stats = demote_generated_callable_large_returns(*module);
-        expect(stats.rewritten_function_count == 0u);
-        expect(stats.rewritten_call_count == 0u);
-        expect(stats.shared_result_slot_count == 0u);
-        expect(stats.demoted_return_bytes == 0u);
+        expect(stats.rewritten_function_count == 1u);
+        expect(stats.rewritten_call_count == 1u);
+        expect(stats.shared_result_slot_count == 1u);
+        expect(stats.demoted_return_bytes == 132u);
         expect(!llvm::verifyModule(*module));
         expect(module->getFunction("external_large")
                    ->getReturnType()
@@ -438,6 +445,22 @@ static auto suite = [] {
                    ->getReturnType()
                    ->isArrayTy());
         expect(module->getFunction("fastcc_large")
+                   ->getReturnType()
+                   ->isVoidTy());
+        expect(module->getFunction("fastcc_large")->getCallingConv() ==
+               llvm::CallingConv::Fast);
+        auto fastcc_call_count = 0u;
+        for (auto *user : module->getFunction("fastcc_large")->users()) {
+            auto *call = llvm::dyn_cast<llvm::CallInst>(user);
+            expect(call != nullptr);
+            if (call != nullptr) {
+                fastcc_call_count++;
+                expect(call->getCallingConv() == llvm::CallingConv::Fast);
+                expect(call->getType()->isVoidTy());
+            }
+        }
+        expect(fastcc_call_count == 1u);
+        expect(module->getFunction("coldcc_large")
                    ->getReturnType()
                    ->isArrayTy());
         expect(module->getFunction("bundled_large")
