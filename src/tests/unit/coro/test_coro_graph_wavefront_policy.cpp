@@ -11,7 +11,7 @@ using namespace boost::ut::literals;
 
 namespace {
 
-[[nodiscard]] bool near(double a, double b) noexcept {
+[[nodiscard]] bool is_near(double a, double b) noexcept {
     return std::abs(a - b) <= 1e-9;
 }
 
@@ -130,10 +130,10 @@ int main() {
             200.0, 100.0);
         auto ownership = 0.0;
         for (auto q : predicted.queues) { ownership += q; }
-        expect(near(ownership, 100.0));
-        expect(near(predicted.queues[0u], 40.0));
-        expect(near(predicted.queues[1u], 20.0));
-        expect(near(predicted.queues[2u], 40.0));
+        expect(is_near(ownership, 100.0));
+        expect(is_near(predicted.queues[0u], 40.0));
+        expect(is_near(predicted.queues[1u], 20.0));
+        expect(is_near(predicted.queues[2u], 40.0));
     };
 
     "graph_wavefront_markov_learning_respects_graph_support"_test = [] {
@@ -161,7 +161,7 @@ int main() {
         mixed.generated_count = 90.0;
         model.observe(source,
                       {.selected_node = 1u, .admit_entry = true}, mixed);
-        expect(near(model.probability(1u, 1u), p_before))
+        expect(is_near(model.probability(1u, 1u), p_before))
             << "unidentifiable mixed entry/continuation emissions are not "
                "misattributed";
     };

@@ -289,7 +289,7 @@ private:
                         coro_frame_load_into(
                             result, global_frames, global_id,
                             global_layout, false,
-                            luisa::span{common_relocation_fields}, true);
+                            luisa::span<const size_t>{common_relocation_fields}, true);
                     }
                     auto load = switch_(token);
                     for (size_t i = 1u;
@@ -300,7 +300,7 @@ private:
                                     coro_frame_load_into(
                                         result, global_frames, global_id,
                                         global_layout, false,
-                                        luisa::span{
+                                        luisa::span<const size_t>{
                                             residual_relocation_fields[i]},
                                         true, false);
                                 }
@@ -315,7 +315,7 @@ private:
                     if (!common_relocation_fields.empty()) {
                         shared_frames->write(
                             shared_id, frame,
-                            luisa::span{common_relocation_fields});
+                            luisa::span<const size_t>{common_relocation_fields});
                     }
                     auto store = switch_(token);
                     for (size_t i = 1u;
@@ -325,7 +325,7 @@ private:
                                 if (!residual_relocation_fields[i].empty()) {
                                     shared_frames->write(
                                         shared_id, frame,
-                                        luisa::span{
+                                        luisa::span<const size_t>{
                                             residual_relocation_fields[i]},
                                         false);
                                 }
@@ -340,11 +340,11 @@ private:
                     if (!common_relocation_fields.empty()) {
                         shared_frames->read_into(
                             shared_id, frame,
-                            luisa::span{common_relocation_fields});
+                            luisa::span<const size_t>{common_relocation_fields});
                         coro_frame_store(
                             global_frames, global_id, frame,
                             global_layout, false,
-                            luisa::span{common_relocation_fields}, true);
+                            luisa::span<const size_t>{common_relocation_fields}, true);
                     }
                     auto spill = switch_(token);
                     for (size_t i = 1u;
@@ -355,13 +355,13 @@ private:
                                     shared_frames->read_into(
                                         shared_id,
                                         frame,
-                                        luisa::span{
+                                        luisa::span<const size_t>{
                                             residual_relocation_fields[i]},
                                         false);
                                     coro_frame_store(
                                         global_frames, global_id, frame,
                                         global_layout, false,
-                                        luisa::span{
+                                        luisa::span<const size_t>{
                                             residual_relocation_fields[i]},
                                         true, false);
                                 }
