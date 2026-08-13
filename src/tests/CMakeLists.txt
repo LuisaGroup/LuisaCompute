@@ -65,6 +65,26 @@ target_include_directories(test_hip_curve_bounds PRIVATE ../backends/hip)
 luisa_compute_add_test(test_hip_llvm_pipeline unit/core/test_hip_llvm_pipeline.cpp LABELS "unit;unit_core")
 target_sources(test_hip_llvm_pipeline PRIVATE ../backends/hip/llvm_codegen/hip_llvm_pipeline.cpp)
 target_include_directories(test_hip_llvm_pipeline PRIVATE ../backends/hip/llvm_codegen)
+if (TARGET luisa-compute-backend-hip)
+    # The HIP LLVM package is discovered in a sibling directory scope. Resolve
+    # the cached package path here as well so the IR-only regression can link
+    # the exact same LLVM installation without depending on backend internals.
+    find_package(LLVM QUIET CONFIG)
+endif ()
+if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
+    luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
+    target_sources(test_hip_callable_abi PRIVATE ../backends/hip/llvm_codegen/hip_callable_abi.cpp)
+    target_include_directories(test_hip_callable_abi PRIVATE
+            ../backends/hip/llvm_codegen ${LLVM_INCLUDE_DIRS})
+    if (TARGET LLVM)
+        target_link_libraries(test_hip_callable_abi PRIVATE LLVM)
+    else ()
+        llvm_map_components_to_libnames(_hip_callable_abi_llvm_libs
+                core asmparser support transformutils)
+        target_link_libraries(test_hip_callable_abi PRIVATE
+                ${_hip_callable_abi_llvm_libs})
+    endif ()
+endif ()
 luisa_compute_add_test(test_glslang_spirv      unit/ext/test_glslang_spirv.cpp       LABELS "unit;unit_ext")
 target_link_libraries(test_glslang_spirv PRIVATE glslang-default-resource-limits)
 luisa_compute_add_test(test_command_reorder_bindless unit/ext/test_command_reorder_bindless.cpp LABELS "unit;unit_ext")

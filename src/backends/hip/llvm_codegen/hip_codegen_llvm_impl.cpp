@@ -1073,6 +1073,20 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
 
     _run_optimization_passes();
 
+    // IPO has now selected the final generated-Callable boundaries, while
+    // their internal marker and noinline attributes are still present. Narrow
+    // aggregate ABIs here: no later IPO pass may widen the signatures again,
+    // and the attribute cleanup below can still recognize the new functions.
+    auto callable_abi_stats =
+        specialize_generated_callable_aggregate_arguments(*_llvm_module);
+    if (callable_abi_stats.rewritten_function_count != 0u) {
+        LUISA_VERBOSE(
+            "Specialized aggregate arguments for {} generated HIP "
+            "callable(s), removing {} bytes from their direct call ABIs.",
+            callable_abi_stats.rewritten_function_count,
+            callable_abi_stats.removed_aggregate_bytes);
+    }
+
     if (dump_ir) {
         auto after_opt_filename = fmt::format("hip_kernel_after_opt_{}.ll", dump_idx);
         _dump_module(after_opt_filename);
@@ -1163,6 +1177,15 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
                 func.addFnAttr("amdgpu-num-vgpr", max_vgpr_count_string);
             }
         }
+    }
+
+    // This is the second and final verifier boundary for HIP LLVM codegen. It
+    // covers both the ordinary optimization pipeline and the callable ABI
+    // rewrite above without repeatedly verifying between individual passes.
+    if (llvm::verifyModule(*_llvm_module, &llvm::errs())) {
+        _dump_module("debug_bad_module_after_opt.ll");
+        LUISA_ERROR_WITH_LOCATION(
+            "Post-optimization module verification failed.");
     }
 
     if (dump_ir) {

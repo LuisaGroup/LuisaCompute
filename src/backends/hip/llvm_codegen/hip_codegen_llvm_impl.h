@@ -26,6 +26,7 @@
 #include <luisa/xir/instructions/ray_query.h>
 
 #include "hip_codegen_llvm.h"
+#include "hip_callable_abi.h"
 
 namespace luisa::compute::hip {
 
@@ -37,9 +38,6 @@ public:
     static constexpr auto amdgpu_address_space_shared = 3u;
     static constexpr auto amdgpu_address_space_constant = 4u;
     static constexpr auto amdgpu_address_space_local = 5u;
-    static constexpr auto llvm_generated_callable_attribute =
-        "luisa-generated-callable";
-
     struct LLVMTypeInfo {
         llvm::Type *mem_type;
         llvm::Type *reg_type;
