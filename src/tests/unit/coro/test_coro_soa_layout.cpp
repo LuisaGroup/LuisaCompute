@@ -409,12 +409,37 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
             device, coro, make_config(257u)};
         auto small_hashes = small.shader_structure_hashes();
         auto large_hashes = large.shader_structure_hashes();
+        auto small_infos = small.shader_infos();
+        auto large_infos = large.shader_infos();
         expect(!small_hashes.empty());
         expect(small_hashes.size() == large_hashes.size());
+        expect(small_infos.size() == small_hashes.size());
+        expect(large_infos.size() == large_hashes.size());
         expect(std::equal(small_hashes.begin(), small_hashes.end(),
                           large_hashes.begin(), large_hashes.end()))
             << "frame-pool capacity is an allocation/runtime parameter and "
                "must not invalidate scheduler shader caches";
+        auto semantic_map_matches = true;
+        auto has_entry = false;
+        auto has_live_value = false;
+        for (auto i = 0u; i < small_infos.size(); ++i) {
+            semantic_map_matches &=
+                small_infos[i].structural_hash == small_hashes[i] &&
+                large_infos[i].structural_hash == large_hashes[i] &&
+                small_infos[i].stage == large_infos[i].stage;
+            has_entry |=
+                small_infos[i].stage == "wavefront_generate/<entry>";
+            has_live_value |=
+                small_infos[i].stage ==
+                "wavefront_resume_1/live_value";
+        }
+        expect(semantic_map_matches)
+            << "semantic profiler labels must be a one-to-one, capacity-"
+               "independent attribution of scheduler structural hashes";
+        expect(has_entry);
+        expect(has_live_value)
+            << "continuation profiler labels must use the CoroGraph node "
+               "name rather than compilation order alone";
     };
 
     "wavefront_execution_block_size_is_structural"_test = [options] {

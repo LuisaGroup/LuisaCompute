@@ -104,6 +104,15 @@ struct WavefrontCoroDispatchStats {
     luisa::vector<WavefrontCoroAuxiliaryStats> auxiliary_work;
 };
 
+/// Stable host-side attribution for one scheduler-owned shader. The stage
+/// label is semantic (entry, CoroGraph continuation, or queue operation), and
+/// `structural_hash` is the exact Function hash seen by Device::compile. This
+/// diagnostic metadata never enters the shader AST or cache identity.
+struct WavefrontCoroShaderInfo {
+    luisa::string stage;
+    uint64_t structural_hash{0u};
+};
+
 template<typename... Args>
 class WavefrontCoroScheduler : public CoroScheduler<Args...> {
 
@@ -149,6 +158,7 @@ private:
     luisa::vector<luisa::vector<size_t>> _output_fields;
     luisa::vector<luisa::vector<luisa::vector<size_t>>> _transition_output_fields;
     luisa::vector<uint64_t> _shader_structure_hashes;
+    luisa::vector<WavefrontCoroShaderInfo> _shader_infos;
     WavefrontCoroDispatchStats _last_dispatch_stats;
     luisa::vector<RegisteredAuxiliaryWork> _auxiliary_work;
     size_t _hint_field_index{static_cast<size_t>(-1)};
@@ -201,14 +211,18 @@ private:
     template<typename Kernel>
     [[nodiscard]] auto _compile_shader(
         Device &device, const Kernel &kernel,
-        ShaderOption option) noexcept {
-        _shader_structure_hashes.emplace_back(
-            kernel.function()->function().hash());
+        ShaderOption option, luisa::string stage) noexcept {
+        auto structural_hash = kernel.function()->function().hash();
+        _shader_structure_hashes.emplace_back(structural_hash);
+        _shader_infos.emplace_back(WavefrontCoroShaderInfo{
+            .stage = std::move(stage),
+            .structural_hash = structural_hash});
         return device.compile(kernel, std::move(option));
     }
 
     void _create_shader(Device &device, const Coro &coro) {
         _shader_structure_hashes.clear();
+        _shader_infos.clear();
         size_t nc = coro.subroutine_count();
         _frame_layout = _config.global_memory_soa ?
                             CoroFrameStorageLayout::make_runtime_soa(coro.frame(), _config.thread_count) :
@@ -425,7 +439,8 @@ private:
                 device,
                 k_gen,
                 detail::coro_scheduler_shader_option(
-                    _config.shader_option, "wavefront_generate"));
+                    _config.shader_option, "wavefront_generate"),
+                "wavefront_generate/<entry>");
         }
 
         for (size_t i = 1u; i < nc; ++i) {
@@ -477,7 +492,9 @@ private:
                 k_cont,
                 detail::coro_scheduler_shader_option(
                     _config.shader_option,
-                    luisa::format("wavefront_resume_{}", i)));
+                    luisa::format("wavefront_resume_{}", i)),
+                luisa::format("wavefront_resume_{}/{}", i,
+                              coro.graph().node(i).name));
         }
 
         Kernel1D initialize_kernel = [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa](
@@ -493,7 +510,8 @@ private:
         _initialize_shader = _compile_shader(
             device, initialize_kernel,
             detail::coro_scheduler_shader_option(
-                _config.shader_option, "wavefront_initialize"));
+                _config.shader_option, "wavefront_initialize"),
+            "wavefront_initialize");
 
         Kernel1D clear_count_kernel = [](BufferUInt buffer, UInt n) {
             auto x = dispatch_x();
@@ -502,7 +520,8 @@ private:
         _clear_count_shader = _compile_shader(
             device, clear_count_kernel,
             detail::coro_scheduler_shader_option(
-                _config.shader_option, "wavefront_clear_count"));
+                _config.shader_option, "wavefront_clear_count"),
+            "wavefront_clear_count");
 
         Kernel1D count_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
@@ -520,7 +539,8 @@ private:
         _count_shader = _compile_shader(
             device, count_kernel,
             detail::coro_scheduler_shader_option(
-                _config.shader_option, "wavefront_count"));
+                _config.shader_option, "wavefront_count"),
+            "wavefront_count");
 
         Kernel1D gather_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
@@ -539,7 +559,8 @@ private:
         _gather_shader = _compile_shader(
             device, gather_kernel,
             detail::coro_scheduler_shader_option(
-                _config.shader_option, "wavefront_gather"));
+                _config.shader_option, "wavefront_gather"),
+            "wavefront_gather");
 
         if (_config.incremental_continuation_counts) {
             Kernel1D gather_selected_kernel =
@@ -561,7 +582,8 @@ private:
             _gather_selected_shader = _compile_shader(
                 device, gather_selected_kernel,
                 detail::coro_scheduler_shader_option(
-                    _config.shader_option, "wavefront_gather_selected"));
+                    _config.shader_option, "wavefront_gather_selected"),
+                "wavefront_gather_selected");
         }
 
         Kernel1D compact_kernel =
@@ -598,7 +620,17 @@ private:
         _compact_shader = _compile_shader(
             device, compact_kernel,
             detail::coro_scheduler_shader_option(
-                _config.shader_option, "wavefront_compact"));
+                _config.shader_option, "wavefront_compact"),
+            "wavefront_compact");
+
+        if (std::getenv("LUISA_CORO_SHADER_MAP") != nullptr) {
+            for (auto &&info : _shader_infos) {
+                LUISA_INFO(
+                    "Wavefront shader map: stage='{}' "
+                    "structural_hash={:016x}.",
+                    info.stage, info.structural_hash);
+            }
+        }
     }
 
     void _sort_token_buckets(Stream &stream, uint count) noexcept {
@@ -1187,6 +1219,12 @@ public:
     shader_structure_hashes() const noexcept {
         return {_shader_structure_hashes.data(),
                 _shader_structure_hashes.size()};
+    }
+    /// Semantic stage labels paired with the same hashes returned by
+    /// shader_structure_hashes(), in the same compilation order.
+    [[nodiscard]] luisa::span<const WavefrontCoroShaderInfo>
+    shader_infos() const noexcept {
+        return {_shader_infos.data(), _shader_infos.size()};
     }
 
     WavefrontCoroScheduler(Device &device, const Coro &coro, const Config &config) noexcept
