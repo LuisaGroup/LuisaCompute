@@ -2116,6 +2116,13 @@ disables the whole W16 specialization;
 preceding plain-provider-plus-pack implementation as the strict same-binary
 oracle. Both are sampled at accel creation.
 
+The fused batch installer keeps its observed ascending case on one hot branch.
+Candidate insertion establishes the invariant `heapified => !ascending`, so
+the heap-sort, reverse, and general-sort cases may live under one unlikely
+`!ascending` edge without changing their selection or candidate order. This
+branch layout is confined to the W16 fused-status installers; the generic and
+same-binary oracle providers are unchanged.
+
 The W16-only choice follows the performance gate. A broader W8/W16 experiment
 made the real W8 procedural-callable renderer 0.9861x as fast with 1/7 wins and
 was rejected. The retained W16 implementation measures 1.0122x with 6/7 wins

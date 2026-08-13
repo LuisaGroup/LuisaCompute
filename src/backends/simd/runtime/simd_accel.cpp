@@ -1059,6 +1059,9 @@ void install_ray_query_candidate_batches_wide(
 install_ray_query_candidate_batches_status(
     RayQueryScanContext &context, uint64_t active_mask_bits,
     const SIMDHostAccelInstanceTable &instances) noexcept {
+    // Batch construction maintains heapified => !ascending. Keep the common
+    // already-ascending case on one branch; heap repair and both reorderings
+    // are cold for coherent W16 procedural packets.
     auto status = uint64_t{0u};
     for (auto lane = 0u; lane < context.lane_count; lane++) {
         auto bit = uint64_t{1u} << lane;
@@ -1067,29 +1070,32 @@ install_ray_query_candidate_batches_status(
         auto &build = context.batch_build[lane];
         auto begin = std::begin(state->candidate_batch);
         auto end = begin + state->candidate_batch_count;
-        if (build.heapified) {
-            std::sort_heap(begin, end, ray_query_candidate_before);
-        } else if (build.descending && !build.ascending) {
-            std::reverse(begin, end);
-        } else if (!build.ascending) {
-            std::sort(begin, end, ray_query_candidate_before);
+        if (!build.ascending) [[unlikely]] {
+            if (build.heapified) {
+                std::sort_heap(begin, end, ray_query_candidate_before);
+            } else if (build.descending) {
+                std::reverse(begin, end);
+            } else {
+                std::sort(begin, end, ray_query_candidate_before);
+            }
         }
         auto &procedural_build =
             context.procedural_batch_build[lane];
         auto procedural_begin = std::begin(state->procedural_batch);
         auto procedural_end =
             procedural_begin + state->procedural_batch_count;
-        if (procedural_build.heapified) {
-            std::sort_heap(
-                procedural_begin, procedural_end,
-                ray_query_procedural_before);
-        } else if (procedural_build.descending &&
-                   !procedural_build.ascending) {
-            std::reverse(procedural_begin, procedural_end);
-        } else if (!procedural_build.ascending) {
-            std::sort(
-                procedural_begin, procedural_end,
-                ray_query_procedural_before);
+        if (!procedural_build.ascending) [[unlikely]] {
+            if (procedural_build.heapified) {
+                std::sort_heap(
+                    procedural_begin, procedural_end,
+                    ray_query_procedural_before);
+            } else if (procedural_build.descending) {
+                std::reverse(procedural_begin, procedural_end);
+            } else {
+                std::sort(
+                    procedural_begin, procedural_end,
+                    ray_query_procedural_before);
+            }
         }
         state->candidate_batch_index = 0u;
         state->candidate_batch_initialized = 1u;
@@ -1118,29 +1124,32 @@ install_ray_query_candidate_batches_wide_status(
         auto &build = context.batch_build[lane];
         auto begin = std::begin(state->candidate_batch);
         auto end = begin + state->candidate_batch_count;
-        if (build.heapified) {
-            std::sort_heap(begin, end, ray_query_candidate_before);
-        } else if (build.descending && !build.ascending) {
-            std::reverse(begin, end);
-        } else if (!build.ascending) {
-            std::sort(begin, end, ray_query_candidate_before);
+        if (!build.ascending) [[unlikely]] {
+            if (build.heapified) {
+                std::sort_heap(begin, end, ray_query_candidate_before);
+            } else if (build.descending) {
+                std::reverse(begin, end);
+            } else {
+                std::sort(begin, end, ray_query_candidate_before);
+            }
         }
         auto &procedural_build =
             context.procedural_batch_build[lane];
         auto procedural_begin = std::begin(state->procedural_batch);
         auto procedural_end =
             procedural_begin + state->procedural_batch_count;
-        if (procedural_build.heapified) {
-            std::sort_heap(
-                procedural_begin, procedural_end,
-                ray_query_procedural_before);
-        } else if (procedural_build.descending &&
-                   !procedural_build.ascending) {
-            std::reverse(procedural_begin, procedural_end);
-        } else if (!procedural_build.ascending) {
-            std::sort(
-                procedural_begin, procedural_end,
-                ray_query_procedural_before);
+        if (!procedural_build.ascending) [[unlikely]] {
+            if (procedural_build.heapified) {
+                std::sort_heap(
+                    procedural_begin, procedural_end,
+                    ray_query_procedural_before);
+            } else if (procedural_build.descending) {
+                std::reverse(procedural_begin, procedural_end);
+            } else {
+                std::sort(
+                    procedural_begin, procedural_end,
+                    ray_query_procedural_before);
+            }
         }
         state->candidate_batch_index = 0u;
         state->candidate_batch_initialized = 1u;

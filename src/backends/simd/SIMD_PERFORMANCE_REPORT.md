@@ -19,6 +19,9 @@ JIT callback gather while retaining provider-side fail-closed validation. A
 new W16-only procedural specialization also packs a fully active post-proceed
 status with one sequential state-pointer pass; narrower widths and every
 non-procedural acceleration structure retain the established callback.
+Its provider-native batch installers now place their overwhelmingly common
+already-ascending case on one hot branch and all reorderings on an unlikely
+edge.
 
 ## Test host and method
 
@@ -894,6 +897,29 @@ the fused entry itself is `0x1fb6` bytes. The permanent W16 procedural gate
 runs both implementations and covers the 35-thread inactive tail, query-all/
 query-any commit/reject/terminate, 40-candidate continuation, motion, and mixed
 surface/procedural rebuilds.
+
+An environment-gated audit of the real W16 procedural renderer counted
+101,242,274 proceed calls. Scans occurred on 65.52% of calls; scan groups
+averaged 15.00 lanes and 89.62% were full W16 packets, ruling out accel-group
+fragmentation in this workload. Surface batches were already ascending in
+100% of cases. Procedural batches were ascending in 95.65%, reverse-ordered in
+3.52%, and required a general sort in 0.83%; none overflowed into heap form.
+The retained branch-layout refinement therefore tests `ascending` first and
+moves all three reorderings to the cold edge. Candidate-build invariants make
+the transformation semantics-preserving, and it is applied only to the fused
+status helpers so the exact previous provider remains an oracle.
+
+Against an independently saved committed backend, fourteen alternating W16
+rejection-chain pairs measured 1.0271x with 13/14 wins and a 95% interval of
+1.0094x--1.0451x. Fourteen alternating 1280x720, 1024-SPP procedural-callable
+pairs measured 1.0338x with 14/14 wins and a 95% interval of
+1.0249x--1.0427x. All 28 renderer outputs were byte-identical (SHA-256
+`4e3730fa871c450e44b02b77301ca3bb4041cb177c03b1fc786fae8db7f41cac`).
+The two full/sparse status installers shrink from 4,635 bytes each to
+3,147/3,163 bytes, and the fused proceed entry shrinks from 8,722 to 8,118
+bytes. A five-pair hardware-counter attempt was discarded wholesale because
+concurrent host load produced paired wall ratios from 0.62x to 2.13x; no
+counter claim is made from that run.
 
 ## Same-algorithm ISPC control and provenance
 

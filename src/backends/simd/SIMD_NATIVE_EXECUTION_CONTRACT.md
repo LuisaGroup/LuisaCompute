@@ -982,6 +982,13 @@ performance oracle. The permanent procedural regression executes W16 with
 both entries, including an inactive tail, divergent commit/reject/terminate,
 and a continuation beyond the 32-candidate batch.
 
+The fused installer may bias its already-ascending batch path only while the
+builder invariant `heapified => !ascending` holds. The non-ascending edge must
+still distinguish heap restoration, a strictly descending reversal, and a
+general sort, and must produce the same lexicographic publication order as the
+plain provider. This is a control-layout refinement, not permission to skip
+ordering validation or extend the query domain.
+
 Each normal accel build recomputes whether the complete current instance table
 contains a curve or procedural primitive. Motion instances are classified by
 their child. When both summaries are false, the host view may select the
