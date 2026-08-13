@@ -102,6 +102,8 @@ HIPCodegenLLVMImpl::FunctionContext::FunctionContext(llvm::Function *f) noexcept
 
 HIPCodegenLLVMImpl::HIPCodegenLLVMImpl(HIPCodegenLLVMConfig config) noexcept
     : _config{std::move(config)} {
+    LUISA_ASSERT(!_config.entry_point.empty(),
+                 "HIP kernel entry point must not be empty.");
     LUISA_ASSERT(_config.block_size[0] > 0u && _config.block_size[1] > 0u && _config.block_size[2] > 0u,
                  "Block size must be constant and greater than zero for now.");
     Clock clk;
@@ -1102,13 +1104,18 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
         auto preserve_convergent = preserve_noinline &&
                                    func.hasFnAttribute(llvm::Attribute::Convergent);
 
-        // Collect amdgpu-no-* string attributes from kernel_main before stripping.
-        // These are added by AMDGPUAttributor during optimization and are critical
-        // for correct kernarg segment layout: without them, the AMDGPU backend
-        // assumes 256 bytes of implicit arguments, which can cause memory faults.
+        const auto is_generated_kernel =
+            func.getCallingConv() == llvm::CallingConv::AMDGPU_KERNEL &&
+            func.getName() == _config.entry_point;
+
+        // Collect amdgpu-no-* string attributes from the generated kernel
+        // before stripping. These are added by AMDGPUAttributor and are
+        // critical for correct kernarg segment layout: without them, the
+        // AMDGPU backend assumes 256 bytes of implicit arguments, which can
+        // cause memory faults.
         llvm::SmallVector<llvm::StringRef, 24> amdgpu_no_attrs;
         llvm::SmallVector<std::pair<llvm::StringRef, llvm::StringRef>, 8> amdgpu_codegen_attrs;
-        if (func.getName() == "kernel_main") {
+        if (is_generated_kernel) {
             for (auto &attr : func.getAttributes().getFnAttrs()) {
                 if (attr.isStringAttribute()) {
                     auto key = attr.getKindAsString();
@@ -1127,7 +1134,7 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
 
         func.setAttributes(llvm::AttributeList{});
 
-        if (func.getName() == "kernel_main") {
+        if (is_generated_kernel) {
             func.addFnAttr(llvm::Attribute::NoInline);
             for (auto &attr_name : amdgpu_no_attrs) {
                 func.addFnAttr(attr_name);
@@ -1151,7 +1158,7 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             // ShaderOption::max_registers is a whole-shader constraint. Apply
             // it to the complete device call graph, including linked HIPRT
             // helpers, because an unconstrained callee determines the kernel's
-            // actual VGPR allocation just as much as kernel_main does.
+            // actual VGPR allocation just as much as the root kernel does.
             if (max_vgpr_count != 0u) {
                 func.addFnAttr("amdgpu-num-vgpr", max_vgpr_count_string);
             }

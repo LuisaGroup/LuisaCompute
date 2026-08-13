@@ -25,6 +25,10 @@ struct HIPCodegenLLVMConfig {
     };
 
     luisa::string source_file{};
+    // The externally visible AMDGPU kernel symbol. Anonymous JIT kernels use
+    // a deterministic structural name so profilers can distinguish modules;
+    // explicitly named AOT packages retain the stable `kernel_main` ABI.
+    luisa::string entry_point{"kernel_main"};
     luisa::string native_include{};
     luisa::span<const Function::Binding> bindings{};
     std::array<uint32_t, 3> block_size{};

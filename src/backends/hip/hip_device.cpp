@@ -52,7 +52,7 @@ static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
 static constexpr auto hip_shader_cache_artifact_version = 2u;
 // Increment whenever the HIP AST/XIR/LLVM lowering contract changes in a way
 // that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 9u;
+static constexpr auto hip_shader_cache_codegen_revision = 10u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -1108,6 +1108,13 @@ void HIPDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapc
 
 ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
+    // Anonymous JIT modules are independent ELF images, so their external
+    // entry may encode the complete AST structural hash without affecting
+    // dispatch ABI. Explicitly named packages are persistent AOT artifacts;
+    // keep their historical entry stable for load_shader().
+    auto kernel_entry = option.name.empty() ?
+                            luisa::format("kernel_{:016x}", kernel.hash()) :
+                            luisa::string{"kernel_main"};
     auto builtin_callables = kernel.propagated_builtin_callables();
     auto requires_hiprt = kernel.requires_raytracing() ||
                           builtin_callables.uses_ray_query();
@@ -1276,6 +1283,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
 
         HIPCodegenLLVMConfig config{
             .source_file = option.name,
+            .entry_point = kernel_entry,
             .native_include = option.native_include,
             .bindings = kernel.bound_arguments(),
             .block_size = {
@@ -1317,7 +1325,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
         if (uses_shader_cache) {
             auto code_object = with_device([&] {
                 return hip_link_llvm_bitcode(
-                    codegen_result.code, "kernel_main");
+                    codegen_result.code, kernel_entry.c_str());
             });
             packaged_code.assign(
                 reinterpret_cast<const char *>(
@@ -1389,7 +1397,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                         shader_package->code.size()};
                 return luisa::new_with_allocator<
                     HIPShaderNative>(
-                    this, code_object, "kernel_main",
+                    this, code_object, kernel_entry.c_str(),
                     shader_package->metadata, rt_context,
                     std::move(bound_arguments));
             });
@@ -1399,7 +1407,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                     HIPShaderNative>(
                     this,
                     std::move(shader_package->code),
-                    "kernel_main",
+                    kernel_entry.c_str(),
                     shader_package->metadata,
                     rt_context,
                     std::move(bound_arguments));
@@ -1416,7 +1424,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                         shader_package->code.size()};
                 return luisa::new_with_allocator<
                     HIPShaderNative>(
-                    this, code_object, "kernel_main",
+                    this, code_object, kernel_entry.c_str(),
                     shader_package->metadata,
                     std::move(bound_arguments));
             });
@@ -1426,7 +1434,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                     HIPShaderNative>(
                     this,
                     std::move(shader_package->code),
-                    "kernel_main",
+                    kernel_entry.c_str(),
                     shader_package->metadata,
                     std::move(bound_arguments));
             });

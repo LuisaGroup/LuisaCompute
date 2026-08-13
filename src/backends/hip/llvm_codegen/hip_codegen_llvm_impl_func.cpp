@@ -40,10 +40,11 @@ llvm::Function *HIPCodegenLLVMImpl::_get_or_declare_llvm_function(const xir::Fun
 
 llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_kernel_function(const xir::KernelFunction *func) noexcept {
     auto arg_struct_info = _get_kernel_argument_struct(func);
-    auto [llvm_func_type, llvm_func_name] = [&]() noexcept -> std::pair<llvm::FunctionType *, llvm::StringRef> {
-        auto llvm_void_type = llvm::Type::getVoidTy(_llvm_context);
-        return std::make_pair(llvm::FunctionType::get(llvm_void_type, {arg_struct_info->llvm_type}, false), "kernel_main");
-    }();
+    auto llvm_void_type = llvm::Type::getVoidTy(_llvm_context);
+    auto llvm_func_type = llvm::FunctionType::get(
+        llvm_void_type, {arg_struct_info->llvm_type}, false);
+    auto llvm_func_name = llvm::StringRef{
+        _config.entry_point.data(), _config.entry_point.size()};
     auto llvm_kernel = llvm::Function::Create(llvm_func_type, llvm::Function::ExternalLinkage, llvm_func_name, _llvm_module.get());
     llvm_kernel->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
     llvm_kernel->addFnAttr("amdgpu-unsafe-fp-atomics", "true");
