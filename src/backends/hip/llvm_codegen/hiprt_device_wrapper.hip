@@ -1770,14 +1770,42 @@ luisa_hiprt_resolve_static_motion_geometry(
 enum : uint32_t {
     LUISA_PIPELINE_CANDIDATE_COMMITTED = 1u << 0u,
     LUISA_PIPELINE_CANDIDATE_TERMINATED = 1u << 1u,
-    LUISA_PIPELINE_CANDIDATE_OPAQUE = 1u << 2u,
 };
+
+// An opaque surface has no user candidate observation. Commit its public
+// result directly instead of materializing the unobservable candidate state
+// and crossing the out-of-line callback boundary. This is the exact
+// projection from the generic transition after proving
+// instance_is_opaque(instance_id):
+//
+//   candidate := h; callback(candidate); commit(candidate)
+//       ==
+//   committed := h
+//
+// because the callback is skipped by RayQuery semantics on opaque instances.
+static __device__ __forceinline__ uint32_t
+luisa_pipeline_commit_opaque_surface(
+    LuisaPipelineRayQueryState *state,
+    uint32_t instance_id, uint32_t primitive_id,
+    float u, float v, float t) {
+    state->committed_hit = LuisaPipelineRayQueryHit{
+        instance_id, primitive_id, u, v, t};
+    state->committed_kind = LUISA_PIPELINE_HIT_SURFACE;
+    state->ray.maxT = t;
+    auto result = static_cast<uint32_t>(
+        LUISA_PIPELINE_CANDIDATE_COMMITTED);
+    if ((state->flags & 1u) != 0u) {
+        state->terminated = true;
+        result |= LUISA_PIPELINE_CANDIDATE_TERMINATED;
+    }
+    return result;
+}
 
 // Candidate callbacks are deliberately out of line from flat traversal. This
 // bounds the BVH live range at the call site while keeping callback semantics
 // fully generic: the generated direct dispatcher still owns all user code.
 static __device__ __attribute__((noinline)) uint32_t
-luisa_pipeline_process_surface_candidate(
+luisa_pipeline_process_nonopaque_surface_candidate(
     LuisaPipelineRayQueryState *state,
     uint32_t instance_id, uint32_t primitive_id,
     float u, float v, float t) {
@@ -1787,15 +1815,10 @@ luisa_pipeline_process_surface_candidate(
     state->candidate_kind = LUISA_PIPELINE_RQ_STATE_SURFACE;
     state->candidate_committed = false;
     auto result = 0u;
-    if (luisa_instance_is_opaque(state->instances, instance_id)) {
-        luisa_pipeline_commit_surface(state);
-        result |= LUISA_PIPELINE_CANDIDATE_OPAQUE;
-    } else {
-        luisa_ray_query_pipeline_dispatch(
-            luisa_pipeline_query_object(state),
-            state->callback_context, state->pipeline_id,
-            LUISA_PIPELINE_RQ_STATE_SURFACE);
-    }
+    luisa_ray_query_pipeline_dispatch(
+        luisa_pipeline_query_object(state),
+        state->callback_context, state->pipeline_id,
+        LUISA_PIPELINE_RQ_STATE_SURFACE);
     if (state->candidate_committed) {
         result |= LUISA_PIPELINE_CANDIDATE_COMMITTED;
     }
@@ -2015,8 +2038,13 @@ luisa_pipeline_ray_query_trace_hw(
                         state->instances, ray, state->time, surface_hit) &&
                     ray.minT <= surface_hit.t &&
                     surface_hit.t <= ray.maxT) {
-                    candidate_result =
-                        luisa_pipeline_process_surface_candidate(
+                    candidate_result = luisa_instance_is_opaque(
+                                           state->instances, instance_id) ?
+                                           luisa_pipeline_commit_opaque_surface(
+                                               state, instance_id, primitive_id,
+                                               surface_hit.uv.x, surface_hit.uv.y,
+                                               surface_hit.t) :
+                                           luisa_pipeline_process_nonopaque_surface_candidate(
                             state, instance_id, primitive_id,
                             surface_hit.uv.x, surface_hit.uv.y,
                             surface_hit.t);
@@ -2074,20 +2102,26 @@ luisa_pipeline_ray_query_trace_hw(
                 while (hit0 || hit1) {
                     const auto select_hit0 =
                         hit0 && (!hit1 || t0 <= t1);
-                    auto candidate_result =
-                        luisa_pipeline_process_surface_candidate(
-                            state, instance_id,
-                            (select_hit0 ?
-                                 intersections[3] :
-                                 intersections[7]) >>
-                                1u,
-                            __int_as_float(select_hit0 ?
-                                               intersections[1] :
-                                               intersections[5]),
-                            __int_as_float(select_hit0 ?
-                                               intersections[2] :
-                                               intersections[6]),
-                            select_hit0 ? t0 : t1);
+                    const auto primitive_id =
+                        (select_hit0 ?
+                             intersections[3] :
+                             intersections[7]) >>
+                        1u;
+                    const auto u = __int_as_float(
+                        select_hit0 ? intersections[1] : intersections[5]);
+                    const auto v = __int_as_float(
+                        select_hit0 ? intersections[2] : intersections[6]);
+                    const auto t = select_hit0 ? t0 : t1;
+                    const auto candidate_is_opaque =
+                        luisa_instance_is_opaque(
+                            state->instances, instance_id);
+                    auto candidate_result = candidate_is_opaque ?
+                                                luisa_pipeline_commit_opaque_surface(
+                                                    state, instance_id,
+                                                    primitive_id, u, v, t) :
+                                                luisa_pipeline_process_nonopaque_surface_candidate(
+                                                    state, instance_id,
+                                                    primitive_id, u, v, t);
                     if ((candidate_result &
                          LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
                         ray.maxT = state->ray.maxT;
@@ -2096,8 +2130,7 @@ luisa_pipeline_ray_query_trace_hw(
                          LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
                         return;
                     }
-                    if ((candidate_result &
-                         LUISA_PIPELINE_CANDIDATE_OPAQUE) != 0u) {
+                    if (candidate_is_opaque) {
                         // Opaque pair handling matches the resumable flat
                         // implementation: consume only the closest member.
                         hit0 = false;
