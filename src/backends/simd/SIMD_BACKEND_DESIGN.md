@@ -12,6 +12,11 @@ instance-motion triangle traversal now includes both closest/any traces and
 stateful query-all/query-any handlers at W1/W2/W4/W8/W16. W16 acceleration
 structures containing procedural instances additionally use a measured dense
 full-cohort status pack while retaining the sparse inactive-safe path.
+The latest scheduler stage removes the redundant ready-record push and
+immediate LIFO pop for one child of selected genuinely divergent binary
+splits. The child still enters through the shared dispatcher PC route, so the
+optimization neither clones the dispatch switch nor bypasses destination-side
+convergence arrival.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -301,6 +306,26 @@ divergent paths still carry their disjoint successor masks unchanged.
 `LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE=1` restores the derived masks as a
 same-binary oracle, and `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the static
 number of eligible coherent successor edges.
+
+For a genuinely divergent binary split, the ordinary LIFO sequence pushes the
+true record, pushes the false record, and immediately pops that same false
+record before executing it. At W4/W8/W16, when the function has at least 32
+Schedule state slots, LLVM emission instead pushes only the true record, keeps
+the current convergence token, installs the false mask as `current.mask`, and
+branches to the same `scheduler.dispatch.route` used by a normal ready pop.
+The route's scalar PC PHI receives the constant false target and feeds the one
+shared dispatch switch. Edge assignments have already executed under the two
+disjoint masks, destination-side arrival still runs at the selected block, and
+the ready stack plus runnable mask are exactly the state left by the eliminated
+push/pop pair.
+
+This is a measured policy rather than a semantic restriction. W1/W2 retain the
+ordinary path, as do functions below the 32-slot boundary: broad application
+made a 19-slot SDF kernel slower despite preserving results. The same-binary
+oracle is `LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD=1`; the diagnostic-only
+`LUISA_SIMD_FORCE_DIRECT_DIVERGENT_CHILD=1` exercises low-state fixtures but
+does not enable W1/W2. The optimization report exposes
+`direct_divergent_children`.
 
 There is also a whole-function coherent refinement. Uniformity propagation
 tracks control with the complete `warp_uniform -> cohort_uniform -> varying`

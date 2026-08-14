@@ -194,6 +194,28 @@ eligible static successor edges. Permanent tests execute coherent true/false
 and every indexed case/default at W2/W4/W8/W16, compare the oracle, cover
 partial tails and one-lane cohorts, and retain a genuinely divergent switch.
 
+On a genuinely divergent binary split, the worklist is LIFO: after the true
+and false records are appended, the false record is necessarily the next
+record removed. At W4/W8/W16 and at least 32 Schedule state slots, codegen may
+eliminate that false-record push/pop pair. It appends the true record, keeps
+the current scalar token, stores the false mask as `current.mask`, and passes
+the constant false target through the same `scheduler.dispatch.route` and
+dispatch switch used by normal pops. Both edge-assignment sets have already
+executed under their disjoint masks, `runnable.mask` contains exactly the
+suspended true lanes, and the false destination retains its ordinary dynamic
+convergence arrival. No Schedule block is entered directly and no dispatcher
+switch is cloned.
+
+This refinement does not change the supported control-flow set. W1/W2 and
+functions with fewer than 32 state slots retain the explicit worklist
+sequence. `LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD=1` is the production
+same-binary oracle; `LUISA_SIMD_FORCE_DIRECT_DIVERGENT_CHILD=1` is a diagnostic
+force for low-state W4/W8/W16 fixtures; `direct_divergent_children` counts
+emitted sites. Permanent coverage executes every active-lane count from zero
+through the width with inactive sentinels and a branch-local warp collective,
+compares candidate/oracle results at W4/W8/W16, and requires exact W2 IR
+identity.
+
 `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces the scheduled implementation
 for differential diagnostics. Permanent tests cover all widths, partial tails,
 cohort-uniform branches with packet-dependent outcomes, and the forced fallback.
@@ -255,6 +277,9 @@ restores the W8 speculation-cost ceiling from sixteen to twelve;
 costed one-sided update policy at W2/W4/W8/W16;
 `LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE=1` restores derived successor masks on
 runtime-coherent varying branches and switches;
+`LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD=1` restores the explicit LIFO
+push/pop for the selected divergent child, while
+`LUISA_SIMD_FORCE_DIRECT_DIVERGENT_CHILD=1` is its low-state diagnostic force;
 `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces otherwise coherent functions
 through the general cohort scheduler;
 `LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` restores aggregate local storage

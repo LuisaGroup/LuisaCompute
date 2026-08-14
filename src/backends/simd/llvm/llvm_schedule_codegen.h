@@ -479,6 +479,7 @@ struct LLVMScheduleCodegenResult {
     size_t predicated_memory_instruction_count{0u};
     size_t coherent_mask_reuse_count{0u};
     size_t convergence_token_guard_count{0u};
+    size_t direct_divergent_child_count{0u};
     bool direct_control_flow{false};
     std::string error{};
 

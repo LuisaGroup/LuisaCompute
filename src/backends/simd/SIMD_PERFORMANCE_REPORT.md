@@ -38,6 +38,10 @@ The current convergence stage bypasses destination-side frame traversal when
 the scalar current token is zero and stops a completed cascade as soon as it
 restores the root token. Both shortcuts are exact refinements of the formal
 target-arrival identity and retain a same-binary oracle.
+The latest scheduler stage removes a selected divergent binary child's
+redundant ready-record push and immediate LIFO pop. Normal pops and these
+children share one PC route and one dispatch switch; a measured state-slot
+gate keeps the refinement out of smaller kernels where it is not profitable.
 
 ## Test host and method
 
@@ -78,7 +82,7 @@ Speedup is always `fallback time / SIMD time`, or
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | non-coro SDF, samples/s | 8.705 | 8.197 (0.942x) | 9.476 (1.089x) | 15.112 (1.736x) | 22.568 (2.593x) | 32.959 (3.786x) |
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
-| voxel render, ms/iteration | 7.558 | 8.766 (0.868x) | 15.705 (0.482x) | 9.507 (0.796x) | 7.224 (1.046x) | 5.908 (1.286x) |
+| voxel render, ms/iteration | 6.944 | 8.371 (0.825x) | 15.126 (0.458x) | 8.710 (0.793x) | 6.783 (1.021x) | 5.438 (1.266x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
 | ordinary path tracing, fixed 1 spp/dispatch, spp/s | 72.979 | 64.238 (0.870x) | 52.687 (0.708x) | 65.445 (0.930x) | 79.217 (1.073x) | 79.296 (1.129x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 59.366 | 45.860 (0.770x) | 29.919 (0.511x) | 36.802 (0.619x) | 42.791 (0.730x) | 42.283 (0.711x) |
@@ -95,10 +99,10 @@ be treated as host observations, not cross-machine constants.
 The refreshed voxel cells are the medians of the seven balanced rounds.
 Parenthesized values are the preferred geometric means of the within-round
 fallback/SIMD ratios. Their 95% paired log-space Student-t intervals at
-W1/W2/W4/W8/W16 are [0.8542, 0.8820], [0.4760, 0.4887],
-[0.7820, 0.8107], [1.0297, 1.0629], and [1.2717, 1.2996]. W8 and W16 win all
-seven rounds; the narrower widths lose all seven. Every fallback process
-retains SHA-256
+W1/W2/W4/W8/W16 are [0.8118, 0.8389], [0.4491, 0.4661],
+[0.7728, 0.8146], [1.0005, 1.0422], and [1.2407, 1.2918]. W16 wins all seven
+rounds and W8 wins six; the narrower widths lose all seven. Every fallback
+process retains SHA-256
 `27455a0e126ecfae23d592a58121751c5884a69d9d7388b20195e8b0a121829a`,
 and every SIMD process at all five widths retains
 `6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
@@ -1224,36 +1228,39 @@ implementation was copied. Luisa's existing consecutive-buffer-read XIR pass
 only joins absolute constant byte offsets and is not a substitute for ISPC's
 dynamic typed-buffer gather coalescing.
 
-A current 32-worker sweep including the convergence-token guard covers all
-five standalone workloads. Every variant is pinned to logical CPUs 0--31 and
-run in seven balanced process rounds. The table reports the paired geometric
-mean and 95% log-space Student-t interval for `ISPC / Luisa SIMD` at the same
-semantic width; values above one mean ISPC is faster:
+A current 32-worker sweep including the direct divergent-child route covers
+the first four standalone workloads in seven balanced process rounds. Because
+the initial path-trace sweep encountered more shared-host noise, that row is
+replaced wholesale by a separate fifteen-round run. Every variant is pinned
+to logical CPUs 0--31. The table reports the paired geometric mean and 95%
+log-space Student-t interval for `ISPC / Luisa SIMD` at the same semantic
+width; values above one mean ISPC is faster:
 
 | Workload | W4 AVX2 | W4 AVX-512 | W8 AVX2 | W8 AVX-512 | W16 AVX-512 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Mandelbrot | 0.922x [0.884, 0.961] | 0.920x [0.893, 0.948] | 1.022x [0.991, 1.054] | 0.996x [0.962, 1.031] | 1.085x [1.065, 1.106] |
-| masked stream | 1.024x [0.967, 1.085] | 1.000x [0.954, 1.049] | 1.022x [0.975, 1.071] | 1.025x [0.989, 1.062] | 1.083x [1.041, 1.127] |
-| AoS to SoA | 1.057x [1.019, 1.097] | 1.080x [1.004, 1.162] | 1.078x [1.031, 1.127] | 1.085x [1.015, 1.161] | 1.089x [1.041, 1.138] |
-| GEMM | 0.761x [0.738, 0.785] | 0.749x [0.725, 0.774] | 0.733x [0.670, 0.802] | 0.759x [0.733, 0.786] | 0.807x [0.773, 0.842] |
-| analytic path trace | 2.578x [2.453, 2.709] | 2.453x [2.356, 2.553] | 2.395x [2.311, 2.483] | 2.262x [2.208, 2.317] | 2.435x [2.380, 2.490] |
+| Mandelbrot | 0.936x [0.923, 0.950] | 0.922x [0.908, 0.936] | 1.012x [0.988, 1.036] | 0.985x [0.963, 1.007] | 1.091x [1.068, 1.116] |
+| masked stream | 0.979x [0.877, 1.092] | 0.945x [0.883, 1.012] | 1.028x [0.957, 1.104] | 1.008x [0.941, 1.081] | 1.073x [1.003, 1.148] |
+| AoS to SoA | 1.036x [1.004, 1.069] | 0.996x [0.967, 1.026] | 1.079x [1.020, 1.140] | 1.068x [1.002, 1.138] | 1.062x [1.017, 1.108] |
+| GEMM | 0.746x [0.735, 0.757] | 0.749x [0.730, 0.769] | 0.771x [0.764, 0.779] | 0.768x [0.749, 0.788] | 0.789x [0.754, 0.826] |
+| analytic path trace | 2.580x [2.519, 2.643] | 2.444x [2.387, 2.503] | 2.387x [2.323, 2.453] | 2.193x [2.104, 2.285] | 2.357x [2.316, 2.399] |
 
 Mandelbrot, masked stream, AoS-to-SoA, and GEMM are bit-identical across all
 eight implementations. The asset-free analytic path tracer validates 921,600
 floats per implementation with zero tolerance violations; its maximum absolute
 and relative errors against Luisa W4 are `1.1921e-7` and `2.7532e-7`.
 The Luisa W4/W8/W16 process medians are respectively
-703.395/1,107.534/1,695.891 Mitems/s for Mandelbrot,
-6,108.468/5,744.360/5,484.602 Mitems/s for masked stream,
-2,540.107/2,532.796/2,451.777 Mitems/s for AoS-to-SoA,
-258.802/337.834/420.530 GFLOP/s for GEMM, and
-716.155/1,046.258/1,162.998 Mitems/s for analytic path tracing.
+713.060/1,182.480/1,770.326 Mitems/s for Mandelbrot,
+6,356.242/5,887.078/5,677.879 Mitems/s for masked stream,
+2,722.494/2,521.626/2,499.919 Mitems/s for AoS-to-SoA,
+263.789/339.163/437.597 GFLOP/s for GEMM, and
+734.532/1,071.991/1,219.368 Mitems/s for analytic path tracing.
 
 The balanced intervals matter on this shared host: several small memory-kernel
 differences include parity, while GEMM and analytic path tracing remain
-unambiguous. Luisa is 24--36% faster than the matched ISPC GEMM variants.
-Mandelbrot is at parity through W8 and trails ISPC by 8.5% at W16. The
-analytic path tracer remains the outlier, with ISPC 2.26--2.58x faster. The
+unambiguous. Luisa is 27--34% faster than the best matched-width ISPC GEMM
+variants. Mandelbrot is at parity through W8 and trails ISPC by 9.1% at W16.
+The analytic path tracer remains the outlier: the best same-width ISPC target
+is 2.36--2.58x faster, while AVX-512 x8 measures 2.19x. The
 compiler executable is passed explicitly to the standalone runner and remains
 absent from CMake; this sweep excludes fallback so every ratio is a direct
 same-width compiler comparison.
@@ -1482,6 +1489,76 @@ Candidate and oracle images are byte-identical within each width. This is an
 end-to-end renderer result, whereas the ISPC table above remains an
 asset-free analytic compiler comparison.
 
+### Shared divergent-child dispatch route
+
+For a genuinely divergent conditional the established LIFO scheduler pushed
+the true child, pushed the false child, then immediately popped the false
+record. The retained refinement pushes only the true record and enters the
+false child through a scalar-PC PHI feeding the normal dispatch switch. It
+leaves exactly the same true record and runnable mask, preserves the current
+token, and still executes false-edge assignments and destination-side
+convergence arrival. `LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD=1` restores the
+push/pop oracle, while `direct_divergent_children` reports accepted static
+sites.
+
+The first prototype branched separately from every split to its target. On the
+analytic W8 body it grew to 4,066 instructions, 389 branches, 1,098 stack
+references, and a 22,431-byte `.text`, versus 3,862/364/1,057/21,289 for the
+oracle. It helped selected high-state workloads but duplicated routing enough
+to regress SDF. The retained implementation instead shares one PC route and
+one switch. Exact final W8 code shape is:
+
+| W8 analytic path trace | shared-route candidate | push/pop oracle |
+| --- | ---: | ---: |
+| annotated assembly bytes | 162,597 | 175,320 |
+| `.text` bytes | 19,048 | 21,289 |
+| instructions | 3,468 | 3,862 |
+| vector instructions | 1,901 | 2,210 |
+| branches | 383 | 364 |
+| stack references | 917 | 1,057 |
+| stack allocation | 4,992 | 5,152 |
+| calls / scalar-math calls | 0 / 0 | 0 / 0 |
+
+Fifteen alternating single-core candidate/oracle processes retain checksum
+`a93089e651f98582`. Speedup is candidate throughput divided by oracle
+throughput, with paired 95% log-space Student-t intervals:
+
+| Width | speedup | 95% paired CI | wins | candidate/oracle median, Mitems/s |
+| ---: | ---: | ---: | ---: | ---: |
+| W4 | 1.0049x | [1.0005, 1.0093] | 12/15 | 60.911 / 60.721 |
+| W8 | 1.0186x | [1.0013, 1.0362] | 14/15 | 96.095 / 94.063 |
+| W16 | 1.1052x | [1.1004, 1.1101] | 15/15 | 113.990 / 103.074 |
+
+The real Voxel kernel has 38 state slots at W8 and also passes the gate. Seven
+alternating 64-render candidate/oracle processes on 32 workers produce
+byte-identical PNGs at every width with SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`:
+
+| Width | speedup | 95% paired CI | wins | candidate/oracle median, ms |
+| ---: | ---: | ---: | ---: | ---: |
+| W4 | 1.0569x | [1.0441, 1.0699] | 7/7 | 8.928 / 9.235 |
+| W8 | 1.0291x | [1.0138, 1.0446] | 7/7 | 6.989 / 7.192 |
+| W16 | 1.0408x | [1.0265, 1.0553] | 7/7 | 5.510 / 5.801 |
+
+Ordinary Embree path tracing has 37 state slots but is statistically neutral:
+W4/W8/W16 measure 0.9974x [0.9876, 1.0074], 0.9963x
+[0.9899, 1.0026], and 0.9997x [0.9928, 1.0066] over seven 128-SPP pairs.
+Candidate and oracle images remain byte-identical within each width. This
+confirms that eliminating a scheduler stutter does not remove Embree traversal
+or callback traffic.
+
+Broadly enabling the refinement was rejected. The initial direct-target form
+made SDF W4/W8/W16 run at 0.9242x/0.9522x/0.9623x of the oracle, and even the
+shared route was about three percent slower at W8 before policy selection.
+That SDF kernel has only 19 state slots and six force-enabled sites. The final
+32-slot threshold emits zero sites and produces exact candidate/oracle SDF
+objects: 3,302 instructions, 208 branches, 715 stack references, and a
+5,568-byte frame. Image processing already uses direct coherent CFG and also
+emits zero sites. W1/W2 are unchanged; the permanent forced W2 regression
+requires byte-identical LLVM IR. The threshold admits the 61-slot analytic,
+38-slot Voxel, and 37-slot ordinary path-trace kernels while excluding the
+measured low-state regression.
+
 ## Interpreting widths
 
 W8 is a semantic fixed-vector width, not an AVX-512 contract. On this host LLVM
@@ -1662,3 +1739,17 @@ path tracing passes its 1024-SPP gallery at
 35.43/42.78/40.94/39.22/37.80 dB from W1 through W16 and reports native
 Embree 4.4.1 W4/W8/W16 packets enabled. W8 cutout path tracing passes at
 39.58 dB, and non-coroutine SDF W8 passes at 63.13 dB, both at 1024 spp.
+
+The shared divergent-child-route stage completed fresh full builds of both
+Release trees, the required native-math/fallback-math/runtime-width/Schedule-
+codegen gate (4/4), the SIMD-only suite (129/129), and the complete SIMD+
+fallback suite (140/140). Formatting, diff-check, and clangd syntax checks pass
+for every changed C++ translation unit. Fresh W1/W2/W4/W8/W16 Voxel and image-
+processing galleries pass at 82.83 and 89.25 dB respectively. Ordinary Embree
+path tracing passes its 1024-SPP gallery at
+35.43/42.78/40.94/39.22/37.80 dB from W1 through W16 and reports native Embree
+4.4.1 W4/W8/W16 packet support enabled; W8 cutout and non-coroutine SDF pass
+at 39.58 and 63.13 dB. Fresh fallback checks also pass Voxel at 48.08 dB,
+image processing at 100.00 dB, and ordinary path tracing at 62.22 dB. All
+gallery outputs were written only in temporary directories; no reference image
+was regenerated or modified.

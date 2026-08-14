@@ -553,6 +553,15 @@ void ScheduleEmitter::_emit_terminator(
     auto reuse_coherent_mask =
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE");
+    static constexpr auto kDirectDivergentChildMinStateSlots = 32u;
+    auto enable_direct_divergent_child =
+        _width >= 4u &&
+        (_result.state_slot_count >=
+             kDirectDivergentChildMinStateSlots ||
+         luisa::compute::detail::env_flag(
+             "LUISA_SIMD_FORCE_DIRECT_DIVERGENT_CHILD")) &&
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD");
     std::visit(
         [&](const auto &control) {
             using T = std::decay_t<decltype(control)>;
@@ -607,8 +616,25 @@ void ScheduleEmitter::_emit_terminator(
                         return;
                     }
                     _resume(control.true_edge.target, true_flow);
-                    _resume(control.false_edge.target, false_flow);
-                    _builder.CreateBr(_scheduler_loop);
+                    if (enable_direct_divergent_child) {
+                        _result.direct_divergent_child_count++;
+                        // The divergent predicate proves false_flow nonempty.
+                        // It was the last record pushed and therefore the
+                        // first one immediately popped by the LIFO scheduler.
+                        // Keep the same token/runnable state and enter it
+                        // through the shared PC route while leaving true_flow
+                        // at the stack top.
+                        auto *predecessor = _builder.GetInsertBlock();
+                        _builder.CreateStore(false_flow, _current_mask);
+                        _builder.CreateBr(_scheduler_dispatch_route);
+                        _scheduler_dispatch_pc->addIncoming(
+                            _builder.getInt32(
+                                control.false_edge.target.value),
+                            predecessor);
+                    } else {
+                        _resume(control.false_edge.target, false_flow);
+                        _builder.CreateBr(_scheduler_loop);
+                    }
 
                     _builder.SetInsertPoint(coherent_path);
                     auto *true_path =
@@ -1514,6 +1540,8 @@ void ScheduleEmitter::_build() {
         context, "scheduler.loop", _entry);
     auto *dispatch = ::llvm::BasicBlock::Create(
         context, "scheduler.dispatch", _entry);
+    _scheduler_dispatch_route = ::llvm::BasicBlock::Create(
+        context, "scheduler.dispatch.route", _entry);
     auto *done = ::llvm::BasicBlock::Create(
         context, "scheduler.done", _entry);
     auto *exit = ::llvm::BasicBlock::Create(
@@ -1562,8 +1590,14 @@ void ScheduleEmitter::_build() {
         _builder.CreateAnd(
             runnable, _builder.CreateNot(popped_mask)),
         _runnable_mask);
+    _builder.CreateBr(_scheduler_dispatch_route);
+
+    _builder.SetInsertPoint(_scheduler_dispatch_route);
+    _scheduler_dispatch_pc = _builder.CreatePHI(
+        _builder.getInt32Ty(), 1u, "scheduler.dispatch.pc");
+    _scheduler_dispatch_pc->addIncoming(pc, dispatch);
     auto *dispatch_switch = _builder.CreateSwitch(
-        pc,
+        _scheduler_dispatch_pc,
         invalid,
         static_cast<unsigned>(_schedule_blocks.size()));
     for (auto &&block : _source.blocks()) {

@@ -62,6 +62,8 @@ private:
     ::llvm::Value *_launch_config{nullptr};
     ::llvm::Value *_active_lane_count{nullptr};
     ::llvm::BasicBlock *_scheduler_loop{nullptr};
+    ::llvm::BasicBlock *_scheduler_dispatch_route{nullptr};
+    ::llvm::PHINode *_scheduler_dispatch_pc{nullptr};
     ::llvm::AllocaInst *_live_mask{nullptr};
     ::llvm::AllocaInst *_runnable_mask{nullptr};
     ::llvm::AllocaInst *_ready_count{nullptr};

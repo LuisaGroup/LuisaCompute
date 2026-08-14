@@ -299,6 +299,24 @@ places the shared target-arrival cascade at the destination block entry rather
 than cloning it on every incoming edge; the token carried by the direct edge or
 ready record preserves the same state at that point.
 
+A genuinely divergent binary split admits one further LIFO stuttering
+refinement. Let the pre-existing ready stack be `S`, its runnable union be
+`U`, the disjoint nonempty successor masks be `T` and `F`, and the current
+token be `tau`. The ordinary implementation performs
+
+```text
+push (vT, T, tau); push (vF, F, tau); pop (vF, F, tau)
+```
+
+and reaches stack `S ++ [(vT, T, tau)]`, runnable mask `U union T`, and current
+continuation `(vF, F, tau)`. The LLVM refinement pushes only `(vT, T, tau)`,
+sets the current mask to `F`, preserves `tau`, and supplies `vF` to the shared
+dispatcher PC route. It therefore reaches the identical abstract state before
+the first instruction of `vF`. Both edges' PHI assignments still run before
+the transfer, and `vF` still performs the same destination-side dynamic
+arrival. The rule requires the runtime divergence test, which proves both
+masks nonempty; it is not valid for an empty child or a non-LIFO scheduler.
+
 Dynamic target arrival examines the top frame of `M`. If its `target` is not
 `v`, the edge is an ordinary continuation. If its `target` is `v`:
 
@@ -451,7 +469,7 @@ refinement.
 |---|---|
 | `live` | `live.mask` |
 | ready/runnable mask | `runnable.mask`, `ready.mask.*`, and `current.mask` |
-| `pc[l]` | the current LLVM block plus bounded scalar `ready.target.*` records selected by `ready.mask.*`; no per-lane PC vector is materialized |
+| `pc[l]` | the current LLVM block plus bounded scalar `ready.target.*` records selected by `ready.mask.*`; normal pops and a proven direct divergent child feed one shared `scheduler.dispatch.route`; no per-lane PC vector is materialized |
 | `token[l]` | one scalar `current.token` for the executing cohort plus one scalar `ready.token.*` in each suspended record; no per-lane token vector is materialized |
 | frame active/static ID/parent | scalar `iW` bitset `frame.active`, plus `frame.static.id` and `frame.parent.token` |
 | frame expected/arrived | `frame.expected`, `frame.arrived` |
@@ -479,6 +497,15 @@ implementation when `current.token == 0`, and terminates a completed chain when
 the restored parent token is zero. These branches implement the target-arrival
 identity above. `LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD=1` retains the
 unshortened refinement for differential execution tests.
+
+The direct-child LIFO refinement is enabled only at W4/W8/W16 when the
+function has at least 32 state slots. That threshold is a code-generation
+policy selected by real-workload A/B tests, not part of the transition proof.
+`LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD=1` restores the explicit push/pop;
+`LUISA_SIMD_FORCE_DIRECT_DIVERGENT_CHILD=1` exercises low-state semantic
+fixtures while W1/W2 remain unchanged. The permanent regression checks all
+active-lane counts including zero, inactive sentinels, branch-local collective
+state, exact candidate/oracle results, and identical W2 IR.
 
 Cross-block Schedule values remain abstract lane state. LLVM may keep a hot
 state slot in SSA/registers or retain a cold slot as an explicit volatile stack

@@ -1297,6 +1297,7 @@ template<size_t Width>
         return false;
     }
     CHECK(codegen.argument_buffer_size == 0u);
+    CHECK(codegen.direct_divergent_child_count == 0u);
     CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
 
     std::string ir;
@@ -1360,6 +1361,75 @@ template<size_t Width>
         for (auto lane = uint32_t{0u}; lane < Width; lane++) {
             CHECK(output[lane] ==
                   (lane < active_lanes ? sum : 0xdeadbeefu));
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_direct_divergent_child_codegen() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        auto schedule_function = make_divergent_collective(width);
+        CHECK(schedule_function.has_value());
+        std::string candidate_ir;
+        std::string oracle_ir;
+        for (auto disable_direct_child : {false, true}) {
+            ScopedEnvironmentVariable force{
+                "LUISA_SIMD_FORCE_DIRECT_DIVERGENT_CHILD",
+                disable_direct_child ? nullptr : "1"};
+            ScopedEnvironmentVariable disable{
+                "LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD",
+                disable_direct_child ? "1" : nullptr};
+            auto context = std::make_unique<::llvm::LLVMContext>();
+            auto module = std::make_unique<::llvm::Module>(
+                "simd-direct-divergent-child", *context);
+            auto name =
+                std::string{"simd_direct_divergent_child_w"} +
+                std::to_string(width);
+            auto codegen = lower_schedule_to_llvm(
+                *module, *schedule_function, width, name);
+            if (!codegen.succeeded()) {
+                std::cerr << codegen.error << '\n';
+                return false;
+            }
+            auto expected_count =
+                width >= 4u && !disable_direct_child ? 1u : 0u;
+            CHECK(codegen.direct_divergent_child_count == expected_count);
+            CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+            auto &ir = disable_direct_child ? oracle_ir : candidate_ir;
+            ::llvm::raw_string_ostream stream{ir};
+            module->print(stream, nullptr);
+            stream.flush();
+            LLVMJIT jit;
+            CHECK(jit.succeeded());
+            CHECK(jit.add_module(
+                std::move(module), std::move(context)));
+            using Entry = void(
+                const void *, uint32_t *,
+                const SIMDPacketLaunchConfig *, uint32_t);
+            auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+            CHECK(function != nullptr);
+            for (auto active_lanes = uint32_t{0u};
+                 active_lanes <= width; active_lanes++) {
+                std::vector<uint32_t> output(width, 0xdeadbeefu);
+                auto config = launch_1d(active_lanes, width);
+                function(
+                    nullptr, output.data(),
+                    &config, active_lanes);
+                auto expected_sum = active_lanes <= 2u ?
+                                        active_lanes * 2u :
+                                        active_lanes + 2u;
+                for (auto lane = uint32_t{0u}; lane < width; lane++) {
+                    auto expected = lane < active_lanes ?
+                                        expected_sum :
+                                        0xdeadbeefu;
+                    CHECK(output[lane] == expected);
+                }
+            }
+        }
+        if (width == 2u) {
+            CHECK(candidate_ir == oracle_ir);
+        } else {
+            CHECK(candidate_ir != oracle_ir);
         }
     }
     return true;
@@ -6738,6 +6808,7 @@ int main() {
         {"Schedule IR vector warp4", &run_codegen<4u>},
         {"Schedule IR vector warp8", &run_codegen<8u>},
         {"Schedule IR vector warp16", &run_codegen<16u>},
+        {"direct divergent child", &run_direct_divergent_child_codegen},
         {"static power-of-two block size",
          &run_static_block_size_codegen},
         {"Schedule IR loop warp1", &run_loop_codegen<1u>},
