@@ -1931,9 +1931,10 @@ gate (4/4), the SIMD-only suite (129/129), and the complete SIMD+fallback suite
 syntax checks also pass. The permanent W1/W2/W4/W8/W16 regression covers all
 tail sizes from zero through W, nested same-target convergence, early return,
 exact candidate/oracle outputs, byte-identical W1/W2/W4/W8 IR and assembly,
-and the required W16 array/vector code-shape distinction. Fresh W16 candidate
-and oracle galleries pass Voxel at 82.83 dB, ordinary 1024-spp Embree path
-tracing at 39.22 dB, and 1024-spp cutout at 44.17 dB; each candidate/oracle PNG
+and the required W16 array/vector code-shape distinction. A corrected W16
+candidate/oracle gallery rerun selected width with `LUISA_SIMD_WARP_WIDTH=16`:
+Voxel passes at 82.834519 dB, ordinary 1024-spp Embree path tracing at
+37.801767 dB, and 1024-spp cutout at 43.890250 dB. Each candidate/oracle PNG
 pair is byte-identical. Both path tracers report native Embree 4.4.1
 W4/W8/W16 packet support enabled. A thirty-round standalone W16/ISPC refresh
 supplies the current table above; the ISPC executable and generated objects
