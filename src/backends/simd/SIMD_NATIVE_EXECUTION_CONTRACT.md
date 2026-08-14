@@ -198,6 +198,24 @@ partial tails and one-lane cohorts, and retain a genuinely divergent switch.
 for differential diagnostics. Permanent tests cover all widths, partial tails,
 cohort-uniform branches with packet-dependent outcomes, and the forced fallback.
 
+For a scheduled destination that can be a convergence target, scalar token
+zero proves that the current cohort has no dynamic frame. The target-arrival
+cascade must then preserve the incoming mask and all scheduler state, so the
+LLVM lowering bypasses frame target, expected/arrived, active-frame, parent,
+and runnable accesses. When a completed frame restores parent token zero, the
+lowering also omits the otherwise guaranteed identity iteration at the end of
+the chain. Nonzero parents retain the full dynamic target comparison and may
+release further same-target frames. The diagnostic oracle
+`LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD=1` disables both shortcuts, and the
+optimization report exposes `convergence_token_guards`.
+
+Permanent candidate/oracle execution coverage uses W2/W4/W8/W16, every active
+lane count from one through the width, inactive sentinels, ordinary root-token
+arrivals, nested parent/child frames sharing one target, and early return that
+completes the cascade. The unoptimized module is retained as a semantic oracle;
+the optimized module must also contain the named token guard and pass LLVM
+verification.
+
 Permanent code-shape and execution regressions cover a divergent diamond, a
 natural loop, a switch inside a loop with early exits, and an inactive W1
 dispatch. The unoptimized W1 module is rejected if it contains

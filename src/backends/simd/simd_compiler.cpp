@@ -158,6 +158,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.predicated_memory_instruction_count;
     result.coherent_mask_reuse_count =
         llvm_result.coherent_mask_reuse_count;
+    result.convergence_token_guard_count =
+        llvm_result.convergence_token_guard_count;
     result.direct_control_flow = llvm_result.direct_control_flow;
     auto llvm_entry_name = llvm_result.entry->getName().str();
     result.jit = std::move(jit);

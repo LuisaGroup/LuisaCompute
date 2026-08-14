@@ -313,6 +313,15 @@ On completion, deactivate `f`, set `token[l] = parent[f]` for `l in R`, and
 continue the same target-arrival rule with `R`. The cascade is bounded by `W`
 because a `W`-lane packet owns at most `W` live frames.
 
+Two identity cases permit a strict LLVM refinement. If the coherent token of
+`M` is zero, there is no top frame to examine, so dynamic target arrival leaves
+the complete scheduler state and `M` unchanged. If completing `f` restores
+`parent[f] = 0`, the next recursive arrival is that same identity and may be
+omitted. A nonzero parent may still name another frame with the same target and
+must be checked. The implementation's entry token guard and parent-token loop
+guard are therefore stuttering-step elimination, not new scheduling
+transitions.
+
 This dynamic rule is essential. Consider an acyclic graph where split `S`
 reaches shared block `T`, `T` also has an entry that bypasses `S`, and both
 paths later enter merge `M`. `S` does not dominate `T`, so a dominator-only
@@ -464,6 +473,12 @@ more static convergence plans enters one shared destination-side cascade
 before its Schedule instructions. Distinct loop iterations remain distinct
 dynamic records/tokens, which supplies the epoch separation required by the
 model without an explicit epoch vector.
+
+`_cascade_at_convergence_target` additionally branches around the frame-state
+implementation when `current.token == 0`, and terminates a completed chain when
+the restored parent token is zero. These branches implement the target-arrival
+identity above. `LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD=1` retains the
+unshortened refinement for differential execution tests.
 
 Cross-block Schedule values remain abstract lane state. LLVM may keep a hot
 state slot in SSA/registers or retain a cold slot as an explicit volatile stack

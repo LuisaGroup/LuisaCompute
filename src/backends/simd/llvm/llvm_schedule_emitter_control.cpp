@@ -389,12 +389,29 @@ void ScheduleEmitter::_declare_convergence(
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_cascade_at_convergence_target(
     ::llvm::Value *target, ::llvm::Value *flow) {
     if (_convergence_targets == nullptr) { return flow; }
+    auto guard_empty_chain =
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD");
+    if (guard_empty_chain) {
+        _result.convergence_token_guard_count++;
+    }
     auto *preheader = _builder.GetInsertBlock();
     auto *loop = ::llvm::BasicBlock::Create(
         _module.getContext(), "convergence.cascade", _entry);
     auto *exit = ::llvm::BasicBlock::Create(
         _module.getContext(), "convergence.cascade.exit", _entry);
-    _builder.CreateBr(loop);
+    if (guard_empty_chain) {
+        auto *token = _builder.CreateLoad(
+            _current_token->getAllocatedType(), _current_token,
+            "convergence.current.token");
+        _builder.CreateCondBr(
+            _builder.CreateICmpNE(
+                token, _builder.getInt32(0u),
+                "convergence.token.present"),
+            loop, exit);
+    } else {
+        _builder.CreateBr(loop);
+    }
     _builder.SetInsertPoint(loop);
     auto *current_flow = _builder.CreatePHI(
         _layout.mask_type(), 2u, "convergence.cascade.flow");
@@ -413,11 +430,29 @@ void ScheduleEmitter::_declare_convergence(
             _builder.CreateOrReduce(next_flow),
             _builder.CreateICmpULT(
                 next_depth, _builder.getInt32(_width))));
+    if (guard_empty_chain) {
+        auto *next_token = _builder.CreateLoad(
+            _current_token->getAllocatedType(), _current_token,
+            "convergence.parent.token");
+        more = _builder.CreateAnd(
+            more,
+            _builder.CreateICmpNE(
+                next_token, _builder.getInt32(0u),
+                "convergence.parent.present"));
+    }
     auto *latch = _builder.GetInsertBlock();
     _builder.CreateCondBr(more, loop, exit);
     current_flow->addIncoming(next_flow, latch);
     depth->addIncoming(next_depth, latch);
     _builder.SetInsertPoint(exit);
+    if (guard_empty_chain) {
+        auto *result = _builder.CreatePHI(
+            _layout.mask_type(), 2u,
+            "convergence.cascade.result");
+        result->addIncoming(flow, preheader);
+        result->addIncoming(next_flow, latch);
+        return result;
+    }
     return next_flow;
 }
 
@@ -590,12 +625,14 @@ void ScheduleEmitter::_emit_terminator(
                     _emit_arrival(
                         control.true_edge,
                         reuse_coherent_mask ?
-                            _active_mask : true_mask);
+                            _active_mask :
+                            true_mask);
                     _builder.SetInsertPoint(false_path);
                     _emit_arrival(
                         control.false_edge,
                         reuse_coherent_mask ?
-                            _active_mask : false_mask);
+                            _active_mask :
+                            false_mask);
                 } else {
                     auto *true_path = ::llvm::BasicBlock::Create(
                         _module.getContext(), "uniform.true", _entry);
@@ -718,13 +755,15 @@ void ScheduleEmitter::_emit_terminator(
                         _emit_arrival(
                             control.cases[i].edge,
                             reuse_coherent_mask ?
-                                _active_mask : case_masks[i]);
+                                _active_mask :
+                                case_masks[i]);
                     }
                     _builder.SetInsertPoint(default_path);
                     _emit_arrival(
                         control.default_edge,
                         reuse_coherent_mask ?
-                            _active_mask : default_mask);
+                            _active_mask :
+                            default_mask);
                 } else {
                     auto *default_path = ::llvm::BasicBlock::Create(
                         _module.getContext(),

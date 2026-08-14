@@ -34,6 +34,10 @@ The newest scheduler stage reuses the incoming active-mask SSA value after a
 runtime-coherent varying branch or switch proves that its selected successor
 mask is identical. This preserves all-on/partial-tail identity across the hot
 edge without changing the genuinely divergent scheduler path.
+The current convergence stage bypasses destination-side frame traversal when
+the scalar current token is zero and stops a completed cascade as soon as it
+restores the root token. Both shortcuts are exact refinements of the formal
+target-arrival identity and retain a same-binary oracle.
 
 ## Test host and method
 
@@ -74,7 +78,7 @@ Speedup is always `fallback time / SIMD time`, or
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | non-coro SDF, samples/s | 8.705 | 8.197 (0.942x) | 9.476 (1.089x) | 15.112 (1.736x) | 22.568 (2.593x) | 32.959 (3.786x) |
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
-| voxel render, ms/iteration | 7.613 | 8.680 (0.855x) | 22.924 (0.326x) | 13.661 (0.545x) | 8.486 (0.874x) | 6.349 (1.173x) |
+| voxel render, ms/iteration | 7.558 | 8.766 (0.868x) | 15.705 (0.482x) | 9.507 (0.796x) | 7.224 (1.046x) | 5.908 (1.286x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
 | ordinary path tracing, fixed 1 spp/dispatch, spp/s | 72.979 | 64.238 (0.870x) | 52.687 (0.708x) | 65.445 (0.930x) | 79.217 (1.073x) | 79.296 (1.129x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 59.366 | 45.860 (0.770x) | 29.919 (0.511x) | 36.802 (0.619x) | 42.791 (0.730x) | 42.283 (0.711x) |
@@ -90,13 +94,18 @@ be treated as host observations, not cross-machine constants.
 
 The refreshed voxel cells are the medians of the seven balanced rounds.
 Parenthesized values are the preferred geometric means of the within-round
-fallback/SIMD ratios. Their 95% paired intervals at W1/W2/W4/W8/W16 are
-[0.8251, 0.8860], [0.3158, 0.3367], [0.5255, 0.5659],
-[0.8469, 0.9029], and [1.1383, 1.2098]. W16 wins all seven rounds; the other
-widths lose all seven. Independent gallery comparisons pass at 48.08 dB RGB
-PSNR for fallback and 82.83 dB for W8 SIMD. The two backends use different
-floating-point paths and are not expected to produce identical PNG bytes;
-same-backend refinement/oracle outputs below are byte-identical.
+fallback/SIMD ratios. Their 95% paired log-space Student-t intervals at
+W1/W2/W4/W8/W16 are [0.8542, 0.8820], [0.4760, 0.4887],
+[0.7820, 0.8107], [1.0297, 1.0629], and [1.2717, 1.2996]. W8 and W16 win all
+seven rounds; the narrower widths lose all seven. Every fallback process
+retains SHA-256
+`27455a0e126ecfae23d592a58121751c5884a69d9d7388b20195e8b0a121829a`,
+and every SIMD process at all five widths retains
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
+Independent gallery comparisons pass at 48.08 dB RGB PSNR for fallback and
+82.83 dB for SIMD. The two backends use different floating-point paths and are
+not expected to produce identical PNG bytes; same-backend refinement/oracle
+outputs below are byte-identical.
 
 The current path-tracing rows are paired rather than independent medians because
 unrelated host tasks moved the load average during the sweeps. For ordinary
@@ -1215,36 +1224,36 @@ implementation was copied. Luisa's existing consecutive-buffer-read XIR pass
 only joins absolute constant byte offsets and is not a substitute for ISPC's
 dynamic typed-buffer gather coalescing.
 
-A current 32-worker sweep at commit `ff4c6fc776178c08582445a3218e48bdcadf7e93`
-covers all five standalone workloads. Every variant is pinned to logical CPUs
-0--31 and run in seven balanced process rounds. The table reports the paired
-geometric mean and 95% bootstrap interval for `ISPC / Luisa SIMD` at the same
+A current 32-worker sweep including the convergence-token guard covers all
+five standalone workloads. Every variant is pinned to logical CPUs 0--31 and
+run in seven balanced process rounds. The table reports the paired geometric
+mean and 95% log-space Student-t interval for `ISPC / Luisa SIMD` at the same
 semantic width; values above one mean ISPC is faster:
 
 | Workload | W4 AVX2 | W4 AVX-512 | W8 AVX2 | W8 AVX-512 | W16 AVX-512 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Mandelbrot | 0.949x [0.916, 0.983] | 0.955x [0.918, 0.994] | 1.038x [1.013, 1.064] | 1.005x [0.991, 1.020] | 1.107x [1.069, 1.147] |
-| masked stream | 1.074x [1.014, 1.138] | 1.042x [0.969, 1.121] | 1.102x [1.069, 1.136] | 1.050x [0.987, 1.117] | 1.073x [1.032, 1.115] |
-| AoS to SoA | 0.988x [0.881, 1.108] | 0.961x [0.880, 1.049] | 1.087x [1.001, 1.181] | 1.071x [0.973, 1.179] | 1.074x [1.003, 1.151] |
-| GEMM | 0.748x [0.725, 0.771] | 0.752x [0.730, 0.774] | 0.766x [0.742, 0.792] | 0.764x [0.740, 0.788] | 0.818x [0.788, 0.848] |
-| analytic path trace | 3.519x [3.390, 3.653] | 3.373x [3.290, 3.458] | 2.843x [2.720, 2.971] | 2.694x [2.615, 2.776] | 2.602x [2.545, 2.661] |
+| Mandelbrot | 0.922x [0.884, 0.961] | 0.920x [0.893, 0.948] | 1.022x [0.991, 1.054] | 0.996x [0.962, 1.031] | 1.085x [1.065, 1.106] |
+| masked stream | 1.024x [0.967, 1.085] | 1.000x [0.954, 1.049] | 1.022x [0.975, 1.071] | 1.025x [0.989, 1.062] | 1.083x [1.041, 1.127] |
+| AoS to SoA | 1.057x [1.019, 1.097] | 1.080x [1.004, 1.162] | 1.078x [1.031, 1.127] | 1.085x [1.015, 1.161] | 1.089x [1.041, 1.138] |
+| GEMM | 0.761x [0.738, 0.785] | 0.749x [0.725, 0.774] | 0.733x [0.670, 0.802] | 0.759x [0.733, 0.786] | 0.807x [0.773, 0.842] |
+| analytic path trace | 2.578x [2.453, 2.709] | 2.453x [2.356, 2.553] | 2.395x [2.311, 2.483] | 2.262x [2.208, 2.317] | 2.435x [2.380, 2.490] |
 
 Mandelbrot, masked stream, AoS-to-SoA, and GEMM are bit-identical across all
 eight implementations. The asset-free analytic path tracer validates 921,600
 floats per implementation with zero tolerance violations; its maximum absolute
 and relative errors against Luisa W4 are `1.1921e-7` and `2.7532e-7`.
 The Luisa W4/W8/W16 process medians are respectively
-673.720/1,110.479/1,682.167 Mitems/s for Mandelbrot,
-5,616.805/5,299.341/5,381.545 Mitems/s for masked stream,
-2,697.364/2,449.926/2,403.942 Mitems/s for AoS-to-SoA,
-252.469/319.357/394.660 GFLOP/s for GEMM, and
-527.767/879.546/1,097.319 Mitems/s for analytic path tracing.
+703.395/1,107.534/1,695.891 Mitems/s for Mandelbrot,
+6,108.468/5,744.360/5,484.602 Mitems/s for masked stream,
+2,540.107/2,532.796/2,451.777 Mitems/s for AoS-to-SoA,
+258.802/337.834/420.530 GFLOP/s for GEMM, and
+716.155/1,046.258/1,162.998 Mitems/s for analytic path tracing.
 
 The balanced intervals matter on this shared host: several small memory-kernel
 differences include parity, while GEMM and analytic path tracing remain
-unambiguous. Luisa is 22--34% faster than the matched ISPC GEMM variants.
-Mandelbrot is at parity through W8 and trails ISPC by 10.7% at W16. The
-analytic path tracer remains the outlier, with ISPC 2.60--3.52x faster. The
+unambiguous. Luisa is 24--36% faster than the matched ISPC GEMM variants.
+Mandelbrot is at parity through W8 and trails ISPC by 8.5% at W16. The
+analytic path tracer remains the outlier, with ISPC 2.26--2.58x faster. The
 compiler executable is passed explicitly to the standalone runner and remains
 absent from CMake; this sweep excludes fallback so every ratio is a direct
 same-width compiler comparison.
@@ -1418,6 +1427,61 @@ the large gap appears specifically in dynamically varying iteration/control
 and memory patterns. The analytic benchmark does not call Embree and must not
 be presented as the real renderer's traversal comparison.
 
+### Zero-token convergence-cascade guard
+
+The formal scheduler gives token zero one exact meaning: the executing cohort
+has no dynamic convergence frame. The destination-side target-arrival cascade
+is therefore an identity in that state. Codegen now tests `current.token`
+before entering the cascade and returns the incoming mask directly when it is
+zero. After releasing a frame, it also stops when the restored parent token is
+zero instead of executing one guaranteed no-op iteration. Nonzero parents keep
+the full active-frame and target check, including same-target nested cascades.
+`LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD=1` is the same-binary oracle and
+`convergence_token_guards` reports the static guarded destinations.
+
+The analytic path tracer has eight guarded destinations among twelve static
+convergence points. Alternating single-core candidate/oracle processes measured
+the following throughput speedups; intervals are paired 95% log-space
+Student-t intervals:
+
+| Width | speedup | 95% paired CI | wins | candidate/oracle median, Mitems/s |
+| ---: | ---: | ---: | ---: | ---: |
+| W2 | 1.7830x | [1.7725, 1.7936] | 15/15 | 35.576 / 19.993 |
+| W4 | 1.8509x | [1.8453, 1.8566] | 15/15 | 60.247 / 32.584 |
+| W8 | 1.3125x | [1.3008, 1.3243] | 21/21 | 93.397 / 71.424 |
+| W16 | 1.1369x | [1.1322, 1.1418] | 15/15 | 102.768 / 90.381 |
+
+Every process retains checksum `a93089e651f98582`. The exact W8 candidate is
+larger than its oracle: 175,320 versus 166,830 bytes, 3,862 versus 3,697 static
+instructions, 364 versus 345 branches, 1,057 versus 946 stack references, and
+a 5,152- versus 4,960-byte frame. Neither object calls scalar libm. This stage
+is selected by dynamic measurements rather than static size.
+
+Delayed-enable `perf` attribution on the W8 JIT body assigned 36.29% of 248
+pre-change samples to convergence cascades and 21.09% of 147 post-change
+samples to them. Scheduler/ready handling becomes the next visible component
+at 22.45% post-change. Sample shares are diagnostic rather than an independent
+speed estimate; the alternating process gate above supplies that estimate.
+
+The real Voxel renderer uses the same paths heavily. Seven alternating
+64-render processes on 32 workers produced byte-identical candidate/oracle PNGs
+at every width (SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`):
+
+| Width | speedup | 95% paired CI | wins | candidate/oracle median, ms |
+| ---: | ---: | ---: | ---: | ---: |
+| W2 | 1.4890x | [1.4657, 1.5128] | 7/7 | 15.450 / 22.717 |
+| W4 | 1.4242x | [1.3089, 1.5497] | 7/7 | 15.083 / 22.864 |
+| W8 | 1.1892x | [1.1635, 1.2156] | 7/7 | 7.106 / 8.449 |
+| W16 | 1.0847x | [1.0678, 1.1019] | 7/7 | 5.767 / 6.239 |
+
+Ordinary Embree path tracing at 128 spp and one sample per dispatch is much
+less sensitive: W2/W4/W8/W16 measure 1.0437x [1.0207, 1.0672], 1.0101x
+[1.0030, 1.0172], 1.0102x [1.0003, 1.0203], and 1.0037x [0.9945, 1.0131].
+Candidate and oracle images are byte-identical within each width. This is an
+end-to-end renderer result, whereas the ISPC table above remains an
+asset-free analytic compiler comparison.
+
 ## Interpreting widths
 
 W8 is a semantic fixed-vector width, not an AVX-512 contract. On this host LLVM
@@ -1587,3 +1651,14 @@ ordinary path tracer passes its 1024-SPP gallery at
 support. The dedicated candidate/oracle regression covers runtime-coherent
 conditional and indexed control, every successor, partial tails, one-lane
 cohorts, and a genuinely divergent switch at W2/W4/W8/W16.
+
+The zero-token convergence-cascade stage reran the required native-math/
+runtime-width gate plus its focused Schedule-codegen regression (4/4), the
+SIMD-only Release suite (129/129), and the complete SIMD+fallback Release suite
+(140/140). Formatting, diff-check, and clangd syntax checks pass for every
+changed C++ translation unit. Fresh W1/W2/W4/W8/W16 Voxel and image-processing
+gallery comparisons pass at 82.83 and 89.25 dB respectively. Ordinary Embree
+path tracing passes its 1024-SPP gallery at
+35.43/42.78/40.94/39.22/37.80 dB from W1 through W16 and reports native
+Embree 4.4.1 W4/W8/W16 packets enabled. W8 cutout path tracing passes at
+39.58 dB, and non-coroutine SDF W8 passes at 63.13 dB, both at 1024 spp.

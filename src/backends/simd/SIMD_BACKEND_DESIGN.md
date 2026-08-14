@@ -327,6 +327,19 @@ dynamic `extractelement`. W1/W2 retain the vector form: it is smaller there,
 and a measured W2 array experiment did not pass the throughput gate. Both
 forms are target-independent LLVM IR and implement the same checked lookup.
 
+The destination-side cascade first tests the scalar `current.token`. Token
+zero is the root scope and cannot name a dynamic frame, so target arrival is
+the identity on both the flow mask and scheduler state; codegen returns the
+incoming mask without reading or writing any frame arrays. After a completed
+frame restores its parent token, the cascade likewise stops immediately when
+that parent is zero. A nonzero parent still performs the next checked arrival,
+which preserves same-target inner-to-outer release. This removes the common
+no-frame traversal and the guaranteed final no-op iteration without weakening
+the dynamic target check. `LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD=1`
+restores the unconditional bounded cascade as a same-binary oracle, while
+`convergence_token_guards` reports the number of destination cascades carrying
+the refinement.
+
 The first bounded loop-unswitch refinement is implemented before Schedule IR
 construction. It accepts one innermost, positive constant-trip natural loop per
 function, with at most 48 XIR instructions, one preheader/latch/exit edge, and
