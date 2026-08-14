@@ -24,6 +24,11 @@ The latest W16 refinement stores dynamically indexed convergence-frame static
 IDs and parent tokens in scalar LLVM arrays. Narrower widths retain the vector
 representation because paired measurements found it faster there; the frame
 semantics and target-independent IR contract are unchanged.
+The current varying-control refinement versions at most one bounded coherent
+region at W2/W8. A runtime full-packet guard enters a constant-all-on clone;
+partial tails and genuinely mixed control retain the general independent-PC
+scheduler. This is the measured local counterpart of ISPC's front-end all-on
+specialization, not a target-specific LLVM pass or a whole-function clone.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -335,6 +340,47 @@ divergent paths still carry their disjoint successor masks unchanged.
 `LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE=1` restores the derived masks as a
 same-binary oracle, and `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the static
 number of eligible coherent successor edges.
+
+### Bounded full-packet coherent-region versioning
+
+The coherent successor identity alone still enters a Schedule block through
+the scheduler route and preserves its state representation. W2 and W8 may now
+version one eligible successor region per function. After the ordinary
+varying split proves that exactly one arm is nonempty, codegen reduces the
+incoming physical mask. An all-one result enters a clone with constant
+all-ones active mask and lane zero as seed; a partial tail takes the unchanged
+scheduler edge. A genuinely divergent split never reaches this guard.
+
+The candidate is deliberately local and fail-closed. It starts at one arm of
+a varying conditional, joins that conditional's convergence exactly once,
+then follows unconditional edges until the next varying split. The convergence
+target must belong to exactly one static convergence point, and loop backs,
+foreign joins, repeated blocks, memory/calls/effects, and a terminal
+predicated-memory diamond are rejected. The clone contains at most four
+Schedule blocks and weighted cost twenty-four. Only one arm is cloned; the
+lower-cost arm wins and equal costs prefer the canonical false/miss arm. At
+most the first eligible region in Schedule source order is accepted. W8 also
+requires at least three blocks to amortize the full-mask test and duplicated
+CFG; W2 admits its structurally minimal two-block form. W4 regressed and W16
+was inconclusive in paired width ablations, so both retain the oracle path.
+
+This is branch splitting, not speculative if-conversion. No instruction from
+the untaken arm executes, no region instruction moves before its controlling
+condition, and the full-mask guard proves there is no inactive physical lane
+inside the clone. The original region edge assignments and next varying split
+are emitted normally. The unique-target proof makes the unallocated coherent
+convergence gate an identity; every shape outside that proof uses the general
+scheduler. `LUISA_SIMD_DISABLE_ALL_ON_REGION_VERSIONING=1` is the same-binary
+oracle. The optimization report exposes `all_on_region_versions`,
+`all_on_region_blocks`, and `all_on_region_instructions`.
+
+The retained W8 analytic path-trace clone covers four blocks and eight
+instructions and improves fifteen paired single-worker runs by 1.0343x. A
+two-block/four-instruction Voxel clone regressed W8 and is now rejected; its
+candidate and oracle assembly/object are byte-identical. W2 keeps that Voxel
+clone and improves fifteen 32-worker pairs by 1.0185x. Exact distributions,
+the rejected broader experiments, and the remaining ISPC gap are recorded in
+[`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
 
 For a genuinely divergent binary split, the ordinary LIFO sequence pushes the
 true record, pushes the false record, and immediately pops that same false

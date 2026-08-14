@@ -898,6 +898,137 @@ make_runtime_coherent_branch(uint32_t width) {
 }
 
 [[nodiscard]] std::optional<schedule::Function>
+make_coherent_all_on_region(uint32_t width,
+                            bool divergent_entry,
+                            bool short_region = false) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("coherent_all_on_region");
+    auto *entry = kernel->create_body_block();
+    auto *true_arm = kernel->create_basic_block();
+    auto *false_arm = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    auto *next_test = short_region ?
+                          nullptr :
+                          kernel->create_basic_block();
+    auto *next_true = kernel->create_basic_block();
+    auto *next_false = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    entry->set_name("all_on_entry");
+    true_arm->set_name("all_on_expensive_arm");
+    false_arm->set_name("all_on_cheap_arm");
+    merge->set_name("all_on_merge");
+    if (next_test != nullptr) {
+        next_test->set_name("all_on_next_test");
+    }
+    next_true->set_name("all_on_next_true");
+    next_false->set_name("all_on_next_false");
+    exit->set_name("all_on_exit");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto two_value = uint32_t{2u};
+    auto ten_value = uint32_t{10u};
+    auto thousand_value = uint32_t{1000u};
+    auto two_thousand_value = uint32_t{2000u};
+    auto half_value = std::max(1u, width / 2u);
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    auto *ten = module.create_constant(
+        Type::of<uint32_t>(), &ten_value);
+    auto *thousand = module.create_constant(
+        Type::of<uint32_t>(), &thousand_value);
+    auto *two_thousand = module.create_constant(
+        Type::of<uint32_t>(), &two_thousand_value);
+    auto *half = module.create_constant(
+        Type::of<uint32_t>(), &half_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *selector = static_cast<xir::Value *>(lane);
+    if (!divergent_entry) {
+        selector = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+            {dispatch_id, one});
+    }
+    auto *condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {selector, half});
+    builder.cond_br(condition, true_arm, false_arm);
+
+    builder.set_insertion_point(true_arm);
+    auto *true_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_DIV,
+        {lane, two});
+    builder.br(merge);
+
+    builder.set_insertion_point(false_arm);
+    auto *false_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, ten});
+    builder.br(merge);
+
+    builder.set_insertion_point(merge);
+    auto *selected = builder.phi(
+        Type::of<uint32_t>(),
+        {{true_result, true_arm}, {false_result, false_arm}});
+    auto *advanced = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {selected, one});
+    if (next_test != nullptr) {
+        builder.br(next_test);
+        builder.set_insertion_point(next_test);
+    }
+    auto *next_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {lane, half});
+    builder.cond_br(next_condition, next_true, next_false);
+
+    builder.set_insertion_point(next_true);
+    auto *upper = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {advanced, thousand});
+    builder.br(exit);
+
+    builder.set_insertion_point(next_false);
+    auto *lower = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {advanced, two_thousand});
+    builder.br(exit);
+
+    builder.set_insertion_point(exit);
+    auto *result = builder.phi(
+        Type::of<uint32_t>(),
+        {{upper, next_true}, {lower, next_false}});
+    result->set_name("all_on_region_result");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> result_id;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "all_on_region_result") {
+            result_id = value.id;
+        }
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "all_on_exit") {
+            block.terminator = schedule::ReturnTerminator{result_id};
+        }
+    }
+    if (!result_id ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
 make_varying_switch(uint32_t width,
                     bool runtime_coherent = false) {
     xir::Module module;
@@ -2331,6 +2462,115 @@ template<size_t Width>
                 }
             }
         }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_coherent_all_on_region_codegen() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        for (auto divergent_entry : {false, true}) {
+            auto schedule_function = make_coherent_all_on_region(
+                width, divergent_entry);
+            CHECK(schedule_function.has_value());
+            for (auto disable_versioning : {false, true}) {
+                ScopedEnvironmentVariable disable{
+                    "LUISA_SIMD_DISABLE_ALL_ON_REGION_VERSIONING",
+                    disable_versioning ? "1" : nullptr};
+                auto context = std::make_unique<::llvm::LLVMContext>();
+                auto module = std::make_unique<::llvm::Module>(
+                    "simd-coherent-all-on-region", *context);
+                auto name = std::string{"simd_all_on_region_w"} +
+                            std::to_string(width) +
+                            (divergent_entry ? "_divergent" : "_coherent") +
+                            (disable_versioning ? "_oracle" : "_candidate");
+                auto codegen = lower_schedule_to_llvm(
+                    *module, *schedule_function, width, name);
+                if (!codegen.succeeded()) {
+                    std::cerr << codegen.error << '\n';
+                    return false;
+                }
+                auto enabled = width == 2u || width == 8u;
+                CHECK(codegen.all_on_region_version_count ==
+                      (disable_versioning || !enabled ? 0u : 1u));
+                CHECK(codegen.all_on_region_block_count ==
+                      (disable_versioning || !enabled ? 0u : 3u));
+                CHECK(codegen.all_on_region_instruction_count ==
+                      (disable_versioning || !enabled ? 0u : 3u));
+                CHECK(!codegen.direct_control_flow);
+                CHECK(!::llvm::verifyModule(
+                    *module, &::llvm::errs()));
+                std::string ir;
+                ::llvm::raw_string_ostream stream{ir};
+                module->print(stream, nullptr);
+                stream.flush();
+                CHECK((ir.find("all.on.region.version") !=
+                       std::string::npos) ==
+                      (!disable_versioning && enabled));
+
+                LLVMJIT jit;
+                CHECK(jit.succeeded());
+                CHECK(jit.add_module(
+                    std::move(module), std::move(context)));
+                using Entry = void(
+                    const void *, uint32_t *,
+                    const SIMDPacketLaunchConfig *, uint32_t);
+                auto function = reinterpret_cast<Entry *>(
+                    jit.lookup(name));
+                CHECK(function != nullptr);
+                auto half = std::max(1u, width / 2u);
+                for (auto selector : {0u, width}) {
+                    for (auto active_lanes :
+                         {width, std::max(1u, width - 1u), 1u}) {
+                        std::vector<uint32_t> output(
+                            width, 0xdeadbeefu);
+                        auto config = launch_1d(
+                            active_lanes, width);
+                        config.block_id[1u] = selector;
+                        config.dispatch_size[1u] = width + 1u;
+                        function(
+                            nullptr, output.data(),
+                            &config, active_lanes);
+                        for (auto lane = uint32_t{0u};
+                             lane < width; lane++) {
+                            if (lane >= active_lanes) {
+                                CHECK(output[lane] == 0xdeadbeefu);
+                                continue;
+                            }
+                            auto first_true = divergent_entry ?
+                                                  lane < half :
+                                                  selector < half;
+                            auto base = first_true ?
+                                            lane / 2u :
+                                            lane + 10u;
+                            auto expected = base + 1u +
+                                            (lane < half ? 1000u :
+                                                           2000u);
+                            CHECK(output[lane] == expected);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // The fixed all-on test and code clone do not amortize over a two-block
+    // W8 region. W2 retains that case because its paired Voxel measurements
+    // are profitable; W8 must fail closed to the scheduler oracle.
+    for (auto width : {2u, 8u}) {
+        auto schedule_function = make_coherent_all_on_region(
+            width, false, true);
+        CHECK(schedule_function.has_value());
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(
+            "simd-short-coherent-all-on-region", *context);
+        auto codegen = lower_schedule_to_llvm(
+            *module, *schedule_function, width,
+            "simd_short_all_on_region_w" +
+                std::to_string(width));
+        CHECK(codegen.succeeded());
+        CHECK(codegen.all_on_region_version_count ==
+              (width == 2u ? 1u : 0u));
+        CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
     }
     return true;
 }
@@ -7275,6 +7515,8 @@ int main() {
         {"varying switch convergence", &run_varying_switch_codegen},
         {"runtime coherent varying control",
          &run_runtime_coherent_control_codegen},
+        {"coherent all-on region versioning",
+         &run_coherent_all_on_region_codegen},
         {"scalar switch loop exits",
          &run_switch_loop_exits_codegen<1u>},
         {"switch loop exits", &run_switch_loop_exits_codegen<8u>},

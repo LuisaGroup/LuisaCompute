@@ -577,6 +577,60 @@ W2/W4/W8/W16 inactive tails, nesting under an outer scheduled convergence,
 volatile and division rejection, the W1 path, optimized assembly with no stack
 frame, and runtime counters for accepted diamonds/instructions.
 
+### 4.4.2 Full-packet coherent-region versioning
+
+Schedule-to-LLVM may duplicate one short successor region when a runtime-
+coherent varying conditional is also a physically full packet. Let `A` be the
+nonempty incoming mask and `T = A & C`, `F = A & !C`. The existing coherent
+path proves exactly one of `T` and `F` is nonempty and therefore that its
+selected successor mask equals `A`. The additional guard is
+
+```text
+all_on = and.reduce(A)
+```
+
+If `all_on` is true, `A` is the all-one mask and the selected region may use a
+constant all-one mask plus seed lane zero. If it is false, including every
+partial tail, the original scheduler edge executes. The genuinely divergent
+path does not evaluate this guard and retains its convergence frame and
+worklist records.
+
+An eligible region must satisfy all of the following:
+
+- W2 or W8; at most one region per function, chosen in Schedule source order;
+- one arm of a varying conditional with a declared convergence, a clean
+  non-loop entry edge, and exactly one static convergence point targeting its
+  merge;
+- an acyclic, nonrepeating chain that joins exactly that convergence once and
+  ends at the next varying conditional after at most four blocks;
+- no foreign convergence target, loop back, memory, call, side effect, or
+  terminal predicated-memory diamond;
+- only the audited arithmetic/static-cast/bit-cast whitelist, no more than
+  twenty-four weighted 32-bit register units;
+- at least three blocks at W8. The structurally minimal two-block form remains
+  legal only at W2.
+
+If both arms qualify, codegen clones only the lower-cost one and breaks a tie
+toward the false/miss arm. The cloned region routes every original edge and
+assignment under the proven all-one mask. The coherent root did not allocate
+the conditional's convergence frame; the unique-target condition therefore
+makes its join gate an identity and prevents accidentally skipping a foreign
+same-target frame. The final varying split uses normal scheduler lowering with
+recursive region versioning disabled.
+
+This transformation does not speculate an instruction: the other arm never
+executes, every physical lane in the clone was active in the source cohort,
+and no operation crosses its controlling branch. Consequently it neither
+extends an arithmetic domain nor creates an inactive-lane memory/poison
+observation. All rejected, partial-tail, and mixed cases preserve the original
+independent-PC path.
+
+`LUISA_SIMD_DISABLE_ALL_ON_REGION_VERSIONING=1` is the differential oracle.
+`LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports accepted region, block, and
+instruction counts. Permanent W2/W4/W8/W16 codegen coverage executes coherent
+and genuinely divergent inputs with full, partial-tail, and one-lane masks;
+it also fixes the W8 three-block minimum and W2 two-block exception.
+
 ### 4.5 Bounded loop-unswitch refinement
 
 The production SIMD compiler may replace a repeated internal conditional with

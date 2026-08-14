@@ -235,6 +235,9 @@ SIMDShader::SIMDShader(
             "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
             "cloned_instructions={}, merged_live_outs={}, "
             "coherent_mask_reuses={}, "
+            "all_on_region_versions={}, "
+            "all_on_region_blocks={}, "
+            "all_on_region_instructions={}, "
             "convergence_token_guards={}, "
             "return_frame_guards={}, "
             "direct_divergent_children={}, "
@@ -266,6 +269,9 @@ SIMDShader::SIMDShader(
             _compiled.unswitched_cloned_instruction_count,
             _compiled.unswitched_live_out_count,
             _compiled.coherent_mask_reuse_count,
+            _compiled.all_on_region_version_count,
+            _compiled.all_on_region_block_count,
+            _compiled.all_on_region_instruction_count,
             _compiled.convergence_token_guard_count,
             _compiled.return_frame_guard_count,
             _compiled.direct_divergent_child_count,

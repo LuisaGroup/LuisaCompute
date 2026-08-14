@@ -480,6 +480,9 @@ struct LLVMScheduleCodegenResult {
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
     size_t coherent_mask_reuse_count{0u};
+    size_t all_on_region_version_count{0u};
+    size_t all_on_region_block_count{0u};
+    size_t all_on_region_instruction_count{0u};
     size_t convergence_token_guard_count{0u};
     size_t return_frame_guard_count{0u};
     size_t direct_divergent_child_count{0u};

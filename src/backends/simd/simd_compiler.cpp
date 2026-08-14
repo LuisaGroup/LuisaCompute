@@ -162,6 +162,12 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.predicated_memory_instruction_count;
     result.coherent_mask_reuse_count =
         llvm_result.coherent_mask_reuse_count;
+    result.all_on_region_version_count =
+        llvm_result.all_on_region_version_count;
+    result.all_on_region_block_count =
+        llvm_result.all_on_region_block_count;
+    result.all_on_region_instruction_count =
+        llvm_result.all_on_region_instruction_count;
     result.convergence_token_guard_count =
         llvm_result.convergence_token_guard_count;
     result.return_frame_guard_count =

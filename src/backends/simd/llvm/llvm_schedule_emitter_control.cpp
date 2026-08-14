@@ -572,7 +572,8 @@ void ScheduleEmitter::_emit_arrival(const schedule::ControlEdge &edge,
 }
 
 void ScheduleEmitter::_emit_terminator(
-    const schedule::BasicBlock &block) {
+    const schedule::BasicBlock &block,
+    bool allow_all_on_region_versioning) {
     if (auto diamond = _find_predicated_memory_diamond(block)) {
         auto *split = std::get_if<schedule::SplitTerminator>(
             &block.terminator);
@@ -606,6 +607,26 @@ void ScheduleEmitter::_emit_terminator(
                 }
                 if (condition_value->value_class ==
                     schedule::ValueClass::varying) {
+                    auto true_region = allow_all_on_region_versioning ?
+                                           _find_coherent_all_on_region(
+                                               control, control.true_edge) :
+                                           std::nullopt;
+                    auto false_region = allow_all_on_region_versioning ?
+                                            _find_coherent_all_on_region(
+                                                control,
+                                                control.false_edge) :
+                                            std::nullopt;
+                    // Clone at most one arm per split. Prefer the lower-cost
+                    // arm and break ties toward false, which is the canonical
+                    // miss/skip shape produced by the DSL frontend.
+                    if (true_region && false_region) {
+                        if (true_region->weighted_cost <
+                            false_region->weighted_cost) {
+                            false_region.reset();
+                        } else {
+                            true_region.reset();
+                        }
+                    }
                     if (reuse_coherent_mask) {
                         _result.coherent_mask_reuse_count += 2u;
                     }
@@ -677,18 +698,55 @@ void ScheduleEmitter::_emit_terminator(
                             "varying.coherent.false", _entry);
                     _builder.CreateCondBr(
                         true_nonempty, true_path, false_path);
+                    auto *outer_mask = _active_mask;
+                    auto *outer_seed = _seed_lane;
+                    auto outer_locals = _locals;
+                    auto emit_coherent_edge =
+                        [&](const schedule::ControlEdge &edge,
+                            ::llvm::Value *derived_mask,
+                            const std::optional<CoherentAllOnRegion> &region) {
+                            _active_mask = outer_mask;
+                            _seed_lane = outer_seed;
+                            _locals = outer_locals;
+                            auto *flow_mask = reuse_coherent_mask ?
+                                                  outer_mask :
+                                                  derived_mask;
+                            if (!region) {
+                                _emit_arrival(edge, flow_mask);
+                                return;
+                            }
+                            auto *version = ::llvm::BasicBlock::Create(
+                                _module.getContext(),
+                                "all.on.region.version", _entry);
+                            auto *fallback = ::llvm::BasicBlock::Create(
+                                _module.getContext(),
+                                "all.on.region.fallback", _entry);
+                            auto *all_on =
+                                _builder.CreateAndReduce(outer_mask);
+                            _builder.CreateCondBr(
+                                all_on, version, fallback);
+
+                            _builder.SetInsertPoint(fallback);
+                            _active_mask = outer_mask;
+                            _seed_lane = outer_seed;
+                            _locals = outer_locals;
+                            _emit_arrival(edge, flow_mask);
+
+                            _builder.SetInsertPoint(version);
+                            _active_mask = outer_mask;
+                            _seed_lane = outer_seed;
+                            _locals = outer_locals;
+                            _emit_coherent_all_on_region(edge, *region);
+                        };
                     _builder.SetInsertPoint(true_path);
-                    _emit_arrival(
-                        control.true_edge,
-                        reuse_coherent_mask ?
-                            _active_mask :
-                            true_mask);
+                    emit_coherent_edge(
+                        control.true_edge, true_mask, true_region);
                     _builder.SetInsertPoint(false_path);
-                    _emit_arrival(
-                        control.false_edge,
-                        reuse_coherent_mask ?
-                            _active_mask :
-                            false_mask);
+                    emit_coherent_edge(
+                        control.false_edge, false_mask, false_region);
+                    _active_mask = outer_mask;
+                    _seed_lane = outer_seed;
+                    _locals = std::move(outer_locals);
                 } else {
                     auto *true_path = ::llvm::BasicBlock::Create(
                         _module.getContext(), "uniform.true", _entry);

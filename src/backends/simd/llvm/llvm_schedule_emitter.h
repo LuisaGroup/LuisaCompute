@@ -141,6 +141,12 @@ private:
         size_t instruction_count{0u};
     };
 
+    struct CoherentAllOnRegion {
+        std::vector<const schedule::BasicBlock *> blocks{};
+        size_t instruction_count{0u};
+        size_t weighted_cost{0u};
+    };
+
 private:
     void _fail(std::string message);
     [[nodiscard]] bool _failed() const noexcept;
@@ -417,7 +423,16 @@ private:
         const schedule::SplitTerminator &control,
         const PredicatedMemoryDiamond &diamond,
         const std::vector<::llvm::BasicBlock *> *direct_blocks);
-    void _emit_terminator(const schedule::BasicBlock &block);
+    [[nodiscard]] std::optional<CoherentAllOnRegion>
+    _find_coherent_all_on_region(
+        const schedule::SplitTerminator &control,
+        const schedule::ControlEdge &entry_edge) const noexcept;
+    void _emit_coherent_all_on_region(
+        const schedule::ControlEdge &entry_edge,
+        const CoherentAllOnRegion &region);
+    void _emit_terminator(
+        const schedule::BasicBlock &block,
+        bool allow_all_on_region_versioning = true);
     void _emit_direct_terminator(
         const schedule::BasicBlock &block,
         const std::vector<::llvm::BasicBlock *> &blocks);

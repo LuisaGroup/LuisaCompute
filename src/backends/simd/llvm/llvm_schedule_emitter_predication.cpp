@@ -2,6 +2,8 @@
 
 #include "../../common/env_flag.h"
 
+#include <algorithm>
+
 namespace luisa::compute::simd::detail {
 
 [[nodiscard]] std::optional<ScheduleEmitter::PredicatedMemoryDiamond>
@@ -280,6 +282,237 @@ void ScheduleEmitter::_emit_predicated_memory_diamond(
         _builder.CreateBr((*direct_blocks)[diamond.merge.value]);
     } else {
         _continue_at(diamond.merge, outer_mask);
+    }
+}
+
+[[nodiscard]] std::optional<ScheduleEmitter::CoherentAllOnRegion>
+ScheduleEmitter::_find_coherent_all_on_region(
+    const schedule::SplitTerminator &control,
+    const schedule::ControlEdge &entry_edge) const noexcept {
+    static constexpr auto max_block_count = size_t{4u};
+    static constexpr auto max_weighted_cost = size_t{24u};
+    static constexpr auto max_region_count = size_t{1u};
+    static constexpr auto min_w8_block_count = size_t{3u};
+    auto enabled_width = _width == 2u || _width == 8u;
+    if (_result.all_on_region_version_count >= max_region_count ||
+        !enabled_width || !control.convergence ||
+        entry_edge.loop_back || !entry_edge.joins.empty() ||
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_ALL_ON_REGION_VERSIONING")) {
+        return std::nullopt;
+    }
+    auto *condition = _source.value(control.condition);
+    auto *point = _source.convergence(*control.convergence);
+    if (condition == nullptr ||
+        condition->value_class != schedule::ValueClass::varying ||
+        point == nullptr ||
+        point->target.value >= _target_convergence_depths.size() ||
+        _target_convergence_depths[point->target.value] != 1u) {
+        return std::nullopt;
+    }
+
+    auto cheap_arithmetic = [](xir::ArithmeticOp op) noexcept {
+        switch (op) {
+            case xir::ArithmeticOp::UNARY_MINUS:
+            case xir::ArithmeticOp::UNARY_BIT_NOT:
+            case xir::ArithmeticOp::BINARY_ADD:
+            case xir::ArithmeticOp::BINARY_SUB:
+            case xir::ArithmeticOp::BINARY_MUL:
+            case xir::ArithmeticOp::BINARY_BIT_AND:
+            case xir::ArithmeticOp::BINARY_BIT_OR:
+            case xir::ArithmeticOp::BINARY_BIT_XOR:
+            case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
+            case xir::ArithmeticOp::BINARY_SHIFT_RIGHT:
+            case xir::ArithmeticOp::BINARY_ROTATE_LEFT:
+            case xir::ArithmeticOp::BINARY_ROTATE_RIGHT:
+            case xir::ArithmeticOp::BINARY_LESS:
+            case xir::ArithmeticOp::BINARY_GREATER:
+            case xir::ArithmeticOp::BINARY_LESS_EQUAL:
+            case xir::ArithmeticOp::BINARY_GREATER_EQUAL:
+            case xir::ArithmeticOp::BINARY_EQUAL:
+            case xir::ArithmeticOp::BINARY_NOT_EQUAL:
+            case xir::ArithmeticOp::ALL:
+            case xir::ArithmeticOp::ANY:
+            case xir::ArithmeticOp::SELECT:
+            case xir::ArithmeticOp::CLAMP:
+            case xir::ArithmeticOp::SATURATE:
+            case xir::ArithmeticOp::LERP:
+            case xir::ArithmeticOp::STEP:
+            case xir::ArithmeticOp::ABS:
+            case xir::ArithmeticOp::MIN:
+            case xir::ArithmeticOp::MAX:
+            case xir::ArithmeticOp::CLZ:
+            case xir::ArithmeticOp::CTZ:
+            case xir::ArithmeticOp::POPCOUNT:
+            case xir::ArithmeticOp::REVERSE:
+            case xir::ArithmeticOp::ISINF:
+            case xir::ArithmeticOp::ISNAN:
+            case xir::ArithmeticOp::FMA:
+            case xir::ArithmeticOp::COPYSIGN:
+            case xir::ArithmeticOp::CROSS:
+            case xir::ArithmeticOp::DOT:
+            case xir::ArithmeticOp::LENGTH_SQUARED:
+            case xir::ArithmeticOp::FACEFORWARD:
+            case xir::ArithmeticOp::REFLECT:
+            case xir::ArithmeticOp::REDUCE_SUM:
+            case xir::ArithmeticOp::REDUCE_PRODUCT:
+            case xir::ArithmeticOp::REDUCE_MIN:
+            case xir::ArithmeticOp::REDUCE_MAX:
+            case xir::ArithmeticOp::AGGREGATE:
+            case xir::ArithmeticOp::SHUFFLE:
+            case xir::ArithmeticOp::INSERT:
+            case xir::ArithmeticOp::EXTRACT: return true;
+            default: return false;
+        }
+    };
+    auto instruction_cost = [&](const schedule::Instruction &instruction) {
+        if (instruction.opcode == schedule::Opcode::arithmetic &&
+            instruction.source_op &&
+            cheap_arithmetic(static_cast<xir::ArithmeticOp>(
+                *instruction.source_op))) {
+            auto *result = instruction.result ?
+                               _source.value(*instruction.result) :
+                               nullptr;
+            auto units = result == nullptr || result->type == nullptr ?
+                             size_t{1u} :
+                             std::max(
+                                 size_t{1u},
+                                 (_abi_size(result->type) + 3u) / 4u);
+            auto op = static_cast<xir::ArithmeticOp>(
+                *instruction.source_op);
+            if ((op == xir::ArithmeticOp::DOT ||
+                 op == xir::ArithmeticOp::CROSS ||
+                 op == xir::ArithmeticOp::LENGTH_SQUARED) &&
+                !instruction.operands.empty()) {
+                auto *operand = _source.value(
+                    instruction.operands.front());
+                if (operand != nullptr && operand->type != nullptr) {
+                    units = std::max(
+                        units,
+                        std::max(
+                            size_t{1u},
+                            (_abi_size(operand->type) + 3u) / 4u));
+                }
+            }
+            return std::optional<size_t>{units};
+        }
+        if (instruction.opcode == schedule::Opcode::cast &&
+            instruction.source_op) {
+            auto op = static_cast<xir::CastOp>(*instruction.source_op);
+            if (op == xir::CastOp::STATIC_CAST ||
+                op == xir::CastOp::BITWISE_CAST) {
+                auto *result = instruction.result ?
+                                   _source.value(*instruction.result) :
+                                   nullptr;
+                return std::optional<size_t>{
+                    result == nullptr || result->type == nullptr ?
+                        size_t{1u} :
+                        std::max(
+                            size_t{1u},
+                            (_abi_size(result->type) + 3u) / 4u)};
+            }
+        }
+        return std::optional<size_t>{};
+    };
+
+    CoherentAllOnRegion region;
+    std::vector<bool> visited(_source.blocks().size(), false);
+    auto current = entry_edge.target;
+    auto joined = false;
+    while (region.blocks.size() < max_block_count) {
+        if (current.value >= visited.size() || visited[current.value]) {
+            return std::nullopt;
+        }
+        visited[current.value] = true;
+        auto *candidate = _source.block(current);
+        if (candidate == nullptr) { return std::nullopt; }
+        if (current == point->target) {
+            if (!joined) { return std::nullopt; }
+        } else if (current.value < _target_convergence_depths.size() &&
+                   _target_convergence_depths[current.value] != 0u) {
+            return std::nullopt;
+        }
+        for (auto &&instruction : candidate->instructions) {
+            auto cost = instruction_cost(instruction);
+            if (!cost || region.weighted_cost + *cost >
+                             max_weighted_cost) {
+                return std::nullopt;
+            }
+            region.weighted_cost += *cost;
+            region.instruction_count++;
+        }
+        region.blocks.emplace_back(candidate);
+
+        if (auto *split = std::get_if<schedule::SplitTerminator>(
+                &candidate->terminator)) {
+            auto *next_condition = _source.value(split->condition);
+            if (!joined || next_condition == nullptr ||
+                next_condition->value_class !=
+                    schedule::ValueClass::varying) {
+                return std::nullopt;
+            }
+            // The cloned region ends at this split. Do not let its generic
+            // terminator lowering absorb a following memory diamond beyond
+            // the block/cost budget recorded here.
+            if (_find_predicated_memory_diamond(*candidate)) {
+                return std::nullopt;
+            }
+            // The all-on test and the cloned CFG have a fixed cost. Paired
+            // measurements show that W8 does not amortize that cost over a
+            // two-block region, while W2 does. Keep this structural and
+            // fail-closed: W8 needs at least one additional scheduler edge.
+            if (_width == 8u &&
+                region.blocks.size() < min_w8_block_count) {
+                return std::nullopt;
+            }
+            return region;
+        }
+        auto *branch = std::get_if<schedule::BranchTerminator>(
+            &candidate->terminator);
+        if (branch == nullptr || branch->edge.loop_back) {
+            return std::nullopt;
+        }
+        if (!branch->edge.joins.empty()) {
+            if (joined || branch->edge.joins.size() != 1u ||
+                branch->edge.joins.front() != *control.convergence ||
+                branch->edge.target != point->target) {
+                return std::nullopt;
+            }
+            joined = true;
+        }
+        current = branch->edge.target;
+    }
+    return std::nullopt;
+}
+
+void ScheduleEmitter::_emit_coherent_all_on_region(
+    const schedule::ControlEdge &entry_edge,
+    const CoherentAllOnRegion &region) {
+    auto *all_on = ::llvm::Constant::getAllOnesValue(
+        _layout.mask_type());
+    _active_mask = all_on;
+    _seed_lane = _builder.getInt32(0u);
+    if (_route_edge(entry_edge, all_on) == nullptr) { return; }
+    _result.all_on_region_version_count++;
+    _result.all_on_region_block_count += region.blocks.size();
+    _result.all_on_region_instruction_count += region.instruction_count;
+    for (auto i = size_t{0u}; i < region.blocks.size(); i++) {
+        auto *block = region.blocks[i];
+        for (auto &&instruction : block->instructions) {
+            _emit_instruction(instruction);
+            if (_failed()) { return; }
+        }
+        if (i + 1u == region.blocks.size()) {
+            _emit_terminator(*block, false);
+            return;
+        }
+        auto *branch = std::get_if<schedule::BranchTerminator>(
+            &block->terminator);
+        if (branch == nullptr ||
+            _route_edge(branch->edge, all_on) == nullptr) {
+            _fail("invalid coherent all-on region during LLVM emission");
+            return;
+        }
     }
 }
 

@@ -34,6 +34,10 @@ The newest scheduler stage reuses the incoming active-mask SSA value after a
 runtime-coherent varying branch or switch proves that its selected successor
 mask is identical. This preserves all-on/partial-tail identity across the hot
 edge without changing the genuinely divergent scheduler path.
+The current control stage additionally versions one bounded coherent region at
+W2/W8 when the complete physical packet is active. A measured W8 three-block
+minimum excludes a regressing Voxel fragment, while W2 retains its profitable
+two-block form; partial tails and mixed cohorts use the unchanged scheduler.
 The current convergence stage bypasses destination-side frame traversal when
 the scalar current token is zero and stops a completed cascade as soon as it
 restores the root token. Both shortcuts are exact refinements of the formal
@@ -1569,6 +1573,77 @@ all-on/mixed region versioning or branch splitting that shortens dynamic state
 live ranges without speculating expensive `sqrt`/division work or cloning an
 entire function.
 
+### Bounded coherent all-on region versioning
+
+The retained follow-up implements that target as one local branch split. On a
+runtime-coherent varying arm it first proves that the incoming physical packet
+mask is all one. Only that path clones an acyclic arm-to-convergence-to-next-
+split chain under a constant all-one mask. Partial tails and genuinely mixed
+packets retain the independent-PC scheduler. The finder accepts no more than
+four blocks and twenty-four weighted register units, rejects memory, calls,
+effects, loops, foreign/same-target ambiguity, and a terminal predicated-
+memory diamond, and versions at most one arm in one region per function. This
+is independently authored from ISPC's behavior; no ISPC source was copied.
+
+A first broad W8 experiment cloned five regions (17 blocks, 28 instructions).
+It increased static assembly from 3,085 to 3,395 instructions, branches from
+379 to 432, stack references from 639 to 668, and the frame from 3,136 to
+3,648 bytes. Fifteen alternating single-core pairs measured 0.9871x
+[0.9821, 0.9921], with one win. That whole-kernel policy was rejected.
+Limiting the transform to the first eligible region leaves the analytic W8
+miss path at four blocks/eight instructions. Its assembly is 3,152 versus
+3,085 instructions, 390 versus 379 branches, 646 versus 639 stack references,
+and a 3,232- versus 3,136-byte frame; both objects have zero calls and zero
+scalar-math symbols. Despite the small static growth, the constant-mask clone
+shortens the dynamically hot scheduler path.
+
+The initial one-region width ablation selected the production widths:
+
+| Width | candidate/oracle speedup | 95% paired CI | wins | decision |
+| ---: | ---: | ---: | ---: | --- |
+| W2 | 1.0294x | [1.0269, 1.0320] | 15/15 | enable |
+| W4 | 0.9932x | [0.9901, 0.9963] | 1/15 | reject |
+| W8 | 1.0311x | [1.0296, 1.0326] | 15/15 | enable |
+| W16 | 1.0102x | [0.9929, 1.0278] | 7/15 | reject as inconclusive |
+
+After adding the real-workload profitability boundary, the final analytic
+path-trace gate used fifteen alternating candidate/oracle processes pinned to
+CPU 6. Each process reported the median of seven samples and retained checksum
+`a93089e651f98582`:
+
+| Width | speedup | 95% paired log-space CI | wins |
+| ---: | ---: | ---: | ---: |
+| W2 | 1.0294x | [1.0258, 1.0330] | 15/15 |
+| W8 | 1.0343x | [1.0307, 1.0380] | 15/15 |
+
+The real Voxel gate exposed the fixed-cost boundary. Its W8 candidate covered
+only two blocks/four instructions and regressed seven 64-render pairs to
+0.9826x [0.9778, 0.9875], with zero wins. Production W8 therefore requires at
+least three blocks. The same two-block region is profitable at W2 and remains
+enabled. The final fifteen-pair, 32-worker Voxel sweep is:
+
+| Width | accepted regions | speedup | 95% paired CI | wins |
+| ---: | ---: | ---: | ---: | ---: |
+| W2 | 1 (2 blocks, 4 instructions) | 1.0185x | [1.0130, 1.0240] | 15/15 |
+| W8 | 0 | 0.9942x | [0.9854, 1.0030] | 6/15 |
+
+All candidate/oracle Voxel images are byte-identical with SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
+For W8 the candidate/oracle assembly and object are also byte-identical, so
+the interval crossing parity is host noise rather than a generated-code
+regression. Ordinary Embree path tracing and image processing likewise report
+zero regions and have byte-identical candidate/oracle assembly and objects.
+Cutout path tracing, SDF, shader toy, procedural rendering, and blackhole were
+also audited and report zero regions at W8.
+
+This recovers only a bounded part of ISPC's broader mechanism. A fresh
+fifteen-pair same-algorithm comparison after this change still has ISPC ahead
+of Luisa W8 by 1.6802x [1.6763, 1.6842] for AVX2 i32x8 and 1.5654x
+[1.5627, 1.5681] for AVX-512 x8. The remaining gap is consistent with ISPC's
+whole structured mask CFG and register-resident live state; the local Luisa
+clone deliberately does not duplicate arbitrary loops, memory regions, or the
+complete function.
+
 ### Zero-token convergence-cascade guard
 
 The formal scheduler gives token zero one exact meaning: the executing cohort
@@ -2186,3 +2261,18 @@ tracers report native Embree 4.4.1 W4/W8/W16 packet support, and the final
 backend dynamically references every `rtcIntersect4/8/16` and
 `rtcOccluded4/8/16` entry. Outputs remained in a temporary directory and no
 gallery reference was regenerated or modified.
+
+The bounded coherent-all-on-region stage completed a fresh full Release build,
+the required native-math/fallback-math/runtime-width gate (3/3), its focused
+Schedule-codegen executable, the combined SIMD/XIR/runtime/graphics gate
+(88/88), and the complete configured suite (140/140). Clang-format and diff
+checks pass for every changed C++ translation unit. The permanent regression
+covers W2/W4/W8/W16, coherent and mixed entry conditions, full/partial/one-lane
+masks, inactive sentinels, the W8 three-block profitability minimum, and the W2
+two-block exception. Fresh W1/W2/W4/W8/W16 Voxel and image-processing gallery
+comparisons pass at 82.834519 and 89.251953 dB. Ordinary 1024-spp Embree path
+tracing passes at 35.426800/42.781833/40.940546/39.219375/37.801767 dB from
+W1 through W16; W8 cutout and non-coroutine SDF pass at 44.167099 and
+63.129346 dB. Both path tracers report native Embree 4.4.1 W4/W8/W16 packet
+support. Outputs remained in `/tmp`, and no gallery reference was regenerated
+or modified.
