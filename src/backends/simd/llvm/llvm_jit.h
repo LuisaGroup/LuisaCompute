@@ -71,6 +71,11 @@ public:
     // remains available when this returns false.
     [[nodiscard]] bool supports_native_paired_leaf_gather(
         uint32_t width) const noexcept;
+    // The bounded predicated-loop policy is measured only for host targets
+    // with native 512-bit fixed vectors and legal masked gathers. Other hosts
+    // retain the same portable IR backend through the generic scheduler.
+    [[nodiscard]] bool supports_native_predicated_loop(
+        uint32_t width) const noexcept;
     // Exact relocatable object emitted by ORC's compiler, before JITLink
     // applies relocations. Populated only when requested at construction.
     [[nodiscard]] const std::string &object() const noexcept {

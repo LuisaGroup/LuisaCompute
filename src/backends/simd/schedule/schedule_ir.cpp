@@ -50,13 +50,15 @@ ConvergenceId Function::add_convergence(
 
 LoopId Function::add_loop(BlockId header, std::vector<BlockId> blocks,
                           std::vector<BlockId> exits,
-                          std::optional<LoopId> parent) {
+                          std::optional<LoopId> parent,
+                          std::optional<uint64_t> max_trip_count) {
     auto id = LoopId{static_cast<uint32_t>(_loops.size())};
     _loops.emplace_back(Loop{
         .id = id,
         .header = header,
         .blocks = std::move(blocks),
         .exits = std::move(exits),
+        .max_trip_count = max_trip_count,
         .parent = parent,
     });
     return id;
@@ -725,6 +727,9 @@ std::string to_string(const Function &function) {
             out << "bb" << loop.exits[i].value;
         }
         out << ']';
+        if (loop.max_trip_count) {
+            out << " max_trip_count=" << *loop.max_trip_count;
+        }
         if (loop.parent) { out << " parent=l" << loop.parent->value; }
         out << "\n";
     }

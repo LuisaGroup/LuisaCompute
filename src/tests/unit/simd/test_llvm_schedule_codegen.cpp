@@ -7562,6 +7562,220 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_predicated_loop_batch() {
+    static constexpr auto width = 16u;
+    static constexpr auto count = 13u;
+    static constexpr auto max_iterations = 32u;
+    Kernel1D kernel = [](BufferUInt limits, BufferUInt input,
+                         BufferFloat cast_input,
+                         BufferUInt output) noexcept {
+        set_block_size(32u, 1u, 1u);
+        auto index = dispatch_id().x;
+        auto limit = limits.read(index);
+        auto cast_source = cast_input.read(index);
+        auto cast_lane = (index & 1u) == 0u;
+        $uint value = index * 0x9e3779b9u + 17u;
+        $for (iteration, 32u) {
+            $if (iteration >= limit) { $break; };
+            auto address = index * 32u + iteration;
+            auto sample = input.read(address);
+            $if ((sample & 0xffu) == 0x7fu) {
+                value = value + sample + iteration;
+                $break;
+            };
+            $if (cast_lane) {
+                value = value + cast<uint>(cast_source);
+            }
+            $else {
+                value = value ^ 0x51ed270bu;
+            };
+            $if ((sample & 1u) == 0u) {
+                value = value * 3u + sample + iteration;
+            }
+            $else {
+                value = (value ^ sample) + iteration + 5u;
+            };
+        };
+        auto sum = warp_active_sum(value);
+        output.write(index, value ^ sum);
+    };
+
+    SIMDCompiledKernel candidate;
+    {
+        ScopedEnvironmentVariable force{
+            "LUISA_SIMD_FORCE_PREDICATED_LOOP", "1"};
+        candidate = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_predicated_loop_batch");
+    }
+    if (!candidate.succeeded()) {
+        for (auto &&diagnostic : candidate.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(candidate.predicated_loop_count == 1u);
+    CHECK(candidate.predicated_loop_block_count >= 6u);
+    CHECK(candidate.predicated_loop_instruction_count != 0u);
+    CHECK(candidate.predicated_loop_batch_iteration_count ==
+          max_iterations + 1u);
+
+    SIMDCompiledKernel oracle;
+    {
+        ScopedEnvironmentVariable disable{
+            "LUISA_SIMD_DISABLE_PREDICATED_LOOP", "1"};
+        oracle = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_predicated_loop_batch_oracle");
+    }
+    CHECK(oracle.succeeded());
+    CHECK(oracle.predicated_loop_count == 0u);
+    CHECK(oracle.predicated_loop_block_count == 0u);
+    CHECK(oracle.predicated_loop_instruction_count == 0u);
+    CHECK(oracle.predicated_loop_batch_iteration_count == 0u);
+
+    auto narrow = compile_simd_kernel(
+        kernel.function()->function(), 8u,
+        "simd_ast_predicated_loop_batch_w8");
+    CHECK(narrow.succeeded());
+    CHECK(narrow.predicated_loop_count == 0u);
+    auto w8_parallel = compile_simd_kernel(
+        kernel.function()->function(), 8u,
+        "simd_ast_predicated_loop_batch_w8_parallel",
+        false, false, 24u);
+    CHECK(w8_parallel.succeeded());
+    CHECK(w8_parallel.predicated_loop_count ==
+          static_cast<size_t>(w8_parallel.native_predicated_loop));
+    auto w8_below_crossover = compile_simd_kernel(
+        kernel.function()->function(), 8u,
+        "simd_ast_predicated_loop_batch_w8_below_crossover",
+        false, false, 23u);
+    CHECK(w8_below_crossover.succeeded());
+    CHECK(w8_below_crossover.predicated_loop_count == 0u);
+
+    // Side effects and volatile reads must keep the ordinary scheduler. These
+    // kernels retain the same finite, multi-block loop shape as the accepted
+    // case so a zero counter exercises the instruction whitelist rather than
+    // merely missing the structural profitability threshold.
+    Kernel1D writing_kernel = [](BufferUInt input,
+                                 BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint value = index + 1u;
+        $for (iteration, 32u) {
+            auto sample = input.read(index * 32u + iteration);
+            $if ((sample & 0xffu) == 0x7fu) { $break; };
+            $if ((sample & 1u) == 0u) {
+                value = value * 3u + sample;
+            }
+            $else {
+                value = value ^ sample;
+            };
+            output.write(index, value);
+        };
+        output.write(index, value);
+    };
+    auto writing = compile_simd_kernel(
+        writing_kernel.function()->function(), width,
+        "simd_ast_predicated_loop_writing_rejection");
+    CHECK(writing.succeeded());
+    CHECK(writing.predicated_loop_count == 0u);
+
+    Kernel1D volatile_kernel = [](BufferUInt input,
+                                  BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        $uint value = index + 1u;
+        $for (iteration, 32u) {
+            auto sample = input.volatile_read(
+                index * 32u + iteration);
+            $if ((sample & 0xffu) == 0x7fu) { $break; };
+            $if ((sample & 1u) == 0u) {
+                value = value * 3u + sample;
+            }
+            $else {
+                value = value ^ sample;
+            };
+        };
+        output.write(index, value);
+    };
+    auto volatile_read = compile_simd_kernel(
+        volatile_kernel.function()->function(), width,
+        "simd_ast_predicated_loop_volatile_rejection");
+    CHECK(volatile_read.succeeded());
+    CHECK(volatile_read.predicated_loop_count == 0u);
+
+    std::array<uint32_t, count> limits{};
+    std::array<uint32_t, count * max_iterations> input{};
+    std::array<float, count> cast_input{};
+    std::array<uint32_t, count> values{};
+    std::array<uint32_t, count> expected{};
+    std::array<uint32_t, count> candidate_output{};
+    std::array<uint32_t, count> oracle_output{};
+    for (auto index = uint32_t{0u}; index < count; index++) {
+        limits[index] = (index * 11u) % (max_iterations + 1u);
+        cast_input[index] = (index & 1u) == 0u ?
+                                3.75f :
+                                std::bit_cast<float>(0x7fc00000u);
+        for (auto iteration = uint32_t{0u};
+             iteration < max_iterations; iteration++) {
+            input[index * max_iterations + iteration] =
+                (index + 3u) * 131u + iteration * 17u + 2u;
+        }
+        if (index % 3u == 1u && limits[index] > 2u) {
+            auto sentinel_iteration = limits[index] / 2u;
+            input[index * max_iterations + sentinel_iteration] =
+                0x127fu;
+        }
+        auto value = index * 0x9e3779b9u + 17u;
+        for (auto iteration = uint32_t{0u};
+             iteration < max_iterations &&
+             iteration < limits[index];
+             iteration++) {
+            auto sample =
+                input[index * max_iterations + iteration];
+            if ((sample & 0xffu) == 0x7fu) {
+                value = value + sample + iteration;
+                break;
+            }
+            value = (index & 1u) == 0u ?
+                        value + static_cast<uint32_t>(cast_input[index]) :
+                        value ^ 0x51ed270bu;
+            value = (sample & 1u) == 0u ?
+                        value * 3u + sample + iteration :
+                        (value ^ sample) + iteration + 5u;
+        }
+        values[index] = value;
+    }
+    auto sum = uint32_t{0u};
+    for (auto value : values) { sum += value; }
+    for (auto index = uint32_t{0u}; index < count; index++) {
+        expected[index] = values[index] ^ sum;
+    }
+    candidate_output.fill(0xdeadbeefu);
+    oracle_output.fill(0xdeadbeefu);
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto run = [&](SIMDCompiledKernel &compiled,
+                   std::array<uint32_t, count> &output) noexcept {
+        alignas(16) std::array<SIMDHostBufferView, 4u> arguments{
+            SIMDHostBufferView{limits.data(), sizeof(limits)},
+            SIMDHostBufferView{input.data(), sizeof(input)},
+            SIMDHostBufferView{cast_input.data(), sizeof(cast_input)},
+            SIMDHostBufferView{output.data(), sizeof(output)},
+        };
+        auto entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, width);
+        entry(arguments.data(), nullptr, &config, width);
+        return true;
+    };
+    CHECK(run(candidate, candidate_output));
+    CHECK(run(oracle, oracle_output));
+    CHECK(candidate_output == expected);
+    CHECK(oracle_output == expected);
+    CHECK(candidate_output == oracle_output);
+    return true;
+}
+
 [[nodiscard]] bool run_ast_loop_unswitch() {
     static constexpr auto width = 8u;
     static constexpr auto count = 13u;
@@ -7636,6 +7850,93 @@ void bindless_uniform_gradient_probe(
             }
         }
         CHECK(output[index] == value);
+    }
+
+    // Unknown per-lane trip counts use an entry guard: zero-trip lanes leave
+    // before the invariant varying selector is evaluated, while entering
+    // cohorts choose one specialized innermost-loop version. Exercise all
+    // packet widths and a partial W8 tail against the scheduled oracle.
+    Kernel1D dynamic_kernel = [](BufferUInt trip_counts,
+                                 BufferUInt dynamic_output) noexcept {
+        auto index = dispatch_id().x;
+        auto trip_count = trip_counts.read(index);
+        auto choose_left = (index & 1u) == 0u;
+        $uint value = 1u;
+        $uint iteration = 0u;
+        $while (iteration < trip_count) {
+            $if (choose_left) {
+                value = value * 3u + index;
+                value = value ^ (iteration + 9u);
+            }
+            $else {
+                value = value * 5u + index;
+                value = value ^ (iteration + 17u);
+            };
+            iteration += 1u;
+        };
+        dynamic_output.write(index, value);
+    };
+    std::array<uint32_t, count> trip_counts{};
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        trip_counts[i] = (i * 5u) % 9u;
+    }
+    auto run_dynamic = [&](uint32_t test_width,
+                           bool disable_guarded,
+                           std::array<uint32_t, count> &dynamic_output) noexcept {
+        ScopedEnvironmentVariable disable{
+            "LUISA_SIMD_DISABLE_GUARDED_LOOP_UNSWITCH",
+            disable_guarded ? "1" : nullptr};
+        auto compiled = compile_simd_kernel(
+            dynamic_kernel.function()->function(), test_width,
+            "simd_ast_dynamic_loop_unswitch_w" +
+                std::to_string(test_width) +
+                (disable_guarded ? "_oracle" : "_candidate"));
+        CHECK(compiled.succeeded());
+        CHECK(compiled.unswitched_loop_count ==
+              (disable_guarded ? 0u : 1u));
+        CHECK(compiled.guarded_unswitched_loop_count ==
+              (disable_guarded ? 0u : 1u));
+        dynamic_output.fill(0xdeadbeefu);
+        alignas(16) std::array<SIMDHostBufferView, 2u> arguments{
+            SIMDHostBufferView{trip_counts.data(), sizeof(trip_counts)},
+            SIMDHostBufferView{dynamic_output.data(),
+                               sizeof(dynamic_output)},
+        };
+        auto dynamic_entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(dynamic_entry != nullptr);
+        auto dynamic_config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += test_width) {
+            dynamic_config.thread_index = first;
+            dynamic_entry(
+                arguments.data(), nullptr,
+                &dynamic_config, test_width);
+        }
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto expected = uint32_t{1u};
+            auto choose_left = (index & 1u) == 0u;
+            for (auto iteration = uint32_t{0u};
+                 iteration < trip_counts[index]; iteration++) {
+                if (choose_left) {
+                    expected = expected * 3u + index;
+                    expected ^= iteration + 9u;
+                } else {
+                    expected = expected * 5u + index;
+                    expected ^= iteration + 17u;
+                }
+            }
+            CHECK(dynamic_output[index] == expected);
+        }
+        return true;
+    };
+    for (auto test_width : {2u, 4u, 8u, 16u}) {
+        std::array<uint32_t, count> candidate{};
+        CHECK(run_dynamic(test_width, false, candidate));
+        if (test_width == width) {
+            std::array<uint32_t, count> oracle{};
+            CHECK(run_dynamic(test_width, true, oracle));
+            CHECK(candidate == oracle);
+        }
     }
     return true;
 }
@@ -7824,6 +8125,8 @@ int main() {
          &run_predicated_select_forwarding_provenance},
         {"AST predicated memory diamond",
          &run_ast_predicated_memory_diamond},
+        {"AST bounded predicated loop batch",
+         &run_ast_predicated_loop_batch},
         {"AST invariant varying loop unswitch",
          &run_ast_loop_unswitch},
         {"AST shader execution reorder hint",

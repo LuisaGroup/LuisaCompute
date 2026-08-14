@@ -285,7 +285,8 @@ ShaderCreationInfo SIMDDevice::create_shader(
     Clock clock;
     auto block_size = kernel.block_size();
     auto *shader = luisa::new_with_allocator<SIMDShader>(
-        option, kernel, _warp_width);
+        option, kernel, _warp_width,
+        _thread_pool->worker_count());
     LUISA_VERBOSE(
         "SIMD shader compilation took {} ms.", clock.toc());
     ShaderCreationInfo info{};

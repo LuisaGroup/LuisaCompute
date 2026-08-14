@@ -187,7 +187,7 @@ void dump_compilation_artifacts(
 
 SIMDShader::SIMDShader(
     const ShaderOption &option, Function kernel,
-    uint32_t warp_width) noexcept
+    uint32_t warp_width, uint32_t dispatch_worker_count) noexcept
     : _block_size{kernel.block_size()} {
     if (auto allowed = kernel.allowed_warp_size();
         allowed && *allowed != warp_width) {
@@ -210,7 +210,8 @@ SIMDShader::SIMDShader(
     _compiled = compile_simd_kernel(
         kernel, warp_width,
         kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
-        option.enable_fast_math, capture_assembly);
+        option.enable_fast_math, capture_assembly,
+        dispatch_worker_count);
     if (!_compiled.succeeded()) {
         luisa::string diagnostics;
         for (auto &&message : _compiled.diagnostics) {
@@ -232,7 +233,12 @@ SIMDShader::SIMDShader(
             "predicated_wide_select_ladder_diamonds={}, "
             "predicated_memory_diamonds={}, "
             "predicated_memory_instructions={}, "
-            "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
+            "dispatch_workers={}, native_predicated_loop={}, "
+            "predicated_loops={}, predicated_loop_blocks={}, "
+            "predicated_loop_instructions={}, "
+            "predicated_loop_batch_iterations={}, "
+            "factored_selects={}, unswitched_loops={}, "
+            "guarded_unswitched_loops={}, cloned_blocks={}, "
             "cloned_instructions={}, merged_live_outs={}, "
             "coherent_mask_reuses={}, "
             "all_on_region_versions={}, "
@@ -264,8 +270,15 @@ SIMDShader::SIMDShader(
             _compiled.predicated_wide_select_ladder_diamond_count,
             _compiled.predicated_memory_diamond_count,
             _compiled.predicated_memory_instruction_count,
+            dispatch_worker_count,
+            _compiled.native_predicated_loop,
+            _compiled.predicated_loop_count,
+            _compiled.predicated_loop_block_count,
+            _compiled.predicated_loop_instruction_count,
+            _compiled.predicated_loop_batch_iteration_count,
             _compiled.factored_select_count,
             _compiled.unswitched_loop_count,
+            _compiled.guarded_unswitched_loop_count,
             _compiled.unswitched_cloned_block_count,
             _compiled.unswitched_cloned_instruction_count,
             _compiled.unswitched_live_out_count,

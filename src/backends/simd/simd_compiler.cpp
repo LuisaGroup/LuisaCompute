@@ -73,7 +73,8 @@ SIMDCompiledKernel compile_simd_kernel(
     const xir::Function *function, uint32_t warp_width,
     std::string_view entry_name, bool enable_fast_math,
     bool enable_uniform_buffer_broadcast,
-    bool enable_lane_affine_buffer, bool capture_assembly) {
+    bool enable_lane_affine_buffer, bool capture_assembly,
+    uint32_t dispatch_worker_count) {
     SIMDCompiledKernel result{
         .warp_width = warp_width,
     };
@@ -97,6 +98,9 @@ SIMDCompiledKernel compile_simd_kernel(
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_PAIRED_LEAF_GATHER") &&
         jit->supports_native_paired_leaf_gather(warp_width);
+    auto use_native_predicated_loop =
+        jit->supports_native_predicated_loop(warp_width);
+    result.native_predicated_loop = use_native_predicated_loop;
     if (detail::env_flag("LUISA_SIMD_REPORT_SCHEDULE")) {
         LUISA_INFO(
             "SIMD Schedule IR [{} W{}]:\n{}",
@@ -119,7 +123,9 @@ SIMDCompiledKernel compile_simd_kernel(
         enable_fast_math, static_block_size,
         enable_uniform_buffer_broadcast,
         enable_lane_affine_buffer,
-        use_paired_leaf_gather);
+        use_paired_leaf_gather,
+        dispatch_worker_count,
+        use_native_predicated_loop);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
@@ -164,6 +170,14 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.predicated_memory_diamond_count;
     result.predicated_memory_instruction_count =
         llvm_result.predicated_memory_instruction_count;
+    result.predicated_loop_count =
+        llvm_result.predicated_loop_count;
+    result.predicated_loop_block_count =
+        llvm_result.predicated_loop_block_count;
+    result.predicated_loop_instruction_count =
+        llvm_result.predicated_loop_instruction_count;
+    result.predicated_loop_batch_iteration_count =
+        llvm_result.predicated_loop_batch_iteration_count;
     result.coherent_mask_reuse_count =
         llvm_result.coherent_mask_reuse_count;
     result.all_on_region_version_count =
@@ -207,7 +221,8 @@ SIMDCompiledKernel compile_simd_kernel(
 SIMDCompiledKernel compile_simd_kernel(
     const compute::Function &kernel, uint32_t warp_width,
     std::string_view entry_name, bool enable_fast_math,
-    bool capture_assembly) {
+    bool capture_assembly,
+    uint32_t dispatch_worker_count) {
     auto *translation = xir::ast_to_xir_translate_begin({});
     auto *xir_kernel = xir::ast_to_xir_translate_add_function(
         translation, kernel);
@@ -326,7 +341,9 @@ SIMDCompiledKernel compile_simd_kernel(
             "LUISA_SIMD_DISABLE_LOOP_UNSWITCH")) {
         loop_unswitch_info =
             schedule::unswitch_invariant_varying_loop_condition(
-                xir_kernel);
+                xir_kernel,
+                !detail::env_flag(
+                    "LUISA_SIMD_DISABLE_GUARDED_LOOP_UNSWITCH"));
     }
     if (loop_unswitch_info.changed()) {
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));
@@ -346,7 +363,7 @@ SIMDCompiledKernel compile_simd_kernel(
             "LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST"),
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER"),
-        capture_assembly);
+        capture_assembly, dispatch_worker_count);
     result.fast_math_identity_count = fast_math_info.identity_count;
     result.fast_math_radix_pow_count = fast_math_info.radix_pow_count;
     result.decomposed_aggregate_alloca_count =
@@ -373,6 +390,8 @@ SIMDCompiledKernel compile_simd_kernel(
         predication_info.select_factoring.factored_select_count;
     result.unswitched_loop_count =
         loop_unswitch_info.unswitch.unswitched_loop_count;
+    result.guarded_unswitched_loop_count =
+        loop_unswitch_info.unswitch.guarded_dynamic_loop_count;
     result.unswitched_cloned_block_count =
         loop_unswitch_info.unswitch.cloned_block_count;
     result.unswitched_cloned_instruction_count =

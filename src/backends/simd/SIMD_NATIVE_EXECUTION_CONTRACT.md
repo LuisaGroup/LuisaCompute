@@ -335,6 +335,11 @@ Reproducible example sweeps may use `LUISA_SIMD_WARP_WIDTH=1|2|4|8|16` when
 the application does not construct `SIMDDeviceConfigExt`; an explicit nonzero
 API width always wins. `LUISA_SIMD_DISABLE_PREDICATED_IF=1` and
 `LUISA_SIMD_DISABLE_LOOP_UNSWITCH=1` provide control-flow A/B controls;
+`LUISA_SIMD_DISABLE_GUARDED_LOOP_UNSWITCH=1` keeps constant-trip unswitching
+but rejects an unknown-trip entry guard;
+`LUISA_SIMD_DISABLE_PREDICATED_LOOP=1` restores the generic loop scheduler,
+while `LUISA_SIMD_FORCE_PREDICATED_LOOP=1` is a diagnostic profitability
+override that retains all semantic safety checks;
 `LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT=1` disables nested select/Phi
 forwarding, while
 `LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT=1` keeps forwarding but
@@ -637,9 +642,9 @@ The production SIMD compiler may replace a repeated internal conditional with
 one conditional before two cloned loop versions. This is permitted only when
 all of the following hold:
 
-- the destructured natural loop is innermost, has one preheader, latch, exit
-  edge, and exit block, and has a statically proven trip count greater than
-  one;
+- the destructured natural loop is innermost and has one preheader, latch,
+  exit edge, and exit block. A constant trip count must be greater than one;
+  an unknown count requires the guarded top-tested form below;
 - the complete loop has at most 48 instructions and the compiler transforms at
   most one loop per function;
 - the selected conditional dominates the latch, both targets remain inside the
@@ -654,13 +659,22 @@ all of the following hold:
   from the original exit edge.
 
 The original loop is specialized to the true edge and the clone to the false
-edge. The old preheader dispatches to two canonical preheaders. Existing exit
-PHIs receive the cloned incoming edge; direct live-outs receive one new exit
-PHI. Candidate branch metadata moves to the outer dispatch, and structured CFG
-causes atomic rejection before mutation. Rejecting unknown/zero-trip loops is
-semantic, not merely a cost choice: it prevents consuming a selector on a lane
-where the source branch would never execute. Rejecting writes and clocks
-prevents the cohort-order change from becoming observable.
+edge. For a proven positive count, the old preheader dispatches to two
+canonical preheaders. Existing exit PHIs receive the cloned incoming edge;
+direct live-outs receive one new exit PHI. Candidate branch metadata moves to
+the outer dispatch, and structured CFG causes atomic rejection before
+mutation. Rejecting writes and clocks prevents the cohort-order change from
+becoming observable.
+
+For an unknown count, guarded unswitching is permitted only when the unique
+exit is selected by the top-tested header branch. A new entry guard clones the
+header condition with every header PHI replaced by its preheader incoming
+value. Only arithmetic in the condition or required zero-trip exit/live-out
+values may be cloned. A lane whose guard is false goes directly to the source
+exit with those resolved values; therefore it never evaluates the invariant
+selector. Entering lanes reach the two-version dispatch. All new exit-PHI and
+live-out incoming values must be materializable by the same resolver before
+mutation. `LUISA_SIMD_DISABLE_GUARDED_LOOP_UNSWITCH=1` rejects only this form.
 
 The outer selector still follows the ordinary scheduler rule. If its active
 values happen to agree at runtime, the dynamically coherent fast path directly
@@ -670,10 +684,71 @@ The rewrite introduces no speculative arm evaluation and does not relax the
 operand-sanitization requirement.
 
 Correctness gates cover cloning, cyclic PHIs, exit-PHI and direct-live-out
-repair, metadata, structured-module atomicity, unknown trip counts, `undef`,
-clock/write rejection, all supported SIMD widths, and inactive tails.
+repair, metadata, structured-module atomicity, guarded zero/mixed/positive
+dynamic trip counts, the guarded-disabled oracle, `undef`, clock/write
+rejection, all supported SIMD widths, and inactive tails.
 `benchmark_simd_loop_unswitch` additionally audits optimized assembly, calls,
 stack references, and repeated throughput.
+
+### 4.5.1 Bounded predicated innermost-loop batch
+
+This LLVM refinement is independent of XIR loop unswitching and does not clone
+the loop body. Schedule IR may annotate a natural loop with
+`max_trip_count=N` only when XIR analysis proves that no execution can perform
+more than `N` body iterations. Extra early exits may reduce the actual count;
+they cannot extend it. For a top-tested loop, the batch executes at most
+`N + 1` header evaluations so the final false test is included.
+
+The default candidate must satisfy every condition below:
+
+- it is the only selected loop in the function, is innermost, has a varying
+  header split, 6--24 blocks, at most 96 instructions, and
+  `1 <= N <= 4096`;
+- deleting its annotated backedges leaves a single-entry acyclic region whose
+  only external entry is the header and whose escapes are declared loop exits;
+- every flattened join is declared by a split in the same region; the header's
+  convergence target is one of the declared exits;
+- every result and edge-assignment destination is varying or a lane mask;
+- instructions are restricted to the audited nontrapping arithmetic/select/
+  compare set, static or bit casts, and direct nonvolatile typed-buffer reads
+  with a varying index;
+- nested loops, local-pointer operations, division/remainder/shifts, volatile,
+  bindless or texture access, writes, atomics, calls, acceleration queries,
+  barriers, returns, and collectives reject the complete candidate.
+
+For each batch iteration, codegen computes one mask per region block in
+topological order, applies assignments under that mask, accumulates each exit
+mask, and ORs audited backedges into the next-iteration mask. A zero block mask
+must never make an address or poison-producing conversion observable: resource
+indices are selected to zero before a masked gather, and inactive
+floating-point operands are selected to zero before `fptosi`/`fptoui`. The
+latter protection also applies to ordinary varying Schedule blocks.
+
+At batch exit, let the possible destinations be the loop header and every
+declared exit whose accumulated mask is nonempty. Zero destinations is
+unreachable for a live cohort. One destination continues without a new frame.
+Two or more destinations declare exactly the original header convergence using
+the union of all destination masks, queue each nonempty destination with that
+token, and resume the general scheduler. A matching frame already at the top
+is reused, retaining its original expected mask. This rule is required even
+when no lane continues but two different early exits are nonempty.
+
+Default profitability additionally requires LLVM TTI to report at least a
+512-bit fixed-vector register and a legal non-scalarized masked gather. W16 is
+then enabled for any device worker count. W8 requires at least 24 workers.
+W1/W2/W4 and every target that fails the TTI gate retain the general scheduler.
+`LUISA_SIMD_DISABLE_PREDICATED_LOOP=1` is the same-binary oracle;
+`LUISA_SIMD_FORCE_PREDICATED_LOOP=1` bypasses only profitability gates for
+diagnostics and semantic tests, never the structural or instruction-safety
+checks. The optimization report exposes `dispatch_workers`,
+`native_predicated_loop`, `predicated_loops`, block/instruction counts, and
+`predicated_loop_batch_iterations`.
+
+Permanent execution coverage includes an inactive W16 tail, finite-count and
+sentinel early exits, multiple dynamic exit destinations, a post-loop warp
+collective, inactive NaN lanes before floating-to-integer conversion, exact
+candidate/oracle/scalar equality, W8 worker crossover selection, and rejection
+of writes and volatile reads.
 
 ### 4.6 Cohort-equal typed-buffer read refinement
 

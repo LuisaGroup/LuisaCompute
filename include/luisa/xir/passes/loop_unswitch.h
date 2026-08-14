@@ -20,6 +20,14 @@ struct LoopUnswitchOptions {
     size_t max_loop_instruction_count{64u};
     size_t max_unswitched_loop_count{1u};
 
+    // Permit an unknown-trip canonical top-tested loop by cloning its pure
+    // entry condition into a guard. The invariant selector is evaluated only
+    // on the guard's entering edge, so the zero-trip path retains the source
+    // behavior. This is opt-in because it adds one guard block and is intended
+    // for targets that can amortize the extra control over repeated varying
+    // branches.
+    bool enable_guarded_dynamic_trip{false};
+
     // Optional target policy. The generic pass already requires an invariant
     // condition and a read-only, cohort-insensitive loop. A target may impose
     // a stricter uniformity or profitability rule here.
@@ -29,6 +37,7 @@ struct LoopUnswitchOptions {
 
 struct LoopUnswitchInfo {
     size_t unswitched_loop_count{0u};
+    size_t guarded_dynamic_loop_count{0u};
     size_t cloned_block_count{0u};
     size_t cloned_instruction_count{0u};
     size_t created_preheader_count{0u};

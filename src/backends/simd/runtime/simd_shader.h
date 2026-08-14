@@ -37,7 +37,7 @@ private:
 public:
     SIMDShader(
         const ShaderOption &option, Function kernel,
-        uint32_t warp_width) noexcept;
+        uint32_t warp_width, uint32_t dispatch_worker_count) noexcept;
     ~SIMDShader() noexcept = default;
 
     void dispatch(

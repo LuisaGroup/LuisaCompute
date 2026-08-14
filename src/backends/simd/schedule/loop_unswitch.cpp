@@ -22,13 +22,15 @@ namespace {
 
 SIMDLoopUnswitchInfo
 unswitch_invariant_varying_loop_condition(
-    xir::Function *function) noexcept {
+    xir::Function *function,
+    bool enable_guarded_dynamic_trip) noexcept {
     WarpUniformityAnalysis uniformity;
     uniformity.analyze(function);
     auto unswitch = xir::loop_unswitch_pass_run_on_function(
         function,
         {.max_loop_instruction_count = 48u,
          .max_unswitched_loop_count = 1u,
+         .enable_guarded_dynamic_trip = enable_guarded_dynamic_trip,
          .candidate_filter = is_varying_candidate,
          .candidate_filter_context = &uniformity});
     auto cleanup = unswitch.changed() ?

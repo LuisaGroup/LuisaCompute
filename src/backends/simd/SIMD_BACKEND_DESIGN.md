@@ -29,6 +29,12 @@ region at W2/W8. A runtime full-packet guard enters a constant-all-on clone;
 partial tails and genuinely mixed control retain the general independent-PC
 scheduler. This is the measured local counterpart of ISPC's front-end all-on
 specialization, not a target-specific LLVM pass or a whole-function clone.
+The newest loop refinement takes a different, bounded approach: one finite,
+innermost, side-effect-free varying loop may execute as a single predicated
+LLVM mask loop. It keeps one body rather than cloning all-on/mixed versions,
+accumulates each dynamic exit mask, and returns to the general scheduler only
+once. W16 enables this on an audited native fixed-vector target; W8 additionally
+requires at least 24 dispatch workers, while W1/W2/W4 retain the generic loop.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -461,25 +467,86 @@ the vector representation as a same-binary oracle, and
 coherent direct CFG allocates no frames and reports false.
 
 The first bounded loop-unswitch refinement is implemented before Schedule IR
-construction. It accepts one innermost, positive constant-trip natural loop per
-function, with at most 48 XIR instructions, one preheader/latch/exit edge, and
-one internal conditional whose block dominates the latch. The selector must be
-defined outside the loop and classified exactly `varying`; both successors stay
-inside the loop. Two loop versions replace that conditional with its true and
-false edge, while a new outer varying branch partitions the packet once. A
+construction. It accepts one innermost natural loop per function, with at most
+48 XIR instructions, one preheader/latch/exit edge, and one internal
+conditional whose block dominates the latch. The selector must be defined
+outside the loop and classified exactly `varying`; both successors stay inside
+the loop. Two loop versions replace that conditional with its true and false
+edge, while a new outer varying branch partitions the packet once. A
 runtime-coherent packet takes the ordinary direct edge; a divergent packet
 creates one split rather than one split per iteration.
 
-The initial legality rule is deliberately narrower than scalar LLVM loop
-unswitching. Unknown or zero/one trip counts are rejected so the selector is
-never consumed on a path where the source branch did not execute. Nested,
-multi-latch, and multi-exit loops, `undef`, clock reads, volatile operations,
-writes, calls, collectives, and other cohort-sensitive effects are rejected.
+A positive constant trip count dispatches directly from the old preheader. An
+unknown-trip canonical top-tested loop uses the guarded form: a new entry block
+clones only the pure header condition with every header PHI replaced by its
+preheader input. Zero-trip lanes take the original exit without evaluating the
+invariant selector; entering lanes reach the two-version dispatch. Header exit
+PHIs and direct live-outs receive the guard's resolved initial value. The guard
+is failure-atomic and may clone only arithmetic needed by the condition or
+zero-trip values. `LUISA_SIMD_DISABLE_GUARDED_LOOP_UNSWITCH=1` keeps constant-
+trip unswitching while rejecting this dynamic form.
+
+The legality rule remains deliberately narrower than scalar LLVM loop
+unswitching. Constant zero/one-trip loops, nested, multi-latch, and multi-exit
+loops, `undef`, clock reads, volatile operations, writes, calls, collectives,
+and other cohort-sensitive effects are rejected.
 Existing exit PHIs acquire the cloned edge, and an explicit exit PHI merges
 each otherwise-dominating live-out. Structured CFG is rejected atomically.
 A merely cohort-uniform value is not invariant across loop epochs and is not a
 candidate. The generic XIR pass exposes cloning and live-out counters; the SIMD
 policy and inactive-tail execution have permanent regressions.
+
+The later LLVM stage has a separate bounded predicated-loop refinement. XIR to
+Schedule lowering publishes `Loop::max_trip_count` only after proving a finite
+upper bound. An otherwise canonical counted header remains an upper bound when
+additional early exits exist: the translator re-runs the exact analysis on a
+local natural-loop view containing only the header-owned exit, without changing
+the general XIR analysis result. The emitted batch includes `N + 1` top-tested
+header evaluations for a bound of `N` body iterations, so a lane that reaches
+the bound observes its final false condition without a scheduler round trip.
+
+The candidate is fail-closed and deliberately small. It accepts at most one
+innermost loop per function, 6--24 Schedule blocks, at most 96 instructions,
+and a nonzero bound no larger than 4096. Removing only the annotated backedges
+must leave a single-entry acyclic region. Every suppressed join must have been
+declared by a split in that region, every escape must name a natural-loop exit,
+and no non-header block may have an external predecessor. Results, edge
+assignments, indices, and internal state must be `varying` or masks. The body
+may contain audited add/subtract/multiply/bitwise/compare/select/min/max and
+related nontrapping arithmetic, static/bit casts, and direct nonvolatile typed
+buffer reads. Writes, atomics, volatile or bindless/texture accesses, calls,
+acceleration queries, collectives, local-pointer operations, division,
+remainder, shifts, and nested loops retain the generic scheduler.
+
+Codegen topologically forms a mask for each Schedule block inside one LLVM
+loop. It uses one PHI for the next-iteration mask and one accumulated PHI per
+exit target; fixed state slots remain ordinary LLVM allocas so `mem2reg` can
+reconstruct register PHIs. A batch stops when no lane continues or after the
+proven final header check. If all lanes choose one dynamic destination, codegen
+routes it directly without creating a frame. If two or more destinations are
+nonempty, it recreates the original loop-exit convergence once, queues the
+continuation/exit cohorts with that token, and hands them to the unchanged
+destination-side cascade. This preserves early exits, distinct exit targets,
+outer tokens, and post-loop collectives without simulating an independent PC on
+every iteration.
+
+Inactive operands are sanitized before every masked gather and before vector
+floating-point-to-integer conversion. The latter rule now applies to ordinary
+Schedule blocks as well as this predicated region: selecting a masked result
+after `fptosi`/`fptoui` would be too late to contain LLVM poison from an inactive
+NaN or out-of-range lane.
+
+Selection is a measured host policy rather than a semantic width rule. LLVM
+TTI must report at least 512-bit fixed-vector registers, a legal non-scalarized
+masked gather, and W8/W16. W16 wins from one through 32 workers on the recorded
+host. W8 is enabled only with at least 24 device dispatch workers: five-pair
+crossovers were 0.9666x/0.9938x/0.9762x at 1/8/16 workers and
+1.1698x/1.2588x at 24/32. W1/W2/W4 stay on the generic scheduler. The
+same-binary oracle is `LUISA_SIMD_DISABLE_PREDICATED_LOOP=1`; the force knob is
+diagnostic only. Runtime reports expose target eligibility, worker count,
+accepted loop/block/instruction counts, and the header-evaluation batch bound.
+The complete counter, assembly, fallback-relative, and rejection evidence is
+recorded in `SIMD_PERFORMANCE_REPORT.md`.
 
 Before either Schedule IR or LLVM state-slot construction, the AST compiler
 front door promotes eligible local aggregates into independent fields. It runs

@@ -491,6 +491,10 @@ struct LLVMScheduleCodegenResult {
     size_t paired_leaf_gather_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
+    size_t predicated_loop_count{0u};
+    size_t predicated_loop_block_count{0u};
+    size_t predicated_loop_instruction_count{0u};
+    size_t predicated_loop_batch_iteration_count{0u};
     size_t coherent_mask_reuse_count{0u};
     size_t all_on_region_version_count{0u};
     size_t all_on_region_block_count{0u};
@@ -521,6 +525,14 @@ struct LLVMScheduleCodegenResult {
     bool enable_lane_affine_buffer = true,
     // Target-unaware callers keep the portable 32-bit leaf path. The runtime
     // compiler enables pairing only after querying the host TargetMachine.
-    bool enable_paired_leaf_gather = false);
+    bool enable_paired_leaf_gather = false,
+    // The device-owned worker pool is fixed before shader compilation. It is
+    // a profitability input only; generated packet semantics do not depend on
+    // this count. Standalone callers conservatively model one worker.
+    uint32_t dispatch_worker_count = 1u,
+    // Runtime compilation supplies a host-TTI profitability decision. Direct
+    // lowering callers default to enabled so target-independent semantic tests
+    // can exercise the transformation without pretending to query a host.
+    bool enable_native_predicated_loop = true);
 
 }// namespace luisa::compute::simd

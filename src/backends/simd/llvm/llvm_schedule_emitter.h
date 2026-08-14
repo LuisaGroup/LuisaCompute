@@ -51,6 +51,8 @@ private:
     bool _enable_uniform_buffer_broadcast{true};
     bool _enable_lane_affine_buffer{true};
     bool _enable_paired_leaf_gather{false};
+    uint32_t _dispatch_worker_count{1u};
+    bool _enable_native_predicated_loop{true};
     bool _use_scalar_frame_metadata{false};
     bool _direct_control_flow{false};
     LLVMScheduleCodegenResult _result{};
@@ -139,6 +141,15 @@ private:
         const schedule::BasicBlock *false_block{nullptr};
         schedule::BlockId merge{};
         size_t instruction_count{0u};
+    };
+
+    struct PredicatedLoop {
+        const schedule::Loop *loop{nullptr};
+        schedule::ConvergenceId convergence{};
+        std::vector<schedule::BlockId> exits{};
+        std::vector<const schedule::BasicBlock *> order{};
+        size_t instruction_count{0u};
+        uint32_t batch_iteration_count{16u};
     };
 
     struct CoherentAllOnRegion {
@@ -267,7 +278,8 @@ private:
     [[nodiscard]] ::llvm::Value *_arithmetic(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_cast(
-        const schedule::Instruction &instruction);
+        const schedule::Instruction &instruction,
+        ::llvm::Value *operand_sanitization_mask = nullptr);
     [[nodiscard]] ::llvm::Value *_lane_offsets(
         ::llvm::Value *index, uint64_t stride);
     [[nodiscard]] std::optional<uint64_t> _constant_aggregate_index(
@@ -443,6 +455,10 @@ private:
         const schedule::SplitTerminator &control,
         const PredicatedMemoryDiamond &diamond,
         const std::vector<::llvm::BasicBlock *> *direct_blocks);
+    [[nodiscard]] std::optional<PredicatedLoop>
+    _find_predicated_loop(
+        const schedule::BasicBlock &header) const noexcept;
+    void _emit_predicated_loop(const PredicatedLoop &loop);
     [[nodiscard]] std::optional<CoherentAllOnRegion>
     _find_coherent_all_on_region(
         const schedule::SplitTerminator &control,
@@ -472,7 +488,9 @@ public:
                     std::array<uint32_t, 3u> static_block_size,
                     bool enable_uniform_buffer_broadcast,
                     bool enable_lane_affine_buffer,
-                    bool enable_paired_leaf_gather);
+                    bool enable_paired_leaf_gather,
+                    uint32_t dispatch_worker_count,
+                    bool enable_native_predicated_loop);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

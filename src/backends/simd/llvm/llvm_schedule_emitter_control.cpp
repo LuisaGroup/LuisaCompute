@@ -26,7 +26,7 @@ void ScheduleEmitter::_emit_instruction(
             value = _arithmetic(instruction);
             break;
         case schedule::Opcode::cast:
-            value = _cast(instruction);
+            value = _cast(instruction, operand_sanitization_mask);
             break;
         case schedule::Opcode::resource_query:
             value = _resource_query(instruction);
@@ -1797,6 +1797,11 @@ void ScheduleEmitter::_build() {
             _active_mask = flow;
         }
         _seed_lane = _safe_first_lane(_active_mask);
+        if (auto loop = _find_predicated_loop(block)) {
+            _emit_predicated_loop(*loop);
+            if (_failed()) { return; }
+            continue;
+        }
         for (auto &&instruction : block.instructions) {
             _emit_instruction(instruction);
             if (_failed()) { return; }

@@ -6,6 +6,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/phi.h>
@@ -52,6 +53,11 @@ struct UnswitchPlan {
     luisa::vector<BasicBlock *> blocks;
     luisa::vector<LiveOutPlan> live_outs;
     size_t instruction_count{0u};
+    bool guarded_dynamic_trip{false};
+    ConditionalBranchInst *guard_source{nullptr};
+    BasicBlock *guard_exit{nullptr};
+    bool guard_body_is_true_target{false};
+    luisa::unordered_map<PhiInst *, Value *> guard_substitution;
 };
 
 template<typename T>
@@ -93,6 +99,54 @@ void clone_metadata(const T &source, T &destination) noexcept {
         }
     }
     return false;
+}
+
+[[nodiscard]] bool guard_value_is_clonable(
+    Value *value, BasicBlock *header,
+    const luisa::unordered_map<PhiInst *, Value *> &substitution) noexcept {
+    if (value == nullptr) { return false; }
+    if (!value->isa<Instruction>()) { return true; }
+    auto *instruction = static_cast<Instruction *>(value);
+    if (instruction->parent_block() != header) { return true; }
+    if (instruction->isa<PhiInst>()) {
+        return substitution.contains(
+            static_cast<PhiInst *>(instruction));
+    }
+    if (!instruction->isa<ArithmeticInst>()) { return false; }
+    for (auto *use : instruction->operand_uses()) {
+        auto *operand = use->value();
+        if (!guard_value_is_clonable(
+                operand, header, substitution)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] Value *materialize_guard_value(
+    XIRBuilder &builder, LoopCloneValueResolver &resolver,
+    Value *value, BasicBlock *header) noexcept {
+    if (value == nullptr || !value->isa<Instruction>()) {
+        return value;
+    }
+    auto *instruction = static_cast<Instruction *>(value);
+    if (instruction->parent_block() != header ||
+        instruction->isa<PhiInst>()) {
+        return resolver.resolve(value);
+    }
+    if (auto *resolved = resolver.resolve(value);
+        resolved != value) {
+        return resolved;
+    }
+    for (auto *use : instruction->operand_uses()) {
+        static_cast<void>(materialize_guard_value(
+            builder, resolver, use->value(), header));
+    }
+    auto *clone = instruction->clone_with_metadata(builder, resolver);
+    LUISA_ASSERT(clone != nullptr,
+                 "Loop unswitching failed to clone a guard value.");
+    resolver.map(instruction, clone);
+    return clone;
 }
 
 [[nodiscard]] bool loop_is_read_only_and_cohort_insensitive(
@@ -200,22 +254,28 @@ void clone_metadata(const T &source, T &destination) noexcept {
     if (preheader_terminator == nullptr ||
         !preheader_terminator->isa<BranchInst>() ||
         static_cast<BranchInst *>(preheader_terminator)
-                ->target_block() != loop.header ||
-        !preheader_terminator->metadata_list().empty()) {
+                ->target_block() != loop.header) {
         return false;
     }
     auto bounds = analyze_loop_bounds(loop);
-    // Dispatching on the invariant condition before the loop is only
-    // semantics-preserving when the original branch is known to execute.
-    // Unknown/zero-trip loops need a guarded form of unswitching that this
-    // deliberately small first implementation does not synthesize.
-    if (!bounds.trip_count_is_constant ||
-        bounds.constant_trip_count <= 1u) {
+    auto guarded_dynamic_trip = false;
+    if (!bounds.trip_count_is_constant) {
+        guarded_dynamic_trip =
+            options.enable_guarded_dynamic_trip;
+        if (!guarded_dynamic_trip) { return false; }
+    } else if (bounds.constant_trip_count <= 1u) {
+        // A guard would be semantically valid here, but cannot amortize the
+        // cloned loop and selector dispatch over repeated iterations.
+        return false;
+    }
+    if (!guarded_dynamic_trip &&
+        !preheader_terminator->metadata_list().empty()) {
         return false;
     }
 
     plan = {};
     plan.loop = loop;
+    plan.guarded_dynamic_trip = guarded_dynamic_trip;
     plan.blocks = ordered_loop_blocks(definition, loop);
     if (plan.blocks.size() != loop.body_blocks.size() + 1u ||
         !loop_is_read_only_and_cohort_insensitive(plan.blocks)) {
@@ -229,6 +289,72 @@ void clone_metadata(const T &source, T &destination) noexcept {
                 return false;
             }
         }
+    }
+
+    if (guarded_dynamic_trip) {
+        // Guarded unswitching handles the canonical top-tested shape. The
+        // cloned guard evaluates only the source header condition with every
+        // header Phi replaced by its preheader input. A false guard therefore
+        // preserves the zero-trip path without evaluating the invariant
+        // selector early.
+        if (exit_source != loop.header ||
+            !loop.header->terminator()->isa<ConditionalBranchInst>()) {
+            return false;
+        }
+        auto *header_branch = static_cast<ConditionalBranchInst *>(
+            loop.header->terminator());
+        auto *header_condition = header_branch->condition();
+        auto *true_target = header_branch->true_block();
+        auto *false_target = header_branch->false_block();
+        auto true_is_body = true_target != exit_block &&
+                            loop.contains(true_target);
+        auto false_is_body = false_target != exit_block &&
+                             loop.contains(false_target);
+        if (true_is_body == false_is_body ||
+            (true_is_body ? false_target : true_target) != exit_block ||
+            header_condition == nullptr ||
+            header_condition->isa<Undefined>()) {
+            return false;
+        }
+        for (auto *instruction : loop.header->instructions()) {
+            if (!instruction->isa<PhiInst>()) { break; }
+            auto *phi = static_cast<PhiInst *>(instruction);
+            Value *initial = nullptr;
+            for (auto i = size_t{0u}; i < phi->incoming_count(); i++) {
+                auto incoming = phi->incoming(i);
+                if (incoming.block == loop.preheader) {
+                    initial = incoming.value;
+                    break;
+                }
+            }
+            if (initial == nullptr) { return false; }
+            plan.guard_substitution.emplace(phi, initial);
+        }
+        if (!guard_value_is_clonable(
+                header_condition, loop.header,
+                plan.guard_substitution)) {
+            return false;
+        }
+        for (auto *instruction : exit_block->instructions()) {
+            if (!instruction->isa<PhiInst>()) { break; }
+            auto *phi = static_cast<PhiInst *>(instruction);
+            Value *exit_value = nullptr;
+            for (auto i = size_t{0u}; i < phi->incoming_count(); i++) {
+                auto incoming = phi->incoming(i);
+                if (incoming.block == exit_source) {
+                    exit_value = incoming.value;
+                    break;
+                }
+            }
+            if (!guard_value_is_clonable(
+                    exit_value, loop.header,
+                    plan.guard_substitution)) {
+                return false;
+            }
+        }
+        plan.guard_source = header_branch;
+        plan.guard_exit = exit_block;
+        plan.guard_body_is_true_target = true_is_body;
     }
 
     auto *latch = loop.latches.front();
@@ -262,8 +388,20 @@ void clone_metadata(const T &source, T &destination) noexcept {
         plan.candidate = branch;
         break;
     }
-    if (plan.candidate == nullptr) { return false; }
-    return collect_live_outs(plan, dom_tree);
+    if (plan.candidate == nullptr ||
+        !collect_live_outs(plan, dom_tree)) {
+        return false;
+    }
+    if (guarded_dynamic_trip) {
+        for (auto &&live_out : plan.live_outs) {
+            if (!guard_value_is_clonable(
+                    live_out.value, loop.header,
+                    plan.guard_substitution)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 void retarget_header_phi_predecessor(
@@ -377,12 +515,70 @@ void transform_plan(
         cloned_header, old_preheader, false_preheader);
 
     auto *old_preheader_branch = old_preheader->terminator();
-    builder.set_insertion_point(old_preheader_branch);
-    auto *dispatch = builder.cond_br(
-        plan.candidate->condition(),
-        true_preheader, false_preheader);
-    clone_metadata(*plan.candidate, *dispatch);
-    static_cast<void>(old_preheader_branch->remove_self());
+    BasicBlock *entry_guard = nullptr;
+    LoopCloneValueResolver guard_resolver;
+    if (plan.guarded_dynamic_trip) {
+        entry_guard = definition->create_basic_block();
+        auto *dispatch_block = definition->create_basic_block();
+        entry_guard->set_name("unswitch_entry_guard");
+        dispatch_block->set_name("unswitch_guarded_dispatch");
+        for (auto &&[phi, initial] : plan.guard_substitution) {
+            guard_resolver.map(phi, initial);
+        }
+
+        builder.set_insertion_point(entry_guard);
+        auto *guard_condition = materialize_guard_value(
+            builder, guard_resolver,
+            plan.guard_source->condition(), original_header);
+        // Materialize every value that the new zero-trip exit edge will need
+        // before terminating the guard block. The resolver caches cloned
+        // header arithmetic so shared exit/live-out expressions are emitted
+        // only once.
+        auto *exit_source = plan.loop.exit_edges.front().first;
+        for (auto *instruction : plan.guard_exit->instructions()) {
+            if (!instruction->isa<PhiInst>()) { break; }
+            auto *phi = static_cast<PhiInst *>(instruction);
+            for (auto i = size_t{0u}; i < phi->incoming_count(); i++) {
+                auto incoming = phi->incoming(i);
+                if (incoming.block == exit_source) {
+                    static_cast<void>(materialize_guard_value(
+                        builder, guard_resolver, incoming.value,
+                        original_header));
+                    break;
+                }
+            }
+        }
+        for (auto &&live_out : plan.live_outs) {
+            static_cast<void>(materialize_guard_value(
+                builder, guard_resolver, live_out.value,
+                original_header));
+        }
+        ConditionalBranchInst *guard_branch = nullptr;
+        if (plan.guard_body_is_true_target) {
+            guard_branch = builder.cond_br(
+                guard_condition, dispatch_block, plan.guard_exit);
+        } else {
+            guard_branch = builder.cond_br(
+                guard_condition, plan.guard_exit, dispatch_block);
+        }
+        clone_metadata(*plan.guard_source, *guard_branch);
+
+        builder.set_insertion_point(dispatch_block);
+        auto *dispatch = builder.cond_br(
+            plan.candidate->condition(),
+            true_preheader, false_preheader);
+        clone_metadata(*plan.candidate, *dispatch);
+
+        static_cast<BranchInst *>(old_preheader_branch)
+            ->set_target_block(entry_guard);
+    } else {
+        builder.set_insertion_point(old_preheader_branch);
+        auto *dispatch = builder.cond_br(
+            plan.candidate->condition(),
+            true_preheader, false_preheader);
+        clone_metadata(*plan.candidate, *dispatch);
+        static_cast<void>(old_preheader_branch->remove_self());
+    }
 
     auto *original_candidate = plan.candidate;
     auto *original_candidate_block =
@@ -408,6 +604,11 @@ void transform_plan(
                 phi->add_incoming(
                     resolver.resolve(incoming.value),
                     cloned_exit_source);
+                if (entry_guard != nullptr) {
+                    phi->add_incoming(
+                        guard_resolver.resolve(incoming.value),
+                        entry_guard);
+                }
                 break;
             }
         }
@@ -416,10 +617,14 @@ void transform_plan(
     for (auto &live_out : plan.live_outs) {
         builder.set_insertion_point(
             exit_block->instructions().front()->prev());
-        auto *merged = builder.phi(
-            live_out.value->type(),
-            {{live_out.value, exit_source},
-             {resolver.resolve(live_out.value), cloned_exit_source}});
+        auto *merged = builder.phi(live_out.value->type());
+        merged->add_incoming(live_out.value, exit_source);
+        merged->add_incoming(
+            resolver.resolve(live_out.value), cloned_exit_source);
+        if (entry_guard != nullptr) {
+            merged->add_incoming(
+                guard_resolver.resolve(live_out.value), entry_guard);
+        }
         for (auto *use : live_out.ordinary_uses) {
             User::set_operand_use_value(use, merged);
         }
@@ -427,6 +632,7 @@ void transform_plan(
     }
 
     info.unswitched_loop_count++;
+    info.guarded_dynamic_loop_count += plan.guarded_dynamic_trip;
     info.cloned_block_count += plan.blocks.size();
     info.cloned_instruction_count += plan.instruction_count;
     info.created_preheader_count += 2u;
@@ -516,6 +722,9 @@ LoopUnswitchInfo loop_unswitch_pass_run_on_module(
     }
     if (report != nullptr) {
         report->set("unswitched-loop", info.unswitched_loop_count);
+        report->set(
+            "guarded-dynamic-loop",
+            info.guarded_dynamic_loop_count);
         report->set("cloned-block", info.cloned_block_count);
         report->set(
             "cloned-instruction", info.cloned_instruction_count);

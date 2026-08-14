@@ -24,6 +24,7 @@ struct SIMDLoopUnswitchInfo {
 // iteration.
 [[nodiscard]] SIMDLoopUnswitchInfo
 unswitch_invariant_varying_loop_condition(
-    xir::Function *function) noexcept;
+    xir::Function *function,
+    bool enable_guarded_dynamic_trip = true) noexcept;
 
 }// namespace luisa::compute::simd::schedule

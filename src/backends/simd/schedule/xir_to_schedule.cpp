@@ -410,6 +410,33 @@ private:
         _loop_back_ids.reserve(back_edge_count);
         for (auto &&source_loop : natural_loops) {
             auto bounds = xir::analyze_loop_bounds(source_loop);
+            auto max_trip_count = std::optional<uint64_t>{};
+            if (bounds.trip_count_is_constant) {
+                max_trip_count = bounds.constant_trip_count;
+            } else {
+                // A canonical counted header remains a finite upper bound
+                // when the loop has additional early exits. Keep the generic
+                // exact-trip analysis unchanged for transformation passes:
+                // analyze a local view containing only the header-owned exit
+                // and publish the result explicitly as a maximum.
+                auto bounded_loop = source_loop;
+                bounded_loop.exit_edges.erase(
+                    std::remove_if(
+                        bounded_loop.exit_edges.begin(),
+                        bounded_loop.exit_edges.end(),
+                        [&](const auto &edge) noexcept {
+                            return edge.first != source_loop.header;
+                        }),
+                    bounded_loop.exit_edges.end());
+                if (bounded_loop.exit_edges.size() == 1u) {
+                    auto upper_bound =
+                        xir::analyze_loop_bounds(bounded_loop);
+                    if (upper_bound.trip_count_is_constant) {
+                        max_trip_count =
+                            upper_bound.constant_trip_count;
+                    }
+                }
+            }
             auto *cohort_uniform_induction =
                 bounds.is_valid() && bounds.stride_is_constant &&
                         _uniformity.is_uniform(bounds.start_value) ?
@@ -442,7 +469,7 @@ private:
             exits.erase(std::unique(exits.begin(), exits.end()), exits.end());
             auto id = _function->add_loop(
                 _block_ids.at(source_loop.header), std::move(blocks),
-                std::move(exits));
+                std::move(exits), std::nullopt, max_trip_count);
             _loops.emplace_back(LoopRecord{
                 .source = &source_loop,
                 .cohort_uniform_induction = cohort_uniform_induction,

@@ -38,6 +38,7 @@ struct SIMDCompiledKernel {
     size_t predicated_wide_select_ladder_diamond_count{0u};
     size_t factored_select_count{0u};
     size_t unswitched_loop_count{0u};
+    size_t guarded_unswitched_loop_count{0u};
     size_t unswitched_cloned_block_count{0u};
     size_t unswitched_cloned_instruction_count{0u};
     size_t unswitched_live_out_count{0u};
@@ -62,6 +63,11 @@ struct SIMDCompiledKernel {
     size_t paired_leaf_gather_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
+    size_t predicated_loop_count{0u};
+    size_t predicated_loop_block_count{0u};
+    size_t predicated_loop_instruction_count{0u};
+    size_t predicated_loop_batch_iteration_count{0u};
+    bool native_predicated_loop{false};
     size_t coherent_mask_reuse_count{0u};
     size_t all_on_region_version_count{0u};
     size_t all_on_region_block_count{0u};
@@ -90,7 +96,8 @@ struct SIMDCompiledKernel {
     std::string_view entry_name = {}, bool enable_fast_math = false,
     bool enable_uniform_buffer_broadcast = true,
     bool enable_lane_affine_buffer = true,
-    bool capture_assembly = false);
+    bool capture_assembly = false,
+    uint32_t dispatch_worker_count = 1u);
 
 // Translates a DSL/AST kernel to XIR, legalizes its structured control flow,
 // inlines callables, promotes local SSA storage, and then invokes the packet
@@ -98,6 +105,7 @@ struct SIMDCompiledKernel {
 [[nodiscard]] SIMDCompiledKernel compile_simd_kernel(
     const compute::Function &kernel, uint32_t warp_width,
     std::string_view entry_name = {}, bool enable_fast_math = false,
-    bool capture_assembly = false);
+    bool capture_assembly = false,
+    uint32_t dispatch_worker_count = 1u);
 
 }// namespace luisa::compute::simd

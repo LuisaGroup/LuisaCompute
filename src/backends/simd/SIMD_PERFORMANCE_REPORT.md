@@ -98,11 +98,14 @@ refreshed 64-spp cutout processes are performance-only; a separate 1024-spp
 run supplies its gallery conformance gate. SDF uses its internal four-SPP
 throughput metric;
 high-SPP SDF image comparison remains a separate conformance gate.
-Image/SDF/GEMM cells retain the earlier seven-process sweep and are not
-performance claims for this checkpoint. Spacex and Voxel are refreshed with
-seven balanced-order fallback/W1/W2/W4/W8/W16 rounds. Each Voxel process uses
-64 render iterations, each Spacex process uses eight frames, and every variant
-uses 32 workers on logical CPUs 0--31.
+SDF/GEMM cells retain the earlier seven-process sweep. Image processing,
+Voxel, and ordinary path tracing are refreshed after the bounded predicated-
+loop stage with seven balanced-order fallback/W1/W2/W4/W8/W16 rounds. Each
+image process repeats its four-dispatch pipeline 32 times, each Voxel process
+uses 64 render iterations, and each path process uses 128 one-spp dispatches.
+Every variant uses 32 workers on logical CPUs 0--31. Spacex retains its prior
+seven-round, eight-frame sweep because none of its kernels reaches the new
+loop candidate.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -112,10 +115,10 @@ Speedup is always `fallback time / SIMD time`, or
 | Workload and metric | fallback | W1 | W2 | W4 | W8 | W16 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | non-coro SDF, samples/s | 8.705 | 8.197 (0.942x) | 9.476 (1.089x) | 15.112 (1.736x) | 22.568 (2.593x) | 32.959 (3.786x) |
-| image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
-| voxel render, ms/iteration | 7.048 | 8.412 (0.829x) | 13.533 (0.516x) | 7.619 (0.918x) | 6.044 (1.155x) | 4.693 (1.484x) |
+| image pipeline, ms/iteration | 10.908 | 18.328 (0.592x) | 9.799 (1.110x) | 6.906 (1.567x) | 5.311 (2.039x) | 4.504 (2.400x) |
+| voxel render, ms/iteration | 8.874 | 9.165 (0.951x) | 14.786 (0.588x) | 8.246 (1.050x) | 5.114 (1.692x) | 3.486 (2.482x) |
 | Spacex, ms/frame | 162.421 | 125.778 (1.289x) | 64.295 (2.517x) | 34.030 (4.783x) | 18.655 (8.668x) | 11.684 (13.738x) |
-| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 74.330 | 64.151 (0.848x) | 52.936 (0.714x) | 68.757 (0.933x) | 77.246 (1.057x) | 81.462 (1.125x) |
+| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 66.550 | 59.591 (0.894x) | 50.560 (0.761x) | 65.354 (0.975x) | 75.699 (1.133x) | 78.775 (1.177x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 72.030 | 49.567 (0.692x) | 32.925 (0.465x) | 40.872 (0.575x) | 45.488 (0.642x) | 45.757 (0.642x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
@@ -127,12 +130,12 @@ process medians ranged from 41.594 to 88.326 GFLOP/s under shared-host load,
 while the SIMD distributions were tight. Its relative speedups must therefore
 be treated as host observations, not cross-machine constants.
 
-The refreshed voxel cells are the medians of the seven balanced rounds.
+The refreshed Voxel cells are the medians of the seven balanced rounds.
 Parenthesized values are the preferred geometric means of the within-round
 fallback/SIMD ratios. Their 95% paired log-space Student-t intervals at
-W1/W2/W4/W8/W16 are [0.8162, 0.8429], [0.5066, 0.5264],
-[0.9043, 0.9315], [1.1322, 1.1777], and [1.4506, 1.5188]. W8 and W16 win all
-seven rounds; the narrower widths lose all seven. Every fallback
+W1/W2/W4/W8/W16 are [0.9166, 0.9867], [0.5637, 0.6135],
+[1.0021, 1.1011], [1.6075, 1.7817], and [2.3514, 2.6191]. W8 and W16 win all
+seven rounds; W4 wins six, and W1/W2 lose all seven. Every fallback
 process retains SHA-256
 `27455a0e126ecfae23d592a58121751c5884a69d9d7388b20195e8b0a121829a`,
 and every SIMD process at all five widths retains
@@ -142,14 +145,24 @@ Independent gallery comparisons pass at 48.08 dB RGB PSNR for fallback and
 not expected to produce identical PNG bytes; same-backend refinement/oracle
 outputs below are byte-identical.
 
+The refreshed image-pipeline paired 95% intervals are [0.5515, 0.6347],
+[1.0349, 1.1903], [1.4516, 1.6908], [1.8937, 2.1956], and
+[2.2131, 2.6023] from W1 through W16. W4/W8/W16 win all seven pairs, W2 wins
+six, and W1 loses all seven. Every fallback image has SHA-256
+`dc3bb32fe870f5c64d4be16e39b92eb1db5670721884907c0fe9387c98daf7b5`;
+every SIMD width has
+`73d7aa39c1d17b2f2be073f91e5c4615e9233e58fbf673a195b7e43cc43baa31`.
+These kernels report zero predicated-loop batches, so this is a refreshed
+control workload rather than a gain attributed to the new loop transform.
+
 The current path-tracing rows are paired rather than independent medians because
 unrelated host tasks moved the load average during the sweeps. For ordinary
 path tracing the displayed fallback cell is the pooled median and each SIMD
 cell is its seven-process median. The preferred geometric means of adjacent
-SIMD/fallback ratios are 0.8476x/0.7137x/0.9333x/1.0572x/1.1254x from W1
+SIMD/fallback ratios are 0.8939x/0.7611x/0.9747x/1.1329x/1.1770x from W1
 through W16; their paired 95% log-space Student-t intervals are
-[0.8070, 0.8903], [0.7077, 0.7198], [0.9151, 0.9519], [1.0136, 1.1026], and
-[1.0601, 1.1946]. W8 and W16 win all seven pairs; the other widths lose all
+[0.8750, 0.9133], [0.7469, 0.7756], [0.9634, 0.9861], [1.1064, 1.1601], and
+[1.1447, 1.2102]. W8 and W16 win all seven pairs; the other widths lose all
 seven. Every width/backend retains one stable output hash across its seven
 processes, and separate gallery runs supply correctness conformance.
 
@@ -2290,6 +2303,122 @@ single generic arrival cascade. A future loop specialization must preserve all
 three properties, distinguish the shared `bb5` token chain, and demonstrate a
 stable real-render win rather than relying on static object size.
 
+### Guarded dynamic-trip loop unswitch
+
+The XIR loop-unswitch pass now handles an unknown-trip canonical top-tested
+loop without evaluating its invariant varying selector on zero-trip lanes. It
+clones the pure initial header condition into an entry guard, substitutes every
+header PHI with its preheader input, and sends only entering lanes to the two
+specialized loop versions. Exit PHIs and direct live-outs receive a separately
+resolved guard incoming value. `LUISA_SIMD_DISABLE_GUARDED_LOOP_UNSWITCH=1`
+is the differential oracle, and `guarded_unswitched_loops` reports acceptance.
+
+The permanent W2/W4/W8/W16 regression covers zero, short, and longer per-lane
+trip counts plus an inactive tail and exact oracle equality. The current image,
+Voxel, Spacex, SDF, and ordinary path-tracing kernels all report zero guarded
+unswitched loops, so this checkpoint is a semantic capability expansion rather
+than a real-example performance claim. The profitable real DDA result below
+comes from the separate non-cloning LLVM batch.
+
+### Bounded predicated innermost-loop batch
+
+The accepted follow-up preserves those three rules by changing a larger unit.
+Instead of adding a second exit collector around the existing state machine,
+it takes one finite, pure, innermost loop out of the per-iteration PC machine.
+Removing annotated backedges leaves an acyclic Schedule region; LLVM executes
+that region in topological order under one mask per block, carries a next-mask
+PHI, and accumulates one mask PHI per natural-loop exit. A proven bound of `N`
+body iterations permits `N + 1` header evaluations, including the final false
+test. The loop body is emitted once: there is no recursive ISPC-style all-on/
+mixed clone tree.
+
+At the one batch boundary, codegen counts nonempty dynamic destinations. One
+header/exit destination continues without a frame. Two or more destinations
+recreate the original header convergence once and enqueue the continuation and
+exit cohorts under that token. A matching top frame is reused. This is why the
+transformation handles the Voxel loop's four exits and shared `bb5` token chain
+without any of the rejected collector shortcuts. The permanent regression adds
+a post-loop `warp_active_sum`, multiple early-exit destinations, a 13-lane W16
+tail, and inactive NaNs before `fptoui`; candidate, disabled oracle, and scalar
+reference are exact. Writes and volatile reads independently reject.
+
+The production finder accepts one loop, 6--24 blocks, at most 96 audited
+instructions, and a nonzero upper bound no larger than 4096. Only nontrapping
+arithmetic/select/compare, casts, and direct nonvolatile typed-buffer reads are
+allowed. Every result, state assignment, and read index is varying or a mask.
+Nested loops, external non-header entries, undeclared joins, calls, local
+pointers, division/remainder/shifts, bindless/texture/accel operations,
+collectives, writes, atomics, volatile reads, returns, and barriers fail closed.
+Inactive gather indices and float-to-integer operands are sanitized before the
+LLVM operation, not after its result.
+
+This policy is target- and parallelism-aware. LLVM TTI must report at least a
+512-bit fixed-vector register and a legal non-scalarized masked gather. W16 is
+profitable even with one worker; W8 is selected only at 24 or more device
+workers. `LUISA_SIMD_DISABLE_PREDICATED_LOOP=1` is the same-binary oracle, and
+`LUISA_SIMD_FORCE_PREDICATED_LOOP=1` bypasses profitability only. The Voxel
+runtime report is W8 `12 blocks / 40 instructions / 257 header evaluations`
+and W16 `13 / 40 / 257`; ordinary path tracing and image processing report
+zero accepted loops.
+
+The worker-count crossover used five alternating forced/oracle pairs per cell:
+
+| Voxel width | workers | forced/oracle throughput | 95% paired CI | wins |
+| ---: | ---: | ---: | ---: | ---: |
+| W8 | 1 | 0.9666x | [0.9544, 0.9788] | 0/5 |
+| W8 | 8 | 0.9938x | [0.9733, 1.0148] | 2/5 |
+| W8 | 16 | 0.9762x | [0.9527, 1.0003] | 0/5 |
+| W8 | 24 | 1.1698x | [1.1409, 1.1995] | 5/5 |
+| W8 | 32 | 1.2588x | [1.2268, 1.2916] | 5/5 |
+| W16 | 1 | 1.0982x | [1.0912, 1.1052] | 5/5 |
+| W16 | 8 | 1.1079x | [1.0891, 1.1270] | 5/5 |
+| W16 | 16 | 1.1118x | [1.0887, 1.1355] | 5/5 |
+| W16 | 24 | 1.2892x | [1.2638, 1.3150] | 5/5 |
+| W16 | 32 | 1.3917x | [1.3805, 1.4029] | 5/5 |
+
+Independent longer 32-worker gates measured W8 at 1.2619x
+[1.2506, 1.2734] over seven pairs and W16 at 1.3797x
+[1.3599, 1.3998] over ten pairs; every pair won. Forced W2 was inconclusive at
+1.0097x [0.9979, 1.0217], and W4 was neutral at 0.9950x
+[0.9834, 1.0067], so neither is enabled. Every candidate/oracle PNG is byte-
+identical with SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
+
+Three-repeat `perf stat` runs over 256 renders quantify the mechanism:
+
+| width/event | generic oracle | predicated batch | reduction |
+| --- | ---: | ---: | ---: |
+| W8 cycles | 231.623 B | 185.434 B | 19.94% |
+| W8 instructions | 503.470 B | 244.689 B | 51.40% |
+| W8 branches | 78.443 B | 17.295 B | 77.95% |
+| W8 branch misses | 471.575 M | 43.221 M | 90.84% |
+| W8 cache misses | 74.928 M | 74.494 M | 0.58% |
+| W16 cycles | 175.126 B | 126.507 B | 27.76% |
+| W16 instructions | 349.223 B | 161.613 B | 53.72% |
+| W16 branches | 53.465 B | 13.889 B | 74.02% |
+| W16 branch misses | 220.105 M | 47.772 M | 78.30% |
+| W16 cache misses | 74.655 M | 77.771 M | -4.18% |
+
+Cache traffic is effectively unchanged at W8 and slightly worse at W16. The
+win is the removed dynamic PC/frame/branch work, not improved locality. This
+also explains why static size predicts the wrong sign:
+
+| final Voxel entry | W8 oracle | W8 batch | W16 oracle | W16 batch |
+| --- | ---: | ---: | ---: | ---: |
+| assembly bytes | 106,093 | 119,101 | 150,759 | 165,183 |
+| static instructions | 2,280 | 2,527 | 3,129 | 3,413 |
+| vector instructions | 1,162 | 1,246 | 1,357 | 1,514 |
+| branches | 244 | 262 | 376 | 393 |
+| stack references | 510 | 599 | 646 | 733 |
+| stack allocation | 3,520 B | 3,520 B | 4,800 B | 4,864 B |
+| calls / scalar-math calls | 3 / 2 | 3 / 2 | 3 / 2 | 3 / 2 |
+
+Both objects have only `sincosf` unresolved; those two calls are pre-existing
+uniform scalar camera math. The varying loop contains fixed-vector gathers and
+no extract/call/insert scalar-libm loop. The final fallback-relative Voxel
+table at the top rises to 1.692x for W8 and 2.482x for W16 in the current
+32-worker shared-host epoch.
+
 ### Rejected cross-query early gather
 
 The ordinary W8 path tracer has one tempting memory/compute-overlap site. Its
@@ -2537,3 +2666,22 @@ The graphics kernels report zero transposed buffer accesses and retain their
 prior objects, so these runs are correctness gates rather than a graphics-speed
 claim for this buffer-only optimization. Outputs remained in `/tmp`, and no
 gallery reference was regenerated or modified.
+
+The guarded-unswitch and bounded-predicated-loop stage completed a fresh full
+Release build, the required native-math/fallback-math/runtime-width gate plus
+the focused Schedule and XIR regressions (6/6), and the complete configured
+SIMD+fallback/XIR/runtime/graphics suite (140/140). Clang-format, diff checks,
+the syntax-check runner's Python suite (13/13), and per-translation-unit clangd
+checks pass for all fifteen changed C++ sources. The permanent differential
+regressions cover W2/W4/W8/W16 guarded zero-trip behavior and a W16 bounded
+batch with multiple exits, a 13-lane tail, post-loop collective reconvergence,
+inactive NaNs before `fptoui`, and exact disabled-oracle equality.
+
+Fresh W1/W2/W4/W8/W16 image-processing and Voxel gallery comparisons pass at
+89.251953 and 82.834519 dB. Ordinary 1024-spp Embree path tracing passes at
+35.426795/42.781582/40.940376/39.219305/37.801771 dB from W1 through W16 and
+reports native Embree 4.4.1 W4/W8/W16 packet support. Fallback passes the same
+three galleries at 100.000000, 48.080453, and 62.223429 dB. Applicability scans
+confirm that only Voxel reaches the predicated-loop candidate; image processing,
+ordinary path tracing, Spacex, blackhole, SDF, and cutout report zero accepted
+batches. All outputs and captured objects remained outside the repository.

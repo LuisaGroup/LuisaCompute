@@ -1292,7 +1292,8 @@ namespace luisa::compute::simd::detail {
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_cast(
-    const schedule::Instruction &instruction) {
+    const schedule::Instruction &instruction,
+    ::llvm::Value *operand_sanitization_mask) {
     if (!instruction.result || !instruction.source_op ||
         instruction.operands.size() != 1u) {
         _fail("cast instruction is malformed");
@@ -1308,6 +1309,10 @@ namespace luisa::compute::simd::detail {
     }
     auto varying = result->value_class == schedule::ValueClass::varying;
     if (varying) { value = _as_lane_vector(value, *source); }
+    auto *sanitization_mask = operand_sanitization_mask != nullptr ?
+                                  operand_sanitization_mask :
+                              varying ? _active_mask :
+                                        nullptr;
     auto op = static_cast<xir::CastOp>(*instruction.source_op);
     return _componentwise_unary(
         result->type, value, source->type, varying,
@@ -1332,6 +1337,23 @@ namespace luisa::compute::simd::detail {
             auto source_is_float = source_type->is_float16() ||
                                    source_type->is_float32() ||
                                    source_type->is_float64();
+            // LLVM floating-point-to-integer conversions produce poison for
+            // NaN and out-of-range operands. SIMD control flow still forms
+            // vector instructions for inactive lanes, so replace only those
+            // leaf operands before the conversion. Explicitly predicated
+            // regions pass their block mask; ordinary Schedule blocks use the
+            // current cohort mask. Masking the result afterwards would be too
+            // late because poison could already have escaped through a
+            // following comparison or address expression.
+            if (sanitization_mask != nullptr &&
+                source_is_float && !destination_is_float &&
+                !destination_type->is_bool() &&
+                scalar->getType()->isVectorTy()) {
+                scalar = _builder.CreateSelect(
+                    sanitization_mask, scalar,
+                    ::llvm::Constant::getNullValue(
+                        scalar->getType()));
+            }
             auto *destination = scalar->getType()->isVectorTy() ?
                                     static_cast<::llvm::Type *>(::llvm::FixedVectorType::get(
                                         _data_type(destination_type, false), _width)) :

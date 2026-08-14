@@ -257,6 +257,9 @@ struct Loop {
     std::vector<BlockId> blocks{};
     // Intentional infinite loops have an empty exit set.
     std::vector<BlockId> exits{};
+    // A proven finite upper bound. Additional early exits may make the
+    // dynamic trip count smaller; no execution may take more iterations.
+    std::optional<uint64_t> max_trip_count{};
     std::optional<LoopId> parent{};
 };
 
@@ -288,7 +291,8 @@ public:
     [[nodiscard]] LoopId add_loop(
         BlockId header, std::vector<BlockId> blocks,
         std::vector<BlockId> exits,
-        std::optional<LoopId> parent = std::nullopt);
+        std::optional<LoopId> parent = std::nullopt,
+        std::optional<uint64_t> max_trip_count = std::nullopt);
     [[nodiscard]] LoopId add_loop(
         BlockId header, BlockId exit,
         std::optional<LoopId> parent = std::nullopt) {

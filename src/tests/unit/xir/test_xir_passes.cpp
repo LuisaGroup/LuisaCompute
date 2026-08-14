@@ -274,7 +274,7 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)loop_rotation_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(6u, [](PassReport *report) noexcept {
+        check_zero_report(7u, [](PassReport *report) noexcept {
             (void)loop_unswitch_pass_run_on_module(
                 nullptr, {}, report);
         });
@@ -5504,6 +5504,48 @@ void reg_loop_unswitch() {
         }
     };
 
+    "loop_unswitch_guards_unknown_trip_before_selector"_test = [&] {
+        Module module;
+        auto fixture = make_fixture(
+            module, false, false, false, true);
+        auto info = loop_unswitch_pass_run_on_function(
+            fixture.function,
+            {.enable_guarded_dynamic_trip = true});
+        expect(info.succeeded());
+        expect(info.unswitched_loop_count == 1u);
+        expect(info.guarded_dynamic_loop_count == 1u);
+        expect(info.created_preheader_count == 2u);
+        expect(fixture.preheader->terminator()->isa<BranchInst>());
+        auto *guard = static_cast<BranchInst *>(
+                          fixture.preheader->terminator())
+                          ->target_block();
+        expect(guard != nullptr);
+        expect(guard != nullptr && guard->name().has_value());
+        expect(guard != nullptr && guard->name().value_or("") ==
+                                       "unswitch_entry_guard");
+        expect(guard != nullptr &&
+               guard->terminator()->isa<ConditionalBranchInst>());
+        auto selector_branch_count = size_t{0u};
+        fixture.function->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                if (instruction->isa<ConditionalBranchInst>() &&
+                    static_cast<ConditionalBranchInst *>(instruction)
+                            ->condition() == fixture.selector) {
+                    selector_branch_count++;
+                }
+            });
+        expect(selector_branch_count == 1u);
+        expect(fixture.return_inst->return_value()->isa<PhiInst>());
+        auto *merged = static_cast<PhiInst *>(
+            fixture.return_inst->return_value());
+        expect(merged->incoming_count() == 3u);
+        auto verification = xir_verify_module(&module);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unexpected guarded-unswitch verification failure" :
+                    verification.errors.front().message.c_str());
+    };
+
     "loop_unswitch_moves_candidate_metadata_to_dispatch"_test = [&] {
         Module module;
         auto fixture = make_fixture(
@@ -5595,7 +5637,7 @@ void reg_loop_unswitch() {
             nullptr, {}, &report);
         expect(!info.changed());
         expect(info.succeeded());
-        expect(report.entries().size() == 6u);
+        expect(report.entries().size() == 7u);
     };
 }
 

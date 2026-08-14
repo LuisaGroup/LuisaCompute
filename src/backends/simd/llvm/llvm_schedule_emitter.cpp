@@ -33,7 +33,9 @@ ScheduleEmitter::ScheduleEmitter(
     std::array<uint32_t, 3u> static_block_size,
     bool enable_uniform_buffer_broadcast,
     bool enable_lane_affine_buffer,
-    bool enable_paired_leaf_gather)
+    bool enable_paired_leaf_gather,
+    uint32_t dispatch_worker_count,
+    bool enable_native_predicated_loop)
     : _module{module},
       _source{source},
       _width{width},
@@ -43,6 +45,8 @@ ScheduleEmitter::ScheduleEmitter(
       _enable_uniform_buffer_broadcast{enable_uniform_buffer_broadcast},
       _enable_lane_affine_buffer{enable_lane_affine_buffer},
       _enable_paired_leaf_gather{enable_paired_leaf_gather},
+      _dispatch_worker_count{std::max(dispatch_worker_count, 1u)},
+      _enable_native_predicated_loop{enable_native_predicated_loop},
       _layout{module.getContext(), width},
       _collectives{width},
       _builder{module.getContext()} {}
