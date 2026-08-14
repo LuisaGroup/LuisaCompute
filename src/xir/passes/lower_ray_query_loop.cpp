@@ -460,76 +460,42 @@ struct RayQueryHandlerLocalAllocas {
         }
     }
 
-    // Definite initialization is a forward must property. Let D(B) mean that
-    // the complete object has been stored on every path from handler entry to
-    // the end of B. Entry starts false; joins use intersection; a direct store
-    // generates D. Starting non-entry blocks at true computes the greatest
-    // fixed point satisfying these equations, while the false entry boundary
-    // removes unsupported cyclic assumptions.
-    luisa::unordered_map<BasicBlock *, bool> initialized_out;
-    luisa::unordered_map<BasicBlock *, bool> contains_store;
-    for (auto *block : region.blocks) {
-        auto has_store = false;
-        block->traverse_instructions([&](Instruction *inst) noexcept {
-            has_store |= inst->isa<StoreInst>() &&
-                         static_cast<StoreInst *>(inst)->variable() == alloca;
-        });
-        contains_store.emplace(block, has_store);
-        initialized_out.emplace(block, block != entry);
-    }
-
-    auto changed = true;
-    while (changed) {
-        changed = false;
-        for (auto *block : region.blocks) {
-            auto initialized_in = block != entry;
-            auto has_internal_predecessor = false;
-            if (block != entry) {
-                block->traverse_predecessors(
-                    false, [&](BasicBlock *predecessor) noexcept {
-                        if (region.blocks.contains(predecessor)) {
-                            has_internal_predecessor = true;
-                            initialized_in &= initialized_out.at(predecessor);
-                        }
-                    });
-                // collect_outlineable_handler_region proves every reachable
-                // non-entry block is owned by this region. Keep the analysis
-                // conservative if a malformed disconnected block appears.
-                initialized_in &= has_internal_predecessor;
-            }
-            auto next = initialized_in || contains_store.at(block);
-            auto &current = initialized_out.at(block);
-            if (current != next) {
-                current = next;
-                changed = true;
-            }
+    // Definite initialization has an equivalent sparse formulation. Delete
+    // every CFG suffix after its first full store to this object. A handler
+    // load is safe exactly when it is unreachable from entry in the remaining
+    // graph: such a path would be precisely a counterexample with no preceding
+    // definition. This handles joins by path union (both diamond arms must be
+    // cut), handles cycles without fixed-point iteration, and respects
+    // instruction order by scanning each reached block up to its first store.
+    // Each block is visited at most once for this allocation.
+    luisa::unordered_set<BasicBlock *> reached_without_store;
+    luisa::vector<BasicBlock *> worklist{entry};
+    while (!worklist.empty()) {
+        auto *block = worklist.back();
+        worklist.pop_back();
+        if (!region.blocks.contains(block) ||
+            !reached_without_store.emplace(block).second) {
+            continue;
         }
-    }
-
-    // Validate instruction order after the block fixed point: a store later in
-    // the same block cannot justify an earlier load.
-    for (auto *block : region.blocks) {
-        auto initialized = block != entry;
-        if (block != entry) {
-            auto has_internal_predecessor = false;
-            block->traverse_predecessors(
-                false, [&](BasicBlock *predecessor) noexcept {
-                    if (region.blocks.contains(predecessor)) {
-                        has_internal_predecessor = true;
-                        initialized &= initialized_out.at(predecessor);
-                    }
-                });
-            initialized &= has_internal_predecessor;
-        }
+        auto path_was_cut = false;
         for (auto *inst : block->instructions()) {
             if (inst->isa<StoreInst>() &&
                 static_cast<StoreInst *>(inst)->variable() == alloca) {
-                initialized = true;
-            } else if (inst->isa<LoadInst>() &&
-                       static_cast<LoadInst *>(inst)->variable() == alloca &&
-                       !initialized) {
+                path_was_cut = true;
+                break;
+            }
+            if (inst->isa<LoadInst>() &&
+                static_cast<LoadInst *>(inst)->variable() == alloca) {
                 return false;
             }
+        }
+        if (!path_was_cut) {
+            block->traverse_successors(
+                false, [&](BasicBlock *successor) noexcept {
+                    if (region.blocks.contains(successor)) {
+                        worklist.emplace_back(successor);
+                    }
+                });
         }
     }
     return true;
