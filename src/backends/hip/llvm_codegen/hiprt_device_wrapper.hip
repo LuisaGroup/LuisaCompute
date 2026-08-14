@@ -1375,13 +1375,13 @@ luisa_pipeline_ray_query_trace(
     hiprtPrivateInstanceStack instance_stack;
     auto scene = reinterpret_cast<hiprtScene>(state->scene_handle);
     LuisaPipelineRayQueryTraversal traversal{
-            scene, state->ray, stack, instance_stack,
-            static_cast<hiprtRayMask>(state->mask),
-            (state->flags & 1u) != 0u ?
-                hiprtTraversalHintShadowRays :
-                hiprtTraversalHintReflectionRays,
-            state, nullptr,
-            LUISA_PIPELINE_RAY_TYPE, state->time};
+        scene, state->ray, stack, instance_stack,
+        static_cast<hiprtRayMask>(state->mask),
+        (state->flags & 1u) != 0u ?
+            hiprtTraversalHintShadowRays :
+            hiprtTraversalHintReflectionRays,
+        state, nullptr,
+        LUISA_PIPELINE_RAY_TYPE, state->time};
 
     while (!state->terminated) {
         state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
@@ -1589,7 +1589,7 @@ luisa_pipeline_ray_query_terminate(void *state_ptr) {
 // continuation without replaying callbacks; the latter is retained for the
 // legacy one-shot traversal fallback below.
 class LuisaHwBvhStack : public hiprt::HwBvhStack {
-  public:
+public:
     explicit __device__ LuisaHwBvhStack(uint32_t *lds_base)
         : hiprt::HwBvhStack{lds_base} {}
 
@@ -1640,7 +1640,7 @@ class LuisaHwBvhStack : public hiprt::HwBvhStack {
                hiprt::luisa_hiprt_hw_stack_max_entries - 8u;
     }
 
-  private:
+private:
     bool _overflowed{false};
     bool _last_operation_overflowed{false};
 };
@@ -1652,7 +1652,7 @@ class LuisaHwBvhStack : public hiprt::HwBvhStack {
 // covers seven deferred siblings across 36 balanced BVH8 levels. If an
 // adversarial hierarchy exceeds it, trap instead of returning a wrong hit.
 class LuisaCompleteTraversalStack {
-  public:
+public:
     static constexpr auto capacity = 256u;
 
     __device__ LuisaCompleteTraversalStack() = default;
@@ -1687,7 +1687,7 @@ class LuisaCompleteTraversalStack {
         _top = 0u;
     }
 
-  private:
+private:
     uint32_t _entries[capacity];
     uint32_t _top{0u};
 };
@@ -2064,7 +2064,8 @@ luisa_pipeline_ray_query_trace_hw(
                             state, instance_id,
                             (select_hit0 ?
                                  intersections[3] :
-                                 intersections[7]) >> 1u,
+                                 intersections[7]) >>
+                                1u,
                             __int_as_float(select_hit0 ?
                                                intersections[1] :
                                                intersections[5]),
@@ -2633,8 +2634,8 @@ struct LuisaRayQueryStateHw {
     // address while in_leaf is true. The latter avoids encode/decode work on
     // every filtered triangle callback.
     uint32_t node_or_leaf_addr;
-    uint32_t stack_top;
-    uint32_t instance_stack_bottom;
+    uint32_t hw_stack_address;
+    uint32_t hw_instance_stack_address;
     uint32_t flags;// bit 0: any-hit mode (terminate on first commit)
 
     // Persist the active traversal pointers directly. Reloading SceneHeader
@@ -2666,23 +2667,29 @@ struct LuisaRayQueryStateHw {
     hiprtRay ray;
     hiprtRay original_ray;
 
-    // Ray queries may suspend after exposing a candidate, so their traversal
-    // stack must persist in the query object. A complete software stack avoids
-    // the circular GFX12 short-stack overflow and, unlike restarting after an
-    // overflow, never repeats already-observed callbacks.
-    uint32_t stack[hiprtPrivateStack::StackSize];
+    // The bounded hardware frontier H is disjoint from the one active
+    // parent-link continuation S. S is entered before a complete BVH8
+    // expansion could overflow H. A candidate callback may return to arbitrary
+    // shader code, so both frontier representations and the enclosing TLAS
+    // continuation are explicit persistent query state.
+    uint32_t stackless_root;
+    uint32_t leaf_parent_node;
+    uint32_t leaf_node_index;
+    uint32_t tlas_instance_node;
+    uint32_t tlas_leaf_parent_node;
+    uint32_t tlas_stackless_root;
 };
 
 // gfx12 codegen reserves exactly this amount in private memory. An exact check
 // is intentional: the state is address-taken across out-of-line traversal
 // calls, so hidden ABI growth must fail the build instead of overflowing the
 // codegen allocation (and unused headroom would become per-thread scratch).
-static_assert(sizeof(LuisaRayQueryStateHw) == 448,
+static_assert(sizeof(LuisaRayQueryStateHw) == 224,
               "LuisaRayQueryStateHw size no longer matches the codegen alloca");
 static_assert(alignof(LuisaRayQueryStateHw) == 16);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, node_or_leaf_addr) == 0);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, stack_top) == 4);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, instance_stack_bottom) == 8);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, hw_stack_address) == 4);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, hw_instance_stack_address) == 8);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, flags) == 12);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tlas_box_nodes) == 16);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, instance_nodes) == 24);
@@ -2703,7 +2710,12 @@ static_assert(__builtin_offsetof(LuisaRayQueryStateHw, committed_hit) == 92);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, pending) == 112);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, ray) == 128);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, original_ray) == 160);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, stack) == 192);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, stackless_root) == 192);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, leaf_parent_node) == 196);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, leaf_node_index) == 200);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tlas_instance_node) == 204);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tlas_leaf_parent_node) == 208);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tlas_stackless_root) == 212);
 
 using LuisaRayQueryPrivatePtr = void __attribute__((address_space(5))) *;
 using LuisaRayQueryStateHwPrivatePtr = LuisaRayQueryStateHw __attribute__((address_space(5))) *;
@@ -2712,55 +2724,6 @@ static __device__ __forceinline__ LuisaRayQueryStateHwPrivatePtr
 luisa_ray_query_hw_state(LuisaRayQueryPrivatePtr state_ptr) {
     return reinterpret_cast<LuisaRayQueryStateHwPrivatePtr>(state_ptr);
 }
-
-class LuisaRayQuerySoftwareStack {
-  public:
-    explicit __device__ LuisaRayQuerySoftwareStack(
-        LuisaRayQueryStateHwPrivatePtr state)
-        : _state{state} {}
-
-    __device__ uint32_t pop() {
-        auto bottom = insideInstance() ?
-                          _state->instance_stack_bottom :
-                          0u;
-        if (_state->stack_top == bottom) {
-            return hiprt::InvalidValue;
-        }
-        return _state->stack[--_state->stack_top];
-    }
-
-    __device__ uint32_t pushChildrenAndPopClosest(
-        uint32_t, const uint32_t children[8]) {
-        for (auto i = 8u; i-- > 1u;) {
-            if (children[i] != hiprt::InvalidValue) {
-                if (_state->stack_top >=
-                    hiprtPrivateStack::StackSize) {
-                    __builtin_trap();
-                }
-                _state->stack[_state->stack_top++] = children[i];
-            }
-        }
-        return children[0] != hiprt::InvalidValue ?
-                   children[0] :
-                   pop();
-    }
-
-    __device__ void enterInstance() {
-        _state->instance_stack_bottom = _state->stack_top;
-    }
-
-    __device__ void exitInstance() {
-        _state->stack_top = _state->instance_stack_bottom;
-        _state->instance_stack_bottom = hiprt::InvalidValue;
-    }
-
-    [[nodiscard]] __device__ bool insideInstance() const {
-        return _state->instance_stack_bottom != hiprt::InvalidValue;
-    }
-
-  private:
-    LuisaRayQueryStateHwPrivatePtr _state;
-};
 
 static __device__ __forceinline__ LuisaRayQueryHit
 luisa_make_ray_query_hit(uint32_t instance_id, uint32_t primitive_id,
@@ -2786,6 +2749,36 @@ _commit_ray_query_surface_hit(LuisaRayQueryStateHwPrivatePtr s,
         return true;
     }
     return false;
+}
+
+static __device__ __forceinline__ void
+luisa_ray_query_save_frontier(
+    LuisaRayQueryStateHwPrivatePtr state,
+    const LuisaHwBvhStack &stack,
+    hiprt::BoxNode *box_nodes,
+    void *primitive_nodes,
+    uint32_t instance_id,
+    const hiprtRay &ray,
+    uint32_t node_or_leaf_address,
+    uint32_t leaf_node_index,
+    uint32_t stackless_root,
+    uint32_t leaf_parent_node,
+    uint32_t tlas_instance_node,
+    uint32_t tlas_leaf_parent_node,
+    uint32_t tlas_stackless_root) {
+    state->hw_stack_address = stack.m_addr;
+    state->hw_instance_stack_address = stack.m_savedAddr;
+    state->box_nodes = box_nodes;
+    state->prim_nodes = primitive_nodes;
+    state->instance_id = instance_id;
+    state->ray = ray;
+    state->node_or_leaf_addr = node_or_leaf_address;
+    state->leaf_node_index = leaf_node_index;
+    state->stackless_root = stackless_root;
+    state->leaf_parent_node = leaf_parent_node;
+    state->tlas_instance_node = tlas_instance_node;
+    state->tlas_leaf_parent_node = tlas_leaf_parent_node;
+    state->tlas_stackless_root = tlas_stackless_root;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) void
@@ -2816,8 +2809,17 @@ luisa_ray_query_initialize(
     s->instance_id = hiprt::InvalidValue;
     s->node_or_leaf_addr = hiprt::RootIndex;
 
-    s->stack_top = 0u;
-    s->instance_stack_bottom = hiprt::InvalidValue;
+    {
+        LuisaHwBvhStack stack{luisa_hiprt_shared_stack_cache};
+        s->hw_stack_address = stack.m_addr;
+        s->hw_instance_stack_address = stack.m_savedAddr;
+    }
+    s->stackless_root = hiprt::InvalidValue;
+    s->leaf_parent_node = hiprt::InvalidValue;
+    s->leaf_node_index = hiprt::InvalidValue;
+    s->tlas_instance_node = hiprt::InvalidValue;
+    s->tlas_leaf_parent_node = hiprt::InvalidValue;
+    s->tlas_stackless_root = hiprt::InvalidValue;
 
     // Committed-hit miss sentinel. Candidate fields are fully overwritten
     // before every candidate callback and need no eager initialization.
@@ -2873,7 +2875,9 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
         s->pending_valid = false;
     }
 
-    LuisaRayQuerySoftwareStack stack{s};
+    LuisaHwBvhStack stack{luisa_hiprt_shared_stack_cache};
+    stack.m_addr = s->hw_stack_address;
+    stack.m_savedAddr = s->hw_instance_stack_address;
 
     // Match the traversal ordering used by the direct closest/any paths.
     // Reflection ordering prioritizes the closest candidate for ALL queries,
@@ -2889,6 +2893,13 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
     uint32_t nodeType = 0u;
     uint32_t leafAddr = 0u;
     uint32_t triPairIndex = 0u;
+    uint32_t skipNode = InvalidValue;
+    uint32_t stacklessRoot = s->stackless_root;
+    uint32_t leafParentNode = s->leaf_parent_node;
+    uint32_t leafNodeIndex = s->leaf_node_index;
+    uint32_t tlasInstanceNode = s->tlas_instance_node;
+    uint32_t tlasLeafParentNode = s->tlas_leaf_parent_node;
+    uint32_t tlasStacklessRoot = s->tlas_stackless_root;
 
     if (s->in_leaf) {
         s->in_leaf = false;
@@ -2907,10 +2918,38 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
         goto after_leaf;
     }
 
-    while (nodeIndex != InvalidValue) {
+    while (true) {
+        if (nodeIndex == InvalidValue) {
+            if (stack.last_operation_overflowed()) {
+                // Entry into parent-link traversal is proactive. Reaching the
+                // hardware overflow sentinel therefore violates the frontier
+                // partition invariant and cannot be recovered without
+                // replaying already-observed callbacks.
+                __builtin_trap();
+            }
+            if (!stack.insideInstance()) { break; }
+
+            stack.exitInstance();
+            instanceId = InvalidValue;
+            boxNodes = s->tlas_box_nodes;
+            primNodes = nullptr;
+            ray.origin = s->original_ray.origin;
+            ray.direction = s->original_ray.direction;
+            stacklessRoot = tlasStacklessRoot;
+            leafParentNode = tlasLeafParentNode;
+            if (stacklessRoot != InvalidValue) {
+                nodeIndex = leafParentNode;
+                skipNode = tlasInstanceNode;
+            } else {
+                nodeIndex = stack.pop();
+                skipNode = InvalidValue;
+            }
+            continue;
+        }
         nodeType = getNodeType(nodeIndex);
 
         if (nodeType == BoxType) {
+            const auto currentBox = nodeIndex;
             hip_float3 dummy0, dummy1;
             auto childResults = __builtin_amdgcn_image_bvh8_intersect_ray(
                 encodeBaseAddr(boxNodes),
@@ -2926,8 +2965,46 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
             uint32_t children[8] = {
                 childResults[0], childResults[1], childResults[2], childResults[3],
                 childResults[4], childResults[5], childResults[6], childResults[7]};
-            nodeIndex = stack.pushChildrenAndPopClosest(InvalidValue, children);
-            goto try_exit_instance_rq;
+
+            if (stacklessRoot == InvalidValue && stack.would_overflow()) {
+                stacklessRoot = currentBox;
+            }
+            if (stacklessRoot != InvalidValue) {
+                auto nextChild = InvalidValue;
+                if (skipNode == InvalidValue) {
+                    nextChild = children[0];
+                } else {
+                    auto foundCompletedChild = false;
+                    for (auto i = 0u; i < 8u; ++i) {
+                        const auto child = children[i];
+                        if (foundCompletedChild && child != InvalidValue) {
+                            nextChild = child;
+                            break;
+                        }
+                        foundCompletedChild |= child == skipNode;
+                    }
+                }
+                if (nextChild != InvalidValue) {
+                    leafParentNode = currentBox;
+                    nodeIndex = nextChild;
+                    skipNode = InvalidValue;
+                } else if (currentBox == stacklessRoot) {
+                    stacklessRoot = InvalidValue;
+                    nodeIndex = stack.pop();
+                    skipNode = InvalidValue;
+                } else {
+                    const auto parentAddress =
+                        boxNodes[getNodeAddr(currentBox)].getParentAddr();
+                    if (parentAddress == InvalidValue) { __builtin_trap(); }
+                    nodeIndex = encodeNodeIndex(parentAddress, BoxType);
+                    skipNode = currentBox;
+                }
+            } else {
+                nodeIndex = stack.pushChildrenAndPopClosest(
+                    InvalidValue, children);
+                skipNode = InvalidValue;
+            }
+            continue;
         }
 
         if (nodeType == InstanceType) {
@@ -2956,25 +3033,37 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                     auto *geometry = inst.m_type == hiprtInstanceTypeScene ?
                                          luisa_hiprt_resolve_static_motion_geometry(inst, ray) :
                                          inst.m_geometry;
-                    if (geometry == nullptr) {
-                        nodeIndex = stack.pop();
-                        goto try_exit_instance_rq;
-                    }
-                    boxNodes = geometry->m_boxNodes;
-                    primNodes = geometry->m_primNodes;
+                    if (geometry != nullptr) {
+                        boxNodes = geometry->m_boxNodes;
+                        primNodes = geometry->m_primNodes;
 
-                    stack.enterInstance();
-                    nodeIndex = RootIndex;
-                    continue;
+                        tlasInstanceNode = nodeIndex;
+                        tlasLeafParentNode = leafParentNode;
+                        tlasStacklessRoot = stacklessRoot;
+                        stacklessRoot = InvalidValue;
+                        leafParentNode = InvalidValue;
+                        skipNode = InvalidValue;
+                        stack.enterInstance();
+                        nodeIndex = RootIndex;
+                        continue;
+                    }
                 }
             }
 
-            nodeIndex = stack.pop();
-            goto try_exit_instance_rq;
+            if (stacklessRoot != InvalidValue) {
+                const auto completedInstance = nodeIndex;
+                nodeIndex = leafParentNode;
+                skipNode = completedInstance;
+            } else {
+                nodeIndex = stack.pop();
+                skipNode = InvalidValue;
+            }
+            continue;
         }
 
         // --- Custom surface/procedural leaf ---
         if (nodeType == CustomType && instanceId != InvalidValue) {
+            leafNodeIndex = nodeIndex;
             auto customNodes = reinterpret_cast<CustomNode *>(primNodes);
             auto primitive_id = customNodes[getNodeAddr(nodeIndex)].m_primIndex;
             s->candidate_hit = luisa_make_ray_query_hit(
@@ -2983,11 +3072,10 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
             // traversal call has returned. A nested call here forces the AMDGPU
             // backend to save the traversal's large live VGPR set on every
             // proceed(), including triangle-only workloads.
-            s->node_or_leaf_addr = nodeIndex;
-            s->box_nodes = boxNodes;
-            s->prim_nodes = primNodes;
-            s->instance_id = instanceId;
-            s->ray = ray;
+            luisa_ray_query_save_frontier(
+                s, stack, boxNodes, primNodes, instanceId, ray,
+                nodeIndex, leafNodeIndex, stacklessRoot, leafParentNode,
+                tlasInstanceNode, tlasLeafParentNode, tlasStacklessRoot);
             s->leaf_status = 3u;
             s->in_leaf = true;
             s->state = RQ_STATE_CUSTOM_CANDIDATE;
@@ -2996,6 +3084,7 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
 
         // --- Triangle leaf ---
         if (instanceId != InvalidValue) {
+            leafNodeIndex = nodeIndex;
             leafAddr = getNodeAddr(nodeIndex);
             triPairIndex = typeToTriPairIndex(nodeType);
 
@@ -3067,11 +3156,11 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                     s->leaf_status = static_cast<uint8_t>(status);
                     s->in_leaf = true;
 
-                    // Save traversal state
-                    s->box_nodes = boxNodes;
-                    s->prim_nodes = primNodes;
-                    s->instance_id = instanceId;
-                    s->ray = ray;
+                    luisa_ray_query_save_frontier(
+                        s, stack, boxNodes, primNodes, instanceId, ray,
+                        leafAddr, leafNodeIndex, stacklessRoot,
+                        leafParentNode, tlasInstanceNode,
+                        tlasLeafParentNode, tlasStacklessRoot);
 
                     s->state = RQ_STATE_SURFACE_CANDIDATE;
                     return;
@@ -3089,11 +3178,11 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                     s->leaf_status = static_cast<uint8_t>(status);
                     s->in_leaf = true;
 
-                    // Save traversal state
-                    s->box_nodes = boxNodes;
-                    s->prim_nodes = primNodes;
-                    s->instance_id = instanceId;
-                    s->ray = ray;
+                    luisa_ray_query_save_frontier(
+                        s, stack, boxNodes, primNodes, instanceId, ray,
+                        leafAddr, leafNodeIndex, stacklessRoot,
+                        leafParentNode, tlasInstanceNode,
+                        tlasLeafParentNode, tlasStacklessRoot);
 
                     s->state = RQ_STATE_SURFACE_CANDIDATE;
                     return;
@@ -3111,11 +3200,11 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                     s->leaf_status = static_cast<uint8_t>(status);
                     s->in_leaf = true;
 
-                    // Save traversal state
-                    s->box_nodes = boxNodes;
-                    s->prim_nodes = primNodes;
-                    s->instance_id = instanceId;
-                    s->ray = ray;
+                    luisa_ray_query_save_frontier(
+                        s, stack, boxNodes, primNodes, instanceId, ray,
+                        leafAddr, leafNodeIndex, stacklessRoot,
+                        leafParentNode, tlasInstanceNode,
+                        tlasLeafParentNode, tlasStacklessRoot);
 
                     s->state = RQ_STATE_SURFACE_CANDIDATE;
                     return;
@@ -3132,17 +3221,12 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
         }
 
     after_leaf:
-        nodeIndex = stack.pop();
-
-    try_exit_instance_rq:
-        if (nodeIndex == InvalidValue && stack.insideInstance()) {
-            stack.exitInstance();
-            instanceId = InvalidValue;
-            boxNodes = s->tlas_box_nodes;
-            primNodes = nullptr;
-            ray.origin = s->original_ray.origin;
-            ray.direction = s->original_ray.direction;
+        if (stacklessRoot != InvalidValue) {
+            nodeIndex = leafParentNode;
+            skipNode = leafNodeIndex;
+        } else {
             nodeIndex = stack.pop();
+            skipNode = InvalidValue;
         }
     }
 

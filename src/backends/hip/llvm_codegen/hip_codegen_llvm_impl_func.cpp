@@ -14,7 +14,7 @@ namespace luisa::compute::hip {
 
 namespace {
 
-constexpr auto hip_hardware_ray_query_state_size = 448u;
+constexpr auto hip_hardware_ray_query_state_size = 224u;
 constexpr auto hip_software_ray_query_state_size = 576u;
 constexpr auto hip_synchronous_ray_query_state_size = 128u;
 
