@@ -1,10 +1,13 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/builder.h>
@@ -423,6 +426,155 @@ struct RayQueryLoopCaptureList {
     luisa::vector<Instruction *> out_values;
 };
 
+struct RayQueryHandlerLocalAllocas {
+    luisa::vector<AllocaInst *> surface;
+    luisa::vector<AllocaInst *> procedural;
+    luisa::unordered_set<Value *> all;
+};
+
+[[nodiscard]] static bool handler_local_alloca_is_definitely_initialized(
+    AllocaInst *alloca, BasicBlock *entry,
+    const RayQueryHandlerRegion &region) noexcept {
+    // This analysis deliberately recognizes only direct, whole-object loads
+    // and stores. GEPs, address casts, calls, or storing the pointer itself may
+    // observe identity, partial initialization, or escaping lifetime and fail
+    // closed. Stores outside the handler are permitted: if every handler path
+    // overwrites the object before its first load, those earlier definitions
+    // are killed and cannot affect this invocation. Loads remain handler-local.
+    for (auto &&use : alloca->use_list()) {
+        auto *user = use->user();
+        if (user == nullptr || !user->isa<Instruction>()) { return false; }
+        auto *inst = static_cast<Instruction *>(user);
+        if (inst->isa<LoadInst>()) {
+            if (!region.blocks.contains(inst->parent_block()) ||
+                static_cast<LoadInst *>(inst)->variable() != alloca) {
+                return false;
+            }
+        } else if (inst->isa<StoreInst>()) {
+            auto *store = static_cast<StoreInst *>(inst);
+            if (store->variable() != alloca || store->value() == alloca) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    // Definite initialization is a forward must property. Let D(B) mean that
+    // the complete object has been stored on every path from handler entry to
+    // the end of B. Entry starts false; joins use intersection; a direct store
+    // generates D. Starting non-entry blocks at true computes the greatest
+    // fixed point satisfying these equations, while the false entry boundary
+    // removes unsupported cyclic assumptions.
+    luisa::unordered_map<BasicBlock *, bool> initialized_out;
+    luisa::unordered_map<BasicBlock *, bool> contains_store;
+    for (auto *block : region.blocks) {
+        auto has_store = false;
+        block->traverse_instructions([&](Instruction *inst) noexcept {
+            has_store |= inst->isa<StoreInst>() &&
+                         static_cast<StoreInst *>(inst)->variable() == alloca;
+        });
+        contains_store.emplace(block, has_store);
+        initialized_out.emplace(block, block != entry);
+    }
+
+    auto changed = true;
+    while (changed) {
+        changed = false;
+        for (auto *block : region.blocks) {
+            auto initialized_in = block != entry;
+            auto has_internal_predecessor = false;
+            if (block != entry) {
+                block->traverse_predecessors(
+                    false, [&](BasicBlock *predecessor) noexcept {
+                        if (region.blocks.contains(predecessor)) {
+                            has_internal_predecessor = true;
+                            initialized_in &= initialized_out.at(predecessor);
+                        }
+                    });
+                // collect_outlineable_handler_region proves every reachable
+                // non-entry block is owned by this region. Keep the analysis
+                // conservative if a malformed disconnected block appears.
+                initialized_in &= has_internal_predecessor;
+            }
+            auto next = initialized_in || contains_store.at(block);
+            auto &current = initialized_out.at(block);
+            if (current != next) {
+                current = next;
+                changed = true;
+            }
+        }
+    }
+
+    // Validate instruction order after the block fixed point: a store later in
+    // the same block cannot justify an earlier load.
+    for (auto *block : region.blocks) {
+        auto initialized = block != entry;
+        if (block != entry) {
+            auto has_internal_predecessor = false;
+            block->traverse_predecessors(
+                false, [&](BasicBlock *predecessor) noexcept {
+                    if (region.blocks.contains(predecessor)) {
+                        has_internal_predecessor = true;
+                        initialized &= initialized_out.at(predecessor);
+                    }
+                });
+            initialized &= has_internal_predecessor;
+        }
+        for (auto *inst : block->instructions()) {
+            if (inst->isa<StoreInst>() &&
+                static_cast<StoreInst *>(inst)->variable() == alloca) {
+                initialized = true;
+            } else if (inst->isa<LoadInst>() &&
+                       static_cast<LoadInst *>(inst)->variable() == alloca &&
+                       !initialized) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] static RayQueryHandlerLocalAllocas
+find_handler_local_allocas(
+    const RayQueryLoopCaptureList &capture_list,
+    BasicBlock *surface_entry,
+    const RayQueryHandlerRegion &surface_region,
+    BasicBlock *procedural_entry,
+    const RayQueryHandlerRegion &procedural_region) noexcept {
+    RayQueryHandlerLocalAllocas result;
+    for (auto *value : capture_list.in_values) {
+        if (value == nullptr || !value->isa<AllocaInst>()) { continue; }
+        auto *alloca = static_cast<AllocaInst *>(value);
+        if (!alloca->is_local()) { continue; }
+
+        auto used_by_surface = false;
+        auto used_by_procedural = false;
+        for (auto &&use : alloca->use_list()) {
+            auto *user = use->user();
+            if (user == nullptr || !user->isa<Instruction>()) { continue; }
+            auto *block = static_cast<Instruction *>(user)->parent_block();
+            used_by_surface |= surface_region.blocks.contains(block);
+            used_by_procedural |= procedural_region.blocks.contains(block);
+        }
+        // Sharing an allocation between candidate kinds, or observing it
+        // from neither, gives no unique callback-local home. A cross-handler
+        // object remains an ordinary capture even if each individual access
+        // looks locally initialized.
+        if (used_by_surface == used_by_procedural) { continue; }
+        auto *entry = used_by_surface ? surface_entry : procedural_entry;
+        auto &region = used_by_surface ? surface_region : procedural_region;
+        if (!handler_local_alloca_is_definitely_initialized(
+                alloca, entry, region)) {
+            continue;
+        }
+        (used_by_surface ? result.surface : result.procedural)
+            .emplace_back(alloca);
+        result.all.emplace(alloca);
+    }
+    return result;
+}
+
 static void collect_ray_query_loop_capture_list_in_inst(Instruction *inst, const Value *query_object,
                                                         const luisa::unordered_set<Value *> &internal,
                                                         luisa::unordered_set<Value *> &known_in,
@@ -542,6 +694,7 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
 [[nodiscard]] static Function *outline_ray_query_loop_dispatch_branch(Module *module, BasicBlock *branch,
                                                                       Value *query_object, const BasicBlock *dispatch,
                                                                       const RayQueryLoopCaptureList &capture_list,
+                                                                      luisa::span<AllocaInst *const> local_allocas,
                                                                       luisa::string_view comment) noexcept {
     // check if the branch is nullptr
     if (branch == nullptr) { return nullptr; }
@@ -572,6 +725,17 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
     }
     // set function body
     function->set_body_block(static_cast<BasicBlock *>(resolver.resolve(branch)));
+    // Recreate proven invocation-local storage inside the outlined handler.
+    // The resolver then rewrites every accepted direct load/store to this new
+    // object; no callback ABI field or parent-function lifetime is required.
+    XIRBuilder local_builder;
+    local_builder.set_insertion_point(function->definition()->body_block());
+    for (auto *original : local_allocas) {
+        auto *local = local_builder.alloca_(original->type(), original->op());
+        clone_metadata(*original, *local);
+        LUISA_ASSERT(resolver.emplace(original, local),
+                     "Duplicate localized ray-query handler alloca.");
+    }
     // duplicate the blocks
     auto already_returned = false;
     luisa::vector<std::pair<const PhiInst *, PhiInst *>> phi_nodes;
@@ -609,16 +773,46 @@ static void lower_ray_query_loop(Function *function, RayQueryLoopInst *loop, Ray
     auto subgraph = collect_ray_query_loop_subgraph(loop);
     auto capture_list = collect_ray_query_loop_capture_list(subgraph);
     auto dispatch = static_cast<RayQueryDispatchInst *>(subgraph.reverse_post_order.front()->terminator());
+    RayQueryHandlerRegion surface_region;
+    RayQueryHandlerRegion procedural_region;
+    luisa::string_view region_reason;
+    LUISA_ASSERT(
+        collect_outlineable_handler_region(
+            dispatch->on_surface_candidate_block(),
+            subgraph.reverse_post_order.front(), loop->merge_block(),
+            surface_region, region_reason) &&
+            collect_outlineable_handler_region(
+                dispatch->on_procedural_candidate_block(),
+                subgraph.reverse_post_order.front(), loop->merge_block(),
+                procedural_region, region_reason),
+        "Preflighted ray-query handler region became invalid: {}.",
+        region_reason);
+    auto local_allocas = find_handler_local_allocas(
+        capture_list, dispatch->on_surface_candidate_block(), surface_region,
+        dispatch->on_procedural_candidate_block(), procedural_region);
+    if (!local_allocas.all.empty()) {
+        capture_list.in_values.erase(
+            std::remove_if(
+                capture_list.in_values.begin(),
+                capture_list.in_values.end(),
+                [&](Value *value) noexcept {
+                    return local_allocas.all.contains(value);
+                }),
+            capture_list.in_values.end());
+        info.localized_alloca_count += local_allocas.all.size();
+    }
     auto merge_block = loop->control_flow_merge()->merge_block();
     LUISA_DEBUG_ASSERT(dispatch->exit_block() == merge_block, "Invalid ray query loop exit block.");
     LUISA_DEBUG_ASSERT(function->parent_module() != nullptr, "Invalid function module.");
     auto on_surface = outline_ray_query_loop_dispatch_branch(
         function->parent_module(), dispatch->on_surface_candidate_block(), subgraph.query_object,
         subgraph.reverse_post_order.front(), capture_list,
+        luisa::span{local_allocas.surface},
         "on_surface function outlined from ray query loop");
     auto on_procedural = outline_ray_query_loop_dispatch_branch(
         function->parent_module(), dispatch->on_procedural_candidate_block(), subgraph.query_object,
         subgraph.reverse_post_order.front(), capture_list,
+        luisa::span{local_allocas.procedural},
         "on_procedural function outlined from ray query loop");
     // prepare captured arguments
     luisa::vector<Value *> captured_args;
@@ -868,6 +1062,7 @@ RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, Pa
     }
     if (report != nullptr) {
         report->set("lowered_loop", info.lowered_loop_count);
+        report->set("localized_alloca", info.localized_alloca_count);
         report->set("error", info.error_count);
     }
     return info;
