@@ -1,11 +1,15 @@
 // =============================================================================
-// tensor.h — TileLang-style tile / tensor DSL (header-only STUB)
+// tensor.h — TileLang-style tile / tensor DSL (header-only)
 // =============================================================================
-// A compile-time stub for the "pure tile / tensor" DSL described in
+// A compile-time interface for the "pure tile / tensor" DSL described in
 // `D:/tilelang/dsl_report/tilelang_cpp_tile_style.cpp`.  It makes that
 // pseudo-code *valid C++*: every TileLang construct is spelled with real C++
-// syntax, and every construct lowers to a host-side log line (there is no
-// device execution — the stub only traces the tile program).
+// syntax.  While a tile::Kernel (or tile::jit(...).compile()) is being traced,
+// every tile op below emits the matching TensorStmt into the active
+// luisa::compute::detail::TileFunctionBuilder, so the kernel's
+// function()->body()->statements() contains the real tile IR.  Outside a
+// Kernel the same ops fall back to host-side logging only (pure stub mode) —
+// there is no device execution in either mode.
 //
 // Mapping (pseudo-code -> this header):
 // namespace T = luisa::compute::tile::language; -> constexpr auto T = luisa::compute::tile::language::dsl;
@@ -31,7 +35,10 @@
 //   T.copy / T.clear / T.gemm / T.reduce_sum     -> logged tile ops
 //   T.max / T.rsqrt / T.ceildiv                  -> tile / scalar helpers
 //   T.print(tile, "msg")                         -> logged
-// luisa::compute::tile::jit(f).compile(M, N, ...) -> traces `f` and logs "kernel.compile"
+// luisa::compute::tile::jit(f).compile() -> traces `f` and logs "kernel.compile";
+//   shape/tile parameters (M, N, K, block_*, threads, num_stages) live in the
+//   kernel function itself (baked constants / function params), not in compile()
+//   (mirrors tilelang, where @tilelang.jit functions carry their own config)
 // luisa::compute::tile::testing::assert_close(a, b, ...) -> logged
 //
 // Pseudo kernel:
@@ -407,7 +414,8 @@ public:
             auto texpr = TileFunctionBuilder::TensorExprPtr{new TensorExpr{
                 static_cast<int32_t>(Rank), detail::tensor_element_type_v<DType>,
                 detail::to_ast_scope(_scope), detail::to_fixed_vector(_dims),
-                detail::to_fixed_vector(off), detail::to_fixed_vector(ext)}};
+                detail::to_fixed_vector(off), detail::to_fixed_vector(ext),
+                nullptr, e.name}};
             e.ast = texpr.get();
             e.owned = std::move(texpr);
         }
@@ -428,7 +436,8 @@ public:
             auto texpr = TileFunctionBuilder::TensorExprPtr{new TensorExpr{
                 static_cast<int32_t>(Rank), detail::tensor_element_type_v<DType>,
                 detail::to_ast_scope(_scope), detail::to_fixed_vector(_dims),
-                detail::to_fixed_vector(off), detail::to_fixed_vector(ext)}};
+                detail::to_fixed_vector(off), detail::to_fixed_vector(ext),
+                nullptr, e.name}};
             e.ast = texpr.get();
             e.owned = std::move(texpr);
         }
@@ -576,7 +585,8 @@ T make_kernel_arg() {
         T t;
         std::array<int, T::rank> zeros{};
         t.set_ast(builder->tile_empty(detail::to_fixed_vector(zeros),
-                                      tensor_element_type_v<typename T::dtype>));
+                                      tensor_element_type_v<typename T::dtype>,
+                                      t.name()));
         return t;
     } else {
         return T{};
@@ -717,7 +727,12 @@ inline Kernel1D Kernel(int gx, int threads) { return {gx, threads}; }
 inline Kernel2D Kernel(int gx, int gy, int threads) { return {gx, gy, threads}; }
 
 // `for (auto k : T.Pipelined(n, stages))` — the software-pipelined K loop.
-// The stub iterates a single representative step.
+// The stub iterates a single representative step: like Kernel1D/Kernel2D, the
+// tile program inside the loop is identical for every K step (a real lowering
+// would unroll/pipeline `count` iterations), so one trace is enough.  This is
+// the tile analogue of the `ForRange` binder in <luisa/dsl/stmt.h>, which also
+// emits its loop construct once in begin() and iterates one representative
+// trip (F1: end() must yield after the first step, not after `count`).
 struct PipelinedRange {
     int count = 0;
     int stages = 1;
@@ -732,14 +747,14 @@ struct PipelinedRange {
     };
 
     [[nodiscard]] Iterator begin() const noexcept {
-        LUISA_INFO("[tensor-dsl] T.Pipelined: {} iterations x {} stages [stub: tracing iteration 0]",
+        LUISA_INFO("[tensor-dsl] T.Pipelined: {} iterations x {} stages [stub: tracing one representative step]",
                    count, stages);
         if (auto *builder = TileFunctionBuilder::current_or_null()) {
             builder->tile_pipelined(count, stages);
         }
         return {0};
     }
-    [[nodiscard]] Iterator end() const noexcept { return {count}; }
+    [[nodiscard]] Iterator end() const noexcept { return {1}; }
 };
 
 inline PipelinedRange Pipelined(int count, int stages) { return {count, stages}; }
@@ -751,7 +766,8 @@ inline Tensor<DType, R> empty(const Shape<R> &dims, DType) {
     if (auto *builder = TileFunctionBuilder::current_or_null()) {
         // T.empty: global tensor (kernel argument / result buffer).
         t.set_ast(builder->tile_empty(detail::to_fixed_vector(dims.dims),
-                                      detail::tensor_element_type_v<DType>));
+                                      detail::tensor_element_type_v<DType>,
+                                      t.name()));
     }
     return t;
 }
@@ -761,7 +777,8 @@ inline Tensor<DType, R> alloc_shared(const Shape<R> &dims, DType) {
     Tensor<DType, R> t(dims, Scope::Shared);
     if (auto *builder = TileFunctionBuilder::current_or_null()) {
         t.set_ast(builder->tile_alloc_shared(detail::to_fixed_vector(dims.dims),
-                                             detail::tensor_element_type_v<DType>));
+                                             detail::tensor_element_type_v<DType>,
+                                             t.name()));
     }
     return t;
 }
@@ -771,7 +788,8 @@ inline Tensor<DType, R> alloc_fragment(const Shape<R> &dims, DType) {
     Tensor<DType, R> t(dims, Scope::Fragment);
     if (auto *builder = TileFunctionBuilder::current_or_null()) {
         t.set_ast(builder->tile_alloc_fragment(detail::to_fixed_vector(dims.dims),
-                                               detail::tensor_element_type_v<DType>));
+                                               detail::tensor_element_type_v<DType>,
+                                               t.name()));
     }
     return t;
 }
@@ -968,7 +986,12 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// Host side: luisa::compute::tile::jit(kernel).compile(...)  (mirrors @tilelang.jit)
+// Host side: luisa::compute::tile::jit(kernel).compile()  (mirrors @tilelang.jit)
+//
+// Like tilelang's `jit.compile`, this takes NO shape / tile parameters: the
+// kernel function itself carries its configuration (baked constexpr sizes, or
+// plain function parameters with defaults).  compile() only traces the prim
+// function into a TileFunctionBuilder and wraps it in a CompiledKernel.
 // ---------------------------------------------------------------------------
 template<typename Ret>
 class CompiledKernel;
@@ -980,16 +1003,24 @@ class jit {
 public:
     explicit jit(F f) : _fn(std::move(f)) {}
 
-    template<typename... ConfigArgs>
-    auto compile(ConfigArgs &&...config_args) const {
+    // No shape/tile arguments (M, N, K, block_M, block_N, block_K, threads,
+    // num_stages, ...): those are part of the kernel function, exactly like
+    // tilelang where `compile()` is generic and the @tilelang.jit function
+    // owns its compile-time constants.  compile() traces `_fn` (using the
+    // defaults baked into it) and keeps the traced IR for introspection.
+    auto compile() const {
         using traits = detail::fn_traits<std::remove_cvref_t<F>>;
-        luisa::string cfg;
-        ((cfg += luisa::format("{} ", static_cast<long long>(config_args))), ...);
-        LUISA_INFO("[tensor-dsl] kernel.compile: {} ({} compile-time args: {})",
-                   "prim_function", sizeof...(ConfigArgs), cfg);
+        LUISA_INFO("[tensor-dsl] kernel.compile: {} (config baked into the kernel function)",
+                   "prim_function");
         // Trace the prim function into a TileFunctionBuilder exactly like a
         // real DSL would at compile time.
         Kernel<std::remove_cvref_t<F>> kernel{_fn};
+        // Enforce the one-launch-per-function rule at compile time: a tile
+        // function maps to exactly one T.Kernel (TileLang emits one
+        // `__global__` per `T.Kernel`).  Deriving the SIMT launch metadata
+        // validates the traced body — it logs an error and aborts when the
+        // body contains zero or more than one T.Kernel.
+        [[maybe_unused]] auto meta = kernel.function()->compile_meta_data();
         return CompiledKernel<typename traits::return_type>{kernel.function()};
     }
 };
@@ -1044,5 +1075,10 @@ inline void assert_close(const A &a, const B &b, float rtol, float atol) {
 inline void print(const luisa::string &s) {
     LUISA_INFO("[tensor-dsl] luisa::compute::tile::print: {}", s);
 }
+
+/*
+TODO
+implement a `tile_to_kernel` dsl version
+*/
 
 }// namespace luisa::compute::tile

@@ -383,20 +383,28 @@ private:
     luisa::fixed_vector<int32_t, 4> _offset; // R1: tile anchor (host); runtime anchor is R3 `ref`
     luisa::fixed_vector<int32_t, 4> _extent; // R1: tile size BM, BN (host)
     const RefExpr *_handle{nullptr};// R3: kernel-side variable (BUFFER/SHARED/LOCAL)
+    // R1: host-side display/identity name (e.g. "A" / "T.alloc_shared#3").
+    // Used by the tile lowering (tile_to_kernel) to resolve a view clone back
+    // to its AllocStmt storage when several tensors share one layout.  The
+    // name is host metadata: it is copied by the (compiler-generated) copy
+    // constructor but intentionally NOT serialized (see serialize()).
+    luisa::string _name;
 
 public:
     TensorExpr() noexcept = default;
 
     /// Construct a tensor with the given layout.  When `extent` is empty it
     /// defaults to the whole-tensor extent (`dims`); when `offset` is empty it
-    /// defaults to zeros.  `handle` is borrowed and not owned.
+    /// defaults to zeros.  `handle` is borrowed and not owned; `name` is
+    /// host-side identity metadata used by the tile lowering.
     TensorExpr(int32_t rank,
                TensorElementType dtype,
                TensorScope scope,
                luisa::fixed_vector<int32_t, 4> &&dims,
                luisa::fixed_vector<int32_t, 4> &&offset = {},
                luisa::fixed_vector<int32_t, 4> &&extent = {},
-               const RefExpr *handle = nullptr) noexcept;
+               const RefExpr *handle = nullptr,
+               luisa::string_view name = {}) noexcept;
 
     [[nodiscard]] auto rank() const noexcept { return _rank; }
     [[nodiscard]] auto dtype() const noexcept { return _dtype; }
@@ -405,6 +413,8 @@ public:
     [[nodiscard]] auto offset() const noexcept { return luisa::span<const int32_t>{_offset.data(), _offset.size()}; }
     [[nodiscard]] auto extent() const noexcept { return luisa::span<const int32_t>{_extent.data(), _extent.size()}; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    /// Host-side identity/display name (not serialized).
+    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
 
     /// Human readable description, e.g. "A(16,16)@(0,0)".
     [[nodiscard]] luisa::string describe() const;
@@ -559,7 +569,7 @@ class LUISA_AST_API AllocStmt final : public TensorStmt {
 public:
     AllocStmt() noexcept : TensorStmt{TileOpKind::ALLOC} {}
     AllocStmt(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype, TensorScope scope,
-              const RefExpr *handle = nullptr) noexcept;
+              const RefExpr *handle = nullptr, luisa::string_view name = {}) noexcept;
     [[nodiscard]] auto tensor() const noexcept { return output(); }
     [[nodiscard]] auto rank() const noexcept { return output() == nullptr ? 0 : output()->rank(); }
     [[nodiscard]] auto dims() const noexcept {

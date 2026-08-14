@@ -164,16 +164,17 @@ const char *tensor_element_type_name(TensorElementType e) noexcept {
 // TensorExpr
 // ---------------------------------------------------------------------------
 
-TensorExpr::TensorExpr(int32_t rank,
-                       TensorElementType dtype,
-                       TensorScope scope,
-                       luisa::fixed_vector<int32_t, 4> &&dims,
-                       luisa::fixed_vector<int32_t, 4> &&offset,
-                       luisa::fixed_vector<int32_t, 4> &&extent,
-                       const RefExpr *handle) noexcept
-    : _rank{rank}, _dtype{dtype}, _scope{scope},
-      _dims{std::move(dims)}, _offset{std::move(offset)},
-      _extent{std::move(extent)}, _handle{handle} {
+  TensorExpr::TensorExpr(int32_t rank,
+                         TensorElementType dtype,
+                         TensorScope scope,
+                         luisa::fixed_vector<int32_t, 4> &&dims,
+                         luisa::fixed_vector<int32_t, 4> &&offset,
+                         luisa::fixed_vector<int32_t, 4> &&extent,
+                         const RefExpr *handle,
+                         luisa::string_view name) noexcept
+        : _rank{rank}, _dtype{dtype}, _scope{scope},
+          _dims{std::move(dims)}, _offset{std::move(offset)},
+          _extent{std::move(extent)}, _handle{handle}, _name{name} {
     if (_offset.empty() && !_dims.empty()) [[likely]] { _offset.assign(_dims.size(), 0); }
     if (_extent.empty()) [[likely]] { _extent = _dims; }// whole-tensor view
 }
@@ -389,11 +390,11 @@ bool TilePrintStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
 
 // --- Alloc ---
 AllocStmt::AllocStmt(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype, TensorScope scope,
-                     const RefExpr *handle) noexcept
-    : TensorStmt{TileOpKind::ALLOC,
-                 new TensorExpr{static_cast<int32_t>(dims.size()), dtype, scope,
-                                std::move(dims), {}, {}, handle},
-                 {}} {}
+                       const RefExpr *handle, luisa::string_view name) noexcept
+      : TensorStmt{TileOpKind::ALLOC,
+                   new TensorExpr{static_cast<int32_t>(dims.size()), dtype, scope,
+                                  std::move(dims), {}, {}, handle, name},
+                   {}} {}
 size_t AllocStmt::serialize(luisa::vector<char> &output_buffer) {
     return TensorStmt::serialize(output_buffer);
 }

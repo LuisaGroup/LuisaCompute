@@ -3,6 +3,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/unordered_map.h>
 
 #include <luisa/ast/function_builder.h>
 #include <luisa/ast/tensor.h>
@@ -28,6 +29,11 @@ namespace luisa::compute::detail {
  * temporaries returned by the value-producing operators (tile_binary,
  * tile_max, tile_rsqrt) are owned by the caller.
  */
+struct SIMTKernelMeta {
+    // include\luisa\ast\function_builder.h
+    std::array<uint32_t, 3> block_size;
+    std::array<uint32_t, 3> dispatch_size;
+};
 class LUISA_AST_API TileFunctionBuilder {
 
 public:
@@ -100,6 +106,12 @@ private:
     luisa::vector<TileScope *> _scope_stack;
     luisa::vector<luisa::unique_ptr<TensorStmt>> _owned_statements;
     luisa::vector<luisa::unique_ptr<Expression>> _owned_expressions;
+    // value-producing operators (tile_binary / tile_max / tile_rsqrt) record
+    // the fresh temporary TensorExpr they hand to the caller, keyed by the
+    // statement they appended.  The temporary only appears on the *consuming*
+    // statement (STORE / a later value op), so the lowering uses this map to
+    // associate a temp pointer with the statement that produced it.
+    luisa::unordered_map<const TensorStmt *, const TensorExpr *> _temp_outputs;
     mutable luisa::string _name;
 
 protected:
@@ -107,7 +119,7 @@ protected:
     void _append(TensorStmt *statement) noexcept;
 
     template<typename Stmt, typename... Args>
-    requires std::is_base_of_v<TensorStmt, Stmt>
+        requires std::is_base_of_v<TensorStmt, Stmt>
     auto _create_and_append_statement(Args &&...args) noexcept {
         auto stmt = luisa::make_unique<Stmt>(std::forward<Args>(args)...);
         auto p = stmt.get();
@@ -123,7 +135,7 @@ protected:
     /// the node is created under a short-lived guard and is never registered in
     /// that temporary builder.
     template<typename Expr, typename... Args>
-    requires std::is_base_of_v<Expression, Expr>
+        requires std::is_base_of_v<Expression, Expr>
     [[nodiscard]] const Expr *_create_and_append_expressions(Args &&...args) noexcept {
         FunctionBuilder builder;
         FunctionBuilder::FunctionStackGuard guard{&builder};
@@ -210,14 +222,28 @@ public:
         return _create_and_append_expressions<LiteralExpr>(type, std::move(value));
     }
 
+    /// Return the fresh temporary TensorExpr produced by the given
+    /// value-producing statement (tile_binary / tile_max / tile_rsqrt), or
+    /// nullptr when the statement produces no temporary.  The temporary is
+    /// owned by the caller of the producing operator; the consuming statement
+    /// borrows it, so this association lets the lowering inline the produced
+    /// expression at the consumption point.
+    [[nodiscard]] const TensorExpr *temp_output(const TensorStmt *stmt) const noexcept {
+        auto it = _temp_outputs.find(stmt);
+        return it == _temp_outputs.end() ? nullptr : it->second;
+    }
+
     // tile operators
     /// T.empty(dims, dtype): allocate a global tensor tile. The returned
     /// TensorExpr is owned by the emitted AllocStmt.
-    [[nodiscard]] TensorExpr *tile_empty(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype) noexcept;
+    [[nodiscard]] TensorExpr *tile_empty(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype,
+                                         luisa::string_view name = {}) noexcept;
     /// T.alloc_shared(dims, dtype): allocate a per-block shared tensor tile.
-    [[nodiscard]] TensorExpr *tile_alloc_shared(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype) noexcept;
+    [[nodiscard]] TensorExpr *tile_alloc_shared(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype,
+                                                luisa::string_view name = {}) noexcept;
     /// T.alloc_fragment(dims, dtype): allocate a per-thread fragment tensor tile.
-    [[nodiscard]] TensorExpr *tile_alloc_fragment(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype) noexcept;
+    [[nodiscard]] TensorExpr *tile_alloc_fragment(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype,
+                                                  luisa::string_view name = {}) noexcept;
     /// T.clear(t).
     void tile_clear(TensorExpr *t) noexcept;
     /// T.copy(src, dst).
@@ -260,6 +286,13 @@ public:
     static void push(TileFunctionBuilder *) noexcept;
     /// Pop a tile function builder from the stack.
     static void pop(TileFunctionBuilder *) noexcept;
+    
+    /// Compile the SIMT launch metadata (thread-group / dispatch sizes) from
+    /// the body's single T.Kernel statement.  A tile function maps to exactly
+    /// one launch (one `__global__` per `T.Kernel`), so this aborts — with an
+    /// error log — when the body contains no T.Kernel or more than one
+    /// T.Kernel.
+    [[nodiscard]] SIMTKernelMeta compile_meta_data() const;
 };
 
 }// namespace luisa::compute::detail

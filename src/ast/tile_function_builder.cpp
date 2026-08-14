@@ -77,21 +77,24 @@ bool TileFunctionBuilder::inside_function_scope() const noexcept {
 
 // --- tile operators ---------------------------------------------------------
 
-TensorExpr *TileFunctionBuilder::tile_empty(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype) noexcept {
+TensorExpr *TileFunctionBuilder::tile_empty(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype,
+                                             luisa::string_view name) noexcept {
     auto *stmt = _create_and_append_statement<AllocStmt>(
-        std::move(dims), dtype, TensorScope::Global);
+        std::move(dims), dtype, TensorScope::Global, nullptr, name);
     return stmt->tensor();
 }
 
-TensorExpr *TileFunctionBuilder::tile_alloc_shared(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype) noexcept {
+TensorExpr *TileFunctionBuilder::tile_alloc_shared(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype,
+                                                   luisa::string_view name) noexcept {
     auto *stmt = _create_and_append_statement<AllocStmt>(
-        std::move(dims), dtype, TensorScope::Shared);
+        std::move(dims), dtype, TensorScope::Shared, nullptr, name);
     return stmt->tensor();
 }
 
-TensorExpr *TileFunctionBuilder::tile_alloc_fragment(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype) noexcept {
+TensorExpr *TileFunctionBuilder::tile_alloc_fragment(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype,
+                                                     luisa::string_view name) noexcept {
     auto *stmt = _create_and_append_statement<AllocStmt>(
-        std::move(dims), dtype, TensorScope::Fragment);
+        std::move(dims), dtype, TensorScope::Fragment, nullptr, name);
     return stmt->tensor();
 }
 
@@ -125,26 +128,32 @@ void TileFunctionBuilder::tile_store(int32_t op, TensorExpr *lhs, TensorExpr *rh
 luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_binary(
     BinaryOp op, TensorExpr *lhs, TensorExpr *rhs_tensor,
     const LiteralExpr *rhs_literal, const RefExpr *rhs_ref) noexcept {
-    _create_and_append_statement<TileBinaryStmt>(op, lhs, rhs_tensor, rhs_literal, rhs_ref);
+    auto *stmt = _create_and_append_statement<TileBinaryStmt>(op, lhs, rhs_tensor, rhs_literal, rhs_ref);
     // fresh fragment temporary with the lhs layout (elementwise result);
     // plain-`new`-allocated so a consuming statement can `delete` it.
-    return TensorExprPtr{new TensorExpr{
+    auto temp = TensorExprPtr{new TensorExpr{
         lhs->rank(), lhs->dtype(), TensorScope::Fragment,
         luisa::fixed_vector<int32_t, 4>{lhs->dims().begin(), lhs->dims().end()}}};
+    _temp_outputs[stmt] = temp.get();
+    return temp;
 }
 
 luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_max(TensorExpr *a, const LiteralExpr *b) noexcept {
-    _create_and_append_statement<MaxStmt>(a, b);
-    return TensorExprPtr{new TensorExpr{
+    auto *stmt = _create_and_append_statement<MaxStmt>(a, b);
+    auto temp = TensorExprPtr{new TensorExpr{
         a->rank(), a->dtype(), TensorScope::Fragment,
         luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()}}};
+    _temp_outputs[stmt] = temp.get();
+    return temp;
 }
 
 luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_rsqrt(TensorExpr *a) noexcept {
-    _create_and_append_statement<RsqrtStmt>(a);
-    return TensorExprPtr{new TensorExpr{
+    auto *stmt = _create_and_append_statement<RsqrtStmt>(a);
+    auto temp = TensorExprPtr{new TensorExpr{
         a->rank(), a->dtype(), TensorScope::Fragment,
         luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()}}};
+    _temp_outputs[stmt] = temp.get();
+    return temp;
 }
 
 int32_t TileFunctionBuilder::tile_ceildiv(int32_t a, int32_t b) noexcept {
@@ -163,6 +172,81 @@ void TileFunctionBuilder::tile_kernel_2d(int32_t gx, int32_t gy, int32_t threads
 
 void TileFunctionBuilder::tile_pipelined(int32_t count, int32_t stages, const RefExpr *k) noexcept {
     _create_and_append_statement<PipelinedStmt>(count, stages, k);
+}
+
+SIMTKernelMeta TileFunctionBuilder::compile_meta_data() const {
+    // Mirror TileLang's launch-size collector (DeviceInfoCollector,
+    // D:/tilelang/simd_to_simt.md §1.3): walk the whole body, find the kernel
+    // launch statement, and report
+    //   blockDim    = product of the threadIdx extents (T.Kernel `threads`)
+    //   gridDim     = blockIdx extents (T.Kernel `gx` / `gx * gy`)
+    // (D:/tilelang/simd_to_simt.md §2.3: threads -> set_block_size(...),
+    // blocks -> .dispatch(gx[, gy])).
+    //
+    // A tile function maps to exactly ONE kernel launch (TileLang emits one
+    // `__global__` per `T.Kernel`, D:/tilelang/simd_to_simt.md §1).  Zero
+    // kernels cannot be dispatched; two kernels would carry two different
+    // block/grid shapes that a single Shader cannot express.  Both cases log
+    // an error and abort (header contract).
+    //
+    // "Deep" walk: every statement in the body is dispatched by TileOpKind
+    // below.  The current tile IR is a flat list (nested scopes are not owned
+    // by the builder), and statements that could embed sub-statements
+    // (PIPELINED, LOOP_ANNOTATION, ...) trace their bodies inline into the
+    // same flat list, so a single pass over body()->statements() is the
+    // complete program traversal.  When the IR grows real nested scopes,
+    // recurse into them from the corresponding case.
+    SIMTKernelMeta meta{};
+    uint32_t kernel_count = 0u;
+    for (auto *stmt : body()->statements()) {
+        switch (stmt->op()) {
+            case TileOpKind::KERNEL_1D: {
+                auto *k = static_cast<const Kernel1DStmt *>(stmt);
+                if (kernel_count == 0u) {
+                    meta.block_size = {static_cast<uint32_t>(k->threads()), 1u, 1u};
+                    meta.dispatch_size = {static_cast<uint32_t>(k->gx()), 1u, 1u};
+                }
+                ++kernel_count;
+                break;
+            }
+            case TileOpKind::KERNEL_2D: {
+                auto *k = static_cast<const Kernel2DStmt *>(stmt);
+                if (kernel_count == 0u) {
+                    meta.block_size = {static_cast<uint32_t>(k->threads()), 1u, 1u};
+                    meta.dispatch_size = {static_cast<uint32_t>(k->gx()),
+                                          static_cast<uint32_t>(k->gy()), 1u};
+                }
+                ++kernel_count;
+                break;
+            }
+            default:
+                // All remaining TileOpKind are launch-agnostic:
+                //   ALLOC / ALLOC_SPECIAL -> storage declarations; Luisa
+                //     declares Shared<T> in-kernel, so there is no dynamic
+                //     shared-memory launch parameter to collect here;
+                //   CEILDIV -> grid extents are already materialized into
+                //     gx/gy at trace time (tile_ceildiv evaluates host-side),
+                //     so nothing symbolic to resolve; a runtime extent would
+                //     be passed as a UInt kernel arg and used at
+                //     .dispatch() time, not stored in this compile-time meta;
+                //   COPY / GEMM / REDUCE / STORE / ... -> body work, not
+                //     launch parameters;
+                //   PIPELINED -> software-pipeline depth (stages) only, it
+                //     does not change the block/grid shape.
+                break;
+        }
+    }
+    if (kernel_count == 0u) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Tile function has no T.Kernel statement; cannot derive launch metadata.");
+    }
+    if (kernel_count > 1u) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Tile function has {} T.Kernel statements; only one launch per tile "
+            "function is allowed (one __global__ per T.Kernel).",
+            kernel_count);
+    }
+    return meta;
 }
 
 }// namespace luisa::compute::detail

@@ -8,12 +8,16 @@
 //    pipelined)
 // - alloc operators returning correctly laid-out TensorExpr
 // - value operators returning caller-owned fragment temporaries
+// - compile_meta_data deriving SIMT launch metadata from the single T.Kernel
+//   (a body with no T.Kernel or more than one T.Kernel is rejected: the
+//   function logs an error and aborts)
 // - name config
 //
 // Pure host code: no device / backend is required.
 
 #include "ut/ut.hpp"
 
+#include <array>
 #include <cstdint>
 
 #include <luisa/ast/tile_function_builder.h>
@@ -261,5 +265,43 @@ int main(int argc, char *argv[]) {
         expect(pipe->count() == 16 && pipe->stages() == 4);
         auto *k2 = static_cast<const Kernel2DStmt *>(statements[2]);
         expect(k2->gx() == 4 && k2->gy() == 8 && k2->threads() == 16);
+    };
+
+    "compile_meta_data"_test = [] {
+        // Helper: trace `body` into a TileFunctionBuilder.  define() returns a
+        // const builder, which is enough because compile_meta_data() is const.
+        auto build = [](auto &&body) {
+            return TileFunctionBuilder::define(std::forward<decltype(body)>(body));
+        };
+
+        // 1D launch: T.Kernel(gx, threads) -> block (threads,1,1), grid (gx,1,1).
+        {
+            auto f = build([&] { TileFunctionBuilder::current()->tile_kernel_1d(256, 128); });
+            auto meta = f->compile_meta_data();
+            expect(meta.block_size == std::array<uint32_t, 3>{128u, 1u, 1u});
+            expect(meta.dispatch_size == std::array<uint32_t, 3>{256u, 1u, 1u});
+        }
+        // 2D launch: T.Kernel(gx, gy, threads) -> grid (gx, gy, 1).
+        {
+            auto f = build([&] { TileFunctionBuilder::current()->tile_kernel_2d(8, 16, 32); });
+            auto meta = f->compile_meta_data();
+            expect(meta.block_size == std::array<uint32_t, 3>{32u, 1u, 1u});
+            expect(meta.dispatch_size == std::array<uint32_t, 3>{8u, 16u, 1u});
+        }
+        // Non-kernel statements may precede the single T.Kernel; the launch
+        // metadata is still derived from it.  (A second T.Kernel is now
+        // rejected: compile_meta_data() logs an error and aborts, which cannot
+        // be asserted in-process — see the trigger in examples/compute/
+        // tensor_stub.cpp.)
+        {
+            auto f = build([&] {
+                auto *b = TileFunctionBuilder::current();
+                b->tile_clear(make_tile());
+                b->tile_kernel_2d(4, 8, 16);
+            });
+            auto meta = f->compile_meta_data();
+            expect(meta.block_size == std::array<uint32_t, 3>{16u, 1u, 1u});
+            expect(meta.dispatch_size == std::array<uint32_t, 3>{4u, 8u, 1u});
+        }
     };
 }
