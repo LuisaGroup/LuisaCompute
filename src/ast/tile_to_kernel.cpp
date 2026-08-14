@@ -632,6 +632,7 @@ barriers/atomics where TileLang's passes would inject them).
 
 #include <array>
 #include <functional>
+#include <limits>
 #include <utility>
 
 namespace luisa::compute {
@@ -858,6 +859,62 @@ private:
 
     [[nodiscard]] const Expression *_recreate_literal(const LiteralExpr *lit) const noexcept {
         return _fb->literal(lit->type(), lit->value());
+    }
+
+    // identity element of a TileReduceOp for the given dtype
+    [[nodiscard]] const Expression *_reduce_identity(TileReduceOp op, TensorElementType e) const {
+        switch (op) {
+            case TileReduceOp::SUM:
+            case TileReduceOp::ABS_SUM:
+            case TileReduceOp::BIT_OR:
+            case TileReduceOp::BIT_XOR:
+                return _zero_of(e);
+            case TileReduceOp::MAX:
+            case TileReduceOp::ABS_MAX:
+                switch (e) {
+                    case TensorElementType::F16: return _fb->literal(Type::of<half>(), half{-65504.f});
+                    case TensorElementType::F32: return _fb->literal(Type::of<float>(), std::numeric_limits<float>::lowest());
+                    case TensorElementType::I32: return _fb->literal(Type::of<int>(), std::numeric_limits<int>::min());
+                    default: break;
+                }
+                break;
+            case TileReduceOp::MIN:
+                switch (e) {
+                    case TensorElementType::F16: return _fb->literal(Type::of<half>(), half{65504.f});
+                    case TensorElementType::F32: return _fb->literal(Type::of<float>(), std::numeric_limits<float>::max());
+                    case TensorElementType::I32: return _fb->literal(Type::of<int>(), std::numeric_limits<int>::max());
+                    default: break;
+                }
+                break;
+            case TileReduceOp::BIT_AND:
+                if (e == TensorElementType::I32) { return _fb->literal(Type::of<int>(), -1); }
+                break;
+        }
+        LUISA_ERROR_WITH_LOCATION(
+            "tile_to_kernel: reduce op {} has no identity for dtype {}.",
+            static_cast<uint32_t>(op), tensor_element_type_name(e));
+    }
+
+    // combine step of a TileReduceOp: acc <- acc `op` v
+    [[nodiscard]] const Expression *_reduce_combine(TileReduceOp op, const Type *elem_t,
+                                                    const Expression *acc, const Expression *v) const {
+        switch (op) {
+            case TileReduceOp::SUM:
+            case TileReduceOp::ABS_SUM:
+                return _fb->binary(elem_t, BinaryOp::ADD, acc, v);
+            case TileReduceOp::MAX:
+            case TileReduceOp::ABS_MAX:
+                return _fb->call(elem_t, CallOp::MAX, {acc, v});
+            case TileReduceOp::MIN:
+                return _fb->call(elem_t, CallOp::MIN, {acc, v});
+            case TileReduceOp::BIT_AND:
+                return _fb->binary(elem_t, BinaryOp::BIT_AND, acc, v);
+            case TileReduceOp::BIT_OR:
+                return _fb->binary(elem_t, BinaryOp::BIT_OR, acc, v);
+            case TileReduceOp::BIT_XOR:
+                return _fb->binary(elem_t, BinaryOp::BIT_XOR, acc, v);
+        }
+        LUISA_ERROR_WITH_LOCATION("tile_to_kernel: invalid tile reduce op.");
     }
 
     [[nodiscard]] const Expression *_maybe_cast(const Expression *v, const Type *t) const noexcept {
@@ -1177,6 +1234,38 @@ private:
                 auto *f = static_cast<const FillStmt *>(s);
                 return shared_scope(f->buf());
             }
+            case TileOpKind::REDUCE: {
+                auto *r = static_cast<const ReduceStmt *>(s);
+                return shared_scope(r->buf()) || shared_scope(r->out());
+            }
+            case TileOpKind::CUMSUM: {
+                auto *c = static_cast<const CumSumStmt *>(s);
+                return shared_scope(c->src()) || shared_scope(c->dst());
+            }
+            case TileOpKind::CUMMAX: {
+                auto *c = static_cast<const CumMaxStmt *>(s);
+                return shared_scope(c->src()) || shared_scope(c->dst());
+            }
+            case TileOpKind::ANY_OF: {
+                auto *a = static_cast<const AnyOfStmt *>(s);
+                return shared_scope(a->buf());
+            }
+            case TileOpKind::ALL_OF: {
+                auto *a = static_cast<const AllOfStmt *>(s);
+                return shared_scope(a->buf());
+            }
+            case TileOpKind::SHUFFLE: {
+                auto *sh = static_cast<const ShuffleStmt *>(s);
+                return shared_scope(sh->value_tensor());
+            }
+            case TileOpKind::MIN: {
+                auto *m = static_cast<const MinStmt *>(s);
+                return shared_scope(m->a());
+            }
+            case TileOpKind::ABS: {
+                auto *a = static_cast<const AbsStmt *>(s);
+                return shared_scope(a->a());
+            }
             default: return false;
         }
     }
@@ -1200,6 +1289,22 @@ private:
             case TileOpKind::SYNC: _emit_sync(static_cast<const SyncStmt *>(stmt)); break;
             case TileOpKind::WARP_REDUCE: _emit_warp_reduce(static_cast<const WarpReduceStmt *>(stmt)); break;
             case TileOpKind::LOOP_BREAK: _fb->break_(); break;
+            case TileOpKind::REDUCE: _emit_reduce(static_cast<const ReduceStmt *>(stmt)); break;
+            case TileOpKind::CUMSUM: {
+                auto *s = static_cast<const CumSumStmt *>(stmt);
+                _emit_scan(s->src(), s->dst(), s->dim(), s->reverse(), false);
+                break;
+            }
+            case TileOpKind::CUMMAX: {
+                auto *s = static_cast<const CumMaxStmt *>(stmt);
+                _emit_scan(s->src(), s->dst(), s->dim(), s->reverse(), true);
+                break;
+            }
+            case TileOpKind::ANY_OF: _emit_any_all(static_cast<const AnyOfStmt *>(stmt)->buf(), false); break;
+            case TileOpKind::ALL_OF: _emit_any_all(static_cast<const AllOfStmt *>(stmt)->buf(), true); break;
+            case TileOpKind::SHUFFLE: _emit_shuffle(static_cast<const ShuffleStmt *>(stmt)); break;
+            case TileOpKind::MIN: _emit_min(static_cast<const MinStmt *>(stmt)); break;
+            case TileOpKind::ABS: _emit_abs(static_cast<const AbsStmt *>(stmt)); break;
             // host-side / metadata statements: no kernel code
             case TileOpKind::CEILDIV:
             case TileOpKind::KERNEL_1D:
@@ -1633,6 +1738,168 @@ private:
                     "equivalent (see the plan's gap list).",
                     static_cast<uint32_t>(s->op()));
         }
+    }
+
+    // generic reduce family: T.reduce_max / reduce_min / reduce_abssum /
+    // reduce_absmax / reduce_bitand / reduce_bitor / reduce_bitxor
+    void _emit_reduce(const ReduceStmt *s) {
+        auto *x = s->buf();
+        auto *y = s->out();
+        auto dim = s->dim();
+        auto op = s->op();
+        auto elem_t = tensor_element_type(x->dtype());
+        auto saved = _current_extent;
+        _current_extent = x;
+        auto out = [&](const Coord &c) {
+            auto acc = _fb->local(elem_t);
+            _fb->assign(acc, _reduce_identity(op, x->dtype()));
+            auto reduce_len = static_cast<uint32_t>(axis_extent(x, dim));
+            _for_range(_literal_u(0u), _literal_u(reduce_len), _literal_u(1u),
+                       [&](const Expression *k) {
+                auto xc = _zero_coord();
+                for (auto i = 0u; i < x->rank(); ++i) {
+                    if (i == dim) {
+                        xc[i] = k;
+                    } else {
+                        auto j = i < dim ? i : i - 1u;
+                        xc[i] = c[j];
+                    }
+                }
+                auto v = _value_at(x, xc);
+                if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
+                    v = _fb->call(elem_t, CallOp::ABS, {v});
+                }
+                _fb->assign(acc, _reduce_combine(op, elem_t, acc, v));
+            });
+            _write_to(y, c, acc);
+        };
+        if (y->scope() == TensorScope::Fragment) {
+            _full_loop(y, out);
+        } else {
+            _partition_loop(y, out);
+        }
+        _current_extent = saved;
+    }
+
+    // inclusive prefix scan along `dim`: T.cumsum / T.cummax (src, dst, dim, reverse)
+    void _emit_scan(const TensorExpr *src, const TensorExpr *dst,
+                    uint32_t dim, int32_t reverse, bool is_max) {
+        auto elem_t = tensor_element_type(src->dtype());
+        auto saved = _current_extent;
+        _current_extent = src;
+        auto scan_len = static_cast<uint32_t>(axis_extent(src, dim));
+        auto body = [&](const Coord &c) {
+            auto acc = _fb->local(elem_t);
+            _fb->assign(acc, _reduce_identity(is_max ? TileReduceOp::MAX : TileReduceOp::SUM,
+                                              src->dtype()));
+            _for_range(_literal_u(0u), _literal_u(scan_len), _literal_u(1u),
+                       [&](const Expression *k) {
+                // inclusive scan: accumulate k <= c[dim] (k >= c[dim] when reversed)
+                auto pred = _fb->binary(Type::of<bool>(),
+                                        reverse != 0 ? BinaryOp::GREATER_EQUAL : BinaryOp::LESS_EQUAL,
+                                        k, c[dim]);
+                _if(pred, [&] {
+                    auto xc = _zero_coord();
+                    for (auto i = 0u; i < src->rank(); ++i) { xc[i] = i == dim ? k : c[i]; }
+                    auto v = _value_at(src, xc);
+                    const Expression *combined = nullptr;
+                    if (is_max) {
+                        combined = _fb->call(elem_t, CallOp::MAX, {acc, v});
+                    } else {
+                        combined = _fb->binary(elem_t, BinaryOp::ADD, acc, v);
+                    }
+                    _fb->assign(acc, combined);
+                });
+            });
+            _write_to(dst, c, acc);
+        };
+        if (dst->scope() == TensorScope::Fragment) {
+            _full_loop(dst, body);
+        } else {
+            _partition_loop(dst, body);
+        }
+        _current_extent = saved;
+    }
+
+    // logical tile reduction: T.any_of / T.all_of(buf); the scalar result has
+    // no consumer in the tile IR, so it is folded into a throw-away local
+    // (the same pattern as WARP_REDUCE).
+    void _emit_any_all(const TensorExpr *buf, bool is_all) {
+        auto elem_t = tensor_element_type(buf->dtype());
+        auto saved = _current_extent;
+        _current_extent = buf;
+        auto acc = _fb->local(Type::of<bool>());
+        _fb->assign(acc, _fb->literal(Type::of<bool>(), is_all));
+        _full_loop(buf, [&](const Coord &c) {
+            auto v = _value_at(buf, c);
+            auto truth = _fb->binary(Type::of<bool>(), BinaryOp::NOT_EQUAL,
+                                     v, _maybe_cast(_zero_of(buf->dtype()), elem_t));
+            _fb->assign(acc, _fb->binary(Type::of<bool>(),
+                                         is_all ? BinaryOp::AND : BinaryOp::OR, acc, truth));
+        });
+        // block-level vote keeps the folded value alive on every lane
+        auto voted = _fb->call(Type::of<bool>(),
+                               is_all ? CallOp::WARP_ACTIVE_ALL : CallOp::WARP_ACTIVE_ANY, {acc});
+        auto tmp = _fb->local(Type::of<bool>());
+        _fb->assign(tmp, voted);
+        _current_extent = saved;
+    }
+
+    // warp shuffle of a fragment scalar: T.shfl_xor / shfl_up / shfl_down
+    // (emulated with WARP_READ_LANE at the computed peer lane).
+    void _emit_shuffle(const ShuffleStmt *s) {
+        auto *v = s->value_tensor();
+        if (v == nullptr) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("tile_to_kernel: shuffle requires a fragment-tile value.");
+        }
+        auto elem_t = tensor_element_type(v->dtype());
+        auto saved = _current_extent;
+        _current_extent = v;
+        auto val = _value_at(v, _zero_coord());
+        auto lane = _fb->warp_lane_id();
+        auto delta = _literal_u(static_cast<uint32_t>(s->delta()));
+        const Expression *peer = nullptr;
+        switch (s->op()) {
+            case TileShuffleOp::XOR:
+                peer = _fb->binary(Type::of<uint>(), BinaryOp::BIT_XOR, lane, delta);
+                break;
+            case TileShuffleOp::UP:
+                peer = _fb->binary(Type::of<uint>(), BinaryOp::SUB, lane, delta);
+                break;
+            case TileShuffleOp::DOWN:
+                peer = _fb->binary(Type::of<uint>(), BinaryOp::ADD, lane, delta);
+                break;
+            default:
+                LUISA_ERROR_WITH_LOCATION(
+                    "tile_to_kernel: shuffle op {} is not supported by the "
+                    "regular-kernel lowering.",
+                    static_cast<uint32_t>(s->op()));
+        }
+        auto tmp = _fb->local(elem_t);
+        _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_READ_LANE, {val, peer}));
+        _current_extent = saved;
+    }
+
+    void _emit_min(const MinStmt *s) {
+        auto *a = s->a();
+        auto elem_t = tensor_element_type(a->dtype());
+        _temps[_tile->temp_output(s)] = TempValue{
+            a->dtype(),
+            [this, s, a, elem_t](const Coord &c) -> const Expression * {
+                auto av = _value_at(a, c);
+                auto bv = _maybe_cast(_recreate_literal(s->b()), elem_t);
+                return _fb->call(elem_t, CallOp::MIN, {av, bv});
+            }};
+    }
+
+    void _emit_abs(const AbsStmt *s) {
+        auto *a = s->a();
+        auto elem_t = tensor_element_type(a->dtype());
+        _temps[_tile->temp_output(s)] = TempValue{
+            a->dtype(),
+            [this, a, elem_t](const Coord &c) -> const Expression * {
+                return _fb->call(elem_t, CallOp::ABS, {_value_at(a, c)});
+            }};
     }
 
     void _emit_warp_reduce(const WarpReduceStmt *s) {

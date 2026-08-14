@@ -480,11 +480,32 @@ bool MaxStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     return read_literal(input_ptr, end_ptr, _b);
 }
 
+// --- Min ---
+size_t MinStmt::serialize(luisa::vector<char> &output_buffer) {
+    auto start = output_buffer.size();
+    TensorStmt::serialize(output_buffer);
+    write_literal(output_buffer, _b);
+    return output_buffer.size() - start;
+}
+bool MinStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
+    if (!TensorStmt::deserialize(input_ptr, end_ptr)) [[unlikely]] { return false; }
+    _b = nullptr;
+    return read_literal(input_ptr, end_ptr, _b);
+}
+
 // --- Rsqrt ---
 size_t RsqrtStmt::serialize(luisa::vector<char> &output_buffer) {
     return TensorStmt::serialize(output_buffer);
 }
 bool RsqrtStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
+    return TensorStmt::deserialize(input_ptr, end_ptr);
+}
+
+// --- Abs ---
+size_t AbsStmt::serialize(luisa::vector<char> &output_buffer) {
+    return TensorStmt::serialize(output_buffer);
+}
+bool AbsStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     return TensorStmt::deserialize(input_ptr, end_ptr);
 }
 

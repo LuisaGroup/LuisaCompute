@@ -203,6 +203,48 @@ void TileFunctionBuilder::tile_warp_reduce(TileWarpReduceOp op, TensorExpr *valu
     _create_and_append_statement<WarpReduceStmt>(op, value);
 }
 
+void TileFunctionBuilder::tile_reduce(TileReduceOp op, TensorExpr *buf, TensorExpr *out, uint32_t dim) noexcept {
+    _create_and_append_statement<ReduceStmt>(op, buf, out, dim);
+}
+
+void TileFunctionBuilder::tile_cumsum(TensorExpr *src, TensorExpr *dst, uint32_t dim, int32_t reverse) noexcept {
+    _create_and_append_statement<CumSumStmt>(src, dst, dim, reverse);
+}
+
+void TileFunctionBuilder::tile_cummax(TensorExpr *src, TensorExpr *dst, uint32_t dim, int32_t reverse) noexcept {
+    _create_and_append_statement<CumMaxStmt>(src, dst, dim, reverse);
+}
+
+void TileFunctionBuilder::tile_any_of(TensorExpr *buf) noexcept {
+    _create_and_append_statement<AnyOfStmt>(buf);
+}
+
+void TileFunctionBuilder::tile_all_of(TensorExpr *buf) noexcept {
+    _create_and_append_statement<AllOfStmt>(buf);
+}
+
+void TileFunctionBuilder::tile_shuffle(TileShuffleOp op, TensorExpr *value, int32_t delta, int32_t width) noexcept {
+    _create_and_append_statement<ShuffleStmt>(op, value, delta, width);
+}
+
+luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_min(TensorExpr *a, const LiteralExpr *b) noexcept {
+    auto *stmt = _create_and_append_statement<MinStmt>(a, b);
+    auto temp = TensorExprPtr{new TensorExpr{
+        a->rank(), a->dtype(), TensorScope::Fragment,
+        luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()}}};
+    _temp_outputs[stmt] = temp.get();
+    return temp;
+}
+
+luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_abs(TensorExpr *a) noexcept {
+    auto *stmt = _create_and_append_statement<AbsStmt>(a);
+    auto temp = TensorExprPtr{new TensorExpr{
+        a->rank(), a->dtype(), TensorScope::Fragment,
+        luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()}}};
+    _temp_outputs[stmt] = temp.get();
+    return temp;
+}
+
 void TileFunctionBuilder::tile_loop_break() noexcept {
     _create_and_append_statement<LoopBreakStmt>();
 }

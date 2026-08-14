@@ -16,6 +16,10 @@
 //   tile_sync         SYNC
 //   tile_warp_reduce  WARP_REDUCE (sum / max)
 //   loop_break_kernel LOOP_BREAK — traced into the tile IR only; see below.
+//   tile_reduce       REDUCE (max / min / abssum / absmax row reductions)
+//   tile_scan         CUMSUM / CUMMAX (inclusive prefix scan)
+//   tile_min_abs      MIN / ABS (whole-tile elementwise ops)
+//   tile_vote_shuffle ANY_OF / ALL_OF / SHUFFLE (xor / up / down)
 //
 // Each kernel is (1) traced with tile::Kernel / tile::jit(...).compile(),
 // (2) lowered to a REGULAR Luisa kernel with `tile_to_kernel`
@@ -311,7 +315,119 @@ Tensor<tile_f32, 2> loop_break_kernel(Tensor<tile_f32, 2> A) {
 }
 
 // =============================================================================
-// 11. Multiple-T.Kernel guard — an INVALID tile function (opt-in trigger).
+// 12. T.reduce_max / reduce_min / reduce_abssum / reduce_absmax — REDUCE
+// =============================================================================
+// Row-wise reductions of a fragment tile (the generic TileLang reduce family).
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 1> tile_reduce_kernel(Tensor<tile_f32, 2> A,
+                                       Tensor<tile_f32, 1> Bmax,
+                                       Tensor<tile_f32, 1> Bmin,
+                                       Tensor<tile_f32, 1> Babssum) {
+    constexpr tile_i32 M = 64, N = 64;
+    constexpr tile_i32 blk_m = 8;
+    constexpr tile_i32 threads = 64;
+
+    Tensor<tile_f32, 1> Babsmax = LuisaTensor.empty(LuisaTensor.shape(M), tile_f32{});
+
+    for (auto bx : LuisaTensor.Kernel(LuisaTensor.ceildiv(M, blk_m), threads)) {
+        auto A_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(blk_m, N), tile_f32{});
+        auto v_max = LuisaTensor.alloc_fragment(LuisaTensor.shape(blk_m), tile_f32{});
+        auto v_min = LuisaTensor.alloc_fragment(LuisaTensor.shape(blk_m), tile_f32{});
+        auto v_abssum = LuisaTensor.alloc_fragment(LuisaTensor.shape(blk_m), tile_f32{});
+        auto v_absmax = LuisaTensor.alloc_fragment(LuisaTensor.shape(blk_m), tile_f32{});
+
+        LuisaTensor.copy(A(LuisaTensor.range(bx * blk_m, (bx + 1) * blk_m), LuisaTensor.all()),
+                         A_local(blk_m, N));
+
+        LuisaTensor.reduce_max(A_local(blk_m, N), v_max(blk_m), /*dim=*/1);
+        LuisaTensor.reduce_min(A_local(blk_m, N), v_min(blk_m), /*dim=*/1);
+        LuisaTensor.reduce_abssum(A_local(blk_m, N), v_abssum(blk_m), /*dim=*/1);
+        LuisaTensor.reduce_absmax(A_local(blk_m, N), v_absmax(blk_m), /*dim=*/1);
+
+        LuisaTensor.copy(v_max(blk_m), Bmax(bx * blk_m));
+        LuisaTensor.copy(v_min(blk_m), Bmin(bx * blk_m));
+        LuisaTensor.copy(v_abssum(blk_m), Babssum(bx * blk_m));
+        LuisaTensor.copy(v_absmax(blk_m), Babsmax(bx * blk_m));
+    }
+    return Babsmax;
+}
+
+// =============================================================================
+// 13. T.cumsum / T.cummax — CUMSUM / CUMMAX (inclusive prefix scan)
+// =============================================================================
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 1> tile_scan_kernel(Tensor<tile_f32, 1> A, Tensor<tile_f32, 1> S) {
+    constexpr tile_i32 N = 64;
+    constexpr tile_i32 threads = 32;
+
+    Tensor<tile_f32, 1> Mx = LuisaTensor.empty(LuisaTensor.shape(N), tile_f32{});
+
+    for (auto bx : LuisaTensor.Kernel(1, threads)) {
+        auto A_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(N), tile_f32{});
+        auto S_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(N), tile_f32{});
+        auto M_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(N), tile_f32{});
+
+        LuisaTensor.copy(A(0), A_local(N));// global -> fragment
+        LuisaTensor.cumsum(A_local(N), S_local(N), /*dim=*/0);// inclusive prefix sum
+        LuisaTensor.cummax(A_local(N), M_local(N), /*dim=*/0);// inclusive prefix max
+        LuisaTensor.copy(S_local(N), S(0));// fragment -> global
+        LuisaTensor.copy(M_local(N), Mx(0));
+    }
+    return Mx;
+}
+
+// =============================================================================
+// 14. T.min / T.abs — MIN / ABS (whole-tile elementwise ops)
+// =============================================================================
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 2> tile_min_abs_kernel(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
+    constexpr tile_i32 BM = 8, BN = 8;
+    constexpr tile_i32 threads = 32;
+
+    Tensor<tile_f32, 2> C = LuisaTensor.empty(LuisaTensor.shape(BM, BN), tile_f32{});
+
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, threads)) {
+        auto A_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(BM, BN), tile_f32{});
+        auto M_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(BM, BN), tile_f32{});
+        auto Abs_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(BM, BN), tile_f32{});
+
+        LuisaTensor.copy(A(by * BM, bx * BN), A_local(BM, BN));// global -> fragment
+        M_local(BM, BN) = LuisaTensor.min(A_local(BM, BN), 0.5f);// elementwise min
+        Abs_local(BM, BN) = LuisaTensor.abs(A_local(BM, BN));// elementwise abs
+        LuisaTensor.copy(M_local(BM, BN), B(by * BM, bx * BN));// fragment -> global
+        LuisaTensor.copy(Abs_local(BM, BN), C(by * BM, bx * BN));
+    }
+    return C;
+}
+
+// =============================================================================
+// 15. T.any_of / T.all_of / T.shfl_* — ANY_OF / ALL_OF / SHUFFLE
+// =============================================================================
+// The vote/shuffle results have no consumer in the tile IR (they are computed
+// into throw-away registers, like WARP_REDUCE); the filled fragment is copied
+// out so the whole program is verifiable.
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 1> tile_vote_shuffle_kernel() {
+    constexpr tile_i32 N = 2;
+    constexpr tile_i32 threads = 32;
+
+    Tensor<tile_f32, 1> W = LuisaTensor.empty(LuisaTensor.shape(N), tile_f32{});
+
+    for (auto bx : LuisaTensor.Kernel(1, threads)) {
+        auto v = LuisaTensor.alloc_fragment(LuisaTensor.shape(N), tile_f32{});
+        LuisaTensor.fill(v(N), 1.0f);
+        LuisaTensor.any_of(v(N));// block vote: any element != 0
+        LuisaTensor.all_of(v(N));// block vote: all elements != 0
+        LuisaTensor.shfl_xor(v(N), 1);// warp shuffle (result discarded)
+        LuisaTensor.shfl_up(v(N), 1);
+        LuisaTensor.shfl_down(v(N), 1);
+        LuisaTensor.copy(v(N), W(0));// verifiable output
+    }
+    return W;
+}
+
+// =============================================================================
+// 16. Multiple-T.Kernel guard — an INVALID tile function (opt-in trigger).
 //     A tile function maps to exactly ONE kernel launch (TileLang emits one
 //     `__global__` per `T.Kernel`), so tracing a second T.Kernel must be
 //     rejected: jit(...).compile() derives the SIMT launch metadata and logs
@@ -443,6 +559,38 @@ int main(int argc, char *argv[]) {
                warp_reduce_kernel_obj.function()->body()->size(), warp_reduce_kernel_obj.describe());
     auto warp_reduce_result = translate_and_verify(
         "tile_warp_reduce", warp_reduce_kernel_obj.function(),
+        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+
+    // ---- 12. reduce family: T.Kernel(8, 64); globals A, Bmax, Bmin, Babssum, Babsmax
+    luisa::compute::tile::Kernel reduce_kernel{tile_reduce_kernel};
+    LUISA_INFO("[tensor-stub] tile_reduce traced {} statements: [{}]",
+               reduce_kernel.function()->body()->size(), reduce_kernel.describe());
+    auto reduce_result = translate_and_verify(
+        "tile_reduce", reduce_kernel.function(),
+        luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 5u);
+
+    // ---- 13. scan: T.Kernel(1, 32); globals A, S, Mx ------------------------
+    luisa::compute::tile::Kernel scan_kernel{tile_scan_kernel};
+    LUISA_INFO("[tensor-stub] tile_scan traced {} statements: [{}]",
+               scan_kernel.function()->body()->size(), scan_kernel.describe());
+    auto scan_result = translate_and_verify(
+        "tile_scan", scan_kernel.function(),
+        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+
+    // ---- 14. min/abs: T.Kernel(1, 1, 32); globals A, B, C -------------------
+    luisa::compute::tile::Kernel min_abs_kernel{tile_min_abs_kernel};
+    LUISA_INFO("[tensor-stub] tile_min_abs traced {} statements: [{}]",
+               min_abs_kernel.function()->body()->size(), min_abs_kernel.describe());
+    auto min_abs_result = translate_and_verify(
+        "tile_min_abs", min_abs_kernel.function(),
+        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+
+    // ---- 15. vote/shuffle: T.Kernel(1, 32); global W ------------------------
+    luisa::compute::tile::Kernel vote_shuffle_kernel{tile_vote_shuffle_kernel};
+    LUISA_INFO("[tensor-stub] tile_vote_shuffle traced {} statements: [{}]",
+               vote_shuffle_kernel.function()->body()->size(), vote_shuffle_kernel.describe());
+    auto vote_shuffle_result = translate_and_verify(
+        "tile_vote_shuffle", vote_shuffle_kernel.function(),
         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
 
     // ---- 10. loop_break: traced only (no lowering; see file header) ---------
@@ -667,8 +815,123 @@ int main(int argc, char *argv[]) {
             check("tile_warp_reduce", err, 1e-5f);
         }
 
+        // ---- tile_reduce: row-wise max/min/abssum/absmax ----------------------
+        {
+            constexpr uint32_t M = 64u, N = 64u;
+            auto bufA = device.create_buffer<float>(M * N);
+            auto bufMax = device.create_buffer<float>(M);
+            auto bufMin = device.create_buffer<float>(M);
+            auto bufAbsSum = device.create_buffer<float>(M);
+            auto bufAbsMax = device.create_buffer<float>(M);
+            luisa::vector<float> hA(M * N), hMax(M), hMin(M), hAbsSum(M), hAbsMax(M);
+            for (auto i = 0u; i < M * N; ++i) {
+                // mixed-sign inputs: negatives exercise min/abs, the spread
+                // separates max from absmax
+                hA[i] = static_cast<float>(static_cast<int>(i % 17) - 8) * 0.25f;
+            }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            reduce_kernel.validate(bufA, bufMax, bufMin, bufAbsSum, bufAbsMax);
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(reduce_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufA, bufMax, bufMin, bufAbsSum, bufAbsMax).dispatch(reduce_result.dispatch_size.x)
+                   << bufMax.copy_to(luisa::span{hMax}) << bufMin.copy_to(luisa::span{hMin})
+                   << bufAbsSum.copy_to(luisa::span{hAbsSum}) << bufAbsMax.copy_to(luisa::span{hAbsMax})
+                   << synchronize();
+            auto err = 0.0f;
+            for (auto r = 0u; r < M; ++r) {
+                auto ref_max = -1e30f, ref_min = 1e30f, ref_abssum = 0.0f, ref_absmax = 0.0f;
+                for (auto c = 0u; c < N; ++c) {
+                    auto v = hA[r * N + c];
+                    ref_max = luisa::max(ref_max, v);
+                    ref_min = luisa::min(ref_min, v);
+                    ref_abssum += luisa::abs(v);
+                    ref_absmax = luisa::max(ref_absmax, luisa::abs(v));
+                }
+                err = luisa::max(err, luisa::abs(hMax[r] - ref_max));
+                err = luisa::max(err, luisa::abs(hMin[r] - ref_min));
+                err = luisa::max(err, luisa::abs(hAbsSum[r] - ref_abssum));
+                err = luisa::max(err, luisa::abs(hAbsMax[r] - ref_absmax));
+            }
+            check("tile_reduce", err, 1e-3f);
+        }
+
+        // ---- tile_scan: S = inclusive prefix sum, Mx = inclusive prefix max ----
+        {
+            constexpr uint32_t N = 64u;
+            auto bufA = device.create_buffer<float>(N);
+            auto bufS = device.create_buffer<float>(N);
+            auto bufMx = device.create_buffer<float>(N);
+            luisa::vector<float> hA(N), hS(N), hMx(N);
+            for (auto i = 0u; i < N; ++i) { hA[i] = static_cast<float>(static_cast<int>(i % 9) - 4) * 0.5f; }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            scan_kernel.validate(bufA, bufS, bufMx);
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(scan_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufA, bufS, bufMx).dispatch(scan_result.dispatch_size.x)
+                   << bufS.copy_to(luisa::span{hS}) << bufMx.copy_to(luisa::span{hMx}) << synchronize();
+            auto err = 0.0f;
+            auto run_sum = 0.0f, run_max = -1e30f;
+            for (auto i = 0u; i < N; ++i) {
+                run_sum += hA[i];
+                run_max = luisa::max(run_max, hA[i]);
+                err = luisa::max(err, luisa::abs(hS[i] - run_sum));
+                err = luisa::max(err, luisa::abs(hMx[i] - run_max));
+            }
+            check("tile_scan", err, 1e-3f);
+        }
+
+        // ---- tile_min_abs: B = min(A, 0.5), C = abs(A) ----------------------
+        {
+            constexpr uint32_t BM = 8u, BN = 8u;
+            auto bufA = device.create_buffer<float>(BM * BN);
+            auto bufB = device.create_buffer<float>(BM * BN);
+            auto bufC = device.create_buffer<float>(BM * BN);
+            luisa::vector<float> hA(BM * BN), hB(BM * BN), hC(BM * BN);
+            for (auto i = 0u; i < BM * BN; ++i) {
+                hA[i] = static_cast<float>(static_cast<int>(i % 13) - 6) * 0.25f;
+            }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            min_abs_kernel.validate(bufA, bufB, bufC);
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(min_abs_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufA, bufB, bufC).dispatch(min_abs_result.dispatch_size.x, min_abs_result.dispatch_size.y)
+                   << bufB.copy_to(luisa::span{hB}) << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < BM * BN; ++i) {
+                err = luisa::max(err, luisa::abs(hB[i] - luisa::min(hA[i], 0.5f)));
+                err = luisa::max(err, luisa::abs(hC[i] - luisa::abs(hA[i])));
+            }
+            check("tile_min_abs", err, 1e-5f);
+        }
+
+        // ---- tile_vote_shuffle: W = 1.0 (votes/shuffles exercised) -----------
+        {
+            constexpr uint32_t N = 2u;
+            auto bufW = device.create_buffer<float>(N);
+            luisa::vector<float> hW(N);
+            vote_shuffle_kernel.validate(bufW);
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(vote_shuffle_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufW).dispatch(vote_shuffle_result.dispatch_size.x)
+                   << bufW.copy_to(luisa::span{hW}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < N; ++i) { err = luisa::max(err, luisa::abs(hW[i] - 1.0f)); }
+            check("tile_vote_shuffle", err, 1e-5f);
+        }
+
         LUISA_INFO("[tensor-stub] all {} translated kernels compiled, dispatched and verified on '{}'.",
-                   (size_t)9, backend);
+                   (size_t)13, backend);
     }
 
     // =========================================================================

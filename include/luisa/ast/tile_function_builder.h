@@ -298,6 +298,25 @@ public:
     /// T.warp_reduce_sum/max/min/bitand/bitor(value): warp-level reduce of a
     /// fragment scalar; the reduced scalar is a caller-owned temporary.
     void tile_warp_reduce(TileWarpReduceOp op, TensorExpr *value) noexcept;
+    /// T.reduce_max / reduce_min / reduce_abssum / reduce_absmax /
+    /// reduce_bitand / reduce_bitor / reduce_bitxor (buf, out, dim): the
+    /// generic TileLang reduce family (ReduceStmt, TileReduceOp).
+    void tile_reduce(TileReduceOp op, TensorExpr *buf, TensorExpr *out, uint32_t dim) noexcept;
+    /// T.cumsum(src, dst, dim, reverse): inclusive prefix scan along `dim`.
+    void tile_cumsum(TensorExpr *src, TensorExpr *dst, uint32_t dim, int32_t reverse = 0) noexcept;
+    /// T.cummax(src, dst, dim, reverse): inclusive prefix max along `dim`.
+    void tile_cummax(TensorExpr *src, TensorExpr *dst, uint32_t dim, int32_t reverse = 0) noexcept;
+    /// T.any_of(buf): logical tile reduction (OR of buf != 0) to a scalar.
+    void tile_any_of(TensorExpr *buf) noexcept;
+    /// T.all_of(buf): logical tile reduction (AND of buf != 0) to a scalar.
+    void tile_all_of(TensorExpr *buf) noexcept;
+    /// T.shfl_xor / shfl_up / shfl_down(value, delta, width): warp shuffle of
+    /// a fragment scalar; the shuffled value is a caller-owned temporary.
+    void tile_shuffle(TileShuffleOp op, TensorExpr *value, int32_t delta, int32_t width = 32) noexcept;
+    /// T.min(a, b). Returns a fresh fragment temporary tensor owned by the caller.
+    [[nodiscard]] TensorExprPtr tile_min(TensorExpr *a, const LiteralExpr *b) noexcept;
+    /// T.abs(a). Returns a fresh fragment temporary tensor owned by the caller.
+    [[nodiscard]] TensorExprPtr tile_abs(TensorExpr *a) noexcept;
     /// T.loop_break(): break out of the enclosing tile loop (emits a regular
     /// kernel break; only valid inside a Pipelined / loop body).
     void tile_loop_break() noexcept;

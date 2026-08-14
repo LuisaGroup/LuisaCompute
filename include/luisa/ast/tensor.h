@@ -230,7 +230,9 @@ enum struct TileOpKind : uint32_t {
     INLINE,           // T.inline(func) host-side marker
     META_CLASS,       // T.meta_class(cls) host-side marker
     ACCESS_PTR,       // T.access_ptr(base, access_type, ...)
-    INDEX_TO_COORDINATES// T.index_to_coordinates(index, shape)
+    INDEX_TO_COORDINATES,// T.index_to_coordinates(index, shape)
+    MIN,      // T.min(a, b) whole-tile elementwise minimum
+    ABS       // T.abs(a) whole-tile elementwise absolute value
 };
 
 // =============================================================================
@@ -656,12 +658,41 @@ public:
     bool deserialize(char const *&input_ptr, char const *end_ptr) override;
 };
 
+// --- Min: T.min(a, b) -------------------------------------------------------
+// Whole-tile elementwise minimum with an R2 scalar bound (the mirror of
+// MaxStmt); the result is a caller-owned fragment temporary.
+class LUISA_AST_API MinStmt final : public TensorStmt {
+    const LiteralExpr *_b{nullptr};// R2 (borrowed, managed by TileFunctionBuilder)
+
+public:
+    MinStmt() noexcept : TensorStmt{TileOpKind::MIN} {}
+    MinStmt(TensorExpr *a, const LiteralExpr *b) noexcept
+        : TensorStmt{TileOpKind::MIN, nullptr, {a}}, _b{b} {}
+    [[nodiscard]] auto a() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
+    [[nodiscard]] auto b() const noexcept { return _b; }
+    [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
+    bool deserialize(char const *&input_ptr, char const *end_ptr) override;
+};
+
 // --- Rsqrt: T.rsqrt(a) ------------------------------------------------------
 class LUISA_AST_API RsqrtStmt final : public TensorStmt {
 public:
     RsqrtStmt() noexcept : TensorStmt{TileOpKind::RSQRT} {}
     explicit RsqrtStmt(TensorExpr *a) noexcept
         : TensorStmt{TileOpKind::RSQRT, nullptr, {a}} {}
+    [[nodiscard]] auto a() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
+    [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
+    bool deserialize(char const *&input_ptr, char const *end_ptr) override;
+};
+
+// --- Abs: T.abs(a) ------------------------------------------------------------
+// Whole-tile elementwise absolute value; the result is a caller-owned fragment
+// temporary (Rsqrt pattern).
+class LUISA_AST_API AbsStmt final : public TensorStmt {
+public:
+    AbsStmt() noexcept : TensorStmt{TileOpKind::ABS} {}
+    explicit AbsStmt(TensorExpr *a) noexcept
+        : TensorStmt{TileOpKind::ABS, nullptr, {a}} {}
     [[nodiscard]] auto a() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
     [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
     bool deserialize(char const *&input_ptr, char const *end_ptr) override;
@@ -1389,6 +1420,11 @@ class LUISA_AST_API ShuffleStmt final : public TensorStmt {
 
 public:
     ShuffleStmt() noexcept : TensorStmt{TileOpKind::SHUFFLE} {}
+    /// Fragment-tile value form (the tile DSL): the shuffled value is the READ
+    /// operand inputs[0]; the shuffled scalar is a caller-owned temporary.
+    ShuffleStmt(TileShuffleOp op, TensorExpr *value, int32_t delta, int32_t width = 32) noexcept
+        : TensorStmt{TileOpKind::SHUFFLE, nullptr, {value}},
+          _op{op}, _width{width}, _delta{delta} {}
     explicit ShuffleStmt(TileShuffleOp op, const LiteralExpr *value_literal = nullptr,
                 const RefExpr *value_ref = nullptr, const RefExpr *mask = nullptr,
                 const RefExpr *src_lane = nullptr, int32_t width = 32,
@@ -1405,6 +1441,7 @@ public:
     [[nodiscard]] auto src_lane() const noexcept { return _src_lane; }
     [[nodiscard]] auto value_literal() const noexcept { return _value_literal; }
     [[nodiscard]] auto value_ref() const noexcept { return _value_ref; }
+    [[nodiscard]] auto value_tensor() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
     [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
     bool deserialize(char const *&input_ptr, char const *end_ptr) override;
 };

@@ -401,6 +401,14 @@ inline const char *tile_op_name(TileOpKind kind) noexcept {
         case TileOpKind::SYNC: return "sync";
         case TileOpKind::WARP_REDUCE: return "warp_reduce";
         case TileOpKind::LOOP_BREAK: return "loop_break";
+        case TileOpKind::REDUCE: return "reduce";
+        case TileOpKind::CUMSUM: return "cumsum";
+        case TileOpKind::CUMMAX: return "cummax";
+        case TileOpKind::ANY_OF: return "any_of";
+        case TileOpKind::ALL_OF: return "all_of";
+        case TileOpKind::SHUFFLE: return "shuffle";
+        case TileOpKind::MIN: return "min";
+        case TileOpKind::ABS: return "abs";
         default: return "op";
     }
 }
@@ -896,6 +904,41 @@ inline TileExpr<R> max(const TileExpr<R> &a, float b) {
     return e;
 }
 
+// T.min(a, b) — whole-tile elementwise minimum with a scalar (mirror of T.max).
+template<size_t R>
+inline TileExpr<R> min(const TileExpr<R> &a, float b) {
+    LUISA_INFO("[tensor-dsl] tile-op: min({}, {})", detail::describe(a), b);
+    TileExpr<R> e;
+    e.name = "expr(min)";
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto lit = builder->create_literal(Type::of<float>(), b);
+        auto tmp = builder->tile_min(a.take(), lit);
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
+    return e;
+}
+
+// T.abs(a) — whole-tile elementwise absolute value.
+template<size_t R>
+inline TileExpr<R> abs(const TileExpr<R> &a) {
+    LUISA_INFO("[tensor-dsl] tile-op: abs({})", detail::describe(a));
+    TileExpr<R> e;
+    e.name = "expr(abs)";
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto tmp = builder->tile_abs(a.take());
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
+    return e;
+}
+
 template<size_t R>
 inline TileExpr<R> rsqrt(const TileExpr<R> &a) {
     LUISA_INFO("[tensor-dsl] tile-op: rsqrt({})", detail::describe(a));
@@ -1086,6 +1129,96 @@ inline void reduce_sum(const X &x, const Y &y, int dim) {
                detail::describe(x), detail::describe(y), dim);
 }
 
+// T.reduce_max / reduce_min / reduce_abssum / reduce_absmax — the generic
+// TileLang reduce family (ReduceStmt with a TileReduceOp discriminator).
+namespace language_detail {
+inline void emit_reduce(TileReduceOp op, auto &&x, auto &&y, int dim, const char *name) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_reduce(op, detail::extract_operand(x), detail::extract_operand(y),
+                             static_cast<uint32_t>(dim));
+    }
+    LUISA_INFO("[tensor-dsl] T.reduce_{}: {} -> {} (dim={})", name,
+               detail::describe(x), detail::describe(y), dim);
+}
+}// namespace language_detail
+
+template<typename X, typename Y>
+inline void reduce_max(const X &x, const Y &y, int dim) {
+    language_detail::emit_reduce(TileReduceOp::MAX, x, y, dim, "max");
+}
+template<typename X, typename Y>
+inline void reduce_min(const X &x, const Y &y, int dim) {
+    language_detail::emit_reduce(TileReduceOp::MIN, x, y, dim, "min");
+}
+template<typename X, typename Y>
+inline void reduce_abssum(const X &x, const Y &y, int dim) {
+    language_detail::emit_reduce(TileReduceOp::ABS_SUM, x, y, dim, "abssum");
+}
+template<typename X, typename Y>
+inline void reduce_absmax(const X &x, const Y &y, int dim) {
+    language_detail::emit_reduce(TileReduceOp::ABS_MAX, x, y, dim, "absmax");
+}
+
+// T.cumsum / T.cummax(src, dst, dim, reverse) — inclusive prefix scan.
+template<typename Src, typename Dst>
+inline void cumsum(const Src &src, const Dst &dst, int dim, bool reverse = false) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_cumsum(detail::extract_operand(src), detail::extract_operand(dst),
+                             static_cast<uint32_t>(dim), reverse ? 1 : 0);
+    }
+    LUISA_INFO("[tensor-dsl] T.cumsum: {} -> {} (dim={}, reverse={})",
+               detail::describe(src), detail::describe(dst), dim, reverse);
+}
+template<typename Src, typename Dst>
+inline void cummax(const Src &src, const Dst &dst, int dim, bool reverse = false) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_cummax(detail::extract_operand(src), detail::extract_operand(dst),
+                             static_cast<uint32_t>(dim), reverse ? 1 : 0);
+    }
+    LUISA_INFO("[tensor-dsl] T.cummax: {} -> {} (dim={}, reverse={})",
+               detail::describe(src), detail::describe(dst), dim, reverse);
+}
+
+// T.any_of / T.all_of(buf) — logical tile reduction to a scalar boolean.
+template<typename T>
+inline void any_of(const T &buf) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_any_of(detail::extract_operand(buf));
+    }
+    LUISA_INFO("[tensor-dsl] T.any_of: {}", detail::describe(buf));
+}
+template<typename T>
+inline void all_of(const T &buf) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_all_of(detail::extract_operand(buf));
+    }
+    LUISA_INFO("[tensor-dsl] T.all_of: {}", detail::describe(buf));
+}
+
+// T.shfl_xor / shfl_up / shfl_down(value, delta) — warp shuffle of a fragment
+// scalar (result discarded by the lowering, like T.warp_reduce_*).
+template<typename V>
+inline void shfl_xor(const V &value, int delta) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_shuffle(TileShuffleOp::XOR, detail::extract_operand(value), delta);
+    }
+    LUISA_INFO("[tensor-dsl] T.shfl_xor: {} ^ {}", detail::describe(value), delta);
+}
+template<typename V>
+inline void shfl_up(const V &value, int delta) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_shuffle(TileShuffleOp::UP, detail::extract_operand(value), delta);
+    }
+    LUISA_INFO("[tensor-dsl] T.shfl_up: {} << {}", detail::describe(value), delta);
+}
+template<typename V>
+inline void shfl_down(const V &value, int delta) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_shuffle(TileShuffleOp::DOWN, detail::extract_operand(value), delta);
+    }
+    LUISA_INFO("[tensor-dsl] T.shfl_down: {} >> {}", detail::describe(value), delta);
+}
+
 template<typename T>
 inline void print(const T &t, const char *msg) {
     if (auto *builder = TileFunctionBuilder::current_or_null()) {
@@ -1263,6 +1396,54 @@ struct dsl_t {
         luisa::compute::tile::language::reduce_sum(x, y, dim);
     }
 
+    template<typename X, typename Y>
+    void reduce_max(const X &x, const Y &y, int dim) const {
+        luisa::compute::tile::language::reduce_max(x, y, dim);
+    }
+    template<typename X, typename Y>
+    void reduce_min(const X &x, const Y &y, int dim) const {
+        luisa::compute::tile::language::reduce_min(x, y, dim);
+    }
+    template<typename X, typename Y>
+    void reduce_abssum(const X &x, const Y &y, int dim) const {
+        luisa::compute::tile::language::reduce_abssum(x, y, dim);
+    }
+    template<typename X, typename Y>
+    void reduce_absmax(const X &x, const Y &y, int dim) const {
+        luisa::compute::tile::language::reduce_absmax(x, y, dim);
+    }
+
+    template<typename Src, typename Dst>
+    void cumsum(const Src &src, const Dst &dst, int dim, bool reverse = false) const {
+        luisa::compute::tile::language::cumsum(src, dst, dim, reverse);
+    }
+    template<typename Src, typename Dst>
+    void cummax(const Src &src, const Dst &dst, int dim, bool reverse = false) const {
+        luisa::compute::tile::language::cummax(src, dst, dim, reverse);
+    }
+
+    template<typename T>
+    void any_of(const T &buf) const {
+        luisa::compute::tile::language::any_of(buf);
+    }
+    template<typename T>
+    void all_of(const T &buf) const {
+        luisa::compute::tile::language::all_of(buf);
+    }
+
+    template<typename V>
+    void shfl_xor(const V &value, int delta) const {
+        luisa::compute::tile::language::shfl_xor(value, delta);
+    }
+    template<typename V>
+    void shfl_up(const V &value, int delta) const {
+        luisa::compute::tile::language::shfl_up(value, delta);
+    }
+    template<typename V>
+    void shfl_down(const V &value, int delta) const {
+        luisa::compute::tile::language::shfl_down(value, delta);
+    }
+
     template<typename T>
     void print(const T &t, const char *msg) const {
         luisa::compute::tile::language::print(t, msg);
@@ -1349,6 +1530,16 @@ struct dsl_t {
     template<size_t R>
     auto rsqrt(const TileExpr<R> &a) const {
         return luisa::compute::tile::language::rsqrt(a);
+    }
+
+    template<size_t R>
+    auto min(const TileExpr<R> &a, float b) const {
+        return luisa::compute::tile::language::min(a, b);
+    }
+
+    template<size_t R>
+    auto abs(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::abs(a);
     }
 
     int ceildiv(int a, int b) const noexcept {
