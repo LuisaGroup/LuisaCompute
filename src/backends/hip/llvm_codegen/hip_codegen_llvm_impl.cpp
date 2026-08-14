@@ -701,17 +701,16 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
         LUISA_ASSERT(block_size > 0u, "Block size must be greater than zero.");
         uint32_t shared_array_size = 0u;
         if (_uses_hardware_rt_stack) {
-            // Synchronous RayQuery keeps a wider hot frontier because its
-            // callback remains inside one trace call. Resumable RayQuery needs
-            // only one hardware entry beyond the complete-BVH8 reserve: it
-            // persists the disjoint parent-link continuation across callback
-            // returns, and 9 entries minimizes LDS without making the root
-            // itself stackless. Ordinary static trace retains its proven
-            // 8-entry stack.
+            // Both synchronous and resumable RayQuery use an exact disjoint
+            // parent-link continuation before a complete BVH8 expansion can
+            // overflow the hardware frontier. Nine entries are the minimum
+            // that leave one ordinary hardware entry plus the complete
+            // eight-child expansion reserve. This also avoids doubling LDS
+            // and halving resident workgroups compared with the former
+            // synchronous 16-entry policy. Ordinary static trace retains its
+            // proven 8-entry stack and one-shot overflow fallback.
             const auto hw_stack_max_entries =
-                _uses_synchronous_ray_query_pipeline ? 16u :
-                _rt_analysis.uses_ray_query          ? 9u :
-                                                       8u;
+                _rt_analysis.uses_ray_query ? 9u : 8u;
             // HwBvhStack: max_entries * 32 (stride) * 2 (TLAS+BLAS regions)
             // Both flat trace and ray query use HwBvhStack on gfx12.
             const auto hw_lds_dwords_per_wave32 =
