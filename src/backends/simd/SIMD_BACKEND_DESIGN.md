@@ -1256,6 +1256,29 @@ still points at state spill/reload boundaries; the two varying gathers account
 for far below one percent of sampled JIT cycles, so adding lane prefetches is
 not the next-order fix for this kernel.
 
+An innermost-loop follow-up tested whether the dynamic frame could be removed,
+parked in a dedicated mask collector, guarded by a cached target, or hoisted
+to the loop entry. Voxel is the decisive counterexample: its loop exit `bb5`
+is shared by `c1/c2/c4/c7`, while enclosing `c0` targets `bb8`. A separate
+collector duplicates the aggregation already performed by the generic
+cascade; moving it before the cascade is not generally valid because arriving
+cohorts can carry different inner tokens. Eager frame hoisting was restricted
+to a strict single-entry/no-return gate and remained exact in the exercised
+regressions, but it loses the runtime-coherent fast path: the frame becomes
+live before the header is actually mixed and adds a parent layer to inner
+divergence.
+
+Repeated same-binary W8 measurements rejected every tested form. The best
+cached/packed target guards were neutral at 0.9959x and 0.9966x throughput;
+the branch-split collector retired 7.29% more instructions and ran 4.95% more
+cycles despite a smaller static object; eager frame hoisting retired 24.94%
+more instructions and ran 36.73% more cycles. The production invariant is
+therefore unchanged: declare a frame only on an actually mixed split, reuse a
+matching top frame, and perform all same-target arrivals in one cascade. Any
+future loop specialization must preserve this lazy behavior and the complete
+dynamic token chain. The full variant matrix and confidence intervals are in
+the performance report.
+
 A 15-run, alternating-order non-coroutine SDF rerun after this refinement
 measured median throughput of 8.214/15.136/22.598/33.047 samples/s for
 W1/W4/W8/W16 against fallback at 8.745. The fallback-relative speedups are

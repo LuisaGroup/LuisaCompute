@@ -2247,6 +2247,49 @@ tracer passed W1/W2/W4/W8/W16 at
 35.427/42.782/40.940/39.219/37.802 dB, and every process reported native
 Embree W4/W8/W16 packet support.
 
+### Rejected innermost-loop frame specializations
+
+The W8 Voxel schedule has one parentless natural loop (`l0`, header `bb2`) and
+a shared exit `bb5`. Four static convergence points (`c1`, `c2`, `c4`, and
+`c7`) target `bb5`; the enclosing `c0` targets `bb8`. This is a useful stress
+case for the proposal to reduce push/pop work only on innermost loops. Every
+prototype below was compared with a same-binary environment-variable oracle,
+used 16 workers pinned to CPUs 0--15, alternated candidate/oracle order, and
+required the identical SHA-256 output
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
+
+The experiments establish three distinct costs:
+
+| W8 Voxel prototype | candidate/oracle throughput | decisive counter evidence |
+| --- | ---: | --- |
+| header-exit parking plus direct body edge | 0.9418x [0.9315, 0.9523], 0/15 wins | code layout and branch behavior regressed |
+| parking through the shared scheduler route | 0.9923x [0.9826, 1.0021], 5/15 wins | instructions 0.9958x, branches 0.9873x, but branch misses 1.0443x and cycles 1.0051x |
+| fast reuse branch around the header declaration | 0.9971x [0.9883, 1.0059], 8/15 wins | instructions 1.000002x and cycles 1.0001x |
+| separate loop mask collector, cascade first | wall clock neutral/noisy | cycles 1.0133x, instructions 1.0073x, branch misses 1.0248x |
+| global dynamic-target guard | 0.9883x [0.9826, 0.9941], 2/15 wins | cycles 1.0146x, instructions 1.0855x, branches 1.0496x |
+| scalar cached target carried in a separate ready field | 0.9959x [0.9847, 1.0073], 6/15 wins | cycles 0.9933x but instructions 1.0485x; no stable wall-clock win |
+| target packed into existing token bits | 0.9966x [0.9872, 1.0061], 5/15 wins | cycles 1.0010x, instructions 1.0340x |
+| collector before the generic cascade | 0.9936x [0.9841, 1.0033], 5/15 wins | cycles 1.0106x and branch misses 1.0240x; also invalid as a general shared-target transform because cohorts can carry different inner tokens |
+| header branch splitting plus collector | 0.9456x [0.9324, 0.9589], 0/15 wins | cycles 1.0495x, instructions 1.0729x, branches 1.0155x |
+| eager frame hoisting to the loop entry | 0.7477x [0.7394, 0.7561], 0/12 wins | cycles 1.3673x, instructions 1.2494x, branches 1.1303x |
+
+The apparently smaller collector object was especially misleading: one
+branch-split form removed 37 static instructions, 58 vector instructions, two
+branches, and 18 stack references, yet retired 7.29% more dynamic instructions
+and ran 4.95% more cycles. The existing convergence frame already aggregates
+`c1` in the same cascade loop that processes `c2/c4/c7`; a second collector
+duplicates hot aggregation work. Conversely, eager hoisting destroys the
+important lazy rule that a frame is created only on the first actually mixed
+header evaluation. Many Voxel iterations remain dynamically coherent, so an
+eager `c1` adds a live parent layer to inner frames even when no header split
+needs it.
+
+No production code or diagnostic knob from these experiments is retained.
+The current policy remains lazy-on-mixed declaration, top-frame reuse, and a
+single generic arrival cascade. A future loop specialization must preserve all
+three properties, distinguish the shared `bb5` token chain, and demonstrate a
+stable real-render win rather than relying on static object size.
+
 ### Rejected cross-query early gather
 
 The ordinary W8 path tracer has one tempting memory/compute-overlap site. Its
