@@ -350,7 +350,7 @@ void reg_pass_entry_totality() {
                 pointer_usage_pass_run_on_module(nullptr, &report);
             expect(info.invalid_function_count == 1u);
             expect(!info.succeeded());
-            expect_null_analysis_report(report, 5u);
+            expect_null_analysis_report(report, 6u);
         }
         {
             PassReport report;
