@@ -1498,6 +1498,73 @@ the large gap appears specifically in dynamically varying iteration/control
 and memory patterns. The analytic benchmark does not call Embree and must not
 be presented as the real renderer's traversal comparison.
 
+### ISPC phase-level attribution
+
+The path-trace gap was also decomposed at the pass boundary instead of treating
+ISPC `-O2` as one opaque result. The audit used official ISPC 1.31.0 source at
+revision `c6adb4f86f5678ce6c41951b1e2b59f727455697` (BSD-3-Clause), precise
+arithmetic with FMA disabled, one worker pinned to CPU 6, and eleven or fifteen
+alternating processes per variant. Every ISPC ablation retained checksum
+`aff56d522e42c9a`. The table reports disabled-feature throughput divided by
+normal ISPC throughput:
+
+| Disabled mechanism | AVX2 W4 | AVX2 W8 | AVX-512 W8 | AVX-512 W16 |
+| --- | ---: | ---: | ---: | ---: |
+| front-end all-on specialization | 0.8518x | 0.7989x | 0.9151x | 0.9030x |
+| all three `ImproveMemoryOpsPass` instances | 0.9460x | 0.8918x | 1.0055x | 1.0009x |
+| both mechanisms | 0.7817x | 0.7353x | 0.9228x | 0.9111x |
+
+The largest single mechanism is therefore not an LLVM pass. It is ISPC's
+front-end varying-control emission in `src/stmt.cpp` together with function
+all-on/mixed versioning in `src/func.cpp`. It dynamically distinguishes an
+all-on incoming mask and all/none/mixed branch results, then emits a path on
+which the mask is a compile-time all-on constant. On AVX2 W8, normal ISPC is
+1.252x faster than the same compiler with this mechanism disabled; disabling
+it increases retired instructions by 45.0% and cycles by 21.9% while branch
+misses remain effectively unchanged. Disabling the nominally related
+`IntrinsicsOpt` phases 215/216/250/251 produces an object byte-identical to
+the baseline, which confirms that the gain is created before those backend
+passes.
+
+The largest named ISPC pass is `ImproveMemoryOpsPass`, invoked at phases
+211, 256, and 271 around `InstCombine`. It contributes 1.121x on AVX2 W8 and
+1.057x on AVX2 W4, but does not help either AVX-512 width in this kernel. The
+AVX2 W8 hardware-counter ablation increases both retired instructions and
+cycles by about 11.5%/11.2%. Disabling both all-on specialization and all
+three memory-pass instances is non-additive but still leaves normal ISPC
+1.360x faster than the ablated AVX2 W8 object.
+
+Ordinary LLVM passes are secondary. Disabling phase-227 `LoopFullUnroll` in a
+fresh fifteen-pair run measured 0.98919x [0.98851, 0.98986] with zero wins,
+or about a 1.1% contribution. Disabling the late GVN measured 0.99351x
+[0.99222, 0.99480], and disabling loop unswitching produced an object
+byte-identical to normal ISPC. Luisa's O2/O3 and post-O2 cleanup experiments
+above were likewise neutral or byte-identical. The evidence therefore rejects
+both "one magic LLVM pass" and "LLVM did not optimize hard enough" as the main
+explanation.
+
+The residual is still large. In eleven paired single-core rounds, normal
+AVX-512 ISPC is 2.133x [2.121, 2.145] faster than Luisa W8 and 2.574x
+[2.551, 2.597] faster than Luisa W16. Disabling ISPC all-on specialization
+reduces those ratios only to 1.947x [1.938, 1.957] and 2.319x
+[2.301, 2.338]; disabling `ImproveMemoryOpsPass` is neutral at these widths.
+This remaining difference is consistent with ISPC's structured mask CFG and
+register-resident live state versus Luisa's general independent-PC scheduler
+frame, not with one omitted target pass.
+
+Two Luisa follow-ups sharpen the implementation boundary. Replacing both
+successor-mask reductions by a first-active-lane seed/broadcast comparison
+regressed fifteen W8 pairs to 0.8445x [0.8426, 0.8464] despite preserving the
+same result, so the existing reductions are not the bottleneck. Collapsing the
+four single-incoming forwarding blocks created by widened sphere updates cut
+the analytic W8 Schedule from 52 to 48 blocks, state slots from 61 to 49, and
+static assembly from 3,080 to 2,990 instructions, but a separate thirty-pair
+run was neutral at 1.00049x [0.99749, 1.00350]. Fewer scheduler objects alone
+are therefore insufficient. The actionable target is bounded structured
+all-on/mixed region versioning or branch splitting that shortens dynamic state
+live ranges without speculating expensive `sqrt`/division work or cloning an
+entire function.
+
 ### Zero-token convergence-cascade guard
 
 The formal scheduler gives token zero one exact meaning: the executing cohort
