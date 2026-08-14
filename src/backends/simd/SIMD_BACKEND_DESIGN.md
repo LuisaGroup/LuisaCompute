@@ -244,6 +244,15 @@ W2 candidate code regressed and W16 was neutral on default-worker real-render
 A/B tests, so both retain the single-pass policy. The independent oracle is
 `LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT=1`.
 
+The ordinary weighted speculation ceiling remains twelve, including the W4
+refinement. W8 alone may use a ceiling of sixteen after the same bounded
+forwarding analysis exposes a deeper ladder. This admits the next measured
+`float3` material-selection layer at cost fourteen without changing any
+safety, metadata, per-arm, total-instruction, or live-out rule. The narrower
+oracle `LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT=1` retains the W8
+forwarding refinement but restores cost twelve. W4 measured slower with this
+extra layer, and W1/W2/W16 therefore remain unchanged.
+
 A remaining varying conditional or switch has a dynamic coherent fast path:
 when all active lanes select one successor, it behaves like directly threaded
 masked SIMT control flow. A genuinely divergent partition lazily allocates its
@@ -1642,6 +1651,34 @@ inputs only. No ISPC implementation is copied into production. The existing
 XIR consecutive-buffer-read pass was separately inspected and only fuses
 absolute constant byte offsets, so it is not reused as a dynamic typed-buffer
 packet gather coalescer.
+
+### W8 deep select-ladder checkpoint
+
+The next W8-only refinement raises the speculation-cost ceiling from twelve
+to sixteen after the existing generated-select/Phi forwarding proof. It
+converts one additional `float3` material-selection layer in the real Voxel
+kernel; every safety and structural gate is unchanged. The independent
+same-binary oracle is
+`LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT=1`.
+
+The W8 Voxel Schedule shrinks from 32 to 29 blocks, 10 to 9 convergence
+points, 39 to 38 state slots, and 20 to 19 cold slots. Optimized assembly
+falls from 2,724 to 2,557 static instructions, 260 to 237 branches, 718 to 664
+stack references, and a 4,480- to 4,224-byte frame. Twenty-eight alternating
+128-render pairs measured a 1.00566x candidate/oracle geometric mean with
+22/28 wins and a bootstrap 95% interval of [1.00299, 1.00848]; all 56 PNGs
+were byte-identical. Five 256-render `perf stat` pairs measured aggregate
+task-clock/cycles changes of -0.57%/-0.50%, branches -0.12%, and branch misses
+-6.17%, while retired instructions rose 0.43%. This is a deliberate
+predication-versus-control trade, not an instruction-count-only claim.
+
+The same temporary policy at W4 measured 0.99502x with 2/14 wins and a 95%
+interval of [0.99112, 0.99962], so W4 retains cost twelve. Ordinary and cutout
+path tracing, image processing, non-coroutine SDF, Spacex, and game of life
+show identical optimization counts under the W8 candidate and oracle. The
+permanent `float3` ladder regression covers W2/W4/W8/W16, a 13-element tail,
+exact execution equality, width gating, Schedule-state reduction, and final
+x86 assembly size.
 
 ### Predicated memory-diamond checkpoint
 

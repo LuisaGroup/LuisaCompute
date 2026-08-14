@@ -27,9 +27,12 @@ struct PredicatedIfConversionInfo {
 // varying. Optional refinement collapses transparent select/Phi forwarding
 // blocks so a bounded enclosing diamond can be reconsidered, then matching
 // arithmetic is factored back through the generated selects. Warp- and
-// cohort-uniform conditions retain scalar control flow.
+// cohort-uniform conditions retain scalar control flow. The caller supplies
+// the target policy's weighted speculation ceiling; safety and structural
+// limits remain internal to the pass.
 [[nodiscard]] PredicatedIfConversionInfo predicate_small_varying_diamonds(
     xir::Function *function,
-    bool enable_refinement = true) noexcept;
+    bool enable_refinement = true,
+    size_t max_speculation_cost = 12u) noexcept;
 
 }// namespace luisa::compute::simd::schedule

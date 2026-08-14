@@ -267,15 +267,25 @@ SIMDCompiledKernel compile_simd_kernel(
     if (warp_width != 1u &&
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_PREDICATED_IF")) {
+        // Transparent select/Phi forwarding has a stable real-graphics win
+        // at W4/W8. W2 regresses and W16 is neutral, so those widths retain
+        // the single-pass policy.
+        auto enable_refinement =
+            (warp_width == 4u || warp_width == 8u) &&
+            !detail::env_flag(
+                "LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT");
+        // A fourth float3 select-ladder layer costs fourteen register units.
+        // It is profitable on the measured W8 voxel kernel but regresses W4;
+        // all other widths retain the original cost-twelve boundary.
+        auto max_speculation_cost =
+            enable_refinement && warp_width == 8u &&
+                    !detail::env_flag(
+                        "LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT") ?
+                16u :
+                12u;
         predication_info =
             schedule::predicate_small_varying_diamonds(
-                xir_kernel,
-                // The extra select-ladder step has a stable real-graphics
-                // win at W4/W8. W2 regresses and W16 is neutral on the same
-                // workload, so those widths retain the single-pass policy.
-                (warp_width == 4u || warp_width == 8u) &&
-                    !detail::env_flag(
-                        "LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT"));
+                xir_kernel, enable_refinement, max_speculation_cost);
     }
     if (predication_info.changed()) {
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));

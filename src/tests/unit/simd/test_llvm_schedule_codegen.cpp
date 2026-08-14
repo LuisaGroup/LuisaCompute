@@ -5743,6 +5743,122 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_deep_predicated_select_ladder() {
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferFloat4 output) noexcept {
+        auto index = dispatch_id().x;
+        auto selector = index & 7u;
+        Var<float3> value = make_float3(71.0f, 72.0f, 73.0f);
+        $if (selector == 1u) {
+            value = make_float3(11.0f, 12.0f, 13.0f);
+        }
+        $elif (selector == 2u) {
+            value = make_float3(21.0f, 22.0f, 23.0f);
+        }
+        $elif (selector == 3u) {
+            value = make_float3(31.0f, 32.0f, 33.0f);
+        }
+        $elif (selector == 4u) {
+            value = make_float3(41.0f, 42.0f, 43.0f);
+        }
+        $elif (selector == 5u) {
+            value = make_float3(51.0f, 52.0f, 53.0f);
+        };
+        output.write(index, make_float4(value, 1.0f));
+    };
+    auto compile = [&](uint32_t width, bool disable_deep) {
+        ScopedEnvironmentVariable setting{
+            "LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT",
+            disable_deep ? "1" : "0"};
+        return compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_deep_select_ladder", false, true);
+    };
+    auto execute = [&](const SIMDCompiledKernel &compiled,
+                       uint32_t width,
+                       std::array<luisa::float4, count> &output) {
+        output.fill(luisa::make_float4(-999.0f));
+        alignas(16) SIMDHostBufferView argument{
+            output.data(), sizeof(output)};
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto *entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += width) {
+            config.thread_index = first;
+            entry(&argument, nullptr, &config, width);
+        }
+        return true;
+    };
+
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        auto candidate = compile(width, false);
+        auto oracle = compile(width, true);
+        CHECK(candidate.succeeded());
+        CHECK(oracle.succeeded());
+        if (width == 8u) {
+            CHECK(candidate.predicated_diamond_count ==
+                  oracle.predicated_diamond_count + 1u);
+            CHECK(candidate.predicated_refinement_round_count ==
+                  oracle.predicated_refinement_round_count + 1u);
+            CHECK(candidate.predicated_forwarded_phi_count ==
+                  oracle.predicated_forwarded_phi_count + 1u);
+            CHECK(candidate.predicated_forwarding_block_count ==
+                  oracle.predicated_forwarding_block_count + 1u);
+            CHECK(candidate.schedule_block_count <
+                  oracle.schedule_block_count);
+            CHECK(candidate.convergence_point_count <
+                  oracle.convergence_point_count);
+            CHECK(candidate.state_slot_count < oracle.state_slot_count);
+            if (candidate.target_triple.starts_with("x86_64")) {
+                CHECK(candidate.assembly.size() < oracle.assembly.size());
+            }
+        } else {
+            CHECK(candidate.predicated_diamond_count ==
+                  oracle.predicated_diamond_count);
+            CHECK(candidate.predicated_refinement_round_count ==
+                  oracle.predicated_refinement_round_count);
+            CHECK(candidate.predicated_forwarded_phi_count ==
+                  oracle.predicated_forwarded_phi_count);
+            CHECK(candidate.predicated_forwarding_block_count ==
+                  oracle.predicated_forwarding_block_count);
+            CHECK(candidate.schedule_block_count ==
+                  oracle.schedule_block_count);
+            CHECK(candidate.convergence_point_count ==
+                  oracle.convergence_point_count);
+            CHECK(candidate.state_slot_count == oracle.state_slot_count);
+            CHECK(candidate.assembly == oracle.assembly);
+        }
+
+        std::array<luisa::float4, count> output{};
+        std::array<luisa::float4, count> oracle_output{};
+        CHECK(execute(candidate, width, output));
+        CHECK(execute(oracle, width, oracle_output));
+        CHECK(std::memcmp(
+                  output.data(), oracle_output.data(),
+                  sizeof(output)) == 0);
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto base = 71.0f;
+            switch (index & 7u) {
+                case 1u: base = 11.0f; break;
+                case 2u: base = 21.0f; break;
+                case 3u: base = 31.0f; break;
+                case 4u: base = 41.0f; break;
+                case 5u: base = 51.0f; break;
+                default: break;
+            }
+            CHECK(output[index].x == base);
+            CHECK(output[index].y == base + 1.0f);
+            CHECK(output[index].z == base + 2.0f);
+            CHECK(output[index].w == 1.0f);
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_predicated_select_forwarding_metadata() {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -6352,6 +6468,8 @@ int main() {
          &run_ast_predicated_diamond},
         {"AST predicated select ladder",
          &run_ast_predicated_select_ladder},
+        {"AST deep predicated select ladder",
+         &run_ast_deep_predicated_select_ladder},
         {"predicated select forwarding metadata",
          &run_predicated_select_forwarding_metadata},
         {"predicated select forwarding provenance",

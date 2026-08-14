@@ -23,7 +23,9 @@ Its provider-native batch installers now place their overwhelmingly common
 already-ascending case on one hot branch and all reorderings on an unlikely
 edge. The latest control-flow stage also recognizes a bounded nested
 select/Phi forwarding ladder at W4/W8, exposing one additional small varying
-diamond without applying a whole-function CFG cleanup.
+diamond without applying a whole-function CFG cleanup. A measured W8-only
+follow-up permits one further `float3` ladder layer while W4 retains the
+original cost boundary.
 The newest memory stage independently applies ISPC's bounded-gather lesson to
 one much narrower Luisa pattern: eligible W8 direct typed-buffer vectors pack
 adjacent 32-bit leaves into legal 64-bit LLVM masked gathers. TargetTransformInfo
@@ -311,6 +313,62 @@ when both arms pass `SafeToRunWithMaskAllOff` and their estimated statement
 cost is below six; otherwise it emits mask-aware arm skips. No ISPC source or
 threshold is copied. Luisa retains its independently audited safety whitelist,
 weighted register-unit cost, and the width-specific real-render gate above.
+
+### W8 deeper select-ladder boundary
+
+The next enclosing Voxel material-selection layer is structurally eligible
+after the accepted forwarding refinement, but its two `float3` selects make
+the weighted cost fourteen rather than the default limit of twelve. The new
+policy raises that limit to sixteen only at W8. Every totality, metadata,
+four-per-arm, six-total, and four-live-out rule remains unchanged. The
+same-binary oracle
+`LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT=1` keeps the existing W8
+refinement while restoring cost twelve.
+
+Two independent fourteen-pair sweeps used alternating forward/reverse order,
+128 Voxel renders per process, 32 workers, and logical CPUs 0--31. The combined
+candidate/oracle result is 1.00566x geometric mean, 22/28 wins, and a
+bootstrap 95% interval of [1.00299, 1.00848]. Candidate/oracle process medians
+are 1,199.413/1,205.234 ms, or 9.370/9.416 ms per render. All 56 PNGs have the
+same SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
+
+The exact final W8 object changes as follows:
+
+| W8 Voxel kernel | Cost-twelve oracle | Deep ladder |
+| --- | ---: | ---: |
+| Schedule blocks / convergence points | 32 / 10 | 29 / 9 |
+| state slots / cold slots | 39 / 20 | 38 / 19 |
+| assembly text bytes | 124,557 | 116,227 |
+| static / vector instructions | 2,724 / 1,359 | 2,557 / 1,304 |
+| branches / calls | 260 / 3 | 237 / 3 |
+| stack references / frame | 718 / 4,480 B | 664 / 4,224 B |
+
+Five alternating 256-render `perf stat` pairs distinguish the mechanism:
+
+| Aggregate counter | Deep ladder vs oracle |
+| --- | ---: |
+| task clock | -0.569% |
+| cycles | -0.497% |
+| retired instructions | +0.427% |
+| branches | -0.122% |
+| branch misses | -6.174% |
+| measured render wall time | -0.424% |
+
+Predicating the extra layer executes slightly more dynamic select work, but
+removes enough scheduler/control and misprediction cost to win. This is why
+the decision is based on paired counters and wall time rather than smaller
+static assembly alone.
+
+The identical temporary rule at W4 reduced its object but regressed real
+rendering: fourteen pairs measured 0.99502x, 2/14 wins, and a 95% interval of
+[0.99112, 0.99962]. W4 therefore remains at cost twelve; W1/W2/W16 also retain
+their previous policy. Ordinary and cutout path tracing, image processing,
+non-coroutine SDF, Spacex, and game of life report identical W8 optimization
+counts under candidate and oracle, so no benefit is claimed for them. A
+permanent W2/W4/W8/W16 `float3` ladder regression covers the width gate,
+thirteen-element inactive tail, exact candidate/oracle output, Schedule-state
+reduction, and final x86 assembly-size direction.
 
 ### Predicated masked-memory control
 
@@ -1332,3 +1390,13 @@ suite (140/140). Syntax checks pass for every changed C++ translation unit.
 The dedicated regression covers W4/W8/W16 target policy, `uint4` execution and
 final x86 assembly, an odd `uint3` LLVM-IR tail, a thirteen-element W16 inactive
 tail, and exact candidate/oracle output equality.
+
+The W8 deeper-select-ladder stage reran the required native-math/fallback-math/
+runtime-width gate (3/3), its Schedule-codegen regression, the currently
+enumerated SIMD/XIR/runtime/graphics gate (88/88), and the complete configured
+Release suite (140/140). The standalone predicated-if and loop-unswitch
+microbenchmarks also retain their existing positive gates. Final W8 gallery
+comparisons pass Voxel at 82.83 dB, ordinary path tracing at 39.22 dB, cutout
+path tracing at 44.17 dB, and non-coroutine SDF at 63.13 dB RGB PSNR. The
+ordinary and cutout runs independently report Embree 4.4.1 W4/W8/W16 native
+packet support enabled.

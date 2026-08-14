@@ -220,7 +220,8 @@ collect_selects(xir::Function *function) noexcept {
 }// namespace
 
 PredicatedIfConversionInfo predicate_small_varying_diamonds(
-    xir::Function *function, bool enable_refinement) noexcept {
+    xir::Function *function, bool enable_refinement,
+    size_t max_speculation_cost) noexcept {
     PredicatedIfConversionInfo result;
     static constexpr auto max_refinement_rounds = size_t{8u};
     for (auto round = size_t{0u};
@@ -233,7 +234,7 @@ PredicatedIfConversionInfo predicate_small_varying_diamonds(
             {.max_arm_instruction_count = 4u,
              .max_total_instruction_count = 6u,
              .max_live_out_register_units = 4u,
-             .max_speculation_cost = 12u,
+             .max_speculation_cost = max_speculation_cost,
              .candidate_filter = is_varying_candidate,
              .candidate_filter_context = &uniformity});
         result.if_conversion.converted_diamond_count +=

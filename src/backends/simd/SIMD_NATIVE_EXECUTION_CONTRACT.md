@@ -215,6 +215,10 @@ Reproducible example sweeps may use `LUISA_SIMD_WARP_WIDTH=1|2|4|8|16` when
 the application does not construct `SIMDDeviceConfigExt`; an explicit nonzero
 API width always wins. `LUISA_SIMD_DISABLE_PREDICATED_IF=1` and
 `LUISA_SIMD_DISABLE_LOOP_UNSWITCH=1` provide control-flow A/B controls;
+`LUISA_SIMD_DISABLE_PREDICATED_IF_REFINEMENT=1` disables nested select/Phi
+forwarding, while
+`LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT=1` keeps forwarding but
+restores the W8 speculation-cost ceiling from sixteen to twelve;
 `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces otherwise coherent functions
 through the general cohort scheduler;
 `LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` restores aggregate local storage
@@ -339,6 +343,20 @@ Default-worker Voxel A/B accepts W4/W8 and rejects W2 (regression) and W16
 (neutral); W1 never enters varying if-conversion. Thirteen-element inactive-
 tail execution, same-binary oracle comparison, non-Name metadata rejection,
 and pre-existing-select provenance are permanent regressions.
+
+One further cost boundary is enabled only at W8. After the ordinary
+select/Phi refinement has exposed another enclosing diamond, the weighted
+speculation ceiling may rise from twelve to sixteen register units. All
+structural, totality, metadata, live-out, per-arm, and six-instruction gates
+remain unchanged; the higher budget does not admit memory, division, poison-
+forming casts, or side effects. It exists for the measured four-register-unit
+`float3` select-ladder shape whose next layer costs fourteen units.
+`LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT=1` restores the cost-twelve
+policy without disabling the already accepted W4/W8 forwarding refinement.
+W4 keeps cost twelve because a fourteen-pair Voxel A/B measured a regression;
+W1/W2/W16 are byte-identical with the control. A W2/W4/W8/W16 `float3` ladder,
+thirteen-element inactive tail, exact oracle equality, Schedule-state
+reduction, and final x86 assembly-size reduction are permanent regressions.
 
 #### 4.4.1 Predicated direct-memory diamond
 
