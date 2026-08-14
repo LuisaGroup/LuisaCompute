@@ -287,18 +287,24 @@ SIMDCompiledKernel compile_simd_kernel(
         // A fourth float3 select-ladder layer costs fourteen register units.
         // It is profitable on the measured W8 voxel kernel but regresses W4;
         // all other widths retain the original cost-twelve boundary.
-        auto max_speculation_cost =
+        auto enable_deep_refinement =
             enable_refinement && warp_width == 8u &&
-                    !detail::env_flag(
-                        "LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT") ?
-                16u :
-                12u;
+            !detail::env_flag(
+                "LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT");
+        auto enable_wide_refinement =
+            enable_deep_refinement &&
+            !detail::env_flag(
+                "LUISA_SIMD_DISABLE_WIDE_PREDICATED_IF_REFINEMENT");
+        auto max_speculation_cost =
+            enable_deep_refinement ? 16u :
+                                     12u;
         predication_info =
             schedule::predicate_small_varying_diamonds(
                 xir_kernel, enable_refinement, max_speculation_cost,
                 warp_width != 1u &&
                     !detail::env_flag(
-                        "LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE"));
+                        "LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE"),
+                enable_wide_refinement);
     }
     if (predication_info.changed()) {
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));
@@ -349,6 +355,8 @@ SIMDCompiledKernel compile_simd_kernel(
         predication_info.removed_forwarding_block_count;
     result.predicated_widened_update_diamond_count =
         predication_info.widened_update_diamond_count;
+    result.predicated_wide_select_ladder_diamond_count =
+        predication_info.wide_select_ladder_diamond_count;
     result.factored_select_count =
         predication_info.select_factoring.factored_select_count;
     result.unswitched_loop_count =

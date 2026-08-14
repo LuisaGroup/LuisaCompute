@@ -16,6 +16,7 @@ struct PredicatedIfConversionInfo {
     size_t forwarded_phi_count{0u};
     size_t removed_forwarding_block_count{0u};
     size_t widened_update_diamond_count{0u};
+    size_t wide_select_ladder_diamond_count{0u};
 
     [[nodiscard]] bool changed() const noexcept {
         return if_conversion.changed() ||
@@ -29,12 +30,14 @@ struct PredicatedIfConversionInfo {
 // blocks so a bounded enclosing diamond can be reconsidered, then matching
 // arithmetic is factored back through the generated selects. Warp- and
 // cohort-uniform conditions retain scalar control flow. The caller supplies
-// the target policy's weighted speculation ceiling; safety and structural
-// limits remain internal to the pass.
+// the target policy's weighted speculation ceiling and whether the measured
+// W8 six-instruction float3 select-ladder shape is enabled; all other safety
+// and structural limits remain internal to the pass.
 [[nodiscard]] PredicatedIfConversionInfo predicate_small_varying_diamonds(
     xir::Function *function,
     bool enable_refinement = true,
     size_t max_speculation_cost = 12u,
-    bool enable_widened_updates = false) noexcept;
+    bool enable_widened_updates = false,
+    bool enable_wide_select_ladder = false) noexcept;
 
 }// namespace luisa::compute::simd::schedule

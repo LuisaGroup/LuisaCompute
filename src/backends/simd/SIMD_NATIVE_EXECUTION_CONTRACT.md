@@ -472,6 +472,25 @@ W1/W2/W16 are byte-identical with the control. A W2/W4/W8/W16 `float3` ladder,
 thirteen-element inactive tail, exact oracle equality, Schedule-state
 reduction, and final x86 assembly-size reduction are permanent regressions.
 
+After that W8 deep refinement, one further conversion is legal only for the
+measured material-ladder shape. One arm is empty; the other contains exactly
+three scalar Boolean `BINARY_EQUAL` operations and three float32x3 `SELECT`
+operations. Both unannotated arm exits target the same merge, and exactly one
+well-typed float32x3 PHI differs between the arms. The generic pass still
+proves single predecessors, pure total instructions, no poison-forming cast,
+no memory/call/effect, no ambiguous metadata owner, at most six total
+instructions, four live-out register units, and weighted cost no greater than
+nineteen. This separate pass does not raise the ordinary cost-sixteen ceiling
+and cannot admit an unrelated cheaper-arm shape.
+
+Only W8 enables the conversion. The same-binary oracle is
+`LUISA_SIMD_DISABLE_WIDE_PREDICATED_IF_REFINEMENT=1`; the optimization report
+counter is `predicated_wide_select_ladder_diamonds`. Permanent execution uses
+a thirteen-element inactive tail and exact oracle comparison. It requires one
+W8 conversion with six hoisted instructions and smaller Schedule/assembly,
+while W2/W4/W16 must retain byte-identical assembly. The rule neither reads an
+inactive address nor extends the domain of an arithmetic operation.
+
 One-sided state updates have a separate measured policy. It accepts only a
 varying diamond with one empty arm, five or six non-terminator instructions in
 the other arm, one direct common merge, at least two differing merge PHIs, no

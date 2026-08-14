@@ -229,6 +229,7 @@ SIMDShader::SIMDShader(
             "predicated_refinement_rounds={}, predicated_forwarded_phis={}, "
             "predicated_forwarding_blocks={}, "
             "predicated_widened_update_diamonds={}, "
+            "predicated_wide_select_ladder_diamonds={}, "
             "predicated_memory_diamonds={}, "
             "predicated_memory_instructions={}, "
             "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
@@ -255,6 +256,7 @@ SIMDShader::SIMDShader(
             _compiled.predicated_forwarded_phi_count,
             _compiled.predicated_forwarding_block_count,
             _compiled.predicated_widened_update_diamond_count,
+            _compiled.predicated_wide_select_ladder_diamond_count,
             _compiled.predicated_memory_diamond_count,
             _compiled.predicated_memory_instruction_count,
             _compiled.factored_select_count,

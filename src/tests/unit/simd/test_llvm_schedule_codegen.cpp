@@ -6419,10 +6419,14 @@ void bindless_uniform_gradient_probe(
         };
         output.write(index, make_float4(value, 1.0f));
     };
-    auto compile = [&](uint32_t width, bool disable_deep) {
-        ScopedEnvironmentVariable setting{
+    auto compile = [&](uint32_t width, bool disable_deep,
+                       bool disable_wide) {
+        ScopedEnvironmentVariable deep_setting{
             "LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT",
             disable_deep ? "1" : "0"};
+        ScopedEnvironmentVariable wide_setting{
+            "LUISA_SIMD_DISABLE_WIDE_PREDICATED_IF_REFINEMENT",
+            disable_wide ? "1" : "0"};
         return compile_simd_kernel(
             kernel.function()->function(), width,
             "simd_ast_deep_select_ladder", false, true);
@@ -6448,8 +6452,8 @@ void bindless_uniform_gradient_probe(
     };
 
     for (auto width : {2u, 4u, 8u, 16u}) {
-        auto candidate = compile(width, false);
-        auto oracle = compile(width, true);
+        auto candidate = compile(width, false, true);
+        auto oracle = compile(width, true, true);
         CHECK(candidate.succeeded());
         CHECK(oracle.succeeded());
         if (width == 8u) {
@@ -6492,6 +6496,61 @@ void bindless_uniform_gradient_probe(
         CHECK(execute(oracle, width, oracle_output));
         CHECK(std::memcmp(
                   output.data(), oracle_output.data(),
+                  sizeof(output)) == 0);
+        auto wide_candidate = compile(width, false, false);
+        CHECK(wide_candidate.succeeded());
+        if (width == 8u) {
+            CHECK(wide_candidate.predicated_wide_select_ladder_diamond_count ==
+                  1u);
+            CHECK(wide_candidate.predicated_diamond_count ==
+                  candidate.predicated_diamond_count + 1u);
+            CHECK(wide_candidate.predicated_instruction_count ==
+                  candidate.predicated_instruction_count + 6u);
+            CHECK(wide_candidate.predicated_phi_count ==
+                  candidate.predicated_phi_count + 1u);
+            CHECK(wide_candidate.predicated_refinement_round_count ==
+                  candidate.predicated_refinement_round_count + 1u);
+            CHECK(wide_candidate.predicated_forwarded_phi_count ==
+                  candidate.predicated_forwarded_phi_count + 1u);
+            CHECK(wide_candidate.predicated_forwarding_block_count ==
+                  candidate.predicated_forwarding_block_count + 1u);
+            CHECK(wide_candidate.schedule_block_count <
+                  candidate.schedule_block_count);
+            CHECK(wide_candidate.convergence_point_count <
+                  candidate.convergence_point_count);
+            CHECK(wide_candidate.state_slot_count <
+                  candidate.state_slot_count);
+            if (wide_candidate.target_triple.starts_with("x86_64")) {
+                CHECK(wide_candidate.assembly.size() <
+                      candidate.assembly.size());
+            }
+        } else {
+            CHECK(wide_candidate.predicated_wide_select_ladder_diamond_count ==
+                  0u);
+            CHECK(wide_candidate.predicated_diamond_count ==
+                  candidate.predicated_diamond_count);
+            CHECK(wide_candidate.predicated_instruction_count ==
+                  candidate.predicated_instruction_count);
+            CHECK(wide_candidate.predicated_phi_count ==
+                  candidate.predicated_phi_count);
+            CHECK(wide_candidate.predicated_refinement_round_count ==
+                  candidate.predicated_refinement_round_count);
+            CHECK(wide_candidate.predicated_forwarded_phi_count ==
+                  candidate.predicated_forwarded_phi_count);
+            CHECK(wide_candidate.predicated_forwarding_block_count ==
+                  candidate.predicated_forwarding_block_count);
+            CHECK(wide_candidate.schedule_block_count ==
+                  candidate.schedule_block_count);
+            CHECK(wide_candidate.convergence_point_count ==
+                  candidate.convergence_point_count);
+            CHECK(wide_candidate.state_slot_count ==
+                  candidate.state_slot_count);
+            CHECK(wide_candidate.assembly == candidate.assembly);
+        }
+        std::array<luisa::float4, count> wide_output{};
+        CHECK(execute(wide_candidate, width, wide_output));
+        CHECK(std::memcmp(
+                  output.data(), wide_output.data(),
                   sizeof(output)) == 0);
         for (auto index = uint32_t{0u}; index < count; index++) {
             auto base = 71.0f;

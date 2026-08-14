@@ -397,6 +397,52 @@ permanent W2/W4/W8/W16 `float3` ladder regression covers the width gate,
 thirteen-element inactive tail, exact candidate/oracle output, Schedule-state
 reduction, and final x86 assembly-size direction.
 
+### W8 six-instruction material-ladder boundary
+
+The next Voxel material-selection diamond is not admitted by globally raising
+the cost limit. A second pass accepts only one empty arm opposite three scalar
+Boolean equality tests and three `float3` selects, with one differing
+`float3` PHI, the existing metadata/totality rules, six instructions total,
+four live-out register units, and cost nineteen. It runs only at W8 after the
+existing deep refinement. Its same-binary oracle is
+`LUISA_SIMD_DISABLE_WIDE_PREDICATED_IF_REFINEMENT=1`, and the runtime reports
+`predicated_wide_select_ladder_diamonds`.
+
+Twenty-eight alternating pairs used 128 Voxel renders per process, 32 workers,
+and logical CPUs 0--31. Oracle time divided by candidate time has a paired
+geometric mean of 1.00527x, 17/28 wins, and a log-space 95% Student-t interval
+of [1.00073, 1.00983]. Candidate/oracle medians are 773.521/776.306 ms per
+process, or 6.043/6.065 ms per render. The first and second fourteen-pair
+halves measure 1.00677x and 1.00376x, so the direction does not depend on one
+half of the run.
+
+| W8 Voxel kernel | Existing deep policy | Six-instruction layer |
+| --- | ---: | ---: |
+| Schedule blocks / convergence points | 29 / 9 | 26 / 8 |
+| state slots / coalesced slots | 38 / 12 | 37 / 11 |
+| assembly text bytes | 113,797 | 105,727 |
+| static / vector instructions | 2,443 / 1,212 | 2,273 / 1,160 |
+| branches / calls | 277 / 3 | 243 / 3 |
+| stack references / frame | 520 / 3,648 B | 507 / 3,520 B |
+| scalar-math calls | 2 | 2 |
+
+Five alternating 256-render counter pairs give candidate/oracle changes of
+-0.77% cycles, -0.84% task clock, -0.027% retired instructions, -0.28%
+branches, -3.96% branch misses, and -1.13% L1 loads. L1 load misses increase
+5.57%, so the retained 0.5% wall-time gain is specifically a control/front-
+end trade and not an across-the-board cache improvement. The final restricted
+implementation's assembly and object are byte-identical to the measured
+prototype.
+
+The permanent regression covers W2/W4/W8/W16, a thirteen-element inactive
+tail, one W8-only counter hit with six hoisted instructions, exact execution,
+and byte-identical non-W8 assembly. A final candidate/oracle gallery pair
+passes at 82.834519 dB and shares SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
+Ordinary and cutout path tracing, image processing, non-coroutine SDF, Spacex,
+and game of life report identical candidate/oracle optimization counts; this
+stage claims no benefit for those examples.
+
 ### Predicated masked-memory control
 
 The standalone `masked_stream` control contains one varying diamond whose
@@ -1939,3 +1985,15 @@ pair is byte-identical. Both path tracers report native Embree 4.4.1
 W4/W8/W16 packet support enabled. A thirty-round standalone W16/ISPC refresh
 supplies the current table above; the ISPC executable and generated objects
 remain outside CMake and the repository.
+
+The W8 six-instruction material-ladder stage again completed fresh full builds
+of both Release trees, the required native-math/fallback-math/runtime-width/
+Schedule-codegen gate (4/4), the SIMD-only suite (129/129), and the complete
+SIMD+fallback suite (140/140). The predicated-if and loop-unswitch standalone
+performance gates remain positive, the standalone ISPC driver tests pass 7/7,
+and formatting, diff, and clangd syntax checks pass for every changed C++
+translation unit. Final W8 reference comparisons pass Voxel at 82.834519 dB,
+ordinary 1024-spp Embree path tracing at 39.219375 dB, 1024-spp cutout at
+44.167099 dB, and non-coroutine SDF at 63.129346 dB. Both path tracers report
+native Embree 4.4.1 W4/W8/W16 packet support enabled. No gallery reference was
+regenerated or modified.

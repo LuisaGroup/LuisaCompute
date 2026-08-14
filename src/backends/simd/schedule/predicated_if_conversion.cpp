@@ -1,5 +1,6 @@
 #include "predicated_if_conversion.h"
 
+#include <luisa/ast/type.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
@@ -24,19 +25,21 @@ namespace {
                ValueClass::varying;
 }
 
+[[nodiscard]] size_t instruction_count(
+    const xir::BasicBlock *block) noexcept {
+    auto count = size_t{0u};
+    if (block != nullptr) {
+        for (auto *instruction : block->instructions()) {
+            count += !instruction->is_terminator();
+        }
+    }
+    return count;
+}
+
 [[nodiscard]] bool is_widened_update_candidate(
     const xir::ConditionalBranchInst *branch,
     const void *context) noexcept {
     if (!is_varying_candidate(branch, context)) { return false; }
-    auto instruction_count = [](const xir::BasicBlock *block) noexcept {
-        auto count = size_t{0u};
-        if (block != nullptr) {
-            for (auto *instruction : block->instructions()) {
-                count += !instruction->is_terminator();
-            }
-        }
-        return count;
-    };
     auto true_count = instruction_count(branch->true_block());
     auto false_count = instruction_count(branch->false_block());
     auto empty_count = std::min(true_count, false_count);
@@ -83,6 +86,88 @@ namespace {
                              true_value != false_value;
     }
     return updated_phi_count >= 2u;
+}
+
+[[nodiscard]] bool is_wide_select_ladder_candidate(
+    const xir::ConditionalBranchInst *branch,
+    const void *context) noexcept {
+    if (!is_varying_candidate(branch, context)) { return false; }
+    auto *true_block = branch->true_block();
+    auto *false_block = branch->false_block();
+    if (true_block == nullptr || false_block == nullptr) { return false; }
+    auto true_count = instruction_count(true_block);
+    auto false_count = instruction_count(false_block);
+    if (std::min(true_count, false_count) != 0u ||
+        std::max(true_count, false_count) != 6u) {
+        return false;
+    }
+    auto *wide_block = true_count == 6u ? true_block : false_block;
+    auto equality_count = size_t{0u};
+    auto select_count = size_t{0u};
+    for (auto *instruction : wide_block->instructions()) {
+        if (instruction->is_terminator()) { continue; }
+        if (!instruction->isa<xir::ArithmeticInst>()) { return false; }
+        auto *arithmetic = static_cast<const xir::ArithmeticInst *>(
+            instruction);
+        if (arithmetic->op() == xir::ArithmeticOp::BINARY_EQUAL &&
+            arithmetic->type() != nullptr &&
+            arithmetic->type()->is_bool()) {
+            equality_count++;
+            continue;
+        }
+        auto *type = arithmetic->type();
+        if (arithmetic->op() == xir::ArithmeticOp::SELECT &&
+            type != nullptr && type->is_vector() &&
+            type->dimension() == 3u &&
+            type->element()->is_float32()) {
+            select_count++;
+            continue;
+        }
+        return false;
+    }
+    if (equality_count != 3u || select_count != 3u ||
+        !true_block->is_terminated() ||
+        !false_block->is_terminated() ||
+        !true_block->terminator()->isa<xir::BranchInst>() ||
+        !false_block->terminator()->isa<xir::BranchInst>()) {
+        return false;
+    }
+    auto *true_merge = static_cast<const xir::BranchInst *>(
+                           true_block->terminator())
+                           ->target_block();
+    auto *false_merge = static_cast<const xir::BranchInst *>(
+                            false_block->terminator())
+                            ->target_block();
+    if (true_merge == nullptr || true_merge != false_merge) {
+        return false;
+    }
+    auto differing_float3_phis = size_t{0u};
+    for (auto *instruction : true_merge->instructions()) {
+        if (!instruction->isa<xir::PhiInst>()) { continue; }
+        auto *phi = static_cast<const xir::PhiInst *>(instruction);
+        auto *true_value = static_cast<const xir::Value *>(nullptr);
+        auto *false_value = static_cast<const xir::Value *>(nullptr);
+        for (auto i = size_t{0u}; i < phi->incoming_count(); i++) {
+            auto incoming = phi->incoming(i);
+            if (incoming.block == true_block) {
+                true_value = incoming.value;
+            } else if (incoming.block == false_block) {
+                false_value = incoming.value;
+            }
+        }
+        if (true_value == nullptr || false_value == nullptr ||
+            true_value == false_value) {
+            continue;
+        }
+        auto *type = phi->type();
+        if (type == nullptr || !type->is_vector() ||
+            type->dimension() != 3u ||
+            !type->element()->is_float32()) {
+            return false;
+        }
+        differing_float3_phis++;
+    }
+    return differing_float3_phis == 1u;
 }
 
 [[nodiscard]] xir::BasicBlock *single_predecessor(
@@ -285,7 +370,8 @@ collect_selects(xir::Function *function) noexcept {
 PredicatedIfConversionInfo predicate_small_varying_diamonds(
     xir::Function *function, bool enable_refinement,
     size_t max_speculation_cost,
-    bool enable_widened_updates) noexcept {
+    bool enable_widened_updates,
+    bool enable_wide_select_ladder) noexcept {
     PredicatedIfConversionInfo result;
     auto accumulate = [&](const xir::IfConversionInfo &converted) noexcept {
         result.if_conversion.converted_diamond_count +=
@@ -344,6 +430,37 @@ PredicatedIfConversionInfo predicate_small_varying_diamonds(
         }
         if (!collapsed) { break; }
         result.refinement_round_count++;
+    }
+    if (enable_wide_select_ladder) {
+        WarpUniformityAnalysis uniformity;
+        uniformity.analyze(function);
+        auto previous_selects = collect_selects(function);
+        auto converted = xir::if_conversion_pass_run_on_function(
+            function,
+            {.max_arm_instruction_count = 6u,
+             .max_total_instruction_count = 6u,
+             .max_live_out_register_units = 4u,
+             .max_speculation_cost = 19u,
+             .candidate_filter = is_wide_select_ladder_candidate,
+             .candidate_filter_context = &uniformity});
+        accumulate(converted);
+        result.wide_select_ladder_diamond_count =
+            converted.converted_diamond_count;
+        if (converted.changed()) {
+            auto generated_selects = collect_selects(function);
+            for (auto *select : previous_selects) {
+                generated_selects.erase(select);
+            }
+            auto collapsed = false;
+            for (auto forwarding = size_t{0u};
+                 forwarding < max_refinement_rounds &&
+                 collapse_select_phi_forwarder(
+                     function, generated_selects, result);
+                 forwarding++) {
+                collapsed = true;
+            }
+            result.refinement_round_count += collapsed;
+        }
     }
     result.select_factoring = result.if_conversion.changed() ?
                                   xir::select_factor_pass_run_on_function(

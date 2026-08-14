@@ -265,6 +265,19 @@ oracle `LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT=1` retains the W8
 forwarding refinement but restores cost twelve. W4 measured slower with this
 extra layer, and W1/W2/W16 therefore remain unchanged.
 
+One final W8-only material-ladder refinement is deliberately shape-specific
+rather than a global cost increase. It runs only after the cost-sixteen deep
+policy and accepts one empty arm opposite exactly three scalar Boolean
+equality operations plus three `float3` selects. Both arms must branch to one
+merge with exactly one differing `float3` PHI. The ordinary single-
+predecessor, metadata, totality, live-out, and speculation-safety checks still
+apply; the weighted cost is bounded at nineteen. This removes the next Voxel
+material-selection convergence without admitting unrelated four-instruction
+diamonds whose costs happen to fall between sixteen and nineteen.
+`LUISA_SIMD_DISABLE_WIDE_PREDICATED_IF_REFINEMENT=1` is the independent
+same-binary oracle, and `predicated_wide_select_ladder_diamonds` reports its
+accepted sites. W1/W2/W4/W16 do not enter this policy.
+
 A separate one-sided update policy covers the measured five- or six-
 instruction shape left just beyond those ordinary limits. Exactly one arm must
 be empty, both arms must branch directly to the same merge, and at least two
@@ -1808,6 +1821,39 @@ show identical optimization counts under the W8 candidate and oracle. The
 permanent `float3` ladder regression covers W2/W4/W8/W16, a 13-element tail,
 exact execution equality, width gating, Schedule-state reduction, and final
 x86 assembly size.
+
+### W8 six-instruction material-ladder checkpoint
+
+The next measured Voxel layer has one empty arm and, after the prior
+refinements, one arm containing three scalar equality tests and three
+`float3` selects. A separate W8-only pass accepts exactly that shape at cost
+nineteen and one differing `float3` live-out. It does not raise the ordinary
+four-instruction cost ceiling. The oracle
+`LUISA_SIMD_DISABLE_WIDE_PREDICATED_IF_REFINEMENT=1` retains every earlier
+predication stage.
+
+Against that oracle, the Voxel kernel changes from 29 to 26 Schedule blocks,
+9 to 8 convergence points, and 38 to 37 state slots. Its optimized object
+falls from 2,443 to 2,273 static instructions, 1,212 to 1,160 vector
+instructions, 277 to 243 branches, 520 to 507 stack references, and a
+3,648-byte to 3,520-byte frame; its three calls and two scalar-math calls are
+unchanged. Twenty-eight alternating 128-render pairs on 32 workers pinned to
+CPUs 0--31 measured 1.00527x [1.00073, 1.00983] with 17/28 wins. Five
+256-render `perf stat` pairs measured cycles -0.77%, task clock -0.84%,
+branches -0.28%, branch misses -3.96%, and L1 loads -1.13%; retired
+instructions changed by only -0.027%, while L1 load misses increased 5.57%.
+The accepted wall-time direction therefore comes from lower control/front-end
+cost despite the adverse L1-miss counter, not from a blanket reduction in
+executed arithmetic.
+
+The permanent W2/W4/W8/W16 and 13-element-tail regression requires one
+W8-only hit, six hoisted instructions, exact candidate/oracle output, smaller
+W8 Schedule state and assembly, and byte-identical non-W8 assembly. A final
+reference comparison passes at 82.834519 dB and candidate/oracle PNGs share
+SHA-256 `6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
+Ordinary and cutout path tracing, image processing, non-coroutine SDF, Spacex,
+and game of life have identical optimization reports with this oracle; no
+gain is claimed for them.
 
 ### Predicated memory-diamond checkpoint
 
