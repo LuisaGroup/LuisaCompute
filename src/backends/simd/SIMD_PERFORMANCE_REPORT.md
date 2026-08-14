@@ -1338,9 +1338,11 @@ ISPC gap: W8 still has 3.31x as many static instructions, 4.90x as many
 branches, and 22.65x as many stack references as ISPC's normal x8 body. The
 next control target is therefore guarded all-on/mixed region versioning that
 lets a dynamically full cohort execute a clone with constant full masks and
-SSA-resident state. ISPC's ablation bounds its likely contribution at roughly
-ten percent for this workload; the remainder still requires less scheduler
-state and better register residency rather than gather prefetching.
+SSA-resident state. ISPC's ablation measures roughly a ten-percent marginal
+effect inside ISPC; it is not an upper bound for Luisa because Luisa's clone
+could additionally eliminate backend-specific scheduler spills. The remaining
+gap still points toward less scheduler state and better register residency
+rather than gather prefetching.
 
 This split result rules out a blanket LLVM-code-quality explanation. The
 coherent GEMM body is already faster than the matched ISPC implementation;
