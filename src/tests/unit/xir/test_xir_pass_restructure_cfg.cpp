@@ -797,6 +797,71 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
+    "restructure_proxies_the_actual_true_merge_arm"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *boundary_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(loop_body);
+        auto *outer = builder.if_(outer_condition);
+        auto *outer_true = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+
+        builder.set_insertion_point(outer_true);
+        auto *boundary = builder.if_(boundary_condition);
+        auto *boundary_break = boundary->create_false_block();
+        // Both selections deliberately own outer_merge, and the ordinary
+        // fallthrough is the true arm. This is the mirror image of the usual
+        // false-merge spelling and used to make merge canonicalization proxy
+        // the wrong arm. Construct-exit repair would then wrap that result,
+        // producing an unbounded two-pass rewrite cycle.
+        boundary->set_true_target(outer_merge);
+        boundary->set_merge_block(outer_merge);
+        builder.set_insertion_point(boundary_break);
+        builder.break_(loop_merge);
+        builder.set_insertion_point(outer_false);
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_merge);
+        builder.continue_(loop_body);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 0u,
+             .post_iteration_limit = 8u});
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(info.boundary_merge_rewrite_batch_count > 0u);
+        expect(boundary->merge_block() != outer_merge);
+        expect(boundary->true_block() == boundary->merge_block());
+        expect(branch_chain_reaches(
+            boundary->merge_block(), outer_merge));
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        auto stable_block_count = count_owned_blocks(kernel);
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(rerun.iteration_limit_count == 0u);
+        expect(count_owned_blocks(kernel) == stable_block_count);
+    };
+
     "restructure_does_not_treat_payload_path_as_physical_loop_guard"_test = [] {
         Module module;
         BasicBlock *entry;
