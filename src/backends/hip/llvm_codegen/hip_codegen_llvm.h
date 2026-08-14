@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/ast/function.h>
@@ -44,8 +46,25 @@ struct HIPCodegenLLVMConfig {
     bool requires_static_trace{false};
     bool requires_motion_ray_query{false};
     bool requires_printing{false};
+    // Internal retry control. The first translation may prove that a
+    // synchronous query's callback environment is too large to materialize
+    // profitably; the second translation then keeps the resumable gfx12 ABI.
+    bool force_resumable_ray_query_pipeline{false};
     CurveBasisSet curve_bases{CurveBasisSet::make_all()};
 };
+
+// The synchronous pipeline copies its projected callback product once per
+// query and reloads it at every accepted candidate. Restrict that hot object
+// to four 16-byte ABI quanta; larger environments use the resumable hardware
+// query whose handler values remain in their ordinary SSA/callable context.
+inline constexpr size_t hip_synchronous_ray_query_environment_budget = 64u;
+
+[[nodiscard]] constexpr bool
+hip_synchronous_ray_query_environment_is_profitable(
+    size_t projected_bytes) noexcept {
+    return projected_bytes <=
+           hip_synchronous_ray_query_environment_budget;
+}
 
 struct HIPCodegenLLVMResult {
     luisa::string code;

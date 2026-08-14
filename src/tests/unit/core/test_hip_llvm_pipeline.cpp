@@ -1,4 +1,5 @@
 #include "hip_llvm_pipeline.h"
+#include "hip_codegen_llvm.h"
 #include "ut/ut.hpp"
 
 #include <string>
@@ -160,6 +161,14 @@ static auto suite = [] {
 
         expect(preserve_hardware_ray_query_loop_form(pipeline) == 2u);
         expect(pipeline.find("no-keep-loops") == std::string::npos);
+    };
+
+    "HIP synchronous ray-query environment budget is a closed boundary"_test = [] {
+        expect(hip_synchronous_ray_query_environment_is_profitable(0u));
+        expect(hip_synchronous_ray_query_environment_is_profitable(
+            hip_synchronous_ray_query_environment_budget));
+        expect(!hip_synchronous_ray_query_environment_is_profitable(
+            hip_synchronous_ray_query_environment_budget + 1u));
     };
     return 0;
 }();

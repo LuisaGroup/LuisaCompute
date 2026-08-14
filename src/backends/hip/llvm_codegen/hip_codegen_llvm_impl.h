@@ -239,6 +239,7 @@ private:
     bool _uses_hardware_rt_stack{false};
     bool _uses_synchronous_ray_query_pipeline{false};
     bool _requires_global_rt_stack{false};
+    bool _retry_with_resumable_ray_query_pipeline{false};
 
     RayTracingAnalysis _rt_analysis;
 
@@ -308,7 +309,8 @@ private:
     void _specialize_oclc_options() noexcept;
     void _link_ockl_if_needed() noexcept;
     void _postprocess_rt_kernel() noexcept;
-    void _finalize_ray_query_pipeline_contexts() noexcept;
+    [[nodiscard]] size_t
+    _finalize_ray_query_pipeline_contexts() noexcept;
     void _run_optimization_passes() noexcept;
     void _dump_module(const std::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_code() const noexcept;
@@ -486,6 +488,9 @@ public:
     [[nodiscard]] luisa::string generate(const xir::Module &xir_module) noexcept;
     [[nodiscard]] bool requires_global_rt_stack() const noexcept {
         return _requires_global_rt_stack;
+    }
+    [[nodiscard]] bool retry_with_resumable_ray_query_pipeline() const noexcept {
+        return _retry_with_resumable_ray_query_pipeline;
     }
     [[nodiscard]] luisa::vector<std::pair<luisa::string, luisa::string>>
     take_print_formats() && noexcept;

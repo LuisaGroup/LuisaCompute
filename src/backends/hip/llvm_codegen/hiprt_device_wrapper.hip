@@ -1632,10 +1632,11 @@ class LuisaHwBvhStack : public hiprt::HwBvhStack {
         // GFX12 encodes the current entry count in addr[14:0]. The intrinsic
         // can push at most eight children before returning the closest one.
         // Reserve that complete fanout instead of counting valid children on
-        // every hot-path box; this is conservative for sparse nodes and exact
-        // for a full BVH8 node.
+        // every hot-path box. Equality is not admissible: filling the circular
+        // stack to its encoded capacity produces the overflow sentinel before
+        // pop1 can make the slot available again.
         const auto entry_count = m_addr & 0x7fffu;
-        return entry_count >
+        return entry_count >=
                hiprt::luisa_hiprt_hw_stack_max_entries - 8u;
     }
 

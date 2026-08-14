@@ -8,10 +8,11 @@
 
 namespace luisa::compute::hip {
 
-void HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
+size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
     size_t projected_argument_count = 0u;
     size_t original_context_bytes = 0u;
     size_t projected_context_bytes = 0u;
+    size_t max_projected_context_bytes = 0u;
 
     // Compute the least fixed point of interprocedural argument demand over
     // the local generated-Callable graph. A use that only forwards argument
@@ -128,7 +129,17 @@ void HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
         if (retained_indices.empty()) {
             retained_indices.emplace_back(0u);
         }
-        if (retained_indices.size() == argument_count) { continue; }
+        auto original_type = llvm::cast<llvm::StructType>(
+            context.storage->getAllocatedType());
+        auto original_bytes =
+            _data_layout->getTypeAllocSize(original_type).getFixedValue();
+        original_context_bytes += original_bytes;
+        if (retained_indices.size() == argument_count) {
+            projected_context_bytes += original_bytes;
+            max_projected_context_bytes = std::max(
+                max_projected_context_bytes, original_bytes);
+            continue;
+        }
 
         llvm::SmallVector<llvm::Type *, 16> retained_types;
         retained_types.reserve(retained_indices.size());
@@ -151,14 +162,14 @@ void HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
                 static_cast<int32_t>(projected_index);
         }
 
-        auto original_type = llvm::cast<llvm::StructType>(
-            context.storage->getAllocatedType());
         auto projected_type = llvm::StructType::get(
             _llvm_context, retained_types, false);
-        original_context_bytes +=
-            _data_layout->getTypeAllocSize(original_type).getFixedValue();
-        projected_context_bytes +=
+        auto current_projected_context_bytes =
             _data_layout->getTypeAllocSize(projected_type).getFixedValue();
+        projected_context_bytes += current_projected_context_bytes;
+        max_projected_context_bytes = std::max(
+            max_projected_context_bytes,
+            current_projected_context_bytes);
         projected_argument_count +=
             argument_count - retained_indices.size();
 
@@ -246,6 +257,7 @@ void HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
             projected_context_bytes);
     }
     _llvm_ray_query_pipeline_contexts.clear();
+    return max_projected_context_bytes;
 }
 
 void HIPCodegenLLVMImpl::_translate_ray_query_loop_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryLoopInst *inst) noexcept {

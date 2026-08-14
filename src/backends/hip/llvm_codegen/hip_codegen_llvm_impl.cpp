@@ -331,8 +331,9 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
     // any explicit proceed/dispatch operation or nested traversal in a handler
     // requires the reentrant software state instead.
     // HIPRT's dynamic stack currently linearizes x/y lanes only, so retain the
-    // legacy path for a true 3-D workgroup until that upstream ABI is extended.
+    // resumable path for a true 3-D workgroup until that upstream ABI is extended.
     _uses_synchronous_ray_query_pipeline =
+        !_config.force_resumable_ray_query_pipeline &&
         _rt_analysis.uses_ray_query_pipeline &&
         !_rt_analysis.uses_resumable_ray_query_control &&
         !_rt_analysis.uses_motion_ray_query &&
@@ -1183,7 +1184,19 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             static_cast<void>(_translate_function(def));
         }
     }
-    _finalize_ray_query_pipeline_contexts();
+    auto max_ray_query_environment_bytes =
+        _finalize_ray_query_pipeline_contexts();
+    if (_uses_synchronous_ray_query_pipeline &&
+        !hip_synchronous_ray_query_environment_is_profitable(
+            max_ray_query_environment_bytes)) {
+        _retry_with_resumable_ray_query_pipeline = true;
+        LUISA_VERBOSE(
+            "HIP synchronous RayQuery plan rejected: maximum projected "
+            "callback environment is {} bytes (budget={} bytes).",
+            max_ray_query_environment_bytes,
+            hip_synchronous_ray_query_environment_budget);
+        return {};
+    }
 
     _link_native_include();
     for (auto f : xir_module.function_list()) {

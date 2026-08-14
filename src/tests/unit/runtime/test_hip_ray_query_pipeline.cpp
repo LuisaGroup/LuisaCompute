@@ -171,7 +171,12 @@ void test_hip_ray_query_pipeline(Device &device) {
     // exercises HIP's ShaderOption::max_registers propagation through the
     // linked ray-query call graph as well as correctness under the resulting
     // register allocation/spilling decisions.
-    auto shader = device.compile(trace, ShaderOption{.max_registers = 128u});
+    // This is a compiler-pipeline regression, so bypass the persistent cache:
+    // every invocation must exercise callback projection and traversal-plan
+    // selection rather than merely reloading an earlier code object.
+    auto shader = device.compile(
+        trace, ShaderOption{.enable_cache = false,
+                            .max_registers = 128u});
     std::array<uint4, 3u> host_result0{};
     std::array<uint4, 3u> host_result1{};
     std::array<float, 3u> host_result2{};
