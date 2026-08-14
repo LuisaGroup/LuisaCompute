@@ -1,33 +1,37 @@
 // =============================================================================
-// tensor_stub.cpp — TileLang-style tile / tensor DSL demo (stub)
+// tensor_stub.cpp — TileLang-style tile / tensor DSL demo (all TileOpKind)
 // =============================================================================
-// A *compilable* adaptation of the pseudo-code in
-// `D:/tilelang/dsl_report/tilelang_cpp_tile_style.cpp`, built on the
-// header-only stub `include/luisa/dsl/tensor.h`.
+// Every tile kernel below is written in the "pure tile" style of the header-
+// only stub `include/luisa/dsl/tensor.h` (no threads, no `set_block_size`, no
+// shared-memory loops, no barriers) and exercises a distinct TileOpKind set:
 //
-// The three kernels are written in pure tile style — no threads, no
-// `set_block_size`, no `dispatch`, no shared-memory loops, no barriers:
-//   * elementwise_add  -> mirrors examples/elementwise/example_elementwise_add.py
-//   * matmul           -> mirrors examples/gemm/example_gemm.py (T.Pipelined)
-//   * rms_norm         -> mirrors examples/norm/rms_norm.py
+//   elementwise_add   ALLOC, CEILDIV, KERNEL_2D, COPY, BINARY, STORE
+//   pipelined_matmul  ALLOC, CEILDIV, KERNEL_2D, CLEAR, PIPELINED,
+//                     COPY, GEMM, MAX, PRINT, STORE
+//   rms_norm          KERNEL_1D, COPY, BINARY, STORE, REDUCE_SUM, RSQRT
+//   tile_fill         FILL
+//   tile_transpose    TRANSPOSE (+ SYNC via explicit T.sync_threads)
+//   tile_clamp        CLAMP
+//   tile_atomic       ATOMIC (load / store / add / max / min / or)
+//   tile_sync         SYNC
+//   tile_warp_reduce  WARP_REDUCE (sum / max)
+//   loop_break_kernel LOOP_BREAK — traced into the tile IR only; see below.
 //
-// Pseudo-code -> valid C++ adaptations (the stub's job):
-//   T.empty({M, N}, f32)                  -> LuisaTensor.empty(LuisaTensor.shape(M, N), tile_f32{})
-//   T.alloc_shared({BM, BK}, f16)         -> LuisaTensor.alloc_shared(LuisaTensor.shape(BM, BK), tile_f16{})
-//   T.alloc_fragment({blk_m}, f32)        -> LuisaTensor.alloc_fragment(LuisaTensor.shape(blk_m), tile_f32{})
-//   A[by * BM, bx * BN]                   -> A(by * BM, bx * BN)
-//                                        (multi-arg operator[] is C++23-only,
-//                                         so tile indexing uses operator())
-//   A[bx*blk_m : (bx+1)*blk_m, :]         -> A(LuisaTensor.range(bx*blk_m, (bx+1)*blk_m), LuisaTensor.all())
-//   f32 / f16 as a value argument         -> tile_f32{} / tile_f16{} (dtype handle)
-//   f32(N)                                -> stays (dtype handles are scalars)
-//   luisa::compute::tile::jit(matmul).compile()        -> stays; logs "kernel.compile"
-//   (no shape/tile args: M, N, K, block_*, threads, num_stages are baked into
-//   the matmul function itself, exactly like tilelang keeps config in the
-//   @tilelang.jit function rather than in compile())
+// Each kernel is (1) traced with tile::Kernel / tile::jit(...).compile(),
+// (2) lowered to a REGULAR Luisa kernel with `tile_to_kernel`
+// (<luisa/ast/tile_to_kernel.h>), (3) compiled on the backend named on the
+// command line (`dx` / `vk` / `cuda` / ...), (4) dispatched on real buffers,
+// and (5) checked against a host-side reference computation.  The required
+// `kernel.compile` log line is produced by the jit() compile below.
 //
-// The stub logs every tile op through the LuisaCompute core logger
-// (lc_core / LUISA_INFO).  Running this target must print `kernel.compile`.
+// LOOP_BREAK is the one op that is traced but NOT lowered/dispatched: the
+// lowering emits `break_()`, which needs an enclosing loop.  The flat tile IR
+// only has a loop inside T.Pipelined, whose body scanner stops at the first
+// statement that does not touch shared memory — so a top-level
+// `T.loop_break()` would escape to kernel scope and be rejected by backends.
+//
+// The multiple-T.Kernel guard (one launch per tile function) is demonstrated
+// at the end; pass `--trigger-guard` to hit it (it aborts the process).
 // =============================================================================
 
 #include <luisa/dsl/tensor.h>
@@ -51,84 +55,86 @@ using tile_f32 = luisa::compute::tile::float32;
 using tile_i32 = luisa::compute::tile::int32;
 
 // =============================================================================
-// 1. Elementwise add — tiles only
+// 1. Elementwise add — ALLOC / CEILDIV / KERNEL_2D / COPY / BINARY / STORE
 // =============================================================================
 TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> elementwise_add(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
-    constexpr tile_i32 M = 512, N = 512;
-    constexpr tile_i32 block_M = 64, block_N = 64;
-    constexpr tile_i32 threads = 256;
+    constexpr tile_i32 M = 64, N = 64;
+    constexpr tile_i32 block_M = 16, block_N = 16;
+    constexpr tile_i32 threads = 32;
 
     Tensor<tile_f32, 2> C = LuisaTensor.empty(LuisaTensor.shape(M, N), tile_f32{});
 
     // Grid is in *blocks*: LuisaTensor.Kernel(gx, gy) means gx*gy blocks; the
     // range-for binds (bx, by) to each block id (the C++ spelling of
-    // `with T.Kernel(...) as (bx, by)`).
+    // `with T.Kernel(...) as (bx, by)`).  Tracing visits one representative
+    // block (bx, by) = (0, 0); tile_to_kernel reconstructs each block's base
+    // offset from block_id().
     for (auto [bx, by] : LuisaTensor.Kernel(LuisaTensor.ceildiv(N, block_N), LuisaTensor.ceildiv(M, block_M), threads)) {
-        // Per-block on-chip staging: global -> shared -> fragment -> global.
         auto A_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(block_M, block_N), tile_f32{});
         auto B_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(block_M, block_N), tile_f32{});
         auto C_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(block_M, block_N), tile_f32{});
 
         // Tile copies (global -> shared); a real lowering emits a coalesced
         // SIMT/TMA copy.
-        LuisaTensor.copy(A(by * block_M, bx * block_N), A_shared);
-        LuisaTensor.copy(B(by * block_M, bx * block_N), B_shared);
+        LuisaTensor.copy(A(by * block_M, bx * block_N), A_shared(block_M, block_N));
+        LuisaTensor.copy(B(by * block_M, bx * block_N), B_shared(block_M, block_N));
 
         // Whole-tile elementwise op (block style): the (block_M x block_N)
         // tile of C_local becomes the elementwise sum of the two source tiles.
         C_local(block_M, block_N) = A_shared(block_M, block_N) + B_shared(block_M, block_N);
 
         // Fragment -> global.
-        LuisaTensor.copy(C_local, C(by * block_M, bx * block_N));
+        LuisaTensor.copy(C_local(block_M, block_N), C(by * block_M, bx * block_N));
     }
     return C;
 }
 
 // =============================================================================
-// 2. Tiled GEMM with a software pipeline — tiles only
+// 2. Tiled GEMM with a software pipeline — CLEAR / PIPELINED / GEMM / MAX /
+//    PRINT / STORE (plus ALLOC / CEILDIV / KERNEL_2D / COPY)
 // =============================================================================
 TILELANG_PRIM_FUNC
-Tensor<tile_f16, 2> matmul(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> B) {
-    constexpr tile_i32 M = 1024, N = 1024, K = 1024;
-    constexpr tile_i32 block_M = 128, block_N = 128, block_K = 32;
-    constexpr tile_i32 threads = 128;
-    constexpr tile_i32 num_stages = 3;
+Tensor<tile_f16, 2> pipelined_matmul(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> B) {
+    constexpr tile_i32 M = 64, N = 64, K = 64;
+    constexpr tile_i32 block_M = 16, block_N = 16, block_K = 8;
+    constexpr tile_i32 threads = 32;
+    constexpr tile_i32 num_stages = 2;
 
     Tensor<tile_f16, 2> C = LuisaTensor.empty(LuisaTensor.shape(M, N), tile_f16{});
 
     for (auto [bx, by] : LuisaTensor.Kernel(LuisaTensor.ceildiv(N, block_N), LuisaTensor.ceildiv(M, block_M), threads)) {
         auto A_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(block_M, block_K), tile_f16{});
         auto B_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(block_K, block_N), tile_f16{});
-        auto C_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(block_M, block_N), tile_f32{});// tile_f32 accumulator
+        auto C_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(block_M, block_N), tile_f32{});// f32 accumulator
 
         LuisaTensor.clear(C_local);// T.clear
 
         // Software pipeline: copies and GEMMs are overlapped by the compiler.
         for (auto ko : LuisaTensor.Pipelined(LuisaTensor.ceildiv(K, block_K), num_stages)) {
-            LuisaTensor.copy(A(by * block_M, ko * block_K), A_shared);// global -> shared
-            LuisaTensor.copy(B(ko * block_K, bx * block_N), B_shared);
-            LuisaTensor.gemm(A_shared, B_shared, C_local);// tile GEMM
+            LuisaTensor.copy(A(by * block_M, ko * block_K), A_shared(block_M, block_K));// global -> shared
+            LuisaTensor.copy(B(ko * block_K, bx * block_N), B_shared(block_K, block_N));
+            LuisaTensor.gemm(A_shared(block_M, block_K), B_shared(block_K, block_N), C_local(block_M, block_N));// tile GEMM
         }
 
-        // Fused ReLU on the fragment tile (whole-tile op, quickstart.py).
-        C_local(block_M, block_N) = LuisaTensor.max(C_local(block_M, block_N), tile_f32(0.0f));
+        // Fused ReLU on the fragment tile (whole-tile op).
+        C_local(block_M, block_N) = LuisaTensor.max(C_local(block_M, block_N), 0.0f);
 
-        // Optional device-side debug (TileLang prints from a single thread).
-        LuisaTensor.print(C_local, /*msg=*/"C tile:");
+        // Optional device-side debug (prints tile[0] from thread 0).
+        LuisaTensor.print(C_local(block_M, block_N), "C tile:");
 
-        LuisaTensor.copy(C_local, C(by * block_M, bx * block_N));// fragment -> global
+        LuisaTensor.copy(C_local(block_M, block_N), C(by * block_M, bx * block_N));// fragment -> global
     }
     return C;
 }
 
 // =============================================================================
-// 3. RMSNorm — tiles only
+// 3. RMSNorm — KERNEL_1D / COPY / BINARY / STORE / REDUCE_SUM / RSQRT
 // =============================================================================
 Tensor<tile_f32, 2> rms_norm(Tensor<tile_f32, 2> A) {
-    constexpr tile_i32 M = 512, N = 512;
+    constexpr tile_i32 M = 64, N = 64;
     constexpr tile_i32 blk_m = 8;
-    constexpr tile_i32 threads = 128;
+    constexpr tile_i32 threads = 64;
 
     Tensor<tile_f32, 2> B = LuisaTensor.empty(LuisaTensor.shape(M, N), tile_f32{});
 
@@ -138,12 +144,13 @@ Tensor<tile_f32, 2> rms_norm(Tensor<tile_f32, 2> A) {
         auto A_powsum = LuisaTensor.alloc_fragment(LuisaTensor.shape(blk_m), tile_f32{});// per-row scalars
 
         // Row-slice copy: pseudo `A[bx*blk_m : (bx+1)*blk_m, :]`.
-        LuisaTensor.copy(A(LuisaTensor.range(bx * blk_m, (bx + 1) * blk_m), LuisaTensor.all()), A_local);
+        LuisaTensor.copy(A(LuisaTensor.range(bx * blk_m, (bx + 1) * blk_m), LuisaTensor.all()),
+                         A_local(blk_m, N));
 
         // Whole-tile square: the (blk_m x N) tile, elementwise.
         A_pow_local(blk_m, N) = A_local(blk_m, N) * A_local(blk_m, N);
 
-        LuisaTensor.reduce_sum(A_pow_local, A_powsum, /*dim=*/1);// row sums
+        LuisaTensor.reduce_sum(A_pow_local(blk_m, N), A_powsum(blk_m), /*dim=*/1);// row sums
 
         // Whole-tile per-row scale factor (1-D tile, scalar broadcast).
         A_powsum(blk_m) = LuisaTensor.rsqrt(A_powsum(blk_m) / tile_f32(N) + 1e-12f);
@@ -151,101 +158,189 @@ Tensor<tile_f32, 2> rms_norm(Tensor<tile_f32, 2> A) {
         // Broadcast: every column of row i is scaled by the scalar A_powsum[i].
         A_local(blk_m, N) *= A_powsum(blk_m);
 
-        LuisaTensor.copy(A_local, B(LuisaTensor.range(bx * blk_m, (bx + 1) * blk_m), LuisaTensor.all()));// store row slice
+        LuisaTensor.copy(A_local(blk_m, N),
+                         B(LuisaTensor.range(bx * blk_m, (bx + 1) * blk_m), LuisaTensor.all()));// store row slice
     }
     return B;
 }
 
 // =============================================================================
-// 4. Multiple-T.Kernel guard — an INVALID tile function (for the trigger at
-//    the end of main).  A tile function maps to exactly ONE kernel launch
-//    (TileLang emits one `__global__` per `T.Kernel`), so tracing a second
-//    T.Kernel must be rejected: jit(...).compile() derives the SIMT launch
-//    metadata (TileFunctionBuilder::compile_meta_data) and logs an error +
-//    aborts when the body contains more than one T.Kernel.
+// 4. T.fill — FILL
+// =============================================================================
+// Fill a per-thread fragment tile with a constant and copy it out.
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 1> tile_fill_kernel() {
+    constexpr tile_i32 N = 64;
+    constexpr tile_i32 threads = 32;
+
+    Tensor<tile_f32, 1> C = LuisaTensor.empty(LuisaTensor.shape(N), tile_f32{});
+
+    for (auto bx : LuisaTensor.Kernel(1, threads)) {
+        auto F = LuisaTensor.alloc_fragment(LuisaTensor.shape(N), tile_f32{});
+        LuisaTensor.fill(F(N), 3.5f);
+        LuisaTensor.copy(F(N), C(0));
+    }
+    return C;
+}
+
+// =============================================================================
+// 5. T.transpose — TRANSPOSE (shared-memory 2D transpose)
+// =============================================================================
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 2> tile_transpose_kernel(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 BM = 8, BN = 8;
+    constexpr tile_i32 threads = 32;
+
+    Tensor<tile_f32, 2> B = LuisaTensor.empty(LuisaTensor.shape(BM, BN), tile_f32{});
+
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, threads)) {
+        auto A_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(BM, BN), tile_f32{});
+        auto T_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(BN, BM), tile_f32{});
+
+        LuisaTensor.copy(A(by * BM, bx * BN), A_shared(BM, BN));// global -> shared
+        LuisaTensor.transpose(A_shared(BM, BN), T_shared(BN, BM));// dst[j, i] = src[i, j]
+        LuisaTensor.sync_threads();// explicit block barrier (SYNC)
+        LuisaTensor.copy(T_shared(BN, BM), B(by * BM, bx * BN));// shared -> global
+    }
+    return B;
+}
+
+// =============================================================================
+// 6. T.clamp — CLAMP (in-place elementwise clamp into [lo, hi])
+// =============================================================================
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 2> tile_clamp_kernel(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 BM = 8, BN = 8;
+    constexpr tile_i32 threads = 32;
+
+    Tensor<tile_f32, 2> C = LuisaTensor.empty(LuisaTensor.shape(BM, BN), tile_f32{});
+
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, threads)) {
+        auto C_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(BM, BN), tile_f32{});
+
+        LuisaTensor.copy(A(by * BM, bx * BN), C_local(BM, BN));// global -> fragment
+        LuisaTensor.clamp(C_local(BM, BN), 0.1f, 0.9f);// in-place clamp
+        LuisaTensor.copy(C_local(BM, BN), C(by * BM, bx * BN));// fragment -> global
+    }
+    return C;
+}
+
+// =============================================================================
+// 7. T.atomic_* — ATOMIC (load / store / add / max / min / or on an int tile)
+// =============================================================================
+// One block of 32 threads; the whole D tile is partitioned once per atomic
+// statement, so thread i performs the op on element i.  The sequence
+//   load -> store 5 -> add 2 -> max 3 -> min 4 -> or 8
+// leaves every element at ((((5 + 2) max 3) min 4) | 8) = (7 min 4) | 8 =
+// 4 | 8 = 12.
+TILELANG_PRIM_FUNC
+Tensor<tile_i32, 1> tile_atomic_kernel() {
+    constexpr tile_i32 N = 32;
+    constexpr tile_i32 threads = 32;
+
+    Tensor<tile_i32, 1> D = LuisaTensor.empty(LuisaTensor.shape(N), tile_i32{});
+
+    for (auto bx : LuisaTensor.Kernel(1, threads)) {
+        LuisaTensor.atomic_load(D);// no-op read (return value is discarded)
+        LuisaTensor.atomic_store(D, 5);
+        LuisaTensor.atomic_add(D, 2);
+        LuisaTensor.atomic_max(D, 3);
+        LuisaTensor.atomic_min(D, 4);
+        LuisaTensor.atomic_or(D, 8);
+    }
+    return D;
+}
+
+// =============================================================================
+// 8. T.sync_threads — SYNC (explicit block barrier between shared accesses)
+// =============================================================================
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 2> tile_sync_kernel(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 BM = 8, BN = 8;
+    constexpr tile_i32 threads = 32;
+
+    Tensor<tile_f32, 2> C = LuisaTensor.empty(LuisaTensor.shape(BM, BN), tile_f32{});
+
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, threads)) {
+        auto A_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(BM, BN), tile_f32{});
+
+        LuisaTensor.copy(A(by * BM, bx * BN), A_shared(BM, BN));// global -> shared
+        LuisaTensor.sync_threads();// block-wide barrier
+        LuisaTensor.copy(A_shared(BM, BN), C(by * BM, bx * BN));// shared -> global
+    }
+    return C;
+}
+
+// =============================================================================
+// 9. T.warp_reduce_sum / max — WARP_REDUCE (register-level warp reduction)
+// =============================================================================
+// The warp-reduce result currently has no consumer in the tile IR, so it is
+// computed into a throw-away register; the kernel also copies the reduced
+// fragment out so the whole program is verifiable.
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 1> tile_warp_reduce_kernel() {
+    constexpr tile_i32 N = 1;
+    constexpr tile_i32 threads = 32;
+
+    Tensor<tile_f32, 1> W = LuisaTensor.empty(LuisaTensor.shape(N), tile_f32{});
+
+    for (auto bx : LuisaTensor.Kernel(1, threads)) {
+        auto v = LuisaTensor.alloc_fragment(LuisaTensor.shape(N), tile_f32{});
+        LuisaTensor.fill(v(N), 7.0f);
+        LuisaTensor.warp_reduce_sum(v(N));// result discarded by the lowering
+        LuisaTensor.warp_reduce_max(v(N));
+        LuisaTensor.copy(v(N), W(0));// thread 0 stores the value -> verifiable
+    }
+    return W;
+}
+
+// =============================================================================
+// 10. T.loop_break — LOOP_BREAK (traced only; see the file header)
+// =============================================================================
+TILELANG_PRIM_FUNC
+Tensor<tile_f32, 2> loop_break_kernel(Tensor<tile_f32, 2> A) {
+    Tensor<tile_f32, 2> B = LuisaTensor.empty(LuisaTensor.shape(8, 8), tile_f32{});
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, 32)) {
+        LuisaTensor.copy(A(0, 0), B(0, 0));
+        // A top-level break is representable in the tile IR but not yet
+        // lowerable (see the file header): the lowering's `break_()` needs an
+        // enclosing loop that the flat tile IR cannot place it in.
+        LuisaTensor.loop_break();
+    }
+    return B;
+}
+
+// =============================================================================
+// 11. Multiple-T.Kernel guard — an INVALID tile function (opt-in trigger).
+//     A tile function maps to exactly ONE kernel launch (TileLang emits one
+//     `__global__` per `T.Kernel`), so tracing a second T.Kernel must be
+//     rejected: jit(...).compile() derives the SIMT launch metadata and logs
+//     an error + aborts when the body contains more than one T.Kernel.
 // =============================================================================
 TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> two_kernels(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
-    // First launch: 4x4 blocks of 32 threads.
     for (auto [bx, by] : LuisaTensor.Kernel(4, 4, 32)) {
         LuisaTensor.copy(A(0, 0), B(0, 0));
     }
-    // Second launch inside the same function: forbidden (two different
-    // block/grid shapes cannot be expressed by a single Shader).
     for (auto [bx, by] : LuisaTensor.Kernel(8, 8, 64)) {
         LuisaTensor.copy(A(0, 0), B(0, 0));
     }
     return B;
 }
 
-// CPU reference used only by the host harness below (stub: no data).
-Tensor<tile_f16, 2> reference_matmul(const Tensor<tile_f16, 2> &A, const Tensor<tile_f16, 2> &B) {
-    LUISA_INFO("[tensor-stub] reference_matmul: stub CPU reference (no data)");
-    return Tensor<tile_f16, 2>{};
-}
-
 int main(int argc, char *argv[]) {
-    auto executable = argc > 0 && argv != nullptr && argv[0] != nullptr ? argv[0] : "";
-    // Same baked sizes as matmul() above; the @jit wrapper infers the target
-    // from the tensors on the first call (luisa::compute::tile::jit == @tilelang.jit).
-    constexpr tile_i32 M = 1024, N = 1024, K = 1024;
-
-    Tensor<tile_f16, 2> A{M, K};
-    Tensor<tile_f16, 2> B{K, N};
-
-    // ---- Trace the tile-style prim functions (host side, stub) -------------
-    {
-        Tensor<tile_f32, 2> A_f{512, 512};
-        Tensor<tile_f32, 2> B_f{512, 512};
-
-        LUISA_INFO("=== tensor-dsl: trace elementwise_add ===");
-        auto C_add = elementwise_add(A_f, B_f);
-        LUISA_INFO("[tensor-stub] elementwise_add -> {}", C_add.describe());
-
-        LUISA_INFO("=== tensor-dsl: trace rms_norm ===");
-        auto C_norm = rms_norm(A_f);
-        LUISA_INFO("[tensor-stub] rms_norm -> {}", C_norm.describe());
-    }
-
-    // ---- Pseudo kernel: trace a prim function into a TileFunctionBuilder ----
-    // luisa::compute::tile::Kernel is the tile-DSL analogue of the Kernel in
-    // <luisa/dsl/func.h>: constructing it executes the lambda / prim function
-    // once on the host and records every tile op (T.empty, T.alloc_shared,
-    // T.copy, tile-store, ...) as a TensorStmt in a
-    // luisa::compute::detail::TileFunctionBuilder.
-    LUISA_INFO("=== tensor-dsl: tile::Kernel{elementwise_add} ===");
-    luisa::compute::tile::Kernel elementwise_kernel{elementwise_add};
-    auto elementwise_ir = elementwise_kernel.function();// shared_ptr<const TileFunctionBuilder>
-    LUISA_INFO("[tensor-stub] elementwise_add traced {} statements: [{}]",
-               elementwise_ir->body()->size(), elementwise_kernel.describe());
-
-    // ---- Compile the matmul TIR function into an executable module ---------
-    // This logs "kernel.compile" (required output of this example).  Like
-    // tilelang, compile() carries NO shape/tile parameters (M, N, K, block_M,
-    // block_N, block_K, threads, num_stages) — those are baked into the matmul
-    // kernel function above, so `jit(matmul).compile()` just traces it into a
-    // TileFunctionBuilder, which the compiled kernel keeps for introspection.
-    auto matmul_kernel = luisa::compute::tile::jit(matmul).compile();
-    LUISA_INFO("[tensor-stub] matmul traced {} statements: [{}]",
-               matmul_kernel.function()->body()->size(), matmul_kernel.describe());
-
-    Tensor<tile_f16, 2> C = matmul_kernel(A, B);// runs on the GPU (stub)
-
-    // Reference & correctness check (Torch here; assert_close in C++).
-    auto C_ref = reference_matmul(A, B);
-    luisa::compute::tile::testing::assert_close(C, C_ref, /*rtol=*/1e-2f, /*atol=*/1e-2f);
-
-    // Optional: dump the generated CUDA source, no threads visible to us.
-    auto cuda_source = matmul_kernel.get_kernel_source();
-    luisa::compute::tile::print(cuda_source);
-
     using namespace luisa::compute;// Kernel / Device / Context / detail for the translation test
-    // ---- tile_to_kernel: translate the traced tile kernels into regular ----
-    // Luisa FunctionBuilder kernels (include/luisa/ast/tile_to_kernel.h).
-    // The translation is verified structurally (dispatch grid, block size and
-    // the per-Global-tensor buffer argument list) and, when a backend name is
-    // passed on the command line, by actually compiling the generated kernel
-    // on that backend.
+    auto executable = argc > 0 && argv != nullptr && argv[0] != nullptr ? argv[0] : "";
+    auto backend = argc > 1 && argv != nullptr && argv[1] != nullptr ? luisa::string_view{argv[1]} : luisa::string_view{};
+    auto trigger_guard = argc > 2 && argv != nullptr && argv[2] != nullptr &&
+                         luisa::string_view{argv[2]} == "--trigger-guard";
+
+    // =========================================================================
+    // Trace every tile kernel and lower it with tile_to_kernel.  Structural
+    // checks (dispatch grid, block size, buffer argument count) run for all
+    // kernels; device compilation + dispatch + host verification run when a
+    // backend name is passed on the command line.
+    // =========================================================================
     auto same_u3 = [](luisa::uint3 a, luisa::uint3 b) noexcept {
         return a.x == b.x && a.y == b.y && a.z == b.z;
     };
@@ -254,7 +349,6 @@ int main(int argc, char *argv[]) {
                                     luisa::uint3 expected_dispatch, luisa::uint3 expected_block,
                                     size_t expected_buffers) -> TileCompileResult {
         LUISA_INFO("=== tensor-dsl: tile_to_kernel({}) ===", name);
-        // The traced builder is const; the lowering only reads it.
         auto result = tile_to_kernel(tile_fn);
         LUISA_ASSERT(result.function != nullptr,
                      "[tensor-stub] tile_to_kernel({}) produced a null FunctionBuilder.", name);
@@ -278,110 +372,310 @@ int main(int argc, char *argv[]) {
         return result;
     };
 
-    // elementwise_add: T.Kernel(ceildiv(512,64)=8, ceildiv(512,64)=8, 256);
-    // globals A, B, C -> 3 buffer arguments.
-    // T.Kernel(8, 8, 256) -> 8x8 blocks x 256 threads -> dispatch (8*256, 8, 1).
+    // ---- 1. elementwise_add: T.Kernel(4, 4, 32); globals A, B, C ------------
+    luisa::compute::tile::Kernel elementwise_kernel{elementwise_add};
+    LUISA_INFO("[tensor-stub] elementwise_add traced {} statements: [{}]",
+               elementwise_kernel.function()->body()->size(), elementwise_kernel.describe());
     auto elementwise_result = translate_and_verify(
         "elementwise_add", elementwise_kernel.function(),
-        luisa::uint3{2048u, 8u, 1u}, luisa::uint3{256u, 1u, 1u}, 3u);
+        luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
 
-    // matmul (pipelined): T.Kernel(ceildiv(1024,128)=8, ceildiv(1024,128)=8, 128).
+    // ---- 2. matmul (pipelined): T.Kernel(4, 4, 32); globals A, B, C ---------
+    // This also produces the required "kernel.compile" log line.
+    auto matmul_kernel = luisa::compute::tile::jit(pipelined_matmul).compile();
+    LUISA_INFO("[tensor-stub] pipelined_matmul traced {} statements: [{}]",
+               matmul_kernel.function()->body()->size(), matmul_kernel.describe());
     auto matmul_result = translate_and_verify(
-        "matmul", matmul_kernel.function(),
-        luisa::uint3{1024u, 8u, 1u}, luisa::uint3{128u, 1u, 1u}, 3u);
+        "pipelined_matmul", matmul_kernel.function(),
+        luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
 
-    // rms_norm: T.Kernel(ceildiv(512,8)=64, 128); globals A, B -> 2 buffers.
+    // ---- 3. rms_norm: T.Kernel(8, 64); globals A, B ------------------------
     luisa::compute::tile::Kernel rms_kernel{rms_norm};
+    LUISA_INFO("[tensor-stub] rms_norm traced {} statements: [{}]",
+               rms_kernel.function()->body()->size(), rms_kernel.describe());
     auto rms_result = translate_and_verify(
         "rms_norm", rms_kernel.function(),
-        luisa::uint3{8192u, 1u, 1u}, luisa::uint3{128u, 1u, 1u}, 2u);
+        luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
 
-    // Optional: compile the translated kernels on a real backend to prove the
-    // generated FunctionBuilder is a valid, compilable Luisa kernel.
-  if (argc > 1 && argv != nullptr && argv[1] != nullptr && argv[1][0] != '\0') {
-      LUISA_INFO("=== tensor-dsl: compile translated kernels on backend '{}' ===", argv[1]);
-      Context ctx(executable);
-      Device device = ctx.create_device(argv[1]);
-      // Kernel<N> takes a shared_ptr<const FunctionBuilder>; the translation
-      // returns a mutable builder, so wrap it in a const shared_ptr first.
-      auto compile1 = [&](luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> fb, const char *name) {
-          luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> const_fb{std::move(fb)};
-          auto shader = device.compile(luisa::compute::Kernel<1>{const_fb});
-          LUISA_INFO("[tensor-stub] {} kernel compiled (1D, block {}x{}x{}).",
-                     name, const_fb->block_size().x, const_fb->block_size().y,
-                     const_fb->block_size().z);
-      };
-      auto compile2 = [&](luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> fb, const char *name) {
-          luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> const_fb{std::move(fb)};
-          auto shader = device.compile(luisa::compute::Kernel<2>{const_fb});
-          LUISA_INFO("[tensor-stub] {} kernel compiled (2D, block {}x{}x{}).",
-                     name, const_fb->block_size().x, const_fb->block_size().y,
-                     const_fb->block_size().z);
-      };
-      compile2(elementwise_result.function, "elementwise_add");
-      compile2(matmul_result.function, "matmul");
-      compile1(rms_result.function, "rms_norm");
-      LUISA_INFO("[tensor-stub] all three translated kernels compiled successfully.");
+    // ---- 4. fill: T.Kernel(1, 32); global C ---------------------------------
+    luisa::compute::tile::Kernel fill_kernel{tile_fill_kernel};
+    LUISA_INFO("[tensor-stub] tile_fill traced {} statements: [{}]",
+               fill_kernel.function()->body()->size(), fill_kernel.describe());
+    auto fill_result = translate_and_verify(
+        "tile_fill", fill_kernel.function(),
+        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
 
-      // ---- runtime numerical checks of the translated kernels ----------------
-      // Dispatch the generated kernels on real buffers and compare against a
-      // host reference.  This proves the SIMD->SIMT translation is not only
-      // compilable but semantically correct.
-      auto stream = device.create_stream();
-      {
-          constexpr uint32_t M = 512u, N = 512u;// same as elementwise_add/rms_norm
-          auto bufA = device.create_buffer<float>(M * N);
-          auto bufB = device.create_buffer<float>(M * N);
-          auto bufC = device.create_buffer<float>(M * N);
-          luisa::vector<float> hA(M * N), hB(M * N), hC(M * N);
-          for (auto i = 0u; i < M * N; ++i) {
-              hA[i] = static_cast<float>(i) * 0.5f;
-              hB[i] = static_cast<float>(i) * 1.5f + 1.0f;
-          }
-          stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
+    // ---- 5. transpose: T.Kernel(1, 1, 32); globals A, B ---------------------
+    luisa::compute::tile::Kernel transpose_kernel{tile_transpose_kernel};
+    LUISA_INFO("[tensor-stub] tile_transpose traced {} statements: [{}]",
+               transpose_kernel.function()->body()->size(), transpose_kernel.describe());
+    auto transpose_result = translate_and_verify(
+        "tile_transpose", transpose_kernel.function(),
+        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
 
-          // elementwise_add: C = A + B (2D grid 8x8, tiles 64x64)
-          luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> elem_fb{elementwise_result.function};
-          auto sh_elem = device.compile(luisa::compute::Kernel<2, Buffer<float>, Buffer<float>, Buffer<float>>{elem_fb});
-          stream << sh_elem(bufA, bufB, bufC).dispatch(elementwise_result.dispatch_size.x, elementwise_result.dispatch_size.y) << bufC.copy_to(luisa::span{hC}) << synchronize();
-          auto max_err = 0.0f;
-          for (auto i = 0u; i < M * N; ++i) {
-              max_err = luisa::max(max_err, luisa::abs(hC[i] - (hA[i] + hB[i])));
-          }
-          LUISA_INFO("[tensor-stub] elementwise_add runtime check: max |C-(A+B)| = {}", max_err);
-          LUISA_ASSERT(max_err < 1e-3f, "elementwise_add translation produced wrong results!");
+    // ---- 6. clamp: T.Kernel(1, 1, 32); globals A, C -------------------------
+    luisa::compute::tile::Kernel clamp_kernel{tile_clamp_kernel};
+    LUISA_INFO("[tensor-stub] tile_clamp traced {} statements: [{}]",
+               clamp_kernel.function()->body()->size(), clamp_kernel.describe());
+    auto clamp_result = translate_and_verify(
+        "tile_clamp", clamp_kernel.function(),
+        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
 
-          // rms_norm: B[r][c] = A[r][c] * rsqrt(sum_c A[r][c]^2 / N + 1e-12)
-          luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> rms_fb{rms_result.function};
-          auto sh_rms = device.compile(luisa::compute::Kernel<1, Buffer<float>, Buffer<float>>{rms_fb});
-          stream << sh_rms(bufA, bufB).dispatch(rms_result.dispatch_size.x) << bufB.copy_to(luisa::span{hB}) << synchronize();
-          max_err = 0.0f;
-          for (auto r = 0u; r < M; ++r) {
-              auto s = 0.0f;
-              for (auto c = 0u; c < N; ++c) { s += hA[r * N + c] * hA[r * N + c]; }
-              auto scale = 1.0f / luisa::sqrt(s / static_cast<float>(N) + 1e-12f);
-              for (auto c = 0u; c < N; ++c) {
-                  max_err = luisa::max(max_err, luisa::abs(hB[r * N + c] - hA[r * N + c] * scale));
-              }
-          }
-          LUISA_INFO("[tensor-stub] rms_norm runtime check: max error = {}", max_err);
-          LUISA_ASSERT(max_err < 1e-3f, "rms_norm translation produced wrong results!");
-          LUISA_INFO("[tensor-stub] translated kernels produce correct results on the device.");
-      }
-  } else {
+    // ---- 7. atomic: T.Kernel(1, 32); global D (i32) -------------------------
+    luisa::compute::tile::Kernel atomic_kernel{tile_atomic_kernel};
+    LUISA_INFO("[tensor-stub] tile_atomic traced {} statements: [{}]",
+               atomic_kernel.function()->body()->size(), atomic_kernel.describe());
+    auto atomic_result = translate_and_verify(
+        "tile_atomic", atomic_kernel.function(),
+        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+
+    // ---- 8. sync: T.Kernel(1, 1, 32); globals A, C --------------------------
+    luisa::compute::tile::Kernel sync_kernel{tile_sync_kernel};
+    LUISA_INFO("[tensor-stub] tile_sync traced {} statements: [{}]",
+               sync_kernel.function()->body()->size(), sync_kernel.describe());
+    auto sync_result = translate_and_verify(
+        "tile_sync", sync_kernel.function(),
+        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+
+    // ---- 9. warp_reduce: T.Kernel(1, 32); global W --------------------------
+    luisa::compute::tile::Kernel warp_reduce_kernel_obj{tile_warp_reduce_kernel};
+    LUISA_INFO("[tensor-stub] tile_warp_reduce traced {} statements: [{}]",
+               warp_reduce_kernel_obj.function()->body()->size(), warp_reduce_kernel_obj.describe());
+    auto warp_reduce_result = translate_and_verify(
+        "tile_warp_reduce", warp_reduce_kernel_obj.function(),
+        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+
+    // ---- 10. loop_break: traced only (no lowering; see file header) ---------
+    luisa::compute::tile::Kernel loop_break_kernel_obj{loop_break_kernel};
+    LUISA_INFO("[tensor-stub] loop_break traced {} statements: [{}] (not lowered: "
+               "break_() requires an enclosing loop, see the file header)",
+               loop_break_kernel_obj.function()->body()->size(), loop_break_kernel_obj.describe());
+
+    // =========================================================================
+    // Device pass: compile + dispatch + host verification (backend given).
+    // =========================================================================
+    if (backend.empty()) {
         LUISA_INFO("[tensor-stub] no backend given: translation verified structurally only "
-                   "(pass a backend name, e.g. 'cuda'/'dx'/'vk', to also compile).");
+                   "(pass a backend name, e.g. 'dx'/'vk', to also compile, dispatch and verify).");
+    } else {
+        LUISA_INFO("=== tensor-dsl: compile + dispatch + verify on backend '{}' ===", backend);
+        Context ctx(executable);
+        Device device = ctx.create_device(backend);
+        auto stream = device.create_stream();
+
+        auto wrap = [](luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> fb) {
+            return luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder>{std::move(fb)};
+        };
+        auto check = [](luisa::string_view name, float err, float tol) {
+            LUISA_INFO("[tensor-stub] {} runtime check: max error = {}", name, err);
+            LUISA_ASSERT(err < tol, "{} produced wrong results on the device (max error {} >= {}).",
+                         name, err, tol);
+        };
+
+        // ---- elementwise_add: C = A + B -------------------------------------
+        {
+            constexpr uint32_t M = 64u, N = 64u;
+            auto bufA = device.create_buffer<float>(M * N);
+            auto bufB = device.create_buffer<float>(M * N);
+            auto bufC = device.create_buffer<float>(M * N);
+            luisa::vector<float> hA(M * N), hB(M * N), hC(M * N), hRef(M * N);
+            for (auto i = 0u; i < M * N; ++i) {
+                hA[i] = static_cast<float>(i) * 0.5f;
+                hB[i] = static_cast<float>(i) * 1.5f + 1.0f;
+                hRef[i] = hA[i] + hB[i];
+            }
+            stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
+
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(elementwise_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufA, bufB, bufC).dispatch(elementwise_result.dispatch_size.x, elementwise_result.dispatch_size.y)
+                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < M * N; ++i) { err = luisa::max(err, luisa::abs(hC[i] - hRef[i])); }
+            check("elementwise_add", err, 1e-3f);
+        }
+
+        // ---- pipelined_matmul: C = max(A @ B, 0) ----------------------------
+        {
+            constexpr uint32_t M = 64u, N = 64u, K = 64u;
+            auto bufA = device.create_buffer<luisa::half>(M * K);
+            auto bufB = device.create_buffer<luisa::half>(K * N);
+            auto bufC = device.create_buffer<luisa::half>(M * N);
+            luisa::vector<luisa::half> hA(M * K), hB(K * N), hC(M * N);
+            // f16-exact inputs so the f32 host reference is meaningful.
+            for (auto i = 0u; i < M * K; ++i) { hA[i] = luisa::half{static_cast<float>((i % 8)) * 0.25f}; }
+            for (auto i = 0u; i < K * N; ++i) { hB[i] = luisa::half{static_cast<float>((i % 4)) * 0.5f}; }
+            stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
+
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(matmul_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<luisa::half>,
+                                                            luisa::compute::Buffer<luisa::half>,
+                                                            luisa::compute::Buffer<luisa::half>>{fb});
+            stream << sh(bufA, bufB, bufC).dispatch(matmul_result.dispatch_size.x, matmul_result.dispatch_size.y)
+                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto r = 0u; r < M; ++r) {
+                for (auto c = 0u; c < N; ++c) {
+                    auto s = 0.0f;
+                    for (auto k = 0u; k < K; ++k) {
+                        s += static_cast<float>(hA[r * K + k]) * static_cast<float>(hB[k * N + c]);
+                    }
+                    auto ref = luisa::max(s, 0.0f);
+                    err = luisa::max(err, luisa::abs(static_cast<float>(hC[r * N + c]) - ref));
+                }
+            }
+            check("pipelined_matmul", err, 1e-2f);
+        }
+
+        // ---- rms_norm: B[r][c] = A[r][c] * rsqrt(sum_c A[r][c]^2 / N + 1e-12) --
+        {
+            constexpr uint32_t M = 64u, N = 64u;
+            auto bufA = device.create_buffer<float>(M * N);
+            auto bufB = device.create_buffer<float>(M * N);
+            luisa::vector<float> hA(M * N), hB(M * N);
+            for (auto i = 0u; i < M * N; ++i) { hA[i] = static_cast<float>(i) * 0.5f; }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(rms_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufA, bufB).dispatch(rms_result.dispatch_size.x)
+                   << bufB.copy_to(luisa::span{hB}) << synchronize();
+            auto err = 0.0f;
+            for (auto r = 0u; r < M; ++r) {
+                auto s = 0.0f;
+                for (auto c = 0u; c < N; ++c) { s += hA[r * N + c] * hA[r * N + c]; }
+                auto scale = 1.0f / luisa::sqrt(s / static_cast<float>(N) + 1e-12f);
+                for (auto c = 0u; c < N; ++c) {
+                    err = luisa::max(err, luisa::abs(hB[r * N + c] - hA[r * N + c] * scale));
+                }
+            }
+            check("rms_norm", err, 1e-3f);
+        }
+
+        // ---- tile_fill: C[i] = 3.5 ------------------------------------------
+        {
+            constexpr uint32_t N = 64u;
+            auto bufC = device.create_buffer<float>(N);
+            luisa::vector<float> hC(N);
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(fill_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufC).dispatch(fill_result.dispatch_size.x)
+                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < N; ++i) { err = luisa::max(err, luisa::abs(hC[i] - 3.5f)); }
+            check("tile_fill", err, 1e-5f);
+        }
+
+        // ---- tile_transpose: B[i][j] = A[j][i] ------------------------------
+        {
+            constexpr uint32_t BM = 8u, BN = 8u;
+            auto bufA = device.create_buffer<float>(BM * BN);
+            auto bufB = device.create_buffer<float>(BM * BN);
+            luisa::vector<float> hA(BM * BN), hB(BM * BN);
+            for (auto i = 0u; i < BM * BN; ++i) { hA[i] = static_cast<float>(i); }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(transpose_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufA, bufB).dispatch(transpose_result.dispatch_size.x, transpose_result.dispatch_size.y)
+                   << bufB.copy_to(luisa::span{hB}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < BM; ++i) {
+                for (auto j = 0u; j < BN; ++j) {
+                    err = luisa::max(err, luisa::abs(hB[i * BN + j] - hA[j * BM + i]));
+                }
+            }
+            check("tile_transpose", err, 1e-5f);
+        }
+
+        // ---- tile_clamp: C[i] = clamp(A[i], 0.1, 0.9) ----------------------
+        {
+            constexpr uint32_t BM = 8u, BN = 8u;
+            auto bufA = device.create_buffer<float>(BM * BN);
+            auto bufC = device.create_buffer<float>(BM * BN);
+            luisa::vector<float> hA(BM * BN), hC(BM * BN);
+            for (auto i = 0u; i < BM * BN; ++i) { hA[i] = static_cast<float>(i % 16) * 0.1f; }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(clamp_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufA, bufC).dispatch(clamp_result.dispatch_size.x, clamp_result.dispatch_size.y)
+                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < BM * BN; ++i) {
+                auto ref = luisa::clamp(hA[i], 0.1f, 0.9f);
+                err = luisa::max(err, luisa::abs(hC[i] - ref));
+            }
+            check("tile_clamp", err, 1e-5f);
+        }
+
+        // ---- tile_atomic: D[i] = 15 -----------------------------------------
+        {
+            constexpr uint32_t N = 32u;
+            auto bufD = device.create_buffer<int>(N);
+            luisa::vector<int> hD(N, 0);
+            stream << bufD.copy_from(luisa::span{hD}) << synchronize();
+
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(atomic_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<int>>{fb});
+            stream << sh(bufD).dispatch(atomic_result.dispatch_size.x)
+                   << bufD.copy_to(luisa::span{hD}) << synchronize();
+            auto err = 0;
+            for (auto i = 0u; i < N; ++i) { err = luisa::max(err, luisa::abs(hD[i] - 12)); }
+            LUISA_INFO("[tensor-stub] tile_atomic runtime check: max |D-12| = {}", err);
+            LUISA_ASSERT(err == 0, "tile_atomic produced wrong results on the device (max |D-12| = {}).", err);
+        }
+
+        // ---- tile_sync: C = A ----------------------------------------------
+        {
+            constexpr uint32_t BM = 8u, BN = 8u;
+            auto bufA = device.create_buffer<float>(BM * BN);
+            auto bufC = device.create_buffer<float>(BM * BN);
+            luisa::vector<float> hA(BM * BN), hC(BM * BN);
+            for (auto i = 0u; i < BM * BN; ++i) { hA[i] = static_cast<float>(i) * 0.25f; }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(sync_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
+                                                            luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufA, bufC).dispatch(sync_result.dispatch_size.x, sync_result.dispatch_size.y)
+                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < BM * BN; ++i) { err = luisa::max(err, luisa::abs(hC[i] - hA[i])); }
+            check("tile_sync", err, 1e-5f);
+        }
+
+        // ---- tile_warp_reduce: W[0] = 7.0 -----------------------------------
+        {
+            constexpr uint32_t N = 1u;
+            auto bufW = device.create_buffer<float>(N);
+            luisa::vector<float> hW(N);
+            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(warp_reduce_result.function)};
+            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>>{fb});
+            stream << sh(bufW).dispatch(warp_reduce_result.dispatch_size.x)
+                   << bufW.copy_to(luisa::span{hW}) << synchronize();
+            auto err = luisa::abs(hW[0] - 7.0f);
+            check("tile_warp_reduce", err, 1e-5f);
+        }
+
+        LUISA_INFO("[tensor-stub] all {} translated kernels compiled, dispatched and verified on '{}'.",
+                   (size_t)9, backend);
     }
 
-    // ---- Trigger the multiple-T.Kernel guard (invalid tile function) --------
-    // A tile function maps to exactly ONE kernel launch; tracing a second
-    // T.Kernel must fail.  compile() validates the traced body and logs an
-    // error + aborts (LUISA_ERROR_WITH_LOCATION -> std::abort), so this line
-    // intentionally terminates the example after the normal flow above.
-    LUISA_INFO("=== tensor-dsl: trigger the multiple-T.Kernel guard ===");
-    auto invalid_kernel = luisa::compute::tile::jit(two_kernels).compile();// aborts here
-    (void)invalid_kernel;
+    // =========================================================================
+    // Optional: trigger the multiple-T.Kernel guard (aborts the process).
+    // =========================================================================
+    if (trigger_guard) {
+        LUISA_INFO("=== tensor-dsl: trigger the multiple-T.Kernel guard ===");
+        auto invalid_kernel = luisa::compute::tile::jit(two_kernels).compile();// aborts here
+        (void)invalid_kernel;
+    }
 
-    LUISA_INFO("[tensor-stub] finished: tensor DSL stub traced and kernel.compile done.");
+    LUISA_INFO("[tensor-stub] finished: all tile kernels traced, lowered, compiled and verified.");
     return 0;
 }

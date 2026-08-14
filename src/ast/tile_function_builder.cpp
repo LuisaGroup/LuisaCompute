@@ -174,6 +174,39 @@ void TileFunctionBuilder::tile_pipelined(int32_t count, int32_t stages, const Re
     _create_and_append_statement<PipelinedStmt>(count, stages, k);
 }
 
+void TileFunctionBuilder::tile_fill(TensorExpr *buf, const LiteralExpr *value) noexcept {
+    _create_and_append_statement<FillStmt>(buf, value);
+}
+
+void TileFunctionBuilder::tile_transpose(TensorExpr *src, TensorExpr *dst) noexcept {
+    _create_and_append_statement<TransposeStmt>(src, dst);
+}
+
+void TileFunctionBuilder::tile_clamp(TensorExpr *dst, const LiteralExpr *lo, const LiteralExpr *hi) noexcept {
+    _create_and_append_statement<ClampStmt>(dst, lo, hi);
+}
+
+void TileFunctionBuilder::tile_atomic(TileAtomicOp op, TensorExpr *dst, TensorExpr *value_tensor,
+                                      const LiteralExpr *value_literal,
+                                      TileMemoryOrder memory_order,
+                                      int32_t return_prev, int32_t use_tma) noexcept {
+    _create_and_append_statement<AtomicStmt>(op, dst, value_tensor, value_literal,
+                                             nullptr, memory_order, return_prev, use_tma);
+}
+
+void TileFunctionBuilder::tile_sync(TileSyncOp op, int32_t mask, int32_t barrier_id,
+                                    int32_t arrive_count) noexcept {
+    _create_and_append_statement<SyncStmt>(op, mask, barrier_id, arrive_count);
+}
+
+void TileFunctionBuilder::tile_warp_reduce(TileWarpReduceOp op, TensorExpr *value) noexcept {
+    _create_and_append_statement<WarpReduceStmt>(op, value);
+}
+
+void TileFunctionBuilder::tile_loop_break() noexcept {
+    _create_and_append_statement<LoopBreakStmt>();
+}
+
 SIMTKernelMeta TileFunctionBuilder::compile_meta_data() const {
     // Mirror TileLang's launch-size collector (DeviceInfoCollector,
     // D:/tilelang/simd_to_simt.md §1.3): walk the whole body, find the kernel

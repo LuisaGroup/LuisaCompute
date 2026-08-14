@@ -113,6 +113,66 @@ Tensor<tile_f16, 2> pipelined_matmul(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> 
     return C;
 }
 
+// Kernel whose two argument tensors are distinguishable (F32 rank-2 A,
+// I32 rank-1 B).  Regression test for the argument-order bug: the argument
+// AllocStmts must be emitted in declaration order (A then B).  Previously the
+// DSL used std::make_tuple(make_kernel_arg<Args>()...), whose pack expansion
+// has an unspecified evaluation order (MSVC evaluates right-to-left), so the
+// buffer arguments of two-argument kernels came out swapped — elementwise add
+// masked it (A+B is commutative), but matmul (A*B) produced wrong results.
+TILELANG_PRIM_FUNC
+Tensor<tile_i32, 1> two_arg_order_kernel(Tensor<tile_f32, 2> A, Tensor<tile_i32, 1> B) {
+    Tensor<tile_i32, 1> C = T.empty(T.shape(4), tile_i32{});
+    for (auto bx : T.Kernel(1, 4)) {
+        T.copy(B(0), C(0));
+    }
+    return C;
+}
+
+// Kernel exercising the gap-analysis ops (FILL / TRANSPOSE / CLAMP / ATOMIC /
+// SYNC / WARP_REDUCE / LOOP_BREAK) — they must emit the matching TileOpKind
+// statements in program order.
+TILELANG_PRIM_FUNC
+Tensor<tile_i32, 1> gap_ops_kernel(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 BM = 8, BN = 8;
+    Tensor<tile_i32, 1> D = T.empty(T.shape(32), tile_i32{});
+    for (auto [bx, by] : T.Kernel(1, 1, 32)) {
+        auto A_shared = T.alloc_shared(T.shape(BM, BN), tile_f32{});
+        auto T_shared = T.alloc_shared(T.shape(BN, BM), tile_f32{});
+        auto F = T.alloc_fragment(T.shape(32), tile_f32{});
+        auto v = T.alloc_fragment(T.shape(1), tile_f32{});
+        T.copy(A(by * BM, bx * BN), A_shared(BM, BN));
+        T.transpose(A_shared(BM, BN), T_shared(BN, BM));
+        T.sync_threads();
+        T.fill(F(32), 3.5f);
+        T.clamp(F(32), 0.1f, 0.9f);
+        T.warp_reduce_sum(F(32));
+        T.fill(v(1), 7.0f);
+        T.warp_reduce_max(v(1));
+        T.atomic_store(D, 5);
+        T.atomic_add(D, 2);
+        T.atomic_max(D, 3);
+        T.atomic_min(D, 4);
+        T.atomic_or(D, 8);
+        T.loop_break();
+    }
+    return D;
+}
+
+// Kernel using the quantized dtype handles (int8 / fp8): the DSL must map
+// them to the matching R1 TensorElementType tags (I8 / FP8) on the traced
+// AllocStmt operands.
+TILELANG_PRIM_FUNC
+Tensor<tile::int8, 1> quantized_copy_kernel(Tensor<tile::int8, 1> A, Tensor<tile::fp8, 1> B) {
+    Tensor<tile::int8, 1> C = T.empty(T.shape(8), tile::int8{});
+    Tensor<tile::fp8, 1> D = T.empty(T.shape(8), tile::fp8{});
+    for (auto bx : T.Kernel(1, 8)) {
+        T.copy(A(0), C(0));
+        T.copy(B(0), D(0));
+    }
+    return C;
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -222,5 +282,78 @@ int main(int argc, char *argv[]) {
         // the Pipelined body was traced exactly once (copy/copy/gemm present)
         auto *gemm = static_cast<const GemmStmt *>(statements[14]);
         expect(gemm->a() != nullptr && gemm->b() != nullptr && gemm->c() != nullptr);
+    };
+
+    "kernel_arguments_are_traced_in_declaration_order"_test = [] {
+        // Regression: make_tuple-style pack expansion evaluated the kernel
+        // argument factories in an unspecified order (right-to-left on MSVC),
+        // swapping the buffer arguments of two-argument kernels.
+        tile::Kernel kernel{two_arg_order_kernel};
+        auto builder = kernel.function();
+        auto statements = builder->body()->statements();
+        auto *alloc_a = static_cast<const AllocStmt *>(statements[0]);
+        auto *alloc_b = static_cast<const AllocStmt *>(statements[1]);
+        expect(alloc_a->tensor()->dtype() == TensorElementType::F32);
+        expect(alloc_a->tensor()->rank() == 2);
+        expect(alloc_b->tensor()->dtype() == TensorElementType::I32);
+        expect(alloc_b->tensor()->rank() == 1);
+    };
+
+    "gap_analysis_ops_emit_matching_statements"_test = [] {
+        tile::Kernel kernel{gap_ops_kernel};
+        auto builder = kernel.function();
+        auto statements = builder->body()->statements();
+        // A (f32 global, arg) and D (i32 global, T.empty) are the first two
+        // allocs; the rest follows the kernel body in program order.
+        const TileOpKind expected[] = {
+            TileOpKind::ALLOC,      // A (f32 global, kernel arg)
+            TileOpKind::ALLOC,      // D = T.empty(32) (i32 global)
+            TileOpKind::KERNEL_2D,  // T.Kernel(1, 1, 32)
+            TileOpKind::ALLOC,      // A_shared
+            TileOpKind::ALLOC,      // T_shared
+            TileOpKind::ALLOC,      // F
+            TileOpKind::ALLOC,      // v
+            TileOpKind::COPY,       // A -> A_shared
+            TileOpKind::TRANSPOSE,  // A_shared -> T_shared
+            TileOpKind::SYNC,       // T.sync_threads()
+            TileOpKind::FILL,       // T.fill(F, 3.5)
+            TileOpKind::CLAMP,      // T.clamp(F, 0.1, 0.9)
+            TileOpKind::WARP_REDUCE,// T.warp_reduce_sum(F)
+            TileOpKind::FILL,       // T.fill(v, 7.0)
+            TileOpKind::WARP_REDUCE,// T.warp_reduce_max(v)
+            TileOpKind::ATOMIC,     // T.atomic_store(D, 5)
+            TileOpKind::ATOMIC,     // T.atomic_add(D, 2)
+            TileOpKind::ATOMIC,     // T.atomic_max(D, 3)
+            TileOpKind::ATOMIC,     // T.atomic_min(D, 4)
+            TileOpKind::ATOMIC,     // T.atomic_or(D, 8)
+            TileOpKind::LOOP_BREAK, // T.loop_break()
+        };
+        expect(statements.size() == sizeof(expected) / sizeof(expected[0]));
+        for (auto i = 0u; i < statements.size(); ++i) {
+            expect(statements[i]->op() == expected[i]);
+        }
+    };
+
+    "quantized_dtypes_trace_to_matching_tags"_test = [] {
+        tile::Kernel kernel{quantized_copy_kernel};
+        auto builder = kernel.function();
+        auto statements = builder->body()->statements();
+        // A (int8 arg), B (fp8 arg), C (int8 T.empty), D (fp8 T.empty),
+        // then the T.Kernel marker and the two copies.
+        expect(statements.size() == 7u);
+        auto *alloc_a = static_cast<const AllocStmt *>(statements[0]);
+        auto *alloc_b = static_cast<const AllocStmt *>(statements[1]);
+        auto *alloc_c = static_cast<const AllocStmt *>(statements[2]);
+        auto *alloc_d = static_cast<const AllocStmt *>(statements[3]);
+        expect(alloc_a->tensor()->dtype() == TensorElementType::I8);
+        expect(alloc_b->tensor()->dtype() == TensorElementType::FP8);
+        expect(alloc_c->tensor()->dtype() == TensorElementType::I8);
+        expect(alloc_d->tensor()->dtype() == TensorElementType::FP8);
+        expect(statements[4]->op() == TileOpKind::KERNEL_1D);
+        expect(statements[5]->op() == TileOpKind::COPY);
+        expect(statements[6]->op() == TileOpKind::COPY);
+        // describe() carries the quantized dtype name
+        expect(luisa::string_view{alloc_a->tensor()->describe()}.find("int8") != luisa::string_view::npos);
+        expect(luisa::string_view{alloc_b->tensor()->describe()}.find("fp8") != luisa::string_view::npos);
     };
 }

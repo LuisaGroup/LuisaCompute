@@ -148,10 +148,14 @@ int main(int argc, char *argv[]) {
             b->tile_kernel_1d(256, 128);
             b->tile_kernel_2d(8, 16, 32);
             b->tile_pipelined(64, 3);
+            auto *Ai8 = b->tile_empty({4, 4}, TensorElementType::I8);
+            expect(Ai8 != nullptr);
+            expect(Ai8->dtype() == TensorElementType::I8);
+            expect(same_span(Ai8->dims(), {4, 4}));
         });
 
         auto statements = f->body()->statements();
-        expect(statements.size() == 17u);
+        expect(statements.size() == 18u);
 
         const TileOpKind expected[] = {
             TileOpKind::ALLOC,      TileOpKind::ALLOC,      TileOpKind::ALLOC,
@@ -159,7 +163,7 @@ int main(int argc, char *argv[]) {
             TileOpKind::REDUCE_SUM, TileOpKind::PRINT,      TileOpKind::STORE,
             TileOpKind::STORE,      TileOpKind::BINARY,     TileOpKind::MAX,
             TileOpKind::RSQRT,      TileOpKind::CEILDIV,    TileOpKind::KERNEL_1D,
-            TileOpKind::KERNEL_2D,  TileOpKind::PIPELINED};
+            TileOpKind::KERNEL_2D,  TileOpKind::PIPELINED,  TileOpKind::ALLOC};
         for (auto i = 0u; i < statements.size(); ++i) {
             expect(statements[i]->op() == expected[i]);
         }
@@ -234,6 +238,11 @@ int main(int argc, char *argv[]) {
         auto *pipe = static_cast<const PipelinedStmt *>(statements[16]);
         expect(pipe->count() == 64);
         expect(pipe->stages() == 3);
+
+        auto *alloc8 = static_cast<const AllocStmt *>(statements[17]);
+        expect(alloc8->scope() == TensorScope::Global);
+        expect(alloc8->tensor()->dtype() == TensorElementType::I8);
+        expect(same_span(alloc8->dims(), {4, 4}));
 
         // value operators return caller-owned fragment temporaries
         expect(tmp_binary != nullptr);

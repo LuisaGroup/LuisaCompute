@@ -280,6 +280,27 @@ public:
                         const RefExpr *bx = nullptr, const RefExpr *by = nullptr) noexcept;
     /// T.Pipelined(count, stages, k). k is the borrowed runtime loop variable.
     void tile_pipelined(int32_t count, int32_t stages, const RefExpr *k = nullptr) noexcept;
+    /// T.fill(buf, value): fill a tile with a scalar literal (R2).
+    void tile_fill(TensorExpr *buf, const LiteralExpr *value) noexcept;
+    /// T.transpose(src, dst): dst[j, i] = src[i, j]. dst is the result tensor.
+    void tile_transpose(TensorExpr *src, TensorExpr *dst) noexcept;
+    /// T.clamp(dst, lo, hi): clamp a tile in place into [lo, hi] (R2 literals).
+    void tile_clamp(TensorExpr *dst, const LiteralExpr *lo, const LiteralExpr *hi) noexcept;
+    /// T.atomic_*(dst, value, ...): atomic op on a tile; the value is an
+    /// optional tensor (inputs[0]) or an R2 literal.
+    void tile_atomic(TileAtomicOp op, TensorExpr *dst, TensorExpr *value_tensor = nullptr,
+                     const LiteralExpr *value_literal = nullptr,
+                     TileMemoryOrder memory_order = TileMemoryOrder::RELAXED,
+                     int32_t return_prev = 0, int32_t use_tma = 0) noexcept;
+    /// T.sync_threads() / sync_warp(...): block / warp synchronization.
+    void tile_sync(TileSyncOp op, int32_t mask = 0, int32_t barrier_id = -1,
+                   int32_t arrive_count = 0) noexcept;
+    /// T.warp_reduce_sum/max/min/bitand/bitor(value): warp-level reduce of a
+    /// fragment scalar; the reduced scalar is a caller-owned temporary.
+    void tile_warp_reduce(TileWarpReduceOp op, TensorExpr *value) noexcept;
+    /// T.loop_break(): break out of the enclosing tile loop (emits a regular
+    /// kernel break; only valid inside a Pipelined / loop body).
+    void tile_loop_break() noexcept;
 
     // stack operations
     /// Push a tile function builder in the stack.

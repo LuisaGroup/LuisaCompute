@@ -89,6 +89,35 @@ Tensor<tile_f32, 2> rms_norm(Tensor<tile_f32, 2> A) {
     }
     return B;
 }
+
+// Quantized dtype lowering: int8 global tensors lower to Buffer<byte>
+// arguments (core INT8 element type); fp8 lowers to the fp8 e4m3 element type
+// (zero fill is carried as a raw zero byte and cast to fp8).  As in the other
+// tile kernels, global-to-global copies are not traced (global views are
+// extent-less), so each copy routes through a shared/fragment intermediate.
+TILELANG_PRIM_FUNC
+Tensor<tile::int8, 1> int8_copy_kernel(Tensor<tile::int8, 1> A) {
+    constexpr tile_i32 threads = 8;
+    Tensor<tile::int8, 1> C = T.empty(T.shape(8), tile::int8{});
+    for (auto bx : T.Kernel(1, threads)) {
+        auto A_shared = T.alloc_shared(T.shape(8), tile::int8{});
+        T.copy(A(0), A_shared);
+        T.copy(A_shared, C(0));
+    }
+    return C;
+}
+
+TILELANG_PRIM_FUNC
+Tensor<tile::fp8, 1> fp8_clear_kernel() {
+    constexpr tile_i32 threads = 8;
+    Tensor<tile::fp8, 1> C = T.empty(T.shape(8), tile::fp8{});
+    for (auto bx : T.Kernel(1, threads)) {
+        auto C_local = T.alloc_fragment(T.shape(8), tile::fp8{});
+        T.clear(C_local);
+        T.copy(C_local, C(0));
+    }
+    return C;
+}
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -156,5 +185,39 @@ int main(int argc, char *argv[]) {
         tile::Kernel k2{elementwise_add};
         auto r2 = tile_to_kernel(k2.function());
         expect(r2.dispatch_size.x == 4u * 32u && r2.dispatch_size.y == 4u);
+    };
+
+    "int8_tensors_lower_to_byte_buffers"_test = [] {
+        tile::Kernel kernel{int8_copy_kernel};
+        auto result = tile_to_kernel(kernel.function());
+        expect(result.function != nullptr);
+        // T.Kernel(1, 8): 1 block of 8 threads -> dispatch.x = 1 * 8
+        expect(result.dispatch_size.x == 8u && result.dispatch_size.y == 1u && result.dispatch_size.z == 1u);
+        auto block = result.function->block_size();
+        expect(block.x == 8u && block.y == 1u && block.z == 1u);
+        // A, C -> two buffer arguments
+        auto args = result.function->arguments();
+        expect(args.size() == 2u);
+        for (auto v : args) { expect(v.tag() == Variable::Tag::BUFFER); }
+        expect(result.function->tag() == Function::Tag::KERNEL);
+        expect(!result.function->body()->statements().empty());
+        expect(static_cast<bool>(result.function->function()));
+    };
+
+    "fp8_tensors_lower_with_zero_fill"_test = [] {
+        tile::Kernel kernel{fp8_clear_kernel};
+        auto result = tile_to_kernel(kernel.function());
+        expect(result.function != nullptr);
+        // T.Kernel(1, 8): 1 block of 8 threads -> dispatch.x = 1 * 8
+        expect(result.dispatch_size.x == 8u && result.dispatch_size.y == 1u && result.dispatch_size.z == 1u);
+        auto block = result.function->block_size();
+        expect(block.x == 8u && block.y == 1u && block.z == 1u);
+        // C -> one buffer argument (fp8 e4m3 element type)
+        auto args = result.function->arguments();
+        expect(args.size() == 1u);
+        for (auto v : args) { expect(v.tag() == Variable::Tag::BUFFER); }
+        expect(result.function->tag() == Function::Tag::KERNEL);
+        expect(!result.function->body()->statements().empty());
+        expect(static_cast<bool>(result.function->function()));
     };
 }

@@ -156,6 +156,10 @@ const char *tensor_element_type_name(TensorElementType e) noexcept {
         case TensorElementType::F16: return "half";
         case TensorElementType::F32: return "float";
         case TensorElementType::I32: return "int";
+        case TensorElementType::I8: return "int8";
+        case TensorElementType::FP8: return "fp8";
+        case TensorElementType::I4: return "int4";
+        case TensorElementType::FP4: return "fp4";
     }
     return "?";
 }
@@ -210,7 +214,7 @@ bool TensorExpr::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!read_i32(input_ptr, end_ptr, _rank)) [[unlikely]] { return false; }
     uint32_t dtype;
     if (!read_u32(input_ptr, end_ptr, dtype)) [[unlikely]] { return false; }
-    if (dtype > static_cast<uint32_t>(TensorElementType::I32)) [[unlikely]] { return false; }
+    if (dtype > static_cast<uint32_t>(TensorElementType::FP4)) [[unlikely]] { return false; }
     _dtype = static_cast<TensorElementType>(dtype);
     uint32_t scope;
     if (!read_u32(input_ptr, end_ptr, scope)) [[unlikely]] { return false; }
@@ -1292,7 +1296,7 @@ bool DynamicStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!read_string(input_ptr, end_ptr, _name)) [[unlikely]] { return false; }
     uint32_t dtype;
     if (!read_u32(input_ptr, end_ptr, dtype)) [[unlikely]] { return false; }
-    if (dtype > static_cast<uint32_t>(TensorElementType::I32)) [[unlikely]] { return false; }
+    if (dtype > static_cast<uint32_t>(TensorElementType::FP4)) [[unlikely]] { return false; }
     _dtype = static_cast<TensorElementType>(dtype);
     return true;
 }
@@ -1310,7 +1314,7 @@ bool SymbolicStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!read_string(input_ptr, end_ptr, _name)) [[unlikely]] { return false; }
     uint32_t dtype;
     if (!read_u32(input_ptr, end_ptr, dtype)) [[unlikely]] { return false; }
-    if (dtype > static_cast<uint32_t>(TensorElementType::I32)) [[unlikely]] { return false; }
+    if (dtype > static_cast<uint32_t>(TensorElementType::FP4)) [[unlikely]] { return false; }
     _dtype = static_cast<TensorElementType>(dtype);
     return true;
 }

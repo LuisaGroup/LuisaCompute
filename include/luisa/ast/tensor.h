@@ -144,14 +144,20 @@ enum struct TensorScope : uint32_t {
 
 /// Element dtype tag of a tensor (host-side, R1).  TensorExpr stores the
 /// element dtype directly as this tag; only scalar element types are
-/// supported (F16 / F32 / I32).
+/// supported.  The first three values (F16 / F32 / I32) are stable and must
+/// not be renumbered (they are serialized as raw u32 tags); I8 / FP8 / I4 /
+/// FP4 are the quantized element types (TileLang `int8` / `fp8` / `int4` /
+/// `fp4`).  `FP8` maps to the fp8 e4m3 encoding (the common default; e5m2
+/// can be added on a later R1 tag) and `FP4` to the 4-bit e2m1 encoding.
 enum struct TensorElementType : uint32_t {
     F16 = 0,// half
     F32 = 1,// float
-    I32 = 2 // int32_t
+    I32 = 2,// int
+    I8 = 3, // int8 (signed 8-bit)
+    FP8 = 4,// fp8 (e4m3)
+    I4 = 5, // int4 (signed 4-bit, sub-byte)
+    FP4 = 6 // fp4 (e2m1, sub-byte)
 };
-
-/// Discriminator of every tensor statement (the `op` metadata member).
 /// Maps 1:1 to the TensorStmt sub-classes implemented in this header.
 enum struct TileOpKind : uint32_t {
     ALLOC,     // T.empty / T.alloc_shared / T.alloc_fragment
@@ -360,10 +366,13 @@ enum struct TileAnnotKind : uint32_t {
 //                                    InlineStmt, MetaClassStmt, AccessPtrStmt,
 //                                    IndexToCoordinatesStmt
 //
-// Remaining gap — [dtype]: TensorElementType only models F16/F32/I32.  TileLang
-// additionally carries f64 / bf16 / i8 / u8 / i16 / u16 / u32 / i64 / u64 / bool /
-// fp8(e4m3,e5m2) / fp6 / fp4 (mxfp) — none of which are expressible in TensorExpr
-// yet (extending TensorElementType is an R1 enum change, not a TensorStmt).
+// Remaining gap — [dtype]: TensorElementType now models F16/F32/I32 plus the
+// quantized I8/FP8/I4/FP4 tags (R1).  TileLang additionally carries f64 / bf16 /
+// u8 / i16 / u16 / u32 / i64 / u64 / bool / fp8-e5m2 / fp6 — none of which are
+// expressible in TensorExpr yet (extending TensorElementType is an R1 enum
+// change, not a TensorStmt).  The regular-kernel lowering can only lower the
+// tags that have a core element Type (F16/F32/I32/I8/FP8); I4/FP4 are sub-byte
+// dtypes with no core element Type today, so the lowering rejects them.
 // =============================================================================
 
 [[nodiscard]] LUISA_AST_API const char *scope_name(TensorScope scope) noexcept;

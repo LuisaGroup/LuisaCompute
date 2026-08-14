@@ -117,6 +117,39 @@ struct int32 {
     constexpr operator int() const noexcept { return value; }
 };
 
+// Quantized dtype handles (TileLang `int8` / `fp8` / `int4` / `fp4`).
+// `int4` / `fp4` are 4-bit sub-byte dtypes (packed 2-per-byte), NOT the
+// `luisa::int4` / `luisa::float4` vector types — inside this namespace the
+// short names intentionally shadow the parent-namespace vector aliases, exactly
+// like TileLang's dtype names.
+struct int8 {
+    int value = 0;
+    constexpr int8() noexcept = default;
+    constexpr int8(int v) noexcept : value(v) {}
+    constexpr operator int() const noexcept { return value; }
+};
+
+struct fp8 {
+    float value = 0.0f;// host-side value; the AST stores the e4m3 tag
+    constexpr fp8() noexcept = default;
+    constexpr fp8(float v) noexcept : value(v) {}
+    constexpr operator float() const noexcept { return value; }
+};
+
+struct int4 {
+    int value = 0;
+    constexpr int4() noexcept = default;
+    constexpr int4(int v) noexcept : value(v) {}
+    constexpr operator int() const noexcept { return value; }
+};
+
+struct fp4 {
+    float value = 0.0f;// host-side value; the AST stores the e2m1 tag
+    constexpr fp4() noexcept = default;
+    constexpr fp4(float v) noexcept : value(v) {}
+    constexpr operator float() const noexcept { return value; }
+};
+
 namespace detail {
 
 inline int next_tensor_id() noexcept {
@@ -132,6 +165,14 @@ template<>
 inline const char *dtype_name<float32>() noexcept { return "f32"; }
 template<>
 inline const char *dtype_name<int32>() noexcept { return "i32"; }
+template<>
+inline const char *dtype_name<int8>() noexcept { return "int8"; }
+template<>
+inline const char *dtype_name<fp8>() noexcept { return "fp8"; }
+template<>
+inline const char *dtype_name<int4>() noexcept { return "int4"; }
+template<>
+inline const char *dtype_name<fp4>() noexcept { return "fp4"; }
 
 // DSL dtype handle -> AST TensorElementType tag (R1, <luisa/ast/tensor.h>).
 template<typename T>
@@ -149,6 +190,22 @@ struct tensor_element_type<float32> {
 template<>
 struct tensor_element_type<int32> {
     static constexpr TensorElementType value = TensorElementType::I32;
+};
+template<>
+struct tensor_element_type<int8> {
+    static constexpr TensorElementType value = TensorElementType::I8;
+};
+template<>
+struct tensor_element_type<fp8> {
+    static constexpr TensorElementType value = TensorElementType::FP8;
+};
+template<>
+struct tensor_element_type<int4> {
+    static constexpr TensorElementType value = TensorElementType::I4;
+};
+template<>
+struct tensor_element_type<fp4> {
+    static constexpr TensorElementType value = TensorElementType::FP4;
 };
 template<typename T>
 inline constexpr auto tensor_element_type_v = tensor_element_type<T>::value;
@@ -186,6 +243,13 @@ inline const char *tile_op_name(TileOpKind kind) noexcept {
         case TileOpKind::KERNEL_1D: return "kernel_1d";
         case TileOpKind::KERNEL_2D: return "kernel_2d";
         case TileOpKind::PIPELINED: return "pipelined";
+        case TileOpKind::FILL: return "fill";
+        case TileOpKind::TRANSPOSE: return "transpose";
+        case TileOpKind::CLAMP: return "clamp";
+        case TileOpKind::ATOMIC: return "atomic";
+        case TileOpKind::SYNC: return "sync";
+        case TileOpKind::WARP_REDUCE: return "warp_reduce";
+        case TileOpKind::LOOP_BREAK: return "loop_break";
         default: return "op";
     }
 }
@@ -603,6 +667,45 @@ inline luisa::string describe(const TileFunctionBuilder &builder) {
     return s;
 }
 
+// Logging helper for an atomic / fill value (scalar or tile).
+template<typename V>
+inline luisa::string value_desc(const V &v) {
+    if constexpr (std::is_arithmetic_v<V>) {
+        return luisa::format("{}", v);
+    } else {
+        return describe(v);
+    }
+}
+
+// Emit an AtomicStmt: scalar values become R2 literals, tile values become the
+// atomic value tensor (inputs[0]).
+template<typename Dst, typename Val>
+inline void emit_atomic(TileAtomicOp op, const Dst &dst, const Val &value, const char *name) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        if constexpr (std::is_integral_v<Val>) {
+            auto lit = builder->create_literal(Type::of<int>(), static_cast<int>(value));
+            builder->tile_atomic(op, detail::extract_operand(dst), nullptr, lit);
+        } else if constexpr (std::is_floating_point_v<Val>) {
+            auto lit = builder->create_literal(Type::of<float>(), static_cast<float>(value));
+            builder->tile_atomic(op, detail::extract_operand(dst), nullptr, lit);
+        } else {
+            builder->tile_atomic(op, detail::extract_operand(dst),
+                                 detail::extract_operand(value));
+        }
+    }
+    LUISA_INFO("[tensor-dsl] T.atomic_{}: {} <- {}", name,
+               detail::describe(dst), detail::value_desc(value));
+}
+
+// Emit a WarpReduceStmt on a fragment value.
+template<typename V>
+inline void emit_warp_reduce(TileWarpReduceOp op, const V &value, const char *name) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_warp_reduce(op, detail::extract_operand(value));
+    }
+    LUISA_INFO("[tensor-dsl] T.warp_reduce_{}: {}", name, detail::describe(value));
+}
+
 }// namespace detail
 
 namespace language {
@@ -841,6 +944,121 @@ inline void print(const T &t, const char *msg) {
 }
 
 // ---------------------------------------------------------------------------
+// Gap-analysis ops: fill / transpose / clamp / atomic / sync / warp-reduce /
+// loop-break.  These have full lowering support in tile_to_kernel.cpp and are
+// spelled here exactly like their TileLang counterparts (T.fill, T.transpose,
+// T.clamp, T.atomic_add/max/min/or/load/store, T.sync_threads,
+// T.warp_reduce_sum/max/min/bitand/bitor, T.loop_break).
+// (The emit helpers live in the outer `detail` namespace above `language`.)
+// ---------------------------------------------------------------------------
+
+template<typename T>
+inline void fill(const T &buf, float value) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto lit = builder->create_literal(Type::of<float>(), value);
+        builder->tile_fill(detail::extract_operand(buf), lit);
+    }
+    LUISA_INFO("[tensor-dsl] T.fill: {} = {}", detail::describe(buf), value);
+}
+
+template<typename T>
+inline void fill(const T &buf, int value) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto lit = builder->create_literal(Type::of<int>(), value);
+        builder->tile_fill(detail::extract_operand(buf), lit);
+    }
+    LUISA_INFO("[tensor-dsl] T.fill: {} = {}", detail::describe(buf), value);
+}
+
+template<typename Src, typename Dst>
+inline void transpose(const Src &src, const Dst &dst) {
+    static_assert(detail::tile_rank_v<Src> == 2u && detail::tile_rank_v<Dst> == 2u,
+                  "T.transpose requires two rank-2 tiles");
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_transpose(detail::extract_operand(src), detail::extract_operand(dst));
+    }
+    LUISA_INFO("[tensor-dsl] T.transpose: {} -> {}",
+               detail::describe(src), detail::describe(dst));
+}
+
+template<typename T>
+inline void clamp(const T &dst, float lo, float hi) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto l = builder->create_literal(Type::of<float>(), lo);
+        auto h = builder->create_literal(Type::of<float>(), hi);
+        builder->tile_clamp(detail::extract_operand(dst), l, h);
+    }
+    LUISA_INFO("[tensor-dsl] T.clamp: {} -> [{}, {}]", detail::describe(dst), lo, hi);
+}
+
+// T.atomic_add / atomic_max / atomic_min / atomic_or / atomic_load / atomic_store
+template<typename Dst, typename Val>
+inline void atomic_add(const Dst &dst, const Val &value) {
+    detail::emit_atomic(TileAtomicOp::ADD, dst, value, "add");
+}
+template<typename Dst, typename Val>
+inline void atomic_max(const Dst &dst, const Val &value) {
+    detail::emit_atomic(TileAtomicOp::MAX, dst, value, "max");
+}
+template<typename Dst, typename Val>
+inline void atomic_min(const Dst &dst, const Val &value) {
+    detail::emit_atomic(TileAtomicOp::MIN, dst, value, "min");
+}
+template<typename Dst, typename Val>
+inline void atomic_or(const Dst &dst, const Val &value) {
+    detail::emit_atomic(TileAtomicOp::OR, dst, value, "or");
+}
+template<typename Dst>
+inline void atomic_load(const Dst &dst) {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_atomic(TileAtomicOp::LOAD, detail::extract_operand(dst));
+    }
+    LUISA_INFO("[tensor-dsl] T.atomic_load: {}", detail::describe(dst));
+}
+template<typename Dst, typename Val>
+inline void atomic_store(const Dst &dst, const Val &value) {
+    detail::emit_atomic(TileAtomicOp::STORE, dst, value, "store");
+}
+
+// T.sync_threads() — block-wide barrier (the tile analogue of __syncthreads).
+inline void sync_threads() {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_sync(TileSyncOp::THREADS);
+    }
+    LUISA_INFO("[tensor-dsl] T.sync_threads");
+}
+
+// T.warp_reduce_sum / max / min / bitand / bitor
+template<typename V>
+inline void warp_reduce_sum(const V &value) {
+    detail::emit_warp_reduce(TileWarpReduceOp::SUM, value, "sum");
+}
+template<typename V>
+inline void warp_reduce_max(const V &value) {
+    detail::emit_warp_reduce(TileWarpReduceOp::MAX, value, "max");
+}
+template<typename V>
+inline void warp_reduce_min(const V &value) {
+    detail::emit_warp_reduce(TileWarpReduceOp::MIN, value, "min");
+}
+template<typename V>
+inline void warp_reduce_bitand(const V &value) {
+    detail::emit_warp_reduce(TileWarpReduceOp::BIT_AND, value, "bitand");
+}
+template<typename V>
+inline void warp_reduce_bitor(const V &value) {
+    detail::emit_warp_reduce(TileWarpReduceOp::BIT_OR, value, "bitor");
+}
+
+// T.loop_break() — break out of the enclosing tile loop.
+inline void loop_break() {
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        builder->tile_loop_break();
+    }
+    LUISA_INFO("[tensor-dsl] T.loop_break");
+}
+
+// ---------------------------------------------------------------------------
 // The `T` handle — mirrors `import tilelang.language as T`.
 //
 // A C++ namespace can only be addressed with `::`, never with `.`, so the
@@ -897,6 +1115,79 @@ struct dsl_t {
     template<typename T>
     void print(const T &t, const char *msg) const {
         luisa::compute::tile::language::print(t, msg);
+    }
+
+    template<typename T>
+    void fill(const T &buf, float value) const {
+        luisa::compute::tile::language::fill(buf, value);
+    }
+    template<typename T>
+    void fill(const T &buf, int value) const {
+        luisa::compute::tile::language::fill(buf, value);
+    }
+
+    template<typename Src, typename Dst>
+    void transpose(const Src &src, const Dst &dst) const {
+        luisa::compute::tile::language::transpose(src, dst);
+    }
+
+    template<typename T>
+    void clamp(const T &dst, float lo, float hi) const {
+        luisa::compute::tile::language::clamp(dst, lo, hi);
+    }
+
+    template<typename Dst, typename Val>
+    void atomic_add(const Dst &dst, const Val &value) const {
+        luisa::compute::tile::language::atomic_add(dst, value);
+    }
+    template<typename Dst, typename Val>
+    void atomic_max(const Dst &dst, const Val &value) const {
+        luisa::compute::tile::language::atomic_max(dst, value);
+    }
+    template<typename Dst, typename Val>
+    void atomic_min(const Dst &dst, const Val &value) const {
+        luisa::compute::tile::language::atomic_min(dst, value);
+    }
+    template<typename Dst, typename Val>
+    void atomic_or(const Dst &dst, const Val &value) const {
+        luisa::compute::tile::language::atomic_or(dst, value);
+    }
+    template<typename Dst>
+    void atomic_load(const Dst &dst) const {
+        luisa::compute::tile::language::atomic_load(dst);
+    }
+    template<typename Dst, typename Val>
+    void atomic_store(const Dst &dst, const Val &value) const {
+        luisa::compute::tile::language::atomic_store(dst, value);
+    }
+
+    void sync_threads() const {
+        luisa::compute::tile::language::sync_threads();
+    }
+
+    template<typename V>
+    void warp_reduce_sum(const V &value) const {
+        luisa::compute::tile::language::warp_reduce_sum(value);
+    }
+    template<typename V>
+    void warp_reduce_max(const V &value) const {
+        luisa::compute::tile::language::warp_reduce_max(value);
+    }
+    template<typename V>
+    void warp_reduce_min(const V &value) const {
+        luisa::compute::tile::language::warp_reduce_min(value);
+    }
+    template<typename V>
+    void warp_reduce_bitand(const V &value) const {
+        luisa::compute::tile::language::warp_reduce_bitand(value);
+    }
+    template<typename V>
+    void warp_reduce_bitor(const V &value) const {
+        luisa::compute::tile::language::warp_reduce_bitor(value);
+    }
+
+    void loop_break() const {
+        luisa::compute::tile::language::loop_break();
     }
 
     template<size_t R>
@@ -964,8 +1255,15 @@ public:
         _builder = TileFunctionBuilder::define([&def] {
             []<size_t... i>(auto &&f, std::index_sequence<i...>) {
                 using arg_tuple = typename traits::arg_tuple;
-                auto args = std::make_tuple(
-                    detail::make_kernel_arg<std::tuple_element_t<i, arg_tuple>>()...);
+                // NOTE: braced-init-list initializers are evaluated strictly
+                // left-to-right (guaranteed by the standard), so the kernel
+                // arguments are emitted as AllocStmts in declaration order.
+                // std::make_tuple(...) would evaluate the pack in an
+                // unspecified order (MSVC evaluates right-to-left), which
+                // swapped the buffer arguments of two-argument kernels (A and
+                // B) and silently broke non-commutative kernels like matmul.
+                std::tuple<std::tuple_element_t<i, arg_tuple>...> args{
+                    detail::make_kernel_arg<std::tuple_element_t<i, arg_tuple>>()...};
                 // The return value is the kernel's result tensor (or void);
                 // a real lowering would turn it into an output argument.
                 [[maybe_unused]] auto result =

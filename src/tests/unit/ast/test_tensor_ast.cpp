@@ -81,9 +81,34 @@ int main(int argc, char *argv[]) {
         expect(luisa::string_view{tensor_element_type_name(TensorElementType::F16)} == "half");
         expect(luisa::string_view{tensor_element_type_name(TensorElementType::F32)} == "float");
         expect(luisa::string_view{tensor_element_type_name(TensorElementType::I32)} == "int");
+        expect(luisa::string_view{tensor_element_type_name(TensorElementType::I8)} == "int8");
+        expect(luisa::string_view{tensor_element_type_name(TensorElementType::FP8)} == "fp8");
+        expect(luisa::string_view{tensor_element_type_name(TensorElementType::I4)} == "int4");
+        expect(luisa::string_view{tensor_element_type_name(TensorElementType::FP4)} == "fp4");
         expect(luisa::string_view{scope_name(TensorScope::Global)} == "global");
         expect(luisa::string_view{scope_name(TensorScope::Shared)} == "shared");
         expect(luisa::string_view{scope_name(TensorScope::Fragment)} == "fragment");
+    };
+
+    "tensor_expr_all_dtypes_roundtrip"_test = [] {
+        // every TensorElementType tag survives the binary layout round-trip
+        for (auto e : {TensorElementType::F16, TensorElementType::F32,
+                       TensorElementType::I32, TensorElementType::I8,
+                       TensorElementType::FP8, TensorElementType::I4,
+                       TensorElementType::FP4}) {
+            TensorExpr t{2, e, TensorScope::Global, {8, 16}};
+            expect(t.dtype() == e);
+            luisa::vector<char> buf;
+            auto n = t.serialize(buf);
+            TensorExpr out;
+            char const *p = buf.data();
+            char const *end = p + buf.size();
+            expect(out.deserialize(p, end));
+            expect(p == end);
+            expect(n == buf.size());
+            expect(out.dtype() == e);
+            expect(same_span(out.dims(), {8, 16}));
+        }
     };
 
     "tensor_expr_layout"_test = [] {
@@ -496,7 +521,7 @@ int main(int argc, char *argv[]) {
             for (int i = 0; i < 4; ++i) { buf.push_back(static_cast<char>((v >> (8 * i)) & 0xffu)); }
         };
         put32(1);                                                // rank
-        put32(static_cast<uint32_t>(TensorElementType::I32) + 1);// invalid dtype
+        put32(static_cast<uint32_t>(TensorElementType::FP4) + 1);// invalid dtype
         put32(static_cast<uint32_t>(TensorScope::Global));       // scope
         put32(0);                                                // dims count
         put32(0);                                                // offset count
@@ -717,6 +742,19 @@ int main(int argc, char *argv[]) {
         expect(roundtrip(&vw, vw_out));
         expect(vw_out.dst()->dtype() == TensorElementType::I32);
         expect(same_span(vw_out.dst()->dims(), {16, 16}));
+
+        // quantized dtype views (int8 / fp8) also round-trip their tag
+        ViewStmt vw8{make_tile(), TensorElementType::I8};
+        expect(vw8.dst()->dtype() == TensorElementType::I8);
+        ViewStmt vw8_out;
+        expect(roundtrip(&vw8, vw8_out));
+        expect(vw8_out.dst()->dtype() == TensorElementType::I8);
+        ViewStmt vwf8{make_tile(), TensorElementType::FP8, {4, 8}};
+        expect(vwf8.dst()->dtype() == TensorElementType::FP8);
+        ViewStmt vwf8_out;
+        expect(roundtrip(&vwf8, vwf8_out));
+        expect(vwf8_out.dst()->dtype() == TensorElementType::FP8);
+        expect(same_span(vwf8_out.dst()->dims(), {4, 8}));
 
         // view with an explicit shape
         ViewStmt vw2{make_tile(), TensorElementType::F32, {8, 32}};

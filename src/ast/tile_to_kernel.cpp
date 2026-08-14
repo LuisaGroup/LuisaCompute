@@ -558,8 +558,11 @@ barriers/atomics where TileLang's passes would inject them).
     (CUDA/DX/VK); otherwise fall back to sync_block + plain copies.
   - Barrier correctness is manual: the lowering must never put a barrier in
     a thread_id()-divergent branch (TileLang LoopUnswitching rule).
-  - Dtype support is limited to F16/F32/I32 (TensorElementType); f64/bf16/
-    i8/u8/i16/i64/fp8 need an R1 enum extension before they can lower.
+  - Dtype support: F16/F32/I32/I8 lower to the matching core element Type
+    (half/float/int/byte); FP8 lowers to the fp8 e4m3 element Type (literals
+    are carried as raw zero bytes); the 4-bit I4/FP4 dtypes have no core
+    element Type yet and are rejected by the lowering.  f64/bf16/u8/i16/i64
+    need an R1 enum extension before they can lower.
   - Math intrinsics are backend-dependent: the emitted expression must match
     <cmath> within the 2.19 precision contract (1e-3, doubles 1e-9); exact
     bit-identical results across backends are NOT guaranteed and must not be
@@ -646,6 +649,10 @@ const Type *tensor_element_type(TensorElementType e) noexcept {
         case TensorElementType::F16: return Type::of<half>();
         case TensorElementType::F32: return Type::of<float>();
         case TensorElementType::I32: return Type::of<int>();
+        case TensorElementType::I8: return Type::of<byte>();
+        case TensorElementType::FP8: return Type::from("float8e4m3");
+        // I4 / FP4 are 4-bit sub-byte dtypes with no core element Type yet:
+        // they reach the error below instead of being silently mis-lowered.
     }
     LUISA_ERROR_WITH_LOCATION("Unsupported tensor element type {}.",
                               static_cast<uint32_t>(e));
@@ -836,6 +843,15 @@ private:
             case TensorElementType::F16: return _fb->literal(Type::of<half>(), half{0.f});
             case TensorElementType::F32: return _fb->literal(Type::of<float>(), 0.f);
             case TensorElementType::I32: return _fb->literal(Type::of<int>(), 0);
+            case TensorElementType::I8: return _fb->literal(Type::of<byte>(), byte{0});
+            case TensorElementType::FP8:
+                // The all-zero bit pattern is a valid fp8 zero in both the e4m3
+                // and e5m2 encodings; the LiteralValue variant has no fp8
+                // alternative yet, so the zero is carried as a byte and cast to
+                // the fp8 element type by the caller (_write_to / _maybe_cast).
+                return _fb->literal(Type::of<byte>(), byte{0});
+            // I4 / FP4 have no core element Type: the caller fails via
+            // tensor_element_type() before a zero can be materialized.
         }
         LUISA_ERROR_WITH_LOCATION("Unsupported tensor element type.");
     }
@@ -1223,6 +1239,16 @@ private:
                     case TensorElementType::F16: st.buffer = _fb->buffer(Type::of<Buffer<half>>()); break;
                     case TensorElementType::F32: st.buffer = _fb->buffer(Type::of<Buffer<float>>()); break;
                     case TensorElementType::I32: st.buffer = _fb->buffer(Type::of<Buffer<int>>()); break;
+                    case TensorElementType::I8: st.buffer = _fb->buffer(Type::of<Buffer<byte>>()); break;
+                    case TensorElementType::FP8: st.buffer = _fb->buffer(Type::from("buffer<float8e4m3>")); break;
+                    default:
+                        // I4 / FP4 are 4-bit sub-byte dtypes with no core
+                        // element Type: reject instead of mis-allocating.
+                        LUISA_ERROR_WITH_LOCATION(
+                            "tile_to_kernel: tensor element type {} is not "
+                            "lowerable to a kernel buffer (no core element "
+                            "Type for 4-bit dtypes).",
+                            tensor_element_type_name(t->dtype()));
                 }
                 break;
             case TensorScope::Shared: {
@@ -1396,7 +1422,7 @@ private:
         auto out = [&](const Coord &c) {
             // accumulate over the reduce axis into a per-thread local
             auto acc = _fb->local(elem_t);
-            _fb->assign(acc, _zero_of(x->dtype()));
+            _fb->assign(acc, _maybe_cast(_zero_of(x->dtype()), elem_t));
             auto reduce_len = static_cast<uint32_t>(axis_extent(x, dim));
             _for_range(_literal_u(0u), _literal_u(reduce_len), _literal_u(1u),
                        [&](const Expression *k) {
@@ -1561,7 +1587,8 @@ private:
         } else if (s->value_ref() != nullptr) {
             LUISA_ERROR_WITH_LOCATION("tile_to_kernel: R3 RefExpr atomic values are not supported.");
         }
-        value = _maybe_cast(value, elem_t);
+        // atomic_load has no value operand; only cast when one exists.
+        value = value != nullptr ? _maybe_cast(value, elem_t) : nullptr;
         auto body = [&](const Coord &c) {
             auto idx = _global_index(dst, c);
             // execute the atomic; the returned old value (if any) is captured
