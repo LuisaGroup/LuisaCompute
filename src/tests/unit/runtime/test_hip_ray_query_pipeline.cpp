@@ -15,6 +15,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -93,10 +94,17 @@ void test_hip_ray_query_pipeline(Device &device) {
     auto result1 = device.create_buffer<uint4>(3u);
     auto result2 = device.create_buffer<float>(3u);
 
-    Kernel1D trace = [](AccelVar accel, BufferUInt4 result0,
-                        BufferUInt4 result1,
-                        BufferFloat result2,
-                        Float procedural_distance) noexcept {
+    Callable dispatch_width = []() noexcept {
+        return dispatch_size().x;
+    };
+    Callable forwarded_dispatch_width = [&]() noexcept {
+        return dispatch_width();
+    };
+
+    Kernel1D trace = [&](AccelVar accel, BufferUInt4 result0,
+                         BufferUInt4 result1,
+                         BufferFloat result2,
+                         Float procedural_distance) noexcept {
         auto index = dispatch_id().x;
         auto origin_x = ite(index == 0u, -2.0f,
                             ite(index == 1u, 2.0f, 0.0f));
@@ -119,7 +127,14 @@ void test_hip_ray_query_pipeline(Device &device) {
                                      auto hit = candidate.hit();
                                      callback_mask = callback_mask | 1u;
                                      callback_count += 1u;
-                                     score += 10u + hit.prim;
+                                     // Keep an implicit Callable ABI input
+                                     // observably live through the outlined
+                                     // handler. The HIP environment projection
+                                     // must retain it through any forwarding
+                                     // Callable chain rather than considering
+                                     // only explicit captures.
+                                     score += 10u + hit.prim +
+                                              forwarded_dispatch_width();
                                      surface_inst = hit.inst;
                                      $if (index != 2u) {
                                          candidate.commit();
@@ -131,7 +146,8 @@ void test_hip_ray_query_pipeline(Device &device) {
                                      auto hit = candidate.hit();
                                      callback_mask = callback_mask | 2u;
                                      callback_count += 1u;
-                                     score += 20u + hit.prim;
+                                     score += 20u + hit.prim +
+                                              forwarded_dispatch_width();
                                      procedural_inst = hit.inst;
                                      candidate.commit(procedural_distance);
                                      committed_ray_t_max = candidate.ray()->t_max();
@@ -169,13 +185,13 @@ void test_hip_ray_query_pipeline(Device &device) {
     constexpr auto procedural_hit = static_cast<uint>(HitType::Procedural);
     expect_result(0u, host_result0[0], host_result1[0],
                   make_uint4(surface, 0u, 0u, 1u),
-                  make_uint4(15u, 0u, ~0u, 1u));
+                  make_uint4(18u, 0u, ~0u, 1u));
     expect_result(1u, host_result0[1], host_result1[1],
                   make_uint4(procedural_hit, 1u, 0u, 2u),
-                  make_uint4(26u, ~0u, 1u, 1u));
+                  make_uint4(29u, ~0u, 1u, 1u));
     expect_result(2u, host_result0[2], host_result1[2],
                   make_uint4(procedural_hit, 1u, 1u, 3u),
-                  make_uint4(39u, 0u, 1u, 2u));
+                  make_uint4(45u, 0u, 1u, 2u));
     expect(std::abs(host_result2[0] - 1.0f) < 1.0e-5f);
     expect(std::abs(host_result2[1] - 3.0f) < 1.0e-5f);
     expect(std::abs(host_result2[2] - 3.0f) < 1.0e-5f);
@@ -1185,6 +1201,212 @@ void test_hip_ray_query_any_automatic_termination(Device &device) {
     expect(std::abs(host_detail[1].y - 1.5f) < 1.0e-5f);
 }
 
+void test_hip_ray_query_reentrant_handler_trace(Device &device) {
+    if (device.backend_name() != "hip") {
+        LUISA_INFO(
+            "Skipping HIP-specific reentrant ray-query handler test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+
+    // A synchronous candidate handler is allowed to issue an ordinary trace.
+    // The outer query's gfx12 frontier lives in lane-local LDS, so executing a
+    // second hardware traversal there would overwrite it. The backend must
+    // detect this capability through the handler call graph and select its
+    // reentrant software-stack path before code generation.
+    const std::array vertices{
+        make_float3(-0.5f, -0.5f, 0.0f),
+        make_float3(0.5f, -0.5f, 0.0f),
+        make_float3(0.0f, 0.5f, 0.0f),
+        make_float3(1.5f, -0.5f, 0.0f),
+        make_float3(2.5f, -0.5f, 0.0f),
+        make_float3(2.0f, 0.5f, 0.0f)};
+    const std::array triangles{
+        Triangle{0u, 1u, 2u},
+        Triangle{3u, 4u, 5u}};
+
+    auto stream = device.create_stream();
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    auto result = device.create_buffer<uint2>(1u);
+    Kernel1D trace = [](AccelVar accel, BufferUInt2 result) noexcept {
+        auto outer_ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f));
+        UInt nested_hit = 0u;
+        auto committed = accel.traverse(outer_ray, {})
+                             .on_surface_candidate(
+                                 [&](SurfaceCandidate &candidate) noexcept {
+                                     auto nested_ray = make_ray(
+                                         make_float3(2.0f, 0.0f, 1.0f),
+                                         make_float3(0.0f, 0.0f, -1.0f));
+                                     nested_hit = ite(
+                                         accel.intersect_any(nested_ray, {}),
+                                         1u, 0u);
+                                     candidate.commit();
+                                 })
+                             .on_procedural_candidate(
+                                 [](ProceduralCandidate &) noexcept {})
+                             .trace();
+        result.write(0u, make_uint2(
+                             committed->hit_type, nested_hit));
+    };
+
+    auto shader = device.compile(trace);
+    std::array<uint2, 1u> host_result{};
+    stream << shader(accel, result).dispatch(1u)
+           << result.copy_to(luisa::span{host_result})
+           << synchronize();
+    expect(host_result[0].x == static_cast<uint>(HitType::Surface));
+    expect(host_result[0].y == 1u);
+}
+
+void test_hip_ray_query_short_stack_backtracking(Device &device) {
+    if (device.backend_name() != "hip") {
+        LUISA_INFO(
+            "Skipping HIP-specific short-stack ray-query test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+    auto amdgpu_arch = device.query("amdgpu_arch");
+    if (amdgpu_arch != "gfx1200" && amdgpu_arch != "gfx1201") {
+        LUISA_INFO(
+            "Skipping gfx12 short-stack ray-query test on AMDGPU architecture '{}'.",
+            amdgpu_arch);
+        return;
+    }
+
+    // GFX12's ds_bvh_stack instruction uses a deliberately bounded LDS stack
+    // in the HIP backend. Highly overlapping leaves would overflow it without
+    // the bounded-stack continuation. That continuation must climb parent
+    // links and pass the completed child as the next skip token: each candidate
+    // is then observed exactly once even though every callback rejects it.
+    constexpr auto blas_primitive_count = 1024u;
+    constexpr auto tlas_instance_count = 256u;
+    const std::array base_triangle{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+
+    std::vector<float3> blas_vertices;
+    std::vector<Triangle> blas_triangles;
+    blas_vertices.reserve(blas_primitive_count * 3u);
+    blas_triangles.reserve(blas_primitive_count);
+    for (auto i = 0u; i < blas_primitive_count; i++) {
+        const auto vertex_base = i * 3u;
+        blas_vertices.insert(blas_vertices.end(),
+                             base_triangle.begin(), base_triangle.end());
+        blas_triangles.emplace_back(
+            vertex_base, vertex_base + 1u, vertex_base + 2u);
+    }
+
+    auto stream = device.create_stream();
+    auto blas_vertex_buffer =
+        device.create_buffer<float3>(blas_vertices.size());
+    auto blas_triangle_buffer =
+        device.create_buffer<Triangle>(blas_triangles.size());
+    auto deep_mesh =
+        device.create_mesh(blas_vertex_buffer, blas_triangle_buffer);
+    auto deep_blas_accel = device.create_accel();
+    deep_blas_accel.emplace_back(
+        deep_mesh, make_float4x4(1.0f), 0xffu, false);
+
+    auto single_vertex_buffer =
+        device.create_buffer<float3>(base_triangle.size());
+    const std::array single_triangle{Triangle{0u, 1u, 2u}};
+    auto single_triangle_buffer =
+        device.create_buffer<Triangle>(single_triangle.size());
+    auto single_mesh =
+        device.create_mesh(single_vertex_buffer, single_triangle_buffer);
+    auto deep_tlas_accel = device.create_accel();
+    for (auto i = 0u; i < tlas_instance_count; i++) {
+        deep_tlas_accel.emplace_back(
+            single_mesh, make_float4x4(1.0f), 0xffu, false);
+    }
+
+    stream << blas_vertex_buffer.copy_from(luisa::span{blas_vertices})
+           << blas_triangle_buffer.copy_from(luisa::span{blas_triangles})
+           << single_vertex_buffer.copy_from(luisa::span{base_triangle})
+           << single_triangle_buffer.copy_from(luisa::span{single_triangle})
+           << deep_mesh.build()
+           << single_mesh.build()
+           << deep_blas_accel.build()
+           << deep_tlas_accel.build()
+           << synchronize();
+
+    auto blas_visits = device.create_buffer<uint>(blas_primitive_count);
+    auto tlas_visits = device.create_buffer<uint>(tlas_instance_count);
+    auto metadata = device.create_buffer<uint2>(2u);
+    std::vector<uint> blas_zeros(blas_primitive_count, 0u);
+    std::vector<uint> tlas_zeros(tlas_instance_count, 0u);
+
+    Kernel1D trace_all = [](AccelVar accel, BufferUInt visits,
+                            BufferUInt2 metadata, UInt key_by_instance,
+                            UInt output_index) noexcept {
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f),
+                            0.0f, 2.0f);
+        UInt callback_count = 0u;
+        auto committed = accel.traverse(ray, {})
+                             .on_surface_candidate(
+                                 [&](SurfaceCandidate &candidate) noexcept {
+                                     auto hit = candidate.hit();
+                                     auto key = ite(
+                                         key_by_instance != 0u,
+                                         hit->inst, hit->prim);
+                                     visits.write(key, visits.read(key) + 1u);
+                                     callback_count += 1u;
+                                 })
+                             .on_procedural_candidate(
+                                 [](ProceduralCandidate &) noexcept {})
+                             .trace();
+        metadata.write(output_index,
+                       make_uint2(committed->hit_type, callback_count));
+    };
+
+    auto shader = device.compile(trace_all);
+    std::array<uint2, 2u> host_metadata{};
+    std::vector<uint> host_blas_visits(blas_primitive_count);
+    std::vector<uint> host_tlas_visits(tlas_instance_count);
+    stream << blas_visits.copy_from(luisa::span{blas_zeros})
+           << tlas_visits.copy_from(luisa::span{tlas_zeros})
+           << shader(deep_blas_accel, blas_visits, metadata, 0u, 0u)
+                  .dispatch(1u)
+           << shader(deep_tlas_accel, tlas_visits, metadata, 1u, 1u)
+                  .dispatch(1u)
+           << metadata.copy_to(luisa::span{host_metadata})
+           << blas_visits.copy_to(luisa::span{host_blas_visits})
+           << tlas_visits.copy_to(luisa::span{host_tlas_visits})
+           << synchronize();
+
+    constexpr auto miss = static_cast<uint>(HitType::Miss);
+    expect(host_metadata[0].x == miss);
+    expect(host_metadata[0].y == blas_primitive_count);
+    expect(host_metadata[1].x == miss);
+    expect(host_metadata[1].y == tlas_instance_count);
+    for (auto i = 0u; i < blas_primitive_count; i++) {
+        expect(host_blas_visits[i] == 1u)
+            << luisa::format(
+                   "BLAS primitive {} visited {} times after short-stack overflow",
+                   i, host_blas_visits[i]);
+    }
+    for (auto i = 0u; i < tlas_instance_count; i++) {
+        expect(host_tlas_visits[i] == 1u)
+            << luisa::format(
+                   "TLAS instance {} visited {} times after short-stack overflow",
+                   i, host_tlas_visits[i]);
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -1209,5 +1431,11 @@ int main(int argc, char *argv[]) {
     };
     "HIP ray-query ANY commit terminates automatically"_test = [&] {
         test_hip_ray_query_any_automatic_termination(dc->device);
+    };
+    "HIP ray-query handler traces are reentrant"_test = [&] {
+        test_hip_ray_query_reentrant_handler_trace(dc->device);
+    };
+    "HIP ray-query short-stack backtracking is exact"_test = [&] {
+        test_hip_ray_query_short_stack_backtracking(dc->device);
     };
 }

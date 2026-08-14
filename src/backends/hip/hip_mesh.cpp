@@ -367,6 +367,12 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
 
     hiprtGeometryBuildInput build_input{};
     build_input.type = hiprtPrimitiveTypeTriangleMesh;
+    // Keep built-in triangles addressable by HIPRT's custom function table.
+    // Traversals with a null function table still take the native no-filter
+    // path; synchronous RayQuery pipelines pass a table so surface-candidate
+    // callbacks can execute inside traversal instead of forcing resumable
+    // per-candidate state.
+    build_input.geomType = 0u;
     build_input.primitive.triangleMesh = mesh_prim;
 
     hiprtBuildOptions build_options{};

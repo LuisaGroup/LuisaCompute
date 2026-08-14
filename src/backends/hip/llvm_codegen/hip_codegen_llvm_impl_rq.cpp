@@ -8,6 +8,246 @@
 
 namespace luisa::compute::hip {
 
+void HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
+    size_t projected_argument_count = 0u;
+    size_t original_context_bytes = 0u;
+    size_t projected_context_bytes = 0u;
+
+    // Compute the least fixed point of interprocedural argument demand over
+    // the local generated-Callable graph. A use that only forwards argument
+    // (f, i) to local callee argument (g, j) contributes the equation
+    // live(f, i) |= live(g, j); every other use is an observation and seeds
+    // liveness. Starting from those seeds makes forwarding-only SCCs dead,
+    // while a single consuming use propagates backwards through every caller.
+    // Calls to declarations or interposable definitions are observations by
+    // construction, so the analysis cannot erase an externally visible use.
+    llvm::DenseMap<const llvm::Argument *, size_t> argument_indices;
+    luisa::vector<const llvm::Argument *> arguments;
+    for (auto &function : *_llvm_module) {
+        if (function.isDeclaration()) { continue; }
+        for (auto &argument : function.args()) {
+            auto index = arguments.size();
+            arguments.emplace_back(&argument);
+            argument_indices.try_emplace(&argument, index);
+        }
+    }
+    luisa::vector<luisa::vector<size_t>> reverse_dependencies(
+        arguments.size());
+    luisa::vector<bool> live_arguments(arguments.size(), false);
+    luisa::vector<size_t> live_worklist;
+    live_worklist.reserve(arguments.size());
+    for (auto argument_index = 0u;
+         argument_index < arguments.size(); ++argument_index) {
+        auto argument = arguments[argument_index];
+        auto directly_live = argument->getParent()
+                                 ->getAttributes()
+                                 .hasParamAttrs(argument->getArgNo());
+        for (auto &use : argument->uses()) {
+            auto call = llvm::dyn_cast<llvm::CallBase>(use.getUser());
+            if (call != nullptr && call->isArgOperand(&use)) {
+                auto callee = call->getCalledFunction();
+                auto callee_argument_index = call->getArgOperandNo(&use);
+                if (call->getAttributes().hasParamAttrs(
+                        callee_argument_index)) {
+                    directly_live = true;
+                    break;
+                }
+                if (callee != nullptr && !callee->isDeclaration() &&
+                    callee->hasLocalLinkage() &&
+                    callee_argument_index < callee->arg_size()) {
+                    auto callee_argument =
+                        callee->getArg(callee_argument_index);
+                    if (auto iter = argument_indices.find(callee_argument);
+                        iter != argument_indices.end()) {
+                        reverse_dependencies[iter->second]
+                            .emplace_back(argument_index);
+                        continue;
+                    }
+                }
+            }
+            directly_live = true;
+            break;
+        }
+        if (directly_live) {
+            live_arguments[argument_index] = true;
+            live_worklist.emplace_back(argument_index);
+        }
+    }
+    for (auto cursor = 0u; cursor < live_worklist.size(); ++cursor) {
+        auto live_index = live_worklist[cursor];
+        for (auto dependent : reverse_dependencies[live_index]) {
+            if (!live_arguments[dependent]) {
+                live_arguments[dependent] = true;
+                live_worklist.emplace_back(dependent);
+            }
+        }
+    }
+    auto argument_is_live = [&](const llvm::Argument *argument) noexcept {
+        auto iter = argument_indices.find(argument);
+        LUISA_ASSERT(
+            iter != argument_indices.end(),
+            "Missing HIP generated-Callable argument demand state.");
+        return live_arguments[iter->second];
+    };
+
+    for (auto &context : _llvm_ray_query_pipeline_contexts) {
+        auto argument_count = context.stores.size();
+        LUISA_ASSERT(
+            argument_count != 0u &&
+                context.loads.size() == argument_count &&
+                context.on_surface->arg_size() == argument_count &&
+                context.on_procedural->arg_size() == argument_count,
+            "Malformed HIP synchronous ray-query callback environment.");
+        LUISA_ASSERT(
+            !context.on_surface->isDeclaration() &&
+                !context.on_procedural->isDeclaration(),
+            "HIP ray-query callback environment projection requires "
+            "translated candidate handlers.");
+
+        // Let A_i be callback ABI argument i. The environment stores A_i only
+        // when either handler demands its corresponding formal argument. If
+        // both demand bits are false, replacing both call operands with poison
+        // is semantics-preserving under the fixed-point equations above.
+        // Taking the union is necessary because candidate kind is selected
+        // dynamically inside traversal.
+        llvm::SmallVector<uint32_t, 16> retained_indices;
+        retained_indices.reserve(argument_count);
+        for (auto i = 0u; i < argument_count; ++i) {
+            auto surface_arg = context.on_surface->getArg(i);
+            auto procedural_arg = context.on_procedural->getArg(i);
+            if (argument_is_live(surface_arg) ||
+                argument_is_live(procedural_arg)) {
+                retained_indices.emplace_back(i);
+            }
+        }
+
+        // Keep one field for a degenerate pair of empty handlers. This avoids
+        // manufacturing a zero-sized callback object while remaining exact;
+        // ordinary RayQuery handlers use argument zero (the query reference)
+        // in practice, so this branch is normally unreachable.
+        if (retained_indices.empty()) {
+            retained_indices.emplace_back(0u);
+        }
+        if (retained_indices.size() == argument_count) { continue; }
+
+        llvm::SmallVector<llvm::Type *, 16> retained_types;
+        retained_types.reserve(retained_indices.size());
+        llvm::SmallVector<int32_t, 16> projected_indices(
+            argument_count, -1);
+        for (auto projected_index = 0u;
+             projected_index < retained_indices.size();
+             ++projected_index) {
+            auto original_index = retained_indices[projected_index];
+            auto type = context.stores[original_index]
+                            ->getValueOperand()
+                            ->getType();
+            LUISA_ASSERT(
+                type == context.loads[original_index]->getType() &&
+                    type == context.on_surface->getArg(original_index)->getType() &&
+                    type == context.on_procedural->getArg(original_index)->getType(),
+                "HIP ray-query callback environment argument type mismatch.");
+            retained_types.emplace_back(type);
+            projected_indices[original_index] =
+                static_cast<int32_t>(projected_index);
+        }
+
+        auto original_type = llvm::cast<llvm::StructType>(
+            context.storage->getAllocatedType());
+        auto projected_type = llvm::StructType::get(
+            _llvm_context, retained_types, false);
+        original_context_bytes +=
+            _data_layout->getTypeAllocSize(original_type).getFixedValue();
+        projected_context_bytes +=
+            _data_layout->getTypeAllocSize(projected_type).getFixedValue();
+        projected_argument_count +=
+            argument_count - retained_indices.size();
+
+        IB alloca_b{context.storage};
+        auto projected_storage = alloca_b.CreateAlloca(
+            projected_type, nullptr,
+            context.storage->getName() + ".projected");
+        projected_storage->setAlignment(
+            _data_layout->getABITypeAlign(projected_type));
+
+        IB trace_b{context.trace_call};
+        llvm::Value *projected_generic_storage = projected_storage;
+        if (projected_storage->getType()->getPointerAddressSpace() != 0u) {
+            projected_generic_storage = trace_b.CreateAddrSpaceCast(
+                projected_storage, trace_b.getPtrTy(0),
+                "ray.query.context.projected.generic");
+        }
+        context.trace_call->setArgOperand(
+            1u, projected_generic_storage);
+
+        for (auto i = 0u; i < argument_count; ++i) {
+            auto old_store = context.stores[i];
+            auto old_load = context.loads[i];
+            auto old_store_gep = llvm::cast<llvm::GetElementPtrInst>(
+                old_store->getPointerOperand());
+            auto old_load_gep = llvm::cast<llvm::GetElementPtrInst>(
+                old_load->getPointerOperand());
+            auto projected_index = projected_indices[i];
+            if (projected_index >= 0) {
+                auto type = old_store->getValueOperand()->getType();
+                auto alignment = _data_layout->getABITypeAlign(type);
+
+                IB store_b{old_store};
+                auto projected_store_gep = store_b.CreateStructGEP(
+                    projected_type, projected_storage,
+                    static_cast<uint32_t>(projected_index),
+                    "ray.query.context.projected.field");
+                auto projected_store = store_b.CreateStore(
+                    old_store->getValueOperand(), projected_store_gep);
+                projected_store->setAlignment(alignment);
+
+                IB load_b{old_load};
+                auto projected_load_gep = load_b.CreateStructGEP(
+                    projected_type,
+                    _llvm_ray_query_pipeline_dispatch->getArg(0),
+                    static_cast<uint32_t>(projected_index),
+                    "ray.query.context.projected.field");
+                auto projected_load = load_b.CreateLoad(
+                    type, projected_load_gep,
+                    "ray.query.context.projected.value");
+                projected_load->setAlignment(alignment);
+                old_load->replaceAllUsesWith(projected_load);
+            } else {
+                old_load->replaceAllUsesWith(
+                    llvm::PoisonValue::get(old_load->getType()));
+            }
+
+            old_store->eraseFromParent();
+            old_load->eraseFromParent();
+            LUISA_ASSERT(
+                old_store_gep->use_empty() &&
+                    old_load_gep->use_empty(),
+                "HIP ray-query callback environment address escaped.");
+            old_store_gep->eraseFromParent();
+            old_load_gep->eraseFromParent();
+        }
+
+        if (context.generic_storage != context.storage &&
+            context.generic_storage->use_empty()) {
+            llvm::cast<llvm::Instruction>(context.generic_storage)
+                ->eraseFromParent();
+        }
+        LUISA_ASSERT(
+            context.storage->use_empty(),
+            "HIP ray-query callback environment storage escaped.");
+        context.storage->eraseFromParent();
+    }
+
+    if (projected_argument_count != 0u) {
+        LUISA_VERBOSE(
+            "Projected {} unused HIP RayQuery callback ABI argument(s), "
+            "shrinking static environments from {} to {} bytes.",
+            projected_argument_count,
+            original_context_bytes,
+            projected_context_bytes);
+    }
+    _llvm_ray_query_pipeline_contexts.clear();
+}
+
 void HIPCodegenLLVMImpl::_translate_ray_query_loop_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryLoopInst *inst) noexcept {
     b.GetInsertBlock()->setName("ray.query.loop");
     auto llvm_dispatch_block = func_ctx.get_local_value<llvm::BasicBlock>(inst->dispatch_block());
@@ -252,6 +492,158 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             llvm_on_procedural->getFunctionType() == llvm_pipeline_type,
         "HIP ray-query pipeline callback ABI mismatch.");
 
+    if (_uses_synchronous_ray_query_pipeline) {
+        // Materialize the exact callback environment once. The native HIPRT
+        // filter/intersection callbacks receive only an opaque context pointer;
+        // this typed struct restores the ordinary Callable ABI without an
+        // indirect device-function call or callback-specific backend pattern.
+        auto llvm_context_type = llvm::StructType::get(
+            _llvm_context, llvm_callback_arg_types, false);
+        auto llvm_context_pointer = _create_temp_in_alloca_block(
+            func_ctx, llvm_context_type,
+            _data_layout->getABITypeAlign(llvm_context_type).value());
+        luisa::vector<llvm::StoreInst *> llvm_context_stores;
+        llvm_context_stores.reserve(llvm_callback_args.size());
+        for (auto i = 0u; i < llvm_callback_args.size(); ++i) {
+            auto llvm_field = b.CreateStructGEP(
+                llvm_context_type, llvm_context_pointer, i,
+                "ray.query.context.field");
+            llvm_context_stores.emplace_back(
+                b.CreateStore(llvm_callback_args[i], llvm_field));
+        }
+        auto llvm_generic_context = llvm_context_pointer;
+        if (llvm_generic_context->getType()->getPointerAddressSpace() != 0u) {
+            llvm_generic_context = b.CreateAddrSpaceCast(
+                llvm_generic_context, b.getPtrTy(0),
+                "ray.query.context.generic");
+        }
+
+        // One direct switch is shared by all pipelines in the module. Each
+        // case decodes its own typed context and directly invokes the two XIR
+        // handlers, preserving reference captures and arbitrary side effects.
+        if (_llvm_ray_query_pipeline_dispatch == nullptr) {
+            auto llvm_dispatch_type = llvm::FunctionType::get(
+                b.getVoidTy(),
+                {b.getPtrTy(0), b.getInt32Ty(), b.getInt32Ty()}, false);
+            _llvm_ray_query_pipeline_dispatch = llvm::Function::Create(
+                llvm_dispatch_type, llvm::Function::ExternalLinkage,
+                "luisa_ray_query_pipeline_dispatch", _llvm_module.get());
+            _llvm_ray_query_pipeline_dispatch->addFnAttr(
+                llvm::Attribute::NoUnwind);
+            auto llvm_dispatch_entry = llvm::BasicBlock::Create(
+                _llvm_context, "entry", _llvm_ray_query_pipeline_dispatch);
+            auto llvm_dispatch_invalid = llvm::BasicBlock::Create(
+                _llvm_context, "invalid", _llvm_ray_query_pipeline_dispatch);
+            IB dispatch_b{llvm_dispatch_entry};
+            _llvm_ray_query_pipeline_switch = dispatch_b.CreateSwitch(
+                _llvm_ray_query_pipeline_dispatch->getArg(1),
+                llvm_dispatch_invalid, 0u);
+            dispatch_b.SetInsertPoint(llvm_dispatch_invalid);
+            dispatch_b.CreateUnreachable();
+        }
+
+        auto pipeline_index = static_cast<uint32_t>(
+            _ray_query_pipeline_count++);
+        auto llvm_pipeline_block = llvm::BasicBlock::Create(
+            _llvm_context,
+            llvm::Twine{"pipeline."} + llvm::Twine{pipeline_index},
+            _llvm_ray_query_pipeline_dispatch);
+        _llvm_ray_query_pipeline_switch->addCase(
+            b.getInt32(pipeline_index), llvm_pipeline_block);
+        IB dispatch_b{llvm_pipeline_block};
+        auto llvm_dispatch_context =
+            _llvm_ray_query_pipeline_dispatch->getArg(0);
+        llvm::SmallVector<llvm::Value *, 16> llvm_decoded_args;
+        llvm_decoded_args.reserve(llvm_callback_arg_types.size());
+        luisa::vector<llvm::LoadInst *> llvm_context_loads;
+        llvm_context_loads.reserve(llvm_callback_arg_types.size());
+        for (auto i = 0u; i < llvm_callback_arg_types.size(); ++i) {
+            auto llvm_field = dispatch_b.CreateStructGEP(
+                llvm_context_type, llvm_dispatch_context, i,
+                "ray.query.context.field");
+            auto llvm_value = dispatch_b.CreateLoad(
+                llvm_callback_arg_types[i], llvm_field,
+                "ray.query.context.value");
+            llvm_decoded_args.emplace_back(llvm_value);
+            llvm_context_loads.emplace_back(llvm_value);
+        }
+        auto llvm_surface_block = llvm::BasicBlock::Create(
+            _llvm_context, "surface", _llvm_ray_query_pipeline_dispatch);
+        auto llvm_procedural_block = llvm::BasicBlock::Create(
+            _llvm_context, "procedural", _llvm_ray_query_pipeline_dispatch);
+        auto llvm_invalid_kind_block = llvm::BasicBlock::Create(
+            _llvm_context, "invalid.kind", _llvm_ray_query_pipeline_dispatch);
+        auto llvm_kind_switch = dispatch_b.CreateSwitch(
+            _llvm_ray_query_pipeline_dispatch->getArg(2),
+            llvm_invalid_kind_block, 2u);
+        llvm_kind_switch->addCase(
+            dispatch_b.getInt32(llvm_ray_query_state_surface_candidate),
+            llvm_surface_block);
+        llvm_kind_switch->addCase(
+            dispatch_b.getInt32(llvm_ray_query_state_procedural_candidate),
+            llvm_procedural_block);
+
+        dispatch_b.SetInsertPoint(llvm_surface_block);
+        auto llvm_surface_call = dispatch_b.CreateCall(
+            llvm_on_surface, llvm_decoded_args);
+        llvm_surface_call->setCallingConv(
+            llvm_on_surface->getCallingConv());
+        dispatch_b.CreateRetVoid();
+
+        dispatch_b.SetInsertPoint(llvm_procedural_block);
+        auto llvm_procedural_call = dispatch_b.CreateCall(
+            llvm_on_procedural, llvm_decoded_args);
+        llvm_procedural_call->setCallingConv(
+            llvm_on_procedural->getCallingConv());
+        dispatch_b.CreateRetVoid();
+
+        dispatch_b.SetInsertPoint(llvm_invalid_kind_block);
+        dispatch_b.CreateUnreachable();
+
+        auto llvm_state_pointer = _get_ray_query_state_pointer(
+            b, func_ctx, query_object);
+        if (llvm_state_pointer->getType()->getPointerAddressSpace() != 0u) {
+            llvm_state_pointer = b.CreateAddrSpaceCast(
+                llvm_state_pointer, b.getPtrTy(0),
+                "ray.query.state.generic");
+        }
+        LUISA_ASSERT(
+            func_ctx.llvm_rt_stack_size != nullptr &&
+                func_ctx.llvm_rt_stack_count != nullptr &&
+                func_ctx.llvm_rt_stack_data != nullptr,
+            "Synchronous HIP ray query requires a dynamic stack buffer.");
+        auto llvm_trace_type = llvm::FunctionType::get(
+            b.getVoidTy(),
+            {b.getPtrTy(0), b.getPtrTy(0), b.getInt32Ty(),
+             b.getInt32Ty(), b.getInt32Ty(), b.getPtrTy(0)},
+            false);
+        auto llvm_trace = _llvm_module->getFunction(
+            "luisa_pipeline_ray_query_trace");
+        if (llvm_trace == nullptr) {
+            llvm_trace = llvm::Function::Create(
+                llvm_trace_type, llvm::Function::ExternalLinkage,
+                "luisa_pipeline_ray_query_trace", _llvm_module.get());
+        } else {
+            LUISA_ASSERT(llvm_trace->getFunctionType() == llvm_trace_type,
+                         "HIP synchronous ray-query trace ABI mismatch.");
+        }
+        auto llvm_trace_call = b.CreateCall(
+            llvm_trace,
+            {llvm_state_pointer, llvm_generic_context,
+             b.getInt32(pipeline_index), func_ctx.llvm_rt_stack_size,
+             func_ctx.llvm_rt_stack_count, func_ctx.llvm_rt_stack_data});
+        _llvm_ray_query_pipeline_contexts.emplace_back(
+            RayQueryPipelineContext{
+                llvm::cast<llvm::AllocaInst>(llvm_context_pointer),
+                llvm_generic_context,
+                llvm_trace_call,
+                llvm_on_surface,
+                llvm_on_procedural,
+                std::move(llvm_context_stores),
+                std::move(llvm_context_loads)});
+        return;
+    }
+
     // Keep the pipeline's control flow inside a private helper. Expanding it
     // directly in the containing LLVM block would invalidate XIR PHI incoming
     // block mappings whenever the pipeline precedes a branch.
@@ -378,7 +770,8 @@ llvm::Value *HIPCodegenLLVMImpl::_call_ray_query_intrinsic(
         llvm_state_ptr != nullptr &&
             llvm_state_ptr->getType()->isPointerTy(),
         "Invalid HIP ray-query state pointer.");
-    if (!_uses_hardware_rt_stack) {
+    if (!_uses_hardware_rt_stack ||
+        _uses_synchronous_ray_query_pipeline) {
         if (llvm_state_ptr->getType()->getPointerAddressSpace() != 0u) {
             llvm_state_ptr = b.CreateAddrSpaceCast(
                 llvm_state_ptr, b.getPtrTy(0),
@@ -390,7 +783,19 @@ llvm::Value *HIPCodegenLLVMImpl::_call_ray_query_intrinsic(
     augmented_args.append(args.begin(), args.end());
     std::string motion_name;
     auto wrapper_name = name;
-    if (_supports_hardware_rt_stack && _rt_analysis.uses_motion_ray_query) {
+    if (_uses_synchronous_ray_query_pipeline) {
+        static constexpr std::string_view prefix{"luisa_ray_query_"};
+        LUISA_ASSERT(name.starts_with(prefix),
+                     "Invalid HIP ray-query wrapper name '{}'.", name.str());
+        motion_name = "luisa_pipeline_ray_query_";
+        motion_name.append(name.drop_front(prefix.size()).str());
+        wrapper_name = motion_name;
+    } else if (_supports_hardware_rt_stack &&
+               !_uses_hardware_rt_stack) {
+        // On gfx12 the generic DynamicStack implementation is emitted under
+        // the historical motion-query symbol family. It is also the required
+        // reentrant path when a static query handler performs a nested trace;
+        // selecting by the actual stack plan keeps those two reasons unified.
         static constexpr std::string_view prefix{"luisa_ray_query_"};
         LUISA_ASSERT(name.starts_with(prefix),
                      "Invalid HIP ray-query wrapper name '{}'.", name.str());

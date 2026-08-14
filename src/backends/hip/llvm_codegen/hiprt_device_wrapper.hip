@@ -675,6 +675,87 @@ luisa_is_procedural_sentinel(hiprtFloat3 normal) {
 
 static constexpr float LUISA_PROCEDURAL_NAN = __builtin_nanf("");
 
+// A lowered RayQueryPipelineInst executes traversal and both candidate
+// handlers as one synchronous operation. Unlike the public proceed() ABI, no
+// traversal continuation can escape a handler, so the BVH stack belongs to the
+// trace call rather than to the query object. Keep only the state observable by
+// candidate handlers here; HIPRT supplies the LDS/global traversal stack below.
+static constexpr uint32_t LUISA_PIPELINE_RAY_TYPE = 2u;
+static constexpr uint8_t LUISA_PIPELINE_RQ_STATE_TERMINATED = 0u;
+static constexpr uint8_t LUISA_PIPELINE_RQ_STATE_SURFACE = 1u;
+static constexpr uint8_t LUISA_PIPELINE_RQ_STATE_PROCEDURAL = 2u;
+static constexpr uint8_t LUISA_PIPELINE_HIT_MISS = 0u;
+static constexpr uint8_t LUISA_PIPELINE_HIT_SURFACE = 1u;
+static constexpr uint8_t LUISA_PIPELINE_HIT_PROCEDURAL = 2u;
+
+struct LuisaPipelineRayQueryHit {
+    uint32_t instance_id;
+    uint32_t primitive_id;
+    float u;
+    float v;
+    float t;
+};
+
+struct alignas(16) LuisaPipelineRayQueryState {
+    uint64_t scene_handle;
+    const LuisaAccelInstance *instances;
+    void *callback_context;
+    hiprtRay ray;
+    LuisaPipelineRayQueryHit candidate_hit;
+    LuisaPipelineRayQueryHit committed_hit;
+    uint32_t mask;
+    uint32_t flags;// bit 0: terminate on the first committed hit
+    uint32_t pipeline_id;
+    float time;
+    uint8_t state;
+    uint8_t candidate_kind;
+    uint8_t committed_kind;
+    bool candidate_committed;
+    bool terminated;
+};
+
+static_assert(sizeof(LuisaPipelineRayQueryHit) == 20);
+static_assert(sizeof(LuisaPipelineRayQueryState) == 128,
+              "Synchronous HIP ray-query state/codegen allocation mismatch");
+static_assert(alignof(LuisaPipelineRayQueryState) == 16);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, ray) == 32);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, candidate_hit) == 64);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, committed_hit) == 84);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, mask) == 104);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, state) == 120);
+
+extern "C" __device__ void luisa_ray_query_pipeline_dispatch(
+    void *context, uint32_t pipeline_id, uint32_t candidate_kind);
+
+static __device__ __forceinline__ void
+luisa_pipeline_store_hit(LuisaPipelineRayQueryHit &dst,
+                         const hiprtHit &src) {
+    dst.instance_id = src.instanceIDs[0];
+    dst.primitive_id = src.primID;
+    dst.u = src.uv.x;
+    dst.v = src.uv.y;
+    dst.t = src.t;
+}
+
+static __device__ __forceinline__ void
+luisa_pipeline_commit_surface(LuisaPipelineRayQueryState *state) {
+    state->committed_hit = state->candidate_hit;
+    state->committed_kind = LUISA_PIPELINE_HIT_SURFACE;
+    state->candidate_committed = true;
+    state->ray.maxT = state->candidate_hit.t;
+    if ((state->flags & 1u) != 0u) { state->terminated = true; }
+}
+
+static __device__ __forceinline__ void
+luisa_pipeline_dispatch_candidate(LuisaPipelineRayQueryState *state,
+                                  uint8_t candidate_kind) {
+    state->state = candidate_kind;
+    state->candidate_kind = candidate_kind;
+    state->candidate_committed = false;
+    luisa_ray_query_pipeline_dispatch(
+        state->callback_context, state->pipeline_id, candidate_kind);
+}
+
 // The generic ray-query callback is defined before its in-place state type.
 // Keep the state access behind this helper so intersectFunc does not depend on
 // the state layout directly.
@@ -712,6 +793,24 @@ HIPRT_DEVICE bool intersectFunc(
             LUISA_PROCEDURAL_NAN,
             LUISA_PROCEDURAL_NAN};
         hit.t = ray.maxT;
+        return true;
+    }
+    if (ray_type == LUISA_PIPELINE_RAY_TYPE && payload != nullptr) {
+        auto state = reinterpret_cast<LuisaPipelineRayQueryState *>(payload);
+        if (luisa_hit_is_curve(state->instances, hit) ||
+            luisa_hit_is_motion_triangle(state->instances, hit)) {
+            return luisa_intersect_surface(
+                state->instances, ray, state->time, hit);
+        }
+        // A synchronous pipeline pulls one custom candidate out of traversal
+        // before invoking arbitrary user code. The sentinel travels in the
+        // returned hit (where AMDGPU alias analysis cannot lose it) and is
+        // consumed by the outer pipeline loop below.
+        hit.t = ray.maxT;
+        hit.normal = hiprtFloat3{
+            LUISA_PROCEDURAL_NAN,
+            LUISA_PROCEDURAL_NAN,
+            LUISA_PROCEDURAL_NAN};
         return true;
     }
     return false;
@@ -1193,6 +1292,289 @@ LUISA_GENERIC_RAY_QUERY_WRAPPER(terminate)(void *state_ptr) {
 #undef LUISA_GENERIC_RAY_QUERY_WRAPPER
 
 // ---------------------------------------------------------------------------
+// Synchronous RayQueryPipelineInst ABI.
+// ---------------------------------------------------------------------------
+
+#if !(HIPRT_RTIP >= 31 && (defined(__gfx1200__) || defined(__gfx1201__)))
+using LuisaPipelineRayQueryStack = hiprtDynamicStack;
+using LuisaPipelineRayQueryTraversal =
+    hiprtSceneTraversalAnyHitCustomStack<
+        LuisaPipelineRayQueryStack, hiprtPrivateInstanceStack>;
+
+// Keep HIPRT's traversal working set below the arbitrary candidate callback.
+// This call boundary is a register-pressure boundary, not a semantic yield:
+// the traversal object stays local to the enclosing synchronous trace.
+static __device__ __attribute__((noinline)) hiprtHit
+luisa_pipeline_ray_query_next_hit(
+    LuisaPipelineRayQueryTraversal *traversal) {
+    return traversal->getNextHit();
+}
+#else
+static __device__ void
+luisa_pipeline_ray_query_trace_hw(
+    LuisaPipelineRayQueryState *state);
+#endif
+
+extern "C" __device__ __attribute__((used, noinline)) void
+luisa_pipeline_ray_query_initialize(
+    void *state_ptr,
+    uint64_t scene_handle,
+    void *instance_data,
+    float ox, float oy, float oz,
+    float dx, float dy, float dz,
+    float tmin, float tmax,
+    float time,
+    uint32_t mask, uint32_t flags,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    static_cast<void>(stack_size);
+    static_cast<void>(stack_count);
+    static_cast<void>(stack_data);
+    auto state = reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr);
+    state->scene_handle = scene_handle;
+    state->instances =
+        reinterpret_cast<const LuisaAccelInstance *>(instance_data);
+    state->callback_context = nullptr;
+    state->ray.origin = hiprtFloat3{ox, oy, oz};
+    state->ray.minT = tmin;
+    state->ray.direction = hiprtFloat3{dx, dy, dz};
+    state->ray.maxT = tmax;
+    state->candidate_hit = LuisaPipelineRayQueryHit{
+        ~0u, ~0u, 0.0f, 0.0f, tmax};
+    state->committed_hit = state->candidate_hit;
+    state->mask = mask;
+    state->flags = flags;
+    state->pipeline_id = 0u;
+    state->time = time;
+    state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
+    state->candidate_kind = LUISA_PIPELINE_RQ_STATE_TERMINATED;
+    state->committed_kind = LUISA_PIPELINE_HIT_MISS;
+    state->candidate_committed = false;
+    state->terminated = false;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) void
+luisa_pipeline_ray_query_trace(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    auto state = reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr);
+    state->callback_context = callback_context;
+    state->pipeline_id = pipeline_id;
+
+#if HIPRT_RTIP >= 31 && (defined(__gfx1200__) || defined(__gfx1201__))
+    static_cast<void>(stack_size);
+    static_cast<void>(stack_count);
+    static_cast<void>(stack_data);
+    luisa_pipeline_ray_query_trace_hw(state);
+#else
+    hiprtGlobalStackBuffer global_stack_buffer{
+        stack_size, stack_count, stack_data};
+    hiprtSharedStackBuffer shared_stack_buffer{
+        LUISA_HIPRT_SHARED_STACK_SIZE,
+        luisa_hiprt_shared_stack_cache};
+    LuisaPipelineRayQueryStack stack{global_stack_buffer, shared_stack_buffer};
+    hiprtPrivateInstanceStack instance_stack;
+    auto scene = reinterpret_cast<hiprtScene>(state->scene_handle);
+    LuisaPipelineRayQueryTraversal traversal{
+            scene, state->ray, stack, instance_stack,
+            static_cast<hiprtRayMask>(state->mask),
+            (state->flags & 1u) != 0u ?
+                hiprtTraversalHintShadowRays :
+                hiprtTraversalHintReflectionRays,
+            state, nullptr,
+            LUISA_PIPELINE_RAY_TYPE, state->time};
+
+    while (!state->terminated) {
+        state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
+        state->candidate_kind = LUISA_PIPELINE_RQ_STATE_TERMINATED;
+        state->candidate_committed = false;
+        auto hit = luisa_pipeline_ray_query_next_hit(&traversal);
+        if (!hit.hasHit()) { break; }
+
+        if (luisa_is_procedural_sentinel(hit.normal)) {
+            state->candidate_hit = LuisaPipelineRayQueryHit{
+                hit.instanceIDs[0], hit.primID,
+                0.0f, 0.0f, state->ray.maxT};
+            luisa_pipeline_dispatch_candidate(
+                state, LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
+        } else {
+            luisa_pipeline_store_hit(state->candidate_hit, hit);
+            state->state = LUISA_PIPELINE_RQ_STATE_SURFACE;
+            state->candidate_kind = LUISA_PIPELINE_RQ_STATE_SURFACE;
+            state->candidate_committed = false;
+            if (luisa_instance_is_opaque(
+                    state->instances, state->candidate_hit.instance_id)) {
+                luisa_pipeline_commit_surface(state);
+            } else {
+                luisa_ray_query_pipeline_dispatch(
+                    state->callback_context, state->pipeline_id,
+                    LUISA_PIPELINE_RQ_STATE_SURFACE);
+            }
+        }
+
+        if (state->terminated) { break; }
+
+        // A commit contracts the traversal interval before the next pull; a
+        // rejection leaves the frontier and interval intact.
+        if (state->candidate_committed) {
+            traversal.contractRayMaxT(state->ray.maxT);
+        }
+    }
+#endif
+    state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
+    state->candidate_kind = LUISA_PIPELINE_RQ_STATE_TERMINATED;
+    state->terminated = true;
+}
+
+#define LUISA_PIPELINE_RQ_STATE(state_ptr) \
+    reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr)
+
+extern "C" __device__ __attribute__((used, noinline)) uint8_t
+luisa_pipeline_ray_query_state(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->state;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) bool
+luisa_pipeline_ray_query_is_surface_candidate(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->state ==
+           LUISA_PIPELINE_RQ_STATE_SURFACE;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) bool
+luisa_pipeline_ray_query_is_procedural_candidate(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->state ==
+           LUISA_PIPELINE_RQ_STATE_PROCEDURAL;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) bool
+luisa_pipeline_ray_query_is_terminated(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->terminated;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) int32_t
+luisa_pipeline_ray_query_candidate_inst_id(void *state_ptr) {
+    return static_cast<int32_t>(
+        LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.instance_id);
+}
+
+extern "C" __device__ __attribute__((used, noinline)) int32_t
+luisa_pipeline_ray_query_candidate_prim_id(void *state_ptr) {
+    return static_cast<int32_t>(
+        LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.primitive_id);
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_candidate_bary_u(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.u;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_candidate_bary_v(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.v;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_candidate_hit_t(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->candidate_hit.t;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) int32_t
+luisa_pipeline_ray_query_committed_inst_id(void *state_ptr) {
+    return static_cast<int32_t>(
+        LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.instance_id);
+}
+
+extern "C" __device__ __attribute__((used, noinline)) int32_t
+luisa_pipeline_ray_query_committed_prim_id(void *state_ptr) {
+    return static_cast<int32_t>(
+        LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.primitive_id);
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_committed_bary_u(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.u;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_committed_bary_v(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.v;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) int32_t
+luisa_pipeline_ray_query_committed_hit_kind(void *state_ptr) {
+    return static_cast<int32_t>(
+        LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_kind);
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_committed_hit_t(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->committed_hit.t;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_ray_origin_x(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.origin.x;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_ray_origin_y(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.origin.y;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_ray_origin_z(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.origin.z;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_ray_tmin(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.minT;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_ray_direction_x(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.direction.x;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_ray_direction_y(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.direction.y;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_ray_direction_z(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.direction.z;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) float
+luisa_pipeline_ray_query_ray_tmax(void *state_ptr) {
+    return LUISA_PIPELINE_RQ_STATE(state_ptr)->ray.maxT;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) void
+luisa_pipeline_ray_query_commit_surface_hit(void *state_ptr) {
+    luisa_pipeline_commit_surface(LUISA_PIPELINE_RQ_STATE(state_ptr));
+}
+
+extern "C" __device__ __attribute__((used, noinline)) void
+luisa_pipeline_ray_query_commit_procedural_hit(
+    void *state_ptr, float distance) {
+    auto state = LUISA_PIPELINE_RQ_STATE(state_ptr);
+    state->committed_hit = state->candidate_hit;
+    state->committed_hit.t = distance;
+    state->committed_kind = LUISA_PIPELINE_HIT_PROCEDURAL;
+    state->candidate_committed = true;
+    state->ray.maxT = distance;
+    if ((state->flags & 1u) != 0u) { state->terminated = true; }
+}
+
+extern "C" __device__ __attribute__((used, noinline)) void
+luisa_pipeline_ray_query_terminate(void *state_ptr) {
+    LUISA_PIPELINE_RQ_STATE(state_ptr)->terminated = true;
+}
+
+#undef LUISA_PIPELINE_RQ_STATE
+
+// ---------------------------------------------------------------------------
 // HwBvhStack-based traversal (RDNA 4: gfx1200/gfx1201 only)
 // Uses the ds_bvh_stack_push8_pop1_rtn hardware instruction for BVH traversal.
 // ---------------------------------------------------------------------------
@@ -1200,10 +1582,12 @@ LUISA_GENERIC_RAY_QUERY_WRAPPER(terminate)(void *state_ptr) {
 #if HIPRT_RTIP >= 31 && (defined(__gfx1200__) || defined(__gfx1201__))
 
 // HIPRT's hardware stack wrapper maps both the normal terminal sentinel and
-// the overflow sentinel to InvalidValue. Direct traversal must distinguish
-// them: the GFX12 short stack is circular, so treating overflow as completion
-// silently drops still-unvisited BVH nodes. Preserve the raw overflow state
-// and let the entry point restart with HIPRT's complete private stack.
+// the overflow sentinel to InvalidValue. They are observably different: a
+// terminal result completes the current BVH, whereas overflow requires
+// parent-link backtracking from the last visited node. Preserve both the last
+// operation status and the cumulative status. The former drives exact
+// continuation without replaying callbacks; the latter is retained for the
+// legacy one-shot traversal fallback below.
 class LuisaHwBvhStack : public hiprt::HwBvhStack {
   public:
     explicit __device__ LuisaHwBvhStack(uint32_t *lds_base)
@@ -1228,6 +1612,7 @@ class LuisaHwBvhStack : public hiprt::HwBvhStack {
             m_addr, last_node, child_vector);
         m_addr = raw[1];
         auto node = raw[0];
+        _last_operation_overflowed = node == hiprt::InvalidValue;
         if (node == hiprt::InvalidValue) {
             _overflowed = true;
             return hiprt::InvalidValue;
@@ -1239,8 +1624,24 @@ class LuisaHwBvhStack : public hiprt::HwBvhStack {
         return _overflowed;
     }
 
+    [[nodiscard]] __device__ bool last_operation_overflowed() const {
+        return _last_operation_overflowed;
+    }
+
+    [[nodiscard]] __device__ bool would_overflow() const {
+        // GFX12 encodes the current entry count in addr[14:0]. The intrinsic
+        // can push at most eight children before returning the closest one.
+        // Reserve that complete fanout instead of counting valid children on
+        // every hot-path box; this is conservative for sparse nodes and exact
+        // for a full BVH8 node.
+        const auto entry_count = m_addr & 0x7fffu;
+        return entry_count >
+               hiprt::luisa_hiprt_hw_stack_max_entries - 8u;
+    }
+
   private:
     bool _overflowed{false};
+    bool _last_operation_overflowed{false};
 };
 
 // HIPRT's public private stack has 64 entries. The overflow path is cold and
@@ -1349,6 +1750,371 @@ luisa_hiprt_resolve_static_motion_geometry(
         nested_scene->m_frameStorageType};
     ray = transform.transformRay(ray, 0.0f);
     return child.m_geometry;
+}
+
+enum : uint32_t {
+    LUISA_PIPELINE_CANDIDATE_COMMITTED = 1u << 0u,
+    LUISA_PIPELINE_CANDIDATE_TERMINATED = 1u << 1u,
+    LUISA_PIPELINE_CANDIDATE_OPAQUE = 1u << 2u,
+};
+
+// Candidate callbacks are deliberately out of line from flat traversal. This
+// bounds the BVH live range at the call site while keeping callback semantics
+// fully generic: the generated direct dispatcher still owns all user code.
+static __device__ __attribute__((noinline)) uint32_t
+luisa_pipeline_process_surface_candidate(
+    LuisaPipelineRayQueryState *state,
+    uint32_t instance_id, uint32_t primitive_id,
+    float u, float v, float t) {
+    state->candidate_hit = LuisaPipelineRayQueryHit{
+        instance_id, primitive_id, u, v, t};
+    state->state = LUISA_PIPELINE_RQ_STATE_SURFACE;
+    state->candidate_kind = LUISA_PIPELINE_RQ_STATE_SURFACE;
+    state->candidate_committed = false;
+    auto result = 0u;
+    if (luisa_instance_is_opaque(state->instances, instance_id)) {
+        luisa_pipeline_commit_surface(state);
+        result |= LUISA_PIPELINE_CANDIDATE_OPAQUE;
+    } else {
+        luisa_ray_query_pipeline_dispatch(
+            state->callback_context, state->pipeline_id,
+            LUISA_PIPELINE_RQ_STATE_SURFACE);
+    }
+    if (state->candidate_committed) {
+        result |= LUISA_PIPELINE_CANDIDATE_COMMITTED;
+    }
+    if (state->terminated) {
+        result |= LUISA_PIPELINE_CANDIDATE_TERMINATED;
+    }
+    return result;
+}
+
+static __device__ __attribute__((noinline)) uint32_t
+luisa_pipeline_process_procedural_candidate(
+    LuisaPipelineRayQueryState *state,
+    uint32_t instance_id, uint32_t primitive_id,
+    float active_t_max) {
+    state->candidate_hit = LuisaPipelineRayQueryHit{
+        instance_id, primitive_id, 0.0f, 0.0f, active_t_max};
+    luisa_pipeline_dispatch_candidate(
+        state, LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
+    auto result = 0u;
+    if (state->candidate_committed) {
+        result |= LUISA_PIPELINE_CANDIDATE_COMMITTED;
+    }
+    if (state->terminated) {
+        result |= LUISA_PIPELINE_CANDIDATE_TERMINATED;
+    }
+    return result;
+}
+
+static __device__ void
+luisa_pipeline_ray_query_trace_hw(
+    LuisaPipelineRayQueryState *state) {
+    using namespace hiprt;
+
+    const auto traversal_hint =
+        (state->flags & 1u) != 0u ?
+            hiprtTraversalHintShadowRays :
+            hiprtTraversalHintReflectionRays;
+    const uint4 descriptor = luisa_hiprt_pack_descriptor(
+        static_cast<uint32_t>(traversal_hint) & 0x3u);
+
+    auto scene_header = reinterpret_cast<SceneHeader *>(state->scene_handle);
+    auto tlas_box_nodes = scene_header->m_boxNodes;
+    auto instance_nodes = scene_header->m_primNodes;
+    auto box_nodes = tlas_box_nodes;
+    void *primitive_nodes = nullptr;
+    auto instance_id = InvalidValue;
+    auto ray = state->ray;
+
+    LuisaHwBvhStack stack{luisa_hiprt_shared_stack_cache};
+    auto node_index = RootIndex;
+    auto skip_node = InvalidValue;
+    auto leaf_parent_node = InvalidValue;
+    auto stackless_root = InvalidValue;
+    auto tlas_instance_node = InvalidValue;
+    auto tlas_leaf_parent_node = InvalidValue;
+    auto tlas_stackless_root = InvalidValue;
+
+    while (!state->terminated) {
+        if (node_index == InvalidValue) {
+            if (stack.last_operation_overflowed()) {
+                __builtin_trap();
+            } else if (stack.insideInstance()) {
+                stack.exitInstance();
+                instance_id = InvalidValue;
+                box_nodes = tlas_box_nodes;
+                primitive_nodes = nullptr;
+                ray = state->ray;
+                stackless_root = tlas_stackless_root;
+                leaf_parent_node = tlas_leaf_parent_node;
+                if (stackless_root != InvalidValue) {
+                    node_index = leaf_parent_node;
+                    skip_node = tlas_instance_node;
+                } else {
+                    node_index = stack.pop();
+                    skip_node = InvalidValue;
+                }
+                continue;
+            } else {
+                break;
+            }
+        }
+        const auto node_type = getNodeType(node_index);
+
+        if (node_type == BoxType) {
+            const auto current_box = node_index;
+            hip_float3 ignored_origin, ignored_direction;
+            auto intersections = __builtin_amdgcn_image_bvh8_intersect_ray(
+                encodeBaseAddr(box_nodes), ray.maxT, 0xff,
+                {ray.origin.x, ray.origin.y, ray.origin.z},
+                {ray.direction.x, ray.direction.y, ray.direction.z},
+                node_index,
+                {descriptor.x, descriptor.y, descriptor.z, descriptor.w},
+                &ignored_origin, &ignored_direction);
+            uint32_t children[8] = {
+                intersections[0], intersections[1], intersections[2],
+                intersections[3], intersections[4], intersections[5],
+                intersections[6], intersections[7]};
+
+            if (stackless_root == InvalidValue &&
+                stack.would_overflow()) {
+                stackless_root = current_box;
+            }
+            if (stackless_root != InvalidValue) {
+                auto next_child = InvalidValue;
+                if (skip_node == InvalidValue) {
+                    next_child = children[0];
+                } else {
+                    auto found_completed_child = false;
+                    for (auto i = 0u; i < 8u; i++) {
+                        const auto child = children[i];
+                        if (found_completed_child &&
+                            child != InvalidValue) {
+                            next_child = child;
+                            break;
+                        }
+                        found_completed_child |= child == skip_node;
+                    }
+                }
+                if (next_child != InvalidValue) {
+                    leaf_parent_node = current_box;
+                    node_index = next_child;
+                    skip_node = InvalidValue;
+                } else if (current_box == stackless_root) {
+                    stackless_root = InvalidValue;
+                    node_index = stack.pop();
+                    skip_node = InvalidValue;
+                } else {
+                    const auto parent_address =
+                        box_nodes[getNodeAddr(current_box)].getParentAddr();
+                    if (parent_address == InvalidValue) {
+                        __builtin_trap();
+                    }
+                    node_index = encodeNodeIndex(parent_address, BoxType);
+                    skip_node = current_box;
+                }
+            } else {
+                node_index = stack.pushChildrenAndPopClosest(
+                    InvalidValue, children);
+                skip_node = InvalidValue;
+            }
+            continue;
+        }
+
+        if (node_type == InstanceType) {
+            const auto instance_address = getNodeAddr(node_index);
+            const auto &instance = instance_nodes[instance_address];
+            if ((instance.m_mask & state->mask) != 0u) {
+                hip_float3 transformed_origin, transformed_direction;
+                auto transform_result =
+                    __builtin_amdgcn_image_bvh8_intersect_ray(
+                        encodeBaseAddr(instance_nodes), ray.maxT, 0xff,
+                        {ray.origin.x, ray.origin.y, ray.origin.z},
+                        {ray.direction.x, ray.direction.y, ray.direction.z},
+                        node_index,
+                        {descriptor.x, descriptor.y,
+                         descriptor.z, descriptor.w},
+                        &transformed_origin, &transformed_direction);
+                if (transform_result[7] != InvalidValue) {
+                    ray.origin = {transformed_origin.x,
+                                  transformed_origin.y,
+                                  transformed_origin.z};
+                    ray.direction = {transformed_direction.x,
+                                     transformed_direction.y,
+                                     transformed_direction.z};
+                    instance_id = instance.m_primIndex;
+                    auto geometry =
+                        instance.m_type == hiprtInstanceTypeScene ?
+                            luisa_hiprt_resolve_static_motion_geometry(
+                                instance, ray) :
+                            instance.m_geometry;
+                    if (geometry != nullptr) {
+                        box_nodes = geometry->m_boxNodes;
+                        primitive_nodes = geometry->m_primNodes;
+                        tlas_instance_node = node_index;
+                        tlas_leaf_parent_node = leaf_parent_node;
+                        tlas_stackless_root = stackless_root;
+                        stackless_root = InvalidValue;
+                        leaf_parent_node = InvalidValue;
+                        skip_node = InvalidValue;
+                        stack.enterInstance();
+                        node_index = RootIndex;
+                        continue;
+                    }
+                }
+            }
+            if (stackless_root != InvalidValue) {
+                const auto completed_instance = node_index;
+                node_index = leaf_parent_node;
+                skip_node = completed_instance;
+            } else {
+                node_index = stack.pop();
+                skip_node = InvalidValue;
+            }
+            continue;
+        }
+
+        if (node_type == CustomType && instance_id != InvalidValue) {
+            auto custom_nodes =
+                reinterpret_cast<CustomNode *>(primitive_nodes);
+            auto primitive_id =
+                custom_nodes[getNodeAddr(node_index)].m_primIndex;
+            auto is_surface = false;
+            if (state->instances != nullptr) {
+                const auto &instance = state->instances[instance_id];
+                is_surface = instance.geometry_data != 0u &&
+                             (instance.geometry_kind ==
+                                  LUISA_GEOMETRY_KIND_CURVE ||
+                              instance.geometry_kind ==
+                                  LUISA_GEOMETRY_KIND_MOTION_TRIANGLE);
+            }
+            uint32_t candidate_result;
+            if (is_surface) {
+                hiprtHit surface_hit;
+                surface_hit.instanceID = instance_id;
+                surface_hit.primID = primitive_id;
+                if (luisa_intersect_surface(
+                        state->instances, ray, state->time, surface_hit) &&
+                    ray.minT <= surface_hit.t &&
+                    surface_hit.t <= ray.maxT) {
+                    candidate_result =
+                        luisa_pipeline_process_surface_candidate(
+                            state, instance_id, primitive_id,
+                            surface_hit.uv.x, surface_hit.uv.y,
+                            surface_hit.t);
+                } else {
+                    candidate_result = 0u;
+                }
+            } else {
+                candidate_result =
+                    luisa_pipeline_process_procedural_candidate(
+                        state, instance_id, primitive_id, ray.maxT);
+            }
+            if ((candidate_result &
+                 LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                ray.maxT = state->ray.maxT;
+            }
+            if ((candidate_result &
+                 LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                return;
+            }
+            if (stackless_root != InvalidValue) {
+                const auto completed_leaf = node_index;
+                node_index = leaf_parent_node;
+                skip_node = completed_leaf;
+            } else {
+                node_index = stack.pop();
+                skip_node = InvalidValue;
+            }
+            continue;
+        }
+
+        if (instance_id != InvalidValue) {
+            auto triangle_nodes =
+                reinterpret_cast<TrianglePacketNode *>(primitive_nodes);
+            auto leaf_address = getNodeAddr(node_index);
+            auto triangle_pair_index = typeToTriPairIndex(node_type);
+            while (true) {
+                hip_float3 ignored_origin, ignored_direction;
+                auto intersections =
+                    __builtin_amdgcn_image_bvh8_intersect_ray(
+                        encodeBaseAddr(triangle_nodes), ray.maxT, 0xff,
+                        {ray.origin.x, ray.origin.y, ray.origin.z},
+                        {ray.direction.x, ray.direction.y, ray.direction.z},
+                        encodeNodeIndex(
+                            leaf_address,
+                            triPairIndexToType(triangle_pair_index)),
+                        {descriptor.x, descriptor.y,
+                         descriptor.z, descriptor.w},
+                        &ignored_origin, &ignored_direction);
+
+                auto t0 = __int_as_float(intersections[0]);
+                auto t1 = __int_as_float(intersections[4]);
+                auto hit0 = ray.minT <= t0 && t0 <= ray.maxT;
+                auto hit1 = ray.minT <= t1 && t1 <= ray.maxT;
+
+                while (hit0 || hit1) {
+                    const auto select_hit0 =
+                        hit0 && (!hit1 || t0 <= t1);
+                    auto candidate_result =
+                        luisa_pipeline_process_surface_candidate(
+                            state, instance_id,
+                            (select_hit0 ?
+                                 intersections[3] :
+                                 intersections[7]) >> 1u,
+                            __int_as_float(select_hit0 ?
+                                               intersections[1] :
+                                               intersections[5]),
+                            __int_as_float(select_hit0 ?
+                                               intersections[2] :
+                                               intersections[6]),
+                            select_hit0 ? t0 : t1);
+                    if ((candidate_result &
+                         LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                        ray.maxT = state->ray.maxT;
+                    }
+                    if ((candidate_result &
+                         LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                        return;
+                    }
+                    if ((candidate_result &
+                         LUISA_PIPELINE_CANDIDATE_OPAQUE) != 0u) {
+                        // Opaque pair handling matches the resumable flat
+                        // implementation: consume only the closest member.
+                        hit0 = false;
+                        hit1 = false;
+                        break;
+                    }
+                    if (select_hit0) {
+                        hit0 = false;
+                        hit1 = hit1 && t1 <= ray.maxT;
+                    } else {
+                        hit1 = false;
+                        hit0 = hit0 && t0 <= ray.maxT;
+                    }
+                }
+
+                const auto status = intersections[8] & 3u;
+                if (status == 3u) { break; }
+                triangle_pair_index++;
+                if (status == 1u) {
+                    triangle_pair_index = 0u;
+                    leaf_address++;
+                }
+            }
+        }
+
+        if (stackless_root != InvalidValue) {
+            const auto completed_leaf = node_index;
+            node_index = leaf_parent_node;
+            skip_node = completed_leaf;
+        } else {
+            node_index = stack.pop();
+            skip_node = InvalidValue;
+        }
+    }
 }
 
 static __device__ bool luisa_hiprt_hw_trace_closest(

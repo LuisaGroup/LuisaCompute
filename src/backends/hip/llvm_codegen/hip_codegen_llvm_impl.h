@@ -92,11 +92,38 @@ public:
         bool uses_motion_blur = false;
         bool uses_static_trace = false;
         bool uses_motion_ray_query = false;
+        // A RayQueryPipelineInst is the semantic boundary produced by
+        // lower_ray_query_loop for Query::trace(): candidate handlers execute
+        // synchronously and the traversal state cannot escape between them.
+        // Explicit loop/dispatch/proceed instructions retain resumable query
+        // semantics and therefore disqualify the module-wide compact ABI.
+        bool uses_ray_query_pipeline = false;
+        bool uses_resumable_ray_query_control = false;
+        // Hardware LDS traversal stacks are lane-local but not reentrant. A
+        // trace issued by a candidate handler would overwrite the suspended
+        // outer frontier, so such pipelines must retain the software path.
+        bool ray_query_pipeline_handler_uses_ray_tracing = false;
     };
 
     struct PrintInfo {
         const Type *type;
         uint32_t index;
+    };
+
+    // A synchronous RayQuery callback environment is initially emitted with
+    // the ordinary Callable ABI. Once every Callable body has been translated,
+    // arguments with no SSA use in either candidate handler can be projected
+    // out exactly. Keep the construction sites here until that proof is
+    // available; the finalizer rewrites both producer stores and consumer
+    // loads to the same compact product type.
+    struct RayQueryPipelineContext {
+        llvm::AllocaInst *storage;
+        llvm::Value *generic_storage;
+        llvm::CallInst *trace_call;
+        llvm::Function *on_surface;
+        llvm::Function *on_procedural;
+        luisa::vector<llvm::StoreInst *> stores;
+        luisa::vector<llvm::LoadInst *> loads;
     };
 
     static constexpr auto llvm_buffer_type_ptr_index = 0;
@@ -210,6 +237,7 @@ private:
     std::unique_ptr<llvm::Module> _llvm_module;
     bool _supports_hardware_rt_stack{false};
     bool _uses_hardware_rt_stack{false};
+    bool _uses_synchronous_ray_query_pipeline{false};
     bool _requires_global_rt_stack{false};
 
     RayTracingAnalysis _rt_analysis;
@@ -232,6 +260,10 @@ private:
     luisa::unordered_map<const xir::PrintInst *, PrintInfo> _print_info;
     luisa::vector<std::pair<luisa::string, const Type *>> _print_formats;
     size_t _ray_query_pipeline_count{0u};
+    llvm::Function *_llvm_ray_query_pipeline_dispatch{nullptr};
+    llvm::SwitchInst *_llvm_ray_query_pipeline_switch{nullptr};
+    luisa::vector<RayQueryPipelineContext>
+        _llvm_ray_query_pipeline_contexts;
 
     template<typename T = llvm::Value>
         requires std::derived_from<T, llvm::Value>
@@ -276,6 +308,7 @@ private:
     void _specialize_oclc_options() noexcept;
     void _link_ockl_if_needed() noexcept;
     void _postprocess_rt_kernel() noexcept;
+    void _finalize_ray_query_pipeline_contexts() noexcept;
     void _run_optimization_passes() noexcept;
     void _dump_module(const std::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_code() const noexcept;

@@ -1226,7 +1226,8 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
                 llvm_ox, llvm_oy, llvm_oz,
                 llvm_dx, llvm_dy, llvm_dz,
                 llvm_ray_t_min, llvm_ray_t_max};
-            if (!_uses_hardware_rt_stack) {
+            if (!_uses_hardware_rt_stack ||
+                _uses_synchronous_ray_query_pipeline) {
                 llvm_initialize_args.emplace_back(llvm_time);
             }
             llvm_initialize_args.emplace_back(llvm_mask);

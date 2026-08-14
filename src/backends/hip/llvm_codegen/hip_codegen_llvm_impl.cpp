@@ -84,6 +84,53 @@ hip_codegen_llvm_embedded_rt_wrapper(
         size};
 }
 
+[[nodiscard]] bool function_uses_ray_tracing_recursively(
+    const xir::Function *function,
+    llvm::DenseSet<const xir::Function *> &visited) noexcept {
+    if (function == nullptr || !visited.insert(function).second) {
+        return false;
+    }
+    auto definition = function->definition();
+    if (definition == nullptr) {
+        // A native/external callee is opaque to XIR. Treat it as potentially
+        // reentrant rather than allowing it to corrupt a suspended LDS stack.
+        return true;
+    }
+    auto uses_ray_tracing = false;
+    definition->traverse_instructions(
+        [&](const xir::Instruction *instruction) noexcept {
+            if (uses_ray_tracing) { return; }
+            if (instruction->isa<xir::ResourceQueryInst>()) {
+                auto query = static_cast<const xir::ResourceQueryInst *>(
+                    instruction);
+                switch (query->op()) {
+                    case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST:
+                    case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY:
+                    case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL:
+                    case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY:
+                    case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR:
+                    case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR:
+                    case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
+                    case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR:
+                        uses_ray_tracing = true;
+                        return;
+                    default: break;
+                }
+            }
+            for (auto operand_use : instruction->operand_uses()) {
+                if (auto operand = operand_use->value();
+                    operand != nullptr && operand->isa<xir::Function>() &&
+                    function_uses_ray_tracing_recursively(
+                        static_cast<const xir::Function *>(operand),
+                        visited)) {
+                    uses_ray_tracing = true;
+                    return;
+                }
+            }
+        });
+    return uses_ray_tracing;
+}
+
 }// namespace
 
 uint64_t hip_codegen_llvm_embedded_rt_wrapper_hash(
@@ -171,6 +218,26 @@ void HIPCodegenLLVMImpl::_analyze_ray_tracing_in_function(
     auto definition = function->definition();
     if (definition == nullptr) { return; }
     definition->traverse_instructions([&](const xir::Instruction *instruction) noexcept {
+        if (instruction->isa<xir::RayQueryPipelineInst>()) {
+            _rt_analysis.uses_ray_query_pipeline = true;
+            auto pipeline =
+                static_cast<const xir::RayQueryPipelineInst *>(instruction);
+            llvm::DenseSet<const xir::Function *> handler_visited;
+            _rt_analysis.ray_query_pipeline_handler_uses_ray_tracing |=
+                function_uses_ray_tracing_recursively(
+                    pipeline->on_surface_function(), handler_visited) ||
+                function_uses_ray_tracing_recursively(
+                    pipeline->on_procedural_function(), handler_visited);
+        } else if (instruction->isa<xir::RayQueryLoopInst>() ||
+                   instruction->isa<xir::RayQueryDispatchInst>()) {
+            _rt_analysis.uses_resumable_ray_query_control = true;
+        } else if (instruction->isa<xir::RayQueryObjectWriteInst>()) {
+            auto write = static_cast<const xir::RayQueryObjectWriteInst *>(instruction);
+            if (write->op() ==
+                xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED) {
+                _rt_analysis.uses_resumable_ray_query_control = true;
+            }
+        }
         if (instruction->isa<xir::ResourceQueryInst>()) {
             switch (static_cast<const xir::ResourceQueryInst *>(instruction)->op()) {
                 case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST: [[fallthrough]];
@@ -251,14 +318,33 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
                  "Unsupported AMDGPU architecture '{}'.", _config.amdgpu_arch);
     auto isa = llvm::AMDGPU::getIsaVersion(cpu_name);
     _supports_hardware_rt_stack = isa.Major >= 12u;
-    // Direct motion closest/any traversal has its own private stack. Only a
-    // motion ray query needs the generic dynamic stack and therefore prevents
-    // the module's static trace/query paths from using gfx12's hardware stack.
-    _uses_hardware_rt_stack = _supports_hardware_rt_stack &&
-                              !_rt_analysis.uses_motion_ray_query;
-    _requires_global_rt_stack = !_uses_hardware_rt_stack &&
-                                (_rt_analysis.uses_static_trace ||
-                                 _rt_analysis.uses_ray_query);
+    // Direct motion closest/any traversal has its own private stack. A motion
+    // ray query needs the generic dynamic stack. Candidate handlers that trace
+    // are also non-reentrant with the lane-local LDS stack and therefore keep
+    // the module on the software path.
+    _uses_hardware_rt_stack =
+        _supports_hardware_rt_stack &&
+        !_rt_analysis.uses_motion_ray_query &&
+        !_rt_analysis.ray_query_pipeline_handler_uses_ray_tracing;
+    // The compact path is selected from XIR semantics. RayQueryPipelineInst
+    // guarantees that traversal and handlers form one synchronous operation;
+    // any explicit proceed/dispatch operation or nested traversal in a handler
+    // requires the reentrant software state instead.
+    // HIPRT's dynamic stack currently linearizes x/y lanes only, so retain the
+    // legacy path for a true 3-D workgroup until that upstream ABI is extended.
+    _uses_synchronous_ray_query_pipeline =
+        _rt_analysis.uses_ray_query_pipeline &&
+        !_rt_analysis.uses_resumable_ray_query_control &&
+        !_rt_analysis.uses_motion_ray_query &&
+        !_rt_analysis.ray_query_pipeline_handler_uses_ray_tracing &&
+        _config.block_size[2] == 1u;
+    // Dynamic global-stack storage is part of the HIP ray-query kernel ABI on
+    // every architecture. The resumable gfx12 path does not consume it, but
+    // keeping the host metadata conservative lets XIR select the compact
+    // synchronous implementation without changing the already-cached AST ABI.
+    _requires_global_rt_stack =
+        _rt_analysis.uses_ray_query ||
+        (!_uses_hardware_rt_stack && _rt_analysis.uses_static_trace);
     auto requires_hiprt = _rt_analysis.uses_ray_tracing ||
                           _config.requires_ray_tracing ||
                           _config.requires_ray_query ||
@@ -612,12 +698,19 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
     {
         auto block_size = _config.block_size[0] * _config.block_size[1] * _config.block_size[2];
         LUISA_ASSERT(block_size > 0u, "Block size must be greater than zero.");
-        uint32_t shared_array_size;
+        uint32_t shared_array_size = 0u;
         if (_uses_hardware_rt_stack) {
-            constexpr uint32_t hw_stack_max_entries = 8u;
+            // The synchronous RayQuery traversal needs one complete BVH8
+            // expansion in reserve before it switches to parent-link
+            // continuation, hence 16 entries. Ordinary static trace never
+            // takes that continuation path; retain its proven 8-entry stack
+            // to avoid doubling LDS and reducing occupancy for every ray.
+            const auto hw_stack_max_entries =
+                _uses_synchronous_ray_query_pipeline ? 16u : 8u;
             // HwBvhStack: max_entries * 32 (stride) * 2 (TLAS+BLAS regions)
             // Both flat trace and ray query use HwBvhStack on gfx12.
-            constexpr uint32_t hw_lds_dwords_per_wave32 = hw_stack_max_entries * 32u * 2u;
+            const auto hw_lds_dwords_per_wave32 =
+                hw_stack_max_entries * 32u * 2u;
             auto lds_dwords_per_wave32 = hw_lds_dwords_per_wave32;
             auto num_waves = (block_size + 31u) / 32u;
             shared_array_size = num_waves * lds_dwords_per_wave32;
@@ -670,8 +763,14 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
                 LUISA_INFO("Replaced {} ds_bvh_stack dummy calls with intrinsic (MaxStackEntries={})",
                            calls_to_replace.size(), hw_stack_max_entries);
             }
-        } else {
-            shared_array_size = LUISA_HIPRT_SHARED_STACK_SIZE * block_size;
+        }
+        if (!_uses_hardware_rt_stack) {
+            // Pre-gfx12 traversal uses HIPRT's LDS-fronted dynamic stack.
+            // Synchronous gfx12 RayQuery pipelines use a private stack and do
+            // not reserve a second, overlapping shared-memory layout.
+            shared_array_size = std::max(
+                shared_array_size,
+                LUISA_HIPRT_SHARED_STACK_SIZE * block_size);
         }
         if (auto old_gv = _llvm_module->getGlobalVariable("luisa_hiprt_shared_stack_cache")) {
             auto i32_ty = llvm::Type::getInt32Ty(_llvm_context);
@@ -777,7 +876,8 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         for (auto &func : *_llvm_module) {
             auto name = func.getName();
             if (name.starts_with("luisa_ray_query_") ||
-                name.starts_with("luisa_motion_ray_query_")) {
+                name.starts_with("luisa_motion_ray_query_") ||
+                name.starts_with("luisa_pipeline_ray_query_")) {
                 func.setMemoryEffects(llvm::MemoryEffects::unknown());
                 func.removeFnAttr(llvm::Attribute::NoSync);
                 func.removeFnAttr(llvm::Attribute::WillReturn);
@@ -843,7 +943,8 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
             auto name = func.getName();
             auto is_ray_query_wrapper =
                 name.starts_with("luisa_ray_query_") ||
-                name.starts_with("luisa_motion_ray_query_");
+                name.starts_with("luisa_motion_ray_query_") ||
+                name.starts_with("luisa_pipeline_ray_query_");
             auto is_stack_overflow_fallback =
                 name.starts_with(
                     "luisa_hiprt_stack_overflow_fallback_");
@@ -870,15 +971,21 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
                 func.addFnAttr(llvm::Attribute::NoInline);
             } else if (is_ray_query_wrapper) {
-                auto is_inline_wrapper = _uses_hardware_rt_stack &&
-                                         (name == "luisa_ray_query_state" ||
-                                          name == "luisa_ray_query_advance" ||
-                                          name == "luisa_ray_query_commit_surface_hit" ||
-                                          name.starts_with("luisa_ray_query_is_") ||
-                                          name.starts_with("luisa_ray_query_candidate_") ||
-                                          (name.starts_with("luisa_ray_query_committed_") &&
-                                           name != "luisa_ray_query_committed_hit") ||
-                                          name.starts_with("luisa_ray_query_ray_"));
+                auto is_pipeline_wrapper =
+                    name.starts_with("luisa_pipeline_ray_query_");
+                auto is_inline_wrapper =
+                    is_pipeline_wrapper ?
+                        name != "luisa_pipeline_ray_query_initialize" &&
+                            name != "luisa_pipeline_ray_query_trace" :
+                        _uses_hardware_rt_stack &&
+                            (name == "luisa_ray_query_state" ||
+                             name == "luisa_ray_query_advance" ||
+                             name == "luisa_ray_query_commit_surface_hit" ||
+                             name.starts_with("luisa_ray_query_is_") ||
+                             name.starts_with("luisa_ray_query_candidate_") ||
+                             (name.starts_with("luisa_ray_query_committed_") &&
+                              name != "luisa_ray_query_committed_hit") ||
+                             name.starts_with("luisa_ray_query_ray_"));
                 if (is_inline_wrapper) {
                     func.removeFnAttr(llvm::Attribute::NoInline);
                     func.addFnAttr(llvm::Attribute::AlwaysInline);
@@ -1076,6 +1183,7 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             static_cast<void>(_translate_function(def));
         }
     }
+    _finalize_ray_query_pipeline_contexts();
 
     _link_native_include();
     for (auto f : xir_module.function_list()) {

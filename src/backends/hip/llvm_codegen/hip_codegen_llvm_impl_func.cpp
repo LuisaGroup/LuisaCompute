@@ -16,6 +16,7 @@ namespace {
 
 constexpr auto hip_hardware_ray_query_state_size = 448u;
 constexpr auto hip_software_ray_query_state_size = 576u;
+constexpr auto hip_synchronous_ray_query_state_size = 128u;
 
 }// namespace
 
@@ -187,9 +188,12 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_kernel_function(const xir::Kernel
         // traversal calls, so every unused byte becomes per-thread scratch.
         // Generic HIPRT traversal with a private instance stack uses the
         // exact 576-byte state checked in hiprt_device_wrapper.hip.
-        auto llvm_rq_state_size = _uses_hardware_rt_stack ?
-                                      hip_hardware_ray_query_state_size :
-                                      hip_software_ray_query_state_size;
+        auto llvm_rq_state_size =
+            _uses_synchronous_ray_query_pipeline ?
+                hip_synchronous_ray_query_state_size :
+            _uses_hardware_rt_stack ?
+                hip_hardware_ray_query_state_size :
+                hip_software_ray_query_state_size;
         auto llvm_rq_state_type = llvm::ArrayType::get(b.getInt8Ty(), llvm_rq_state_size);
         IB alloca_b{func_ctx.llvm_alloca_block->getTerminator()};
         auto alloca_inst = alloca_b.CreateAlloca(llvm_rq_state_type, nullptr, "rq.state");
@@ -242,9 +246,12 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_callable_function(const xir::Call
         func_ctx.llvm_rt_stack_data->setName("rt.stack.data");
     }
     if (_rt_analysis.uses_ray_query) {
-        auto llvm_rq_state_size = _uses_hardware_rt_stack ?
-                                      hip_hardware_ray_query_state_size :
-                                      hip_software_ray_query_state_size;
+        auto llvm_rq_state_size =
+            _uses_synchronous_ray_query_pipeline ?
+                hip_synchronous_ray_query_state_size :
+            _uses_hardware_rt_stack ?
+                hip_hardware_ray_query_state_size :
+                hip_software_ray_query_state_size;
         auto llvm_rq_state_type = llvm::ArrayType::get(
             llvm::Type::getInt8Ty(_llvm_context), llvm_rq_state_size);
         IB alloca_b{func_ctx.llvm_alloca_block->getTerminator()};

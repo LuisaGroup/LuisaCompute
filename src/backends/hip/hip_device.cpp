@@ -52,7 +52,7 @@ static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
 static constexpr auto hip_shader_cache_artifact_version = 2u;
 // Increment whenever the HIP AST/XIR/LLVM lowering contract changes in a way
 // that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 14u;
+static constexpr auto hip_shader_cache_codegen_revision = 33u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -465,9 +465,14 @@ namespace {
     auto uses_codegen_hardware_rt_stack =
         uses_hardware_rt_stack &&
         !builtin_callables.uses_ray_query_motion_blur();
+    // XIR may prove a Query::trace() pipeline synchronous and lower it to the
+    // HIPRT dynamic-stack path even on gfx12. Reserve that kernel argument ABI
+    // for every ray-query shader; the legacy resumable hardware-stack path can
+    // simply leave the buffer unused. This is deliberately derived from the
+    // AST capability set so cache lookup and post-XIR codegen cannot disagree.
     auto requires_global_rt_stack =
-        !uses_codegen_hardware_rt_stack &&
-        (requires_static_trace || builtin_callables.uses_ray_query());
+        builtin_callables.uses_ray_query() ||
+        (!uses_codegen_hardware_rt_stack && requires_static_trace);
 
     luisa::vector<Usage> argument_usages;
     argument_usages.reserve(kernel.arguments().size());
