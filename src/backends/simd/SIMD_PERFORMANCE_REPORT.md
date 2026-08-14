@@ -1215,38 +1215,39 @@ implementation was copied. Luisa's existing consecutive-buffer-read XIR pass
 only joins absolute constant byte offsets and is not a substitute for ISPC's
 dynamic typed-buffer gather coalescing.
 
-A fresh 32-worker, seven-process sweep covers four additional algorithms. The
-table reports `ISPC / Luisa SIMD` at the same semantic width; values above one
-mean ISPC is faster:
+A current 32-worker sweep at commit `ff4c6fc776178c08582445a3218e48bdcadf7e93`
+covers all five standalone workloads. Every variant is pinned to logical CPUs
+0--31 and run in seven balanced process rounds. The table reports the paired
+geometric mean and 95% bootstrap interval for `ISPC / Luisa SIMD` at the same
+semantic width; values above one mean ISPC is faster:
 
 | Workload | W4 AVX2 | W4 AVX-512 | W8 AVX2 | W8 AVX-512 | W16 AVX-512 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Mandelbrot | 1.358x | 1.367x | 1.413x | 1.358x | 1.514x |
-| AoS to SoA | 0.980x | 0.988x | 1.073x | 1.066x | 1.063x |
-| GEMM | 0.756x | 0.758x | 0.760x | 0.765x | 0.810x |
-| analytic path trace | 3.843x | 3.666x | 2.782x | 2.586x | 2.623x |
+| Mandelbrot | 0.949x [0.916, 0.983] | 0.955x [0.918, 0.994] | 1.038x [1.013, 1.064] | 1.005x [0.991, 1.020] | 1.107x [1.069, 1.147] |
+| masked stream | 1.074x [1.014, 1.138] | 1.042x [0.969, 1.121] | 1.102x [1.069, 1.136] | 1.050x [0.987, 1.117] | 1.073x [1.032, 1.115] |
+| AoS to SoA | 0.988x [0.881, 1.108] | 0.961x [0.880, 1.049] | 1.087x [1.001, 1.181] | 1.071x [0.973, 1.179] | 1.074x [1.003, 1.151] |
+| GEMM | 0.748x [0.725, 0.771] | 0.752x [0.730, 0.774] | 0.766x [0.742, 0.792] | 0.764x [0.740, 0.788] | 0.818x [0.788, 0.848] |
+| analytic path trace | 3.519x [3.390, 3.653] | 3.373x [3.290, 3.458] | 2.843x [2.720, 2.971] | 2.694x [2.615, 2.776] | 2.602x [2.545, 2.661] |
 
-All exact workloads are bit-identical; the asset-free analytic path tracer
-passes the independent absolute-plus-relative output gate. Luisa's fallback-
-relative geomeans at W1/W2/W4/W8/W16 are
-1.241/1.165/2.321/4.051/6.038x for Mandelbrot,
-1.202/1.225/1.203/1.126/1.113x for AoS-to-SoA,
-0.869/0.745/3.994/5.208/6.562x for GEMM, and
-1.126/0.416/0.725/1.238/1.605x for analytic path tracing. The fallback
-process was visibly noisier in the analytic path-tracing run, but the paired
-same-width ISPC/Luisa intervals are tight: at W16 the ratio is 2.623x with a
-95% interval of [2.543, 2.705].
+Mandelbrot, masked stream, AoS-to-SoA, and GEMM are bit-identical across all
+eight implementations. The asset-free analytic path tracer validates 921,600
+floats per implementation with zero tolerance violations; its maximum absolute
+and relative errors against Luisa W4 are `1.1921e-7` and `2.7532e-7`.
+The Luisa W4/W8/W16 process medians are respectively
+673.720/1,110.479/1,682.167 Mitems/s for Mandelbrot,
+5,616.805/5,299.341/5,381.545 Mitems/s for masked stream,
+2,697.364/2,449.926/2,403.942 Mitems/s for AoS-to-SoA,
+252.469/319.357/394.660 GFLOP/s for GEMM, and
+527.767/879.546/1,097.319 Mitems/s for analytic path tracing.
 
-The W8 analytic row was refreshed after paired direct-buffer leaves landed.
-Luisa's W8 process median is 842.492 Mitems/s. ISPC AVX2 x8 reaches
-2,301.782 Mitems/s and is 2.782x faster (95% paired interval
-[2.707, 2.860]); ISPC AVX-512 x8 reaches 2,233.965 Mitems/s and is 2.586x
-faster ([2.433, 2.749]). The compiler executable was passed explicitly to the
-standalone runner and remains absent from CMake. An independent disabled-oracle
-sweep put Luisa at 824.664 Mitems/s, but because that sweep did not alternate
-candidate/oracle inside the same process sequence it is supporting evidence,
-not the causal performance claim; the fourteen-pair real-render A/B above is
-the accepted gate. W4/W16 cells retain the earlier full-width sweep.
+The balanced intervals matter on this shared host: several small memory-kernel
+differences include parity, while GEMM and analytic path tracing remain
+unambiguous. Luisa is 22--34% faster than the matched ISPC GEMM variants.
+Mandelbrot is at parity through W8 and trails ISPC by 10.7% at W16. The
+analytic path tracer remains the outlier, with ISPC 2.60--3.52x faster. The
+compiler executable is passed explicitly to the standalone runner and remains
+absent from CMake; this sweep excludes fallback so every ratio is a direct
+same-width compiler comparison.
 
 ### ISPC all-on ablation and widened update checkpoint
 
