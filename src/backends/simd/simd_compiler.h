@@ -42,6 +42,7 @@ struct SIMDCompiledKernel {
     size_t unswitched_live_out_count{0u};
     size_t schedule_block_count{0u};
     size_t convergence_point_count{0u};
+    bool scalar_frame_metadata{false};
     size_t state_slot_count{0u};
     size_t coalesced_state_slot_count{0u};
     size_t spilled_instruction_count{0u};

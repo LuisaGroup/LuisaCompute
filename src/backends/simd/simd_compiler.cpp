@@ -128,6 +128,8 @@ SIMDCompiledKernel compile_simd_kernel(
     result.schedule_block_count = llvm_result.schedule_block_count;
     result.convergence_point_count =
         llvm_result.convergence_point_count;
+    result.scalar_frame_metadata =
+        llvm_result.scalar_frame_metadata;
     result.state_slot_count = llvm_result.state_slot_count;
     result.coalesced_state_slot_count =
         llvm_result.coalesced_state_slot_count;

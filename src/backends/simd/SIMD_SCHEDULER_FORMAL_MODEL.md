@@ -487,6 +487,9 @@ The bounded audit is complemented by permanent LLVM regressions for:
   W1/W2/W4/W8/W16, including a state-to-state passthrough, a two-value
   parallel-copy swap, every inactive-tail size, exact outputs, direct-CFG
   identity, and final-assembly differentiation;
+- W16 scalar-array convergence-frame metadata and its vector-storage oracle,
+  including nested same-target gates, early return, every inactive-tail size,
+  exact W1/W2/W4/W8 identity, and distinct verified W16 IR/assembly;
 - a return that completes an inner gate sharing its target with the parent,
   with a warp collective proving that the released lanes cascade through both
   gates before the target executes;
@@ -504,7 +507,7 @@ refinement.
 | ready/runnable mask | `runnable.mask`, `ready.mask.*`, and `current.mask` |
 | `pc[l]` | the current LLVM block plus bounded scalar `ready.target.*` records selected by `ready.mask.*`; normal pops and a proven direct divergent child feed one shared `scheduler.dispatch.route`; no per-lane PC vector is materialized |
 | `token[l]` | one scalar `current.token` for the executing cohort plus one scalar `ready.token.*` in each suspended record; no per-lane token vector is materialized |
-| frame active/static ID/parent | scalar `iW` bitset `frame.active`, plus `frame.static.id` and `frame.parent.token` |
+| frame active/static ID/parent | scalar `iW` bitset `frame.active`; `frame.static.id` and `frame.parent.token` use `<W x i32>` at W1/W2/W4/W8 and dynamically addressed `[16 x i32]` scalar slots at W16 |
 | frame expected/arrived | `frame.expected`, `frame.arrived` |
 | static convergence target map | immutable LLVM vector at W1/W2 or private constant array at W4/W8/W16; both map the checked frame static ID to the same Schedule block ID |
 | loop epochs | dynamic frame/worklist-record identity plus Schedule IR loop membership; no `loop.epoch.*` alloca is materialized |
@@ -530,6 +533,16 @@ implementation when `current.token == 0`, and terminates a completed chain when
 the restored parent token is zero. These branches implement the target-arrival
 identity above. `LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD=1` retains the
 unshortened refinement for differential execution tests.
+
+The W16 array representation of static IDs and parent tokens is another LLVM
+storage refinement. The transition system still observes one active-frame
+bit, one static ID, and one parent token at the current scalar frame index.
+The emitter's active-frame checks and zero-token index sanitization precede
+each access, so replacing dynamic vector extract/insert operations with scalar
+array loads/stores neither creates an out-of-range transition nor reads an
+inactive frame. `LUISA_SIMD_DISABLE_SCALAR_FRAME_METADATA=1` restores the
+vector storage for differential execution. W1/W2/W4/W8 deliberately retain
+that oracle representation because scalar slots were slower at those widths.
 
 The direct-child LIFO refinement is enabled only at W4/W8/W16 when the
 function has at least 32 state slots. That threshold is a code-generation

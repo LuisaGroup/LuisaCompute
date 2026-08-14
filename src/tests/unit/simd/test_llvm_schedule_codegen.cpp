@@ -2508,6 +2508,115 @@ template<size_t Width>
     return true;
 }
 
+[[nodiscard]] bool run_scalar_frame_metadata_codegen() {
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        auto schedule_function =
+            make_return_convergence_cascade(width);
+        CHECK(schedule_function.has_value());
+        struct RunResult {
+            bool scalar_frame_metadata{false};
+            std::string ir;
+            std::string assembly;
+            std::vector<std::vector<uint32_t>> outputs;
+        };
+        auto run = [&](bool disable) -> std::optional<RunResult> {
+            ScopedEnvironmentVariable setting{
+                "LUISA_SIMD_DISABLE_SCALAR_FRAME_METADATA",
+                disable ? "1" : nullptr};
+            auto context = std::make_unique<::llvm::LLVMContext>();
+            auto module = std::make_unique<::llvm::Module>(
+                "simd-scalar-frame-metadata", *context);
+            auto name =
+                std::string{"simd_scalar_frame_metadata_w"} +
+                std::to_string(width);
+            auto codegen = lower_schedule_to_llvm(
+                *module, *schedule_function, width, name);
+            if (!codegen.succeeded() ||
+                ::llvm::verifyModule(*module, &::llvm::errs())) {
+                if (!codegen.error.empty()) {
+                    std::cerr << codegen.error << '\n';
+                }
+                return std::nullopt;
+            }
+            RunResult result{
+                .scalar_frame_metadata =
+                    codegen.scalar_frame_metadata,
+            };
+            ::llvm::raw_string_ostream stream{result.ir};
+            module->print(stream, nullptr);
+            stream.flush();
+            LLVMJIT jit;
+            if (!jit.succeeded()) { return std::nullopt; }
+            result.assembly = jit.emit_assembly_copy(*module);
+            if (result.assembly.empty() ||
+                !jit.add_module(
+                    std::move(module), std::move(context))) {
+                return std::nullopt;
+            }
+            using Entry = void(
+                const void *, uint32_t *,
+                const SIMDPacketLaunchConfig *, uint32_t);
+            auto *function = reinterpret_cast<Entry *>(
+                jit.lookup(name));
+            if (function == nullptr) { return std::nullopt; }
+            result.outputs.reserve(width + 1u);
+            for (auto active_lanes = uint32_t{0u};
+                 active_lanes <= width; active_lanes++) {
+                auto &output = result.outputs.emplace_back(
+                    width, 0xdeadbeefu);
+                auto config = launch_1d(active_lanes, width);
+                function(
+                    nullptr, output.data(),
+                    &config, active_lanes);
+            }
+            return result;
+        };
+
+        auto candidate = run(false);
+        auto oracle = run(true);
+        CHECK(candidate.has_value());
+        CHECK(oracle.has_value());
+        CHECK(!oracle->scalar_frame_metadata);
+        CHECK(candidate->scalar_frame_metadata == (width == 16u));
+        CHECK(candidate->outputs == oracle->outputs);
+        if (width == 16u) {
+            CHECK(candidate->ir != oracle->ir);
+            CHECK(candidate->assembly != oracle->assembly);
+            CHECK(candidate->ir.find(
+                      "frame.static.id = alloca [16 x i32]") !=
+                  std::string::npos);
+            CHECK(candidate->ir.find(
+                      "frame.parent.token = alloca [16 x i32]") !=
+                  std::string::npos);
+            CHECK(oracle->ir.find(
+                      "frame.static.id = alloca <16 x i32>") !=
+                  std::string::npos);
+            CHECK(oracle->ir.find(
+                      "frame.parent.token = alloca <16 x i32>") !=
+                  std::string::npos);
+        } else {
+            CHECK(candidate->ir == oracle->ir);
+            CHECK(candidate->assembly == oracle->assembly);
+        }
+        for (auto active_lanes = uint32_t{0u};
+             active_lanes <= width; active_lanes++) {
+            auto early_count =
+                std::min(active_lanes, 4u) -
+                std::min(active_lanes, 2u);
+            auto expected_live = active_lanes - early_count;
+            for (auto lane = uint32_t{0u}; lane < width; lane++) {
+                auto expected =
+                    lane >= active_lanes    ? 0xdeadbeefu :
+                    lane >= 2u && lane < 4u ? lane + 100u :
+                                              expected_live;
+                CHECK(candidate->outputs[active_lanes][lane] ==
+                      expected);
+            }
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_compiler_facade() {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -7093,6 +7202,8 @@ int main() {
          &run_non_dominating_convergence_codegen},
         {"return convergence cascade",
          &run_return_convergence_cascade_codegen},
+        {"W16 scalar frame metadata",
+         &run_scalar_frame_metadata_codegen},
         {"XIR compiler facade", &run_compiler_facade},
         {"XIR buffer vector gather/scatter", &run_buffer_vector_codegen},
         {"paired direct-buffer leaf gather",

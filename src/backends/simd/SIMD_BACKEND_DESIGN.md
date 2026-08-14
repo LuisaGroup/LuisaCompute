@@ -20,6 +20,10 @@ convergence arrival. The current scheduler stage additionally coalesces
 move-related PHI state slots under an exact per-lane liveness/interference
 proof. Logical Schedule values remain distinct, while nonoverlapping versions
 reuse one physical fixed-vector slot and their identity copies disappear.
+The latest W16 refinement stores dynamically indexed convergence-frame static
+IDs and parent tokens in scalar LLVM arrays. Narrower widths retain the vector
+representation because paired measurements found it faster there; the frame
+semantics and target-independent IR contract are unchanged.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -367,6 +371,26 @@ the dynamic target check. `LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD=1`
 restores the unconditional bounded cascade as a same-binary oracle, while
 `convergence_token_guards` reports the number of destination cascades carrying
 the refinement.
+
+The two dynamically indexed 32-bit metadata fields of each frame,
+`frame.static.id` and `frame.parent.token`, have a width-specific physical
+layout. W1/W2/W4/W8 retain `<W x i32>` allocas: loading and updating the whole
+small vector is profitable after LLVM promotion. W16 instead uses
+`[16 x i32]` and scalar GEP/load/store at the already checked frame index.
+This avoids dynamic `extractelement`/`insertelement` lowering and reduces the
+live 512-bit state that competed for registers in scheduler-heavy kernels.
+`frame.active` remains one scalar `iW` bitset and expected/arrived masks retain
+their established representation. The active-frame proof and the existing
+zero-token sanitization ensure that array GEPs are formed only with a valid or
+sanitized index; the storage choice does not extend the set of legal accesses.
+
+This is a measured code-generation policy, not a semantic width rule.
+Scalar arrays regressed the analytic control at W4 and W8 and are therefore
+rejected there; they passed independent analytic, Voxel, ordinary path-tracing,
+and cutout gates at W16. `LUISA_SIMD_DISABLE_SCALAR_FRAME_METADATA=1` restores
+the vector representation as a same-binary oracle, and
+`scalar_frame_metadata` reports whether the W16 layout was selected. Statically
+coherent direct CFG allocates no frames and reports false.
 
 The first bounded loop-unswitch refinement is implemented before Schedule IR
 construction. It accepts one innermost, positive constant-trip natural loop per

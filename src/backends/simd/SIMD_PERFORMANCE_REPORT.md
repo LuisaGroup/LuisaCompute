@@ -47,6 +47,10 @@ exact per-lane liveness/interference proof shows that their logical lifetimes
 do not overlap. This removes redundant masked copies and lets LLVM retain the
 smaller physical state set in SSA/registers; a same-binary oracle preserves
 the previous slot layout.
+The newest W16-only stage stores dynamically indexed convergence-frame static
+IDs and parent tokens in scalar LLVM arrays, avoiding whole-vector dynamic
+updates and reducing scheduler register/stack pressure. W1/W2/W4/W8 keep the
+previous vector layout after independent rejection gates.
 
 ## Test host and method
 
@@ -1239,38 +1243,42 @@ dynamic typed-buffer gather coalescing.
 A current 32-worker sweep including the direct divergent-child route covers
 the first four standalone workloads in seven balanced process rounds. Because
 the initial path-trace sweep encountered more shared-host noise, that row is
-replaced wholesale by a separate fifteen-round run. Every variant is pinned
-to logical CPUs 0--31. The table reports the paired geometric mean and 95%
-log-space Student-t interval for `ISPC / Luisa SIMD` at the same semantic
-width; values above one mean ISPC is faster:
+replaced wholesale by a separate fifteen-round run. The W16 scalar-frame
+checkpoint independently refreshes Mandelbrot, masked stream, AoS-to-SoA, and
+analytic path tracing with thirty alternating rounds; direct-CFG GEMM retains
+its unchanged prior measurement. Every variant is pinned to logical CPUs
+0--31. The table reports the paired geometric mean and 95% log-space Student-t
+interval for `ISPC / Luisa SIMD` at the same semantic width; values above one
+mean ISPC is faster:
 
 | Workload | W4 AVX2 | W4 AVX-512 | W8 AVX2 | W8 AVX-512 | W16 AVX-512 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Mandelbrot | 0.928x [0.904, 0.953] | 0.921x [0.904, 0.938] | 1.011x [0.989, 1.033] | 0.985x [0.967, 1.003] | 1.088x [1.075, 1.102] |
-| masked stream | 1.000x [0.954, 1.047] | 1.000x [0.958, 1.043] | 1.071x [1.032, 1.111] | 1.066x [1.029, 1.104] | 1.116x [1.072, 1.162] |
-| AoS to SoA | 0.991x [0.939, 1.045] | 0.960x [0.892, 1.033] | 1.107x [1.015, 1.206] | 1.075x [1.036, 1.115] | 1.058x [1.017, 1.100] |
+| Mandelbrot | 0.928x [0.904, 0.953] | 0.921x [0.904, 0.938] | 1.011x [0.989, 1.033] | 0.985x [0.967, 1.003] | 1.078x [1.068, 1.087] |
+| masked stream | 1.000x [0.954, 1.047] | 1.000x [0.958, 1.043] | 1.071x [1.032, 1.111] | 1.066x [1.029, 1.104] | 1.093x [1.076, 1.111] |
+| AoS to SoA | 0.991x [0.939, 1.045] | 0.960x [0.892, 1.033] | 1.107x [1.015, 1.206] | 1.075x [1.036, 1.115] | 1.053x [1.033, 1.072] |
 | GEMM | 0.754x [0.743, 0.765] | 0.750x [0.745, 0.754] | 0.755x [0.743, 0.767] | 0.762x [0.749, 0.776] | 0.801x [0.779, 0.825] |
-| analytic path trace | 2.161x [2.103, 2.222] | 2.024x [1.927, 2.126] | 2.130x [2.047, 2.216] | 2.007x [1.899, 2.120] | 2.114x [2.012, 2.222] |
+| analytic path trace | 2.161x [2.103, 2.222] | 2.024x [1.927, 2.126] | 2.130x [2.047, 2.216] | 2.007x [1.899, 2.120] | 2.199x [2.176, 2.222] |
 
 Mandelbrot, masked stream, AoS-to-SoA, and GEMM are bit-identical across all
 eight implementations. The asset-free analytic path tracer validates 921,600
 floats per implementation with zero tolerance violations; its maximum absolute
 and relative errors against Luisa W4 are `1.1921e-7` and `2.7532e-7`.
 The Luisa W4/W8/W16 process medians are respectively
-708.907/1,173.274/1,745.410 Mitems/s for Mandelbrot,
-6,266.961/5,734.358/5,665.303 Mitems/s for masked stream,
-2,752.720/2,578.397/2,563.350 Mitems/s for AoS-to-SoA,
+708.907/1,173.274/1,755.470 Mitems/s for Mandelbrot,
+6,266.961/5,734.358/5,627.028 Mitems/s for masked stream,
+2,752.720/2,578.397/2,562.839 Mitems/s for AoS-to-SoA,
 263.854/344.693/431.829 GFLOP/s for GEMM, and
-871.429/1,157.886/1,293.358 Mitems/s for analytic path tracing.
+871.429/1,157.886/1,315.437 Mitems/s for analytic path tracing.
 
 The balanced intervals matter on this shared host: several small memory-kernel
 differences include parity, while GEMM and analytic path tracing remain
 unambiguous. Luisa is 25--33% faster than the matched-width ISPC GEMM
-variants. Mandelbrot is at parity through W8 and trails ISPC by 8.8% at W16.
+variants. Mandelbrot is at parity through W8 and trails ISPC by 7.8% at W16.
 The analytic path tracer remains the outlier: the matched ISPC targets are
-2.01--2.16x faster. Their process medians are 1,850.996/1,776.445 Mitems/s at
-W4 AVX2/AVX-512, 2,380.414/2,372.723 Mitems/s at W8, and 2,889.757 Mitems/s
-at W16. All fifteen paired rounds favor ISPC. The
+2.01--2.20x faster. Their process medians are 1,850.996/1,776.445 Mitems/s at
+W4 AVX2/AVX-512, 2,380.414/2,372.723 Mitems/s at W8, and 2,902.211 Mitems/s
+at W16. All fifteen W4/W8 rounds and all thirty refreshed W16 rounds favor
+ISPC. The
 compiler executable is passed explicitly to the standalone runner and remains
 absent from CMake; this sweep excludes fallback so every ratio is a direct
 same-width compiler comparison.
@@ -1636,6 +1644,71 @@ direct CFG, while SDF and Spacex have no eligible move chain; their final
 objects are unchanged. The refreshed fallback and ISPC tables above include
 this retained state layout.
 
+### W16 scalar convergence-frame metadata
+
+The scheduler's dynamically indexed `frame.static.id` and
+`frame.parent.token` fields previously used `<W x i32>` allocas at every
+width. LLVM lowers a W16 dynamic update through whole-vector
+extract/insert/broadcast operations and may keep several 512-bit values live
+through the dispatcher. The retained W16 policy instead uses `[16 x i32]`
+arrays and scalar GEP/load/store. Active-frame and zero-token checks already
+provide a valid or sanitized scalar index; frame masks, targets, tokens, and
+the formal transition are unchanged. The same-binary vector oracle is
+`LUISA_SIMD_DISABLE_SCALAR_FRAME_METADATA=1`, and the runtime report exposes
+`scalar_frame_metadata`.
+
+This is deliberately W16-only. Fifteen alternating single-core analytic
+candidate/oracle processes rejected the scalar layout at W4 and W8:
+
+| Width | candidate/oracle throughput | 95% paired CI | wins |
+| ---: | ---: | ---: | ---: |
+| W4 | 0.9609x | [0.9580, 0.9638] | 0/15 |
+| W8 | 0.9885x | [0.9815, 0.9956] | 3/15 |
+
+The same W16 experiment was positive. An independent thirty-pair run measured
+1.0129x [1.0014, 1.0245] with 27/30 wins; candidate/oracle medians were
+132.602/130.439 Mitems/s and every result retained checksum
+`a93089e651f98582`. Its exact optimized entry body changes as follows:
+
+| Analytic W16 entry | vector oracle | scalar metadata |
+| --- | ---: | ---: |
+| static instructions | 3,752 | 3,601 |
+| vector instructions | 1,739 | 1,546 |
+| static branches | 467 | 471 |
+| stack references | 709 | 657 |
+| stack allocation | 7,104 B | 2,792 B |
+| calls / scalar-math calls | 0 / 0 | 0 / 0 |
+
+The four-extra-branch result is another reason not to select this refinement
+from static size alone: reduced dynamic vector updates and register/stack
+pressure, rather than branch count, determine its W16 gain.
+
+Real examples were measured with the same binary and alternating oracle order.
+Ten W16 Voxel pairs, each repeating 256 renders on 32 workers, measured
+1.0284x [1.0139, 1.0432] with 10/10 wins and candidate/oracle medians of
+4.976/5.073 ms. Seven ordinary Embree path-tracing pairs at 128 spp were
+neutral-positive at 1.0032x [0.9935, 1.0130] with 5/7 wins and medians of
+77.371/77.110 spp/s. Seven 64-spp cutout pairs measured 1.0101x
+[1.0014, 1.0189] with 5/7 wins and medians of 43.605/43.131 spp/s. The Voxel
+main entry shrinks from 3,237 to 3,124 instructions, 1,512 to 1,355 vector
+instructions, 651 to 646 stack references, and a 7,872-byte to 4,800-byte
+frame; its three calls and two scalar-math calls are unchanged. These gates
+justify W16 while the explicit W4/W8 rejection prevents a blanket scalar-state
+policy.
+
+A later final-binary fallback refresh ran while the machine's one-minute load
+average was 17.5 and is retained as a conservative contention snapshot rather
+than replacing the balanced all-width table above. Seven adjacent W16/fallback
+pairs measured Voxel at 1.1552x [1.1393, 1.1713] with 7/7 wins, ordinary path
+tracing at 1.0623x [1.0522, 1.0725] with 7/7 wins, and cutout at 0.6900x
+[0.6683, 0.7124] with 0/7 wins. Their W16 medians were 6.094 ms,
+77.615 spp/s, and 45.160 spp/s respectively. The Voxel absolute time is 22%
+slower than the 4.976-ms candidate median in the isolated candidate/oracle
+gate, confirming that the shared-host epoch is not interchangeable with the
+earlier all-width distribution. Both epochs nevertheless agree on the signs:
+W16 beats fallback on Voxel and ordinary path tracing, while sparse cutout
+query traffic remains slower than fallback.
+
 ## Interpreting widths
 
 W8 is a semantic fixed-vector width, not an AVX-512 contract. On this host LLVM
@@ -1850,3 +1923,18 @@ objects, reports zero scalar-math calls for every kernel, and has no unresolved
 scalar f32 libm symbol; the backend dynamically references all
 `rtcIntersect4/8/16` and `rtcOccluded4/8/16` packet entries. All gallery and
 object artifacts remain in temporary directories.
+
+The W16 scalar-frame-metadata stage completed fresh full builds of both Release
+trees, the required native-math/fallback-math/runtime-width/Schedule-codegen
+gate (4/4), the SIMD-only suite (129/129), and the complete SIMD+fallback suite
+(140/140). The seven standalone-driver tests, clang-format, diff, and clangd
+syntax checks also pass. The permanent W1/W2/W4/W8/W16 regression covers all
+tail sizes from zero through W, nested same-target convergence, early return,
+exact candidate/oracle outputs, byte-identical W1/W2/W4/W8 IR and assembly,
+and the required W16 array/vector code-shape distinction. Fresh W16 candidate
+and oracle galleries pass Voxel at 82.83 dB, ordinary 1024-spp Embree path
+tracing at 39.22 dB, and 1024-spp cutout at 44.17 dB; each candidate/oracle PNG
+pair is byte-identical. Both path tracers report native Embree 4.4.1
+W4/W8/W16 packet support enabled. A thirty-round standalone W16/ISPC refresh
+supplies the current table above; the ISPC executable and generated objects
+remain outside CMake and the repository.

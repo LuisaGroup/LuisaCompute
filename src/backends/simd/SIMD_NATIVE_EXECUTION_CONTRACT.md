@@ -267,6 +267,26 @@ completes the cascade. The unoptimized module is retained as a semantic oracle;
 the optimized module must also contain the named token guard and pass LLVM
 verification.
 
+The physical representation of convergence-frame static IDs and parent tokens
+is independently selectable without changing those token/cascade semantics.
+W1/W2/W4/W8 use `<W x i32>` storage. W16 uses `[16 x i32]` plus scalar
+GEP/load/store at the checked dynamic frame index, reducing dynamic whole-ZMM
+updates and register pressure. Active-frame validity is established before the
+access, and the no-token path supplies index zero only to control flow that is
+otherwise masked or bypassed; the array form introduces no speculative
+out-of-bounds access. `frame.active`, expected masks, arrived masks, ready
+records, and convergence-target lookup are unchanged.
+
+`LUISA_SIMD_DISABLE_SCALAR_FRAME_METADATA=1` is the same-binary W16 oracle.
+The runtime optimization report exposes `scalar_frame_metadata`; direct CFG
+and W1/W2/W4/W8 report false. Permanent coverage uses a nested same-target
+convergence cascade with early return, all active-lane counts from zero through
+W, inactive sentinels, exact candidate/oracle output equality, W16 array versus
+vector IR/assembly checks, and byte-identical W1/W2/W4/W8 IR/assembly. The
+width restriction is performance policy: W4 and W8 scalar arrays failed paired
+throughput gates, while W16 passed both compiler-control and real-example
+gates.
+
 Permanent code-shape and execution regressions cover a divergent diamond, a
 natural loop, a switch inside a loop with early exits, and an inactive W1
 dispatch. The unoptimized W1 module is rejected if it contains

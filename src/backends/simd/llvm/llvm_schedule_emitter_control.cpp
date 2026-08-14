@@ -187,6 +187,33 @@ void ScheduleEmitter::_apply_assignments(
         array, frames, {_builder.getInt32(0u), index});
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_frame_metadata(
+    ::llvm::AllocaInst *frames, ::llvm::Value *index) {
+    auto *type = frames->getAllocatedType();
+    if (auto *array = ::llvm::dyn_cast<::llvm::ArrayType>(type)) {
+        auto *pointer = _builder.CreateInBoundsGEP(
+            array, frames, {_builder.getInt32(0u), index});
+        return _builder.CreateLoad(array->getElementType(), pointer);
+    }
+    auto *values = _builder.CreateLoad(type, frames);
+    return _builder.CreateExtractElement(values, index);
+}
+
+void ScheduleEmitter::_store_frame_metadata(
+    ::llvm::AllocaInst *frames, ::llvm::Value *index,
+    ::llvm::Value *value) {
+    auto *type = frames->getAllocatedType();
+    if (auto *array = ::llvm::dyn_cast<::llvm::ArrayType>(type)) {
+        auto *pointer = _builder.CreateInBoundsGEP(
+            array, frames, {_builder.getInt32(0u), index});
+        _builder.CreateStore(value, pointer);
+        return;
+    }
+    auto *values = _builder.CreateLoad(type, frames);
+    _builder.CreateStore(
+        _builder.CreateInsertElement(values, value, index), frames);
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_convergence_target(
     ::llvm::Value *static_id) {
     if (auto *global = ::llvm::dyn_cast<::llvm::GlobalVariable>(
@@ -246,10 +273,8 @@ void ScheduleEmitter::_declare_convergence(
         _frame_active->getAllocatedType(), _frame_active);
     auto *current_active = _frame_is_active(
         active_frames, current_index);
-    auto *static_ids = _builder.CreateLoad(
-        _frame_static_id->getAllocatedType(), _frame_static_id);
-    auto *current_static = _builder.CreateExtractElement(
-        static_ids, current_index);
+    auto *current_static = _load_frame_metadata(
+        _frame_static_id, current_index);
     auto *reuse = _builder.CreateAnd(
         has_current,
         _builder.CreateAnd(
@@ -279,23 +304,19 @@ void ScheduleEmitter::_declare_convergence(
             allocate, allocated_frames, active_frames),
         _frame_active);
 
-    auto *old_static = _builder.CreateExtractElement(
-        static_ids, free_index);
+    auto *old_static = _load_frame_metadata(
+        _frame_static_id, free_index);
     auto *new_static = _builder.CreateSelect(
         allocate, _builder.getInt32(convergence.value), old_static);
-    _builder.CreateStore(
-        _builder.CreateInsertElement(
-            static_ids, new_static, free_index),
-        _frame_static_id);
+    _store_frame_metadata(
+        _frame_static_id, free_index, new_static);
 
-    auto *parents = _builder.CreateLoad(
-        _frame_parent_token->getAllocatedType(), _frame_parent_token);
-    auto *old_parent = _builder.CreateExtractElement(parents, free_index);
+    auto *old_parent = _load_frame_metadata(
+        _frame_parent_token, free_index);
     auto *new_parent = _builder.CreateSelect(
         allocate, current_token, old_parent);
-    _builder.CreateStore(
-        _builder.CreateInsertElement(parents, new_parent, free_index),
-        _frame_parent_token);
+    _store_frame_metadata(
+        _frame_parent_token, free_index, new_parent);
 
     auto *expected_ptr = _frame_mask_pointer(
         _frame_expected, free_index);
@@ -337,9 +358,8 @@ void ScheduleEmitter::_declare_convergence(
     auto *active_frames = _builder.CreateLoad(
         _frame_active->getAllocatedType(), _frame_active);
     auto *frame_active = _frame_is_active(active_frames, index);
-    auto *static_ids = _builder.CreateLoad(
-        _frame_static_id->getAllocatedType(), _frame_static_id);
-    auto *static_id = _builder.CreateExtractElement(static_ids, index);
+    auto *static_id = _load_frame_metadata(
+        _frame_static_id, index);
     auto *dynamic_target = _load_convergence_target(static_id);
     auto *matches = _builder.CreateAnd(
         has_token,
@@ -388,9 +408,8 @@ void ScheduleEmitter::_declare_convergence(
 
     auto *released = _builder.CreateSelect(
         _splat(complete), new_arrived, _zero_mask());
-    auto *parents = _builder.CreateLoad(
-        _frame_parent_token->getAllocatedType(), _frame_parent_token);
-    auto *parent_token = _builder.CreateExtractElement(parents, index);
+    auto *parent_token = _load_frame_metadata(
+        _frame_parent_token, index);
     _builder.CreateStore(
         _builder.CreateSelect(complete, parent_token, token),
         _current_token);
@@ -907,16 +926,10 @@ void ScheduleEmitter::_emit_terminator(
                             complete, released_frames, active_frames),
                         _frame_active);
 
-                    auto *parents = _builder.CreateLoad(
-                        _frame_parent_token->getAllocatedType(),
-                        _frame_parent_token);
-                    auto *parent = _builder.CreateExtractElement(
-                        parents, index);
-                    auto *static_ids = _builder.CreateLoad(
-                        _frame_static_id->getAllocatedType(),
-                        _frame_static_id);
-                    auto *static_id = _builder.CreateExtractElement(
-                        static_ids, index);
+                    auto *parent = _load_frame_metadata(
+                        _frame_parent_token, index);
+                    auto *static_id = _load_frame_metadata(
+                        _frame_static_id, index);
                     if (_convergence_targets != nullptr) {
                         auto *target = _load_convergence_target(static_id);
                         // The target entry performs the same dynamic cascade
@@ -1136,8 +1149,22 @@ void ScheduleEmitter::_allocate_state() {
     if (!_direct_control_flow) {
         auto *mask_type = _layout.mask_type();
         auto *zero_mask = ::llvm::Constant::getNullValue(mask_type);
-        auto *i32_lanes = ::llvm::FixedVectorType::get(
-            _builder.getInt32Ty(), _width);
+        // Dynamic whole-vector frame updates are cheaper through promoted
+        // vectors at W1--W8, but measurably increase register/stack pressure
+        // at W16. Keep this width policy independently A/B-testable.
+        _use_scalar_frame_metadata =
+            _width == 16u &&
+            !luisa::compute::detail::env_flag(
+                "LUISA_SIMD_DISABLE_SCALAR_FRAME_METADATA");
+        _result.scalar_frame_metadata =
+            _use_scalar_frame_metadata;
+        auto *i32_lanes = _use_scalar_frame_metadata ?
+                              static_cast<::llvm::Type *>(
+                                  ::llvm::ArrayType::get(
+                                      _builder.getInt32Ty(), _width)) :
+                              static_cast<::llvm::Type *>(
+                                  ::llvm::FixedVectorType::get(
+                                      _builder.getInt32Ty(), _width));
         auto *zero_i32_lanes = ::llvm::Constant::getNullValue(i32_lanes);
         auto *frame_active_type = ::llvm::IntegerType::get(
             _module.getContext(), _width);

@@ -238,6 +238,7 @@ SIMDShader::SIMDShader(
             "direct_divergent_children={}, "
             "direct_control_flow={}, "
             "schedule_blocks={}, convergence_points={}, "
+            "scalar_frame_metadata={}, "
             "state_slots={}, coalesced_state_slots={}, "
             "instruction_spills={}, cold_slots={}, "
             "stack_pinned_slots={}, "
@@ -267,6 +268,7 @@ SIMDShader::SIMDShader(
             _compiled.direct_control_flow,
             _compiled.schedule_block_count,
             _compiled.convergence_point_count,
+            _compiled.scalar_frame_metadata,
             _compiled.state_slot_count,
             _compiled.coalesced_state_slot_count,
             _compiled.spilled_instruction_count,

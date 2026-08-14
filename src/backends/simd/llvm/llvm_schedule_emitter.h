@@ -51,6 +51,7 @@ private:
     bool _enable_uniform_buffer_broadcast{true};
     bool _enable_lane_affine_buffer{true};
     bool _enable_paired_leaf_gather{false};
+    bool _use_scalar_frame_metadata{false};
     bool _direct_control_flow{false};
     LLVMScheduleCodegenResult _result{};
     LLVMValueLayout _layout;
@@ -381,6 +382,11 @@ private:
         ::llvm::Value *active_bits, ::llvm::Value *index);
     [[nodiscard]] ::llvm::Value *_frame_mask_pointer(
         ::llvm::AllocaInst *frames, ::llvm::Value *index);
+    [[nodiscard]] ::llvm::Value *_load_frame_metadata(
+        ::llvm::AllocaInst *frames, ::llvm::Value *index);
+    void _store_frame_metadata(
+        ::llvm::AllocaInst *frames, ::llvm::Value *index,
+        ::llvm::Value *value);
     [[nodiscard]] ::llvm::Value *_load_convergence_target(
         ::llvm::Value *static_id);
     [[nodiscard]] ::llvm::Value *_ready_element_pointer(
