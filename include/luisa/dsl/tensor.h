@@ -59,9 +59,11 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>// luisa::format
-#include <luisa/core/stl/memory.h>// luisa::unique_ptr / shared_ptr
+#include <luisa/core/stl/memory.h>// luisa::unique_ptr / shared_ptr / span
 #include <luisa/core/stl/string.h>// luisa::string
 #include <luisa/ast/tile_function_builder.h>// TileFunctionBuilder / TensorExpr / TensorStmt
+#include <luisa/ast/tile_to_kernel.h>        // tile_to_kernel / TileCompileResult
+#include <luisa/dsl/func.h>                  // luisa::compute::Kernel for typed tile kernels
 
 #include <array>
 #include <cstdint>
@@ -209,6 +211,155 @@ struct tensor_element_type<fp4> {
 };
 template<typename T>
 inline constexpr auto tensor_element_type_v = tensor_element_type<T>::value;
+
+// Runtime element size of an AST TensorElementType.
+inline size_t tensor_element_type_size_bytes(TensorElementType t) noexcept {
+    switch (t) {
+        case TensorElementType::F16: return sizeof(::luisa::half);
+        case TensorElementType::F32: return sizeof(float);
+        case TensorElementType::I32: return sizeof(int);
+        case TensorElementType::I8: return sizeof(::luisa::byte);
+        case TensorElementType::FP8: return 1u;
+        case TensorElementType::I4: return 1u;
+        case TensorElementType::FP4: return 1u;
+        default: return 0u;
+    }
+}
+
+// DSL dtype handle -> C++ runtime element type used by luisa::compute::Buffer<T>.
+template<typename T>
+struct tile_dtype_to_runtime {
+    using type = T;
+};
+
+template<> struct tile_dtype_to_runtime<half> { using type = ::luisa::half; };
+template<> struct tile_dtype_to_runtime<float32> { using type = float; };
+template<> struct tile_dtype_to_runtime<int32> { using type = int; };
+template<> struct tile_dtype_to_runtime<int8> { using type = ::luisa::byte; };
+
+// fp8 / int4 / fp4 are not exposed as C++ Buffer<T> element types, so the typed
+// wrapper intentionally rejects them; use the type-less manual Kernel<> path.
+template<> struct tile_dtype_to_runtime<fp8> { using type = void; };
+template<> struct tile_dtype_to_runtime<int4> { using type = void; };
+template<> struct tile_dtype_to_runtime<fp4> { using type = void; };
+
+template<typename T>
+using tile_dtype_to_runtime_t = typename tile_dtype_to_runtime<T>::type;
+
+// Recognise runtime buffer-like resources.
+template<typename T>
+struct is_buffer_like : std::false_type {};
+template<typename T>
+struct is_buffer_like< ::luisa::compute::Buffer<T>> : std::true_type {};
+template<typename T>
+struct is_buffer_like< ::luisa::compute::BufferView<T>> : std::true_type {};
+
+template<typename T>
+inline constexpr bool is_buffer_like_v = is_buffer_like<std::remove_cvref_t<T>>::value;
+
+// Metadata for one global tensor argument extracted from the traced tile IR.
+struct GlobalTensorInfo {
+    TensorElementType dtype;
+    luisa::fixed_vector<int32_t, 4> dims;
+};
+
+inline luisa::vector<GlobalTensorInfo> collect_global_tensors(
+    luisa::shared_ptr<const TileFunctionBuilder> builder) noexcept {
+    luisa::vector<GlobalTensorInfo> out;
+    if (!builder) return out;
+    for (auto *stmt : builder->body()->statements()) {
+        if (stmt->op() != TileOpKind::ALLOC) continue;
+        auto *alloc = static_cast<const AllocStmt *>(stmt);
+        if (alloc->scope() != TensorScope::Global) continue;
+        out.push_back(GlobalTensorInfo{
+            alloc->dtype(),
+            luisa::fixed_vector<int32_t, 4>{alloc->dims().begin(), alloc->dims().end()}});
+    }
+    return out;
+}
+
+// Total byte size of a shaped tensor; returns 0 when the shape is unknown
+// (placeholder arguments are traced with zero dims) or empty.
+inline int64_t tensor_total_size_bytes(TensorElementType dtype,
+                                       luisa::span<const int32_t> dims) noexcept {
+    if (dims.empty()) return 0;
+    int64_t elements = 1;
+    for (auto d : dims) {
+        if (d <= 0) return 0;
+        elements *= static_cast<int64_t>(d);
+    }
+    return elements * static_cast<int64_t>(tensor_element_type_size_bytes(dtype));
+}
+
+// Validate one runtime binding against its static tile tensor metadata.
+template<typename Buf>
+inline void validate_tile_binding(const GlobalTensorInfo &info,
+                                const Buf &buf,
+                                size_t index) {
+    LUISA_ASSERT(detail::is_buffer_like_v<Buf>,
+                 "[tile-dsl] kernel argument {}: expected a Buffer or BufferView, got a non-buffer resource.",
+                 index);
+    auto expected = tensor_total_size_bytes(
+        info.dtype,
+        luisa::span<const int32_t>{info.dims.data(), info.dims.size()});
+    if (expected > 0) {
+        auto actual = static_cast<int64_t>(buf.size_bytes());
+        LUISA_ASSERT(actual == expected,
+                     "[tile-dsl] kernel argument {}: buffer size {} bytes does not match tensor size {} bytes (dtype={}, dims=[{}]).",
+                     index, actual, expected,
+                     static_cast<int>(info.dtype),
+                     [&] {
+                         luisa::string s;
+                         for (size_t i = 0; i < info.dims.size(); ++i) {
+                             if (i) s += ",";
+                             s += luisa::format("{}", info.dims[i]);
+                         }
+                         return s;
+                     }());
+    }
+}
+
+// Validate a sequence of runtime bindings against the tile IR.
+template<typename... Bufs>
+inline void validate_tile_buffers(luisa::shared_ptr<const TileFunctionBuilder> builder,
+                                const Bufs &...bufs) {
+    auto infos = collect_global_tensors(std::move(builder));
+    constexpr size_t nargs = sizeof...(Bufs);
+    LUISA_ASSERT(infos.size() == nargs,
+                 "[tile-dsl] kernel expects {} global tensor arguments, but {} were provided.",
+                 infos.size(), nargs);
+    size_t i = 0;
+    (validate_tile_binding(infos[i++], bufs, i), ...);
+}
+
+// Compile-time mapping from a tile function signature to a typed luisa::compute::Kernel.
+template<typename T>
+struct tensor_dtype_runtime {
+    using type = tile_dtype_to_runtime_t<typename std::remove_cvref_t<T>::dtype>;
+    static_assert(!std::is_void_v<type>,
+                  "Typed tile kernels do not support fp8/int4/fp4 tensors; use the manual Kernel<> path.");
+};
+
+template<typename T>
+using tensor_dtype_runtime_t = typename tensor_dtype_runtime<T>::type;
+
+template<size_t Dim, typename ArgTuple, typename Ret = void>
+struct make_typed_kernel;
+
+template<size_t Dim, typename... Args>
+struct make_typed_kernel<Dim, std::tuple<Args...>, void> {
+    using type = ::luisa::compute::Kernel<
+        Dim,
+        ::luisa::compute::Buffer<tensor_dtype_runtime_t<Args>>...>;
+};
+
+template<size_t Dim, typename... Args, typename Ret>
+struct make_typed_kernel<Dim, std::tuple<Args...>, Ret> {
+    using type = ::luisa::compute::Kernel<
+        Dim,
+        ::luisa::compute::Buffer<tensor_dtype_runtime_t<Args>>...,
+        ::luisa::compute::Buffer<tensor_dtype_runtime_t<Ret>>>;
+};
 
 // DSL memory scope -> AST TensorScope tag.
 inline TensorScope to_ast_scope(language::Scope s) noexcept {
@@ -1281,6 +1432,15 @@ public:
     [[nodiscard]] luisa::string describe() const {
         return _builder ? detail::describe(*_builder) : luisa::string{};
     }
+
+    /// Runtime validation: every runtime binding must be a buffer-like resource
+    /// and its total byte size must match the corresponding global tensor's
+    /// static shape where that shape is known.  Placeholder argument tensors
+    /// (traced with zero dims) only have their resource kind checked.
+    template<typename... Bufs>
+    void validate(const Bufs &...bufs) const {
+        detail::validate_tile_buffers(_builder, bufs...);
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -1293,6 +1453,9 @@ public:
 // ---------------------------------------------------------------------------
 template<typename Ret>
 class CompiledKernel;
+
+template<typename F, typename Ret>
+class TypedCompiledKernel;
 
 template<typename F>
 class jit {
@@ -1319,7 +1482,7 @@ public:
         // validates the traced body — it logs an error and aborts when the
         // body contains zero or more than one T.Kernel.
         [[maybe_unused]] auto meta = kernel.function()->compile_meta_data();
-        return CompiledKernel<typename traits::return_type>{kernel.function()};
+        return TypedCompiledKernel<F, typename traits::return_type>{kernel.function()};
     }
 };
 
@@ -1352,13 +1515,49 @@ public:
         return Ret{};// stub: no real computation
     }
 
-    [[nodiscard]] luisa::string get_kernel_source() const {
-        LUISA_INFO("[tensor-dsl] kernel.get_kernel_source: stub (no kernel source generated)");
-        luisa::string src = "// tensor-dsl stub: traced tile IR\n";
-        if (builder) { src += "// " + detail::describe(*builder) + "\n"; }
-        return src;
-    }
-};
+      [[nodiscard]] luisa::string get_kernel_source() const {
+          LUISA_INFO("[tensor-dsl] kernel.get_kernel_source: stub (no kernel source generated)");
+          luisa::string src = "// tensor-dsl stub: traced tile IR\n";
+          if (builder) { src += "// " + detail::describe(*builder) + "\n"; }
+          return src;
+      }
+
+      /// Runtime validation of the tile global tensors against runtime buffers.
+      /// See tile::Kernel::validate() for details.
+      template<typename... Bufs>
+      void validate(const Bufs &...bufs) const {
+          detail::validate_tile_buffers(builder, bufs...);
+      }
+  };
+
+  // A type-carrying compiled kernel returned by tile::jit(...).compile().
+  // It is a drop-in replacement for CompiledKernel<Ret> (it derives from it),
+  // and adds .to_kernel<Dim>() which returns a ready-to-compile
+  // luisa::compute::Kernel<Dim, Buffer<...>...>.
+  template<typename F, typename Ret>
+  class TypedCompiledKernel : public CompiledKernel<Ret> {
+  private:
+      using fn_type = std::remove_cvref_t<F>;
+      using traits = detail::fn_traits<fn_type>;
+
+  public:
+      using CompiledKernel<Ret>::CompiledKernel;
+
+      // Lower the traced tile IR to a regular FunctionBuilder and wrap it in a
+      // typed luisa::compute::Kernel whose argument/return buffer element types
+      // are derived from the tile function signature.  `Dim` is the dispatch
+      // dimensionality (1, 2, or 3) expected by the caller.
+      template<size_t Dim>
+      [[nodiscard]] auto to_kernel() const {
+          using kernel_type = typename detail::make_typed_kernel<
+              Dim,
+              typename traits::arg_tuple,
+              typename traits::return_type>::type;
+          auto lowered = ::luisa::compute::tile_to_kernel(this->builder);
+          auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(lowered.function);
+          return kernel_type{std::move(fb)};
+      }
+  };
 
 namespace testing {
 

@@ -486,6 +486,9 @@ int main(int argc, char *argv[]) {
             }
             stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
 
+            // Guarded type-less path: keep the explicit Kernel<...> instantiation
+            // but first validate the runtime bindings against the tile IR.
+            elementwise_kernel.validate(bufA, bufB, bufC);
             luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(elementwise_result.function)};
             auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
                                                             luisa::compute::Buffer<float>,
@@ -509,10 +512,11 @@ int main(int argc, char *argv[]) {
             for (auto i = 0u; i < K * N; ++i) { hB[i] = luisa::half{static_cast<float>((i % 4)) * 0.5f}; }
             stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
 
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(matmul_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<luisa::half>,
-                                                            luisa::compute::Buffer<luisa::half>,
-                                                            luisa::compute::Buffer<luisa::half>>{fb});
+            // Typed path: tile::jit(...).compile().to_kernel<Dim>() carries the
+            // buffer element types from the tile function signature automatically.
+            matmul_kernel.validate(bufA, bufB, bufC);
+            auto typed_matmul = matmul_kernel.to_kernel<2>();
+            auto sh = device.compile(typed_matmul);
             stream << sh(bufA, bufB, bufC).dispatch(matmul_result.dispatch_size.x, matmul_result.dispatch_size.y)
                    << bufC.copy_to(luisa::span{hC}) << synchronize();
             auto err = 0.0f;
