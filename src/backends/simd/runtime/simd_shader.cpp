@@ -233,6 +233,17 @@ SIMDShader::SIMDShader(
             "predicated_wide_select_ladder_diamonds={}, "
             "predicated_memory_diamonds={}, "
             "predicated_memory_instructions={}, "
+            "local_predicated_diamonds={}, "
+            "local_predicated_assignment_diamonds={}, "
+            "local_predicated_blocks={}, "
+            "local_predicated_instructions={}, "
+            "nested_predicated_regions={}, "
+            "nested_predicated_blocks={}, "
+            "nested_predicated_instructions={}, "
+            "chained_predicated_regions={}, "
+            "chained_predicated_transitions={}, "
+            "chained_predicated_blocks={}, "
+            "chained_predicated_nested_tails={}, "
             "dispatch_workers={}, native_predicated_loop={}, "
             "predicated_loops={}, predicated_loop_blocks={}, "
             "predicated_loop_instructions={}, "
@@ -270,6 +281,17 @@ SIMDShader::SIMDShader(
             _compiled.predicated_wide_select_ladder_diamond_count,
             _compiled.predicated_memory_diamond_count,
             _compiled.predicated_memory_instruction_count,
+            _compiled.local_predicated_diamond_count,
+            _compiled.local_predicated_assignment_diamond_count,
+            _compiled.local_predicated_block_count,
+            _compiled.local_predicated_instruction_count,
+            _compiled.nested_predicated_region_count,
+            _compiled.nested_predicated_block_count,
+            _compiled.nested_predicated_instruction_count,
+            _compiled.chained_predicated_region_count,
+            _compiled.chained_predicated_transition_count,
+            _compiled.chained_predicated_block_count,
+            _compiled.chained_predicated_nested_tail_count,
             dispatch_worker_count,
             _compiled.native_predicated_loop,
             _compiled.predicated_loop_count,

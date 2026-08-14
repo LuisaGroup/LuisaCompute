@@ -70,6 +70,12 @@ The newest W16-only stage stores dynamically indexed convergence-frame static
 IDs and parent tokens in scalar LLVM arrays, avoiding whole-vector dynamic
 updates and reducing scheduler register/stack pressure. W1/W2/W4/W8 keep the
 previous vector layout after independent rejection gates.
+The latest local-control stage recognizes one-sided expensive arithmetic
+diamonds inside innermost loops, guards their nonempty arm with `any(mask)`,
+and keeps their assignments in one LLVM emission region. W4/W8/W16 may also
+fuse a bounded sequence of adjacent diamonds; W8 may absorb one exact nested
+assignment tail. This avoids repeated convergence/dispatcher round trips and
+Schedule spills without cloning an all-on/mixed loop body.
 
 ## Test host and method
 
@@ -2112,11 +2118,14 @@ identical.
 
 ## Next measured optimization targets
 
-1. Generalize the predicated-memory result through branch splitting and pure
-   code motion: hoist or sink total operations to expose a safe read subregion,
-   then use a cost model to choose straight-line masks or `any(mask)` empty-arm
-   skips. The first gate is a nonzero hit count and stable gain in voxel or
-   ordinary path tracing; the current complete-diamond recognizer hits neither.
+1. Generalize the accepted innermost-loop local regions through bounded branch
+   splitting and pure code motion: hoist or sink total single-use operations to
+   expose a safe arithmetic or read subregion, then use a register-pressure-
+   aware cost model to choose straight-line masks or `any(mask)` empty-arm
+   skips. The current one-sided pure recognizer now gives a stable 2--3% gain
+   in ordinary path tracing but still has zero hits in Voxel and image
+   processing. The next gate is a new nonzero site, exact inactive-tail/oracle
+   equality, and a stable real-example gain beyond that existing site.
 2. Extend the completed within-read W8 leaf pairing to compatible nearby
    gathers only when they share base, dynamic offset, scale, and mask. Cap the
    scan window to control register pressure and stop at any possible write.
@@ -2419,6 +2428,138 @@ no extract/call/insert scalar-libm loop. The final fallback-relative Voxel
 table at the top rises to 1.692x for W8 and 2.482x for W16 in the current
 32-worker shared-host epoch.
 
+### Innermost-loop local predication and bounded chaining
+
+This stage targets a smaller unit than the complete predicated loop above. A
+one-sided, pure arithmetic diamond in an innermost loop is emitted under its
+arm mask, with an `any(mask)` branch around a nonempty 4--24-instruction arm.
+Assignment-only diamonds become masked updates directly. A bounded chain keeps
+the diamonds and their pure bridges in one LLVM emission region, so values that
+were live only across the local scheduler boundary remain in SSA/registers.
+There is no loop clone or recursive all-on/mixed version tree.
+
+The same-algorithm analytic path tracer is the stress case. Candidate and
+`LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS=1` were alternated as independent
+single-worker processes pinned to CPU 4. Twelve pairs were used at W2/W4/W8;
+W16 was rerun for fifteen pairs. Every checksum was
+`a93089e651f98582`.
+
+| width | local candidate | generic oracle | candidate/oracle | 95% paired CI | wins |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W2 | 52.918 Mitems/s | 48.209 Mitems/s | 1.0977x | [1.0958, 1.0995] | 12/12 |
+| W4 | 100.596 Mitems/s | 93.393 Mitems/s | 1.0771x | [1.0718, 1.0825] | 12/12 |
+| W8 | 192.076 Mitems/s | 165.503 Mitems/s | 1.1606x | [1.1553, 1.1658] | 12/12 |
+| W16 | 329.738 Mitems/s | 255.340 Mitems/s | 1.2914x | [1.2833, 1.2995] | 15/15 |
+
+Chaining was isolated from the already enabled individual-diamond lowering.
+It regressed W2, so production chaining starts at W4. The retained widths were
+positive in every pair:
+
+| width | chained / individual diamonds | 95% paired CI | wins | policy |
+| ---: | ---: | ---: | ---: | --- |
+| W2 | 0.9557x | [0.9497, 0.9617] | 0/10 | disabled |
+| W4 | 1.0134x | [1.0112, 1.0156] | 10/10 | enabled |
+| W8 | 1.0262x | [1.0249, 1.0275] | 15/15 | enabled |
+| W16 | 1.0400x | [1.0332, 1.0470] | 10/10 | enabled |
+
+Absorbing one exact nested assignment tail was then measured independently
+over twelve pairs. W8 improved by 1.0092x [1.0070, 1.0114] with 12/12 wins.
+W4 measured 0.9936x [0.9906, 0.9967], and W16 measured 0.9968x
+[0.9950, 0.9986], so only W8 retains nested-tail chaining. Standalone nested
+local predication remains available at W2/W4/W8/W16.
+
+The final analytic objects quantify the removed scheduler state. Counts below
+compare production local lowering with the complete local-region oracle; both
+objects contain zero calls and zero scalar-math calls.
+
+| width | state slots | instruction spills | static instructions | branches | stack refs | stack frame |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| W2 candidate/oracle | 52 / 63 | 9 / 20 | 3,033 / 4,062 | 289 / 419 | 490 / 713 | 2,752 / 3,584 B |
+| W4 candidate/oracle | 50 / 61 | 9 / 20 | 2,098 / 3,043 | 201 / 355 | 364 / 474 | 992 / 1,552 B |
+| W8 candidate/oracle | 50 / 61 | 9 / 20 | 1,965 / 3,167 | 192 / 390 | 420 / 650 | 2,304 / 3,456 B |
+| W16 candidate/oracle | 52 / 63 | 9 / 20 | 2,647 / 3,704 | 298 / 468 | 487 / 694 | 2,304 / 3,456 B |
+
+The production W4/W8/W16 objects contain one chain. W8 fuses four transitions
+including the nested tail; W4/W16 fuse three ordinary transitions. W2 keeps
+six independent local diamonds plus one nested region. Convergence guards fall
+from 10 to 9 at W2, 9 to 5 at W4, 8 to 3 at W8, and 10 to 6 at W16. This is
+direct evidence that the gain comes from fewer PC/frame/branch operations and
+better register residency, rather than a different math implementation.
+
+The broadened expensive-arm marker also reaches a real renderer. Ordinary
+Embree path tracing has one 19-instruction bounce-loop diamond containing
+floating division and `max`, but no square root. Its W8 main entry changes as
+follows:
+
+| W8 ordinary path main entry | generic oracle | local candidate |
+| --- | ---: | ---: |
+| Schedule state slots / spills | 37 / 23 | 34 / 20 |
+| static instructions / vector instructions | 3,566 / 2,313 | 3,424 / 2,241 |
+| branches / stack references | 276 / 933 | 255 / 894 |
+| stack frame | 6,720 B | 6,592 B |
+| calls / scalar-math calls | 5 / 0 | 5 / 0 |
+
+Those five calls are unchanged packet/runtime boundaries, including Embree;
+the varying math path contains no scalar libm symbol. Embree 4.4.1 reports
+native W4/W8/W16 packet traversal enabled. With 64 spp, fifteen workers pinned
+to physical CPUs `0-12,14-15`, and alternating candidate/oracle processes, the
+real end-to-end result is:
+
+| width | candidate time | oracle time | candidate/oracle throughput | 95% paired CI | wins |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W2 | -- | -- | 1.0065x | [0.9978, 1.0152] | 6/8 |
+| W4 | 1,055.874 ms | 1,081.575 ms | 1.0243x | [1.0118, 1.0370] | 9/10 |
+| W8 | 927.919 ms | 954.522 ms | 1.0287x | [1.0108, 1.0469] | 10/12 |
+| W16 | 877.638 ms | 896.903 ms | 1.0219x | [1.0104, 1.0336] | 10/10 |
+
+Candidate and oracle W8 PNGs are byte-identical, SHA-256
+`a7fcc9444150d91ab667964435992d962099c65545fc6ce52891b3847109cbf2`.
+Voxel, all five image-processing kernels, non-coroutine SDF, shader toy, game
+of life, Mandelbrot, masked stream, AoS-to-SoA, and GEMM report zero local,
+nested, or chained regions; this stage makes no throughput claim for them.
+
+For a current fallback-relative renderer checkpoint, both backends were
+confined to the same 30 logical CPUs
+`0-12,14-28,30-31`, excluding a separately loaded physical core and its SMT
+sibling. SIMD used 30 workers; fallback retained its default 32-thread pool
+inside that affinity. Five rotated rounds used one synchronized 32-spp dispatch.
+The final synchronized FPS is required here: fallback dispatch is asynchronous,
+so the pre-synchronize per-dispatch timer is not a valid fallback measurement.
+
+| backend/width | median FPS | mean FPS | throughput / fallback | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: |
+| fallback | 83.540 | 83.436 | 1.0000x | -- |
+| SIMD W1 | 80.772 | 80.548 | 0.9654x | [0.9428, 0.9885] |
+| SIMD W2 | 62.841 | 62.818 | 0.7529x | [0.7385, 0.7676] |
+| SIMD W4 | 80.086 | 80.236 | 0.9617x | [0.9498, 0.9738] |
+| SIMD W8 | 92.021 | 92.283 | 1.1061x | [1.0765, 1.1365] |
+| SIMD W16 | 93.154 | 93.635 | 1.1223x | [1.0973, 1.1478] |
+
+W1 is a separate JIT/runtime pipeline, not fallback with width set to one;
+fallback's scalar task loop may also be horizontally vectorized by LLVM. W2
+does not amortize scheduler and packet-call overhead for this workload. W8 and
+W16 combine the local scheduler reduction with native Embree packets and are
+currently 10.6% and 12.2% faster than fallback under this synchronized batch
+method.
+
+Finally, twelve balanced single-worker rounds compared the same analytic path
+algorithm with official ISPC 1.31.0 controls:
+
+| Luisa/ISPC pair | Luisa Mitems/s | ISPC Mitems/s | Luisa/ISPC | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: |
+| W4 / AVX2 x4 | 100.484 | 123.389 | 0.8144x | [0.8094, 0.8194] |
+| W4 / AVX-512 x4 | 100.484 | 134.155 | 0.7490x | [0.7450, 0.7531] |
+| W8 / AVX2 x8 | 192.486 | 233.264 | 0.8252x | [0.8237, 0.8267] |
+| W8 / AVX-512 x8 | 192.486 | 219.341 | 0.8776x | [0.8756, 0.8795] |
+| W16 / AVX-512 x16 | 330.124 | 345.549 | 0.9554x | [0.9512, 0.9595] |
+
+W16 is now about 4.7% behind the matched ISPC x16 control; W8 remains about
+12.2% behind AVX-512 x8 and 17.5% behind AVX2 x8. The residual gap is therefore
+no longer an order-of-magnitude independent-PC penalty. The next profitable
+control work should generalize local regions through bounded branch splitting
+and pure code motion, with a register-pressure-aware cost model, instead of
+copying ISPC's whole-loop all-on/mixed versioning.
+
 ### Rejected cross-query early gather
 
 The ordinary W8 path tracer has one tempting memory/compute-overlap site. Its
@@ -2715,3 +2856,17 @@ Their SHA-256 hashes are respectively
 `3cbdcca73e7086a5bcb64a624326211d1bb61ed3412a7ed7f5fd243835dd4208`.
 All generated images remained in `/tmp`; this semantic stage makes no new
 throughput claim.
+
+The innermost-loop local-predication/chaining stage completed a fresh full
+Release build, the required native-math/fallback-math/runtime-width gate plus
+the focused Schedule-codegen regression (4/4), and the complete configured
+SIMD+fallback/XIR/runtime/graphics suite (140/140). Clang-format 22.1.8 and
+diff checks pass for all changed C++ sources. The permanent differential test
+covers W2/W4/W8/W16, `W - 1` active lanes, guarded square-root and floating-
+division arms, an assignment-only nested tail, every narrower disabled oracle,
+and exact bit equality including inactive sentinels. A fresh ordinary W8
+1024-spp Embree path-tracing run accepts the checked-in gallery reference at
+39.219305 dB and reports native Embree 4.4.1 W4/W8/W16 packet support. Its
+optimization report records exactly one local 19-instruction diamond, with no
+nested or chained region in that shader. Output remained in `/tmp`; the
+checked-in reference was not modified.

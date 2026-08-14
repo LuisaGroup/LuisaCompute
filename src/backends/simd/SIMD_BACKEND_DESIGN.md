@@ -39,6 +39,13 @@ LLVM mask loop. It keeps one body rather than cloning all-on/mixed versions,
 accumulates each dynamic exit mask, and returns to the general scheduler only
 once. W16 enables this on an audited native fixed-vector target; W8 additionally
 requires at least 24 dispatch workers, while W1/W2/W4 retain the generic loop.
+The latest local refinement handles the complementary case where the complete
+loop is too large to flatten. It if-converts proven one-sided arithmetic
+diamonds inside the innermost loop, dynamically skips an empty expensive arm,
+and may fuse a bounded sequence of adjacent diamonds into one LLVM emission
+region. This keeps their live values in SSA/registers and removes intermediate
+merge-to-dispatch round trips without cloning the loop or weakening the general
+independent-PC scheduler.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -321,6 +328,63 @@ all four widths; the exact distributions and assembly deltas are recorded in
 [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md). Ordinary path
 tracing, Voxel, and image-processing kernels currently produce zero widened
 updates, so this stage makes no performance claim for those examples.
+
+### Innermost-loop local predicated regions
+
+Whole-loop predication is intentionally selective: a large loop with calls,
+memory effects, or an unproven trip bound must retain the independent-PC
+scheduler. A smaller LLVM-side refinement instead removes scheduler state only
+around locally proven diamonds in an innermost natural loop.
+
+The base recognizer accepts a varying conditional with an exact convergence
+and two one-to-three-block, single-predecessor arm chains. Both chains and the
+merge must remain in the same innermost loop. Exactly one arm is instruction-
+empty. An assignment-only diamond is always useful; otherwise the nonempty arm
+must contain 4--24 whitelisted pure instructions and at least one `sqrt`,
+`rsqrt`, or scalar/vector floating-point division. Comparisons, selects,
+`min`/`max`, aggregate construction, and nontrapping arithmetic may accompany
+that marker. Calls, memory/resource operations, side effects, integer
+division/remainder, dynamic indexing, participant masks, and every structured
+terminator reject the candidate. Arm assignments may update only varying or
+mask destinations.
+
+Codegen forms `T = A & C` and `F = A & !C`. An instruction-bearing arm first
+tests `any(arm_mask)`, so a completely untaken expensive arm performs neither
+its range-sensitive math nor its dependent work. An assignment-only arm needs
+no scalar guard and becomes masked selects/copies. The outer mask and seed are
+restored at the merge. The inlined arm blocks share the root's emission region
+for spill analysis, allowing LLVM SSA/register residency across the diamond
+instead of materializing an independent scheduler state slot.
+
+One exact nested form is also accepted. One outer arm enters a pure 1--12-
+instruction block followed by an assignment-only inner diamond, while the
+other arm is empty; both paths close their declared parent/child convergence
+points directly. The outer arm still has an `any(mask)` guard. This captures a
+common update/select tail without recursively cloning or flattening arbitrary
+nested control.
+
+At W4/W8/W16, codegen may fuse as many as four adjacent nonempty local
+diamonds. Every transition begins at the previous diamond's exclusive merge,
+crosses no foreign convergence or loop back, and follows at most four pure,
+single-predecessor bridge blocks containing at most twelve instructions. The
+complete fused region is capped at 128 instructions. The transformation emits
+each source instruction once and only bypasses the merge-to-dispatch-to-next-
+split routing; it is therefore code motion within one proven path, not an
+ISPC-style all-on/mixed clone tree. W2 keeps independent local diamonds because
+chaining regressed its paired benchmark. W8 alone may absorb one proven nested
+tail after the chain; W4/W16 retain a separate nested region after width-
+specific ablations found that fusion slightly slower.
+
+`LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS=1` restores the complete generic
+scheduler path. `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_CHAINING=1`,
+`LUISA_SIMD_DISABLE_NESTED_PREDICATED_REGION=1`, and
+`LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL=1` isolate the narrower stages. The
+optimization report exposes local diamond/assignment/block/instruction,
+nested-region, chained-region/transition/block, and chained-nested-tail counts.
+The exact structural and inactive-tail contract is specified in
+[`SIMD_NATIVE_EXECUTION_CONTRACT.md`](SIMD_NATIVE_EXECUTION_CONTRACT.md), and
+paired throughput plus final-object evidence is recorded in
+[`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
 
 A remaining varying conditional or switch has a dynamic coherent fast path:
 when all active lanes select one successor, it behaves like directly threaded

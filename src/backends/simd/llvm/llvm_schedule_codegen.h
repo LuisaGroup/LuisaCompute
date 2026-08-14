@@ -510,6 +510,17 @@ struct LLVMScheduleCodegenResult {
     size_t paired_leaf_gather_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
+    size_t local_predicated_diamond_count{0u};
+    size_t local_predicated_assignment_diamond_count{0u};
+    size_t local_predicated_block_count{0u};
+    size_t local_predicated_instruction_count{0u};
+    size_t nested_predicated_region_count{0u};
+    size_t nested_predicated_block_count{0u};
+    size_t nested_predicated_instruction_count{0u};
+    size_t chained_predicated_region_count{0u};
+    size_t chained_predicated_transition_count{0u};
+    size_t chained_predicated_block_count{0u};
+    size_t chained_predicated_nested_tail_count{0u};
     size_t predicated_loop_count{0u};
     size_t predicated_loop_block_count{0u};
     size_t predicated_loop_instruction_count{0u};

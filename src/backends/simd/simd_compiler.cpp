@@ -170,6 +170,28 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.predicated_memory_diamond_count;
     result.predicated_memory_instruction_count =
         llvm_result.predicated_memory_instruction_count;
+    result.local_predicated_diamond_count =
+        llvm_result.local_predicated_diamond_count;
+    result.local_predicated_assignment_diamond_count =
+        llvm_result.local_predicated_assignment_diamond_count;
+    result.local_predicated_block_count =
+        llvm_result.local_predicated_block_count;
+    result.local_predicated_instruction_count =
+        llvm_result.local_predicated_instruction_count;
+    result.nested_predicated_region_count =
+        llvm_result.nested_predicated_region_count;
+    result.nested_predicated_block_count =
+        llvm_result.nested_predicated_block_count;
+    result.nested_predicated_instruction_count =
+        llvm_result.nested_predicated_instruction_count;
+    result.chained_predicated_region_count =
+        llvm_result.chained_predicated_region_count;
+    result.chained_predicated_transition_count =
+        llvm_result.chained_predicated_transition_count;
+    result.chained_predicated_block_count =
+        llvm_result.chained_predicated_block_count;
+    result.chained_predicated_nested_tail_count =
+        llvm_result.chained_predicated_nested_tail_count;
     result.predicated_loop_count =
         llvm_result.predicated_loop_count;
     result.predicated_loop_block_count =

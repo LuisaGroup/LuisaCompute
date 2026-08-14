@@ -537,6 +537,365 @@ make_varying_loop(uint32_t width) {
 }
 
 [[nodiscard]] std::optional<schedule::Function>
+make_local_predicated_sqrt_loop(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("local_predicated_sqrt_loop");
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *body = kernel->create_basic_block();
+    auto *sqrt_arm = kernel->create_basic_block();
+    auto *miss_arm = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    auto *second_body = kernel->create_basic_block();
+    auto *second_sqrt_arm = kernel->create_basic_block();
+    auto *second_miss_arm = kernel->create_basic_block();
+    auto *second_merge = kernel->create_basic_block();
+    auto *nested_outer = kernel->create_basic_block();
+    auto *nested_calc = kernel->create_basic_block();
+    auto *inner_true = kernel->create_basic_block();
+    auto *inner_false = kernel->create_basic_block();
+    auto *inner_merge = kernel->create_basic_block();
+    auto *outer_false = kernel->create_basic_block();
+    auto *outer_merge = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    entry->set_name("entry");
+    header->set_name("header");
+    body->set_name("body");
+    sqrt_arm->set_name("sqrt_arm");
+    miss_arm->set_name("miss_arm");
+    merge->set_name("merge");
+    second_body->set_name("second_body");
+    second_sqrt_arm->set_name("second_sqrt_arm");
+    second_miss_arm->set_name("second_miss_arm");
+    second_merge->set_name("second_merge");
+    nested_outer->set_name("nested_outer");
+    nested_calc->set_name("nested_calc");
+    inner_true->set_name("inner_true");
+    inner_false->set_name("inner_false");
+    inner_merge->set_name("inner_merge");
+    outer_false->set_name("outer_false");
+    outer_merge->set_name("outer_merge");
+    exit->set_name("exit");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero_u32 = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one_u32 = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t two_u32_value = 2u;
+    auto *two_u32 = module.create_constant(
+        Type::of<uint32_t>(), &two_u32_value);
+    float zero_f32_value = 0.0f;
+    float one_f32_value = 1.0f;
+    float two_f32_value = 2.0f;
+    auto *zero_f32 = module.create_constant(
+        Type::of<float>(), &zero_f32_value);
+    auto *one_f32 = module.create_constant(
+        Type::of<float>(), &one_f32_value);
+    auto *two_f32 = module.create_constant(
+        Type::of<float>(), &two_f32_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *lane_f32 = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST, lane);
+    auto *initial = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane_f32, one_f32});
+    builder.br(header);
+
+    builder.set_insertion_point(header);
+    auto *index = builder.phi(Type::of<uint32_t>());
+    auto *value = builder.phi(Type::of<float>());
+    value->set_name("local_region_result");
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one_u32});
+    auto *bound = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {parity, two_u32});
+    auto *loop_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {index, bound});
+    builder.cond_br(loop_condition, body, exit);
+
+    builder.set_insertion_point(body);
+    auto *square = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {value, value});
+    auto *discriminant = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_SUB,
+        {square, one_f32});
+    auto *hit = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_GREATER,
+        {discriminant, zero_f32});
+    builder.cond_br(hit, sqrt_arm, miss_arm);
+
+    builder.set_insertion_point(sqrt_arm);
+    auto *root = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::SQRT,
+        {discriminant});
+    auto *negative = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::UNARY_MINUS,
+        {root});
+    auto *offset = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {value, negative});
+    auto *scaled = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {offset, two_f32});
+    builder.br(merge);
+
+    builder.set_insertion_point(miss_arm);
+    builder.br(merge);
+
+    builder.set_insertion_point(merge);
+    auto *first_value = builder.phi(
+        Type::of<float>(),
+        {{scaled, sqrt_arm}, {value, miss_arm}});
+    builder.br(second_body);
+
+    builder.set_insertion_point(second_body);
+    auto *second_square = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {first_value, first_value});
+    auto *second_discriminant = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_SUB,
+        {second_square, one_f32});
+    auto *second_hit = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_GREATER,
+        {second_discriminant, zero_f32});
+    builder.cond_br(
+        second_hit, second_sqrt_arm, second_miss_arm);
+
+    builder.set_insertion_point(second_sqrt_arm);
+    auto *second_quotient = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_DIV,
+        {second_discriminant, two_f32});
+    auto *second_clamped = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::MAX,
+        {second_quotient, one_f32});
+    auto *second_offset = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {first_value, second_clamped});
+    auto *second_scaled = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {second_offset, two_f32});
+    builder.br(second_merge);
+
+    builder.set_insertion_point(second_miss_arm);
+    builder.br(second_merge);
+
+    builder.set_insertion_point(second_merge);
+    auto *second_value = builder.phi(
+        Type::of<float>(),
+        {{second_scaled, second_sqrt_arm},
+         {first_value, second_miss_arm}});
+    builder.br(nested_outer);
+
+    builder.set_insertion_point(nested_outer);
+    auto *outer_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL,
+        {parity, zero_u32});
+    builder.cond_br(outer_condition, nested_calc, outer_false);
+
+    builder.set_insertion_point(nested_calc);
+    auto *advanced = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {second_value, lane_f32});
+    auto *inner_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_GREATER,
+        {advanced, two_f32});
+    builder.cond_br(inner_condition, inner_true, inner_false);
+
+    builder.set_insertion_point(inner_true);
+    builder.br(inner_merge);
+    builder.set_insertion_point(inner_false);
+    builder.br(inner_merge);
+
+    builder.set_insertion_point(inner_merge);
+    auto *inner_value = builder.phi(
+        Type::of<float>(),
+        {{advanced, inner_true}, {second_value, inner_false}});
+    builder.br(outer_merge);
+
+    builder.set_insertion_point(outer_false);
+    builder.br(outer_merge);
+
+    builder.set_insertion_point(outer_merge);
+    auto *next_value = builder.phi(
+        Type::of<float>(),
+        {{inner_value, inner_merge}, {second_value, outer_false}});
+    auto *next_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one_u32});
+    builder.br(header);
+
+    builder.set_insertion_point(exit);
+    builder.return_void();
+    index->add_incoming(zero_u32, entry);
+    index->add_incoming(next_index, outer_merge);
+    value->add_incoming(initial, entry);
+    value->add_incoming(next_value, outer_merge);
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> result_id;
+    for (auto &&schedule_value : lowered.function->values()) {
+        if (schedule_value.name == "local_region_result") {
+            result_id = schedule_value.id;
+        }
+    }
+    if (!result_id) { return std::nullopt; }
+    for (auto &schedule_block : lowered.function->blocks()) {
+        if (schedule_block.name == "exit") {
+            schedule_block.terminator =
+                schedule::ReturnTerminator{result_id};
+        }
+    }
+    if (!schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_nested_local_predicated_loop(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("nested_local_predicated_loop");
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *body = kernel->create_basic_block();
+    auto *nested = kernel->create_basic_block();
+    auto *inner_true = kernel->create_basic_block();
+    auto *inner_false = kernel->create_basic_block();
+    auto *inner_merge = kernel->create_basic_block();
+    auto *outer_false = kernel->create_basic_block();
+    auto *outer_merge = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    entry->set_name("entry");
+    header->set_name("header");
+    body->set_name("body");
+    nested->set_name("nested");
+    inner_true->set_name("inner_true");
+    inner_false->set_name("inner_false");
+    inner_merge->set_name("inner_merge");
+    outer_false->set_name("outer_false");
+    outer_merge->set_name("outer_merge");
+    exit->set_name("exit");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t two_value = 2u;
+    uint32_t three_value = 3u;
+    uint32_t eleven_value = 11u;
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    auto *three = module.create_constant(
+        Type::of<uint32_t>(), &three_value);
+    auto *eleven = module.create_constant(
+        Type::of<uint32_t>(), &eleven_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *initial = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, eleven});
+    builder.br(header);
+
+    builder.set_insertion_point(header);
+    auto *index = builder.phi(Type::of<uint32_t>());
+    auto *value = builder.phi(Type::of<uint32_t>());
+    value->set_name("nested_local_region_result");
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one});
+    auto *bound = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {parity, two});
+    auto *loop_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {index, bound});
+    builder.cond_br(loop_condition, body, exit);
+
+    builder.set_insertion_point(body);
+    auto *outer_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL,
+        {parity, zero});
+    builder.cond_br(outer_condition, nested, outer_false);
+
+    builder.set_insertion_point(nested);
+    auto *advanced = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {value, index});
+    auto *inner_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {advanced, lane});
+    builder.cond_br(
+        inner_condition, inner_true, inner_false);
+
+    builder.set_insertion_point(inner_true);
+    builder.br(inner_merge);
+    builder.set_insertion_point(inner_false);
+    builder.br(inner_merge);
+
+    builder.set_insertion_point(inner_merge);
+    auto *inner_value = builder.phi(
+        Type::of<uint32_t>(),
+        {{advanced, inner_true}, {three, inner_false}});
+    builder.br(outer_merge);
+
+    builder.set_insertion_point(outer_false);
+    builder.br(outer_merge);
+
+    builder.set_insertion_point(outer_merge);
+    auto *next_value = builder.phi(
+        Type::of<uint32_t>(),
+        {{inner_value, inner_merge}, {value, outer_false}});
+    auto *next_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one});
+    builder.br(header);
+
+    builder.set_insertion_point(exit);
+    builder.return_void();
+    index->add_incoming(zero, entry);
+    index->add_incoming(next_index, outer_merge);
+    value->add_incoming(initial, entry);
+    value->add_incoming(next_value, outer_merge);
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> result_id;
+    for (auto &&schedule_value : lowered.function->values()) {
+        if (schedule_value.name ==
+            "nested_local_region_result") {
+            result_id = schedule_value.id;
+        }
+    }
+    if (!result_id) { return std::nullopt; }
+    for (auto &schedule_block : lowered.function->blocks()) {
+        if (schedule_block.name == "exit") {
+            schedule_block.terminator =
+                schedule::ReturnTerminator{result_id};
+        }
+    }
+    if (!schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
 make_varying_loop_collective(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -1785,6 +2144,208 @@ template<size_t Width>
     entry(nullptr, output.data(), &config, Width);
     for (auto lane = uint32_t{0u}; lane < Width; lane++) {
         CHECK(output[lane] == lane + 1u);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_local_predicated_region_codegen() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        auto schedule_function =
+            make_local_predicated_sqrt_loop(width);
+        CHECK(schedule_function.has_value());
+        auto run_variant = [&](bool disable_regions,
+                               bool disable_chaining,
+                               bool disable_nested_tail,
+                               std::array<float, 16u> &output,
+                               LLVMScheduleCodegenResult &result) {
+            auto context = std::make_unique<::llvm::LLVMContext>();
+            auto module = std::make_unique<::llvm::Module>(
+                disable_regions ?
+                    "simd-local-region-oracle" :
+                disable_chaining ?
+                    "simd-local-region-chain-oracle" :
+                disable_nested_tail ?
+                    "simd-local-region-tail-oracle" :
+                    "simd-local-region",
+                *context);
+            auto name = std::string{
+                            disable_regions ?
+                                "schedule_local_region_oracle_w" :
+                            disable_chaining ?
+                                "schedule_local_region_chain_oracle_w" :
+                            disable_nested_tail ?
+                                "schedule_local_region_tail_oracle_w" :
+                                "schedule_local_region_w"} +
+                        std::to_string(width);
+            {
+                ScopedEnvironmentVariable policy{
+                    "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS",
+                    disable_regions ? "1" : nullptr};
+                ScopedEnvironmentVariable chain_policy{
+                    "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_CHAINING",
+                    disable_chaining ? "1" : nullptr};
+                ScopedEnvironmentVariable nested_tail_policy{
+                    "LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL",
+                    disable_nested_tail ? "1" : nullptr};
+                result = lower_schedule_to_llvm(
+                    *module, *schedule_function, width, name);
+            }
+            if (!result.succeeded() ||
+                ::llvm::verifyModule(*module, &::llvm::errs())) {
+                return false;
+            }
+            LLVMJIT jit;
+            if (!jit.succeeded() ||
+                !jit.add_module(
+                    std::move(module), std::move(context))) {
+                return false;
+            }
+            using Entry = void(
+                const void *, float *,
+                const SIMDPacketLaunchConfig *, uint32_t);
+            auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
+            if (entry == nullptr) { return false; }
+            output.fill(std::bit_cast<float>(0x7fc01234u));
+            auto active_lanes = width - 1u;
+            auto config = launch_1d(active_lanes, 16u);
+            entry(nullptr, output.data(), &config, active_lanes);
+            return true;
+        };
+
+        std::array<float, 16u> candidate_output{};
+        std::array<float, 16u> tail_oracle_output{};
+        std::array<float, 16u> chain_oracle_output{};
+        std::array<float, 16u> oracle_output{};
+        LLVMScheduleCodegenResult candidate;
+        LLVMScheduleCodegenResult tail_oracle;
+        LLVMScheduleCodegenResult chain_oracle;
+        LLVMScheduleCodegenResult oracle;
+        CHECK(run_variant(
+            false, false, false, candidate_output, candidate));
+        CHECK(run_variant(
+            false, false, true, tail_oracle_output, tail_oracle));
+        CHECK(run_variant(
+            false, true, false, chain_oracle_output, chain_oracle));
+        CHECK(run_variant(
+            true, false, false, oracle_output, oracle));
+        CHECK(candidate.local_predicated_diamond_count == 3u);
+        CHECK(candidate.local_predicated_assignment_diamond_count == 1u);
+        CHECK(candidate.local_predicated_block_count >= 6u);
+        CHECK(candidate.local_predicated_instruction_count == 8u);
+        CHECK(candidate.nested_predicated_region_count == 1u);
+        CHECK(candidate.nested_predicated_instruction_count == 2u);
+        CHECK(candidate.chained_predicated_region_count ==
+              (width >= 4u ? 1u : 0u));
+        CHECK(candidate.chained_predicated_transition_count ==
+              (width == 8u ? 2u : width >= 4u ? 1u :
+                                                0u));
+        CHECK(candidate.chained_predicated_nested_tail_count ==
+              (width == 8u ? 1u : 0u));
+        if (width >= 4u) {
+            CHECK(candidate.chained_predicated_block_count >= 5u);
+        } else {
+            CHECK(candidate.chained_predicated_block_count == 0u);
+        }
+        CHECK(tail_oracle.local_predicated_diamond_count == 3u);
+        CHECK(tail_oracle.nested_predicated_region_count == 1u);
+        CHECK(tail_oracle.chained_predicated_region_count ==
+              (width >= 4u ? 1u : 0u));
+        CHECK(tail_oracle.chained_predicated_transition_count ==
+              (width >= 4u ? 1u : 0u));
+        CHECK(tail_oracle.chained_predicated_nested_tail_count == 0u);
+        CHECK(chain_oracle.local_predicated_diamond_count == 3u);
+        CHECK(chain_oracle.local_predicated_assignment_diamond_count == 1u);
+        CHECK(chain_oracle.local_predicated_instruction_count == 8u);
+        CHECK(chain_oracle.nested_predicated_region_count == 1u);
+        CHECK(chain_oracle.chained_predicated_region_count == 0u);
+        CHECK(chain_oracle.chained_predicated_transition_count == 0u);
+        CHECK(chain_oracle.chained_predicated_block_count == 0u);
+        CHECK(oracle.local_predicated_diamond_count == 0u);
+        CHECK(oracle.local_predicated_assignment_diamond_count == 0u);
+        CHECK(oracle.local_predicated_block_count == 0u);
+        CHECK(oracle.local_predicated_instruction_count == 0u);
+        CHECK(oracle.nested_predicated_region_count == 0u);
+        CHECK(oracle.chained_predicated_nested_tail_count == 0u);
+        for (auto lane = size_t{0u}; lane < candidate_output.size(); lane++) {
+            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  std::bit_cast<uint32_t>(oracle_output[lane]));
+            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  std::bit_cast<uint32_t>(chain_oracle_output[lane]));
+            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  std::bit_cast<uint32_t>(tail_oracle_output[lane]));
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_nested_local_predicated_region_codegen() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        auto schedule_function =
+            make_nested_local_predicated_loop(width);
+        CHECK(schedule_function.has_value());
+        auto run_variant = [&](bool disable,
+                               std::array<uint32_t, 16u> &output,
+                               LLVMScheduleCodegenResult &result) {
+            auto context = std::make_unique<::llvm::LLVMContext>();
+            auto module = std::make_unique<::llvm::Module>(
+                disable ? "simd-nested-local-region-oracle" :
+                          "simd-nested-local-region",
+                *context);
+            auto name = std::string{
+                            disable ?
+                                "schedule_nested_local_region_oracle_w" :
+                                "schedule_nested_local_region_w"} +
+                        std::to_string(width);
+            {
+                ScopedEnvironmentVariable policy{
+                    "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS",
+                    disable ? "1" : nullptr};
+                result = lower_schedule_to_llvm(
+                    *module, *schedule_function, width, name);
+            }
+            if (!result.succeeded() ||
+                ::llvm::verifyModule(*module, &::llvm::errs())) {
+                return false;
+            }
+            LLVMJIT jit;
+            if (!jit.succeeded() ||
+                !jit.add_module(
+                    std::move(module), std::move(context))) {
+                return false;
+            }
+            using Entry = void(
+                const void *, uint32_t *,
+                const SIMDPacketLaunchConfig *, uint32_t);
+            auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
+            if (entry == nullptr) { return false; }
+            output.fill(0xdeadbeefu);
+            auto active_lanes = width - 1u;
+            auto config = launch_1d(active_lanes, 16u);
+            entry(nullptr, output.data(), &config, active_lanes);
+            return true;
+        };
+
+        std::array<uint32_t, 16u> candidate_output{};
+        std::array<uint32_t, 16u> oracle_output{};
+        LLVMScheduleCodegenResult candidate;
+        LLVMScheduleCodegenResult oracle;
+        CHECK(run_variant(false, candidate_output, candidate));
+        CHECK(run_variant(true, oracle_output, oracle));
+        CHECK(candidate.local_predicated_diamond_count == 1u);
+        CHECK(candidate.local_predicated_assignment_diamond_count == 1u);
+        CHECK(candidate.local_predicated_instruction_count == 0u);
+        CHECK(candidate.nested_predicated_region_count == 1u);
+        CHECK(candidate.nested_predicated_block_count >= 5u);
+        CHECK(candidate.nested_predicated_instruction_count == 2u);
+        CHECK(candidate.chained_predicated_region_count == 0u);
+        CHECK(candidate.chained_predicated_transition_count == 0u);
+        CHECK(oracle.local_predicated_diamond_count == 0u);
+        CHECK(oracle.local_predicated_assignment_diamond_count == 0u);
+        CHECK(oracle.local_predicated_instruction_count == 0u);
+        CHECK(oracle.nested_predicated_region_count == 0u);
+        CHECK(oracle.nested_predicated_block_count == 0u);
+        CHECK(oracle.nested_predicated_instruction_count == 0u);
+        CHECK(candidate_output == oracle_output);
     }
     return true;
 }
@@ -8037,6 +8598,10 @@ int main() {
         {"Schedule IR loop warp2", &run_loop_codegen<2u>},
         {"Schedule IR loop warp4", &run_loop_codegen<4u>},
         {"Schedule IR loop warp8", &run_loop_codegen<8u>},
+        {"innermost-loop local predicated regions",
+         &run_local_predicated_region_codegen},
+        {"nested innermost-loop local predicated regions",
+         &run_nested_local_predicated_region_codegen},
         {"varying loop exit collective",
          &run_varying_loop_collective_codegen},
         {"multiple-exit loop collective",

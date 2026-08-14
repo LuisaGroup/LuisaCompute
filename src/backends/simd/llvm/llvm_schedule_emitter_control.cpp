@@ -574,6 +574,25 @@ void ScheduleEmitter::_emit_arrival(const schedule::ControlEdge &edge,
 void ScheduleEmitter::_emit_terminator(
     const schedule::BasicBlock &block,
     bool allow_all_on_region_versioning) {
+    if (auto region = _find_chained_predicated_region(block)) {
+        auto *split = std::get_if<schedule::SplitTerminator>(
+            &block.terminator);
+        _emit_chained_predicated_region(*split, *region);
+        return;
+    }
+    if (auto region = _find_nested_predicated_region(block)) {
+        auto *split = std::get_if<schedule::SplitTerminator>(
+            &block.terminator);
+        _emit_nested_predicated_region(*split, *region);
+        return;
+    }
+    if (auto diamond =
+            _find_guarded_predicated_math_diamond(block)) {
+        auto *split = std::get_if<schedule::SplitTerminator>(
+            &block.terminator);
+        _emit_guarded_predicated_math_diamond(*split, *diamond);
+        return;
+    }
     if (auto diamond = _find_predicated_memory_diamond(block)) {
         auto *split = std::get_if<schedule::SplitTerminator>(
             &block.terminator);
@@ -1152,6 +1171,47 @@ void ScheduleEmitter::_find_instruction_spills() {
     emission_blocks.reserve(_source.blocks().size());
     for (auto &&block : _source.blocks()) {
         emission_blocks.emplace_back(block.id);
+    }
+    std::vector<uint8_t> chained_blocks(
+        _source.blocks().size(), uint8_t{0u});
+    for (auto &&block : _source.blocks()) {
+        if (chained_blocks[block.id.value] != 0u) { continue; }
+        if (auto region =
+                _find_chained_predicated_region(block)) {
+            chained_blocks[block.id.value] = 1u;
+            for (auto *inlined : region->inlined_blocks) {
+                emission_blocks[inlined->id.value] = block.id;
+                chained_blocks[inlined->id.value] = 1u;
+            }
+        }
+    }
+    for (auto &&block : _source.blocks()) {
+        if (chained_blocks[block.id.value] != 0u) { continue; }
+        if (auto diamond =
+                _find_guarded_predicated_math_diamond(block)) {
+            for (auto *arm : diamond->true_blocks) {
+                emission_blocks[arm->id.value] = block.id;
+            }
+            for (auto *arm : diamond->false_blocks) {
+                emission_blocks[arm->id.value] = block.id;
+            }
+        }
+    }
+    for (auto &&block : _source.blocks()) {
+        if (chained_blocks[block.id.value] != 0u) { continue; }
+        if (auto region = _find_nested_predicated_region(block)) {
+            emission_blocks[region->nested_split_block->id.value] =
+                block.id;
+            for (auto *arm : region->nested_diamond.true_blocks) {
+                emission_blocks[arm->id.value] = block.id;
+            }
+            for (auto *arm : region->nested_diamond.false_blocks) {
+                emission_blocks[arm->id.value] = block.id;
+            }
+            emission_blocks[region->nested_merge_block->id.value] =
+                block.id;
+            emission_blocks[region->other_block->id.value] = block.id;
+        }
     }
     if (_direct_control_flow) {
         for (auto &&block : _source.blocks()) {
@@ -1776,9 +1836,54 @@ void ScheduleEmitter::_build() {
     _builder.SetInsertPoint(exit);
     _builder.CreateRetVoid();
 
+    std::vector<uint8_t> locally_inlined_blocks(
+        _source.blocks().size(), uint8_t{0u});
+    std::vector<uint8_t> chained_blocks(
+        _source.blocks().size(), uint8_t{0u});
+    for (auto &&block : _source.blocks()) {
+        if (chained_blocks[block.id.value] != 0u) { continue; }
+        if (auto region =
+                _find_chained_predicated_region(block)) {
+            chained_blocks[block.id.value] = 1u;
+            for (auto *inlined : region->inlined_blocks) {
+                locally_inlined_blocks[inlined->id.value] = 1u;
+                chained_blocks[inlined->id.value] = 1u;
+            }
+        }
+    }
+    for (auto &&block : _source.blocks()) {
+        if (chained_blocks[block.id.value] != 0u) { continue; }
+        if (auto diamond =
+                _find_guarded_predicated_math_diamond(block)) {
+            for (auto *arm : diamond->true_blocks) {
+                locally_inlined_blocks[arm->id.value] = 1u;
+            }
+            for (auto *arm : diamond->false_blocks) {
+                locally_inlined_blocks[arm->id.value] = 1u;
+            }
+        }
+    }
+    for (auto &&block : _source.blocks()) {
+        if (chained_blocks[block.id.value] != 0u) { continue; }
+        if (auto region = _find_nested_predicated_region(block)) {
+            locally_inlined_blocks[region->nested_split_block->id.value] = 1u;
+            for (auto *arm : region->nested_diamond.true_blocks) {
+                locally_inlined_blocks[arm->id.value] = 1u;
+            }
+            for (auto *arm : region->nested_diamond.false_blocks) {
+                locally_inlined_blocks[arm->id.value] = 1u;
+            }
+            locally_inlined_blocks[region->nested_merge_block->id.value] = 1u;
+            locally_inlined_blocks[region->other_block->id.value] = 1u;
+        }
+    }
     for (auto &&block : _source.blocks()) {
         _builder.SetInsertPoint(
             _schedule_blocks[block.id.value]);
+        if (locally_inlined_blocks[block.id.value] != 0u) {
+            _builder.CreateUnreachable();
+            continue;
+        }
         _locals.clear();
         _active_mask = _builder.CreateLoad(
             _layout.mask_type(), _current_mask);

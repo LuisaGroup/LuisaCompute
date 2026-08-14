@@ -285,6 +285,638 @@ void ScheduleEmitter::_emit_predicated_memory_diamond(
     }
 }
 
+[[nodiscard]] const schedule::Loop *
+ScheduleEmitter::_innermost_loop_containing(
+    schedule::BlockId block) const noexcept {
+    auto *innermost = static_cast<const schedule::Loop *>(nullptr);
+    auto innermost_depth = size_t{0u};
+    for (auto &&loop : _source.loops()) {
+        if (std::find(loop.blocks.cbegin(), loop.blocks.cend(), block) ==
+            loop.blocks.cend()) {
+            continue;
+        }
+        auto depth = size_t{1u};
+        auto parent = loop.parent;
+        while (parent) {
+            auto *parent_loop = _source.loop(*parent);
+            if (parent_loop == nullptr) { break; }
+            depth++;
+            parent = parent_loop->parent;
+        }
+        if (innermost == nullptr || depth > innermost_depth) {
+            innermost = &loop;
+            innermost_depth = depth;
+        }
+    }
+    return innermost;
+}
+
+[[nodiscard]] std::optional<ScheduleEmitter::GuardedPredicatedMathDiamond>
+ScheduleEmitter::_find_guarded_predicated_math_diamond(
+    const schedule::BasicBlock &block) const noexcept {
+    if (_width == 1u ||
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS")) {
+        return std::nullopt;
+    }
+    auto *innermost_loop = _innermost_loop_containing(block.id);
+    if (innermost_loop == nullptr) { return std::nullopt; }
+    auto *split = std::get_if<schedule::SplitTerminator>(
+        &block.terminator);
+    if (split == nullptr || !split->convergence) {
+        return std::nullopt;
+    }
+    auto *condition = _source.value(split->condition);
+    if (condition == nullptr ||
+        condition->value_class != schedule::ValueClass::varying ||
+        !split->true_edge.assignments.empty() ||
+        !split->false_edge.assignments.empty() ||
+        !split->true_edge.joins.empty() ||
+        !split->false_edge.joins.empty() ||
+        split->true_edge.loop_back || split->false_edge.loop_back ||
+        split->true_edge.target == split->false_edge.target) {
+        return std::nullopt;
+    }
+    auto *point = _source.convergence(*split->convergence);
+    if (point == nullptr || point->target == block.id) {
+        return std::nullopt;
+    }
+
+    auto predecessor_count = [&](schedule::BlockId target) noexcept {
+        auto count = size_t{0u};
+        auto add_edge = [&](const schedule::ControlEdge &edge) noexcept {
+            count += edge.target == target;
+        };
+        for (auto &&candidate : _source.blocks()) {
+            std::visit(
+                [&](const auto &control) noexcept {
+                    using T = std::decay_t<decltype(control)>;
+                    if constexpr (std::is_same_v<
+                                      T, schedule::BranchTerminator>) {
+                        add_edge(control.edge);
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::SplitTerminator>) {
+                        add_edge(control.true_edge);
+                        add_edge(control.false_edge);
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::SwitchTerminator>) {
+                        for (auto &&item : control.cases) {
+                            add_edge(item.edge);
+                        }
+                        add_edge(control.default_edge);
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::JoinTerminator>) {
+                        auto *join = _source.convergence(
+                            control.convergence);
+                        count += join != nullptr &&
+                                 join->target == target;
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::LoopBackTerminator>) {
+                        auto *loop = _source.loop(control.loop);
+                        count += loop != nullptr &&
+                                 loop->header == target;
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::BlockBarrierTerminator>) {
+                        add_edge(control.resume_edge);
+                    }
+                },
+                candidate.terminator);
+        }
+        return count;
+    };
+
+    static constexpr auto max_chain_block_count = size_t{3u};
+    auto collect_chain = [&](const schedule::ControlEdge &entry)
+        -> std::optional<std::vector<const schedule::BasicBlock *>> {
+        std::vector<const schedule::BasicBlock *> chain;
+        auto target = entry.target;
+        while (target != point->target &&
+               chain.size() < max_chain_block_count) {
+            auto *arm = _source.block(target);
+            if (arm == nullptr || arm->id == block.id ||
+                predecessor_count(target) != 1u) {
+                return std::nullopt;
+            }
+            auto *branch = std::get_if<schedule::BranchTerminator>(
+                &arm->terminator);
+            if (branch == nullptr || branch->edge.loop_back) {
+                return std::nullopt;
+            }
+            chain.emplace_back(arm);
+            auto reaches_merge = branch->edge.target == point->target;
+            if (reaches_merge) {
+                if (branch->edge.joins.size() != 1u ||
+                    branch->edge.joins.front() !=
+                        *split->convergence) {
+                    return std::nullopt;
+                }
+            } else if (!branch->edge.joins.empty()) {
+                return std::nullopt;
+            }
+            target = branch->edge.target;
+        }
+        return target == point->target && !chain.empty() ?
+                   std::optional{std::move(chain)} :
+                   std::nullopt;
+    };
+    auto true_blocks = collect_chain(split->true_edge);
+    auto false_blocks = collect_chain(split->false_edge);
+    if (!true_blocks || !false_blocks) { return std::nullopt; }
+    auto belongs_to_innermost_loop = [&](const auto *candidate) noexcept {
+        return candidate != nullptr &&
+               std::find(
+                   innermost_loop->blocks.cbegin(),
+                   innermost_loop->blocks.cend(), candidate->id) !=
+                   innermost_loop->blocks.cend();
+    };
+    if (!belongs_to_innermost_loop(_source.block(point->target)) ||
+        !std::all_of(
+            true_blocks->cbegin(), true_blocks->cend(),
+            belongs_to_innermost_loop) ||
+        !std::all_of(
+            false_blocks->cbegin(), false_blocks->cend(),
+            belongs_to_innermost_loop)) {
+        return std::nullopt;
+    }
+
+    auto assignments_are_lane_masked = [&](const auto &assignments) noexcept {
+        for (auto assignment : assignments) {
+            auto *destination = _source.value(assignment.destination);
+            if (destination == nullptr ||
+                (destination->value_class !=
+                     schedule::ValueClass::varying &&
+                 destination->value_class !=
+                     schedule::ValueClass::mask)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    auto safe_arithmetic = [&](const schedule::Instruction &instruction,
+                               bool &has_expensive_math) noexcept {
+        if (instruction.opcode != schedule::Opcode::arithmetic ||
+            !instruction.source_op || !instruction.result ||
+            instruction.participant_mask) {
+            return false;
+        }
+        auto op = static_cast<xir::ArithmeticOp>(
+            *instruction.source_op);
+        switch (op) {
+            case xir::ArithmeticOp::UNARY_MINUS:
+            case xir::ArithmeticOp::BINARY_ADD:
+            case xir::ArithmeticOp::BINARY_SUB:
+            case xir::ArithmeticOp::BINARY_MUL:
+            case xir::ArithmeticOp::BINARY_BIT_AND:
+            case xir::ArithmeticOp::BINARY_LESS:
+            case xir::ArithmeticOp::BINARY_GREATER:
+            case xir::ArithmeticOp::BINARY_LESS_EQUAL:
+            case xir::ArithmeticOp::BINARY_GREATER_EQUAL:
+            case xir::ArithmeticOp::BINARY_EQUAL:
+            case xir::ArithmeticOp::BINARY_NOT_EQUAL:
+            case xir::ArithmeticOp::SELECT:
+            case xir::ArithmeticOp::MIN:
+            case xir::ArithmeticOp::MAX:
+            case xir::ArithmeticOp::AGGREGATE: return true;
+            case xir::ArithmeticOp::SQRT:
+            case xir::ArithmeticOp::RSQRT:
+                has_expensive_math = true;
+                return true;
+            case xir::ArithmeticOp::BINARY_DIV: {
+                auto *result = _source.value(*instruction.result);
+                auto safe = result != nullptr && result->type != nullptr &&
+                            result->type->is_float_or_float_vector();
+                has_expensive_math = has_expensive_math || safe;
+                return safe;
+            }
+            default: return false;
+        }
+    };
+    auto true_instruction_count = size_t{0u};
+    auto false_instruction_count = size_t{0u};
+    auto has_expensive_math = false;
+    auto validate_chain = [&](const auto &chain,
+                              size_t &instruction_count) noexcept {
+        for (auto *arm : chain) {
+            auto *branch = std::get_if<schedule::BranchTerminator>(
+                &arm->terminator);
+            if (branch == nullptr ||
+                !assignments_are_lane_masked(
+                    branch->edge.assignments)) {
+                return false;
+            }
+            for (auto &&instruction : arm->instructions) {
+                if (!safe_arithmetic(
+                        instruction, has_expensive_math)) {
+                    return false;
+                }
+                instruction_count++;
+            }
+        }
+        return true;
+    };
+    if (!validate_chain(*true_blocks, true_instruction_count) ||
+        !validate_chain(*false_blocks, false_instruction_count) ||
+        std::min(true_instruction_count, false_instruction_count) != 0u) {
+        return std::nullopt;
+    }
+    auto instruction_count =
+        true_instruction_count + false_instruction_count;
+    auto assignment_only = instruction_count == 0u;
+    auto guarded_math = has_expensive_math && instruction_count >= 4u &&
+                        instruction_count <= 24u;
+    if (!assignment_only && !guarded_math) {
+        return std::nullopt;
+    }
+    return GuardedPredicatedMathDiamond{
+        .true_blocks = std::move(*true_blocks),
+        .false_blocks = std::move(*false_blocks),
+        .merge = point->target,
+        .instruction_count = instruction_count,
+    };
+}
+
+[[nodiscard]] std::optional<ScheduleEmitter::NestedPredicatedRegion>
+ScheduleEmitter::_find_nested_predicated_region(
+    const schedule::BasicBlock &block) const noexcept {
+    if (_width == 1u ||
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS") ||
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_NESTED_PREDICATED_REGION")) {
+        return std::nullopt;
+    }
+    auto *innermost_loop = _innermost_loop_containing(block.id);
+    if (innermost_loop == nullptr) { return std::nullopt; }
+    auto *split = std::get_if<schedule::SplitTerminator>(
+        &block.terminator);
+    if (split == nullptr || !split->convergence) {
+        return std::nullopt;
+    }
+    auto *condition = _source.value(split->condition);
+    auto *outer_point = _source.convergence(*split->convergence);
+    if (condition == nullptr || outer_point == nullptr ||
+        condition->value_class != schedule::ValueClass::varying ||
+        !split->true_edge.assignments.empty() ||
+        !split->false_edge.assignments.empty() ||
+        !split->true_edge.joins.empty() ||
+        !split->false_edge.joins.empty() ||
+        split->true_edge.loop_back || split->false_edge.loop_back ||
+        split->true_edge.target == split->false_edge.target ||
+        outer_point->target == block.id) {
+        return std::nullopt;
+    }
+
+    auto predecessor_count = [&](schedule::BlockId target) noexcept {
+        auto count = size_t{0u};
+        auto add_edge = [&](const schedule::ControlEdge &edge) noexcept {
+            count += edge.target == target;
+        };
+        for (auto &&candidate : _source.blocks()) {
+            std::visit(
+                [&](const auto &control) noexcept {
+                    using T = std::decay_t<decltype(control)>;
+                    if constexpr (std::is_same_v<
+                                      T, schedule::BranchTerminator>) {
+                        add_edge(control.edge);
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::SplitTerminator>) {
+                        add_edge(control.true_edge);
+                        add_edge(control.false_edge);
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::SwitchTerminator>) {
+                        for (auto &&item : control.cases) {
+                            add_edge(item.edge);
+                        }
+                        add_edge(control.default_edge);
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::JoinTerminator>) {
+                        auto *join = _source.convergence(
+                            control.convergence);
+                        count += join != nullptr &&
+                                 join->target == target;
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::LoopBackTerminator>) {
+                        auto *loop = _source.loop(control.loop);
+                        count += loop != nullptr &&
+                                 loop->header == target;
+                    } else if constexpr (std::is_same_v<
+                                             T,
+                                             schedule::BlockBarrierTerminator>) {
+                        add_edge(control.resume_edge);
+                    }
+                },
+                candidate.terminator);
+        }
+        return count;
+    };
+    auto assignments_are_lane_masked = [&](const auto &assignments) noexcept {
+        for (auto assignment : assignments) {
+            auto *destination = _source.value(assignment.destination);
+            if (destination == nullptr ||
+                (destination->value_class !=
+                     schedule::ValueClass::varying &&
+                 destination->value_class !=
+                     schedule::ValueClass::mask)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    auto closes_outer = [&](const schedule::ControlEdge &edge) noexcept {
+        return edge.target == outer_point->target &&
+               !edge.loop_back && edge.joins.size() == 1u &&
+               edge.joins.front() == *split->convergence &&
+               assignments_are_lane_masked(edge.assignments);
+    };
+    auto safe_instruction = [&](const schedule::Instruction &instruction) {
+        if (!instruction.result || instruction.participant_mask) {
+            return false;
+        }
+        if (instruction.opcode == schedule::Opcode::cast &&
+            instruction.source_op &&
+            instruction.operands.size() == 1u) {
+            auto op = static_cast<xir::CastOp>(
+                *instruction.source_op);
+            return op == xir::CastOp::STATIC_CAST ||
+                   op == xir::CastOp::BITWISE_CAST;
+        }
+        if (instruction.opcode != schedule::Opcode::arithmetic ||
+            !instruction.source_op) {
+            return false;
+        }
+        auto op = static_cast<xir::ArithmeticOp>(
+            *instruction.source_op);
+        switch (op) {
+            case xir::ArithmeticOp::UNARY_MINUS:
+            case xir::ArithmeticOp::BINARY_ADD:
+            case xir::ArithmeticOp::BINARY_SUB:
+            case xir::ArithmeticOp::BINARY_MUL:
+            case xir::ArithmeticOp::BINARY_BIT_AND:
+            case xir::ArithmeticOp::BINARY_LESS:
+            case xir::ArithmeticOp::BINARY_GREATER:
+            case xir::ArithmeticOp::BINARY_LESS_EQUAL:
+            case xir::ArithmeticOp::BINARY_GREATER_EQUAL:
+            case xir::ArithmeticOp::BINARY_EQUAL:
+            case xir::ArithmeticOp::BINARY_NOT_EQUAL:
+            case xir::ArithmeticOp::SELECT:
+            case xir::ArithmeticOp::AGGREGATE:
+            case xir::ArithmeticOp::EXTRACT: return true;
+            case xir::ArithmeticOp::BINARY_DIV: {
+                auto *result = _source.value(*instruction.result);
+                return result != nullptr && result->type != nullptr &&
+                       result->type->is_float_or_float_vector();
+            }
+            default: return false;
+        }
+    };
+
+    auto try_side = [&](const schedule::ControlEdge &nested_edge,
+                        const schedule::ControlEdge &other_edge,
+                        bool nested_on_true)
+        -> std::optional<NestedPredicatedRegion> {
+        auto *nested_split_block = _source.block(nested_edge.target);
+        auto *other_block = _source.block(other_edge.target);
+        if (nested_split_block == nullptr || other_block == nullptr ||
+            predecessor_count(nested_split_block->id) != 1u ||
+            predecessor_count(other_block->id) != 1u ||
+            !other_block->instructions.empty()) {
+            return std::nullopt;
+        }
+        auto nested_diamond =
+            _find_guarded_predicated_math_diamond(
+                *nested_split_block);
+        if (!nested_diamond ||
+            nested_diamond->instruction_count != 0u) {
+            return std::nullopt;
+        }
+        auto *nested_control =
+            std::get_if<schedule::SplitTerminator>(
+                &nested_split_block->terminator);
+        auto *nested_point = nested_control &&
+                                     nested_control->convergence ?
+                                 _source.convergence(
+                                     *nested_control->convergence) :
+                                 nullptr;
+        auto *nested_merge_block = nested_point == nullptr ?
+                                       nullptr :
+                                       _source.block(
+                                           nested_point->target);
+        auto *nested_merge_branch = nested_merge_block == nullptr ?
+                                        nullptr :
+                                        std::get_if<
+                                            schedule::BranchTerminator>(
+                                            &nested_merge_block
+                                                 ->terminator);
+        auto *other_branch = std::get_if<
+            schedule::BranchTerminator>(&other_block->terminator);
+        if (nested_point == nullptr ||
+            nested_point->parent != split->convergence ||
+            nested_merge_block == nullptr ||
+            !nested_merge_block->instructions.empty() ||
+            predecessor_count(nested_merge_block->id) != 2u ||
+            nested_merge_branch == nullptr || other_branch == nullptr ||
+            !closes_outer(nested_merge_branch->edge) ||
+            !closes_outer(other_branch->edge)) {
+            return std::nullopt;
+        }
+        auto belongs_to_innermost_loop = [&](const auto *candidate) noexcept {
+            return candidate != nullptr &&
+                   std::find(
+                       innermost_loop->blocks.cbegin(),
+                       innermost_loop->blocks.cend(), candidate->id) !=
+                       innermost_loop->blocks.cend();
+        };
+        if (!belongs_to_innermost_loop(nested_split_block) ||
+            !belongs_to_innermost_loop(nested_merge_block) ||
+            !belongs_to_innermost_loop(other_block) ||
+            !belongs_to_innermost_loop(
+                _source.block(outer_point->target)) ||
+            !std::all_of(
+                nested_diamond->true_blocks.cbegin(),
+                nested_diamond->true_blocks.cend(),
+                belongs_to_innermost_loop) ||
+            !std::all_of(
+                nested_diamond->false_blocks.cbegin(),
+                nested_diamond->false_blocks.cend(),
+                belongs_to_innermost_loop)) {
+            return std::nullopt;
+        }
+        if (nested_split_block->instructions.empty() ||
+            nested_split_block->instructions.size() > 12u ||
+            !std::all_of(
+                nested_split_block->instructions.cbegin(),
+                nested_split_block->instructions.cend(),
+                safe_instruction)) {
+            return std::nullopt;
+        }
+        return NestedPredicatedRegion{
+            .nested_split_block = nested_split_block,
+            .nested_diamond = std::move(*nested_diamond),
+            .nested_merge_block = nested_merge_block,
+            .other_block = other_block,
+            .merge = outer_point->target,
+            .nested_on_true = nested_on_true,
+            .instruction_count =
+                nested_split_block->instructions.size(),
+        };
+    };
+    if (auto region = try_side(
+            split->true_edge, split->false_edge, true)) {
+        return region;
+    }
+    return try_side(split->false_edge, split->true_edge, false);
+}
+
+void ScheduleEmitter::_emit_guarded_predicated_math_diamond(
+    const schedule::SplitTerminator &control,
+    const GuardedPredicatedMathDiamond &diamond,
+    bool continue_at_merge) {
+    auto *condition = _load_value(control.condition);
+    if (condition == nullptr) { return; }
+    auto *outer_mask = _active_mask;
+    auto *outer_seed = _seed_lane;
+    auto outer_locals = _locals;
+    auto *true_mask = _builder.CreateAnd(outer_mask, condition);
+    auto *false_mask = _builder.CreateAnd(
+        outer_mask, _builder.CreateNot(condition));
+    auto emit_chain = [&](const auto &chain,
+                          ::llvm::Value *mask) noexcept {
+        auto instruction_count = size_t{0u};
+        for (auto *arm : chain) {
+            instruction_count += arm->instructions.size();
+        }
+        auto *resume = static_cast<::llvm::BasicBlock *>(nullptr);
+        if (instruction_count != 0u) {
+            auto *execute = ::llvm::BasicBlock::Create(
+                _module.getContext(),
+                "guarded.math.execute", _entry);
+            resume = ::llvm::BasicBlock::Create(
+                _module.getContext(),
+                "guarded.math.resume", _entry);
+            _builder.CreateCondBr(
+                _builder.CreateOrReduce(mask), execute, resume);
+            _builder.SetInsertPoint(execute);
+        }
+        _active_mask = mask;
+        // The candidate contains only pure arithmetic/casts. It has no
+        // operation whose address or scalarization depends on the narrowed
+        // arm's first active lane, while cohort-uniform inputs remain equal
+        // at the enclosing cohort's seed. Reuse that seed and avoid a second
+        // horizontal mask reduction after the nonempty guard.
+        _seed_lane = outer_seed;
+        _locals = outer_locals;
+        for (auto *arm : chain) {
+            for (auto &&instruction : arm->instructions) {
+                _emit_instruction(instruction, nullptr, mask);
+                if (_failed()) { return; }
+            }
+            auto *branch = std::get_if<schedule::BranchTerminator>(
+                &arm->terminator);
+            _apply_assignments(branch->edge.assignments, mask);
+            if (_failed()) { return; }
+        }
+        if (instruction_count != 0u) {
+            _builder.CreateBr(resume);
+            _builder.SetInsertPoint(resume);
+        }
+    };
+    emit_chain(diamond.true_blocks, true_mask);
+    if (!_failed()) { emit_chain(diamond.false_blocks, false_mask); }
+    _active_mask = outer_mask;
+    _seed_lane = outer_seed;
+    _locals = std::move(outer_locals);
+    if (_failed()) { return; }
+    _result.local_predicated_diamond_count++;
+    _result.local_predicated_assignment_diamond_count +=
+        diamond.instruction_count == 0u;
+    _result.local_predicated_block_count +=
+        diamond.true_blocks.size() + diamond.false_blocks.size();
+    _result.local_predicated_instruction_count +=
+        diamond.instruction_count;
+    if (continue_at_merge) {
+        _continue_at(diamond.merge, outer_mask);
+    }
+}
+
+void ScheduleEmitter::_emit_nested_predicated_region(
+    const schedule::SplitTerminator &control,
+    const NestedPredicatedRegion &region,
+    bool continue_at_merge) {
+    auto *condition = _load_value(control.condition);
+    if (condition == nullptr) { return; }
+    auto *outer_mask = _active_mask;
+    auto *outer_seed = _seed_lane;
+    auto outer_locals = _locals;
+    auto *true_mask = _builder.CreateAnd(outer_mask, condition);
+    auto *false_mask = _builder.CreateAnd(
+        outer_mask, _builder.CreateNot(condition));
+    auto *nested_mask = region.nested_on_true ?
+                            true_mask :
+                            false_mask;
+    auto *other_mask = region.nested_on_true ?
+                           false_mask :
+                           true_mask;
+
+    auto *execute = ::llvm::BasicBlock::Create(
+        _module.getContext(), "nested.region.execute", _entry);
+    auto *resume = ::llvm::BasicBlock::Create(
+        _module.getContext(), "nested.region.resume", _entry);
+    _builder.CreateCondBr(
+        _builder.CreateOrReduce(nested_mask), execute, resume);
+    _builder.SetInsertPoint(execute);
+    _active_mask = nested_mask;
+    _seed_lane = outer_seed;
+    _locals = outer_locals;
+    for (auto &&instruction :
+         region.nested_split_block->instructions) {
+        _emit_instruction(instruction, nullptr, nested_mask);
+        if (_failed()) { return; }
+    }
+    auto *nested_control =
+        std::get_if<schedule::SplitTerminator>(
+            &region.nested_split_block->terminator);
+    _emit_guarded_predicated_math_diamond(
+        *nested_control, region.nested_diamond, false);
+    if (_failed()) { return; }
+    auto *nested_merge_branch =
+        std::get_if<schedule::BranchTerminator>(
+            &region.nested_merge_block->terminator);
+    _apply_assignments(
+        nested_merge_branch->edge.assignments, nested_mask);
+    if (_failed()) { return; }
+    _builder.CreateBr(resume);
+
+    _builder.SetInsertPoint(resume);
+    _active_mask = other_mask;
+    _seed_lane = outer_seed;
+    _locals = outer_locals;
+    auto *other_branch = std::get_if<schedule::BranchTerminator>(
+        &region.other_block->terminator);
+    _apply_assignments(other_branch->edge.assignments, other_mask);
+    _active_mask = outer_mask;
+    _seed_lane = outer_seed;
+    _locals = std::move(outer_locals);
+    if (_failed()) { return; }
+    _result.nested_predicated_region_count++;
+    _result.nested_predicated_block_count +=
+        region.nested_diamond.true_blocks.size() +
+        region.nested_diamond.false_blocks.size() + 3u;
+    _result.nested_predicated_instruction_count +=
+        region.instruction_count;
+    if (continue_at_merge) {
+        _continue_at(region.merge, outer_mask);
+    }
+}
+
 [[nodiscard]] std::optional<ScheduleEmitter::PredicatedLoop>
 ScheduleEmitter::_find_predicated_loop(
     const schedule::BasicBlock &header) const noexcept {

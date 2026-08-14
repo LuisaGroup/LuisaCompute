@@ -636,6 +636,95 @@ instruction counts. Permanent W2/W4/W8/W16 codegen coverage executes coherent
 and genuinely divergent inputs with full, partial-tail, and one-lane masks;
 it also fixes the W8 three-block minimum and W2 two-block exception.
 
+### 4.4.3 Innermost-loop local predicated regions
+
+This refinement removes a bounded amount of independent-PC scheduling inside
+an innermost natural loop without requiring the complete loop to satisfy the
+predicated-batch contract. It does not alter Schedule IR, clone a source
+instruction, or change the fallback path for an unrecognized shape.
+
+For an incoming active mask `A` and a varying Boolean condition `C`, define
+
+```text
+T = A & C
+F = A & !C
+```
+
+A base local diamond is eligible only when all of the following hold:
+
+- W2/W4/W8/W16; the split, both arms, and common merge are members of the same
+  innermost natural loop;
+- the split declares one convergence point, has distinct targets, no edge
+  assignments/joins/loop backs, and its condition is varying;
+- each arm is a one-to-three-block single-predecessor chain ending at that
+  exact convergence, with no intermediate join or loop back;
+- every arm-exit assignment destination is varying or a lane mask, and exactly
+  one arm contains zero instructions;
+- either the complete diamond is assignment-only, or the nonempty arm contains
+  4--24 pure instructions including at least one `sqrt`, `rsqrt`, or floating-
+  point division;
+- the remaining accepted instructions are the audited nontrapping arithmetic,
+  comparison, select, `min`/`max`, bit operation, or aggregate-construction
+  set. Calls, memory/resources, effects, participant masks, integer
+  division/remainder, dynamic extraction, and structured control fail closed.
+
+The nonempty arm is emitted behind `any(T)` or `any(F)`. If that mask is empty,
+the arm is not evaluated. If it is nonempty, fixed-vector arithmetic may still
+evaluate inactive physical elements, but every accepted operation is total in
+LLVM's value semantics and only arm-mask assignments can make a result
+observable. Floating division by zero and square root of a negative off-arm
+operand may produce the ordinary IEEE Inf/NaN value; neither traps nor forms
+poison, and floating exception flags are not part of the device-language
+contract. Integer division, poison-forming conversion, memory, and effects are
+therefore not admitted. This permits no undefined domain extension. An
+assignment-only diamond emits masked assignments directly and needs no
+horizontal mask guard.
+
+After both arms, codegen restores `A` and the enclosing cohort's seed lane and
+continues at the declared merge. Arm blocks are assigned to the split's LLVM
+emission region during spill analysis. A value used only within the inlined
+region consequently remains LLVM SSA rather than acquiring a Schedule spill;
+cross-region values retain the existing spill/liveness rules.
+
+One nested shape is legal at every enabled width. Exactly one outer arm must
+contain a 1--12-instruction pure block ending in an assignment-only base
+diamond; the sibling arm is empty. The inner convergence must name the outer
+convergence as its parent, the inner merge and sibling must close the outer
+convergence directly, and all involved blocks must have the exact predecessor
+counts implied by this tree. The outer nonempty mask is tested before its
+instructions or inner selector execute. Arbitrary recursive nesting is not
+accepted.
+
+At W4/W8/W16, a chained region may consume up to four adjacent nonempty base
+diamonds. A transition starts at the previous diamond's merge only when that
+block is the exclusive target of the expected convergence. It may cross no
+more than four blocks and twelve instructions; every later bridge block has
+one predecessor, is not a convergence target, stays in the same innermost
+loop, and contains only audited pure arithmetic/casts. No bridge may loop
+back, join, self-cycle, call, read memory, or produce an effect. The complete
+chain is capped at 128 instructions. W8 may end with one nested shape satisfying
+the preceding proof; W4 and W16 do not absorb that tail. No source instruction
+is duplicated: chaining only makes the previous merge, pure bridge, and next
+split one LLVM emission region and performs one final return to the scheduler.
+
+Width policy is empirical but semantics are width-independent. W2 retains
+individual diamonds because chaining regressed its paired benchmark. W4/W8/W16
+enable ordinary chaining. Only W8 enables chained nested-tail absorption after
+paired W4/W16 ablations measured small regressions. The complete disabled
+oracle is `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS=1`; narrower oracles are
+`LUISA_SIMD_DISABLE_LOCAL_PREDICATED_CHAINING=1`,
+`LUISA_SIMD_DISABLE_NESTED_PREDICATED_REGION=1`, and
+`LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL=1`.
+
+Permanent codegen coverage executes candidate and every narrower oracle at
+W2/W4/W8/W16 with `W - 1` active lanes. It includes a guarded square-root arm,
+a guarded floating-division/`max` arm with no square root, an assignment-only
+nested tail, and an independently varying natural loop. Every output bit must
+match and every inactive output element must retain its sentinel. Runtime
+counters separately report local diamonds, assignment-only diamonds, blocks,
+instructions, nested regions, chained regions, transitions, blocks, and
+chained nested tails.
+
 ### 4.5 Bounded loop-unswitch refinement
 
 The production SIMD compiler may replace a repeated internal conditional with

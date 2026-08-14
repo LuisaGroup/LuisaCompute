@@ -143,6 +143,40 @@ private:
         size_t instruction_count{0u};
     };
 
+    struct GuardedPredicatedMathDiamond {
+        std::vector<const schedule::BasicBlock *> true_blocks{};
+        std::vector<const schedule::BasicBlock *> false_blocks{};
+        schedule::BlockId merge{};
+        size_t instruction_count{0u};
+    };
+
+    struct NestedPredicatedRegion {
+        const schedule::BasicBlock *nested_split_block{nullptr};
+        GuardedPredicatedMathDiamond nested_diamond{};
+        const schedule::BasicBlock *nested_merge_block{nullptr};
+        const schedule::BasicBlock *other_block{nullptr};
+        schedule::BlockId merge{};
+        bool nested_on_true{false};
+        size_t instruction_count{0u};
+    };
+
+    struct ChainedPredicatedRegion {
+        struct Continuation {
+            std::vector<const schedule::BasicBlock *> blocks{};
+            GuardedPredicatedMathDiamond diamond{};
+        };
+        struct NestedContinuation {
+            std::vector<const schedule::BasicBlock *> blocks{};
+            NestedPredicatedRegion region{};
+        };
+        GuardedPredicatedMathDiamond first_diamond{};
+        std::vector<Continuation> continuations{};
+        std::optional<NestedContinuation> nested_continuation{};
+        std::vector<const schedule::BasicBlock *> inlined_blocks{};
+        schedule::BlockId merge{};
+        size_t instruction_count{0u};
+    };
+
     struct PredicatedLoop {
         const schedule::Loop *loop{nullptr};
         schedule::ConvergenceId convergence{};
@@ -455,6 +489,28 @@ private:
         const schedule::SplitTerminator &control,
         const PredicatedMemoryDiamond &diamond,
         const std::vector<::llvm::BasicBlock *> *direct_blocks);
+    [[nodiscard]] const schedule::Loop *_innermost_loop_containing(
+        schedule::BlockId block) const noexcept;
+    [[nodiscard]] std::optional<GuardedPredicatedMathDiamond>
+    _find_guarded_predicated_math_diamond(
+        const schedule::BasicBlock &block) const noexcept;
+    void _emit_guarded_predicated_math_diamond(
+        const schedule::SplitTerminator &control,
+        const GuardedPredicatedMathDiamond &diamond,
+        bool continue_at_merge = true);
+    [[nodiscard]] std::optional<NestedPredicatedRegion>
+    _find_nested_predicated_region(
+        const schedule::BasicBlock &block) const noexcept;
+    void _emit_nested_predicated_region(
+        const schedule::SplitTerminator &control,
+        const NestedPredicatedRegion &region,
+        bool continue_at_merge = true);
+    [[nodiscard]] std::optional<ChainedPredicatedRegion>
+    _find_chained_predicated_region(
+        const schedule::BasicBlock &block) const noexcept;
+    void _emit_chained_predicated_region(
+        const schedule::SplitTerminator &control,
+        const ChainedPredicatedRegion &region);
     [[nodiscard]] std::optional<PredicatedLoop>
     _find_predicated_loop(
         const schedule::BasicBlock &header) const noexcept;

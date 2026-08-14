@@ -60,6 +60,7 @@ set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_emitter_collectives.cpp
         llvm/llvm_schedule_emitter_control.cpp
         llvm/llvm_schedule_emitter_memory.cpp
+        llvm/llvm_schedule_emitter_local_regions.cpp
         llvm/llvm_schedule_emitter_predication.cpp
         llvm/llvm_schedule_emitter_state.cpp
         llvm/llvm_schedule_emitter_ray_query.cpp)
