@@ -213,10 +213,10 @@ to signed/unsigned integer conversion, whose untaken result could be LLVM
 poison for NaN or an out-of-range value. In particular, integer-to-float
 coordinate updates are safe to hoist. Memory/resource access, calls,
 division/remainder, shifts, dynamic aggregate indexing, side effects,
-metadata-bearing arms, and structured control are never speculated. Warp- and
-cohort-uniform conditions retain scalar control flow. W1 also keeps its direct
-scalar CFG: one live lane cannot benefit from eliminating divergence, so
-speculating both arms would only add work.
+metadata-bearing arms, and structured control are rejected by this ordinary
+policy. Warp- and cohort-uniform conditions retain scalar control flow. W1
+also keeps its direct scalar CFG: one live lane cannot benefit from eliminating
+divergence, so speculating both arms would only add work.
 
 Generated selects then undergo a bounded factoring rewrite. Matching one-use
 arithmetic producers with exactly one differing operand are transformed from
@@ -252,6 +252,35 @@ safety, metadata, per-arm, total-instruction, or live-out rule. The narrower
 oracle `LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT=1` retains the W8
 forwarding refinement but restores cost twelve. W4 measured slower with this
 extra layer, and W1/W2/W16 therefore remain unchanged.
+
+A separate one-sided update policy covers the measured five- or six-
+instruction shape left just beyond those ordinary limits. Exactly one arm must
+be empty, both arms must branch directly to the same merge, and at least two
+merge PHIs must select different arm values. The live-out budget is six
+32-bit register units and the weighted cost budget is fifty-eight. Floating
+division carries the same latency weight as component-wise matrix division,
+so the measured padded-`float3` update is not admitted through a default-cost
+hole. All memory, calls, side effects, poison-forming casts, integer
+division/remainder, every remainder operation, and the ordinary unsafe
+arithmetic classes still fail closed. Floating-point division alone is
+explicitly enabled for this SIMD
+policy: fixed-vector LLVM floating division is non-trapping for every bit
+pattern, while the generated selects make results from the formerly untaken
+arm unobservable. The target-independent XIR pass keeps floating division
+disabled by default; the SIMD caller must opt in. This is enabled at
+W2/W4/W8/W16 and remains disabled at W1. The independent oracle is
+`LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE=1`, and the runtime optimization
+report exposes `predicated_widened_update_diamonds`.
+
+This refinement came from an independent audit of ISPC's costed predication
+and all-on paths, not from copied implementation. In the matched analytic path
+tracer it converts four inner sphere-hit update diamonds and removes eight
+Schedule blocks, four convergence points, and four instruction spills at every
+enabled width. Fifteen paired single-worker processes measured stable gains at
+all four widths; the exact distributions and assembly deltas are recorded in
+[`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md). Ordinary path
+tracing, Voxel, and image-processing kernels currently produce zero widened
+updates, so this stage makes no performance claim for those examples.
 
 A remaining varying conditional or switch has a dynamic coherent fast path:
 when all active lanes select one successor, it behaves like directly threaded

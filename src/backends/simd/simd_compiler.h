@@ -34,6 +34,7 @@ struct SIMDCompiledKernel {
     size_t predicated_refinement_round_count{0u};
     size_t predicated_forwarded_phi_count{0u};
     size_t predicated_forwarding_block_count{0u};
+    size_t predicated_widened_update_diamond_count{0u};
     size_t factored_select_count{0u};
     size_t unswitched_loop_count{0u};
     size_t unswitched_cloned_block_count{0u};

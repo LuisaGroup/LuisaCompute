@@ -6209,6 +6209,56 @@ void reg_if_conversion() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "if_conversion_speculates_only_opted_in_float_division"_test = [] {
+        auto run = [](const Type *type, ArithmeticOp op,
+                      bool expect_conversion) noexcept {
+            Module module;
+            auto *function = module.create_callable(type);
+            auto *condition =
+                function->create_value_argument(Type::of<bool>());
+            auto *lhs = function->create_value_argument(type);
+            auto *rhs = function->create_value_argument(type);
+            auto *entry = function->create_body_block();
+            auto *true_block = function->create_basic_block();
+            auto *false_block = function->create_basic_block();
+            auto *merge = function->create_basic_block();
+            auto *zero = module.create_constant_zero(type);
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *branch = builder.cond_br(
+                condition, true_block, false_block);
+            builder.set_insertion_point(true_block);
+            auto *quotient = builder.call(
+                type, op, {lhs, rhs});
+            builder.br(merge);
+            builder.set_insertion_point(false_block);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            auto *phi = builder.phi(
+                type,
+                {{quotient, true_block}, {zero, false_block}});
+            builder.return_(phi);
+
+            auto default_info =
+                if_conversion_pass_run_on_function(function);
+            expect(!default_info.changed());
+            auto info = if_conversion_pass_run_on_function(
+                function,
+                {.allow_speculative_float_division = true});
+            expect(info.changed() == expect_conversion);
+            expect(info.converted_diamond_count ==
+                   static_cast<size_t>(expect_conversion));
+            expect(entry->terminator()->isa<BranchInst>() ==
+                   expect_conversion);
+            expect((entry->terminator() == branch) !=
+                   expect_conversion);
+            expect(xir_verify_module(&module).succeeded());
+        };
+        run(Type::of<float>(), ArithmeticOp::BINARY_DIV, true);
+        run(Type::of<int32_t>(), ArithmeticOp::BINARY_DIV, false);
+        run(Type::of<float>(), ArithmeticOp::BINARY_MOD, false);
+    };
+
     "if_conversion_annotated_side_block_is_retained_atomically"_test = [] {
         Module m;
         BasicBlock *body;

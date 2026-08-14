@@ -30,6 +30,12 @@ struct IfConversionOptions {
     size_t max_speculation_cost{
         std::numeric_limits<size_t>::max()};
 
+    // Floating-point division is non-trapping on the supported XIR targets,
+    // but remains opt-in because it is substantially more expensive than the
+    // total arithmetic accepted by the default target-independent policy.
+    // Integer division and every remainder operation remain ineligible.
+    bool allow_speculative_float_division{false};
+
     // Optional target policy. Structural and speculation-safety checks remain
     // inside the pass; the filter can reject otherwise valid candidates (for
     // example, a SIMD backend retaining warp-uniform scalar control flow).

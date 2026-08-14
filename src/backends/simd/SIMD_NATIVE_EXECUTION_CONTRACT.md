@@ -219,6 +219,8 @@ API width always wins. `LUISA_SIMD_DISABLE_PREDICATED_IF=1` and
 forwarding, while
 `LUISA_SIMD_DISABLE_DEEP_PREDICATED_IF_REFINEMENT=1` keeps forwarding but
 restores the W8 speculation-cost ceiling from sixteen to twelve;
+`LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE=1` disables the separately
+costed one-sided update policy at W2/W4/W8/W16;
 `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces otherwise coherent functions
 through the general cohort scheduler;
 `LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` restores aggregate local storage
@@ -357,6 +359,33 @@ W4 keeps cost twelve because a fourteen-pair Voxel A/B measured a regression;
 W1/W2/W16 are byte-identical with the control. A W2/W4/W8/W16 `float3` ladder,
 thirteen-element inactive tail, exact oracle equality, Schedule-state
 reduction, and final x86 assembly-size reduction are permanent regressions.
+
+One-sided state updates have a separate measured policy. It accepts only a
+varying diamond with one empty arm, five or six non-terminator instructions in
+the other arm, one direct common merge, at least two differing merge PHIs, no
+more than six 32-bit live-out units, and a weighted speculation cost no greater
+than fifty-eight. Floating division has latency weight eight, matching
+component-wise matrix division, rather than the default arithmetic weight.
+The default pure/total instruction and metadata rules continue to apply. The
+only additional operation is scalar or vector floating-point division. It is
+non-trapping on supported XIR targets: zero, signed zero, NaN, Inf, and
+subnormal operands retain the backend's ordinary floating semantics, and the
+select prevents any formerly untaken result from becoming observable.
+Floating exception flags are not part of the Luisa device-language contract.
+Integer division, floating/integer remainder, shifts, dynamic indexing,
+float-to-integer conversion, memory, calls, and side effects remain rejected.
+This opt-in does not change the target-independent if-conversion default and
+does not extend the domain of an observable operation.
+
+W2/W4/W8/W16 enable the policy; W1 and
+`LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE=1` retain the original CFG. A
+permanent regression compiles both forms at every width, checks the widened
+counter and exact Schedule-state reduction, executes a thirteen-element
+inactive tail, compares every output bit, and requires smaller final x86
+assembly at each enabled width. A separate XIR regression proves that floating
+division requires the explicit option and integer division remains
+ineligible. The execution fixture also speculates a zero denominator in a
+formerly untaken lane and proves that its selected output is unchanged.
 
 #### 4.4.1 Predicated direct-memory diamond
 

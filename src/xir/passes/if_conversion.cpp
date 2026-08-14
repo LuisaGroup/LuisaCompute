@@ -17,7 +17,9 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-[[nodiscard]] static bool is_speculation_safe(Instruction *inst) noexcept {
+[[nodiscard]] static bool is_speculation_safe(
+    Instruction *inst,
+    const IfConversionOptions &options) noexcept {
     auto info = get_memory_info(inst);
     if (!info.is_pure()) return false;
     // Float-to-integer conversion can produce poison for verifier-valid NaN
@@ -41,8 +43,18 @@ namespace detail {
         return !(source_is_float && target_is_integer);
     }
     if (!inst->isa<ArithmeticInst>()) { return false; }
-    return is_arithmetic_op_safe_to_speculate(
-        static_cast<ArithmeticInst *>(inst)->op());
+    auto *arithmetic = static_cast<ArithmeticInst *>(inst);
+    auto op = arithmetic->op();
+    if (op == ArithmeticOp::BINARY_DIV) {
+        // Floating division is non-trapping on the supported XIR targets:
+        // a zero divisor produces an IEEE Inf/NaN value. Keep it opt-in so
+        // target-independent callers do not unexpectedly speculate a costly
+        // operation. Integer division may trap or form poison.
+        auto *type = arithmetic->type();
+        return options.allow_speculative_float_division &&
+               type != nullptr && type->is_float_or_float_vector();
+    }
+    return is_arithmetic_op_safe_to_speculate(op);
 }
 
 [[nodiscard]] static size_t register_units(
@@ -81,6 +93,7 @@ namespace detail {
         case ArithmeticOp::SQRT:
         case ArithmeticOp::RSQRT:
         case ArithmeticOp::NORMALIZE:
+        case ArithmeticOp::BINARY_DIV:
         case ArithmeticOp::MATRIX_COMP_DIV:
         case ArithmeticOp::MATRIX_DETERMINANT:
         case ArithmeticOp::MATRIX_INVERSE:
@@ -218,7 +231,7 @@ namespace detail {
     size_t cost = 0u;
     for (auto inst : side->instructions()) {
         if (inst == term) continue;
-        if (!is_speculation_safe(inst)) return nullptr;
+        if (!is_speculation_safe(inst, options)) return nullptr;
         if (++inst_count > options.max_arm_instruction_count) {
             return nullptr;
         }

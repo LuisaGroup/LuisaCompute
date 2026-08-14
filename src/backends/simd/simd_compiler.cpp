@@ -285,7 +285,10 @@ SIMDCompiledKernel compile_simd_kernel(
                 12u;
         predication_info =
             schedule::predicate_small_varying_diamonds(
-                xir_kernel, enable_refinement, max_speculation_cost);
+                xir_kernel, enable_refinement, max_speculation_cost,
+                warp_width != 1u &&
+                    !detail::env_flag(
+                        "LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE"));
     }
     if (predication_info.changed()) {
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));
@@ -334,6 +337,8 @@ SIMDCompiledKernel compile_simd_kernel(
         predication_info.forwarded_phi_count;
     result.predicated_forwarding_block_count =
         predication_info.removed_forwarding_block_count;
+    result.predicated_widened_update_diamond_count =
+        predication_info.widened_update_diamond_count;
     result.factored_select_count =
         predication_info.select_factoring.factored_select_count;
     result.unswitched_loop_count =

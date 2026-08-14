@@ -5859,6 +5859,130 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_widened_predicated_update() {
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferFloat4 output,
+                         BufferUInt material_output) noexcept {
+        auto index = dispatch_id().x;
+        auto discriminant = cast<float>(index) - 4.0f;
+        Float hit = 1000.0f;
+        Float3 normal = make_float3(0.0f);
+        UInt material = 0xffffffffu;
+        $if (discriminant > 0.0f) {
+            auto root = sqrt(discriminant);
+            $if (root < 2.0f) {
+                auto scaled = make_float3(root) *
+                              make_float3(2.0f, 3.0f, 4.0f);
+                auto shifted = scaled -
+                               make_float3(0.5f, 0.25f, 0.125f);
+                auto denominator = 2.0f - root;
+                normal = shifted / make_float3(denominator);
+                hit = root;
+                material = 7u;
+            };
+        };
+        output.write(index, make_float4(normal, hit));
+        material_output.write(index, material);
+    };
+    auto compile = [&](uint32_t width, bool disable) {
+        ScopedEnvironmentVariable setting{
+            "LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE",
+            disable ? "1" : "0"};
+        return compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_widened_update",
+            false, true);
+    };
+    auto execute = [&](const SIMDCompiledKernel &compiled,
+                       uint32_t width,
+                       std::array<luisa::float4, count> &output,
+                       std::array<uint32_t, count> &materials) {
+        output.fill(luisa::make_float4(-999.0f));
+        materials.fill(0xdeadbeefu);
+        std::array<SIMDHostBufferView, 2u> arguments{
+            SIMDHostBufferView{output.data(), sizeof(output)},
+            SIMDHostBufferView{materials.data(), sizeof(materials)}};
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto *entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += width) {
+            config.thread_index = first;
+            entry(arguments.data(), nullptr, &config, width);
+        }
+        return true;
+    };
+
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        auto candidate = compile(width, false);
+        auto oracle = compile(width, true);
+        CHECK(candidate.succeeded());
+        CHECK(oracle.succeeded());
+        if (width == 1u) {
+            CHECK(candidate.predicated_widened_update_diamond_count ==
+                  0u);
+            CHECK(oracle.predicated_widened_update_diamond_count == 0u);
+            CHECK(candidate.predicated_diamond_count ==
+                  oracle.predicated_diamond_count);
+            CHECK(candidate.schedule_block_count ==
+                  oracle.schedule_block_count);
+            CHECK(candidate.convergence_point_count ==
+                  oracle.convergence_point_count);
+            CHECK(candidate.state_slot_count == oracle.state_slot_count);
+            CHECK(candidate.assembly == oracle.assembly);
+        } else {
+            CHECK(candidate.predicated_widened_update_diamond_count ==
+                  1u);
+            CHECK(oracle.predicated_widened_update_diamond_count == 0u);
+            CHECK(candidate.predicated_diamond_count ==
+                  oracle.predicated_diamond_count + 1u);
+            CHECK(candidate.schedule_block_count + 2u ==
+                  oracle.schedule_block_count);
+            CHECK(candidate.convergence_point_count + 1u ==
+                  oracle.convergence_point_count);
+            CHECK(candidate.state_slot_count < oracle.state_slot_count);
+            if (candidate.target_triple.starts_with("x86_64")) {
+                CHECK(candidate.assembly.size() < oracle.assembly.size());
+            }
+        }
+
+        std::array<luisa::float4, count> output{};
+        std::array<luisa::float4, count> oracle_output{};
+        std::array<uint32_t, count> materials{};
+        std::array<uint32_t, count> oracle_materials{};
+        CHECK(execute(candidate, width, output, materials));
+        CHECK(execute(
+            oracle, width, oracle_output, oracle_materials));
+        CHECK(std::memcmp(
+                  output.data(), oracle_output.data(),
+                  sizeof(output)) == 0);
+        CHECK(materials == oracle_materials);
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto updated = index > 4u && index < 8u;
+            CHECK(materials[index] ==
+                  (updated ? 7u : 0xffffffffu));
+            CHECK(std::isfinite(output[index].x));
+            CHECK(std::isfinite(output[index].y));
+            CHECK(std::isfinite(output[index].z));
+            if (updated) {
+                CHECK(std::abs(
+                          output[index].w -
+                          std::sqrt(static_cast<float>(index) - 4.0f)) <
+                      1.0e-6f);
+            } else {
+                CHECK(luisa::all(
+                    output[index] == luisa::make_float4(
+                                         0.0f, 0.0f, 0.0f,
+                                         1000.0f)));
+            }
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_predicated_select_forwarding_metadata() {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -6470,6 +6594,8 @@ int main() {
          &run_ast_predicated_select_ladder},
         {"AST deep predicated select ladder",
          &run_ast_deep_predicated_select_ladder},
+        {"AST widened predicated update",
+         &run_ast_widened_predicated_update},
         {"predicated select forwarding metadata",
          &run_predicated_select_forwarding_metadata},
         {"predicated select forwarding provenance",

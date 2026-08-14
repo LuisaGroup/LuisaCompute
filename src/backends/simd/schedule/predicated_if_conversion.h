@@ -15,6 +15,7 @@ struct PredicatedIfConversionInfo {
     size_t refinement_round_count{0u};
     size_t forwarded_phi_count{0u};
     size_t removed_forwarding_block_count{0u};
+    size_t widened_update_diamond_count{0u};
 
     [[nodiscard]] bool changed() const noexcept {
         return if_conversion.changed() ||
@@ -33,6 +34,7 @@ struct PredicatedIfConversionInfo {
 [[nodiscard]] PredicatedIfConversionInfo predicate_small_varying_diamonds(
     xir::Function *function,
     bool enable_refinement = true,
-    size_t max_speculation_cost = 12u) noexcept;
+    size_t max_speculation_cost = 12u,
+    bool enable_widened_updates = false) noexcept;
 
 }// namespace luisa::compute::simd::schedule

@@ -1246,6 +1246,102 @@ candidate/oracle inside the same process sequence it is supporting evidence,
 not the causal performance claim; the fourteen-pair real-render A/B above is
 the accepted gate. W4/W16 cells retain the earlier full-width sweep.
 
+### ISPC all-on ablation and widened update checkpoint
+
+The ISPC source audit was repeated at revision
+`c6adb4f86f5678ce6c41951b1e2b59f727455697` under its BSD-3-Clause license.
+The relevant implementation is the independently inspected varying-control
+emission in `src/stmt.cpp` and function all-on/mixed versioning in
+`src/func.cpp`; no source or coefficient was copied. Twenty-one randomized,
+single-core process pairs on the matched analytic path tracer gave these
+disabled-feature throughput ratios relative to normal ISPC:
+
+| ISPC option | disabled / normal throughput | 95% CI | interpretation |
+| --- | ---: | ---: | --- |
+| `disable-coalescing` | 1.0028x | [0.9791, 1.0147] | neutral |
+| `disable-gather-scatter-optimizations` | 1.0112x | [0.9967, 1.0241] | neutral |
+| `disable-all-on-optimizations` | 0.9050x | [0.8833, 0.9226] | stable 9.5% loss |
+
+Normal ISPC's x8 path-trace body has 1,062 static instructions, 67 branches,
+43 stack references, 839 vector instructions, and 313 mask references. With
+all-on optimization disabled it grows to 1,351 instructions, 78 branches, 263
+stack references, 1,095 vector instructions, and 404 mask references. The
+gather ablations are neutral because this analytic workload has no compatible
+dynamic gather window; the all-on result instead points directly at control
+versioning, register residency, and bounded predication.
+
+The first retained Luisa follow-up widens only a fail-closed one-sided state-
+update diamond: one arm is empty, the other has five or six pure instructions,
+at least two PHIs change, live-outs fit six 32-bit units, and weighted cost is
+at most fifty-eight. Floating division has explicit latency weight eight and is
+a SIMD-only non-trapping opt-in; integer division, every remainder, memory,
+calls, side effects, unsafe casts, and W1 remain rejected. The oracle is
+`LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE=1`.
+
+On the analytic path tracer all enabled widths convert four inner sphere-hit
+updates. Candidate/oracle Schedule and final host-assembly changes are:
+
+| Width | blocks | convergence | states | spills | instructions | branches | stack refs | frame bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| W2 | 66 -> 58 | 18 -> 14 | 67 -> 63 | 24 -> 20 | 5,328 -> 4,981 | 488 -> 403 | 1,218 -> 1,175 | 6,784 -> 4,032 |
+| W4 | 62 -> 54 | 17 -> 13 | 65 -> 61 | 24 -> 20 | 4,109 -> 3,922 | 422 -> 342 | 993 -> 1,014 | 2,712 -> 2,568 |
+| W8 | 60 -> 52 | 16 -> 12 | 65 -> 61 | 24 -> 20 | 4,011 -> 3,518 | 406 -> 328 | 1,062 -> 974 | 5,696 -> 5,152 |
+| W16 | 66 -> 58 | 18 -> 14 | 67 -> 63 | 24 -> 20 | 4,602 -> 4,420 | 491 -> 416 | 1,187 -> 1,174 | 12,160 -> 11,328 |
+
+Every candidate and oracle assembly has zero calls and zero scalar-math
+symbols. Charging floating division at weight eight and setting the exact
+fifty-eight-unit boundary reproduces these same final counts.
+
+Fifteen randomized candidate/oracle process pairs were pinned to one core;
+each process reports the median of seven timed samples. Speedup is oracle time
+divided by candidate time:
+
+| Width | speedup | 95% bootstrap CI | wins |
+| --- | ---: | ---: | ---: |
+| W2 | 1.2194x | [1.2116, 1.2204] | 15/15 |
+| W4 | 1.0128x | [1.0110, 1.0144] | 14/15 |
+| W8 | 1.0307x | [1.0277, 1.0351] | 15/15 |
+| W16 | 1.0057x | [1.0034, 1.0073] | 14/15 |
+
+Every Luisa result has checksum `a93089e651f98582`. A separate 21-pair W8
+single-worker run measured 1.0319x [1.0276, 1.0333], and 28 eight-worker pairs
+measured 1.0138x [1.0081, 1.0184]. Ordinary non-query path tracing, Voxel, and
+image processing report zero widened candidates; their candidate/oracle JIT
+code is identical, so no real-example gain is claimed for this stage. A fresh
+W1/W2/W4/W8/W16 gallery sweep passes ordinary path tracing at
+35.43/42.78/40.94/39.22/37.80 dB RGB PSNR, while every Voxel and image-
+processing width passes at 82.83 and 89.25 dB respectively.
+
+The standardized standalone driver then validated every path-trace output and
+ran fourteen alternating 32-worker process rounds. The fallback distribution
+was noisy under shared-host load, so its confidence intervals are retained:
+
+| Variant | Mitems/s | vs fallback | 95% CI |
+| --- | ---: | ---: | ---: |
+| fallback | 576.639 | 1.000x | [1.000, 1.000] |
+| SIMD W1 | 737.137 | 1.244x | [1.063, 1.456] |
+| SIMD W2 | 291.043 | 0.495x | [0.424, 0.579] |
+| SIMD W4 | 485.860 | 0.827x | [0.708, 0.965] |
+| SIMD W8 | 835.099 | 1.411x | [1.208, 1.649] |
+| SIMD W16 | 1,026.885 | 1.767x | [1.509, 2.069] |
+| ISPC AVX-512 x8 | 2,220.705 | 3.746x | [3.195, 4.393] |
+| ISPC AVX-512 x16 | 2,619.116 | 4.434x | [3.777, 5.204] |
+
+The paired same-width ISPC/Luisa ratios are 2.655x [2.552, 2.761] at W8 and
+2.509x [2.447, 2.573] at W16. Worker count materially changes the ratio for
+this small workload: direct fourteen-pair measurements at 1/8/16 workers were
+3.575/3.384/3.454x at W8 and 4.253/3.907/3.471x at W16. These are compiler and
+parallel-scaling controls, not Embree renderer results.
+
+The widened updates remove real scheduler work, but they do not close the
+ISPC gap: W8 still has 3.31x as many static instructions, 4.90x as many
+branches, and 22.65x as many stack references as ISPC's normal x8 body. The
+next control target is therefore guarded all-on/mixed region versioning that
+lets a dynamically full cohort execute a clone with constant full masks and
+SSA-resident state. ISPC's ablation bounds its likely contribution at roughly
+ten percent for this workload; the remainder still requires less scheduler
+state and better register residency rather than gather prefetching.
+
 This split result rules out a blanket LLVM-code-quality explanation. The
 coherent GEMM body is already faster than the matched ISPC implementation;
 the large gap appears specifically in dynamically varying iteration/control
@@ -1400,3 +1496,12 @@ comparisons pass Voxel at 82.83 dB, ordinary path tracing at 39.22 dB, cutout
 path tracing at 44.17 dB, and non-coroutine SDF at 63.13 dB RGB PSNR. The
 ordinary and cutout runs independently report Embree 4.4.1 W4/W8/W16 native
 packet support enabled.
+
+The widened one-sided-update stage reran the required native-math/fallback-
+math/runtime-width gate (3/3), the XIR mutation and if-conversion focus gate,
+its W1/W2/W4/W8/W16 Schedule-codegen regression, and the complete configured
+Release suite (140/140). The standalone ISPC driver validated fallback, all
+five SIMD widths, and AVX-512 x8/x16 outputs before fourteen alternating timing
+rounds. Fresh all-width ordinary path-tracing, Voxel, and image-processing
+gallery comparisons pass; every one of those real kernels reports zero
+widened candidates, matching the documented no-gain result.
