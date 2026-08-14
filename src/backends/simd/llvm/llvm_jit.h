@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -65,6 +66,11 @@ public:
     [[nodiscard]] const std::string &target_triple() const noexcept {
         return _target_triple;
     }
+    // This is deliberately a measured host-policy gate, not merely an LLVM
+    // legality query. It selects only the audited W8/ZMM shape; semantic W8
+    // remains available when this returns false.
+    [[nodiscard]] bool supports_native_paired_leaf_gather(
+        uint32_t width) const noexcept;
     // Exact relocatable object emitted by ORC's compiler, before JITLink
     // applies relocations. Populated only when requested at construction.
     [[nodiscard]] const std::string &object() const noexcept {

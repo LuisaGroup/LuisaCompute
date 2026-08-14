@@ -240,7 +240,7 @@ SIMDShader::SIMDShader(
             "ray_query_scratch_bytes={}, ray_query_status_slots={}, "
             "ray_query_state_handle_slots={}, "
             "uniform_buffer_broadcasts={}, contiguous_buffer_reads={}, "
-            "contiguous_buffer_writes={}.",
+            "contiguous_buffer_writes={}, paired_leaf_gathers={}.",
             kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
             warp_width, _compiled.decomposed_aggregate_alloca_count,
             _compiled.inserted_aggregate_leaf_alloca_count,
@@ -269,7 +269,8 @@ SIMDShader::SIMDShader(
             _compiled.ray_query_state_handle_slot_count,
             _compiled.uniform_buffer_broadcast_count,
             _compiled.contiguous_buffer_read_count,
-            _compiled.contiguous_buffer_write_count);
+            _compiled.contiguous_buffer_write_count,
+            _compiled.paired_leaf_gather_count);
     }
     if (capture_assembly) {
         auto stats = inspect_assembly(_compiled.assembly);

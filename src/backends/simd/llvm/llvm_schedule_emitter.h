@@ -50,6 +50,7 @@ private:
     std::array<uint32_t, 3u> _static_block_size{};
     bool _enable_uniform_buffer_broadcast{true};
     bool _enable_lane_affine_buffer{true};
+    bool _enable_paired_leaf_gather{false};
     bool _direct_control_flow{false};
     LLVMScheduleCodegenResult _result{};
     LLVMValueLayout _layout;
@@ -286,6 +287,9 @@ private:
     [[nodiscard]] ::llvm::Value *_gather_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type, size_t leaf_offset = 0u);
+    [[nodiscard]] ::llvm::Value *_gather_paired_vector_data(
+        ::llvm::Value *base, ::llvm::Value *offsets,
+        const Type *type);
     [[nodiscard]] ::llvm::Value *_load_contiguous_data(
         ::llvm::Value *base, ::llvm::Value *index,
         const Type *type, ::llvm::Value *seed_lane,
@@ -423,7 +427,8 @@ public:
                     bool enable_fast_math,
                     std::array<uint32_t, 3u> static_block_size,
                     bool enable_uniform_buffer_broadcast,
-                    bool enable_lane_affine_buffer);
+                    bool enable_lane_affine_buffer,
+                    bool enable_paired_leaf_gather);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

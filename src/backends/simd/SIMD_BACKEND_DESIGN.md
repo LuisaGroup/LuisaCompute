@@ -1673,6 +1673,44 @@ measured follow-up work: dynamic all/none/mixed dispatch for larger regions,
 costed empty-arm skips, bounded compatible-gather coalescing, and prefix-tail
 narrowing must each retain a same-binary oracle and real-example gate.
 
+The first bounded memory follow-up packs adjacent 32-bit leaves only for a
+direct typed-buffer vector read. On W8, when LLVM TargetTransformInfo reports
+a 512-bit fixed-vector register plus a legal, non-scalarized `<8 x i64>`
+masked gather, each adjacent leaf pair becomes one generic 64-bit masked
+gather followed by shifts/truncations/bitcasts back to component-major vectors.
+This is a target-aware policy around target-independent IR; no x86 or Arm
+intrinsic enters production. Structures and recursive aggregates, volatile/
+byte-address/bindless accesses, local storage, accel data, and ray-query state
+remain on the original leaf path. W4 measured neutral and W16 did not have a
+stable enough real-render A/B, so only W8 is enabled; hosts without the LLVM
+legality proof also retain the original path.
+The declared typed-buffer element must equal the read type and every proposed
+pair must have adjacent four-byte field offsets; an odd vector tail remains a
+32-bit gather.
+LLVM legality does not prove relative profitability against two 32-bit
+gathers, so it is not cited as cost evidence; the exact-width rule, legality/
+scalarization checks, and same-binary host measurement are the conservative
+policy.
+
+The shape was informed by an independent audit of ISPC 1.31.0
+`GatherCoalesce` at revision `c6adb4f86f56` (BSD-3-Clause): ISPC scans a
+bounded compatible-gather window, stops at possible writes, and deliberately
+limits grouping to contain register pressure. No ISPC source was copied. This
+first Luisa rule is narrower still: it combines leaves within one proven
+typed-buffer vector read and does not yet scan across XIR instructions.
+
+In ordinary non-query path tracing, four packed pairs change final W8 assembly
+from 3,586 to 3,581 static instructions without changing 234 branches, 1,024
+stack references, or the 7,168-byte frame. Hardware gather instructions fall
+from 39 to 35: eight `vgatherqps` become four `vpgatherqq`. Fourteen alternating
+128-SPP same-binary pairs measure a 1.00884x candidate/oracle geomean, 13/14
+wins, and a bootstrap 95% interval of [1.00288, 1.01319]; all 28 PNGs are
+byte-identical. Five 256-SPP `perf stat` repetitions reduce aggregate task
+clock and cycles by 1.26%/1.24%, while retired instructions change by -0.06%
+and branches by -0.01%. The gain is gather latency, not scheduler removal.
+Voxel reports zero packed pairs and its candidate/oracle JIT objects are
+byte-identical.
+
 The real-example gate was repeated rather than extrapolated from GEMM. Seven
 forward/reverse process rounds produced these fallback-relative steady-state
 medians:

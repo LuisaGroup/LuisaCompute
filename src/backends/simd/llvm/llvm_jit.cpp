@@ -4,6 +4,7 @@
 
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
@@ -197,6 +198,37 @@ void *LLVMJIT::lookup(std::string_view name) noexcept {
         return nullptr;
     }
     return symbol->toPtr<void *>();
+}
+
+bool LLVMJIT::supports_native_paired_leaf_gather(
+    uint32_t width) const noexcept {
+    // The measured rewrite is specific to one 512-bit vector of eight packed
+    // 64-bit lanes. W4 was neutral and W16 requires two such instructions.
+    // The generic legality/scalarization query does not establish relative
+    // profitability against two 32-bit gathers. Keep that distinction in the
+    // measured exact-W8 policy instead of treating legality as a cost proof.
+    if (!succeeded() || width != 8u) { return false; }
+    ::llvm::LLVMContext context;
+    ::llvm::Module module{"simd-paired-gather-probe", context};
+    module.setDataLayout(_target_machine->createDataLayout());
+#if LLVM_VERSION_MAJOR >= 21
+    module.setTargetTriple(_target_machine->getTargetTriple());
+#else
+    module.setTargetTriple(_target_machine->getTargetTriple().str());
+#endif
+    auto *type = ::llvm::FixedVectorType::get(
+        ::llvm::Type::getInt64Ty(context), width);
+    auto *function_type = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(context), false);
+    auto *function = ::llvm::Function::Create(
+        function_type, ::llvm::GlobalValue::PrivateLinkage,
+        "simd_paired_gather_probe", module);
+    auto target = _target_machine->getTargetTransformInfo(*function);
+    auto fixed_register_bits = target.getRegisterBitWidth(
+        ::llvm::TargetTransformInfo::RGK_FixedWidthVector);
+    return fixed_register_bits.getKnownMinValue() >= 512u &&
+           target.isLegalMaskedGather(type, ::llvm::Align{1u}) &&
+           !target.forceScalarizeMaskedGather(type, ::llvm::Align{1u});
 }
 
 }// namespace luisa::compute::simd

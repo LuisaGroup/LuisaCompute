@@ -88,6 +88,15 @@ SIMDCompiledKernel compile_simd_kernel(
         }
         return result;
     }
+    auto jit = std::make_unique<LLVMJIT>(capture_assembly);
+    if (!jit->succeeded()) {
+        result.diagnostics.emplace_back(jit->error());
+        return result;
+    }
+    auto use_paired_leaf_gather =
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_PAIRED_LEAF_GATHER") &&
+        jit->supports_native_paired_leaf_gather(warp_width);
     if (detail::env_flag("LUISA_SIMD_REPORT_SCHEDULE")) {
         LUISA_INFO(
             "SIMD Schedule IR [{} W{}]:\n{}",
@@ -109,7 +118,8 @@ SIMDCompiledKernel compile_simd_kernel(
         *module, *schedule_result.function, warp_width, entry_name,
         enable_fast_math, static_block_size,
         enable_uniform_buffer_broadcast,
-        enable_lane_affine_buffer);
+        enable_lane_affine_buffer,
+        use_paired_leaf_gather);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
@@ -140,18 +150,15 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.contiguous_buffer_read_count;
     result.contiguous_buffer_write_count =
         llvm_result.contiguous_buffer_write_count;
+    result.paired_leaf_gather_count =
+        llvm_result.paired_leaf_gather_count;
     result.predicated_memory_diamond_count =
         llvm_result.predicated_memory_diamond_count;
     result.predicated_memory_instruction_count =
         llvm_result.predicated_memory_instruction_count;
     result.direct_control_flow = llvm_result.direct_control_flow;
     auto llvm_entry_name = llvm_result.entry->getName().str();
-    result.jit = std::make_unique<LLVMJIT>(capture_assembly);
-    if (!result.jit->succeeded()) {
-        result.diagnostics.emplace_back(result.jit->error());
-        result.jit.reset();
-        return result;
-    }
+    result.jit = std::move(jit);
     result.target_triple = result.jit->target_triple();
     if (capture_assembly) {
         result.assembly = result.jit->emit_assembly_copy(*module);

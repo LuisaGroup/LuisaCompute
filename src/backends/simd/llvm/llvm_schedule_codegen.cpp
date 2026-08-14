@@ -9,12 +9,14 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
     bool enable_fast_math,
     std::array<uint32_t, 3u> static_block_size,
     bool enable_uniform_buffer_broadcast,
-    bool enable_lane_affine_buffer) {
+    bool enable_lane_affine_buffer,
+    bool enable_paired_leaf_gather) {
     return detail::ScheduleEmitter{
         module, function, specialization_width, entry_name,
         enable_fast_math, static_block_size,
         enable_uniform_buffer_broadcast,
-        enable_lane_affine_buffer}
+        enable_lane_affine_buffer,
+        enable_paired_leaf_gather}
         .run();
 }
 

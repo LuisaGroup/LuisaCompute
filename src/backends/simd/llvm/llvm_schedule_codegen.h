@@ -474,6 +474,7 @@ struct LLVMScheduleCodegenResult {
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};
+    size_t paired_leaf_gather_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
     bool direct_control_flow{false};
@@ -496,6 +497,9 @@ struct LLVMScheduleCodegenResult {
     // dimensions must be powers of two and are lowered with shifts and masks.
     std::array<uint32_t, 3u> static_block_size = {},
     bool enable_uniform_buffer_broadcast = true,
-    bool enable_lane_affine_buffer = true);
+    bool enable_lane_affine_buffer = true,
+    // Target-unaware callers keep the portable 32-bit leaf path. The runtime
+    // compiler enables pairing only after querying the host TargetMachine.
+    bool enable_paired_leaf_gather = false);
 
 }// namespace luisa::compute::simd

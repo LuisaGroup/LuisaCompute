@@ -1,5 +1,7 @@
 #include "llvm_schedule_emitter.h"
 
+#include <bit>
+
 namespace luisa::compute::simd::detail {
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_lane_offsets(
@@ -661,6 +663,60 @@ void ScheduleEmitter::_texture_write(
     });
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_paired_vector_data(
+    ::llvm::Value *base, ::llvm::Value *offsets, const Type *type) {
+    static_assert(std::endian::native == std::endian::little ||
+                  std::endian::native == std::endian::big);
+    // A direct typed-buffer vector read is a flat AoS packet access. Pair two
+    // adjacent 32-bit leaves into one 64-bit masked gather, then split each
+    // packed lane back into its two SoA component vectors. This preserves the
+    // exact active mask and address set while reducing hardware gathers. The
+    // caller proves the direct, non-volatile buffer boundary; structures and
+    // recursive aggregates deliberately stay on the ordinary leaf path.
+    auto *element = _data_type(type->element(), false);
+    auto *packed_lanes = ::llvm::FixedVectorType::get(
+        _builder.getInt64Ty(), _width);
+    auto pairs = type->dimension() / 2u;
+    luisa::vector<std::array<::llvm::Value *, 2u>> values;
+    values.reserve(pairs);
+    for (auto pair = uint32_t{0u}; pair < pairs; pair++) {
+        auto offset = _child_offset(type, pair * 2u);
+        auto *pointers = _leaf_pointers(base, offsets, offset);
+        auto *packed = _builder.CreateMaskedGather(
+            packed_lanes, pointers, ::llvm::Align{1u}, _active_mask,
+            ::llvm::Constant::getNullValue(packed_lanes),
+            "buffer.paired.gather");
+        auto *low = _builder.CreateTrunc(
+            packed,
+            ::llvm::FixedVectorType::get(
+                _builder.getInt32Ty(), _width));
+        auto *high = _builder.CreateTrunc(
+            _builder.CreateLShr(
+                packed, _builder.CreateVectorSplat(
+                            _width, _builder.getInt64(32u))),
+            ::llvm::FixedVectorType::get(
+                _builder.getInt32Ty(), _width));
+        if (element->isFloatTy()) {
+            low = _builder.CreateBitCast(
+                low, ::llvm::FixedVectorType::get(element, _width));
+            high = _builder.CreateBitCast(
+                high, ::llvm::FixedVectorType::get(element, _width));
+        }
+        if constexpr (std::endian::native == std::endian::little) {
+            values.push_back({low, high});
+        } else {
+            values.push_back({high, low});
+        }
+    }
+    return _assemble(type, true, [&](uint32_t i) {
+        if (i < pairs * 2u) {
+            return values[i / 2u][i % 2u];
+        }
+        return _gather_data(
+            base, offsets, type->element(), _child_offset(type, i));
+    });
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_contiguous_data(
     ::llvm::Value *base, ::llvm::Value *index,
     const Type *type, ::llvm::Value *seed_lane,
@@ -892,8 +948,36 @@ void ScheduleEmitter::_store_contiguous_data(
             operand_sanitization_mask, index,
             ::llvm::Constant::getNullValue(index->getType()));
     }
-    return _gather_data(
-        base, _lane_offsets(index, stride), result_value->type);
+    auto *offsets = _lane_offsets(index, stride);
+    auto paired_vector = _enable_paired_leaf_gather && _width == 8u &&
+                         op == xir::ResourceReadOp::BUFFER_READ &&
+                         result_value->type->is_vector() &&
+                         result_value->type->dimension() >= 2u &&
+                         result_value->type->element() != nullptr &&
+                         _is_scalar_data(result_value->type->element()) &&
+                         !result_value->type->element()->is_bool() &&
+                         result_value->type->element()->size() ==
+                             sizeof(uint32_t) &&
+                         buffer_value->type->element() ==
+                             result_value->type;
+    if (paired_vector) {
+        for (auto i = uint32_t{0u};
+             i + 1u < result_value->type->dimension(); i += 2u) {
+            if (_child_offset(result_value->type, i + 1u) !=
+                _child_offset(result_value->type, i) +
+                    sizeof(uint32_t)) {
+                paired_vector = false;
+                break;
+            }
+        }
+    }
+    if (paired_vector) {
+        _result.paired_leaf_gather_count +=
+            result_value->type->dimension() / 2u;
+        return _gather_paired_vector_data(
+            base, offsets, result_value->type);
+    }
+    return _gather_data(base, offsets, result_value->type);
 }
 
 void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) {

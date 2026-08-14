@@ -32,7 +32,8 @@ ScheduleEmitter::ScheduleEmitter(
     std::string_view entry_name, bool enable_fast_math,
     std::array<uint32_t, 3u> static_block_size,
     bool enable_uniform_buffer_broadcast,
-    bool enable_lane_affine_buffer)
+    bool enable_lane_affine_buffer,
+    bool enable_paired_leaf_gather)
     : _module{module},
       _source{source},
       _width{width},
@@ -41,6 +42,7 @@ ScheduleEmitter::ScheduleEmitter(
       _static_block_size{static_block_size},
       _enable_uniform_buffer_broadcast{enable_uniform_buffer_broadcast},
       _enable_lane_affine_buffer{enable_lane_affine_buffer},
+      _enable_paired_leaf_gather{enable_paired_leaf_gather},
       _layout{module.getContext(), width},
       _collectives{width},
       _builder{module.getContext()} {}

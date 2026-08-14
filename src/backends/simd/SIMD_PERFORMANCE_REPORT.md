@@ -24,6 +24,10 @@ already-ascending case on one hot branch and all reorderings on an unlikely
 edge. The latest control-flow stage also recognizes a bounded nested
 select/Phi forwarding ladder at W4/W8, exposing one additional small varying
 diamond without applying a whole-function CFG cleanup.
+The newest memory stage independently applies ISPC's bounded-gather lesson to
+one much narrower Luisa pattern: eligible W8 direct typed-buffer vectors pack
+adjacent 32-bit leaves into legal 64-bit LLVM masked gathers. TargetTransformInfo
+gates the rewrite, so W8 itself remains independent of AVX-512 availability.
 
 ## Test host and method
 
@@ -41,14 +45,14 @@ dispatch pipeline 32 times, voxel repeats 16 renders, and Spacex renders four
 frames after its upload/update synchronization.
 Cutout path tracing uses 64 spp and ordinary path tracing uses 128 spp; both
 force one spp per dispatch on both backends to remove a batching asymmetry.
-Their current rows use three adjacent fallback/SIMD pairs per width with
-reversed order on alternating pairs. The focused triangle-only-provider result
-uses twelve W8 pairs, while the other widths use four to six pairs. Image,
-Spacex, and ordinary path tracing compare every measured output with the
-repository gallery reference. Refreshed voxel processes keep stable per-
-backend hashes and use separate gallery conformance runs. The refreshed
-64-spp cutout processes are performance-only; a separate 1024-spp run supplies
-its gallery conformance gate. SDF uses its internal four-SPP throughput metric;
+Ordinary path tracing uses seven adjacent fallback/SIMD pairs per width with
+reversed order on alternating pairs; cutout retains three pairs per width.
+The focused triangle-only-provider result uses twelve W8 pairs, while the
+other widths use four to six pairs. The refreshed ordinary and voxel processes
+keep stable per-backend hashes and use separate gallery conformance runs. The
+refreshed 64-spp cutout processes are performance-only; a separate 1024-spp
+run supplies its gallery conformance gate. SDF uses its internal four-SPP
+throughput metric;
 high-SPP SDF image comparison remains a separate conformance gate.
 Image/SDF/Spacex/GEMM cells retain the earlier seven-process sweep and are not
 performance claims for this checkpoint. Voxel is refreshed with seven
@@ -67,7 +71,7 @@ Speedup is always `fallback time / SIMD time`, or
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
 | voxel render, ms/iteration | 6.889 | 8.422 (0.818x) | 24.872 (0.275x) | 16.117 (0.430x) | 9.384 (0.743x) | 6.652 (1.062x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
-| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 69.784 | 61.813 (0.863x) | 51.087 (0.730x) | 63.853 (0.932x) | 74.108 (1.108x) | 79.461 (1.133x) |
+| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 72.979 | 64.238 (0.870x) | 52.687 (0.708x) | 65.445 (0.930x) | 79.217 (1.073x) | 79.296 (1.129x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 59.366 | 45.860 (0.770x) | 29.919 (0.511x) | 36.802 (0.619x) | 42.791 (0.730x) | 42.283 (0.711x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
@@ -91,17 +95,18 @@ different floating-point paths and are not expected to produce identical PNG
 bytes; same-backend refinement/oracle outputs below are byte-identical.
 
 The current path-tracing rows are paired rather than independent medians because
-unrelated host tasks moved the load average during the sweeps. The displayed
-fallback cell is the pooled fallback median; each SIMD cell is its three-process
-median and the parenthesized speedup is the preferred geometric mean of three
-adjacent SIMD/fallback ratios. Every one of the 60 performance processes passed
-its required correctness gate: all 30 ordinary processes passed their gallery
-comparison, while cutout used the separate 1024-spp comparison described
-above. Ordinary W8 and W16 won all three pairs and exceed fallback by 1.1081x
-and 1.1329x respectively. W1/W2/W4 remain at
-0.8627x/0.7303x/0.9325x. The final-binary cutout row was refreshed with three
-adjacent alternating pairs per width after the state-handle cache landed. It
-remains below fallback at every width: 0.7695x/0.5105x/0.6193x/0.7298x/0.7111x
+unrelated host tasks moved the load average during the sweeps. For ordinary
+path tracing the displayed fallback cell is the pooled median of 35 fallback
+processes; each SIMD cell is its seven-process median and the parenthesized
+speedup is the preferred geometric mean of seven adjacent SIMD/fallback
+ratios. W1/W2/W4/W8/W16 measure 0.8699x/0.7078x/0.9304x/1.0734x/1.1294x;
+their 95% paired bootstrap intervals are [0.8637, 0.8764], [0.6995, 0.7167],
+[0.9221, 0.9417], [1.0592, 1.0824], and [1.1103, 1.1474]. W8 and W16 win all
+seven pairs; the other widths lose all seven. Every width/backend retains one
+stable output hash across its seven processes, and separate gallery runs
+supply correctness conformance. The final-binary cutout row was refreshed with
+three adjacent alternating pairs per width after the state-handle cache landed.
+It remains below fallback at every width: 0.7695x/0.5105x/0.6193x/0.7298x/0.7111x
 from W1 through W16. The displayed throughput cells are process medians; those
 ratios are the preferred paired geometric means. Its JIT-side query payload
 crossings and sparse cohorts remain the dominant unresolved deficit.
@@ -144,6 +149,57 @@ exact-PC profile put the shared scheduler dispatcher at only 0.131% of total
 process cycles; simple continuation-stealing variants were measured and
 rejected because their extra routing was neutral on ordinary path tracing and
 regressed SDF.
+
+### Paired direct-buffer vector leaves
+
+ISPC 1.31.0's BSD-3-Clause `GatherCoalesce` pass, independently inspected at
+revision `c6adb4f86f56`, bounds its compatible-gather scan, stops at possible
+writes, and limits grouping to control register pressure. No source was copied.
+The accepted Luisa follow-up deliberately implements only the easiest audited
+subset: within one nonvolatile direct typed-buffer read of a top-level vector,
+each adjacent pair of non-Boolean 32-bit scalar leaves may share one 64-bit
+masked gather. It does not scan across XIR instructions or cross aggregate,
+bindless, local, accel, ray-query, byte-address, or volatile boundaries.
+The declared buffer element and read type must match, adjacent field offsets
+must be exactly four bytes apart, and an odd final leaf stays 32-bit.
+
+Production enables the rewrite only at W8 and only when host LLVM TTI reports
+at least one 512-bit fixed-vector register, a legal `<8 x i64>` masked gather,
+and no forced scalarization. Therefore semantic W8 still does not promise
+AVX-512: AVX2-only hosts retain the four 32-bit gathers. W4 was neutral, and a
+temporary W16 gate had a real-render confidence interval crossing one, so both
+retain the portable path. `LUISA_SIMD_DISABLE_PAIRED_LEAF_GATHER=1` is the
+same-binary oracle.
+LLVM legality does not establish relative profitability for this pair, so the
+implementation does not cite it as cost proof; it uses only the exact W8
+shape, legality/no-scalarization checks, and the measured gate.
+
+The exact ordinary-path W8 main object changes as follows:
+
+| W8 main kernel | 32-bit-leaf oracle | Paired leaves |
+| --- | ---: | ---: |
+| assembly text bytes | 191,516 | 191,220 |
+| static instructions | 3,586 | 3,581 |
+| vector instructions | 2,333 | 2,328 |
+| branches / calls | 234 / 5 | 234 / 5 |
+| stack references / frame | 1,024 / 7,168 B | 1,024 / 7,168 B |
+| hardware gathers | 39 | 35 |
+| `vgatherqps` / `vpgatherqd` / `vpgatherqq` | 18 / 19 / 2 | 10 / 19 / 6 |
+
+Thus eight 32-bit gathers become four 64-bit gathers without changing the
+scheduler, stack frame, branch count, or call boundary. Fourteen alternating
+128-SPP same-binary pairs measure 1.00884x candidate/oracle geometric mean,
+13/14 wins, and a 95% bootstrap interval of [1.00288, 1.01319]. Candidate and
+oracle medians are 79.533/78.530 spp/s, and all 28 PNGs are byte-identical.
+Five 256-SPP `perf stat` repetitions reduce aggregate task clock by 1.26% and
+cycles by 1.24%, while instructions and branches change only -0.06%/-0.01%.
+This isolates a small gather-latency gain, not scheduler-state removal.
+
+The final W8 voxel kernel reports zero paired gathers: enabled/disabled JIT
+objects, assembly statistics, and PNG hashes are identical. Permanent tests
+cover W4/W8/W16 target selection, candidate/oracle LLVM intrinsic widths,
+final x86 gather shape when TTI accepts it, execution equality, an odd `uint3`
+leaf, and a 13-element inactive tail.
 
 ## Scheduler cost and assembly evidence
 
@@ -1108,7 +1164,7 @@ mean ISPC is faster:
 | Mandelbrot | 1.358x | 1.367x | 1.413x | 1.358x | 1.514x |
 | AoS to SoA | 0.980x | 0.988x | 1.073x | 1.066x | 1.063x |
 | GEMM | 0.756x | 0.758x | 0.760x | 0.765x | 0.810x |
-| analytic path trace | 3.843x | 3.666x | 3.102x | 2.809x | 2.623x |
+| analytic path trace | 3.843x | 3.666x | 2.782x | 2.586x | 2.623x |
 
 All exact workloads are bit-identical; the asset-free analytic path tracer
 passes the independent absolute-plus-relative output gate. Luisa's fallback-
@@ -1120,6 +1176,17 @@ relative geomeans at W1/W2/W4/W8/W16 are
 process was visibly noisier in the analytic path-tracing run, but the paired
 same-width ISPC/Luisa intervals are tight: at W16 the ratio is 2.623x with a
 95% interval of [2.543, 2.705].
+
+The W8 analytic row was refreshed after paired direct-buffer leaves landed.
+Luisa's W8 process median is 842.492 Mitems/s. ISPC AVX2 x8 reaches
+2,301.782 Mitems/s and is 2.782x faster (95% paired interval
+[2.707, 2.860]); ISPC AVX-512 x8 reaches 2,233.965 Mitems/s and is 2.586x
+faster ([2.433, 2.749]). The compiler executable was passed explicitly to the
+standalone runner and remains absent from CMake. An independent disabled-oracle
+sweep put Luisa at 824.664 Mitems/s, but because that sweep did not alternate
+candidate/oracle inside the same process sequence it is supporting evidence,
+not the causal performance claim; the fourteen-pair real-render A/B above is
+the accepted gate. W4/W16 cells retain the earlier full-width sweep.
 
 This split result rules out a blanket LLVM-code-quality explanation. The
 coherent GEMM body is already faster than the matched ISPC implementation;
@@ -1148,10 +1215,12 @@ identical.
    then use a cost model to choose straight-line masks or `any(mask)` empty-arm
    skips. The first gate is a nonzero hit count and stable gain in voxel or
    ordinary path tracing; the current complete-diamond recognizer hits neither.
-2. Coalesce only compatible nearby gathers with the same base, dynamic offset,
-   scale, and mask, cap the scan window to control register pressure, and stop
-   at any possible write. Separately narrow known constant prefix-tail masks.
-   Both need inactive-address and final assembly gates.
+2. Extend the completed within-read W8 leaf pairing to compatible nearby
+   gathers only when they share base, dynamic offset, scale, and mask. Cap the
+   scan window to control register pressure and stop at any possible write.
+   Separately narrow known constant prefix-tail masks. Both need inactive-
+   address and final-assembly gates; W4/W16 remain disabled until independently
+   profitable.
 3. Extend the accepted local aggregate promotion to the remaining ray-query
    payload only through a provider-native packet/SoA representation or a
    larger host/state-boundary elimination, following the liveness/frame
@@ -1255,3 +1324,11 @@ suite (140/140). The dedicated regression covers W2/W4/W8/W16, a thirteen-
 element inactive tail, same-binary W4/W8 oracles, non-Name metadata rejection,
 and pre-existing-select provenance. Final fallback and W8 voxel gallery gates
 pass at 48.08 and 82.83 dB RGB PSNR respectively.
+
+The paired-leaf-gather stage reran the required native-math/fallback-math/
+runtime-width gate (3/3), its Schedule-codegen regression, the combined
+SIMD/XIR/runtime/graphics gate (90/90), and the complete configured Release
+suite (140/140). Syntax checks pass for every changed C++ translation unit.
+The dedicated regression covers W4/W8/W16 target policy, `uint4` execution and
+final x86 assembly, an odd `uint3` LLVM-IR tail, a thirteen-element W16 inactive
+tail, and exact candidate/oracle output equality.

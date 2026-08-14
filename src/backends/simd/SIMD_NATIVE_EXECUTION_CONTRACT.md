@@ -221,7 +221,9 @@ through the general cohort scheduler;
 before the two SROA/`mem2reg` stages;
 `LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST=1` controls the typed-buffer
 refinement, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` controls proven
-lane-consecutive typed-buffer accesses. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`
+lane-consecutive typed-buffer accesses.
+`LUISA_SIMD_DISABLE_PAIRED_LEAF_GATHER=1` restores separate 32-bit leaves for
+eligible W8 direct vector-buffer reads. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`
 logs per-shader transform, scheduler-state, ray-query scratch, ray-query
 status-color, and cached state-handle counters.
 `LUISA_SIMD_REPORT_XIR=1` logs canonical XIR immediately before and after the
@@ -450,7 +452,47 @@ reads, the disabled path, LLVM masked-gather shape, and final host assembly.
 oracle, while `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the accepted read
 count.
 
-### 4.7 Lane-consecutive typed-buffer refinement
+### 4.7 Paired 32-bit leaves in direct typed-buffer vectors
+
+On a target where LLVM reports a 512-bit fixed-vector register and a legal,
+non-scalarized `<8 x i64>` masked gather, W8 may combine each adjacent pair of
+32-bit leaves in a direct, nonvolatile `BUFFER_READ` of a Luisa vector. One
+masked 64-bit gather replaces two masked 32-bit gathers. Logical shifts,
+truncation, and bitcasts reconstruct the two component-major vectors. The
+little- and big-endian component orders are explicit; no target intrinsic is
+emitted.
+
+This is not a general aggregate rewrite. The current contract accepts only a
+top-level vector with at least two non-Boolean 32-bit scalar elements. It does
+not cross structure, array, matrix, bindless, byte-address, volatile, local,
+acceleration-structure, or ray-query boundaries. Odd final vector elements
+retain the ordinary 32-bit leaf gather. The exact active mask and the original
+non-`inbounds` base offset are used for every pair, so inactive lanes form no
+observable access and the optimization does not extend the source buffer
+element beyond its declared layout.
+The typed buffer's declared element must exactly match the read result, and
+each paired pair must have adjacent four-byte field offsets; otherwise the
+whole read fails closed to ordinary leaves.
+
+W1/W2/W4/W16 and hosts without the required LLVM TargetTransformInfo proof
+retain the ordinary leaf path. W4 was neutral and W16 was not stable enough in
+real-render A/B, while W8 had a stable ordinary-path-tracing win on the audited
+host. Target-unaware Schedule-to-LLVM callers default to the portable path.
+LLVM legality is not used as a portability or cost claim: it only rejects
+unsupported/scalarized shapes, while W8 profitability remains a documented
+host measurement.
+`LUISA_SIMD_DISABLE_PAIRED_LEAF_GATHER=1` is the same-binary oracle and
+`paired_leaf_gathers` reports the number of emitted 64-bit gathers. Permanent
+regressions cover W4/W8/W16 selection, a 13-element inactive tail, candidate/
+oracle bit equality, LLVM intrinsic widths including an odd `uint3` tail, and
+final x86 gather shape when the host proof succeeds.
+
+The bounded grouping idea was independently derived after auditing ISPC
+1.31.0 `GatherCoalesce` at revision `c6adb4f86f56` under BSD-3-Clause. No code
+or coefficients are copied. Unlike ISPC's cross-instruction scan, this first
+rule never crosses a Luisa resource-read instruction boundary.
+
+### 4.8 Lane-consecutive typed-buffer refinement
 
 A direct, nonvolatile typed `BUFFER_READ` or `BUFFER_WRITE` of a scalar Luisa
 element may use one LLVM masked contiguous vector access when Schedule
