@@ -1842,6 +1842,51 @@ within shared-host noise. No performance gain is claimed for a feature the
 workload does not exercise; the gate demonstrates that packing the new
 metadata did not regress its hot descriptor layout.
 
+### Rejected cross-query early gather
+
+The ordinary W8 path tracer has one tempting memory/compute-overlap site. Its
+material-buffer index and direct varying read originally follow the shadow
+`trace_any` callback by four Schedule instructions. A prototype moved the
+two-instruction address/read slice before that read-only acceleration query,
+without crossing a write, volatile operation, other resource read, mask
+change, or block boundary. Candidate and disabled-oracle outputs were byte-
+identical in every run.
+
+The motion reached final machine code: the material `vpgatherqq`/`vgatherqps`
+pair moved from after the Embree callback to roughly 53 assembly lines before
+its indirect call. A distance sweep from four through 64 Schedule instructions
+found that distances 4--12 all collapsed to the same best static object. The
+oracle and that object were:
+
+| Ordinary W8 main entry | original order | early gather, distance 4--12 |
+| --- | ---: | ---: |
+| assembly bytes | 193,787 | 192,598 |
+| static instructions | 3,542 | 3,506 |
+| vector instructions | 2,297 | 2,272 |
+| branches | 273 | 271 |
+| stack references | 916 | 906 |
+| stack allocation | 6,720 B | 6,720 B |
+| calls / scalar-math calls | 5 / 0 | 5 / 0 |
+
+Static size was misleading. Fifteen alternating 128-spp, one-spp-per-dispatch
+pairs for a longer 32-instruction motion measured only 0.9988x
+[0.9935, 1.0041] candidate/oracle throughput with 8/15 wins. The best static
+distance was also neutral in ten alternating 256-spp single-dispatch pairs at
+1.0064x [0.9935, 1.0195] with 5/10 wins. Finally, eight alternating 512-spp
+hardware-counter pairs measured 0.9979x [0.9903, 1.0056] throughput with only
+2/8 wins. It retired 0.1955% fewer instructions in all eight pairs, but used
+0.6431% more cycles in all eight; the paired cycle ratio was 1.0064x
+[1.0023, 1.0106].
+
+This CPU gather is a value-producing, synchronous instruction rather than an
+asynchronous prefetch. Pulling it across the callback extends its live range
+and issues gather work earlier, but does not create profitable memory-level
+parallelism around Embree on this host. The prototype was therefore removed;
+no early-buffer-read pass or diagnostic environment variable is retained.
+Future overlap work must use a separately discardable prefetch with a bounded,
+sanitized address or batch enough independent rays to amortize the callback,
+and must still pass the same final-object and paired-performance gates.
+
 ## Validation
 
 The required native-math/fallback-math/runtime-width gate passes 3/3. The
