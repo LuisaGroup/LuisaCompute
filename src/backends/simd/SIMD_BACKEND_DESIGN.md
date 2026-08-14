@@ -1324,25 +1324,25 @@ IR/assembly gate requires broadcast + contiguous load/FMA/store and rejects
 gather/scatter for the proven W4/W8/W16 case. W2 retains gather/scatter after
 measurement showed no stable benefit, and W1 is already scalar.
 
-A later, bounded optimization generalizes this into **SIMD axis rotation**.
-It treats packet lane and within-invocation value/loop dimensions as explicit
-layout axes, chooses one layout per coherent affine region, and inserts a
-target-independent `shufflevector` transpose only on profitable region edges.
-This is the CPU analogue of tile-compiler layout optimization: a fixed
-rectangular tile has an explicit lane-major or value-major layout, and a
-transpose changes that layout rather than changing source thread identity.
-It is deliberately not an arbitrary runtime lane-identity change: divergent
+The first bounded **SIMD axis rotation** is now implemented at one direct typed-
+buffer boundary. It treats packet lane and the two-to-four components of one
+Luisa vector as explicit layout axes. Schedule values remain component-major
+SoA; a target-independent `shufflevector` transpose converts a proven
+lane-consecutive resource operation to physical AoS order immediately before a
+store or after a load. This is the CPU analogue of one tile-compiler layout
+edge: it changes value layout without changing source thread identity.
+
+A broader region/loop form remains future work. It would choose one layout per
+coherent affine region and retain it across multiple operations. Divergent
 control, warp collectives, barriers, atomics, and externally visible lane-wise
 side effects pin the packet axis. CFG joins must agree on layout, tails retain
-their masks, and the cost model includes shuffle count, gather versus
+their masks, and the cost model must include shuffle count, gather versus
 contiguous memory, horizontal reductions, scheduler suspension, and register
-pressure. The staged implementation order is lane-affine memory recognition,
-coherent-loop accumulator residency and unrolling, fixed rectangular tiles,
-then optional lane/value transposes. Predication and proven loop unswitching
-run first because removing suspension edges enlarges the coherent regions over
-which one register layout can remain resident. This preserves a small
-auditable first step while leaving room for GEMM-style microtiles rather than
-relying on LLVM to rediscover the axis through a scheduler CFG.
+pressure. Predication and proven loop unswitching run first because removing
+suspension edges enlarges the coherent regions over which one register layout
+can remain resident. The completed resource-boundary rule is the auditable
+first step; GEMM-style microtiles must not rely on LLVM to rediscover the axis
+through a scheduler CFG.
 
 The completed lane-affine checkpoint uses a real DSL 256-by-256 GEMM with 128
 timed dispatches, four warmups, and an independent full CPU result check. Nine
@@ -1378,6 +1378,33 @@ Non-coroutine SDF likewise reports no accepted access. Thus this checkpoint is
 a large coherent-GEMM win but deliberately claims no graphics or SDF gain;
 those workloads need different affine recognition, scheduler-state, or layout
 work.
+
+The direct-buffer lane/value checkpoint extends that proof only for an exact
+top-level vector element with two to four 32-bit non-Boolean components. Its
+physical slot count may equal the component count or include the ordinary
+fourth padding slot of a three-component vector. The generated wide mask is
+the Cartesian product of the logical active mask and the semantic-component
+mask, so float3 padding remains unobserved and unmodified. Structures, arrays,
+matrices, byte-address/volatile/bindless resources, local memory, and accel or
+ray-query state fail closed. W1 is unchanged; W2/W4/W8/W16 use the rotation.
+
+On the analytic path tracer, the accepted operation is its final
+`Buffer<float4>` write. Fifteen alternating single-core candidate/oracle
+processes per width measured 1.0227x/1.0696x/1.1806x/1.2454x at
+W2/W4/W8/W16, with every candidate winning and every process retaining the
+same checksum. At W8, four `vscatterqps` become two masked `vmovups` stores plus
+generic-shuffle legalization; there are no gather/scatter or scalar-call
+symbols in the candidate object. The transform increases some static code and
+frame metrics, so selection is justified by the paired dynamic gate rather
+than instruction count.
+
+Image processing, Voxel, ordinary Embree path tracing, and non-coroutine SDF
+all report zero transposed accesses at W8. Candidate/oracle optimized assembly,
+objects, and output PNGs are byte-identical for each of those four examples.
+They primarily cross `Image`/texture boundaries, so this direct-buffer result
+does not claim a graphics gain. A separate fixed-vector image/tile layout is
+still required; public row-major image semantics and partial-edge masks remain
+the boundary conditions.
 
 The permanent small-diamond benchmark separates an empty-arm `select_only`
 case from a two-level factorable multiply/add case. Each process uses nine

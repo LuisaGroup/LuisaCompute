@@ -9,10 +9,7 @@ namespace luisa::compute::simd::detail {
     auto *i64_lanes = ::llvm::FixedVectorType::get(
         _builder.getInt64Ty(), _width);
     auto *extended = _builder.CreateZExtOrTrunc(index, i64_lanes);
-    return stride == 1u ? extended : _builder.CreateMul(
-        extended,
-        _builder.CreateVectorSplat(
-            _width, _builder.getInt64(stride)));
+    return stride == 1u ? extended : _builder.CreateMul(extended, _builder.CreateVectorSplat(_width, _builder.getInt64(stride)));
 }
 
 [[nodiscard]] std::optional<uint64_t> ScheduleEmitter::_constant_aggregate_index(
@@ -81,11 +78,11 @@ namespace luisa::compute::simd::detail {
     auto *i64_lanes = ::llvm::FixedVectorType::get(
         _builder.getInt64Ty(), _width);
     auto *extended = index_value->type->is_int() ?
-        _builder.CreateSExtOrTrunc(index, i64_lanes) :
-        _builder.CreateZExtOrTrunc(index, i64_lanes);
+                         _builder.CreateSExtOrTrunc(index, i64_lanes) :
+                         _builder.CreateZExtOrTrunc(index, i64_lanes);
     auto stride = current_type->is_vector() ?
-        current_type->element()->size() :
-        current_type->size() / current_type->dimension();
+                      current_type->element()->size() :
+                      current_type->size() / current_type->dimension();
     if (stride != 1u) {
         extended = _builder.CreateMul(
             extended,
@@ -171,8 +168,8 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
     auto *written_value = _source.value(instruction.operands[1u]);
     auto *handle = _load_value(instruction.operands[0u]);
     auto *written = written_value == nullptr ? nullptr :
-        _as_lane_vector(
-            _load_value(instruction.operands[1u]), *written_value);
+                                               _as_lane_vector(
+                                                   _load_value(instruction.operands[1u]), *written_value);
     if (variable == nullptr || written_value == nullptr ||
         handle == nullptr || written == nullptr ||
         variable->type != written_value->type) {
@@ -265,11 +262,10 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
     std::vector<::llvm::Value *> values;
     values.reserve(value_count);
     for (auto i = size_t{0u}; i < value_count; i++) {
-        auto operand_id = instruction.operands[
-            instruction.operands.size() - value_count + i];
+        auto operand_id = instruction.operands[instruction.operands.size() - value_count + i];
         auto *operand = _source.value(operand_id);
         auto *value = operand == nullptr ? nullptr :
-            _as_lane_vector(_load_value(operand_id), *operand);
+                                           _as_lane_vector(_load_value(operand_id), *operand);
         if (value == nullptr) { return nullptr; }
         values.emplace_back(value);
     }
@@ -338,13 +334,13 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
                     break;
                 case xir::AtomicOp::FETCH_ADD:
                     atomic_op = floating ?
-                        ::llvm::AtomicRMWInst::FAdd :
-                        ::llvm::AtomicRMWInst::Add;
+                                    ::llvm::AtomicRMWInst::FAdd :
+                                    ::llvm::AtomicRMWInst::Add;
                     break;
                 case xir::AtomicOp::FETCH_SUB:
                     atomic_op = floating ?
-                        ::llvm::AtomicRMWInst::FSub :
-                        ::llvm::AtomicRMWInst::Sub;
+                                    ::llvm::AtomicRMWInst::FSub :
+                                    ::llvm::AtomicRMWInst::Sub;
                     break;
                 case xir::AtomicOp::FETCH_AND:
                     atomic_op = ::llvm::AtomicRMWInst::And;
@@ -357,17 +353,17 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
                     break;
                 case xir::AtomicOp::FETCH_MIN:
                     atomic_op = floating ?
-                        ::llvm::AtomicRMWInst::FMin :
-                        signed_integer ?
-                            ::llvm::AtomicRMWInst::Min :
-                            ::llvm::AtomicRMWInst::UMin;
+                                    ::llvm::AtomicRMWInst::FMin :
+                                signed_integer ?
+                                    ::llvm::AtomicRMWInst::Min :
+                                    ::llvm::AtomicRMWInst::UMin;
                     break;
                 case xir::AtomicOp::FETCH_MAX:
                     atomic_op = floating ?
-                        ::llvm::AtomicRMWInst::FMax :
-                        signed_integer ?
-                            ::llvm::AtomicRMWInst::Max :
-                            ::llvm::AtomicRMWInst::UMax;
+                                    ::llvm::AtomicRMWInst::FMax :
+                                signed_integer ?
+                                    ::llvm::AtomicRMWInst::Max :
+                                    ::llvm::AtomicRMWInst::UMax;
                     break;
                 case xir::AtomicOp::COMPARE_EXCHANGE: break;
             }
@@ -426,9 +422,9 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
     auto *coordinate_value = _source.value(instruction.operands[1u]);
     auto *texture = _load_value(instruction.operands[0u]);
     auto *coordinate = coordinate_value == nullptr ? nullptr :
-        _as_lane_vector(
-            _load_value(instruction.operands[1u]),
-            *coordinate_value);
+                                                     _as_lane_vector(
+                                                         _load_value(instruction.operands[1u]),
+                                                         *coordinate_value);
     if (result == nullptr || texture_value == nullptr ||
         texture == nullptr || coordinate == nullptr ||
         !texture_value->type->is_texture() ||
@@ -452,7 +448,8 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         *instruction.source_op);
     auto expected_dimension =
         op == xir::ResourceReadOp::TEXTURE2D_READ ? 2u :
-        op == xir::ResourceReadOp::TEXTURE3D_READ ? 3u : 0u;
+        op == xir::ResourceReadOp::TEXTURE3D_READ ? 3u :
+                                                    0u;
     if (expected_dimension == 0u ||
         coordinate_value->type->dimension() != expected_dimension) {
         _fail("direct texture read dimension mismatch");
@@ -543,12 +540,12 @@ void ScheduleEmitter::_texture_write(
     auto *written_value = _source.value(instruction.operands[2u]);
     auto *texture = _load_value(instruction.operands[0u]);
     auto *coordinate = coordinate_value == nullptr ? nullptr :
-        _as_lane_vector(
-            _load_value(instruction.operands[1u]),
-            *coordinate_value);
+                                                     _as_lane_vector(
+                                                         _load_value(instruction.operands[1u]),
+                                                         *coordinate_value);
     auto *written = written_value == nullptr ? nullptr :
-        _as_lane_vector(
-            _load_value(instruction.operands[2u]), *written_value);
+                                               _as_lane_vector(
+                                                   _load_value(instruction.operands[2u]), *written_value);
     if (texture_value == nullptr || coordinate_value == nullptr ||
         written_value == nullptr || texture == nullptr ||
         coordinate == nullptr || written == nullptr ||
@@ -563,7 +560,8 @@ void ScheduleEmitter::_texture_write(
         *instruction.source_op);
     auto expected_dimension =
         op == xir::ResourceWriteOp::TEXTURE2D_WRITE ? 2u :
-        op == xir::ResourceWriteOp::TEXTURE3D_WRITE ? 3u : 0u;
+        op == xir::ResourceWriteOp::TEXTURE3D_WRITE ? 3u :
+                                                      0u;
     if (expected_dimension == 0u ||
         coordinate_value->type->dimension() != expected_dimension) {
         _fail("direct texture write dimension mismatch");
@@ -586,7 +584,7 @@ void ScheduleEmitter::_texture_write(
     auto *scratch = _entry_scratch(
         scratch_type,
         "texture.write.packet." + std::to_string(
-            instruction.operands[2u].value));
+                                      instruction.operands[2u].value));
     auto *write = _builder.CreateExtractValue(
         texture, {floating ? 3u : 4u});
     auto *object = _builder.CreateExtractValue(texture, {0u});
@@ -645,16 +643,16 @@ void ScheduleEmitter::_texture_write(
     if (_is_scalar_data(type)) {
         auto *pointers = _leaf_pointers(base, offsets, leaf_offset);
         auto *element = type->is_bool() ?
-            static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
-            _data_type(type, false);
+                            static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
+                            _data_type(type, false);
         auto *lanes = ::llvm::FixedVectorType::get(element, _width);
         auto *gathered = _builder.CreateMaskedGather(
             lanes, pointers, ::llvm::Align{1u}, _active_mask,
             ::llvm::Constant::getNullValue(lanes));
         return type->is_bool() ?
-            _builder.CreateICmpNE(
-                gathered, ::llvm::Constant::getNullValue(lanes)) :
-            gathered;
+                   _builder.CreateICmpNE(
+                       gathered, ::llvm::Constant::getNullValue(lanes)) :
+                   gathered;
     }
     return _assemble(type, true, [&](uint32_t i) {
         return _gather_data(
@@ -717,6 +715,198 @@ void ScheduleEmitter::_texture_write(
     });
 }
 
+[[nodiscard]] uint32_t ScheduleEmitter::_vector_storage_component_count(
+    const Type *type) noexcept {
+    // Accept only a top-level homogeneous vector whose physical representation
+    // is its semantic components plus, at most, float3-style trailing padding.
+    // Recursive aggregates retain leaf gathers/scatters.
+    if (type == nullptr || !type->is_vector() ||
+        type->dimension() < 2u || type->dimension() > 4u) {
+        return 0u;
+    }
+    auto *element = type->element();
+    if (!_is_scalar_data(element) || element->is_bool() ||
+        element->size() != sizeof(uint32_t) ||
+        type->size() % element->size() != 0u) {
+        return 0u;
+    }
+    auto storage_component_count = static_cast<uint32_t>(
+        type->size() / element->size());
+    auto valid_storage =
+        (type->dimension() == 2u && storage_component_count == 2u) ||
+        (type->dimension() == 3u &&
+         (storage_component_count == 3u ||
+          storage_component_count == 4u)) ||
+        (type->dimension() == 4u && storage_component_count == 4u);
+    if (!valid_storage) { return 0u; }
+    for (auto i = uint32_t{0u}; i < type->dimension(); i++) {
+        if (_child_offset(type, i) != element->size() * i) {
+            return 0u;
+        }
+    }
+    return storage_component_count;
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_lane_consecutive_address(
+    ::llvm::Value *base, ::llvm::Value *index,
+    uint64_t stride, ::llvm::Value *seed_lane,
+    ::llvm::Value *seed_mask) {
+    if (base == nullptr || index == nullptr || seed_lane == nullptr ||
+        !index->getType()->isVectorTy()) {
+        _fail("lane-consecutive buffer access requires a lane index");
+        return nullptr;
+    }
+    // An empty predicated arm still reaches this IR. Sanitize the complete
+    // source vector before dynamically extracting a seed so an inactive
+    // poison element cannot become scalar poison while merely forming the
+    // masked-off address.
+    auto *safe_index = seed_mask == nullptr ? index :
+                                              _builder.CreateSelect(
+                                                  seed_mask, index,
+                                                  ::llvm::Constant::getNullValue(
+                                                      index->getType()));
+    auto *seed = _builder.CreateExtractElement(safe_index, seed_lane);
+    auto *seed_index = _builder.CreateZExtOrTrunc(
+        seed, _builder.getInt64Ty());
+    auto *scalar_seed_lane = _builder.CreateZExtOrTrunc(
+        seed_lane, _builder.getInt64Ty());
+    auto *offset = _builder.CreateSub(seed_index, scalar_seed_lane);
+    if (stride != 1u) {
+        offset = _builder.CreateMul(
+            offset, _builder.getInt64(stride));
+    }
+    return _builder.CreateGEP(
+        _builder.getInt8Ty(), base, offset,
+        "buffer.contiguous.address");
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_expand_lane_mask(
+    ::llvm::Value *mask, uint32_t component_count,
+    uint32_t storage_component_count) {
+    if (mask == nullptr || !mask->getType()->isVectorTy() ||
+        component_count < 2u || component_count > 4u ||
+        storage_component_count < component_count ||
+        storage_component_count > 4u) {
+        _fail("AoS buffer mask expansion requires two to four components");
+        return nullptr;
+    }
+    std::vector<int> shuffle;
+    shuffle.reserve(_width * storage_component_count);
+    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+        for (auto component = uint32_t{0u};
+             component < storage_component_count; component++) {
+            shuffle.emplace_back(static_cast<int>(lane));
+        }
+    }
+    auto *expanded = _builder.CreateShuffleVector(
+        mask, ::llvm::PoisonValue::get(mask->getType()), shuffle,
+        "buffer.aos.mask");
+    if (component_count == storage_component_count) {
+        return expanded;
+    }
+    // A padded three-component vector occupies four physical scalar slots.
+    // Keep the padding bit false even for an active logical lane so a typed
+    // store cannot modify bytes that the source operation does not write.
+    std::vector<::llvm::Constant *> valid_components;
+    valid_components.reserve(_width * storage_component_count);
+    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+        for (auto component = uint32_t{0u};
+             component < storage_component_count; component++) {
+            valid_components.emplace_back(
+                _builder.getInt1(component < component_count));
+        }
+    }
+    return _builder.CreateAnd(
+        expanded, ::llvm::ConstantVector::get(valid_components),
+        "buffer.aos.valid.mask");
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_interleave_vector_data(
+    ::llvm::Value *value, const Type *type) {
+    auto storage_component_count =
+        _vector_storage_component_count(type);
+    if (value == nullptr || storage_component_count == 0u) {
+        _fail("AoS buffer interleave requires a regular 32-bit vector");
+        return nullptr;
+    }
+    std::array<::llvm::Value *, 4u> components{};
+    for (auto i = uint32_t{0u}; i < type->dimension(); i++) {
+        components[i] = _extract_child(value, type, i, true);
+    }
+    auto interleave_pair = [&](::llvm::Value *lhs,
+                               ::llvm::Value *rhs) {
+        std::vector<int> shuffle;
+        shuffle.reserve(_width * 2u);
+        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+            shuffle.emplace_back(static_cast<int>(lane));
+            shuffle.emplace_back(static_cast<int>(_width + lane));
+        }
+        return _builder.CreateShuffleVector(
+            lhs, rhs, shuffle, "buffer.aos.interleave.pair");
+    };
+    auto *pair01 = interleave_pair(components[0u], components[1u]);
+    if (storage_component_count == 2u) { return pair01; }
+    auto pair_width = _width * 2u;
+    if (storage_component_count == 3u) {
+        std::vector<int> widen_mask(
+            pair_width, ::llvm::PoisonMaskElem);
+        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+            widen_mask[lane] = static_cast<int>(lane);
+        }
+        auto *component2 = _builder.CreateShuffleVector(
+            components[2u],
+            ::llvm::PoisonValue::get(components[2u]->getType()),
+            widen_mask, "buffer.aos.interleave.widen");
+        std::vector<int> shuffle;
+        shuffle.reserve(_width * 3u);
+        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+            shuffle.emplace_back(static_cast<int>(lane * 2u));
+            shuffle.emplace_back(static_cast<int>(lane * 2u + 1u));
+            shuffle.emplace_back(static_cast<int>(pair_width + lane));
+        }
+        return _builder.CreateShuffleVector(
+            pair01, component2, shuffle,
+            "buffer.aos.interleave");
+    }
+    auto *component3 = type->dimension() == 4u ?
+                           components[3u] :
+                           static_cast<::llvm::Value *>(
+                               ::llvm::PoisonValue::get(components[2u]->getType()));
+    auto *pair23 = interleave_pair(components[2u], component3);
+    std::vector<int> shuffle;
+    shuffle.reserve(_width * 4u);
+    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+        shuffle.emplace_back(static_cast<int>(lane * 2u));
+        shuffle.emplace_back(static_cast<int>(lane * 2u + 1u));
+        shuffle.emplace_back(static_cast<int>(pair_width + lane * 2u));
+        shuffle.emplace_back(static_cast<int>(pair_width + lane * 2u + 1u));
+    }
+    return _builder.CreateShuffleVector(
+        pair01, pair23, shuffle, "buffer.aos.interleave");
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_deinterleave_vector_data(
+    ::llvm::Value *value, const Type *type) {
+    auto storage_component_count =
+        _vector_storage_component_count(type);
+    if (value == nullptr || !value->getType()->isVectorTy() ||
+        storage_component_count == 0u) {
+        _fail("AoS buffer deinterleave requires a regular 32-bit vector");
+        return nullptr;
+    }
+    return _assemble(type, true, [&](uint32_t component) {
+        std::vector<int> shuffle;
+        shuffle.reserve(_width);
+        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+            shuffle.emplace_back(static_cast<int>(
+                lane * storage_component_count + component));
+        }
+        return _builder.CreateShuffleVector(
+            value, ::llvm::PoisonValue::get(value->getType()), shuffle,
+            "buffer.aos.deinterleave");
+    });
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_contiguous_data(
     ::llvm::Value *base, ::llvm::Value *index,
     const Type *type, ::llvm::Value *seed_lane,
@@ -726,39 +916,46 @@ void ScheduleEmitter::_texture_write(
         _fail("contiguous buffer load requires a scalar type and lane index");
         return nullptr;
     }
-    // An empty predicated arm still reaches this IR. Sanitize the complete
-    // source vector before dynamically extracting a seed so an inactive
-    // poison element cannot become scalar poison while merely forming the
-    // masked-off address.
-    auto *safe_index = seed_mask == nullptr ? index :
-                                               _builder.CreateSelect(
-                                                   seed_mask, index,
-                                                   ::llvm::Constant::getNullValue(
-                                                       index->getType()));
-    auto *seed = _builder.CreateExtractElement(safe_index, seed_lane);
-    auto *seed_index = _builder.CreateZExtOrTrunc(
-        seed, _builder.getInt64Ty());
-    auto *scalar_seed_lane = _builder.CreateZExtOrTrunc(
-        seed_lane, _builder.getInt64Ty());
-    auto *offset = _builder.CreateSub(seed_index, scalar_seed_lane);
-    if (type->size() != 1u) {
-        offset = _builder.CreateMul(
-            offset, _builder.getInt64(type->size()));
-    }
-    auto *address = _builder.CreateGEP(
-        _builder.getInt8Ty(), base, offset);
+    auto *address = _lane_consecutive_address(
+        base, index, type->size(), seed_lane, seed_mask);
+    if (address == nullptr) { return nullptr; }
     auto *element = type->is_bool() ?
-        static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
-        _data_type(type, false);
+                        static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
+                        _data_type(type, false);
     auto *lanes = ::llvm::FixedVectorType::get(element, _width);
     auto *loaded = _builder.CreateMaskedLoad(
         lanes, address, ::llvm::Align{1u}, _active_mask,
         ::llvm::Constant::getNullValue(lanes),
         "buffer.contiguous.load");
     return type->is_bool() ?
-        _builder.CreateICmpNE(
-            loaded, ::llvm::Constant::getNullValue(lanes)) :
-        loaded;
+               _builder.CreateICmpNE(
+                   loaded, ::llvm::Constant::getNullValue(lanes)) :
+               loaded;
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_contiguous_vector_data(
+    ::llvm::Value *base, ::llvm::Value *index,
+    const Type *type, ::llvm::Value *seed_lane,
+    ::llvm::Value *seed_mask) {
+    auto storage_component_count =
+        _vector_storage_component_count(type);
+    if (storage_component_count == 0u) {
+        _fail("contiguous vector buffer load requires a regular 32-bit vector");
+        return nullptr;
+    }
+    auto *address = _lane_consecutive_address(
+        base, index, type->size(), seed_lane, seed_mask);
+    auto *mask = _expand_lane_mask(
+        _active_mask, type->dimension(), storage_component_count);
+    if (address == nullptr || mask == nullptr) { return nullptr; }
+    auto *element = _data_type(type->element(), false);
+    auto *lanes = ::llvm::FixedVectorType::get(
+        element, _width * storage_component_count);
+    auto *loaded = _builder.CreateMaskedLoad(
+        lanes, address, ::llvm::Align{1u}, mask,
+        ::llvm::Constant::getNullValue(lanes),
+        "buffer.aos.load");
+    return _deinterleave_vector_data(loaded, type);
 }
 
 void ScheduleEmitter::_scatter_data(
@@ -793,18 +990,9 @@ void ScheduleEmitter::_store_contiguous_data(
         _fail("contiguous buffer store requires a scalar type and lane index");
         return;
     }
-    auto *seed = _builder.CreateExtractElement(index, _seed_lane);
-    auto *seed_index = _builder.CreateZExtOrTrunc(
-        seed, _builder.getInt64Ty());
-    auto *seed_lane = _builder.CreateZExtOrTrunc(
-        _seed_lane, _builder.getInt64Ty());
-    auto *offset = _builder.CreateSub(seed_index, seed_lane);
-    if (type->size() != 1u) {
-        offset = _builder.CreateMul(
-            offset, _builder.getInt64(type->size()));
-    }
-    auto *address = _builder.CreateGEP(
-        _builder.getInt8Ty(), base, offset);
+    auto *address = _lane_consecutive_address(
+        base, index, type->size(), _seed_lane, nullptr);
+    if (address == nullptr) { return; }
     if (type->is_bool()) {
         value = _builder.CreateZExt(
             value,
@@ -813,6 +1001,27 @@ void ScheduleEmitter::_store_contiguous_data(
     }
     _builder.CreateMaskedStore(
         value, address, ::llvm::Align{1u}, _active_mask);
+}
+
+void ScheduleEmitter::_store_contiguous_vector_data(
+    ::llvm::Value *base, ::llvm::Value *index,
+    const Type *type, ::llvm::Value *value) {
+    auto storage_component_count =
+        _vector_storage_component_count(type);
+    if (storage_component_count == 0u || value == nullptr) {
+        _fail("contiguous vector buffer store requires a regular 32-bit vector");
+        return;
+    }
+    auto *address = _lane_consecutive_address(
+        base, index, type->size(), _seed_lane, nullptr);
+    auto *interleaved = _interleave_vector_data(value, type);
+    auto *mask = _expand_lane_mask(
+        _active_mask, type->dimension(), storage_component_count);
+    if (address == nullptr || interleaved == nullptr || mask == nullptr) {
+        return;
+    }
+    _builder.CreateMaskedStore(
+        interleaved, address, ::llvm::Align{1u}, mask);
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_resource_read(
@@ -866,7 +1075,7 @@ void ScheduleEmitter::_store_contiguous_data(
         return nullptr;
     }
     auto stride = byte_address ? 1u :
-        static_cast<uint64_t>(buffer_value->type->element()->size());
+                                 static_cast<uint64_t>(buffer_value->type->element()->size());
     auto *base = _builder.CreateExtractValue(buffer, {0u});
 
     // A non-volatile typed-buffer read through a warp/cohort-uniform index
@@ -937,6 +1146,25 @@ void ScheduleEmitter::_store_contiguous_data(
                                           nullptr);
         if (loaded != nullptr) {
             _result.contiguous_buffer_read_count++;
+        }
+        return loaded;
+    }
+    if (_enable_lane_affine_buffer && _width >= 2u &&
+        op == xir::ResourceReadOp::BUFFER_READ &&
+        lane_consecutive_at_use &&
+        _vector_storage_component_count(result_value->type) != 0u &&
+        buffer_value->type->element() == result_value->type) {
+        index = _as_lane_vector(index, *index_value);
+        if (index == nullptr) { return nullptr; }
+        auto *loaded = _load_contiguous_vector_data(
+            base, index, result_value->type,
+            lane_affine_seed == nullptr ? _seed_lane :
+                                          lane_affine_seed,
+            lane_affine_seed == nullptr ? operand_sanitization_mask :
+                                          nullptr);
+        if (loaded != nullptr) {
+            _result.contiguous_buffer_read_count++;
+            _result.transposed_buffer_read_count++;
         }
         return loaded;
     }
@@ -1037,7 +1265,7 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
         return;
     }
     auto stride = byte_address ? 1u :
-        static_cast<uint64_t>(buffer_value->type->element()->size());
+                                 static_cast<uint64_t>(buffer_value->type->element()->size());
     auto *base = _builder.CreateExtractValue(buffer, {0u});
     auto lane_consecutive_at_use =
         instruction.lane_consecutive_operand_index == 1u;
@@ -1050,6 +1278,19 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
             base, index, written_value->type, value);
         if (!_failed()) {
             _result.contiguous_buffer_write_count++;
+        }
+        return;
+    }
+    if (_enable_lane_affine_buffer && _width >= 2u &&
+        op == xir::ResourceWriteOp::BUFFER_WRITE &&
+        lane_consecutive_at_use &&
+        _vector_storage_component_count(written_value->type) != 0u &&
+        buffer_value->type->element() == written_value->type) {
+        _store_contiguous_vector_data(
+            base, index, written_value->type, value);
+        if (!_failed()) {
+            _result.contiguous_buffer_write_count++;
+            _result.transposed_buffer_write_count++;
         }
         return;
     }
@@ -1139,8 +1380,9 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
                     {object, level, _builder.getInt32(axis)});
             });
         return result->value_class ==
-                schedule::ValueClass::varying ?
-            _splat_data(uniform, result->type) : uniform;
+                       schedule::ValueClass::varying ?
+                   _splat_data(uniform, result->type) :
+                   uniform;
     }
     if (!buffer_value->type->is_buffer()) {
         _fail("buffer query has invalid resource type");
@@ -1168,7 +1410,8 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
     auto *destination = _data_type(result->type, false);
     value = _builder.CreateZExtOrTrunc(value, destination);
     return result->value_class == schedule::ValueClass::varying ?
-        _splat_data(value, result->type) : value;
+               _splat_data(value, result->type) :
+               value;
 }
 
 }// namespace luisa::compute::simd::detail

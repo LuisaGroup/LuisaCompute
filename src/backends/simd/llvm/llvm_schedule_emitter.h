@@ -299,7 +299,24 @@ private:
     [[nodiscard]] ::llvm::Value *_gather_paired_vector_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type);
+    [[nodiscard]] static uint32_t _vector_storage_component_count(
+        const Type *type) noexcept;
+    [[nodiscard]] ::llvm::Value *_lane_consecutive_address(
+        ::llvm::Value *base, ::llvm::Value *index,
+        uint64_t stride, ::llvm::Value *seed_lane,
+        ::llvm::Value *seed_mask);
+    [[nodiscard]] ::llvm::Value *_expand_lane_mask(
+        ::llvm::Value *mask, uint32_t component_count,
+        uint32_t storage_component_count);
+    [[nodiscard]] ::llvm::Value *_interleave_vector_data(
+        ::llvm::Value *value, const Type *type);
+    [[nodiscard]] ::llvm::Value *_deinterleave_vector_data(
+        ::llvm::Value *value, const Type *type);
     [[nodiscard]] ::llvm::Value *_load_contiguous_data(
+        ::llvm::Value *base, ::llvm::Value *index,
+        const Type *type, ::llvm::Value *seed_lane,
+        ::llvm::Value *seed_mask);
+    [[nodiscard]] ::llvm::Value *_load_contiguous_vector_data(
         ::llvm::Value *base, ::llvm::Value *index,
         const Type *type, ::llvm::Value *seed_lane,
         ::llvm::Value *seed_mask);
@@ -308,6 +325,9 @@ private:
         const Type *type, ::llvm::Value *value,
         size_t leaf_offset = 0u);
     void _store_contiguous_data(
+        ::llvm::Value *base, ::llvm::Value *index,
+        const Type *type, ::llvm::Value *value);
+    void _store_contiguous_vector_data(
         ::llvm::Value *base, ::llvm::Value *index,
         const Type *type, ::llvm::Value *value);
     [[nodiscard]] BindlessArrayLanes _bindless_array_lanes(

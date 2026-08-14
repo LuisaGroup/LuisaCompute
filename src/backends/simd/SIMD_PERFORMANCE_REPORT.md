@@ -30,6 +30,12 @@ The newest memory stage independently applies ISPC's bounded-gather lesson to
 one much narrower Luisa pattern: eligible W8 direct typed-buffer vectors pack
 adjacent 32-bit leaves into legal 64-bit LLVM masked gathers. TargetTransformInfo
 gates the rewrite, so W8 itself remains independent of AVX-512 availability.
+The latest layout stage applies the previously planned lane/value axis rotation
+at one proven lane-consecutive direct-buffer boundary. W2/W4/W8/W16 transpose
+component-major float/int2/3/4 Schedule values to one physical AoS masked
+load/store; padded three-component vectors keep their padding masked off. The
+analytic path tracer replaces its four output scatters, while image/texture-
+based graphics kernels remain unchanged.
 The newest scheduler stage reuses the incoming active-mask SSA value after a
 runtime-coherent varying branch or switch proves that its selected successor
 mask is identical. This preserves all-on/partial-tail identity across the hot
@@ -1522,25 +1528,56 @@ normal ISPC throughput:
 | all three `ImproveMemoryOpsPass` instances | 0.9460x | 0.8918x | 1.0055x | 1.0009x |
 | both mechanisms | 0.7817x | 0.7353x | 0.9228x | 0.9111x |
 
+After the direct-buffer lane/value rotation checkpoint, the AVX2 W8
+decomposition was repeated against the current Luisa W8 object in fifteen
+rotating single-worker process rounds pinned to CPU 6. Each process again
+reports the median of seven timed samples. The fresh medians and paired
+geometric-mean ratios are:
+
+| Variant | Mitems/s | variant / normal ISPC | variant / current Luisa W8 |
+| --- | ---: | ---: | ---: |
+| current Luisa W8 | 162.952 | -- | 1.0000x |
+| normal ISPC | 231.288 | 1.0000x | 1.4208x [1.4162, 1.4261] |
+| ISPC without front-end all-on specialization | 186.384 | 0.8051x [0.8031, 0.8072] | 1.1439x [1.1405, 1.1475] |
+| ISPC without all three `ImproveMemoryOpsPass` instances | 206.497 | 0.8897x [0.8863, 0.8927] | 1.2640x [1.2574, 1.2703] |
+| ISPC without both | 170.074 | 0.7301x [0.7240, 0.7352] | 1.0374x [1.0293, 1.0449] |
+
+Every pair favored the faster entry shown by its ratio, and every ISPC
+variant retained checksum `aff56d522e42c9a`; Luisa retained
+`a93089e651f98582`. Removing both mechanisms closes 89.6% of the current
+normal-ISPC/Luisa gap, whether measured as the absolute throughput difference
+or as the log throughput ratio. This does not mean the transforms are
+independent: normal ISPC is 1.370x faster than its doubly ablated object, not
+the product of the two single-feature ratios.
+
 The largest single mechanism is therefore not an LLVM pass. It is ISPC's
 front-end varying-control emission in `src/stmt.cpp` together with function
 all-on/mixed versioning in `src/func.cpp`. It dynamically distinguishes an
 all-on incoming mask and all/none/mixed branch results, then emits a path on
 which the mask is a compile-time all-on constant. On AVX2 W8, normal ISPC is
-1.252x faster than the same compiler with this mechanism disabled; disabling
+1.242x faster than the same compiler with this mechanism disabled; disabling
 it increases retired instructions by 45.0% and cycles by 21.9% while branch
-misses remain effectively unchanged. Disabling the nominally related
+misses remain effectively unchanged. In the final public path-trace function,
+the ablation grows LLVM PHIs from 167 to 824 and AVX blend calls from 130 to
+274; the assembly stack frame grows from 320 to 4,664 bytes. The gain is
+therefore mask/state simplification and register residency, not branch
+prediction. Disabling the nominally related
 `IntrinsicsOpt` phases 215/216/250/251 produces an object byte-identical to
 the baseline, which confirms that the gain is created before those backend
 passes.
 
 The largest named ISPC pass is `ImproveMemoryOpsPass`, invoked at phases
-211, 256, and 271 around `InstCombine`. It contributes 1.121x on AVX2 W8 and
+211, 256, and 271 around `InstCombine`. It contributes 1.124x on AVX2 W8 and
 1.057x on AVX2 W4, but does not help either AVX-512 width in this kernel. The
 AVX2 W8 hardware-counter ablation increases both retired instructions and
 cycles by about 11.5%/11.2%. Disabling both all-on specialization and all
 three memory-pass instances is non-additive but still leaves normal ISPC
-1.360x faster than the ablated AVX2 W8 object.
+1.370x faster than the ablated AVX2 W8 object. In the final public function,
+the memory-pass ablation changes 80 to 112 `extractelement` operations, 95 to
+zero scalar `getelementptr` operations, and zero to 64 `inttoptr` operations.
+For this workload the named pass wins primarily by factoring varying pointer
+vectors into a common scalar base plus encodable offsets; it is not a hidden
+scalar-libm or target-math advantage.
 
 Ordinary LLVM passes are secondary. Disabling phase-227 `LoopFullUnroll` in a
 fresh fifteen-pair run measured 0.98919x [0.98851, 0.98986] with zero wins,
@@ -1643,6 +1680,88 @@ of Luisa W8 by 1.6802x [1.6763, 1.6842] for AVX2 i32x8 and 1.5654x
 whole structured mask CFG and register-resident live state; the local Luisa
 clone deliberately does not duplicate arbitrary loops, memory regions, or the
 complete function.
+
+### Direct-buffer lane/value axis rotation
+
+The next memory stage targets the concrete address shape exposed by the ISPC
+audit without importing target intrinsics or source. A proven lane-consecutive
+direct typed-buffer operation whose exact element is a two-to-four-component
+32-bit vector now rotates the component-major Schedule value to physical AoS
+order with generic fixed-vector shuffles. One `<W * S x T>` masked load/store
+replaces `D` leaf gathers/scatters, where `D` is the semantic component count
+and `S` includes an optional fourth padding slot for a three-component vector.
+The expanded mask repeats each active lane over its semantic components and is
+false for padding. Byte-address, volatile, bindless, recursive aggregate,
+local, accel, and ray-query accesses fail closed. W1 is unchanged, and
+`LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` restores both this rule and the
+earlier scalar lane-affine rule.
+
+Permanent IR/JIT regressions cover W1/W2/W4/W8/W16, uint4 candidate/oracle
+intrinsic shape, float2/float3/float4 full and sparse cohorts, a 13-element
+tail, preserved float3 padding, inactive sentinels, exact output equality,
+LLVM verification, and final assembly without gather/scatter. The analytic
+path tracer accepts one transposed `Buffer<float4>` output store. Fifteen
+rotating single-core candidate/oracle rounds, each process taking the median
+of seven samples, measured:
+
+| Width | candidate/oracle | 95% paired CI | wins | candidate/oracle median, Mitems/s |
+| ---: | ---: | ---: | ---: | ---: |
+| W2 | 1.0227x | [1.0209, 1.0246] | 15/15 | 48.089 / 46.993 |
+| W4 | 1.0696x | [1.0676, 1.0717] | 15/15 | 93.712 / 87.512 |
+| W8 | 1.1806x | [1.1778, 1.1834] | 15/15 | 165.420 / 139.982 |
+| W16 | 1.2454x | [1.2203, 1.2710] | 15/15 | 253.853 / 205.553 |
+
+An independent fifteen-pair W1 identity gate measured 0.99984x
+[0.99946, 1.00022]. Every Luisa process retained checksum
+`a93089e651f98582`. A first independent fifteen-pair sweep also found all four
+enabled widths positive, including 1.1855x at W8 and 1.2587x at W16, so the
+selection does not depend on one noisy batch.
+
+The W8 oracle forms four `<8 x i64>` address vectors and emits four
+`vscatterqps`. The candidate legalizes its generic shuffles to
+`vpermi2ps`/`vpermi2pd` and emits two masked `vmovups` stores. It has no gather,
+scatter, call, or scalar-math symbol. Static code is not a useful cost proxy:
+
+| Width | instructions, candidate/oracle | vector instructions | branches | stack references | frame bytes |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W2 | 4,062 / 4,111 | 1,845 / 1,871 | 419 / 435 | 713 / 712 | 3,584 / 3,520 |
+| W4 | 3,043 / 3,032 | 1,369 / 1,369 | 355 / 355 | 474 / 470 | 1,552 / 1,488 |
+| W8 | 3,167 / 3,152 | 1,556 / 1,552 | 390 / 390 | 650 / 646 | 3,456 / 3,232 |
+| W16 | 3,704 / 3,608 | 1,637 / 1,547 | 468 / 474 | 694 / 660 | 3,456 / 2,792 |
+
+The same rotating batch included official ISPC 1.31.0 controls. ISPC remains
+faster, but the direct same-width gap is materially smaller than before this
+stage:
+
+| Width/target | ISPC / Luisa SIMD | 95% paired CI | wins |
+| --- | ---: | ---: | ---: |
+| W4 AVX2 | 1.3285x | [1.3267, 1.3303] | 15/15 |
+| W4 AVX-512 | 1.4429x | [1.4407, 1.4451] | 15/15 |
+| W8 AVX2 | 1.4146x | [1.4126, 1.4167] | 15/15 |
+| W8 AVX-512 | 1.3237x | [1.3216, 1.3258] | 15/15 |
+| W16 AVX-512 | 1.3549x | [1.3486, 1.3613] | 15/15 |
+
+The prior W8 gaps were 1.6802x/1.5654x. The remaining difference is therefore
+not explained by this final AoS store alone; ISPC's structured mask CFG and
+register-resident state remain the principal target.
+
+The same analytic workload also makes the fallback distinction explicit.
+Fifteen rotating fallback/W1/W2/W4/W8/W16 rounds produced medians of
+580.241/43.302/47.971/93.418/164.995/253.879 Mitems/s. Paired SIMD/fallback
+geomeans were 0.0714x, 0.0793x, 0.1544x, 0.2727x, and 0.4187x, with respective
+95% intervals [0.0656, 0.0778], [0.0729, 0.0863], [0.1419, 0.1680],
+[0.2508, 0.2966], and [0.3849, 0.4553]. A 921,600-float fallback/W16 dump
+comparison has zero violations at 1e-6 absolute plus 1e-5 relative tolerance;
+maximum absolute/relative errors are `5.9605e-8`/`2.0775e-7`. Fallback's scalar
+pipeline can be horizontally vectorized without carrying the independent-PC
+frame, so fixing output scatter does not erase that scheduler gap.
+
+Real-example applicability was checked separately. W8 image processing,
+Voxel, ordinary Embree path tracing, and non-coroutine SDF each report zero
+transposed accesses. For every example, candidate/oracle optimized assembly,
+objects, and output PNG are byte-identical. These kernels primarily use
+`Image`/texture output, so this stage claims no graphics gain; a distinct
+fixed-vector image/tile layout remains required.
 
 ### Zero-token convergence-cascade guard
 
@@ -1998,9 +2117,10 @@ identical.
    work.
 5. Move fixed-vector texture tap selection into JIT IR or introduce a measured
    tile/swizzle upload boundary. Preserve row-major public image semantics.
-6. Generalize lane-affine recognition into bounded lane/value axis rotation
-   only for coherent affine tiles; divergent control and warp operations pin
-   lane identity.
+6. Extend the completed direct-buffer lane/value rotation across bounded
+   coherent affine tiles so a profitable layout can remain live across several
+   operations. Divergent control, warp operations, and externally visible
+   lane-wise effects continue to pin lane identity.
 7. Add software prefetch only for proven affine lookahead with a stable A/B.
    Immediate masked gathers and L1-sized textures have not justified it.
 
@@ -2276,3 +2396,18 @@ W1 through W16; W8 cutout and non-coroutine SDF pass at 44.167099 and
 63.129346 dB. Both path tracers report native Embree 4.4.1 W4/W8/W16 packet
 support. Outputs remained in `/tmp`, and no gallery reference was regenerated
 or modified.
+
+The direct-buffer lane/value-axis-rotation stage completed another fresh full
+Release build, the required native-math/fallback-math/runtime-width gate (3/3),
+and the complete configured SIMD+fallback/XIR/runtime/graphics suite (140/140).
+Clang-format dry-run and per-translation-unit clangd syntax checks pass for
+every changed C++ source, and the syntax-check runner's Python suite passes
+13/13. Fresh W1/W2/W4/W8/W16 image-processing and Voxel gallery comparisons
+pass at 89.251953 and 82.834519 dB. Ordinary 1024-spp Embree path tracing
+passes at 35.426795/42.781582/40.940376/39.219305/37.801771 dB from W1 through
+W16; W8 cutout and non-coroutine SDF pass at 39.576002 and 63.129346 dB.
+Every path-tracing process reports Embree 4.4.1 native W4/W8/W16 packet support.
+The graphics kernels report zero transposed buffer accesses and retain their
+prior objects, so these runs are correctness gates rather than a graphics-speed
+claim for this buffer-only optimization. Outputs remained in `/tmp`, and no
+gallery reference was regenerated or modified.

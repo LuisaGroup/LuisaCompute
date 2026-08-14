@@ -2953,6 +2953,60 @@ template<size_t Width>
         {output_argument, index, sum});
     builder.return_void();
 
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    CHECK(lowered.succeeded());
+    auto make_ir = [&](bool enable_lane_affine)
+        -> std::optional<std::string> {
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto llvm_module = std::make_unique<::llvm::Module>(
+            enable_lane_affine ? "lane-value-transpose" :
+                                 "lane-value-transpose-oracle",
+            *context);
+        auto codegen = lower_schedule_to_llvm(
+            *llvm_module, *lowered.function, width,
+            enable_lane_affine ? "simd_lane_value_transpose" :
+                                 "simd_lane_value_transpose_oracle",
+            false, {64u, 1u, 1u}, true,
+            enable_lane_affine);
+        auto expect_transpose = enable_lane_affine && width >= 2u;
+        if (!codegen.succeeded() ||
+            codegen.transposed_buffer_read_count !=
+                (expect_transpose ? 2u : 0u) ||
+            codegen.transposed_buffer_write_count !=
+                (expect_transpose ? 1u : 0u) ||
+            ::llvm::verifyModule(*llvm_module, &::llvm::errs())) {
+            return std::nullopt;
+        }
+        std::string ir;
+        ::llvm::raw_string_ostream stream{ir};
+        llvm_module->print(stream, nullptr);
+        stream.flush();
+        return std::optional<std::string>{std::move(ir)};
+    };
+    auto candidate_ir = make_ir(true);
+    auto oracle_ir = make_ir(false);
+    CHECK(candidate_ir.has_value());
+    CHECK(oracle_ir.has_value());
+    if (width >= 2u) {
+        CHECK(count_occurrences(
+                  *candidate_ir,
+                  "call <" + std::to_string(width * 4u) +
+                      " x i32> @llvm.masked.load") == 2u);
+        CHECK(count_occurrences(
+                  *candidate_ir,
+                  "call void @llvm.masked.store") == 1u);
+        CHECK(candidate_ir->find("@llvm.masked.gather") ==
+              std::string::npos);
+        CHECK(candidate_ir->find("@llvm.masked.scatter") ==
+              std::string::npos);
+    }
+    CHECK(count_occurrences(
+              *oracle_ir, "call <" + std::to_string(width) +
+                              " x i32> @llvm.masked.gather") == 8u);
+    CHECK(count_occurrences(
+              *oracle_ir, "call void @llvm.masked.scatter") == 4u);
+
     auto compiled = compile_simd_kernel(
         kernel, width, "simd_buffer_vector_add",
         false, true, true, true);
@@ -2965,27 +3019,26 @@ template<size_t Width>
     CHECK(compiled.argument_buffer_size ==
           3u * sizeof(SIMDHostBufferView));
     CHECK(compiled.uniform_buffer_broadcast_count == 0u);
-    LLVMJIT target_probe;
-    CHECK(target_probe.succeeded());
-    auto expect_paired =
-        target_probe.supports_native_paired_leaf_gather(width);
-    CHECK(compiled.paired_leaf_gather_count ==
-          (expect_paired ? 4u : 0u));
+    auto expect_transpose = width >= 2u;
+    CHECK(compiled.transposed_buffer_read_count ==
+          (expect_transpose ? 2u : 0u));
+    CHECK(compiled.transposed_buffer_write_count ==
+          (expect_transpose ? 1u : 0u));
+    CHECK(compiled.paired_leaf_gather_count == 0u);
+    if (expect_transpose) {
+        CHECK(compiled.assembly.find("gather") == std::string::npos);
+        CHECK(compiled.assembly.find("scatter") == std::string::npos);
+    }
 
     ScopedEnvironmentVariable disable_paired{
         "LUISA_SIMD_DISABLE_PAIRED_LEAF_GATHER", "1"};
     auto oracle = compile_simd_kernel(
         kernel, width, "simd_buffer_vector_add_oracle",
-        false, true, true, true);
+        false, true, false, true);
     CHECK(oracle.succeeded());
+    CHECK(oracle.transposed_buffer_read_count == 0u);
+    CHECK(oracle.transposed_buffer_write_count == 0u);
     CHECK(oracle.paired_leaf_gather_count == 0u);
-    if (expect_paired &&
-        compiled.target_triple.starts_with("x86_64")) {
-        CHECK(count_occurrences(
-                  compiled.assembly, "vpgatherqq") >= 4u);
-        CHECK(oracle.assembly.find("vpgatherqq") ==
-              std::string::npos);
-    }
 
     std::array<luisa::uint4, count> lhs_data{};
     std::array<luisa::uint4, count> rhs_data{};
@@ -3032,8 +3085,158 @@ template<size_t Width>
 }
 
 [[nodiscard]] bool run_buffer_vector_codegen() {
-    for (auto width : {4u, 8u, 16u}) {
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
         if (!run_buffer_vector_codegen_width(width)) { return false; }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_sparse_lane_value_transpose_codegen() {
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](
+                          BufferFloat2 input2, BufferFloat3 input3,
+                          BufferFloat4 input4, BufferFloat2 output2,
+                          BufferFloat3 output3,
+                          BufferFloat4 output4) noexcept {
+        auto index = dispatch_id().x;
+        $if ((index & 1u) == 0u) {
+            output2.write(index, input2.read(index));
+            output3.write(index, input3.read(index));
+            output4.write(index, input4.read(index));
+        };
+    };
+    auto compile = [&](uint32_t width, bool disable,
+                       std::string_view name) {
+        ScopedEnvironmentVariable setting{
+            "LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER",
+            disable ? "1" : "0"};
+        return compile_simd_kernel(
+            kernel.function()->function(), width, name,
+            false, true);
+    };
+    std::array<luisa::float2, count> input2{};
+    std::array<luisa::float3, count> input3{};
+    std::array<luisa::float4, count> input4{};
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        auto value = static_cast<float>(i);
+        input2[i] = luisa::make_float2(
+            value + 0.125f, value + 0.25f);
+        input3[i] = luisa::make_float3(
+            value + 1.0f, value + 2.0f, value + 3.0f);
+        input4[i] = luisa::make_float4(
+            value + 4.0f, value + 5.0f,
+            value + 6.0f, value + 7.0f);
+    }
+    struct Outputs {
+        std::array<luisa::float2, count> output2{};
+        std::array<luisa::float3, count> output3{};
+        std::array<luisa::float4, count> output4{};
+    };
+    static constexpr auto padding_sentinel = uint32_t{0x5aa55aa5u};
+    auto execute = [&](const SIMDCompiledKernel &compiled,
+                       uint32_t width, Outputs &outputs) {
+        outputs.output2.fill(luisa::make_float2(-999.0f));
+        outputs.output3.fill(luisa::make_float3(-999.0f));
+        outputs.output4.fill(luisa::make_float4(-999.0f));
+        if constexpr (sizeof(luisa::float3) == 4u * sizeof(float)) {
+            for (auto &value : outputs.output3) {
+                std::memcpy(
+                    reinterpret_cast<std::byte *>(&value) +
+                        3u * sizeof(float),
+                    &padding_sentinel, sizeof(padding_sentinel));
+            }
+        }
+        alignas(16) std::array<SIMDHostBufferView, 6u> arguments{
+            SIMDHostBufferView{input2.data(), sizeof(input2)},
+            SIMDHostBufferView{input3.data(), sizeof(input3)},
+            SIMDHostBufferView{input4.data(), sizeof(input4)},
+            SIMDHostBufferView{outputs.output2.data(),
+                               sizeof(outputs.output2)},
+            SIMDHostBufferView{outputs.output3.data(),
+                               sizeof(outputs.output3)},
+            SIMDHostBufferView{outputs.output4.data(),
+                               sizeof(outputs.output4)},
+        };
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += width) {
+            config.thread_index = first;
+            entry(arguments.data(), nullptr, &config, width);
+        }
+        return true;
+    };
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        auto suffix = "_w" + std::to_string(width);
+        auto candidate = compile(
+            width, false,
+            "simd_sparse_lane_value_transpose" + suffix);
+        auto oracle = compile(
+            width, true,
+            "simd_sparse_lane_value_transpose_oracle" + suffix);
+        CHECK(candidate.succeeded());
+        CHECK(oracle.succeeded());
+        auto expect_transpose = width >= 2u;
+        CHECK(candidate.transposed_buffer_read_count ==
+              (expect_transpose ? 3u : 0u));
+        CHECK(candidate.transposed_buffer_write_count ==
+              (expect_transpose ? 3u : 0u));
+        CHECK(oracle.transposed_buffer_read_count == 0u);
+        CHECK(oracle.transposed_buffer_write_count == 0u);
+        if (expect_transpose) {
+            CHECK(candidate.assembly.find("gather") ==
+                  std::string::npos);
+            CHECK(candidate.assembly.find("scatter") ==
+                  std::string::npos);
+        }
+        Outputs candidate_outputs;
+        Outputs oracle_outputs;
+        CHECK(execute(candidate, width, candidate_outputs));
+        CHECK(execute(oracle, width, oracle_outputs));
+        for (auto i = uint32_t{0u}; i < count; i++) {
+            auto even = (i & 1u) == 0u;
+            auto expected2 = even ? input2[i] :
+                                    luisa::make_float2(-999.0f);
+            auto expected3 = even ? input3[i] :
+                                    luisa::make_float3(-999.0f);
+            auto expected4 = even ? input4[i] :
+                                    luisa::make_float4(-999.0f);
+            CHECK(luisa::all(
+                candidate_outputs.output2[i] == expected2));
+            CHECK(luisa::all(
+                candidate_outputs.output3[i] == expected3));
+            CHECK(luisa::all(
+                candidate_outputs.output4[i] == expected4));
+            CHECK(luisa::all(
+                candidate_outputs.output2[i] ==
+                oracle_outputs.output2[i]));
+            CHECK(luisa::all(
+                candidate_outputs.output3[i] ==
+                oracle_outputs.output3[i]));
+            CHECK(luisa::all(
+                candidate_outputs.output4[i] ==
+                oracle_outputs.output4[i]));
+            if constexpr (sizeof(luisa::float3) ==
+                          4u * sizeof(float)) {
+                auto read_padding = [](const luisa::float3 &value) {
+                    auto padding = uint32_t{0u};
+                    std::memcpy(
+                        &padding,
+                        reinterpret_cast<const std::byte *>(&value) +
+                            3u * sizeof(float),
+                        sizeof(padding));
+                    return padding;
+                };
+                CHECK(read_padding(candidate_outputs.output3[i]) ==
+                      padding_sentinel);
+                CHECK(read_padding(oracle_outputs.output3[i]) ==
+                      padding_sentinel);
+            }
+        }
     }
     return true;
 }
@@ -3072,7 +3275,7 @@ template<size_t Width>
             *module, *lowered.function, width,
             enabled ? "simd_paired_leaf_gather" :
                       "simd_scalar_leaf_gather",
-            false, {64u, 1u, 1u}, true, true, enabled);
+            false, {64u, 1u, 1u}, true, false, enabled);
         if (!codegen.succeeded() ||
             codegen.paired_leaf_gather_count !=
                 (enabled ? 1u : 0u) ||
@@ -4501,7 +4704,8 @@ void ray_query_packet_probe_wide(
         "simd-ray-query-packet", *context);
     auto name = std::string{"simd_ray_query_packet"};
     auto codegen = lower_schedule_to_llvm(
-        *llvm_module, *lowered.function, width, name);
+        *llvm_module, *lowered.function, width, name,
+        false, {}, true, false);
     if (!codegen.succeeded()) {
         std::cerr << codegen.error << '\n';
         return false;
@@ -7528,7 +7732,10 @@ int main() {
         {"W16 scalar frame metadata",
          &run_scalar_frame_metadata_codegen},
         {"XIR compiler facade", &run_compiler_facade},
-        {"XIR buffer vector gather/scatter", &run_buffer_vector_codegen},
+        {"lane/value transposed direct buffer",
+         &run_buffer_vector_codegen},
+        {"sparse lane/value transposed direct buffer",
+         &run_sparse_lane_value_transpose_codegen},
         {"paired direct-buffer leaf gather",
          &run_paired_leaf_gather_ir},
         {"XIR faceforward fixed-vector arithmetic",

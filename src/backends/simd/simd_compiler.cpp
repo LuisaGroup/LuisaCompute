@@ -154,6 +154,10 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.contiguous_buffer_read_count;
     result.contiguous_buffer_write_count =
         llvm_result.contiguous_buffer_write_count;
+    result.transposed_buffer_read_count =
+        llvm_result.transposed_buffer_read_count;
+    result.transposed_buffer_write_count =
+        llvm_result.transposed_buffer_write_count;
     result.paired_leaf_gather_count =
         llvm_result.paired_leaf_gather_count;
     result.predicated_memory_diamond_count =

@@ -741,34 +741,57 @@ The bounded grouping idea was independently derived after auditing ISPC
 or coefficients are copied. Unlike ISPC's cross-instruction scan, this first
 rule never crosses a Luisa resource-read instruction boundary.
 
-### 4.8 Lane-consecutive typed-buffer refinement
+### 4.8 Lane-consecutive typed-buffer and lane/value refinement
 
-A direct, nonvolatile typed `BUFFER_READ` or `BUFFER_WRITE` of a scalar Luisa
-element may use one LLVM masked contiguous vector access when Schedule
-lowering proves that its integer element index has lane step one. The proof is
-use-site provenance; it does not reclassify the SSA value. It currently
-recognizes `warp_lane_id`, the x component of `thread_id`/`dispatch_id`, equal
-integer expressions, and step-one plus equal add/subtract compositions.
-Select preserves a proof only when its condition is equal across the cohort
-and both arms have the same step.
+A direct, nonvolatile typed `BUFFER_READ` or `BUFFER_WRITE` may use an LLVM
+masked contiguous vector access when Schedule lowering proves that its integer
+element index has lane step one. The proof is use-site provenance; it does not
+reclassify the SSA value. It currently recognizes `warp_lane_id`, the x
+component of `thread_id`/`dispatch_id`, equal integer expressions, and step-one
+plus equal add/subtract compositions. Select preserves a proof only when its
+condition is equal across the cohort and both arms have the same step.
 
 For dispatch/thread x, the static block-X dimension must be at least `W` and
 divisible by `W`. Since packet starts are W-aligned inside one block, this
 proves that the packet cannot cross an x row. If static geometry is missing or
 the packet can cross a row, the index remains unannotated and uses the normal
 gather/scatter path. Casts of a step-one value also fail closed until a
-separate no-wrap/range proof exists. Byte-address, volatile, aggregate, and
-bindless accesses are unchanged.
+separate no-wrap/range proof exists. Byte-address, volatile, bindless,
+structure, array, matrix, local, acceleration-structure, and ray-query
+accesses are unchanged. A typed buffer's declared element must exactly match
+the read result or written value.
 
 The executing cohort is nonempty. Let `s = cttz(A)` be its first active lane
 and `i_s` that lane's source element index. Lowering reconstructs the
 conceptual lane-zero base as `b = i_s - s` in address-width modular integer
-arithmetic, then issues `llvm.masked.load` or `llvm.masked.store` at `b` with
-mask `A`. It must not read lane zero merely because lane zero is physically
+arithmetic. It must not read lane zero merely because lane zero is physically
 present: a sparse cohort may leave that lane inactive with stale or invalid
 state. The GEP is non-`inbounds`, and masked-off elements perform no memory
 access. This makes partial tails and sparse masks observationally identical to
-the original per-active-lane typed accesses.
+the original per-active-lane typed accesses. Scalar elements issue one
+`llvm.masked.load` or `llvm.masked.store` at `b` with mask `A`.
+
+One bounded lane/value axis rotation additionally accepts a top-level Luisa
+vector with two to four non-Boolean 32-bit scalar components. Let `D` be the
+semantic component count and `S = sizeof(vector) / 4` its physical storage
+slots. Only `(D, S) = (2, 2), (3, 3), (3, 4), (4, 4)` with component offsets
+`4c` are legal. The varying Schedule value is component-major, with one
+`<W x T>` vector `V_c` per component. Generic `shufflevector` operations form
+one storage-order vector `P` and memory mask `M` satisfying
+
+```text
+P[lane * S + component] = V_component[lane], component < D
+M[lane * S + slot] = A[lane] && slot < D
+```
+
+One masked load/store operates on `<W * S x T>`, and loads deinterleave the
+wide result back into `D` component vectors. For padded three-component
+vectors, the fourth slot is always masked off: reads do not observe it and
+stores do not overwrite it. Sparse cohorts and partial tails repeat each
+logical lane bit only over that lane's semantic components. Thus the rewrite
+does not make an inactive lane, padding byte, or adjacent buffer element
+observable. Production IR contains no x86, AVX, AVX-512, NEON, or other target
+intrinsic.
 
 Inside a predicated direct-memory diamond, `A` in this construction is the arm
 mask unless the index was already produced under the outer packet mask. In
@@ -776,15 +799,22 @@ that latter case the full-packet lane-step proof permits the outer safe seed;
 the same algebra reconstructs `b`, while the memory access still uses the arm
 mask. No such substitution is made for an arm-local index.
 
-The current profitability policy enables the transformation only for
-W4/W8/W16. W2 retains the proven provenance but lowers to gather/scatter
-because same-binary measurement found no stable gain; W1 already uses scalar
-memory. Permanent regressions cover aligned and row-crossing block geometry,
-disabled lowering, W2 policy, a nine-element tail, a sparse cohort whose lane
-zero index underflows, LLVM IR shape, final assembly without gather/scatter,
-and independent numerical execution. The runtime reports accepted contiguous
-read/write counts, and `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` is the A/B
-oracle.
+The scalar-element profitability policy remains W4/W8/W16; its measured W2
+lowering remains disabled. The lane/value rotation is independently enabled at
+W2/W4/W8/W16 after every width produced a positive paired path-trace gate. W1
+already uses scalar memory and emits no transpose. The warp/cohort-uniform read
+rule runs first, so a uniform vector index still performs one scalar aggregate
+load and only then splats its result.
+
+Permanent regressions cover aligned and row-crossing block geometry, disabled
+lowering, W1 identity, W2/W4/W8/W16 selection, `uint4` LLVM IR and final
+assembly without gather/scatter, a 13-element inactive tail, float2/float3/
+float4 sparse cohorts, preserved float3 padding, and candidate/oracle exact
+equality. Runtime reports all accepted accesses in `contiguous_buffer_reads`/
+`contiguous_buffer_writes` and reports the vector subset separately in
+`transposed_buffer_reads`/`transposed_buffer_writes`.
+`LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` is the same-binary A/B oracle for
+both scalar and lane/value refinements.
 
 ## 5. Vector-math providers
 
