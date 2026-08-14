@@ -10,6 +10,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/coro_frame.h>
+#include <luisa/xir/argument.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
@@ -112,6 +113,122 @@ public:
         }
     }
 };
+
+struct CoroutineArgumentProjectionInfo {
+    size_t continuation_count{0u};
+    size_t source_argument_count{0u};
+    size_t retained_argument_count{0u};
+    size_t removed_argument_count{0u};
+};
+
+// Let A be the ordered source-coroutine argument domain and U_c(a) mean that
+// continuation c contains an XIR use of a. A split continuation denotes a
+// function of [frame, A], but its body is observationally independent of every
+// unannotated a for which !U_c(a). Projecting its signature to
+// [frame, {a in A | U_c(a)}] therefore preserves the function denotation.
+//
+// The frame is a scheduler ABI argument and is never projected. Annotated
+// arguments are retained because metadata may impose an ABI contract not
+// represented by an ordinary XIR use. Continuations have no XIR call sites at
+// this boundary; the DSL wrapper is constructed later from the returned
+// source-index projection, so there is no call graph to rewrite here.
+[[nodiscard]] CoroutineArgumentProjectionInfo
+project_coroutine_continuation_arguments(
+    xir::CoroSplitInfo &split,
+    size_t source_argument_count) noexcept {
+    struct ProjectionPlan {
+        xir::CoroSplitInfo::Subroutine *subroutine;
+        luisa::vector<xir::Argument *> removed_arguments;
+        luisa::vector<size_t> retained_source_indices;
+    };
+    luisa::vector<ProjectionPlan> plans;
+    plans.reserve(split.subroutines.size());
+
+    // Validate the complete domain before mutating any signature. This makes
+    // malformed split metadata an atomic compiler failure rather than a
+    // partially projected module.
+    for (auto &subroutine : split.subroutines) {
+        auto *callable = subroutine.callable;
+        LUISA_ASSERT(
+            callable != nullptr && callable->definition() != nullptr,
+            "Coroutine argument projection requires defined continuations.");
+        LUISA_ASSERT(
+            callable->use_list().empty(),
+            "Coroutine argument projection requires continuation {} to have "
+            "no XIR call site (observed {} use(s)).",
+            subroutine.scope_index,
+            callable->use_list().count_size());
+        luisa::vector<xir::Argument *> arguments;
+        arguments.reserve(callable->arguments().count_size());
+        for (auto *argument : callable->arguments()) {
+            arguments.emplace_back(argument);
+        }
+        LUISA_ASSERT(
+            !arguments.empty() &&
+                arguments.front() == subroutine.frame_argument,
+            "Coroutine continuation {} lost its leading frame argument.",
+            subroutine.scope_index);
+        LUISA_ASSERT(
+            arguments.size() ==
+                1u + subroutine.source_argument_indices.size(),
+            "Coroutine continuation {} has {} source argument(s) but {} "
+            "projected signature argument(s).",
+            subroutine.scope_index,
+            subroutine.source_argument_indices.size(),
+            arguments.size() - 1u);
+
+        ProjectionPlan plan{.subroutine = &subroutine};
+        plan.removed_arguments.reserve(
+            subroutine.source_argument_indices.size());
+        plan.retained_source_indices.reserve(
+            subroutine.source_argument_indices.size());
+        size_t previous_source_index = 0u;
+        bool first_source_index = true;
+        for (size_t projected_index = 0u;
+             projected_index <
+             subroutine.source_argument_indices.size();
+             ++projected_index) {
+            auto source_index =
+                subroutine.source_argument_indices[projected_index];
+            LUISA_ASSERT(
+                source_index < source_argument_count &&
+                    (first_source_index ||
+                     source_index > previous_source_index),
+                "Coroutine continuation {} has an invalid source argument "
+                "projection at position {} (source index {}, source count {}).",
+                subroutine.scope_index, projected_index, source_index,
+                source_argument_count);
+            first_source_index = false;
+            previous_source_index = source_index;
+            auto *argument = arguments[projected_index + 1u];
+            if (argument->use_list().empty() &&
+                argument->metadata_list().empty()) {
+                plan.removed_arguments.emplace_back(argument);
+            } else {
+                plan.retained_source_indices.emplace_back(source_index);
+            }
+        }
+        plans.emplace_back(std::move(plan));
+    }
+
+    CoroutineArgumentProjectionInfo info{
+        .continuation_count = plans.size(),
+        .source_argument_count = source_argument_count};
+    for (auto &plan : plans) {
+        // Intrusive-list removal is independent of parameter position. The
+        // retained map already preserves source order, so removing the
+        // collected dead nodes cannot renumber its semantic indices.
+        for (auto *argument : plan.removed_arguments) {
+            argument->remove_self();
+            ++info.removed_argument_count;
+        }
+        info.retained_argument_count +=
+            plan.retained_source_indices.size();
+        plan.subroutine->source_argument_indices =
+            std::move(plan.retained_source_indices);
+    }
+    return info;
+}
 
 [[nodiscard]] luisa::vector<OrdinaryCallableSnapshot>
 snapshot_ordinary_callables(xir::Module *module,
@@ -768,6 +885,19 @@ CoroutineCompileResult compile_coroutine_pipeline(
             subroutine.callable);
     }
     profiler.checkpoint("continuation restructuring");
+    auto argument_projection_info =
+        project_coroutine_continuation_arguments(
+            split_info, ast_func.arguments().size());
+    if (environment_flag_enabled("LUISA_CORO_PROFILE_COMPILATION")) {
+        LUISA_INFO(
+            "Coroutine continuation argument projection: "
+            "continuations={} source_arguments={} retained={} removed={}.",
+            argument_projection_info.continuation_count,
+            argument_projection_info.source_argument_count,
+            argument_projection_info.retained_argument_count,
+            argument_projection_info.removed_argument_count);
+    }
+    profiler.checkpoint("continuation argument projection");
     if (!ordinary_callable_snapshots.empty()) {
         verify_ordinary_callables_unchanged(
             ordinary_callable_snapshots, "continuation normalization");
@@ -806,6 +936,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
 
     result.subroutines.reserve(subroutines_by_scope.size());
     result.trigger_tokens.reserve(subroutines_by_scope.size());
+    result.subroutine_source_argument_indices.reserve(
+        subroutines_by_scope.size());
     luisa::vector<const xir::FunctionDefinition *> continuation_definitions;
     continuation_definitions.reserve(subroutines_by_scope.size());
     for (size_t scope_index = 0u;
@@ -822,6 +954,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
             scope_index);
         continuation_definitions.emplace_back(subroutine->callable);
         result.trigger_tokens.emplace_back(subroutine->trigger_token);
+        result.subroutine_source_argument_indices.emplace_back(
+            subroutine->source_argument_indices);
     }
     xir::XIR2ASTTranslationStatistics xir_to_ast_statistics;
     auto continuation_asts =

@@ -47,7 +47,7 @@ static constexpr uint32_t FRAME_USER_FIELD_OFFSET =
     CORO_FRAME_RESERVED_FIELD_COUNT;
 
 static void coro_split_clone_metadata(const MetadataListMixin &source,
-                           MetadataListMixin &target) noexcept {
+                                      MetadataListMixin &target) noexcept {
     for (auto *metadata : source.metadata_list()) {
         target.metadata_list().push_front(metadata->clone());
     }
@@ -1209,10 +1209,14 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
 
         CoroSplitValueResolver resolver;
 
+        luisa::vector<size_t> source_argument_indices;
+        source_argument_indices.reserve(def->arguments().count_size());
+        size_t source_argument_index = 0u;
         for (auto *orig_arg : def->arguments()) {
             auto *cloned_arg = new_func->create_argument(orig_arg->type(), orig_arg->is_lvalue());
             coro_split_clone_metadata(*orig_arg, *cloned_arg);
             resolver.map_arg(orig_arg, cloned_arg);
+            source_argument_indices.emplace_back(source_argument_index++);
         }
 
         for (auto *orig_bb : scope.blocks) {
@@ -1237,6 +1241,8 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
             .trigger_name = scope.trigger_name,
             .callable = new_func,
             .frame_argument = frame_arg,
+            .source_argument_indices =
+                std::move(source_argument_indices),
         });
     }
 
