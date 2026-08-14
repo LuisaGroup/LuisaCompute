@@ -38,6 +38,10 @@ The current convergence stage bypasses destination-side frame traversal when
 the scalar current token is zero and stops a completed cascade as soon as it
 restores the root token. Both shortcuts are exact refinements of the formal
 target-arrival identity and retain a same-binary oracle.
+The newest return stage similarly bypasses the bounded per-frame cleanup when
+the post-return active-frame bitset is zero. Early returns with live frames
+retain the complete release path, while coherent final returns avoid up to W
+zero-mask ready-resume regions.
 The latest scheduler stage removes a selected divergent binary child's
 redundant ready-record push and immediate LIFO pop. Normal pops and these
 children share one PC route and one dispatch switch; a measured state-slot
@@ -1620,6 +1624,62 @@ Candidate and oracle images are byte-identical within each width. This is an
 end-to-end renderer result, whereas the ISPC table above remains an
 asset-free analytic compiler comparison.
 
+### Empty-frame return cleanup guard
+
+The return transition first removes the terminating cohort from `live` and
+`runnable`. When the scalar `frame.active` bitset is then zero, no expected
+mask can shrink, no arrived cohort can be released, and all W calls to the
+ready-resume helper carry an empty mask. Codegen now tests the bitset once and
+skips that complete unrolled cleanup. Nonzero bitsets enter the original path,
+so early return and nested convergence semantics are unchanged.
+`LUISA_SIMD_DISABLE_RETURN_FRAME_GUARD=1` is the same-binary oracle and
+`return_frame_guards` reports guarded return sites.
+
+The profiler exposed this after the preceding token guard: the W8 analytic
+path tracer's hottest remaining samples included the eight repeated
+`ready.overflow.resume` regions emitted by its final return. The optimized
+machine path is one `testb` plus a branch around them. Fifteen alternating
+single-worker candidate/oracle processes pinned to CPU 6 measured the
+following validated throughput. Intervals are paired 95% log-space Student-t
+intervals, and every process retained checksum `a93089e651f98582`:
+
+| Width | speedup | 95% paired CI | wins | candidate/oracle median, Mitems/s |
+| ---: | ---: | ---: | ---: | ---: |
+| W2 | 1.1644x | [1.1595, 1.1692] | 15/15 | 45.336 / 38.998 |
+| W4 | 1.2437x | [1.2414, 1.2460] | 15/15 | 87.429 / 70.167 |
+| W8 | 1.3182x | [1.3138, 1.3226] | 15/15 | 135.401 / 102.472 |
+| W16 | 1.5227x | [1.4872, 1.5592] | 15/15 | 201.095 / 133.397 |
+
+W1 uses direct CFG and emits no guard. At W2/W4/W8/W16 the candidate adds only
+6/4/5/7 static instructions and 2/2/2/3 branches respectively; stack-frame
+sizes remain 3,520/1,488/3,136/2,792 bytes. All objects contain zero calls and
+zero scalar-math symbols. Five external W8 `perf stat` pairs, conservatively
+including JIT compilation and teardown, measured candidate/oracle geometric
+ratios of 0.8766 cycles, 0.8265 instructions, 0.9084 branches, and 0.9980 branch
+misses. The unchanged miss count confirms that deleted frame/worklist work,
+not improved prediction, supplies the gain.
+
+The same mechanism reaches real non-Embree graphics kernels. With sixteen
+workers pinned to CPUs 0--15, ten alternating W8 Voxel processes at 64 renders
+measured 1.0277x [1.0160, 1.0394] with 10/10 wins; candidate and oracle PNGs
+were byte-identical with SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
+Ten four-spp SDF pairs measured 1.0174x [1.0037, 1.0312] with 8/10 wins and
+byte-identical PNG SHA-256
+`beb9deeb53ac4c05ea68bcbec26426987262f0b920eb155bdd330396b1cefc6a`.
+The SDF W2 follow-up measured 1.0140x [1.0087, 1.0194] with 7/7 wins; W4 and
+W16 intervals included one under concurrent-host load and are not used for a
+claim. Image processing's five kernels all take direct CFG, report zero
+guards, and are unchanged.
+
+Embree-dominated paths are neutral rather than regressed. Ten alternating W8
+ordinary 64-spp, one-spp-per-dispatch pairs measured 1.0014x
+[0.9865, 1.0165] with 5/10 wins and byte-identical PNGs. Eight analogous
+32-spp cutout pairs measured 1.0008x [0.9882, 1.0136] with 3/8 wins and
+byte-identical PNGs. Those intervals deliberately make no traversal-speed
+claim. Longer Voxel sweeps at other widths were contaminated by a concurrent
+Blender render; no sample was removed and those noisy ratios are excluded.
+
 ### Shared divergent-child dispatch route
 
 For a genuinely divergent conditional the established LIFO scheduler pushed
@@ -2109,3 +2169,20 @@ ordinary 1024-spp Embree path tracing at 39.219375 dB, 1024-spp cutout at
 44.167099 dB, and non-coroutine SDF at 63.129346 dB. Both path tracers report
 native Embree 4.4.1 W4/W8/W16 packet support enabled. No gallery reference was
 regenerated or modified.
+
+The empty-frame return-cleanup stage completed a fresh full Release build, the
+required native-math/fallback-math/runtime-width/Schedule-codegen gate (4/4),
+`unit_simd` (11/11), `integration_simd` (26/26), and the complete configured
+suite (140/140). Formatting, diff, and clangd syntax checks pass for every
+changed C++ translation unit. Its permanent W2/W4/W8/W16 differential JIT
+regression covers both the guarded and unconditional forms, every active-tail
+length, early return with live nested frames, final return after release,
+inactive sentinels, LLVM verification, and exact output equality. Fresh W1/W2/
+W4/W8/W16 Voxel and image-processing galleries pass at 82.834519 and
+89.251953 dB. Ordinary 1024-spp Embree path tracing passes at
+35.426800/42.781833/40.940546/39.219375/37.801767 dB from W1 through W16;
+W8 cutout and non-coroutine SDF pass at 44.167099 and 63.129346 dB. Both path
+tracers report native Embree 4.4.1 W4/W8/W16 packet support, and the final
+backend dynamically references every `rtcIntersect4/8/16` and
+`rtcOccluded4/8/16` entry. Outputs remained in a temporary directory and no
+gallery reference was regenerated or modified.

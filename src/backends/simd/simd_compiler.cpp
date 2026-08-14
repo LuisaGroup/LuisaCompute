@@ -164,6 +164,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.coherent_mask_reuse_count;
     result.convergence_token_guard_count =
         llvm_result.convergence_token_guard_count;
+    result.return_frame_guard_count =
+        llvm_result.return_frame_guard_count;
     result.direct_divergent_child_count =
         llvm_result.direct_divergent_child_count;
     result.direct_control_flow = llvm_result.direct_control_flow;

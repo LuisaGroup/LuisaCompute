@@ -62,6 +62,7 @@ struct SIMDCompiledKernel {
     size_t predicated_memory_instruction_count{0u};
     size_t coherent_mask_reuse_count{0u};
     size_t convergence_token_guard_count{0u};
+    size_t return_frame_guard_count{0u};
     size_t direct_divergent_child_count{0u};
     bool direct_control_flow{false};
     uint32_t warp_width{0u};

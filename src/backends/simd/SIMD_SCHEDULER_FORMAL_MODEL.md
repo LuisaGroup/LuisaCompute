@@ -534,6 +534,15 @@ the restored parent token is zero. These branches implement the target-arrival
 identity above. `LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD=1` retains the
 unshortened refinement for differential execution tests.
 
+The return transition has a second exact empty-state refinement. Once the
+returning cohort has been removed from `live` and `runnable`, `frame.active = 0`
+means the model's active-frame set is empty. Updating every frame expected set,
+testing completion, and appending zero released masks therefore leaves
+`frames`, `runnable`, and the ready worklist unchanged. LLVM branches directly
+to the scheduler loop in this state and executes the ordinary bounded frame
+scan otherwise. `LUISA_SIMD_DISABLE_RETURN_FRAME_GUARD=1` retains that scan as
+the differential oracle; it does not alter the abstract transition system.
+
 The W16 array representation of static IDs and parent tokens is another LLVM
 storage refinement. The transition system still observes one active-frame
 bit, one static ID, and one parent token at the current scalar frame index.

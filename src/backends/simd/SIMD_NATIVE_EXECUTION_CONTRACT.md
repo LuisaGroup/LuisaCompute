@@ -267,6 +267,23 @@ completes the cascade. The unoptimized module is retained as a semantic oracle;
 the optimized module must also contain the named token guard and pass LLVM
 verification.
 
+After a scheduled return removes the terminating cohort from `live` and
+`runnable`, an all-zero `frame.active` bitset proves that there is no frame
+whose expected set can shrink or whose arrived lanes can be released. The
+per-frame return cleanup and every zero-mask ready resume are then identities.
+LLVM emission tests the scalar bitset once and bypasses the complete bounded
+W-frame cleanup when it is zero; a nonzero bitset enters the unchanged cleanup,
+including parent-token restoration and release of lanes parked by an early
+return. `LUISA_SIMD_DISABLE_RETURN_FRAME_GUARD=1` restores the unconditional
+cleanup, and the optimization report exposes `return_frame_guards`.
+
+Permanent W2/W4/W8/W16 coverage compiles and executes both forms for every
+active-tail length. Its nested same-target fixture reaches one return while
+frames are live and a later return after they have been released, checks
+inactive sentinels and exact results, verifies both LLVM modules, and requires
+the named `return.frames.present` guard only in the optimized form. Direct W1
+and statically coherent CFGs allocate no frame state and report zero guards.
+
 The physical representation of convergence-frame static IDs and parent tokens
 is independently selectable without changing those token/cascade semantics.
 W1/W2/W4/W8 use `<W x i32>` storage. W16 uses `[16 x i32]` plus scalar

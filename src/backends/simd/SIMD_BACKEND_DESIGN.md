@@ -315,6 +315,15 @@ and returns to the scalar dispatcher. Values live across cohort suspension
 points are spilled to warp-state slots; block-local temporaries remain LLVM SSA
 values.
 
+Scheduled return performs its mandatory `live`/`runnable` removal first. If the
+scalar active-frame bitset is then zero, the otherwise unrolled W-frame cleanup
+cannot release a cohort or mutate scheduler state, so one scalar branch skips
+it. A nonzero bitset keeps the complete early-return cleanup. This avoids
+executing up to W zero-mask ready-resume regions on coherent final returns
+without weakening the independent-PC model.
+`LUISA_SIMD_DISABLE_RETURN_FRAME_GUARD=1` restores the
+unconditional scan, and `return_frame_guards` reports guarded return sites.
+
 The coherent path also reuses the incoming active-mask SSA value for its sole
 successor. For a conditional, `T = A & C`, `F = A & !C`, a nonempty `A`, and
 `!(any(T) && any(F))`, taking the true path proves `T == A` and taking the

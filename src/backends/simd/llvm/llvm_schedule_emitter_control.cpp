@@ -883,6 +883,31 @@ void ScheduleEmitter::_emit_terminator(
                         runnable, _builder.CreateNot(_active_mask)),
                     _runnable_mask);
 
+                auto guard_inactive_frames =
+                    !luisa::compute::detail::env_flag(
+                        "LUISA_SIMD_DISABLE_RETURN_FRAME_GUARD");
+                ::llvm::BasicBlock *frame_cleanup_done = nullptr;
+                if (guard_inactive_frames) {
+                    _result.return_frame_guard_count++;
+                    auto *frame_cleanup = ::llvm::BasicBlock::Create(
+                        _module.getContext(),
+                        "return.frame.cleanup", _entry);
+                    frame_cleanup_done = ::llvm::BasicBlock::Create(
+                        _module.getContext(),
+                        "return.frame.cleanup.done", _entry);
+                    auto *active_frames = _builder.CreateLoad(
+                        _frame_active->getAllocatedType(),
+                        _frame_active, "return.active.frames");
+                    _builder.CreateCondBr(
+                        _builder.CreateICmpNE(
+                            active_frames,
+                            ::llvm::Constant::getNullValue(
+                                active_frames->getType()),
+                            "return.frames.present"),
+                        frame_cleanup, frame_cleanup_done);
+                    _builder.SetInsertPoint(frame_cleanup);
+                }
+
                 // A lane that terminates is removed from every frame's
                 // expected mask. Frame storage is bounded by W rather
                 // than the number of static CFG convergence points.
@@ -937,6 +962,10 @@ void ScheduleEmitter::_emit_terminator(
                         // copy of the full frame logic per return-site frame.
                         _resume(target, released, parent);
                     }
+                }
+                if (guard_inactive_frames) {
+                    _builder.CreateBr(frame_cleanup_done);
+                    _builder.SetInsertPoint(frame_cleanup_done);
                 }
                 _builder.CreateBr(_scheduler_loop);
             } else if constexpr (

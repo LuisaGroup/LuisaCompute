@@ -2442,65 +2442,87 @@ template<size_t Width>
         auto schedule_function =
             make_return_convergence_cascade(width);
         CHECK(schedule_function.has_value());
-        for (auto disable_guard : {false, true}) {
-            ScopedEnvironmentVariable disable{
-                "LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD",
-                disable_guard ? "1" : nullptr};
-            auto context = std::make_unique<::llvm::LLVMContext>();
-            auto module = std::make_unique<::llvm::Module>(
-                "simd-return-convergence-cascade", *context);
-            auto name =
-                std::string{"simd_return_convergence_cascade_w"} +
-                std::to_string(width) +
-                (disable_guard ? "_oracle" : "_guarded");
-            auto codegen = lower_schedule_to_llvm(
-                *module, *schedule_function, width, name);
-            if (!codegen.succeeded()) {
-                std::cerr << codegen.error << '\n';
-                return false;
-            }
-            CHECK(codegen.convergence_token_guard_count ==
-                  (disable_guard ? 0u : 1u));
-            CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
-            std::string ir;
-            ::llvm::raw_string_ostream stream{ir};
-            module->print(stream, nullptr);
-            stream.flush();
-            CHECK((ir.find("convergence.token.present") !=
-                   std::string::npos) == !disable_guard);
-            CHECK((ir.find("convergence.parent.present") !=
-                   std::string::npos) == !disable_guard);
-            CHECK((ir.find("convergence.cascade.result") !=
-                   std::string::npos) == !disable_guard);
-            LLVMJIT jit;
-            CHECK(jit.succeeded());
-            CHECK(jit.add_module(
-                std::move(module), std::move(context)));
-            using Entry = void(
-                const void *, uint32_t *,
-                const SIMDPacketLaunchConfig *, uint32_t);
-            auto function = reinterpret_cast<Entry *>(
-                jit.lookup(name));
-            CHECK(function != nullptr);
-            for (auto active_lanes = uint32_t{1u};
-                 active_lanes <= width; active_lanes++) {
-                std::vector<uint32_t> output(
-                    width, 0xdeadbeefu);
-                auto config = launch_1d(active_lanes, width);
-                function(
-                    nullptr, output.data(),
-                    &config, active_lanes);
-                auto early_count =
-                    std::min(active_lanes, 4u) -
-                    std::min(active_lanes, 2u);
-                auto expected_live = active_lanes - early_count;
-                for (auto lane = uint32_t{0u};
-                     lane < width; lane++) {
-                    auto expected =
-                        lane >= active_lanes    ? 0xdeadbeefu :
-                        lane >= 2u && lane < 4u ? lane + 100u :
-                                                  expected_live;
-                    CHECK(output[lane] == expected);
+        auto return_count = std::count_if(
+            schedule_function->blocks().begin(),
+            schedule_function->blocks().end(),
+            [](const schedule::BasicBlock &block) noexcept {
+                return std::holds_alternative<
+                    schedule::ReturnTerminator>(block.terminator);
+            });
+        CHECK(return_count != 0u);
+        for (auto disable_return_guard : {false, true}) {
+            ScopedEnvironmentVariable disable_return{
+                "LUISA_SIMD_DISABLE_RETURN_FRAME_GUARD",
+                disable_return_guard ? "1" : nullptr};
+            for (auto disable_guard : {false, true}) {
+                ScopedEnvironmentVariable disable{
+                    "LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD",
+                    disable_guard ? "1" : nullptr};
+                auto context = std::make_unique<::llvm::LLVMContext>();
+                auto module = std::make_unique<::llvm::Module>(
+                    "simd-return-convergence-cascade", *context);
+                auto name =
+                    std::string{"simd_return_convergence_cascade_w"} +
+                    std::to_string(width) +
+                    (disable_guard ? "_cascade_oracle" : "_cascade_guarded") +
+                    (disable_return_guard ?
+                         "_return_oracle" :
+                         "_return_guarded");
+                auto codegen = lower_schedule_to_llvm(
+                    *module, *schedule_function, width, name);
+                if (!codegen.succeeded()) {
+                    std::cerr << codegen.error << '\n';
+                    return false;
+                }
+                CHECK(codegen.convergence_token_guard_count ==
+                      (disable_guard ? 0u : 1u));
+                CHECK(codegen.return_frame_guard_count ==
+                      (disable_return_guard ? 0u : return_count));
+                CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+                std::string ir;
+                ::llvm::raw_string_ostream stream{ir};
+                module->print(stream, nullptr);
+                stream.flush();
+                CHECK((ir.find("convergence.token.present") !=
+                       std::string::npos) == !disable_guard);
+                CHECK((ir.find("convergence.parent.present") !=
+                       std::string::npos) == !disable_guard);
+                CHECK((ir.find("convergence.cascade.result") !=
+                       std::string::npos) == !disable_guard);
+                CHECK((ir.find("return.frames.present") !=
+                       std::string::npos) == !disable_return_guard);
+                CHECK((ir.find("return.frame.cleanup") !=
+                       std::string::npos) == !disable_return_guard);
+                LLVMJIT jit;
+                CHECK(jit.succeeded());
+                CHECK(jit.add_module(
+                    std::move(module), std::move(context)));
+                using Entry = void(
+                    const void *, uint32_t *,
+                    const SIMDPacketLaunchConfig *, uint32_t);
+                auto function = reinterpret_cast<Entry *>(
+                    jit.lookup(name));
+                CHECK(function != nullptr);
+                for (auto active_lanes = uint32_t{1u};
+                     active_lanes <= width; active_lanes++) {
+                    std::vector<uint32_t> output(
+                        width, 0xdeadbeefu);
+                    auto config = launch_1d(active_lanes, width);
+                    function(
+                        nullptr, output.data(),
+                        &config, active_lanes);
+                    auto early_count =
+                        std::min(active_lanes, 4u) -
+                        std::min(active_lanes, 2u);
+                    auto expected_live = active_lanes - early_count;
+                    for (auto lane = uint32_t{0u};
+                         lane < width; lane++) {
+                        auto expected =
+                            lane >= active_lanes    ? 0xdeadbeefu :
+                            lane >= 2u && lane < 4u ? lane + 100u :
+                                                      expected_live;
+                        CHECK(output[lane] == expected);
+                    }
                 }
             }
         }
