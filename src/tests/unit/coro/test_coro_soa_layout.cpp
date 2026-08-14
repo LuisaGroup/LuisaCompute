@@ -34,6 +34,55 @@ LUISA_STRUCT(CoroSoASevenWords, a, b, c, d, e, f, g) {};
 
 void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
 
+    "mutually_exclusive_suspend_edges_share_frame_storage"_test = [] {
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto index = dispatch_x();
+            // Both values are defined before the control split on purpose:
+            // their source-level ranges overlap, but no dynamic continuation
+            // ever needs them together. Frame interference is therefore an
+            // edge-live property, not a lexical/source-range property.
+            auto left = def(index * 3u + 1u);
+            auto right = def(index * 5u + 2u);
+            $if ((index & 1u) == 0u) {
+                $suspend("A", coro_frame_export(
+                                  "branch_left_payload", left));
+                output.write(index, left);
+            }
+            $else {
+                $suspend("B", coro_frame_export(
+                                  "branch_right_payload", right));
+                output.write(index, right);
+            };
+            $suspend("C");
+        });
+
+        const auto *entry = &coro.graph().node(0u);
+        const auto *a = coro.graph().node_by_name("A");
+        const auto *b = coro.graph().node_by_name("B");
+        const auto *c = coro.graph().node_by_name("C");
+        expect(a != nullptr);
+        expect(b != nullptr);
+        expect(c != nullptr);
+        if (a != nullptr && b != nullptr && c != nullptr) {
+            expect(coro.graph().edge(entry->index, a->index) != nullptr);
+            expect(coro.graph().edge(entry->index, b->index) != nullptr);
+            expect(coro.graph().edge(a->index, c->index) != nullptr);
+            expect(coro.graph().edge(b->index, c->index) != nullptr);
+            expect(coro.graph().edge(a->index, b->index) == nullptr);
+            expect(coro.graph().edge(b->index, a->index) == nullptr);
+        }
+
+        auto left_field =
+            coro.frame().field_index("branch_left_payload");
+        auto right_field =
+            coro.frame().field_index("branch_right_payload");
+        expect(left_field != static_cast<size_t>(-1));
+        expect(right_field != static_cast<size_t>(-1));
+        expect(left_field == right_field)
+            << "mutually exclusive edge-live values of the same type must "
+               "reuse one physical frame slot";
+    };
+
     "runtime_soa_layout_is_linear_and_capacity_invariant"_test = [] {
         auto coro = Coroutine<void(Buffer<float4>)>([](BufferFloat4 output) {
             auto i = dispatch_x();
