@@ -700,6 +700,7 @@ struct alignas(16) LuisaPipelineRayQueryState {
     uint64_t scene_handle;
     const LuisaAccelInstance *instances;
     void *callback_context;
+    uint32_t query_state_address;
     hiprtRay ray;
     LuisaPipelineRayQueryHit candidate_hit;
     LuisaPipelineRayQueryHit committed_hit;
@@ -718,6 +719,9 @@ static_assert(sizeof(LuisaPipelineRayQueryHit) == 20);
 static_assert(sizeof(LuisaPipelineRayQueryState) == 128,
               "Synchronous HIP ray-query state/codegen allocation mismatch");
 static_assert(alignof(LuisaPipelineRayQueryState) == 16);
+static_assert(__builtin_offsetof(
+                  LuisaPipelineRayQueryState,
+                  query_state_address) == 24);
 static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, ray) == 32);
 static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, candidate_hit) == 64);
 static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, committed_hit) == 84);
@@ -725,7 +729,13 @@ static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, mask) == 104);
 static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, state) == 120);
 
 extern "C" __device__ void luisa_ray_query_pipeline_dispatch(
-    void *context, uint32_t pipeline_id, uint32_t candidate_kind);
+    void *query_object, void *context,
+    uint32_t pipeline_id, uint32_t candidate_kind);
+
+static __device__ __forceinline__ void *
+luisa_pipeline_query_object(LuisaPipelineRayQueryState *state) {
+    return &state->query_state_address;
+}
 
 static __device__ __forceinline__ void
 luisa_pipeline_store_hit(LuisaPipelineRayQueryHit &dst,
@@ -753,7 +763,8 @@ luisa_pipeline_dispatch_candidate(LuisaPipelineRayQueryState *state,
     state->candidate_kind = candidate_kind;
     state->candidate_committed = false;
     luisa_ray_query_pipeline_dispatch(
-        state->callback_context, state->pipeline_id, candidate_kind);
+        luisa_pipeline_query_object(state), state->callback_context,
+        state->pipeline_id, candidate_kind);
 }
 
 // The generic ray-query callback is defined before its in-place state type.
@@ -1325,6 +1336,7 @@ luisa_pipeline_ray_query_initialize(
     float tmin, float tmax,
     float time,
     uint32_t mask, uint32_t flags,
+    uint32_t query_state_address,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
     static_cast<void>(stack_size);
     static_cast<void>(stack_count);
@@ -1334,6 +1346,7 @@ luisa_pipeline_ray_query_initialize(
     state->instances =
         reinterpret_cast<const LuisaAccelInstance *>(instance_data);
     state->callback_context = nullptr;
+    state->query_state_address = query_state_address;
     state->ray.origin = hiprtFloat3{ox, oy, oz};
     state->ray.minT = tmin;
     state->ray.direction = hiprtFloat3{dx, dy, dz};
@@ -1406,6 +1419,7 @@ luisa_pipeline_ray_query_trace(
                 luisa_pipeline_commit_surface(state);
             } else {
                 luisa_ray_query_pipeline_dispatch(
+                    luisa_pipeline_query_object(state),
                     state->callback_context, state->pipeline_id,
                     LUISA_PIPELINE_RQ_STATE_SURFACE);
             }
@@ -1778,6 +1792,7 @@ luisa_pipeline_process_surface_candidate(
         result |= LUISA_PIPELINE_CANDIDATE_OPAQUE;
     } else {
         luisa_ray_query_pipeline_dispatch(
+            luisa_pipeline_query_object(state),
             state->callback_context, state->pipeline_id,
             LUISA_PIPELINE_RQ_STATE_SURFACE);
     }

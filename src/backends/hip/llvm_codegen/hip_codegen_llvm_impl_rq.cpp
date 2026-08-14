@@ -10,6 +10,8 @@ namespace luisa::compute::hip {
 
 size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
     size_t projected_argument_count = 0u;
+    size_t separated_query_argument_count = 0u;
+    size_t scalarized_context_count = 0u;
     size_t original_context_bytes = 0u;
     size_t projected_context_bytes = 0u;
     size_t max_projected_context_bytes = 0u;
@@ -105,15 +107,17 @@ size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
             "HIP ray-query callback environment projection requires "
             "translated candidate handlers.");
 
-        // Let A_i be callback ABI argument i. The environment stores A_i only
-        // when either handler demands its corresponding formal argument. If
-        // both demand bits are false, replacing both call operands with poison
-        // is semantics-preserving under the fixed-point equations above.
-        // Taking the union is necessary because candidate kind is selected
-        // dynamically inside traversal.
+        // Let A_i be callback ABI argument i. A_0 is the query reference: it is
+        // intrinsic traversal identity and reaches the dispatcher through its
+        // dedicated argument, never through user capture storage. For i > 0,
+        // the environment stores A_i only when either handler demands its
+        // corresponding formal argument. If both demand bits are false,
+        // replacing both call operands with poison is semantics-preserving
+        // under the fixed-point equations above. Taking the union is necessary
+        // because candidate kind is selected dynamically inside traversal.
         llvm::SmallVector<uint32_t, 16> retained_indices;
         retained_indices.reserve(argument_count);
-        for (auto i = 0u; i < argument_count; ++i) {
+        for (auto i = 1u; i < argument_count; ++i) {
             auto surface_arg = context.on_surface->getArg(i);
             auto procedural_arg = context.on_procedural->getArg(i);
             if (argument_is_live(surface_arg) ||
@@ -122,23 +126,112 @@ size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
             }
         }
 
-        // Keep one field for a degenerate pair of empty handlers. This avoids
-        // manufacturing a zero-sized callback object while remaining exact;
-        // ordinary RayQuery handlers use argument zero (the query reference)
-        // in practice, so this branch is normally unreachable.
-        if (retained_indices.empty()) {
-            retained_indices.emplace_back(0u);
-        }
         auto original_type = llvm::cast<llvm::StructType>(
             context.storage->getAllocatedType());
         auto original_bytes =
             _data_layout->getTypeAllocSize(original_type).getFixedValue();
         original_context_bytes += original_bytes;
-        if (retained_indices.size() == argument_count) {
-            projected_context_bytes += original_bytes;
-            max_projected_context_bytes = std::max(
-                max_projected_context_bytes, original_bytes);
+
+        auto erase_original_field = [&](auto i) noexcept {
+            auto old_store = context.stores[i];
+            auto old_load = context.loads[i];
+            auto old_store_gep = llvm::cast<llvm::GetElementPtrInst>(
+                old_store->getPointerOperand());
+            auto old_load_gep = llvm::cast<llvm::GetElementPtrInst>(
+                old_load->getPointerOperand());
+            old_store->eraseFromParent();
+            old_load->eraseFromParent();
+            LUISA_ASSERT(
+                old_store_gep->use_empty() && old_load_gep->use_empty(),
+                "HIP ray-query callback environment address escaped.");
+            old_store_gep->eraseFromParent();
+            old_load_gep->eraseFromParent();
+        };
+        auto erase_original_storage = [&]() noexcept {
+            if (context.generic_storage != context.storage &&
+                context.generic_storage->use_empty()) {
+                llvm::cast<llvm::Instruction>(context.generic_storage)
+                    ->eraseFromParent();
+            }
+            LUISA_ASSERT(
+                context.storage->use_empty(),
+                "HIP ray-query callback environment storage escaped.");
+            context.storage->eraseFromParent();
+        };
+
+        auto dispatch_query =
+            _llvm_ray_query_pipeline_dispatch->getArg(0u);
+        auto dispatch_context =
+            _llvm_ray_query_pipeline_dispatch->getArg(1u);
+        LUISA_ASSERT(
+            context.stores[0u]->getValueOperand()->getType() ==
+                    dispatch_query->getType() &&
+                context.loads[0u]->getType() == dispatch_query->getType() &&
+                context.on_surface->getArg(0u)->getType() ==
+                    dispatch_query->getType() &&
+                context.on_procedural->getArg(0u)->getType() ==
+                    dispatch_query->getType(),
+            "HIP RayQuery callback query-reference ABI mismatch.");
+        context.loads[0u]->replaceAllUsesWith(dispatch_query);
+        separated_query_argument_count++;
+
+        // An empty user environment is represented by null. The traversal
+        // transports this value opaquely and the dispatcher has no remaining
+        // load from it, so no zero-sized object or dummy capture is required.
+        if (retained_indices.empty()) {
+            context.trace_call->setArgOperand(
+                1u, llvm::ConstantPointerNull::get(
+                        llvm::cast<llvm::PointerType>(
+                            context.trace_call->getArgOperand(1u)->getType())));
+            for (auto i = 0u; i < argument_count; ++i) {
+                if (i != 0u) {
+                    auto old_load = context.loads[i];
+                    old_load->replaceAllUsesWith(
+                        llvm::PoisonValue::get(old_load->getType()));
+                }
+                erase_original_field(i);
+            }
+            erase_original_storage();
+            projected_argument_count += argument_count - 1u;
             continue;
+        }
+
+        // The native traversal treats callback_context as an opaque value and
+        // returns it unchanged to the generated dispatcher. If the projected
+        // product consists of one generic pointer, use that pointer itself as
+        // the context. This is the exact one-field-product isomorphism
+        //   {p : ptr} stored behind &env  <->  p
+        // and eliminates both private storage and its load without merging the
+        // lifetime of p with any other captured object. A non-pointer scalar is
+        // deliberately not encoded into a pointer: that would invent address
+        // semantics and would not be representation-preserving.
+        if (retained_indices.size() == 1u) {
+            auto retained_index = retained_indices.front();
+            auto retained_value =
+                context.stores[retained_index]->getValueOperand();
+            if (retained_value->getType()->isPointerTy() &&
+                retained_value->getType()->getPointerAddressSpace() == 0u) {
+                LUISA_ASSERT(
+                    dispatch_context->getType() == retained_value->getType() &&
+                        context.loads[retained_index]->getType() ==
+                            retained_value->getType(),
+                    "HIP scalar callback context pointer type mismatch.");
+                context.trace_call->setArgOperand(1u, retained_value);
+                for (auto i = 0u; i < argument_count; ++i) {
+                    auto old_load = context.loads[i];
+                    if (i == retained_index) {
+                        old_load->replaceAllUsesWith(dispatch_context);
+                    } else if (i != 0u) {
+                        old_load->replaceAllUsesWith(
+                            llvm::PoisonValue::get(old_load->getType()));
+                    }
+                    erase_original_field(i);
+                }
+                erase_original_storage();
+                projected_argument_count += argument_count - 2u;
+                scalarized_context_count++;
+                continue;
+            }
         }
 
         llvm::SmallVector<llvm::Type *, 16> retained_types;
@@ -171,7 +264,7 @@ size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
             max_projected_context_bytes,
             current_projected_context_bytes);
         projected_argument_count +=
-            argument_count - retained_indices.size();
+            argument_count - 1u - retained_indices.size();
 
         IB alloca_b{context.storage};
         auto projected_storage = alloca_b.CreateAlloca(
@@ -193,12 +286,11 @@ size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
         for (auto i = 0u; i < argument_count; ++i) {
             auto old_store = context.stores[i];
             auto old_load = context.loads[i];
-            auto old_store_gep = llvm::cast<llvm::GetElementPtrInst>(
-                old_store->getPointerOperand());
-            auto old_load_gep = llvm::cast<llvm::GetElementPtrInst>(
-                old_load->getPointerOperand());
             auto projected_index = projected_indices[i];
-            if (projected_index >= 0) {
+            if (i == 0u) {
+                // The query-reference load was replaced by dispatch_query
+                // above; only its obsolete environment field remains.
+            } else if (projected_index >= 0) {
                 auto type = old_store->getValueOperand()->getType();
                 auto alignment = _data_layout->getABITypeAlign(type);
 
@@ -214,7 +306,7 @@ size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
                 IB load_b{old_load};
                 auto projected_load_gep = load_b.CreateStructGEP(
                     projected_type,
-                    _llvm_ray_query_pipeline_dispatch->getArg(0),
+                    dispatch_context,
                     static_cast<uint32_t>(projected_index),
                     "ray.query.context.projected.field");
                 auto projected_load = load_b.CreateLoad(
@@ -226,33 +318,22 @@ size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
                 old_load->replaceAllUsesWith(
                     llvm::PoisonValue::get(old_load->getType()));
             }
-
-            old_store->eraseFromParent();
-            old_load->eraseFromParent();
-            LUISA_ASSERT(
-                old_store_gep->use_empty() &&
-                    old_load_gep->use_empty(),
-                "HIP ray-query callback environment address escaped.");
-            old_store_gep->eraseFromParent();
-            old_load_gep->eraseFromParent();
+            erase_original_field(i);
         }
-
-        if (context.generic_storage != context.storage &&
-            context.generic_storage->use_empty()) {
-            llvm::cast<llvm::Instruction>(context.generic_storage)
-                ->eraseFromParent();
-        }
-        LUISA_ASSERT(
-            context.storage->use_empty(),
-            "HIP ray-query callback environment storage escaped.");
-        context.storage->eraseFromParent();
+        erase_original_storage();
     }
 
-    if (projected_argument_count != 0u) {
+    if (projected_argument_count != 0u ||
+        separated_query_argument_count != 0u ||
+        scalarized_context_count != 0u) {
         LUISA_VERBOSE(
-            "Projected {} unused HIP RayQuery callback ABI argument(s), "
+            "Separated {} HIP RayQuery identity argument(s), projected {} "
+            "unused callback ABI argument(s), and scalarized {} "
+            "one-pointer environment(s), "
             "shrinking static environments from {} to {} bytes.",
+            separated_query_argument_count,
             projected_argument_count,
+            scalarized_context_count,
             original_context_bytes,
             projected_context_bytes);
     }
@@ -536,7 +617,9 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         if (_llvm_ray_query_pipeline_dispatch == nullptr) {
             auto llvm_dispatch_type = llvm::FunctionType::get(
                 b.getVoidTy(),
-                {b.getPtrTy(0), b.getInt32Ty(), b.getInt32Ty()}, false);
+                {b.getPtrTy(0), b.getPtrTy(0),
+                 b.getInt32Ty(), b.getInt32Ty()},
+                false);
             _llvm_ray_query_pipeline_dispatch = llvm::Function::Create(
                 llvm_dispatch_type, llvm::Function::ExternalLinkage,
                 "luisa_ray_query_pipeline_dispatch", _llvm_module.get());
@@ -548,7 +631,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                 _llvm_context, "invalid", _llvm_ray_query_pipeline_dispatch);
             IB dispatch_b{llvm_dispatch_entry};
             _llvm_ray_query_pipeline_switch = dispatch_b.CreateSwitch(
-                _llvm_ray_query_pipeline_dispatch->getArg(1),
+                _llvm_ray_query_pipeline_dispatch->getArg(2),
                 llvm_dispatch_invalid, 0u);
             dispatch_b.SetInsertPoint(llvm_dispatch_invalid);
             dispatch_b.CreateUnreachable();
@@ -564,7 +647,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             b.getInt32(pipeline_index), llvm_pipeline_block);
         IB dispatch_b{llvm_pipeline_block};
         auto llvm_dispatch_context =
-            _llvm_ray_query_pipeline_dispatch->getArg(0);
+            _llvm_ray_query_pipeline_dispatch->getArg(1);
         llvm::SmallVector<llvm::Value *, 16> llvm_decoded_args;
         llvm_decoded_args.reserve(llvm_callback_arg_types.size());
         luisa::vector<llvm::LoadInst *> llvm_context_loads;
@@ -586,7 +669,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         auto llvm_invalid_kind_block = llvm::BasicBlock::Create(
             _llvm_context, "invalid.kind", _llvm_ray_query_pipeline_dispatch);
         auto llvm_kind_switch = dispatch_b.CreateSwitch(
-            _llvm_ray_query_pipeline_dispatch->getArg(2),
+            _llvm_ray_query_pipeline_dispatch->getArg(3),
             llvm_invalid_kind_block, 2u);
         llvm_kind_switch->addCase(
             dispatch_b.getInt32(llvm_ray_query_state_surface_candidate),
@@ -685,13 +768,10 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
     }
 
     IB pipeline_b{llvm_entry};
-    auto llvm_query = pipeline_b.CreateAlignedLoad(
+    auto llvm_state_address = pipeline_b.CreateAlignedLoad(
         _get_llvm_ray_query_type(), llvm_pipeline_args.front(),
         llvm::Align{_get_type_alignment(query_object->type())},
         "ray.query.object");
-    auto llvm_state_address = pipeline_b.CreateExtractValue(
-        llvm_query, llvm_ray_query_type_state_index,
-        "ray.query.state.address");
     auto llvm_state_pointer = pipeline_b.CreateIntToPtr(
         llvm_state_address,
         pipeline_b.getPtrTy(amdgpu_address_space_local),
@@ -748,11 +828,8 @@ llvm::Value *HIPCodegenLLVMImpl::_get_ray_query_state_pointer(
     LUISA_ASSERT(
         llvm_query->getType() == _get_llvm_ray_query_type(),
         "Invalid HIP ray-query LLVM object type.");
-    auto llvm_state_address = b.CreateExtractValue(
-        llvm_query, llvm_ray_query_type_state_index,
-        "ray.query.state.address");
     return b.CreateIntToPtr(
-        llvm_state_address,
+        llvm_query,
         b.getPtrTy(amdgpu_address_space_local),
         "ray.query.state");
 }

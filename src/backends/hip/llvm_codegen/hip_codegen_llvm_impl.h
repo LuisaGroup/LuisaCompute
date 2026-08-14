@@ -110,12 +110,13 @@ public:
         uint32_t index;
     };
 
-    // A synchronous RayQuery callback environment is initially emitted with
-    // the ordinary Callable ABI. Once every Callable body has been translated,
-    // arguments with no SSA use in either candidate handler can be projected
-    // out exactly. Keep the construction sites here until that proof is
-    // available; the finalizer rewrites both producer stores and consumer
-    // loads to the same compact product type.
+    // A synchronous RayQuery callback ABI is initially emitted as the product
+    // QueryIdentity x UserEnvironment. QueryIdentity is intrinsic traversal
+    // state and is transported separately by the native wrapper. Once every
+    // Callable body has been translated, unused fields can be projected from
+    // UserEnvironment exactly. Keep the construction sites here until that
+    // proof is available; the finalizer rewrites both producer stores and
+    // consumer loads to the same compact product type.
     struct RayQueryPipelineContext {
         llvm::AllocaInst *storage;
         llvm::Value *generic_storage;
@@ -176,15 +177,11 @@ public:
     static constexpr auto llvm_committed_hit_type_hit_kind_index = 3;
     static constexpr auto llvm_committed_hit_type_t_index = 4;
 
-    // The first opaque word carries the private-address-space traversal-state
-    // pointer. Keeping the state with the query object is required when a
-    // lowered ray-query pipeline invokes outlined candidate handlers: those
-    // handlers otherwise have a different FunctionContext::llvm_rq_state.
-    static constexpr auto llvm_ray_query_type_state_index = 0;
-    static constexpr auto llvm_ray_query_type_ray_index = 1;
-    static constexpr auto llvm_ray_query_type_time_index = 2;
-    static constexpr auto llvm_ray_query_type_mask_index = 3;
-    static constexpr auto llvm_ray_query_type_flags_index = 4;
+    // A HIP RayQuery value is an opaque token whose complete semantics are the
+    // identity of its per-invocation traversal state. AMDGPU private pointers
+    // are 32-bit in the target data layout, so no wider source-layout surrogate
+    // is required inside generated LLVM.
+    static constexpr auto llvm_ray_query_state_address_bits = 32u;
 
     static constexpr auto llvm_ray_query_state_surface_terminated = 0;
     static constexpr auto llvm_ray_query_state_surface_candidate = 1;

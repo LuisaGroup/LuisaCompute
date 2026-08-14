@@ -173,6 +173,19 @@ evaluate_normalized_vectors_through_callable(
         begin, end + 2u - begin);
 }
 
+[[nodiscard]] std::string_view llvm_function_body(
+    const std::string &module,
+    std::string_view function_name) noexcept {
+    auto name = module.find(function_name);
+    if (name == std::string::npos) { return {}; }
+    auto begin = module.rfind("define ", name);
+    if (begin == std::string::npos) { return {}; }
+    auto end = module.find("\n}", name);
+    if (end == std::string::npos) { return {}; }
+    return std::string_view{module}.substr(
+        begin, end + 2u - begin);
+}
+
 [[nodiscard]] bool contains_dynamic_fp_operation(
     std::string_view body) noexcept {
     constexpr std::array operations{
@@ -228,6 +241,23 @@ evaluate_normalized_vectors_through_callable(
     return CompileResult{
         .artifact_size = artifact_size,
         .values = std::move(values)};
+}
+
+void compile_minimal_ray_query(Device &device) noexcept {
+    Kernel1D kernel = [](BufferUInt output, AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [](auto &candidate) noexcept {
+                               candidate.commit();
+                           })
+                       .trace();
+        output.write(dispatch_x(), hit->prim);
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
 }
 
 }// namespace
@@ -347,6 +377,34 @@ int main(int argc, char *argv[]) {
             }
         };
 
+    "HIP RayQuery separates identity from its callback environment"_test =
+        [&] {
+            compile_minimal_ray_query(device);
+            const auto module = read_text_file(
+                dump_directory / "hip_kernel_final_4.ll");
+            const auto root = amdgpu_kernel_body(module);
+            const auto dispatcher = llvm_function_body(
+                module, "@luisa_ray_query_pipeline_dispatch");
+            expect(!root.empty() && !dispatcher.empty())
+                << "failed to locate the generated RayQuery functions";
+            expect(root.find(
+                       "alloca { i64, i64, i64, i64, i64 }") ==
+                   std::string_view::npos)
+                << "HIP RayQuery regressed to the 40-byte source-layout "
+                   "surrogate";
+            expect(root.find("alloca i32") == std::string_view::npos)
+                << "HIP RayQuery identity escaped the traversal state into "
+                   "a separate private token allocation";
+            expect(module.find("ray.query.context.projected") ==
+                   std::string::npos)
+                << "empty RayQuery callback environment was "
+                   "materialized in private memory";
+            expect(dispatcher.find("load i32, ptr %0") !=
+                   std::string_view::npos)
+                << "RayQuery dispatcher did not decode the state token "
+                   "directly from its dedicated identity argument";
+        };
+
     "HIP lowers fixed-vector dot products and preserves FP mode"_test =
         [&] {
             auto dumped_module_count = 0u;
@@ -365,7 +423,7 @@ int main(int argc, char *argv[]) {
                     module.find("llvm.vector.reduce.fadd") !=
                     std::string::npos;
             }
-            expect(dumped_module_count == 4u)
+            expect(dumped_module_count == 5u)
                 << "expected one final HIP LLVM module per compiled shader";
             expect(!retained_vector_reduction)
                 << "fixed-vector dot product retained the target-unstable "

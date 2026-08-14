@@ -1220,6 +1220,9 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             auto llvm_dz = b.CreateExtractValue(llvm_ray, {llvm_ray_type_direction_index, 2u});
             // flags: 1 = terminate-on-first-hit (for "any" queries)
             auto llvm_flags = b.getInt32(is_any ? 1u : 0u);
+            auto llvm_state_address = b.CreatePtrToInt(
+                func_ctx.llvm_rq_state, _get_llvm_ray_query_type(),
+                "ray.query.state.address");
             llvm::SmallVector<llvm::Value *, 16> llvm_initialize_args{
                 llvm_accel_handle,
                 llvm_instance_data,
@@ -1232,6 +1235,13 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             }
             llvm_initialize_args.emplace_back(llvm_mask);
             llvm_initialize_args.emplace_back(llvm_flags);
+            if (_uses_synchronous_ray_query_pipeline) {
+                // Synchronous callbacks receive query identity independently
+                // from user captures. Store the exact private-state token in
+                // the state object's existing alignment hole so the generated
+                // dispatcher can expose a stable query-reference pointer.
+                llvm_initialize_args.emplace_back(llvm_state_address);
+            }
             llvm_initialize_args.emplace_back(func_ctx.llvm_rt_stack_size);
             llvm_initialize_args.emplace_back(func_ctx.llvm_rt_stack_count);
             llvm_initialize_args.emplace_back(func_ctx.llvm_rt_stack_data);
@@ -1245,15 +1255,7 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             // Encode this query's actual private state pointer in the opaque
             // object so a reference passed to an outlined handler still refers
             // to the traversal initialized above.
-            auto llvm_query = static_cast<llvm::Value *>(
-                llvm::Constant::getNullValue(_get_llvm_ray_query_type()));
-            auto llvm_state_address = b.CreatePtrToInt(
-                func_ctx.llvm_rq_state, b.getInt64Ty(),
-                "ray.query.state.address");
-            return b.CreateInsertValue(
-                llvm_query, llvm_state_address,
-                llvm_ray_query_type_state_index,
-                "ray.query.object");
+            return llvm_state_address;
         }
         default: LUISA_NOT_IMPLEMENTED();
     }
