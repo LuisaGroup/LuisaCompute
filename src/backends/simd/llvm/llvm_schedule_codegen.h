@@ -350,11 +350,24 @@ struct alignas(16) SIMDHostAccelInstance {
     uint32_t motion_mode{0u};
 };
 
+struct SIMDHostAccelCommittedInstance {
+    uint8_t geometry_kind{
+        static_cast<uint8_t>(SIMDHostAccelGeometryKind::triangle)};
+    uint8_t opaque{1u};
+};
+static_assert(sizeof(SIMDHostAccelCommittedInstance) == 2u);
+
 struct alignas(16) SIMDHostAccelInstanceTable {
     SIMDHostAccelInstance *data{nullptr};
     size_t size{0u};
     SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_status{nullptr};
     SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_wide_status{nullptr};
+    // Geometry classification belongs to the last committed Embree scene,
+    // not necessarily to the desired public table above. A buffer-only
+    // primitive replacement or resize must not reinterpret stale BVH hits
+    // using the new primitive kind.
+    const SIMDHostAccelCommittedInstance *committed_instances{nullptr};
+    size_t committed_size{0u};
 };
 
 struct alignas(16) SIMDHostAccelView {
@@ -401,7 +414,7 @@ static_assert(offsetof(SIMDHostAccelInstance, geometry_kind) == 55u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_frames) == 64u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_keyframe_count) == 72u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_mode) == 76u);
-static_assert(sizeof(SIMDHostAccelInstanceTable) == 32u);
+static_assert(sizeof(SIMDHostAccelInstanceTable) == 48u);
 static_assert(offsetof(SIMDHostAccelInstanceTable, data) == 0u);
 static_assert(offsetof(SIMDHostAccelInstanceTable, size) == sizeof(void *));
 static_assert(offsetof(
@@ -410,6 +423,12 @@ static_assert(offsetof(
 static_assert(offsetof(
                   SIMDHostAccelInstanceTable,
                   ray_query_proceed_wide_status) == 3u * sizeof(void *));
+static_assert(offsetof(
+                  SIMDHostAccelInstanceTable,
+                  committed_instances) == 4u * sizeof(void *));
+static_assert(offsetof(
+                  SIMDHostAccelInstanceTable,
+                  committed_size) == 5u * sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, accel) == 0u);
 static_assert(offsetof(SIMDHostAccelView, trace_closest) == sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));

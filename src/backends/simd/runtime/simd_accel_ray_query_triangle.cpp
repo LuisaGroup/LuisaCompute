@@ -529,10 +529,15 @@ advance_ray_query_candidate(
         state.candidate = candidate;
         state.candidate_committed = 0u;
         LUISA_ASSERT(
-            instances.data != nullptr && candidate.inst < instances.size,
+            instances.committed_instances != nullptr &&
+                candidate.inst < instances.committed_size,
             "Triangle-only SIMD ray query returned invalid instance {}.",
             candidate.inst);
-        if (instances.data[candidate.inst].opaque != 0u) {
+        auto opaque = instances.data != nullptr &&
+                              candidate.inst < instances.size ?
+                          instances.data[candidate.inst].opaque :
+                          instances.committed_instances[candidate.inst].opaque;
+        if (opaque != 0u) {
             state.committed = SIMDHostRayQueryCommittedHit{
                 .inst = candidate.inst,
                 .prim = candidate.prim,

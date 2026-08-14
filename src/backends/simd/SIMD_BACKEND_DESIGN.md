@@ -12,6 +12,10 @@ instance-motion triangle traversal now includes both closest/any traces and
 stateful query-all/query-any handlers at W1/W2/W4/W8/W16. W16 acceleration
 structures containing procedural instances additionally use a measured dense
 full-cohort status pack while retaining the sparse inactive-safe path.
+Acceleration instance-buffer-only updates now publish metadata and primitive
+bindings without mutating the committed Embree scene; a later ordinary build
+reconciles the deferred state even after the originating modification command
+has been consumed.
 The latest scheduler stage removes the redundant ready-record push and
 immediate LIFO pop for one child of selected genuinely divergent binary
 splits. The child still enters through the shared dispatcher PC route, so the
@@ -2770,6 +2774,28 @@ regression covers divergent reads, two-lane device mutation, full transform
 round trips, new visibility masks, post-update closest/any traversal, and
 inactive tails at every W1/W2/W4/W8/W16 width.
 
+`update_instance_buffer_only` uses two explicit runtime states. The stable
+instance table and a parallel desired-primitive vector are updated immediately,
+including growth and motion-frame ownership, while the Embree geometry vector
+continues to describe the last committed TLAS. A compact committed-instance
+vector separately retains the old geometry kind and count, so a buffer-only
+primitive replacement or shrink cannot reinterpret a stale Embree hit with the
+new public table. Current in-range opacity remains immediately visible to ray
+queries; a removed-but-still-committed instance falls back to its last-built
+opacity until the next build. The command performs no Embree geometry mutation
+or scene commit and leaves each affected record dirty. A later ordinary build
+reconciles geometry count, installs every desired child, publishes static or
+motion transforms, and clears dirty bits even when the runtime modification
+list is already empty. Thus device metadata queries see the new table after the
+buffer-only command, traversal still sees the old BVH, and the following build
+makes the two views agree. Geometry-kind/query-provider summaries are rescanned
+only when instance count or a primitive binding changes; a device-only command
+with no host modifications performs no instance-count walk. The
+W1/W2/W4/W8/W16 runtime regression covers an existing transform/mask/user-id
+update, append and shrink operations, matching direct/query stale-BVH views,
+and modification-free deferred commits. The repository `test_rtx` supplies the
+matching real graphics path.
+
 MATRIX and quaternion-SRT motion-instance resources now form a second exact
 motion path in addition to vertex motion. The runtime validates keyframe count
 and time range, copies resource keyframes into TLAS-owned 64-byte frame arrays,
@@ -3102,8 +3128,8 @@ on 2026-08-11. The repository now contains:
 
 The next implementation boundary is completion of the remaining Embree
 vertical slice: nonidentity outer affine composition for SRT motion, deeper
-instance-stack semantics, `update_instance_buffer_only`, and a SoA packet-
-query-state experiment guarded by stable measurement. Candidate chains beyond
+instance-stack semantics, and a SoA packet-query-state experiment guarded by
+stable measurement. Candidate chains beyond
 the fixed batch remain a measured continuation case rather than an unbounded
 state allocation. Broader callable conformance, cooperative shared memory,
 block barriers, and the remaining device-library surface follow. The current

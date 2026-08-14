@@ -1591,6 +1591,27 @@ Every accel build also recommits each instance geometry before the TLAS scene,
 even when its metadata is clean, because a rebuilt child mesh, curve, or
 procedural scene can change bounds without changing the parent instance record.
 
+`update_instance_buffer_only` updates the stable instance table but must not
+mutate or commit the Embree TLAS. Host modifications and prior device metadata
+writes remain marked dirty. Desired primitive bindings and owned motion frames
+survive independently of the committed Embree geometry vector, so consuming a
+buffer-only command cannot lose a newly appended or replaced primitive. Before
+the next ordinary build, metadata queries observe the updated table while ray
+traversal observes the last committed scene. The ordinary build must reconcile
+geometry count and every dirty primitive/transform/mask even if its command has
+no modifications, then commit geometry and scene and clear the dirty state.
+Using a size- or primitive-changing table for traversal before that build has
+the same intentionally stale-BVH semantics as the public buffer-only API; no
+backend may silently perform the missing build on the user's behalf.
+Geometry kind, committed count, and query-provider selection must continue to
+describe that stale BVH. In particular, a buffer-only primitive replacement
+must not reinterpret old curve/procedural hits as the desired new kind, and a
+shrink must retain enough committed classification for an old instance ID.
+Current in-range opacity is read from the newly published table; an ID removed
+from that table uses its last-built opacity until the BVH shrink is committed.
+Metadata-only buffer updates must not rescan geometry-kind summaries unless
+the instance count or a primitive binding changes.
+
 Motion-instance resources accept two through `RTC_MAX_TIME_STEP_COUNT`
 keyframes, a finite strictly increasing time range, and MATRIX or quaternion
 SRT mode. A motion resource must be built before it is inserted into a TLAS.
@@ -1636,10 +1657,10 @@ attached task scheduler after releasing the device and before `dlclose` can
 unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
-Nonidentity outer affine composition for SRT motion,
-`update_instance_buffer_only`, and deeper instance-stack behavior are not part
-of this slice. They must fail at a specific capability boundary until their
-independent semantic, IR-shape, and machine-boundary gates exist; triangle,
+Nonidentity outer affine composition for SRT motion and deeper instance-stack
+behavior are not part of this slice. They must fail at a specific capability
+boundary until their independent semantic, IR-shape, and machine-boundary gates
+exist; triangle,
 curve, procedural-query, and opacity support does not imply those deeper
 instancing capabilities.
 

@@ -3,8 +3,9 @@
 // The five-ray dispatch exercises direct closest/any traversal, query-all and
 // query-any, opaque auto-commit, non-opaque accept/reject handlers, curve hit
 // classification, all four curve bases, and an inactive tail at every
-// supported SIMD width. Primitive replacement also verifies that the accel's
-// curve-instance summary is refreshed in both directions.
+// supported SIMD width. Primitive replacement also verifies that buffer-only
+// updates retain the committed curve interpretation until the next build and
+// then refresh the accel's curve-instance summary in both directions.
 
 #include "ut/ut.hpp"
 
@@ -44,7 +45,7 @@ void test_curve_instance_summary_refresh(
 
     Kernel1D kernel = [width](
                           AccelVar scene,
-                          BufferUInt classification) noexcept {
+                          BufferUInt2 classification) noexcept {
         set_block_size(32u, 1u, 1u);
         set_warp_size(static_cast<uint8_t>(width));
         auto index = dispatch_x();
@@ -57,24 +58,44 @@ void test_curve_instance_summary_refresh(
             AccelTraceOptions{
                 .curve_bases = {
                     CurveBasis::PIECEWISE_LINEAR}});
+        auto query = scene.traverse(
+                              ray,
+                              AccelTraceOptions{
+                                  .curve_bases = {
+                                      CurveBasis::PIECEWISE_LINEAR}})
+                         .on_surface_candidate([](SurfaceCandidate &candidate) noexcept {
+                             candidate.commit();
+                         })
+                         .on_procedural_candidate([](ProceduralCandidate &) noexcept {})
+                         .trace();
         classification.write(
-            index, cast<uint>(hit->is_curve()));
+            index,
+            make_uint2(
+                cast<uint>(hit->is_curve()),
+                cast<uint>(query->is_curve())));
     };
     auto shader = device.compile(kernel);
     auto classification =
-        device.create_buffer<uint>(motion_dispatch_size);
-    std::array<uint, motion_dispatch_size>
+        device.create_buffer<uint2>(motion_dispatch_size);
+    std::array<uint2, motion_dispatch_size>
         host_classification{};
-    auto check = [&](uint expected, luisa::string_view label) {
-        stream << accel.build()
-               << shader(accel, classification)
+    auto inspect = [&](uint expected, luisa::string_view label) {
+        stream << shader(accel, classification)
                       .dispatch(motion_dispatch_size)
                << classification.copy_to(
                       luisa::span{host_classification})
                << synchronize();
         for (auto value : host_classification) {
-            expect(eq(value, expected)) << label;
+            expect(static_cast<bool>(
+                all(value == make_uint2(expected))))
+                << luisa::format(
+                       "{}: direct={}, query={}, expected={}",
+                       label, value.x, value.y, expected);
         }
+    };
+    auto check = [&](uint expected, luisa::string_view label) {
+        stream << accel.build();
+        inspect(expected, label);
     };
 
     stream << vertex_buffer.copy_from(luisa::span{vertices})
@@ -83,9 +104,15 @@ void test_curve_instance_summary_refresh(
            << synchronize();
     check(0u, "mesh instance must not be classified as a curve");
     accel.set_curve(0u, curve);
-    check(1u, "curve replacement must refresh the curve summary");
+    stream << accel.update_instance_buffer();
+    inspect(
+        0u, "buffer-only curve replacement changed committed mesh kind");
+    check(1u, "deferred curve replacement did not refresh the curve summary");
     accel.set_mesh(0u, mesh);
-    check(0u, "mesh replacement must refresh the curve summary");
+    stream << accel.update_instance_buffer();
+    inspect(
+        1u, "buffer-only mesh replacement changed committed curve kind");
+    check(0u, "deferred mesh replacement did not refresh the curve summary");
 }
 
 void expect_near(

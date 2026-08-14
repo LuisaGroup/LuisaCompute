@@ -418,9 +418,10 @@ void mark_curve_surface_hits(
         auto inst = hit_instances[lane];
         if (inst == RTC_INVALID_GEOMETRY_ID) { continue; }
         LUISA_ASSERT(
-            instances.data != nullptr && inst < instances.size,
+            instances.committed_instances != nullptr &&
+                inst < instances.committed_size,
             "SIMD curve trace returned an invalid instance ID {}.", inst);
-        if (instances.data[inst].geometry_kind ==
+        if (instances.committed_instances[inst].geometry_kind ==
             static_cast<uint8_t>(SIMDHostAccelGeometryKind::curve)) {
             hit_v[lane] = -1.0f;
         }
@@ -504,8 +505,9 @@ static_assert(
     // so a curve primitive already published by proceed() must not reappear on
     // a continuation scan.
     if (inst == state.cursor_inst && prim == state.cursor_prim &&
-        instances.data != nullptr && inst < instances.size &&
-        instances.data[inst].geometry_kind ==
+        instances.committed_instances != nullptr &&
+        inst < instances.committed_size &&
+        instances.committed_instances[inst].geometry_kind ==
             static_cast<uint8_t>(SIMDHostAccelGeometryKind::curve)) {
         return false;
     }
@@ -670,9 +672,10 @@ void ray_query_filter(
         }
         auto v = RTCHitN_v(
             arguments->hit, arguments->N, packet_lane);
-        auto curve = context->instances->data != nullptr &&
-                     inst < context->instances->size &&
-                     context->instances->data[inst].geometry_kind ==
+        auto curve = context->instances->committed_instances != nullptr &&
+                     inst < context->instances->committed_size &&
+                     context->instances->committed_instances[inst]
+                             .geometry_kind ==
                          static_cast<uint8_t>(
                              SIMDHostAccelGeometryKind::curve);
         if (curve) {
@@ -916,11 +919,15 @@ advance_ray_query_candidate(
         state.candidate = candidate;
         state.candidate_committed = 0u;
         LUISA_ASSERT(
-            instances.data != nullptr &&
-                candidate.inst < instances.size,
+            instances.committed_instances != nullptr &&
+                candidate.inst < instances.committed_size,
             "SIMD ray query returned an invalid instance ID {}.",
             candidate.inst);
-        if (instances.data[candidate.inst].opaque != 0u) {
+        auto opaque = instances.data != nullptr &&
+                              candidate.inst < instances.size ?
+                          instances.data[candidate.inst].opaque :
+                          instances.committed_instances[candidate.inst].opaque;
+        if (opaque != 0u) {
             state.committed = SIMDHostRayQueryCommittedHit{
                 .inst = candidate.inst,
                 .prim = candidate.prim,
@@ -1535,33 +1542,20 @@ SIMDAccel::SIMDAccel(
 SIMDAccel::~SIMDAccel() noexcept { rtcReleaseScene(_scene); }
 
 void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
-    LUISA_ASSERT(
-        !command.update_instance_buffer_only(),
-        "SIMD acceleration structures do not yet support "
-        "update_instance_buffer_only.");
     auto instance_count = command.instance_count();
+    _instance_summary_dirty |=
+        instance_count != _instances.size();
     if (instance_count < _instances.size()) {
-        for (auto i = instance_count; i < _instances.size(); i++) {
-            rtcDetachGeometry(_scene, static_cast<unsigned>(i));
-        }
         _instances.resize(instance_count);
-        _geometries.resize(instance_count);
+        _primitives.resize(instance_count);
         _motion_states.resize(instance_count);
     } else {
-        auto device = rtcGetSceneDevice(_scene);
         _instances.reserve(instance_count);
-        _geometries.reserve(instance_count);
+        _primitives.reserve(instance_count);
         _motion_states.reserve(instance_count);
         for (auto i = _instances.size(); i < instance_count; i++) {
-            auto geometry = rtcNewGeometry(
-                device, RTC_GEOMETRY_TYPE_INSTANCE);
-            rtcSetGeometryBuildQuality(
-                geometry, RTC_BUILD_QUALITY_HIGH);
-            rtcAttachGeometryByID(
-                _scene, geometry, static_cast<unsigned>(i));
-            rtcReleaseGeometry(geometry);
             _instances.emplace_back();
-            _geometries.emplace_back(geometry);
+            _primitives.emplace_back(nullptr);
             _motion_states.emplace_back();
         }
     }
@@ -1576,13 +1570,14 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             modification.index < _instances.size(),
             "SIMD accel modification index is out of range.");
         auto &instance = _instances[modification.index];
-        auto geometry = _geometries[modification.index];
         if ((modification.flags & Modification::flag_primitive) != 0u) {
+            _instance_summary_dirty = true;
             auto *primitive = reinterpret_cast<SIMDPrimitive *>(
                 modification.primitive);
             LUISA_ASSERT(
                 primitive != nullptr,
                 "SIMD accel instance has a null primitive.");
+            _primitives[modification.index] = primitive;
             if (primitive->kind() == SIMDPrimitive::Kind::motion_instance) {
                 auto *motion = static_cast<SIMDMotionInstance *>(primitive);
                 LUISA_ASSERT(
@@ -1599,13 +1594,6 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                     static_cast<uint32_t>(state->keyframes.size());
                 instance.motion_mode =
                     static_cast<uint32_t>(state->option.mode);
-                rtcSetGeometryInstancedScene(
-                    geometry, motion->child()->handle());
-                rtcSetGeometryTimeStepCount(
-                    geometry, state->option.keyframe_count);
-                rtcSetGeometryTimeRange(
-                    geometry, state->option.time_start,
-                    state->option.time_end);
                 instance.geometry_kind = static_cast<uint8_t>(
                     motion->child()->kind() == SIMDPrimitive::Kind::curve ?
                         SIMDHostAccelGeometryKind::curve :
@@ -1621,9 +1609,6 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                         primitive->kind() == SIMDPrimitive::Kind::procedural,
                     "SIMD accel instances require a mesh, curve, procedural, "
                     "or motion-instance primitive.");
-                rtcSetGeometryInstancedScene(geometry, primitive->handle());
-                rtcSetGeometryTimeStepCount(geometry, 1u);
-                rtcSetGeometryTimeRange(geometry, 0.0f, 1.0f);
                 instance.geometry_kind = static_cast<uint8_t>(
                     primitive->kind() == SIMDPrimitive::Kind::curve ?
                         SIMDHostAccelGeometryKind::curve :
@@ -1655,11 +1640,77 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         }
         instance.dirty = 1u;
     }
+
+    auto refresh_instance_summary = [&]() noexcept {
+        _has_curve_instances = std::any_of(
+            _committed_instances.cbegin(), _committed_instances.cend(),
+            [](const SIMDHostAccelCommittedInstance &instance) noexcept {
+                return instance.geometry_kind ==
+                       static_cast<uint8_t>(
+                           SIMDHostAccelGeometryKind::curve);
+            });
+        _has_procedural_instances = std::any_of(
+            _committed_instances.cbegin(), _committed_instances.cend(),
+            [](const SIMDHostAccelCommittedInstance &instance) noexcept {
+                return instance.geometry_kind ==
+                       static_cast<uint8_t>(
+                           SIMDHostAccelGeometryKind::procedural);
+            });
+        _instance_table.ray_query_proceed_status =
+            simd_host_ray_query_proceed_status;
+        _instance_table.ray_query_proceed_wide_status =
+            simd_host_ray_query_use_procedural_wide_status(
+                _warp_width,
+                _has_procedural_instances,
+                _enable_procedural_dense_status) ?
+                (_enable_procedural_fused_status ?
+                     simd_host_ray_query_proceed_wide_procedural_fused_status :
+                     simd_host_ray_query_proceed_wide_procedural_status) :
+                simd_host_ray_query_proceed_status;
+    };
+    if (command.update_instance_buffer_only()) {
+        // The public table is now current, but Embree deliberately remains at
+        // its last committed state. Keep every dirty bit and desired primitive
+        // binding so a later ordinary build can catch up even though this
+        // command has consumed the runtime modification list.
+        return;
+    }
+
+    if (instance_count < _geometries.size()) {
+        for (auto i = instance_count; i < _geometries.size(); i++) {
+            rtcDetachGeometry(_scene, static_cast<unsigned>(i));
+        }
+        _geometries.resize(instance_count);
+    } else {
+        auto device = rtcGetSceneDevice(_scene);
+        _geometries.reserve(instance_count);
+        for (auto i = _geometries.size(); i < instance_count; i++) {
+            auto geometry = rtcNewGeometry(
+                device, RTC_GEOMETRY_TYPE_INSTANCE);
+            rtcSetGeometryBuildQuality(
+                geometry, RTC_BUILD_QUALITY_HIGH);
+            rtcAttachGeometryByID(
+                _scene, geometry, static_cast<unsigned>(i));
+            rtcReleaseGeometry(geometry);
+            _geometries.emplace_back(geometry);
+            _instances[i].dirty = 1u;
+        }
+    }
+    _committed_instances.resize(instance_count);
     for (auto i = size_t{0u}; i < _instances.size(); i++) {
         auto &instance = _instances[i];
         auto geometry = _geometries[i];
         if (instance.dirty != 0u) {
+            auto *primitive = _primitives[i];
+            LUISA_ASSERT(
+                primitive != nullptr,
+                "SIMD accel instance {} has no primitive binding.", i);
             if (auto &motion = _motion_states[i]; motion != nullptr) {
+                LUISA_ASSERT(
+                    primitive->kind() == SIMDPrimitive::Kind::motion_instance,
+                    "SIMD motion-instance state has a non-motion primitive.");
+                auto *motion_primitive =
+                    static_cast<SIMDMotionInstance *>(primitive);
                 LUISA_ASSERT(
                     instance.motion_frames == motion->keyframes.data() &&
                         instance.motion_keyframe_count ==
@@ -1667,6 +1718,13 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                         instance.motion_mode ==
                             static_cast<uint32_t>(motion->option.mode),
                     "SIMD motion-instance metadata is inconsistent.");
+                rtcSetGeometryInstancedScene(
+                    geometry, motion_primitive->child()->handle());
+                rtcSetGeometryTimeStepCount(
+                    geometry, motion->option.keyframe_count);
+                rtcSetGeometryTimeRange(
+                    geometry, motion->option.time_start,
+                    motion->option.time_end);
                 if (motion->option.mode == AccelMotionMode::MATRIX) {
                     std::array<float, 12u> composed{};
                     for (auto key = size_t{0u};
@@ -1694,11 +1752,23 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                     }
                 }
             } else {
+                LUISA_ASSERT(
+                    primitive->kind() == SIMDPrimitive::Kind::mesh ||
+                        primitive->kind() == SIMDPrimitive::Kind::curve ||
+                        primitive->kind() == SIMDPrimitive::Kind::procedural,
+                    "SIMD static instance has an invalid primitive binding.");
+                rtcSetGeometryInstancedScene(
+                    geometry, primitive->handle());
+                rtcSetGeometryTimeStepCount(geometry, 1u);
+                rtcSetGeometryTimeRange(geometry, 0.0f, 1.0f);
                 rtcSetGeometryTransform(
                     geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
                     instance.affine);
             }
             rtcSetGeometryMask(geometry, instance.mask);
+            _committed_instances[i] = {
+                .geometry_kind = instance.geometry_kind,
+                .opaque = instance.opaque};
         }
         // A BLAS can be rebuilt without changing the Accel instance record.
         // Recommitting every instance geometry refreshes Embree's cached child
@@ -1707,31 +1777,12 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         rtcCommitGeometry(geometry);
         instance.dirty = 0u;
     }
-    _has_curve_instances = std::any_of(
-        _instances.cbegin(), _instances.cend(),
-        [](const Instance &instance) noexcept {
-            return instance.geometry_kind ==
-                   static_cast<uint8_t>(
-                       SIMDHostAccelGeometryKind::curve);
-        });
-    _has_procedural_instances = std::any_of(
-        _instances.cbegin(), _instances.cend(),
-        [](const Instance &instance) noexcept {
-            return instance.geometry_kind ==
-                   static_cast<uint8_t>(
-                       SIMDHostAccelGeometryKind::procedural);
-        });
-    _instance_table.ray_query_proceed_status =
-        simd_host_ray_query_proceed_status;
-    _instance_table.ray_query_proceed_wide_status =
-        simd_host_ray_query_use_procedural_wide_status(
-            _warp_width,
-            _has_procedural_instances,
-            _enable_procedural_dense_status) ?
-            (_enable_procedural_fused_status ?
-                 simd_host_ray_query_proceed_wide_procedural_fused_status :
-                 simd_host_ray_query_proceed_wide_procedural_status) :
-            simd_host_ray_query_proceed_status;
+    _instance_table.committed_instances = _committed_instances.data();
+    _instance_table.committed_size = _committed_instances.size();
+    if (_instance_summary_dirty) {
+        refresh_instance_summary();
+        _instance_summary_dirty = false;
+    }
     rtcCommitScene(_scene);
 }
 

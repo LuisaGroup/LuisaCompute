@@ -19,8 +19,9 @@ namespace {
     const SIMDHostAccelInstanceTable &instances) noexcept {
     if (state.cursor_valid == 0u) { return true; }
     if (inst == state.cursor_inst && prim == state.cursor_prim &&
-        instances.data != nullptr && inst < instances.size &&
-        instances.data[inst].geometry_kind ==
+        instances.committed_instances != nullptr &&
+        inst < instances.committed_size &&
+        instances.committed_instances[inst].geometry_kind ==
             static_cast<uint8_t>(SIMDHostAccelGeometryKind::curve)) {
         return false;
     }
@@ -170,9 +171,10 @@ void ray_query_filter_wide(
         }
         auto v = RTCHitN_v(
             arguments->hit, arguments->N, packet_lane);
-        auto curve = context->instances->data != nullptr &&
-                     inst < context->instances->size &&
-                     context->instances->data[inst].geometry_kind ==
+        auto curve = context->instances->committed_instances != nullptr &&
+                     inst < context->instances->committed_size &&
+                     context->instances->committed_instances[inst]
+                             .geometry_kind ==
                          static_cast<uint8_t>(
                              SIMDHostAccelGeometryKind::curve);
         if (curve) { v = -1.0f; }

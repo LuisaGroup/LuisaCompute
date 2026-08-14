@@ -9,6 +9,8 @@
 
 namespace luisa::compute::simd {
 
+class SIMDPrimitive;
+
 namespace triangle_ray_query {
 
 struct SIMDAccelAccess;
@@ -35,13 +37,26 @@ private:
 private:
     RTCScene _scene{nullptr};
     luisa::vector<Instance> _instances;
+    // Desired primitive bindings visible through the public instance table.
+    // They intentionally remain separate from _geometries: a buffer-only
+    // update may consume a primitive modification without touching Embree,
+    // and the next ordinary build must still be able to commit that binding.
+    luisa::vector<SIMDPrimitive *> _primitives;
     luisa::vector<RTCGeometry> _geometries;
+    // Primitive kinds and last-built opacity for the committed Embree scene.
+    // This remains at the committed geometry count across buffer-only
+    // resize/rebind commands; current in-range opacity still comes directly
+    // from the public table.
+    luisa::vector<SIMDHostAccelCommittedInstance> _committed_instances;
     luisa::vector<luisa::unique_ptr<MotionState>> _motion_states;
     SIMDHostAccelInstanceTable _instance_table{
         .ray_query_proceed_status = simd_host_ray_query_proceed_status,
         .ray_query_proceed_wide_status = simd_host_ray_query_proceed_status};
     bool _has_curve_instances{false};
     bool _has_procedural_instances{false};
+    // True when the desired instance topology no longer matches the query
+    // provider summary for the last committed Embree scene.
+    bool _instance_summary_dirty{true};
     uint32_t _warp_width{8u};
     bool _enable_triangle_only_ray_query{true};
     bool _enable_procedural_dense_status{true};

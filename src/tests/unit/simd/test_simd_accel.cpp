@@ -7,6 +7,7 @@
 // - non-opaque triangle ray-query rejection/commit under divergent handlers
 // - varying device opacity mutation, opaque auto-commit, and inactive tails
 // - direct varying and uniform instance metadata reads
+// - host buffer-only metadata/grow/shrink updates and deferred BVH/query commit
 // - divergent visibility masks, ray intervals, directions, and misses
 // - uniform static and motion traces that must remain scalar within a packet
 // - an inactive W16 tail with only three live lanes
@@ -206,6 +207,10 @@ int main(int argc, char *argv[]) {
                 mesh, translation(make_float3(x, 0.0f, 0.0f)),
                 0x40u, false, instance);
         }
+        auto buffer_only_accel =
+            device.create_accel({.allow_update = true});
+        buffer_only_accel.emplace_back(
+            mesh, make_float4x4(1.0f), 0x1u, true, 10u);
 
         std::array<Ray, thread_count> host_rays{};
         std::array<uint, thread_count> host_masks{};
@@ -337,6 +342,7 @@ int main(int argc, char *argv[]) {
                << query_accel.build()
                << deep_query_accel.build()
                << opacity_accel.build()
+               << buffer_only_accel.build()
                << shader(
                       rays, masks, ids, details, accel,
                       motion_accel, motion_ids, motion_details,
@@ -425,6 +431,167 @@ int main(int argc, char *argv[]) {
                     << "instance transform query mismatch";
             }
         }
+
+        Kernel1D inspect_buffer_only = [width](
+                                           AccelVar scene,
+                                           BufferUInt4 metadata,
+                                           BufferFloat translations,
+                                           BufferUInt hits,
+                                           BufferUInt query_hits,
+                                           UInt metadata_count) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            $if (index < metadata_count) {
+                auto transform = scene.instance_transform(index);
+                metadata.write(
+                    index,
+                    make_uint4(
+                        index, scene.instance_user_id(index),
+                        scene.instance_visibility_mask(index), 0u));
+                translations.write(index, transform[3u].x);
+            };
+            auto x = select(
+                select(-3.0f, 3.0f, index == 1u),
+                0.0f, index == 0u);
+            auto ray = make_ray(
+                make_float3(x, 0.0f, 1.0f),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 10.0f);
+            auto options = AccelTraceOptions{
+                .visibility_mask = 1u << index};
+            auto hit = scene.intersect(ray, options);
+            auto query_hit = scene.traverse(ray, options)
+                                 .on_surface_candidate(
+                                     [](SurfaceCandidate &candidate) noexcept {
+                                         candidate.commit();
+                                     })
+                                 .on_procedural_candidate(
+                                     [](ProceduralCandidate &) noexcept {})
+                                 .trace();
+            hits.write(index, hit->inst);
+            query_hits.write(index, query_hit->inst);
+        };
+        auto inspect_buffer_only_shader =
+            device.compile(inspect_buffer_only);
+        auto buffer_only_metadata = device.create_buffer<uint4>(2u);
+        auto buffer_only_translations = device.create_buffer<float>(2u);
+        auto buffer_only_hits = device.create_buffer<uint>(3u);
+        auto buffer_only_query_hits = device.create_buffer<uint>(3u);
+        std::array<uint4, 2u> host_buffer_only_metadata{};
+        std::array<float, 2u> host_buffer_only_translations{};
+        std::array<uint, 3u> host_buffer_only_hits{};
+        std::array<uint, 3u> host_buffer_only_query_hits{};
+
+        buffer_only_accel.set_transform_on_update(
+            0u, translation(make_float3(3.0f, 0.0f, 0.0f)));
+        buffer_only_accel.set_visibility_on_update(0u, 0x2u);
+        buffer_only_accel.set_instance_user_id_on_update(0u, 20u);
+        buffer_only_accel.emplace_back(
+            mesh, translation(make_float3(-3.0f, 0.0f, 0.0f)),
+            0x4u, true, 30u);
+        stream << buffer_only_accel.update_instance_buffer()
+               << inspect_buffer_only_shader(
+                      buffer_only_accel,
+                      buffer_only_metadata,
+                      buffer_only_translations,
+                      buffer_only_hits,
+                      buffer_only_query_hits, 2u)
+                      .dispatch(3u)
+               << buffer_only_metadata.copy_to(
+                      luisa::span{host_buffer_only_metadata})
+               << buffer_only_translations.copy_to(
+                      luisa::span{host_buffer_only_translations})
+               << buffer_only_hits.copy_to(
+                      luisa::span{host_buffer_only_hits})
+               << buffer_only_query_hits.copy_to(
+                      luisa::span{host_buffer_only_query_hits})
+               << synchronize();
+        expect(static_cast<bool>(
+            all(host_buffer_only_metadata[0u] ==
+                make_uint4(0u, 20u, 0x2u, 0u))))
+            << "buffer-only existing metadata mismatch";
+        expect(static_cast<bool>(
+            all(host_buffer_only_metadata[1u] ==
+                make_uint4(1u, 30u, 0x4u, 0u))))
+            << "buffer-only appended metadata mismatch";
+        expect(std::abs(host_buffer_only_translations[0u] - 3.0f) <=
+               1.0e-6f)
+            << "buffer-only existing transform mismatch";
+        expect(std::abs(host_buffer_only_translations[1u] + 3.0f) <=
+               1.0e-6f)
+            << "buffer-only appended transform mismatch";
+        expect(host_buffer_only_hits ==
+               std::array<uint, 3u>{0u, ~0u, ~0u})
+            << "buffer-only update must not mutate the committed BVH";
+        expect(host_buffer_only_query_hits == host_buffer_only_hits)
+            << "buffer-only query view diverged from the committed BVH";
+
+        host_buffer_only_hits.fill(0u);
+        host_buffer_only_query_hits.fill(0u);
+        stream << buffer_only_accel.build(
+                      Accel::BuildRequest::PREFER_UPDATE)
+               << inspect_buffer_only_shader(
+                      buffer_only_accel,
+                      buffer_only_metadata,
+                      buffer_only_translations,
+                      buffer_only_hits,
+                      buffer_only_query_hits, 2u)
+                      .dispatch(3u)
+               << buffer_only_hits.copy_to(
+                      luisa::span{host_buffer_only_hits})
+               << buffer_only_query_hits.copy_to(
+                      luisa::span{host_buffer_only_query_hits})
+               << synchronize();
+        expect(host_buffer_only_hits ==
+               std::array<uint, 3u>{~0u, 0u, 1u})
+            << "ordinary build did not commit deferred buffer-only updates";
+        expect(host_buffer_only_query_hits == host_buffer_only_hits)
+            << "deferred-build query view mismatch";
+
+        buffer_only_accel.pop_back();
+        host_buffer_only_hits.fill(0u);
+        host_buffer_only_query_hits.fill(0u);
+        stream << buffer_only_accel.update_instance_buffer()
+               << inspect_buffer_only_shader(
+                      buffer_only_accel,
+                      buffer_only_metadata,
+                      buffer_only_translations,
+                      buffer_only_hits,
+                      buffer_only_query_hits, 1u)
+                      .dispatch(3u)
+               << buffer_only_hits.copy_to(
+                      luisa::span{host_buffer_only_hits})
+               << buffer_only_query_hits.copy_to(
+                      luisa::span{host_buffer_only_query_hits})
+               << synchronize();
+        expect(host_buffer_only_hits ==
+               std::array<uint, 3u>{~0u, 0u, 1u})
+            << "buffer-only shrink must retain the committed BVH view";
+        expect(host_buffer_only_query_hits == host_buffer_only_hits)
+            << "buffer-only shrink lost committed query metadata";
+
+        host_buffer_only_hits.fill(0u);
+        host_buffer_only_query_hits.fill(0u);
+        stream << buffer_only_accel.build(
+                      Accel::BuildRequest::PREFER_UPDATE)
+               << inspect_buffer_only_shader(
+                      buffer_only_accel,
+                      buffer_only_metadata,
+                      buffer_only_translations,
+                      buffer_only_hits,
+                      buffer_only_query_hits, 1u)
+                      .dispatch(3u)
+               << buffer_only_hits.copy_to(
+                      luisa::span{host_buffer_only_hits})
+               << buffer_only_query_hits.copy_to(
+                      luisa::span{host_buffer_only_query_hits})
+               << synchronize();
+        expect(host_buffer_only_hits ==
+               std::array<uint, 3u>{~0u, 0u, ~0u})
+            << "ordinary build did not commit a deferred shrink";
+        expect(host_buffer_only_query_hits == host_buffer_only_hits)
+            << "deferred-shrink query view mismatch";
 
         Kernel1D trace_query = [width](
                                    AccelVar scene,
@@ -1048,6 +1215,7 @@ int main(int argc, char *argv[]) {
                       luisa::span{updated_ray_origins})
                << mutate_shader(accel, updated_transform_buffer)
                       .dispatch(2u)
+               << accel.update_instance_buffer()
                << accel.build(Accel::BuildRequest::PREFER_UPDATE)
                << inspect_shader(
                       accel, updated_origin_buffer,

@@ -2685,3 +2685,33 @@ three galleries at 100.000000, 48.080453, and 62.223429 dB. Applicability scans
 confirm that only Voxel reaches the predicated-loop candidate; image processing,
 ordinary path tracing, Spacex, blackhole, SDF, and cutout report zero accepted
 batches. All outputs and captured objects remained outside the repository.
+
+The acceleration instance-buffer-only stage completed a fresh full Release
+build, the native-math/runtime-width/acceleration focus gate (6/6), and the
+complete configured SIMD+fallback/XIR/runtime/graphics suite (140/140). The
+W1/W2/W4/W8/W16 permanent regression proves that a host transform/mask/user-id
+update and appended primitive become visible through the instance table while
+the committed BVH remains unchanged; a following ordinary build with an empty
+modification list then commits both deferred geometries. A deferred shrink also
+keeps direct traversal and stateful ray queries on the old BVH, including the
+removed instance's committed classification, until the following ordinary
+build. Mesh-to-curve and curve-to-mesh buffer-only replacements likewise keep
+both direct and stateful-query classification tied to the committed primitive
+until the deferred build refreshes it. A device-side metadata write is also
+routed through buffer-only before its ordinary build, proving that the
+intermediate command cannot clear the dirty state. Metadata-only commands avoid
+both Embree calls and an instance-summary scan; only count or primitive changes
+trigger the O(instance-count) classification refresh.
+
+The repository's real `test_rtx simd` path, which appends an instance through
+buffer-only at frame 512 and builds it on the next frame, passes its checked-in
+reference at 82.508596 dB. Ordinary W8 1024-spp packet path tracing passes at
+39.219305 dB and reports native Embree 4.4.1 W4/W8/W16 packet support. The
+motion-blur test has no checked-in reference, so it is not counted as a gallery
+pass; instead, fresh SIMD and fallback 512x512/1024-spp outputs compare at
+88.279279 dB RGB PSNR, maximum channel error one, with 70 differing pixels.
+Their SHA-256 hashes are respectively
+`30b450a0dd796f9a1a0b05446114fad578e338461d650a253df5beb0a228f8ad` and
+`3cbdcca73e7086a5bcb64a624326211d1bb61ed3412a7ed7f5fd243835dd4208`.
+All generated images remained in `/tmp`; this semantic stage makes no new
+throughput claim.
