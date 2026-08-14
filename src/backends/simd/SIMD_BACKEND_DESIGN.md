@@ -290,6 +290,18 @@ and returns to the scalar dispatcher. Values live across cohort suspension
 points are spilled to warp-state slots; block-local temporaries remain LLVM SSA
 values.
 
+The coherent path also reuses the incoming active-mask SSA value for its sole
+successor. For a conditional, `T = A & C`, `F = A & !C`, a nonempty `A`, and
+`!(any(T) && any(F))`, taking the true path proves `T == A` and taking the
+false path proves `F == A`. Indexed-switch case masks partition `A`, so the
+same proof applies to the unique nonempty case selected by the seed lane. This
+identity removes a derived-mask dependency from edge assignments and lets LLVM
+retain an all-on or partial-tail mask across runtime-coherent control. Truly
+divergent paths still carry their disjoint successor masks unchanged.
+`LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE=1` restores the derived masks as a
+same-binary oracle, and `LUISA_SIMD_REPORT_OPTIMIZATIONS=1` reports the static
+number of eligible coherent successor edges.
+
 There is also a whole-function coherent refinement. Uniformity propagation
 tracks control with the complete `warp_uniform -> cohort_uniform -> varying`
 lattice. If Schedule IR contains no convergence point and every conditional or

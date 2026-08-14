@@ -180,6 +180,20 @@ worklist scheduler. Separately, the general scheduler may discover at runtime
 that every active lane of one varying branch chose the same successor and
 directly thread that edge; this does not make subsequent control statically
 direct or discard scheduler state.
+
+On that dynamically coherent edge, codegen passes the incoming active mask to
+the successor instead of the algebraically derived branch/case mask. The
+runtime all/none/mixed test proves the two masks equal before this substitution:
+conditional true/false masks partition the nonempty incoming mask, and indexed
+case/default masks form the corresponding disjoint partition. Edge assignments
+therefore retain exactly the same active lanes, including a partial dispatch
+tail. A genuinely divergent partition never takes this substitution. The
+diagnostic oracle `LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE=1` restores the
+derived masks, while `coherent_mask_reuses` in the optimization report counts
+eligible static successor edges. Permanent tests execute coherent true/false
+and every indexed case/default at W2/W4/W8/W16, compare the oracle, cover
+partial tails and one-lane cohorts, and retain a genuinely divergent switch.
+
 `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces the scheduled implementation
 for differential diagnostics. Permanent tests cover all widths, partial tails,
 cohort-uniform branches with packet-dependent outcomes, and the forced fallback.
@@ -221,6 +235,8 @@ forwarding, while
 restores the W8 speculation-cost ceiling from sixteen to twelve;
 `LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE=1` disables the separately
 costed one-sided update policy at W2/W4/W8/W16;
+`LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE=1` restores derived successor masks on
+runtime-coherent varying branches and switches;
 `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces otherwise coherent functions
 through the general cohort scheduler;
 `LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` restores aggregate local storage

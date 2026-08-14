@@ -57,6 +57,7 @@ struct SIMDCompiledKernel {
     size_t paired_leaf_gather_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
+    size_t coherent_mask_reuse_count{0u};
     bool direct_control_flow{false};
     uint32_t warp_width{0u};
     std::string target_triple{};

@@ -515,6 +515,9 @@ void ScheduleEmitter::_emit_terminator(
             block, *split, *diamond, nullptr);
         return;
     }
+    auto reuse_coherent_mask =
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE");
     std::visit(
         [&](const auto &control) {
             using T = std::decay_t<decltype(control)>;
@@ -529,6 +532,9 @@ void ScheduleEmitter::_emit_terminator(
                 }
                 if (condition_value->value_class ==
                     schedule::ValueClass::varying) {
+                    if (reuse_coherent_mask) {
+                        _result.coherent_mask_reuse_count += 2u;
+                    }
                     auto *true_mask = _builder.CreateAnd(
                         _active_mask, condition);
                     auto *false_mask = _builder.CreateAnd(
@@ -582,10 +588,14 @@ void ScheduleEmitter::_emit_terminator(
                         true_nonempty, true_path, false_path);
                     _builder.SetInsertPoint(true_path);
                     _emit_arrival(
-                        control.true_edge, true_mask);
+                        control.true_edge,
+                        reuse_coherent_mask ?
+                            _active_mask : true_mask);
                     _builder.SetInsertPoint(false_path);
                     _emit_arrival(
-                        control.false_edge, false_mask);
+                        control.false_edge,
+                        reuse_coherent_mask ?
+                            _active_mask : false_mask);
                 } else {
                     auto *true_path = ::llvm::BasicBlock::Create(
                         _module.getContext(), "uniform.true", _entry);
@@ -607,6 +617,10 @@ void ScheduleEmitter::_emit_terminator(
                 }
                 if (selector_value->value_class ==
                     schedule::ValueClass::varying) {
+                    if (reuse_coherent_mask) {
+                        _result.coherent_mask_reuse_count +=
+                            control.cases.size() + 1u;
+                    }
                     auto *selector_type = ::llvm::cast<::llvm::VectorType>(
                         selector->getType());
                     auto *element_type = ::llvm::cast<::llvm::IntegerType>(
@@ -703,11 +717,14 @@ void ScheduleEmitter::_emit_terminator(
                         _builder.SetInsertPoint(case_paths[i]);
                         _emit_arrival(
                             control.cases[i].edge,
-                            case_masks[i]);
+                            reuse_coherent_mask ?
+                                _active_mask : case_masks[i]);
                     }
                     _builder.SetInsertPoint(default_path);
                     _emit_arrival(
-                        control.default_edge, default_mask);
+                        control.default_edge,
+                        reuse_coherent_mask ?
+                            _active_mask : default_mask);
                 } else {
                     auto *default_path = ::llvm::BasicBlock::Create(
                         _module.getContext(),

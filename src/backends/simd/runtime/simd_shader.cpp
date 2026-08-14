@@ -233,6 +233,7 @@ SIMDShader::SIMDShader(
             "predicated_memory_instructions={}, "
             "factored_selects={}, unswitched_loops={}, cloned_blocks={}, "
             "cloned_instructions={}, merged_live_outs={}, "
+            "coherent_mask_reuses={}, "
             "direct_control_flow={}, "
             "schedule_blocks={}, convergence_points={}, "
             "state_slots={}, instruction_spills={}, cold_slots={}, "
@@ -257,6 +258,7 @@ SIMDShader::SIMDShader(
             _compiled.unswitched_cloned_block_count,
             _compiled.unswitched_cloned_instruction_count,
             _compiled.unswitched_live_out_count,
+            _compiled.coherent_mask_reuse_count,
             _compiled.direct_control_flow,
             _compiled.schedule_block_count,
             _compiled.convergence_point_count,

@@ -657,10 +657,100 @@ make_large_cfg(uint32_t width, uint32_t block_count) {
 }
 
 [[nodiscard]] std::optional<schedule::Function>
-make_varying_switch(uint32_t width) {
+make_runtime_coherent_branch(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
-    kernel->set_name("varying_switch");
+    kernel->set_name("runtime_coherent_branch");
+    auto *entry = kernel->create_body_block();
+    auto *true_block = kernel->create_basic_block();
+    auto *false_block = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    entry->set_name("entry");
+    true_block->set_name("true_block");
+    false_block->set_name("false_block");
+    merge->set_name("merge");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t threshold_value = 2u;
+    uint32_t true_addend_value = 10u;
+    uint32_t false_addend_value = 20u;
+    auto *threshold = module.create_constant(
+        Type::of<uint32_t>(), &threshold_value);
+    auto *true_addend = module.create_constant(
+        Type::of<uint32_t>(), &true_addend_value);
+    auto *false_addend = module.create_constant(
+        Type::of<uint32_t>(), &false_addend_value);
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *selector = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, one});
+    auto *condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {selector, threshold});
+    builder.cond_br(condition, true_block, false_block);
+    builder.set_insertion_point(true_block);
+    auto *true_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, true_addend});
+    builder.br(merge);
+    builder.set_insertion_point(false_block);
+    auto *false_result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, false_addend});
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *selected = builder.phi(
+        Type::of<uint32_t>(),
+        {{true_result, true_block}, {false_result, false_block}});
+    selected->set_name("runtime_coherent_branch_result");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> result_id;
+    auto saw_varying_split = false;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "runtime_coherent_branch_result") {
+            result_id = value.id;
+        }
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (auto *terminator = std::get_if<schedule::SplitTerminator>(
+                &block.terminator)) {
+            auto *schedule_condition =
+                lowered.function->value(terminator->condition);
+            saw_varying_split =
+                terminator->convergence.has_value() &&
+                schedule_condition != nullptr &&
+                schedule_condition->value_class ==
+                    schedule::ValueClass::varying;
+        }
+        if (block.name == "merge") {
+            block.terminator = schedule::ReturnTerminator{result_id};
+        }
+    }
+    if (!result_id || !saw_varying_split ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_varying_switch(uint32_t width,
+                    bool runtime_coherent = false) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name(runtime_coherent ?
+                         "runtime_coherent_switch" :
+                         "varying_switch");
     auto *entry = kernel->create_body_block();
     auto *case_zero = kernel->create_basic_block();
     auto *case_two = kernel->create_basic_block();
@@ -689,7 +779,15 @@ make_varying_switch(uint32_t width) {
 
     xir::XIRBuilder builder;
     builder.set_insertion_point(entry);
-    auto *branch = builder.indexed_branch(lane);
+    auto *selector = static_cast<xir::Value *>(lane);
+    if (runtime_coherent) {
+        auto *dispatch_id = module.create_dispatch_id();
+        auto *one = module.create_constant_one(Type::of<uint32_t>());
+        selector = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+            {dispatch_id, one});
+    }
+    auto *branch = builder.indexed_branch(selector);
     branch->set_default_block(default_case);
     branch->add_case(0u, case_zero);
     branch->add_case(2u, case_two);
@@ -743,7 +841,13 @@ make_varying_switch(uint32_t width) {
     for (auto &block : lowered.function->blocks()) {
         if (auto *terminator = std::get_if<schedule::SwitchTerminator>(
                 &block.terminator)) {
-            saw_convergent_switch = terminator->convergence.has_value();
+            auto *schedule_selector =
+                lowered.function->value(terminator->selector);
+            saw_convergent_switch =
+                terminator->convergence.has_value() &&
+                schedule_selector != nullptr &&
+                schedule_selector->value_class ==
+                    schedule::ValueClass::varying;
         }
         if (block.name == "merge") {
             block.terminator = schedule::ReturnTerminator{result_id};
@@ -1789,6 +1893,7 @@ template<size_t Width>
         std::cerr << codegen.error << '\n';
         return false;
     }
+    CHECK(codegen.coherent_mask_reuse_count == 4u);
     CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
     std::string ir;
     ::llvm::raw_string_ostream stream{ir};
@@ -1819,6 +1924,85 @@ template<size_t Width>
                           lane == 5u ? 30u :
                                        40u;
             CHECK(output[lane] == lane + addend);
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_runtime_coherent_control_codegen() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        for (auto use_switch : {false, true}) {
+            auto schedule_function = use_switch ?
+                                         make_varying_switch(width, true) :
+                                         make_runtime_coherent_branch(width);
+            CHECK(schedule_function.has_value());
+            for (auto disable_reuse : {false, true}) {
+                ScopedEnvironmentVariable disable{
+                    "LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE",
+                    disable_reuse ? "1" : nullptr};
+                auto context = std::make_unique<::llvm::LLVMContext>();
+                auto module = std::make_unique<::llvm::Module>(
+                    "simd-runtime-coherent-control", *context);
+                auto name = std::string{
+                    use_switch ?
+                        "simd_runtime_coherent_switch_w" :
+                        "simd_runtime_coherent_branch_w"} +
+                            std::to_string(width) +
+                            (disable_reuse ? "_oracle" : "_reuse");
+                auto codegen = lower_schedule_to_llvm(
+                    *module, *schedule_function, width, name);
+                if (!codegen.succeeded()) {
+                    std::cerr << codegen.error << '\n';
+                    return false;
+                }
+                CHECK(codegen.coherent_mask_reuse_count ==
+                      (disable_reuse ? 0u :
+                       use_switch ? 4u : 2u));
+                CHECK(!codegen.direct_control_flow);
+                CHECK(!::llvm::verifyModule(
+                    *module, &::llvm::errs()));
+                LLVMJIT jit;
+                CHECK(jit.succeeded());
+                CHECK(jit.add_module(
+                    std::move(module), std::move(context)));
+                using Entry = void(
+                    const void *, uint32_t *,
+                    const SIMDPacketLaunchConfig *, uint32_t);
+                auto function = reinterpret_cast<Entry *>(
+                    jit.lookup(name));
+                CHECK(function != nullptr);
+                auto selector_count = use_switch ? 4u : 2u;
+                std::array<uint32_t, 4u> selectors{0u, 2u, 5u, 3u};
+                for (auto selector_index = uint32_t{0u};
+                     selector_index < selector_count;
+                     selector_index++) {
+                    auto selector = selectors[selector_index];
+                    for (auto active_lanes :
+                         {width, std::max(1u, width - 2u), 1u}) {
+                        std::vector<uint32_t> output(
+                            width, 0xdeadbeefu);
+                        auto config = launch_1d(
+                            active_lanes, width);
+                        config.block_id[1u] = selector;
+                        config.dispatch_size[1u] = 6u;
+                        function(
+                            nullptr, output.data(),
+                            &config, active_lanes);
+                        auto addend = use_switch ?
+                                           selector == 0u ? 10u :
+                                           selector == 2u ? 20u :
+                                           selector == 5u ? 30u : 40u :
+                                           selector < 2u ? 10u : 20u;
+                        for (auto lane = uint32_t{0u};
+                             lane < width; lane++) {
+                            auto expected = lane < active_lanes ?
+                                                lane + addend :
+                                                0xdeadbeefu;
+                            CHECK(output[lane] == expected);
+                        }
+                    }
+                }
+            }
         }
     }
     return true;
@@ -6536,6 +6720,8 @@ int main() {
         {"scalar uniform values", &run_uniform_value_codegen},
         {"scalar uniform switch", &run_uniform_switch_codegen},
         {"varying switch convergence", &run_varying_switch_codegen},
+        {"runtime coherent varying control",
+         &run_runtime_coherent_control_codegen},
         {"scalar switch loop exits",
          &run_switch_loop_exits_codegen<1u>},
         {"switch loop exits", &run_switch_loop_exits_codegen<8u>},

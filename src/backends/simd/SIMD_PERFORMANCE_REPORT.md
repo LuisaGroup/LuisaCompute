@@ -30,6 +30,10 @@ The newest memory stage independently applies ISPC's bounded-gather lesson to
 one much narrower Luisa pattern: eligible W8 direct typed-buffer vectors pack
 adjacent 32-bit leaves into legal 64-bit LLVM masked gathers. TargetTransformInfo
 gates the rewrite, so W8 itself remains independent of AVX-512 availability.
+The newest scheduler stage reuses the incoming active-mask SSA value after a
+runtime-coherent varying branch or switch proves that its selected successor
+mask is identical. This preserves all-on/partial-tail identity across the hot
+edge without changing the genuinely divergent scheduler path.
 
 ## Test host and method
 
@@ -58,9 +62,8 @@ throughput metric;
 high-SPP SDF image comparison remains a separate conformance gate.
 Image/SDF/Spacex/GEMM cells retain the earlier seven-process sweep and are not
 performance claims for this checkpoint. Voxel is refreshed with seven
-adjacent alternating fallback/SIMD pairs per width, 128 render iterations per
-process, and both backends using their default 32 workers on logical CPUs
-0--31.
+balanced-order fallback/W1/W2/W4/W8/W16 rounds, 64 render iterations per
+process, and all variants using 32 workers on logical CPUs 0--31.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -71,7 +74,7 @@ Speedup is always `fallback time / SIMD time`, or
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | non-coro SDF, samples/s | 8.705 | 8.197 (0.942x) | 9.476 (1.089x) | 15.112 (1.736x) | 22.568 (2.593x) | 32.959 (3.786x) |
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
-| voxel render, ms/iteration | 6.889 | 8.422 (0.818x) | 24.872 (0.275x) | 16.117 (0.430x) | 9.384 (0.743x) | 6.652 (1.062x) |
+| voxel render, ms/iteration | 7.613 | 8.680 (0.855x) | 22.924 (0.326x) | 13.661 (0.545x) | 8.486 (0.874x) | 6.349 (1.173x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
 | ordinary path tracing, fixed 1 spp/dispatch, spp/s | 72.979 | 64.238 (0.870x) | 52.687 (0.708x) | 65.445 (0.930x) | 79.217 (1.073x) | 79.296 (1.129x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 59.366 | 45.860 (0.770x) | 29.919 (0.511x) | 36.802 (0.619x) | 42.791 (0.730x) | 42.283 (0.711x) |
@@ -85,16 +88,15 @@ process medians ranged from 41.594 to 88.326 GFLOP/s under shared-host load,
 while the SIMD distributions were tight. Its relative speedups must therefore
 be treated as host observations, not cross-machine constants.
 
-The refreshed voxel fallback cell is the pooled median of all 35 fallback
-processes, while each SIMD cell is its seven-process median. Parenthesized
-values are the preferred geometric means of the seven adjacent fallback/SIMD
-ratios. Their 95% paired bootstrap intervals at
-W1/W2/W4/W8/W16 are [0.8152, 0.8219], [0.2715, 0.2788],
-[0.4254, 0.4368], [0.7273, 0.7610], and [1.0477, 1.0797]. W16 wins all seven
-pairs; the other widths lose all seven. Independent gallery comparisons pass
-at 48.08 dB RGB PSNR for fallback and 82.83 dB for W8 SIMD. The two backends use
-different floating-point paths and are not expected to produce identical PNG
-bytes; same-backend refinement/oracle outputs below are byte-identical.
+The refreshed voxel cells are the medians of the seven balanced rounds.
+Parenthesized values are the preferred geometric means of the within-round
+fallback/SIMD ratios. Their 95% paired intervals at W1/W2/W4/W8/W16 are
+[0.8251, 0.8860], [0.3158, 0.3367], [0.5255, 0.5659],
+[0.8469, 0.9029], and [1.1383, 1.2098]. W16 wins all seven rounds; the other
+widths lose all seven. Independent gallery comparisons pass at 48.08 dB RGB
+PSNR for fallback and 82.83 dB for W8 SIMD. The two backends use different
+floating-point paths and are not expected to produce identical PNG bytes;
+same-backend refinement/oracle outputs below are byte-identical.
 
 The current path-tracing rows are paired rather than independent medians because
 unrelated host tasks moved the load average during the sweeps. For ordinary
@@ -1336,13 +1338,78 @@ parallel-scaling controls, not Embree renderer results.
 The widened updates remove real scheduler work, but they do not close the
 ISPC gap: W8 still has 3.31x as many static instructions, 4.90x as many
 branches, and 22.65x as many stack references as ISPC's normal x8 body. The
-next control target is therefore guarded all-on/mixed region versioning that
-lets a dynamically full cohort execute a clone with constant full masks and
-SSA-resident state. ISPC's ablation measures roughly a ten-percent marginal
-effect inside ISPC; it is not an upper bound for Luisa because Luisa's clone
-could additionally eliminate backend-specific scheduler spills. The remaining
-gap still points toward less scheduler state and better register residency
-rather than gather prefetching.
+next control target was therefore all-on/mixed propagation and register
+residency rather than gather prefetching. The bounded follow-up below retains
+the profitable identity while rejecting broad cloning that increased code and
+register pressure.
+
+### Runtime-coherent successor mask reuse
+
+For a nonempty incoming mask `A`, a varying conditional partitions it into
+`T = A & C` and `F = A & !C`. On the existing coherent path exactly one of
+`T` and `F` is nonempty, so the selected mask equals `A`. Indexed-switch
+case/default masks form the same disjoint partition. Schedule-to-LLVM now
+passes `A` itself to that sole successor instead of retaining the derived
+mask. The divergent path is unchanged. The same-binary oracle is
+`LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE=1`, and the runtime report exposes
+`coherent_mask_reuses`.
+
+The analytic path tracer reports 24 eligible static successor edges at W8.
+Alternating single-core candidate/oracle processes measured:
+
+| Width | speedup | 95% paired CI | wins |
+| ---: | ---: | ---: | ---: |
+| W2 | 1.1396x | [1.1335, 1.1457] | 15/15 |
+| W4 | 1.2352x | [1.2199, 1.2507] | 15/15 |
+| W8 | 1.1629x | [1.1566, 1.1693] | 21/21 |
+| W16 | 1.1158x | [1.1133, 1.1184] | 15/15 |
+
+Every result retains checksum `a93089e651f98582`. The exact W8 assembly grows
+from 3,518 to 3,697 static instructions and from 328 to 345 static branches,
+but stack references fall from 974 to 946 and the frame from 5,152 to 4,960
+bytes. This is a useful counterexample to static-size-only selection: removing
+the derived-mask dependency changes register allocation and the dynamically
+taken coherent path even though LLVM duplicates some surrounding code.
+
+The real Voxel kernel passed the same gate at every SIMD width. Each cell is
+seven alternating 64-render candidate/oracle processes on 32 workers:
+
+| Width | speedup | 95% paired CI | wins |
+| ---: | ---: | ---: | ---: |
+| W2 | 1.1145x | [1.1067, 1.1223] | 7/7 |
+| W4 | 1.2355x | [1.2267, 1.2444] | 7/7 |
+| W8 | 1.1240x | [1.1154, 1.1327] | 7/7 |
+| W16 | 1.0611x | [1.0505, 1.0717] | 7/7 |
+
+Candidate and oracle PNGs at all four widths are byte-identical with SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`.
+W8 image processing is neutral at 0.9966x [0.9875, 1.0057], as expected for
+its direct CFG. Ordinary Embree path tracing is also neutral at 1.0042x
+[0.9934, 1.0150]; this mask identity does not remove its ray-query callbacks or
+sparse traversal traffic.
+
+The fallback-relative Voxel table at the top was independently refreshed with
+seven balanced fallback/W1/W2/W4/W8/W16 rounds. W16 is now 1.1735x fallback;
+W8 improves substantially but remains 0.8744x, so the control-flow gain is not
+presented as a complete Voxel layout solution.
+
+The ISPC comparison was refreshed with fifteen balanced single-core rounds.
+ISPC remains faster on the same analytic algorithm: AVX2 i32x8 is 3.2946x
+[3.2800, 3.3092] over Luisa W8, AVX-512 x8 is 3.0685x
+[3.0525, 3.0846], and AVX-512 x16 is 3.8086x [3.7960, 3.8212] over Luisa W16.
+These are compiler controls without Embree, not renderer traversal results.
+
+Several broader ISPC-inspired experiments were rejected. Whole-function
+all-on/mixed duplication doubled the analytic code body and its no-inline form
+measured 0.9796x with one win in fifteen pairs. Cloning only the entry block
+improved the analytic W8 case by about two percent but regressed W8 Voxel to
+0.9262x and ordinary path tracing to 0.9847x. Unmasked single-cohort prefix
+spills were neutral at 1.0016x analytically and neutral on all three real
+examples. LLVM O3 measured 0.9988x [0.9960, 1.0016] in 21 pairs; its final
+assembly and object were byte-identical to O2. An additional post-O2
+`SROA/InstCombine/JumpThreading/SimplifyCFG` sequence was also byte-identical.
+The retained change therefore exposes a mask fact unavailable to generic LLVM
+rather than merely requesting more optimization passes.
 
 This split result rules out a blanket LLVM-code-quality explanation. The
 coherent GEMM body is already faster than the matched ISPC implementation;
@@ -1507,3 +1574,15 @@ five SIMD widths, and AVX-512 x8/x16 outputs before fourteen alternating timing
 rounds. Fresh all-width ordinary path-tracing, Voxel, and image-processing
 gallery comparisons pass; every one of those real kernels reports zero
 widened candidates, matching the documented no-gain result.
+
+The runtime-coherent-mask stage reran the required three-test native-math/
+runtime-width gate, the focused Schedule-codegen executable, the SIMD-only
+suite (129/129), and the complete SIMD+fallback configuration (140/140).
+Clangd syntax checks pass for all four changed translation units. Fresh W1/W2/
+W4/W8/W16 Voxel and image-processing galleries pass at 82.83/89.25 dB. The
+ordinary path tracer passes its 1024-SPP gallery at
+35.43/42.78/40.94/39.22/37.80 dB from W1 through W16; W8 cutout passes at
+44.17 dB. Both path tracers report Embree 4.4.1 W4/W8/W16 native packet
+support. The dedicated candidate/oracle regression covers runtime-coherent
+conditional and indexed control, every successor, partial tails, one-lane
+cohorts, and a genuinely divergent switch at W2/W4/W8/W16.
