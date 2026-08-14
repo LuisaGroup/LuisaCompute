@@ -1093,10 +1093,12 @@ so an inactive tail cannot expose poison.
 The physical texture remains Luisa's native row-major resource layout. The
 packet ABI is the SIMD-facing layout boundary: it permits coherence-aware
 batching without changing native handles, upload/download layout, external
-memory, or read/write synchronization. JIT code must not assume a raw texture
-pointer or storage format. Direct wide AoS loads/gathers require a separate
-proven safety and performance gate; the audited experiment reduced instruction
-count but regressed end-to-end graphics time and is not part of production.
+memory, or read/write synchronization. Generic JIT code must not inspect a
+`SIMDTexture` or `FallbackTexture` C++ object layout. A backend-local bindless
+descriptor may explicitly publish a raw view only together with the exact
+storage/mip contract that makes it valid; every other texture path remains
+behind the packet callback. Direct wide loads/gathers require a separate
+pre-access bounds proof and performance gate.
 
 For a fully active fixed-width packet whose 2D coordinates are one bounded,
 increasing row span, native `FLOAT4` and `INT4` storage may use an
@@ -1112,16 +1114,18 @@ public texture layout or semantics.
 Bindless arrays extend the same packet boundary with a runtime-owned dense
 slot table. Each slot contains independent buffer, 2D-texture, and 3D-texture
 descriptors; a texture descriptor stores the resolved `SIMDTexture` plus a
-packed 64-bit sampler/base-extent field in a 16-byte descriptor total. Each
-extent is limited to twenty bits, and a bindless update fails before publishing
-the descriptor if an extent does not fit. JIT code issues exactly one callback
-for a varying packet and
-passes divergent slot indices through a SoA scratch array. Before any scratch
-store, table lookup, coordinate conversion, mip conversion, or sampler decode,
-inactive lanes are selected to benign zero operands. Callback result storage
-is zero-initialized. The runtime then groups active lanes that resolve to the
-same texture, sampler, and (where applicable) mip before accessing the native
-row-major resource.
+raw mip-zero pointer when the storage is `BYTE1`, followed by a packed 64-bit
+sampler/base-extent field. The backend-local descriptor is 24 bytes; two
+texture descriptors plus the buffer view form one 64-byte slot aligned to 16
+bytes. Non-`BYTE1` formats publish a null raw pointer. Each extent is limited
+to twenty bits, and a bindless update fails before publishing the descriptor
+if an extent does not fit. JIT code normally issues exactly one callback for a
+varying packet and passes divergent slot indices through a SoA scratch array.
+Before any scratch store, table lookup, coordinate conversion, mip conversion,
+or sampler decode, inactive lanes are selected to benign zero operands.
+Callback result storage is zero-initialized. The runtime then groups active
+lanes that resolve to the same texture, sampler, and (where applicable) mip
+before accessing the native row-major resource.
 
 A result classified warp- or cohort-uniform invokes the callback for only the
 first active lane and remains scalar after the callback. It is forbidden to
@@ -1155,9 +1159,31 @@ positive level is supplied. `LINEAR_POINT` selects the nearest mip while
 `LINEAR_LINEAR` and anisotropic mode interpolate adjacent mips. A zero gradient
 selects mip zero. A NaN in either derivative produces derived LOD zero before
 an optional minimum-LOD clamp; a non-NaN infinite derivative selects the last
-mip. The common 2D `BYTE1` stored-sampler path resolves the invariant
-view once per packet and performs the four bilinear taps directly; other
-formats and sparse masks retain the generic packet path.
+mip.
+
+The common varying 2D `BYTE1`, mip-zero, stored
+`LINEAR_POINT`/`MIRROR`, uniform-slot path is lowered directly in
+target-independent fixed-vector JIT IR. The descriptor is loaded once; mirror
+range reduction, coordinate conversion, four tap addresses, interpolation,
+and result masking remain vectors. Inactive or non-finite coordinates are
+selected to benign values before float-to-integer conversion and before any
+gather, and produce the initialized zero pixel. All other samplers, storage
+formats, mip/gradient/explicit-sampler operations, divergent slots, and
+uniform sampled results retain the packet callback and its existing semantics.
+
+The baseline direct tap load is an alignment-one masked byte gather. At W4 and
+W8 only, a measured specialization may instead issue alignment-one 32-bit
+gathers and retain the byte at the addressed lowest memory location. Before
+that wider access, JIT IR proves for all four taps and every participating lane
+that `offset <= width * height - 4`; inactive lanes do not constrain the
+proof. A texture smaller than four bytes, any packet touching the final three
+bytes, or a failed proof takes the narrow gather path before memory is
+accessed. Big-endian targets shift the loaded word before masking. This changes
+neither public row-major layout nor external-memory requirements. W1/W2/W16
+remain narrow because the measured wide form was neutral or slower there.
+`LUISA_SIMD_DISABLE_IR_BYTE1_TEXTURE_SAMPLING=1` restores the complete callback
+oracle, while `LUISA_SIMD_DISABLE_WIDE_BYTE1_GATHERS=1` keeps direct JIT
+sampling but forces narrow gathers.
 
 Embree traversal uses the packet API matching the specialization width:
 

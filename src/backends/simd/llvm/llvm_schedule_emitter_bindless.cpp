@@ -2,9 +2,265 @@
 
 #include <limits>
 
+#include "../../common/env_flag.h"
 #include "../../common/llvm_native_math.h"
 
 namespace luisa::compute::simd::detail {
+
+namespace {
+
+struct TextureLinearCoordinateIR {
+    ::llvm::Value *lo;
+    ::llvm::Value *hi;
+    ::llvm::Value *t;
+    ::llvm::Value *valid;
+};
+
+[[nodiscard]] ::llvm::Constant *float_vector_constant(
+    ::llvm::IRBuilder<> &builder, uint32_t width, float value) {
+    return ::llvm::ConstantVector::getSplat(
+        ::llvm::ElementCount::getFixed(width),
+        ::llvm::ConstantFP::get(builder.getFloatTy(), value));
+}
+
+[[nodiscard]] TextureLinearCoordinateIR
+emit_mirror_linear_coordinate(
+    ::llvm::IRBuilder<> &builder, uint32_t width,
+    ::llvm::Value *coordinate, ::llvm::Value *size) {
+    auto *zero = float_vector_constant(builder, width, 0.0f);
+    auto *half = float_vector_constant(builder, width, 0.5f);
+    auto *one = float_vector_constant(builder, width, 1.0f);
+    auto *two = float_vector_constant(builder, width, 2.0f);
+    auto *one_minus_epsilon = float_vector_constant(
+        builder, width, 0x1.fffffep-1f);
+    auto *infinity = ::llvm::ConstantVector::getSplat(
+        ::llvm::ElementCount::getFixed(width),
+        ::llvm::ConstantFP::getInfinity(builder.getFloatTy()));
+    auto *absolute = builder.CreateUnaryIntrinsic(
+        ::llvm::Intrinsic::fabs, coordinate);
+    auto *finite = builder.CreateFCmpOLT(
+        absolute, infinity, "bindless.texture.byte1.finite");
+    auto *half_inverse_size = builder.CreateFDiv(half, size);
+
+    auto mirror = [&](::llvm::Value *value) {
+        value = builder.CreateUnaryIntrinsic(
+            ::llvm::Intrinsic::fabs, value);
+        auto *period = builder.CreateUnaryIntrinsic(
+            ::llvm::Intrinsic::floor,
+            builder.CreateFMul(value, half));
+        value = builder.CreateFSub(
+            value, builder.CreateFMul(period, two));
+        value = builder.CreateSelect(
+            builder.CreateFCmpOLT(value, one), value,
+            builder.CreateFSub(two, value));
+        value = builder.CreateMinNum(value, one_minus_epsilon);
+        return builder.CreateFMul(value, size);
+    };
+    auto *a = mirror(builder.CreateFSub(
+        coordinate, half_inverse_size));
+    auto *b = mirror(builder.CreateFAdd(
+        coordinate, half_inverse_size));
+    auto *lo = builder.CreateMinNum(a, b);
+    auto *hi = builder.CreateMaxNum(a, b);
+    auto *reduced_in_range = builder.CreateAnd(
+        builder.CreateAnd(
+            builder.CreateFCmpOGE(lo, zero),
+            builder.CreateFCmpOLT(lo, size)),
+        builder.CreateAnd(
+            builder.CreateFCmpOGE(hi, zero),
+            builder.CreateFCmpOLT(hi, size)));
+    auto *valid = builder.CreateAnd(
+        finite, reduced_in_range,
+        "bindless.texture.byte1.reduced.valid");
+    auto *safe_lo = builder.CreateSelect(valid, lo, zero);
+    auto *safe_hi = builder.CreateSelect(valid, hi, zero);
+    auto *i32_lanes = ::llvm::FixedVectorType::get(
+        builder.getInt32Ty(), width);
+    auto *lo_index = builder.CreateFPToUI(
+        safe_lo, i32_lanes,
+        "bindless.texture.byte1.linear.lo");
+    auto *hi_index = builder.CreateFPToUI(
+        safe_hi, i32_lanes,
+        "bindless.texture.byte1.linear.hi");
+    auto *fraction = builder.CreateFSub(
+        safe_hi, builder.CreateUnaryIntrinsic(::llvm::Intrinsic::floor, safe_hi),
+        "bindless.texture.byte1.linear.fraction");
+    return {lo_index, hi_index, fraction, valid};
+}
+
+void emit_byte1_linear_mirror_sample(
+    ::llvm::IRBuilder<> &builder, uint32_t width,
+    ::llvm::Value *active_mask, ::llvm::Value *data,
+    ::llvm::Value *width_value, ::llvm::Value *height_value,
+    ::llvm::Value *u, ::llvm::Value *v,
+    ::llvm::AllocaInst *scratch,
+    ::llvm::ArrayType *scratch_type,
+    bool enable_wide_gathers, bool little_endian) {
+    auto *float_lanes = ::llvm::FixedVectorType::get(
+        builder.getFloatTy(), width);
+    auto *i8_lanes = ::llvm::FixedVectorType::get(
+        builder.getInt8Ty(), width);
+    auto *i32_lanes = ::llvm::FixedVectorType::get(
+        builder.getInt32Ty(), width);
+    auto *i64_lanes = ::llvm::FixedVectorType::get(
+        builder.getInt64Ty(), width);
+    auto *width_float = builder.CreateVectorSplat(
+        width, builder.CreateUIToFP(
+                   width_value, builder.getFloatTy()));
+    auto *height_float = builder.CreateVectorSplat(
+        width, builder.CreateUIToFP(
+                   height_value, builder.getFloatTy()));
+    auto x = emit_mirror_linear_coordinate(
+        builder, width, u, width_float);
+    auto y = emit_mirror_linear_coordinate(
+        builder, width, v, height_float);
+    auto *sample_mask = builder.CreateAnd(
+        active_mask, builder.CreateAnd(x.valid, y.valid),
+        "bindless.texture.byte1.sample.mask");
+    auto *width_i64 = builder.CreateVectorSplat(
+        width, builder.CreateZExt(
+                   width_value, builder.getInt64Ty()));
+    auto *data_lanes = builder.CreateVectorSplat(width, data);
+    auto offset = [&](::llvm::Value *x_index,
+                      ::llvm::Value *y_index) {
+        auto *x_i64 = builder.CreateZExt(x_index, i64_lanes);
+        auto *y_i64 = builder.CreateZExt(y_index, i64_lanes);
+        return builder.CreateAdd(
+            builder.CreateMul(y_i64, width_i64), x_i64);
+    };
+    std::array<::llvm::Value *, 4u> offsets{
+        offset(x.lo, y.lo), offset(x.hi, y.lo),
+        offset(x.lo, y.hi), offset(x.hi, y.hi)};
+    std::array<std::string_view, 4u> names{
+        "bindless.texture.byte1.v00",
+        "bindless.texture.byte1.v01",
+        "bindless.texture.byte1.v10",
+        "bindless.texture.byte1.v11"};
+    auto narrow_gather = [&](::llvm::Value *texel_offset,
+                             std::string_view name) {
+        auto *pointers = builder.CreateGEP(
+            builder.getInt8Ty(), data_lanes, texel_offset);
+        auto *bytes = builder.CreateMaskedGather(
+            i8_lanes, pointers, ::llvm::Align{1u},
+            sample_mask, ::llvm::Constant::getNullValue(i8_lanes),
+            name);
+        return builder.CreateZExt(bytes, i32_lanes);
+    };
+    std::array<::llvm::Value *, 4u> texels{};
+    if (enable_wide_gathers) {
+        auto *width_scalar_i64 = builder.CreateZExt(
+            width_value, builder.getInt64Ty());
+        auto *height_scalar_i64 = builder.CreateZExt(
+            height_value, builder.getInt64Ty());
+        auto *pixel_count = builder.CreateMul(
+            width_scalar_i64, height_scalar_i64);
+        auto *has_wide_load = builder.CreateICmpUGE(
+            pixel_count, builder.getInt64(4u));
+        auto *last_wide_offset = builder.CreateSelect(
+            has_wide_load,
+            builder.CreateSub(pixel_count, builder.getInt64(4u)),
+            builder.getInt64(0u));
+        auto *last_wide_offsets = builder.CreateVectorSplat(
+            width, last_wide_offset);
+        ::llvm::Value *safe_lanes = ::llvm::Constant::getAllOnesValue(
+            sample_mask->getType());
+        for (auto *texel_offset : offsets) {
+            auto *safe_offset = builder.CreateICmpULE(
+                texel_offset, last_wide_offsets);
+            safe_lanes = builder.CreateAnd(
+                safe_lanes,
+                builder.CreateOr(
+                    builder.CreateNot(sample_mask), safe_offset));
+        }
+        auto *use_wide_gathers = builder.CreateAnd(
+            has_wide_load, builder.CreateAndReduce(safe_lanes),
+            "bindless.texture.byte1.wide.eligible");
+        auto *function = builder.GetInsertBlock()->getParent();
+        auto *wide = ::llvm::BasicBlock::Create(
+            builder.getContext(),
+            "bindless.texture.byte1.wide", function);
+        auto *narrow = ::llvm::BasicBlock::Create(
+            builder.getContext(),
+            "bindless.texture.byte1.narrow", function);
+        auto *gather_merge = ::llvm::BasicBlock::Create(
+            builder.getContext(),
+            "bindless.texture.byte1.gather.merge", function);
+        builder.CreateCondBr(use_wide_gathers, wide, narrow);
+
+        builder.SetInsertPoint(wide);
+        std::array<::llvm::Value *, 4u> wide_texels{};
+        for (auto i = 0u; i < offsets.size(); i++) {
+            auto *pointers = builder.CreateGEP(
+                builder.getInt8Ty(), data_lanes, offsets[i]);
+            ::llvm::Value *words = builder.CreateMaskedGather(
+                i32_lanes, pointers, ::llvm::Align{1u},
+                sample_mask,
+                ::llvm::Constant::getNullValue(i32_lanes),
+                std::string{names[i]} + ".wide");
+            if (!little_endian) {
+                words = builder.CreateLShr(
+                    words, builder.CreateVectorSplat(
+                               width, builder.getInt32(24u)));
+            }
+            wide_texels[i] = builder.CreateAnd(
+                words, builder.CreateVectorSplat(
+                           width, builder.getInt32(0xffu)));
+        }
+        builder.CreateBr(gather_merge);
+        auto *wide_end = builder.GetInsertBlock();
+
+        builder.SetInsertPoint(narrow);
+        std::array<::llvm::Value *, 4u> narrow_texels{};
+        for (auto i = 0u; i < offsets.size(); i++) {
+            narrow_texels[i] = narrow_gather(
+                offsets[i], names[i]);
+        }
+        builder.CreateBr(gather_merge);
+        auto *narrow_end = builder.GetInsertBlock();
+
+        builder.SetInsertPoint(gather_merge);
+        for (auto i = 0u; i < offsets.size(); i++) {
+            auto *phi = builder.CreatePHI(
+                i32_lanes, 2u,
+                std::string{names[i]} + ".gathered");
+            phi->addIncoming(wide_texels[i], wide_end);
+            phi->addIncoming(narrow_texels[i], narrow_end);
+            texels[i] = phi;
+        }
+    } else {
+        for (auto i = 0u; i < offsets.size(); i++) {
+            texels[i] = narrow_gather(offsets[i], names[i]);
+        }
+    }
+    auto normalize = [&](::llvm::Value *bytes) {
+        return builder.CreateFMul(
+            builder.CreateUIToFP(bytes, float_lanes),
+            float_vector_constant(builder, width, 1.0f / 255.0f));
+    };
+    auto *v00 = normalize(texels[0u]);
+    auto *v01 = normalize(texels[1u]);
+    auto *v10 = normalize(texels[2u]);
+    auto *v11 = normalize(texels[3u]);
+    auto lerp = [&](::llvm::Value *lhs, ::llvm::Value *rhs,
+                    ::llvm::Value *t) {
+        return builder.CreateFAdd(
+            lhs, builder.CreateFMul(
+                     builder.CreateFSub(rhs, lhs), t));
+    };
+    auto *value = lerp(
+        lerp(v00, v01, x.t),
+        lerp(v10, v11, x.t), y.t);
+    value = builder.CreateSelect(
+        sample_mask, value,
+        ::llvm::Constant::getNullValue(float_lanes),
+        "bindless.texture.byte1.result");
+    auto *component = builder.CreateGEP(
+        scratch_type, scratch,
+        {builder.getInt32(0u), builder.getInt32(0u)});
+    builder.CreateStore(value, component);
+}
+
+}// namespace
 
 [[nodiscard]] ScheduleEmitter::BindlessArrayLanes
 ScheduleEmitter::_bindless_array_lanes(
@@ -1007,12 +1263,6 @@ void ScheduleEmitter::_bindless_resource_write(
     _builder.CreateStore(
         ::llvm::Constant::getNullValue(scratch_type), scratch);
     auto *callback = _builder.CreateExtractValue(array.view, {2u});
-    auto *missing_callback = _builder.CreateICmpEQ(
-        callback, null_pointer);
-    _trap_if(
-        _builder.CreateAnd(
-            _builder.CreateOrReduce(_active_mask), missing_callback),
-        "bindless.texture.sample.callback.null");
     auto *callback_type = ::llvm::FunctionType::get(
         _builder.getVoidTy(),
         {pointer_type, _builder.getInt64Ty(),
@@ -1021,15 +1271,122 @@ void ScheduleEmitter::_bindless_resource_write(
          pointer_type, pointer_type, pointer_type,
          pointer_type, pointer_type},
         false);
-    auto *active_mask_bits = _bindless_callback_mask(
-        result->value_class == schedule::ValueClass::varying);
-    _builder.CreateCall(
-        callback_type, callback,
-        {array.slots, array.slot_count,
-         _builder.getInt32(dimension), _builder.getInt32(_width),
-         active_mask_bits, slot_scratch, sampler_pointer,
-         coordinate_scratch[0u], coordinate_scratch[1u],
-         coordinate_scratch[2u], level_pointer, scratch});
+    auto emit_callback = [&] {
+        auto *missing_callback = _builder.CreateICmpEQ(
+            callback, null_pointer);
+        _trap_if(
+            _builder.CreateAnd(
+                _builder.CreateOrReduce(_active_mask),
+                missing_callback),
+            "bindless.texture.sample.callback.null");
+        auto *active_mask_bits = _bindless_callback_mask(
+            result->value_class == schedule::ValueClass::varying);
+        _builder.CreateCall(
+            callback_type, callback,
+            {array.slots, array.slot_count,
+             _builder.getInt32(dimension), _builder.getInt32(_width),
+             active_mask_bits, slot_scratch, sampler_pointer,
+             coordinate_scratch[0u], coordinate_scratch[1u],
+             coordinate_scratch[2u], level_pointer, scratch});
+    };
+
+    auto *slot_value = _source.value(instruction.operands[1u]);
+    auto direct_byte1_candidate =
+        dimension == 2u && !has_level && !has_gradient &&
+        !explicit_sampler && varying_result && slot_value != nullptr &&
+        schedule::is_uniform(slot_value->value_class) &&
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_IR_BYTE1_TEXTURE_SAMPLING");
+    if (direct_byte1_candidate) {
+        auto *first_active_lane = _safe_first_lane(_active_mask);
+        auto *scalar_slot = _builder.CreateExtractElement(
+            array.slot_indices, first_active_lane);
+        auto *slot_base = _builder.CreateGEP(
+            _builder.getInt8Ty(), array.slots,
+            _builder.CreateMul(
+                scalar_slot,
+                _builder.getInt64(sizeof(SIMDHostBindlessSlot))));
+        auto *descriptor = _builder.CreateGEP(
+            _builder.getInt8Ty(), slot_base,
+            _builder.getInt64(
+                offsetof(SIMDHostBindlessSlot, texture2d)));
+        auto *data_pointer = _builder.CreateGEP(
+            _builder.getInt8Ty(), descriptor,
+            _builder.getInt64(offsetof(
+                SIMDHostBindlessTextureSlot, byte1_mip0)));
+        auto *data = _builder.CreateLoad(
+            pointer_type, data_pointer,
+            "bindless.texture.byte1.data");
+        auto *metadata_pointer = _builder.CreateGEP(
+            _builder.getInt8Ty(), descriptor,
+            _builder.getInt64(offsetof(
+                SIMDHostBindlessTextureSlot, metadata)));
+        auto *metadata = _builder.CreateLoad(
+            _builder.getInt64Ty(), metadata_pointer,
+            "bindless.texture.byte1.metadata");
+        auto extent = [&](uint32_t shift,
+                          std::string_view name) {
+            return _builder.CreateTrunc(
+                _builder.CreateAnd(
+                    _builder.CreateLShr(
+                        metadata, _builder.getInt64(shift)),
+                    _builder.getInt64(
+                        simd_bindless_texture_extent_mask)),
+                _builder.getInt32Ty(), name);
+        };
+        auto *width = extent(
+            4u, "bindless.texture.byte1.width");
+        auto *height = extent(
+            24u, "bindless.texture.byte1.height");
+        auto *sampler_code = _builder.CreateTrunc(
+            _builder.CreateAnd(metadata, _builder.getInt64(0x0fu)),
+            _builder.getInt32Ty());
+        auto *eligible = _builder.CreateAnd(
+            _builder.CreateICmpNE(data, null_pointer),
+            _builder.CreateAnd(
+                _builder.CreateICmpEQ(
+                    sampler_code,
+                    _builder.getInt32(
+                        simd_bindless_linear_point_mirror_sampler_code)),
+                _builder.CreateAnd(
+                    _builder.CreateICmpNE(
+                        width, _builder.getInt32(0u)),
+                    _builder.CreateICmpNE(
+                        height, _builder.getInt32(0u)))),
+            "bindless.texture.byte1.eligible");
+        auto *direct = ::llvm::BasicBlock::Create(
+            _module.getContext(),
+            "bindless.texture.byte1.direct", _entry);
+        auto *fallback = ::llvm::BasicBlock::Create(
+            _module.getContext(),
+            "bindless.texture.byte1.callback", _entry);
+        auto *merge = ::llvm::BasicBlock::Create(
+            _module.getContext(),
+            "bindless.texture.byte1.merge", _entry);
+        _builder.CreateCondBr(eligible, direct, fallback);
+
+        _builder.SetInsertPoint(direct);
+        emit_byte1_linear_mirror_sample(
+            _builder, _width, _active_mask,
+            data, width, height,
+            _builder.CreateLoad(
+                float_lanes, coordinate_scratch[0u]),
+            _builder.CreateLoad(
+                float_lanes, coordinate_scratch[1u]),
+            scratch, scratch_type,
+            (_width == 4u || _width == 8u) &&
+                !luisa::compute::detail::env_flag(
+                    "LUISA_SIMD_DISABLE_WIDE_BYTE1_GATHERS"),
+            _module.getDataLayout().isLittleEndian());
+        _builder.CreateBr(merge);
+
+        _builder.SetInsertPoint(fallback);
+        emit_callback();
+        _builder.CreateBr(merge);
+        _builder.SetInsertPoint(merge);
+    } else {
+        emit_callback();
+    }
     auto *pixels = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(_data_type(result->type, true)));
     for (auto component = uint32_t{0u}; component < 4u; component++) {

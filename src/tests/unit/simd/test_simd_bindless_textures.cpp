@@ -1,7 +1,6 @@
 #include "ut/ut.hpp"
 
 #include <array>
-#include <cmath>
 #include <limits>
 
 #include <luisa/backends/ext/simd_config_ext.h>
@@ -406,6 +405,70 @@ int main(int argc, char *argv[]) {
                 host[gid * output_stride + 29u],
                 image_mip_texel(0u, x2_mip, y2_mip),
                 "SIMD bindless uniform-gradient LOD sample mismatch");
+        }
+
+        // The common uniform-slot BYTE1/mip-zero/stored-mirror path executes
+        // directly in fixed-vector JIT IR. Keep an explicit-sampler packet
+        // call beside it as an independent runtime oracle, including a
+        // partial dispatch tail and non-finite coordinates.
+        constexpr auto byte_image_size = make_uint2(7u, 5u);
+        luisa::vector<uint8_t> byte_pixels(
+            byte_image_size.x * byte_image_size.y);
+        for (auto i = 0u; i < byte_pixels.size(); i++) {
+            byte_pixels[i] = static_cast<uint8_t>(i * 37u + 11u);
+        }
+        auto byte_image = device.create_image<float>(
+            PixelStorage::BYTE1, byte_image_size);
+        auto byte_bindless = device.create_bindless_array(1u);
+        byte_bindless.emplace_on_update(
+            0u, byte_image, Sampler::linear_point_mirror());
+        auto byte_output = device.create_buffer<float4>(
+            thread_count * 2u);
+        Kernel1D byte_kernel = [width](
+                                   BindlessVar array,
+                                   BufferVar<float4> result) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto gid = dispatch_x();
+            auto lane = cast<float>(gid);
+            auto u = lane * 0.371f - 3.25f;
+            auto v = lane * -0.217f + 1.75f;
+            u = ite(
+                gid == 0u,
+                std::numeric_limits<float>::quiet_NaN(), u);
+            u = ite(
+                gid == 1u,
+                std::numeric_limits<float>::infinity(), u);
+            v = ite(
+                gid == 2u,
+                -std::numeric_limits<float>::infinity(), v);
+            u = ite(
+                gid == 3u,
+                std::numeric_limits<float>::max(), u);
+            v = ite(
+                gid == 4u,
+                std::numeric_limits<float>::lowest(), v);
+            auto uv = make_float2(u, v);
+            auto texture = array.tex2d(0u);
+            result.write(gid * 2u, texture.sample(uv));
+            result.write(
+                gid * 2u + 1u,
+                texture.sample(
+                    uv, SamplerFilter::LINEAR_POINT,
+                    SamplerAddress::MIRROR));
+        };
+        auto byte_shader = device.compile(byte_kernel);
+        luisa::vector<float4> byte_host(thread_count * 2u);
+        stream << byte_image.copy_from(luisa::span{byte_pixels})
+               << byte_bindless.update()
+               << byte_shader(byte_bindless, byte_output)
+                      .dispatch(thread_count)
+               << byte_output.copy_to(luisa::span{byte_host})
+               << synchronize();
+        for (auto gid = 0u; gid < thread_count; gid++) {
+            expect_close(
+                byte_host[gid * 2u], byte_host[gid * 2u + 1u],
+                "SIMD IR-native BYTE1 texture sample mismatch");
         }
     }
 }

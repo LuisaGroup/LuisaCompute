@@ -1734,20 +1734,22 @@ integer-level reads are additionally grouped by mip. A uniform result narrows
 the callback mask to the first active lane, preserving the scalar-uniform contract.
 Supported operations are 2D/3D read, size, and sample, with explicit levels,
 gradients, minimum-LOD clamping, and either stored or explicit samplers.
-Gradient LOD is derived in target-independent fixed-vector JIT IR from packed
-base extents in the unchanged 16-byte texture slot. If the slot and both
-derivatives are uniform, extent decode, range calculation, `log2`, and an
-optional uniform minimum-LOD clamp execute once in scalar SSA even when the
-coordinates and sampled color vary. Only the callback ABI receives a splat.
-Otherwise the varying LOD uses the shared native fixed-vector `log2`. A
-uniform sampled result additionally narrows the callback to its first active
-lane.
+At that checkpoint, gradient LOD was derived in target-independent
+fixed-vector JIT IR from packed base extents in the then-16-byte texture
+descriptor. The later IR-native `BYTE1` checkpoint expands that backend-local
+descriptor to 24 bytes. If the slot and both derivatives are uniform, extent
+decode, range calculation, `log2`, and an optional uniform minimum-LOD clamp
+execute once in scalar SSA even when the coordinates and sampled color vary.
+Only the callback ABI receives a splat. Otherwise the varying LOD uses the
+shared native fixed-vector `log2`. A uniform sampled result additionally
+narrows the callback to its first active lane.
 
-The common 2D `BYTE1` stored-sampler path hoists the invariant texture view and
-performs the four bilinear taps directly. Mirror addressing uses an absolute-
-value/floor identity instead of the serialized x87 `fprem` emitted for
-`std::fmod`. The physical texture ABI remains row-major; the callback scratch
-is the local AoS/SoA layout boundary. Generic matrix-vector,
+At that checkpoint, the common 2D `BYTE1` stored-sampler runtime path hoisted
+the invariant texture view and performed the four bilinear taps directly.
+Mirror addressing uses an absolute-value/floor identity instead of the
+serialized x87 `fprem` emitted for `std::fmod`. The physical texture ABI
+remains row-major; the callback scratch is the local AoS/SoA layout boundary.
+Generic matrix-vector,
 vector-matrix, and matrix-matrix multiplication for dimensions 2/3/4 plus
 `smoothstep` and `reflect` lowering unlock the Spacex, wave, MPM, and visual
 shader probes without adding target-specific intrinsics.
@@ -1817,10 +1819,10 @@ texture sampling callback, 2.29% to bindless lane grouping, 1.11% to texture
 view resolution, and only 0.02% to the host `parallel_for`. Replacing the
 persistent pool with a system parallel-for cannot address the dominant cost.
 
-The remaining texture bottleneck is the scalar scatter of four random texel
-taps inside the packet callback. The next layout step should lower sampling
-and gather selection into fixed-vector JIT IR, or introduce a measured tile/
-swizzle layout with an explicit upload/download conversion boundary. A general
+At that checkpoint the remaining texture bottleneck was the scalar scatter of
+four random texel taps inside the packet callback. The next measured layout
+step was therefore fixed-vector JIT sampling rather than an immediate tile/
+swizzle upload boundary. A general
 lane-major/value-major transpose is retained as a layout-selection problem:
 switch only across a region large enough to amortize transpose/shuffle cost,
 and keep both inactive-mask and aggregate-ABI proofs. Software prefetch remains
@@ -1836,6 +1838,71 @@ the limiting factor. Existing speculation-safe if-conversion and bounded loop
 unswitching reduce eligible state transitions, while dynamic same-target edges
 already stay on direct LLVM control flow. Density-driven cohort compaction and
 the region layout conversion above remain measured follow-up work.
+
+### IR-native BYTE1 sampling checkpoint
+
+A fresh W8 profile of Spacex attributed 68.89% of cycles to the generic
+`LINEAR_POINT` 2D texture callback. The backend runtime was compiled for the
+portable host baseline rather than `-march=native`; its W8/filter instance
+contained 4,859 static instructions (22,754 bytes), and the hot mirror path
+used scalar SSE coordinate reduction followed by four scalar byte loads per
+lane. This was independent of the SIMT scheduler and host pool: the callback
+is below a single JIT texture operation, and `parallel_for` remained
+negligible.
+
+The common varying uniform-slot 2D `BYTE1`, mip-zero, stored
+`LINEAR_POINT`/`MIRROR` operation now versions at the descriptor boundary. A
+24-byte backend-local texture descriptor retains the opaque `SIMDTexture`,
+publishes a raw mip-zero pointer only for `BYTE1`, and keeps the packed sampler
+and three twenty-bit extents. The eligible path performs mirror range
+reduction, coordinate conversion, four tap-address calculations,
+interpolation, and result masking in target-independent LLVM fixed-vector IR.
+All other formats, samplers, levels, gradients, explicit samplers, divergent
+slots, and scalar-uniform results take the unchanged grouped callback.
+Inactive and non-finite operands are sanitized before float-to-integer
+conversion and before every gather.
+
+LLVM scalarizes masked byte gathers on this x86 host. A second bounded version
+therefore uses alignment-one 32-bit gathers only when a packet-wide proof shows
+that all four tap offsets satisfy `offset <= width * height - 4`; the last
+three bytes and textures smaller than four bytes take the narrow path before
+any load. The loaded lowest-address byte is selected explicitly, including a
+big-endian shift when required. Width-specific A/B retained this form only for
+W4 and W8: seven paired rounds measured narrow/wide throughput ratios of
+0.9698x/0.9815x/1.0275x/1.1585x/1.0074x at W1/W2/W4/W8/W16, with W16 winning
+only 5/7. Thus W1/W2/W16 deliberately keep the narrow gather.
+
+Fifteen alternating W8 processes first measured the IR sampler at 21.955 ms
+per frame versus 51.172 ms for the complete callback oracle, a 2.330x gain
+with 15/15 wins. A separate fifteen-pair sweep measured the accepted wide
+gather at 18.851 ms versus 21.901 ms for narrow direct sampling, another
+1.162x with 15/15 wins. Every enabled/oracle image was byte-identical and
+passed the gallery reference at 70.185 dB.
+
+The final seven-round production sweep used eight frames per process, rotated
+and reversed variant order, and retained one stable image hash per variant:
+
+| Spacex ms/frame | fallback | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Production | 162.421 | 125.778 (1.289x) | 64.295 (2.517x) | 34.030 (4.783x) | 18.655 (8.668x) | 11.684 (13.738x) |
+
+Parentheses are geometric means of paired fallback/SIMD ratios; every width
+won 7/7 pairs. Three 32-frame `perf stat` repetitions measured W8 direct /
+callback / fallback at 130.74/545.79/1,655.94 billion retired instructions,
+90.65/247.46/788.80 billion cycles, and 8.19/49.47/176.45 billion branches.
+The direct path therefore removes 4.17x callback instructions and 6.04x
+callback branches. In a new cycle profile the callback no longer received a
+sample, while the host `parallel_for` was 0.07%. The final W8 assembly contains
+YMM `vroundps`, mask registers, and native gathers on this machine; these are
+LLVM target choices, not an AVX-512 requirement.
+
+`LUISA_SIMD_DISABLE_IR_BYTE1_TEXTURE_SAMPLING=1` restores the callback oracle.
+`LUISA_SIMD_DISABLE_WIDE_BYTE1_GATHERS=1` keeps IR sampling but restores byte
+gathers. A permanent W1/W2/W4/W8/W16 runtime regression compares the direct
+stored sampler against the explicit-sampler callback over mirror-domain,
+NaN/Inf, extreme finite inputs, and a 35-thread inactive tail. The ORC
+regression checks both direct and callback blocks plus pre-conversion range
+sanitization and the masked gather shape.
 
 ### Coherent direct-CFG and ISPC comparison checkpoint
 
@@ -2862,9 +2929,10 @@ on 2026-08-11. The repository now contains:
 - a W1/W2/W4/W8/W16 direct and bindless texture packet callback ABI with SoA
   coordinates and components, packed active masks, same-resource/sampler/level
   batching, same-texel broadcast detection, contiguous row batching, a direct
-  2D `BYTE1` sampling path, sparse set-bit fallback, uniform one-lane callback,
-  and inactive-tail sanitization while retaining the public row-major texture
-  storage ABI;
+  fixed-vector JIT path for uniform-slot 2D mip-zero `BYTE1` linear/mirror
+  sampling, proven W4/W8 wide gathers with a narrow tail oracle, sparse set-bit
+  fallback, uniform one-lane callback, and inactive-tail sanitization while
+  retaining the public row-major texture storage ABI;
 - a static, vertex-motion, and instance-motion triangle Embree packet ABI for
   closest-hit and occlusion, extended to all four round-curve bases, curve
   control-point motion, and curve motion-instance children, where W1

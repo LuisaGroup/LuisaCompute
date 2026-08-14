@@ -29,10 +29,18 @@ struct alignas(16) SIMDHostBufferView {
 // Bindless resources are resolved by the runtime into a dense host table.
 // Keep the slot representation plain and backend-local so JIT code and packet
 // callbacks never depend on runtime C++ object layouts.
-struct alignas(16) SIMDHostBindlessTextureSlot {
+struct alignas(8) SIMDHostBindlessTextureSlot {
     void *texture{nullptr};
+    // Non-null only for BYTE1 mip zero. This lets the JIT lower the common
+    // uniform-slot 2D sampling path to target-native fixed-vector IR without
+    // depending on SIMDTexture/FallbackTexture C++ object layouts. Other
+    // formats and mip paths continue through the packet callback.
+    const std::byte *byte1_mip0{nullptr};
     uint64_t metadata{0u};
 };
+
+static constexpr auto simd_bindless_linear_point_mirror_sampler_code =
+    (1u << 2u) | 2u;
 
 static constexpr auto simd_bindless_texture_extent_bits = 20u;
 static constexpr auto simd_bindless_texture_extent_mask =
@@ -58,13 +66,15 @@ static constexpr auto simd_bindless_texture_extent_mask =
     return static_cast<uint32_t>(slot.metadata & 0x0fu);
 }
 
-static_assert(sizeof(SIMDHostBindlessTextureSlot) == 16u);
+static_assert(sizeof(SIMDHostBindlessTextureSlot) == 24u);
 
 struct alignas(16) SIMDHostBindlessSlot {
     SIMDHostBufferView buffer{};
     SIMDHostBindlessTextureSlot texture2d{};
     SIMDHostBindlessTextureSlot texture3d{};
 };
+
+static_assert(sizeof(SIMDHostBindlessSlot) == 64u);
 
 // Bindless texture callbacks consume one SoA packet. The runtime groups lanes
 // that resolve to the same texture/sampler before sampling, while slot_indices

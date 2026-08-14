@@ -5832,8 +5832,8 @@ void ray_query_scratch_plain_probe(
 struct BindlessTexturePacketProbe {
     bool valid{true};
     uint32_t calls{0u};
-    std::array<uint64_t, 3u> masks{};
-    std::array<std::array<uint32_t, 8u>, 3u> slots{};
+    std::array<uint64_t, 4u> masks{};
+    std::array<std::array<uint32_t, 8u>, 4u> slots{};
 };
 
 void bindless_texture_sample_probe(
@@ -5956,6 +5956,24 @@ void bindless_texture_sample_probe(
     builder.call(
         xir::ResourceWriteOp::BUFFER_WRITE,
         {output, uniform_output_index, uniform_pixel});
+    auto *x_float = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST, x);
+    auto *varying_uv = builder.call(
+        Type::of<luisa::float2>(), xir::ArithmeticOp::AGGREGATE,
+        {x_float, x_float});
+    auto *direct_pixel = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE,
+        {bindless, zero, varying_uv});
+    auto direct_output_offset_value = uint32_t{24u};
+    auto *direct_output_offset = module.create_constant(
+        Type::of<uint32_t>(), &direct_output_offset_value);
+    auto *direct_output_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {x, direct_output_offset});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, direct_output_index, direct_pixel});
     builder.return_void();
 
     auto lowered = schedule::lower_xir_to_schedule(
@@ -5993,6 +6011,16 @@ void bindless_texture_sample_probe(
           std::string::npos);
     CHECK(ir.find("bindless.texture.sample.lane") == std::string::npos);
     CHECK(ir.find("bindless.uniform.callback.mask") != std::string::npos);
+    CHECK(ir.find("bindless.texture.byte1.direct") != std::string::npos);
+    CHECK(ir.find("bindless.texture.byte1.sample.mask") !=
+          std::string::npos);
+    CHECK(ir.find("bindless.texture.byte1.reduced.valid") !=
+          std::string::npos);
+    CHECK(ir.find("bindless.texture.byte1.wide.eligible") !=
+          std::string::npos);
+    CHECK(ir.find("bindless.texture.byte1.narrow") != std::string::npos);
+    CHECK(ir.find("bindless.texture.byte1.v00") != std::string::npos);
+    CHECK(ir.find("bindless.texture.byte1.callback") != std::string::npos);
 
     LLVMJIT jit{true};
     CHECK(jit.succeeded());
@@ -6019,7 +6047,7 @@ void bindless_texture_sample_probe(
             simd_bindless_texture_metadata(
                 Sampler::point_edge().code(), 4u, 4u, 1u);
     }
-    std::array<luisa::float4, 24u> output_values{};
+    std::array<luisa::float4, 32u> output_values{};
     Arguments arguments{
         .bindless = {
             .slots = slots.data(),
@@ -6031,10 +6059,11 @@ void bindless_texture_sample_probe(
     auto config = launch_1d(active_lanes, width);
     function(&arguments, nullptr, &config, active_lanes);
     CHECK(probe.valid);
-    CHECK(probe.calls == 3u);
+    CHECK(probe.calls == 4u);
     CHECK(probe.masks[0u] == 0x1fu);
     CHECK(probe.masks[1u] == 0x1fu);
     CHECK(probe.masks[2u] == 0x01u);
+    CHECK(probe.masks[3u] == 0x1fu);
     for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
         auto expected_slot = lane & 1u;
         CHECK(probe.slots[0u][lane] == expected_slot);
@@ -6052,6 +6081,9 @@ void bindless_texture_sample_probe(
                              static_cast<float>(110u + expected_slot),
                              static_cast<float>(120u + expected_slot),
                              static_cast<float>(130u + expected_slot))));
+        CHECK(luisa::all(output_values[24u + lane] ==
+                         luisa::make_float4(
+                             300.0f, 310.0f, 320.0f, 330.0f)));
     }
     return true;
 }

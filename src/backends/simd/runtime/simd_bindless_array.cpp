@@ -11,6 +11,13 @@ static_assert(
     offsetof(luisa::compute::simd::SIMDHostBindlessSlot, texture3d) -
         offsetof(luisa::compute::simd::SIMDHostBindlessSlot, texture2d) ==
     sizeof(luisa::compute::simd::SIMDHostBindlessTextureSlot));
+static_assert(
+    luisa::compute::simd::simd_bindless_linear_point_mirror_sampler_code ==
+    ((static_cast<uint32_t>(
+          luisa::compute::Sampler::Filter::LINEAR_POINT)
+      << 2u) |
+     static_cast<uint32_t>(
+         luisa::compute::Sampler::Address::MIRROR)));
 
 namespace {
 
@@ -125,8 +132,12 @@ void SIMDBindlessArray::_update_texture(
                 "SIMD bindless texture extent ({}, {}, {}) exceeds the "
                 "20-bit packet descriptor limit.",
                 size.x, size.y, size.z);
+            auto base_view = resource->view(0u);
             descriptor = {
                 .texture = resource,
+                .byte1_mip0 = base_view.storage() == PixelStorage::BYTE1 ?
+                                  base_view.data() :
+                                  nullptr,
                 .metadata = simd_bindless_texture_metadata(
                     texture.sampler.code(), size.x, size.y, size.z),
             };

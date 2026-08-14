@@ -1,6 +1,6 @@
 # SIMD CPU backend performance report
 
-Snapshot date: 2026-08-14. This report covers the Release build after merging
+Snapshot date: 2026-08-15. This report covers the Release build after merging
 `origin/next@62b77df36b6dae05aff558d4db84e415b5e84e75` into
 `codex/simd-cpu-backend`, adding coherent direct-CFG lowering, completing the
 bindless gradient-sampling vertical slice, and eliminating curve-hit
@@ -36,6 +36,11 @@ component-major float/int2/3/4 Schedule values to one physical AoS masked
 load/store; padded three-component vectors keep their padding masked off. The
 analytic path tracer replaces its four output scatters, while image/texture-
 based graphics kernels remain unchanged.
+The newest texture stage publishes a typed mip-zero `BYTE1` view through the
+backend-local bindless descriptor and lowers uniform-slot linear/mirror
+sampling into target-independent fixed-vector JIT IR. A proven packet-wide
+tail check permits wider W4/W8 gathers without changing public row-major
+layout; every other operation retains the grouped callback.
 The newest scheduler stage reuses the incoming active-mask SSA value after a
 runtime-coherent varying branch or switch proves that its selected successor
 mask is identical. This preserves all-on/partial-tail identity across the hot
@@ -79,7 +84,8 @@ previous vector layout after independent rejection gates.
 Unless a row states a newer paired sweep, graphics and SDF cells below are
 medians of seven independent processes. Image processing repeats its four-
 dispatch pipeline 32 times, the current voxel sweep repeats 64 renders, and
-Spacex renders four frames after its upload/update synchronization.
+the refreshed Spacex sweep renders eight frames after its upload/update
+synchronization.
 Cutout path tracing uses 64 spp and ordinary path tracing uses 128 spp; both
 force one spp per dispatch on both backends to remove a batching asymmetry.
 Ordinary path tracing uses seven adjacent fallback/SIMD pairs per width with
@@ -92,10 +98,11 @@ refreshed 64-spp cutout processes are performance-only; a separate 1024-spp
 run supplies its gallery conformance gate. SDF uses its internal four-SPP
 throughput metric;
 high-SPP SDF image comparison remains a separate conformance gate.
-Image/SDF/Spacex/GEMM cells retain the earlier seven-process sweep and are not
-performance claims for this checkpoint. Voxel is refreshed with seven
-balanced-order fallback/W1/W2/W4/W8/W16 rounds, 64 render iterations per
-process, and all variants using 32 workers on logical CPUs 0--31.
+Image/SDF/GEMM cells retain the earlier seven-process sweep and are not
+performance claims for this checkpoint. Spacex and Voxel are refreshed with
+seven balanced-order fallback/W1/W2/W4/W8/W16 rounds. Each Voxel process uses
+64 render iterations, each Spacex process uses eight frames, and every variant
+uses 32 workers on logical CPUs 0--31.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -107,7 +114,7 @@ Speedup is always `fallback time / SIMD time`, or
 | non-coro SDF, samples/s | 8.705 | 8.197 (0.942x) | 9.476 (1.089x) | 15.112 (1.736x) | 22.568 (2.593x) | 32.959 (3.786x) |
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
 | voxel render, ms/iteration | 7.048 | 8.412 (0.829x) | 13.533 (0.516x) | 7.619 (0.918x) | 6.044 (1.155x) | 4.693 (1.484x) |
-| Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
+| Spacex, ms/frame | 162.421 | 125.778 (1.289x) | 64.295 (2.517x) | 34.030 (4.783x) | 18.655 (8.668x) | 11.684 (13.738x) |
 | ordinary path tracing, fixed 1 spp/dispatch, spp/s | 74.330 | 64.151 (0.848x) | 52.936 (0.714x) | 68.757 (0.933x) | 77.246 (1.057x) | 81.462 (1.125x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 72.030 | 49.567 (0.692x) | 32.925 (0.465x) | 40.872 (0.575x) | 45.488 (0.642x) | 45.757 (0.642x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
@@ -2115,8 +2122,10 @@ identical.
    removes surface-runtime bookkeeping but does not compact lanes; inlining
    Embree LLVM IR is exploratory and cannot replace this measured scheduler
    work.
-5. Move fixed-vector texture tap selection into JIT IR or introduce a measured
-   tile/swizzle upload boundary. Preserve row-major public image semantics.
+5. Generalize the completed fixed-vector `BYTE1` linear/mirror sampler only
+   where a real workload supplies a nonzero hit count. Other address modes,
+   formats, mip paths, or a tile/swizzle upload boundary each require their own
+   semantics and stable A/B gate; preserve row-major public image semantics.
 6. Extend the completed direct-buffer lane/value rotation across bounded
    coherent affine tiles so a profitable layout can remain live across several
    operations. Divergent control, warp operations, and externally visible
@@ -2138,10 +2147,11 @@ multi-process performance table.
 ## Bindless gradient-sampling completion
 
 Bindless 2D/3D gradient sampling now derives LOD in JIT IR and passes one level
-packet to the existing grouped texture callback. Base extents share the
-existing 16-byte texture descriptor by packing three twenty-bit values beside
-the sampler code, so ordinary Spacex sampling retains the same slot size and
-callback ABI. Varying dependencies use fixed-vector math; the exact W8 JIT
+packet to the existing grouped texture callback. At this checkpoint base
+extents shared the then-16-byte texture descriptor by packing three twenty-bit
+values beside the sampler code. The later direct `BYTE1` stage expands that
+backend-local descriptor to 24 bytes while retaining the callback ABI. Varying
+dependencies use fixed-vector math; the exact W8 JIT
 assembly contains the native vector `log2` body and no `log2f` or vector-libm
 symbol, and the runtime module adds no `log2f` dependency. A separate ORC
 probe with varying coordinates but uniform slot/gradients/minimum LOD contains
@@ -2163,6 +2173,79 @@ reference. The last three warmed pairs were 50.495/50.488,
 within shared-host noise. No performance gain is claimed for a feature the
 workload does not exercise; the gate demonstrates that packing the new
 metadata did not regress its hot descriptor layout.
+
+## IR-native BYTE1 sampling
+
+The next Spacex profile made the remaining boundary explicit. W8 spent 68.89%
+of sampled cycles in the runtime `LINEAR_POINT` texture template; its portable
+host compilation contained no `-march=native`, and the 22,754-byte filter
+instance lowered mirror-coordinate work and four byte taps to scalar SSE over
+all eight lanes. This was not scheduler or pool overhead: the host
+`parallel_for` contribution was negligible.
+
+Production now versions the common varying uniform-slot 2D `BYTE1`, mip-zero,
+stored `LINEAR_POINT`/`MIRROR` operation directly in JIT IR. The 24-byte
+backend-local descriptor publishes a raw pointer only for `BYTE1`; all other
+formats and query forms keep the callback. Inactive lanes and NaN/Inf are made
+benign before conversion and gather. Public row-major layout is unchanged.
+W4/W8 additionally replace byte gathers with alignment-one 32-bit gathers only
+after a packet-wide proof that every tap ends at least four bytes before the
+allocation boundary. The last three bytes, small textures, W1/W2/W16, and the
+disabled oracle retain narrow gathers.
+
+The two transformations were measured separately in fifteen alternating W8
+pairs at sixteen frames per process:
+
+| W8 Spacex A/B | enabled ms/frame | oracle ms/frame | paired speedup | wins |
+| --- | ---: | ---: | ---: | ---: |
+| fixed-vector IR vs complete callback | 21.955 | 51.172 | 2.330x | 15/15 |
+| proven wide gather vs narrow IR gather | 18.851 | 21.901 | 1.162x | 15/15 |
+
+Every pair produced byte-identical output and passed the gallery reference at
+70.185 dB. The wide-gather width audit used seven pairs and measured
+narrow/wide ratios of 0.9698x/0.9815x/1.0275x/1.1585x/1.0074x for
+W1/W2/W4/W8/W16. W1 and W2 were stable regressions; W16 won only 5/7 for a
+0.74% geometric-mean change. The production cost model therefore enables it
+only at W4/W8.
+
+The final production sweep rotated and reversed fallback plus all five SIMD
+widths over seven processes, eight frames each:
+
+| Spacex ms/frame | fallback | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Median | 162.421 | 125.778 | 64.295 | 34.030 | 18.655 | 11.684 |
+| Paired speedup | 1.000x | 1.289x | 2.517x | 4.783x | 8.668x | 13.738x |
+
+All widths won 7/7 pairs and retained one deterministic hash per variant.
+Three 32-frame `perf stat` repetitions give:
+
+| W8/Spacex counter | direct IR | callback oracle | fallback |
+| --- | ---: | ---: | ---: |
+| retired instructions | 130.74 B | 545.79 B | 1,655.94 B |
+| cycles | 90.65 B | 247.46 B | 788.80 B |
+| branches | 8.19 B | 49.47 B | 176.45 B |
+| aggregate task-clock | 17.70 s | 48.60 s | 156.39 s |
+
+Thus direct IR removes 4.17x callback instructions and 6.04x callback
+branches. In a new cycle profile the former callback no longer received a
+sample; `parallel_for` was 0.07%, while scalar uniform math became visible at
+the top of the named symbols. Final W8 assembly contains YMM `vroundps`, mask
+registers, and native gathers on this Ryzen host. W8 remains a semantic width:
+LLVM may select AVX2 or another legal target sequence elsewhere.
+
+The permanent runtime oracle compares stored direct sampling against the
+explicit-sampler callback at W1/W2/W4/W8/W16, including mirror-domain inputs,
+NaN/Inf, extreme finite coordinates, and a 35-thread inactive tail. The ORC
+test requires direct, callback, pre-gather sanitization, and masked-gather IR.
+Use
+`LUISA_SIMD_DISABLE_IR_BYTE1_TEXTURE_SAMPLING=1` for the full callback oracle
+or `LUISA_SIMD_DISABLE_WIDE_BYTE1_GATHERS=1` for narrow direct gathers.
+
+A fresh post-change gallery sweep also passed image processing and Voxel at
+every width (89.252 dB and 82.835 dB respectively). The 1024-spp Embree path
+tracer passed W1/W2/W4/W8/W16 at
+35.427/42.782/40.940/39.219/37.802 dB, and every process reported native
+Embree W4/W8/W16 packet support.
 
 ### Rejected cross-query early gather
 
