@@ -417,6 +417,7 @@ private:
         const std::vector<::llvm::BasicBlock *> &blocks);
     [[nodiscard]] bool _can_emit_direct_control_flow() const noexcept;
     void _find_instruction_spills();
+    void _coalesce_state_slots();
     void _allocate_state();
     void _partition_state_residency();
     void _build_direct(::llvm::Value *initial_mask);

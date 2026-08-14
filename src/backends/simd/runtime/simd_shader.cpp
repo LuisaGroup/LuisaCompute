@@ -238,7 +238,8 @@ SIMDShader::SIMDShader(
             "direct_divergent_children={}, "
             "direct_control_flow={}, "
             "schedule_blocks={}, convergence_points={}, "
-            "state_slots={}, instruction_spills={}, cold_slots={}, "
+            "state_slots={}, coalesced_state_slots={}, "
+            "instruction_spills={}, cold_slots={}, "
             "stack_pinned_slots={}, "
             "ray_queries={}, ray_query_scratch_slots={}, "
             "ray_query_scratch_bytes={}, ray_query_status_slots={}, "
@@ -267,6 +268,7 @@ SIMDShader::SIMDShader(
             _compiled.schedule_block_count,
             _compiled.convergence_point_count,
             _compiled.state_slot_count,
+            _compiled.coalesced_state_slot_count,
             _compiled.spilled_instruction_count,
             _compiled.cold_state_slot_count,
             _compiled.stack_pinned_state_slot_count,

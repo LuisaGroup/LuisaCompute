@@ -220,6 +220,35 @@ identity.
 for differential diagnostics. Permanent tests cover all widths, partial tails,
 cohort-uniform branches with packet-dependent outcomes, and the forced fallback.
 
+#### Scheduled PHI physical-slot coalescing
+
+The general scheduler retains every logical Schedule value and its parallel
+edge assignment, but LLVM storage may coalesce move-related PHI state versions.
+Codegen first solves exact backwards liveness over every verified Schedule
+edge. A source/destination pair is eligible only when both are state slots with
+the same nonempty XIR-derived name, uniformity class, and LLVM storage type,
+and no values in their proposed groups interfere. Names limit candidates; they
+are not a correctness proof. Each destination also interferes with all other
+parallel-copy sources on that edge, so deterministic assignment emission
+cannot overwrite an unread source.
+
+Liveness is defined per logical lane. Suspended divergent cohorts may reside
+at different PCs, but Lane ownership gives them disjoint masks, so different
+components of one fixed-vector slot may represent different nonoverlapping
+versions. A coalesced source/destination assignment is an identity for every
+participating lane and is omitted. No lane mask, logical PHI value, token,
+epoch, memory effect, or supported CFG changes. W1 and statically direct CFG
+do not run the transform.
+
+`LUISA_SIMD_DISABLE_STATE_PHI_COALESCING=1` restores distinct physical allocas
+and explicit masked moves. The optimization report exposes
+`coalesced_state_slots` while retaining `state_slots` as the logical count.
+Permanent W1/W2/W4/W8/W16 coverage compares enabled/disabled execution for
+every active-tail length, includes a state-to-state passthrough and a
+two-value parallel-copy swap, requires inactive sentinels, verifies direct-W1
+assembly identity, and requires a real scheduled code-shape difference. Final
+object checks continue to reject varying scalar-libm calls.
+
 For a scheduled destination that can be a convergence target, scalar token
 zero proves that the current cohort has no dynamic frame. The target-arrival
 cascade must then preserve the incoming mask and all scheduler state, so the
@@ -280,6 +309,8 @@ runtime-coherent varying branches and switches;
 `LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD=1` restores the explicit LIFO
 push/pop for the selected divergent child, while
 `LUISA_SIMD_FORCE_DIRECT_DIVERGENT_CHILD=1` is its low-state diagnostic force;
+`LUISA_SIMD_DISABLE_STATE_PHI_COALESCING=1` restores one physical slot per
+logical scheduled PHI version;
 `LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG=1` forces otherwise coherent functions
 through the general cohort scheduler;
 `LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` restores aggregate local storage
@@ -310,7 +341,9 @@ encodings need not be byte-identical. `LUISA_SIMD_REPORT_JIT_ADDRESS=1` logs
 the live entry address so profiler records can be correlated with the object
 symbol/section offsets. `LUISA_SIMD_DISABLE_COLD_STATE_PARTITION=1` and
 `LUISA_SIMD_DISABLE_RAY_QUERY_SCRATCH_COLORING=1` are same-binary A/B controls
-for the two state-layout refinements.
+for cold-state pinning and ray-query scratch coloring. Cold-state access counts
+are over distinct physical slots; a state set compacted by PHI coalescing stays
+promotable because the measured volatile-pinning variant is slower.
 `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CACHE=1` restores authoritative AoS
 predicate gathers for eligible ray queries.
 `LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1` keeps the packed status

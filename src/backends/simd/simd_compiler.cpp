@@ -129,6 +129,8 @@ SIMDCompiledKernel compile_simd_kernel(
     result.convergence_point_count =
         llvm_result.convergence_point_count;
     result.state_slot_count = llvm_result.state_slot_count;
+    result.coalesced_state_slot_count =
+        llvm_result.coalesced_state_slot_count;
     result.spilled_instruction_count =
         llvm_result.spilled_instruction_count;
     result.cold_state_slot_count =

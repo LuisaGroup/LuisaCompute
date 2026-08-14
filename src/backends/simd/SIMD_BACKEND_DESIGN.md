@@ -16,7 +16,10 @@ The latest scheduler stage removes the redundant ready-record push and
 immediate LIFO pop for one child of selected genuinely divergent binary
 splits. The child still enters through the shared dispatcher PC route, so the
 optimization neither clones the dispatch switch nor bypasses destination-side
-convergence arrival.
+convergence arrival. The current scheduler stage additionally coalesces
+move-related PHI state slots under an exact per-lane liveness/interference
+proof. Logical Schedule values remain distinct, while nonoverlapping versions
+reuse one physical fixed-vector slot and their identity copies disappear.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -413,15 +416,38 @@ test uses partial field updates across a varying branch, a loop, and a
 13-thread inactive tail and compares promoted execution with the disabled
 oracle.
 
+Scheduled PHI versions are logical SSA state, not a requirement for distinct
+LLVM allocas. Before emitting any block, codegen builds the verified Schedule
+CFG and solves backwards liveness per logical lane. An edge with assignments
+`D <- S` is a parallel copy, so its transfer is
+`uses(edge) union (live_in(target) - defs(edge))`. Candidate source/destination
+values must both be PHI state slots with the same nonempty XIR-derived name,
+value class, and allocated LLVM type. The name bounds move candidates; a
+complete group-interference check is the safety proof. Each destination also
+interferes with every other copy's source on that edge, preserving parallel
+copy semantics under the emitter's deterministic source order.
+
+Divergent cohorts can be suspended at different Schedule blocks, but their
+physical masks are disjoint. Per-lane liveness therefore permits those cohorts
+to reuse different lanes of one fixed-vector alloca without conflating an
+active observation. A coalesced source/destination move is an identity and is
+not emitted. `LUISA_SIMD_DISABLE_STATE_PHI_COALESCING=1` restores the previous
+one-alloca-per-version path. The optimization report keeps `state_slots` as the
+logical count and reports eliminated physical allocas separately as
+`coalesced_state_slots`. W1 and statically coherent direct CFG bypass this
+refinement and remain byte-identical to the oracle.
+
 The O2 pipeline may otherwise promote every cross-block state slot through the
 global dispatcher and create more live vector PHIs than the physical register
-file can hold. Codegen therefore counts direct accesses to each state slot. If
-at least half of the slots are cold (at most six generated loads/stores,
-including initialization), those cold slots use explicit volatile stack
-loads/stores so they remain L1-resident, while frequently accessed state stays
-eligible for SROA/mem2reg and register residency. The gate is per kernel; it is
-not enabled for arithmetic-dense SDF kernels where cold-state pinning regresses
-throughput.
+file can hold. Codegen therefore counts direct accesses to each distinct
+physical state slot. If no PHI slots were coalesced and at least half of the
+slots are cold (at most six generated loads/stores, including initialization),
+those cold slots use explicit volatile stack loads/stores so they remain
+L1-resident, while frequently accessed state stays eligible for SROA/mem2reg
+and register residency. Once coalescing has compacted the physical state set,
+the set remains promotable: paired analytic and Voxel measurements found that
+reapplying volatile pinning was consistently slower. Both policies are per
+kernel; arithmetic-dense SDF kernels do not opt into a measured regression.
 
 ### 4.4 Scheduler policy
 

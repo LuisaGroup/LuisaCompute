@@ -101,10 +101,21 @@ void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
                               ::llvm::Value *mask) {
     auto *destination = _source.value(assignment.destination);
     auto *source = _source.value(assignment.source);
-    auto *value = _load_value(assignment.source);
-    if (destination == nullptr || source == nullptr || value == nullptr) {
+    if (destination == nullptr || source == nullptr) { return; }
+    // The coalescer proves that the logical source and destination have
+    // noninterfering per-lane live ranges. Their masked state move is then an
+    // identity; cross-copy source interference keeps sequential emission safe.
+    if (destination->origin == schedule::ValueOrigin::state_slot &&
+        source->origin == schedule::ValueOrigin::state_slot &&
+        assignment.destination.value < _state_slots.size() &&
+        assignment.source.value < _state_slots.size() &&
+        _state_slots[assignment.destination.value] != nullptr &&
+        _state_slots[assignment.destination.value] ==
+            _state_slots[assignment.source.value]) {
         return;
     }
+    auto *value = _load_value(assignment.source);
+    if (value == nullptr) { return; }
     auto *slot = _state_slots[assignment.destination.value];
     if (_is_local_lvalue(assignment.destination)) {
         auto *old = _builder.CreateLoad(
@@ -1313,6 +1324,7 @@ void ScheduleEmitter::_allocate_state() {
         _result.state_slot_count++;
         _result.spilled_instruction_count += spill;
     }
+    _coalesce_state_slots();
 }
 
 void ScheduleEmitter::_partition_state_residency() {
@@ -1330,22 +1342,35 @@ void ScheduleEmitter::_partition_state_residency() {
         }
         return count;
     };
-    auto slot_count = size_t{0u};
-    auto cold_count = size_t{0u};
+    std::vector<::llvm::AllocaInst *> physical_slots;
+    physical_slots.reserve(_state_slots.size());
     for (auto *slot : _state_slots) {
-        if (slot == nullptr) { continue; }
-        slot_count++;
+        if (slot != nullptr &&
+            std::find(physical_slots.cbegin(),
+                      physical_slots.cend(), slot) ==
+                physical_slots.cend()) {
+            physical_slots.emplace_back(slot);
+        }
+    }
+    auto slot_count = physical_slots.size();
+    auto cold_count = size_t{0u};
+    for (auto *slot : physical_slots) {
         cold_count += count_accesses(slot) <= max_cold_accesses;
     }
     _result.cold_state_slot_count = cold_count;
-    if (slot_count == 0u || cold_count * 2u < slot_count ||
+    // Coalescing has already collapsed mutually exclusive PHI versions into
+    // a much smaller physical set. Pinning a majority of that set recreates
+    // the very copy/load traffic the liveness proof removed, so leave the
+    // compact state promotable. The uncoalesced oracle retains the established
+    // cold-majority partition.
+    if (_result.coalesced_state_slot_count != 0u ||
+        slot_count == 0u || cold_count * 2u < slot_count ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_COLD_STATE_PARTITION")) {
         return;
     }
-    for (auto *slot : _state_slots) {
-        if (slot == nullptr ||
-            count_accesses(slot) > max_cold_accesses) {
+    for (auto *slot : physical_slots) {
+        if (count_accesses(slot) > max_cold_accesses) {
             continue;
         }
         for (auto *user : slot->users()) {

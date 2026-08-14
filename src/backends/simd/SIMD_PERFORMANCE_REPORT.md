@@ -42,6 +42,11 @@ The latest scheduler stage removes a selected divergent binary child's
 redundant ready-record push and immediate LIFO pop. Normal pops and these
 children share one PC route and one dispatch switch; a measured state-slot
 gate keeps the refinement out of smaller kernels where it is not profitable.
+The current stage then coalesces move-related Schedule PHI state slots when an
+exact per-lane liveness/interference proof shows that their logical lifetimes
+do not overlap. This removes redundant masked copies and lets LLVM retain the
+smaller physical state set in SSA/registers; a same-binary oracle preserves
+the previous slot layout.
 
 ## Test host and method
 
@@ -55,12 +60,13 @@ gate keeps the refinement out of smaller kernels where it is not profitable.
 
 Unless a row states a newer paired sweep, graphics and SDF cells below are
 medians of seven independent processes. Image processing repeats its four-
-dispatch pipeline 32 times, voxel repeats 16 renders, and Spacex renders four
-frames after its upload/update synchronization.
+dispatch pipeline 32 times, the current voxel sweep repeats 64 renders, and
+Spacex renders four frames after its upload/update synchronization.
 Cutout path tracing uses 64 spp and ordinary path tracing uses 128 spp; both
 force one spp per dispatch on both backends to remove a batching asymmetry.
 Ordinary path tracing uses seven adjacent fallback/SIMD pairs per width with
-reversed order on alternating pairs; cutout retains three pairs per width.
+reversed order on alternating pairs; the current cutout sweep also uses seven
+pairs per width.
 The focused triangle-only-provider result uses twelve W8 pairs, while the
 other widths use four to six pairs. The refreshed ordinary and voxel processes
 keep stable per-backend hashes and use separate gallery conformance runs. The
@@ -82,10 +88,10 @@ Speedup is always `fallback time / SIMD time`, or
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | non-coro SDF, samples/s | 8.705 | 8.197 (0.942x) | 9.476 (1.089x) | 15.112 (1.736x) | 22.568 (2.593x) | 32.959 (3.786x) |
 | image pipeline, ms/iteration | 8.379 | 17.184 (0.488x) | 9.169 (0.914x) | 6.493 (1.290x) | 4.992 (1.678x) | 4.249 (1.972x) |
-| voxel render, ms/iteration | 6.944 | 8.371 (0.825x) | 15.126 (0.458x) | 8.710 (0.793x) | 6.783 (1.021x) | 5.438 (1.266x) |
+| voxel render, ms/iteration | 7.048 | 8.412 (0.829x) | 13.533 (0.516x) | 7.619 (0.918x) | 6.044 (1.155x) | 4.693 (1.484x) |
 | Spacex, ms/frame | 158.831 | 150.954 (1.052x) | 94.904 (1.674x) | 64.277 (2.471x) | 49.999 (3.177x) | 42.700 (3.720x) |
-| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 72.979 | 64.238 (0.870x) | 52.687 (0.708x) | 65.445 (0.930x) | 79.217 (1.073x) | 79.296 (1.129x) |
-| cutout path tracing, fixed 1 spp/dispatch, spp/s | 59.366 | 45.860 (0.770x) | 29.919 (0.511x) | 36.802 (0.619x) | 42.791 (0.730x) | 42.283 (0.711x) |
+| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 74.330 | 64.151 (0.848x) | 52.936 (0.714x) | 68.757 (0.933x) | 77.246 (1.057x) | 81.462 (1.125x) |
+| cutout path tracing, fixed 1 spp/dispatch, spp/s | 72.030 | 49.567 (0.692x) | 32.925 (0.465x) | 40.872 (0.575x) | 45.488 (0.642x) | 45.757 (0.642x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
 The GEMM row is a compute diagnostic rather than a graphics result. It uses
@@ -99,9 +105,9 @@ be treated as host observations, not cross-machine constants.
 The refreshed voxel cells are the medians of the seven balanced rounds.
 Parenthesized values are the preferred geometric means of the within-round
 fallback/SIMD ratios. Their 95% paired log-space Student-t intervals at
-W1/W2/W4/W8/W16 are [0.8118, 0.8389], [0.4491, 0.4661],
-[0.7728, 0.8146], [1.0005, 1.0422], and [1.2407, 1.2918]. W16 wins all seven
-rounds and W8 wins six; the narrower widths lose all seven. Every fallback
+W1/W2/W4/W8/W16 are [0.8162, 0.8429], [0.5066, 0.5264],
+[0.9043, 0.9315], [1.1322, 1.1777], and [1.4506, 1.5188]. W8 and W16 win all
+seven rounds; the narrower widths lose all seven. Every fallback
 process retains SHA-256
 `27455a0e126ecfae23d592a58121751c5884a69d9d7388b20195e8b0a121829a`,
 and every SIMD process at all five widths retains
@@ -113,20 +119,22 @@ outputs below are byte-identical.
 
 The current path-tracing rows are paired rather than independent medians because
 unrelated host tasks moved the load average during the sweeps. For ordinary
-path tracing the displayed fallback cell is the pooled median of 35 fallback
-processes; each SIMD cell is its seven-process median and the parenthesized
-speedup is the preferred geometric mean of seven adjacent SIMD/fallback
-ratios. W1/W2/W4/W8/W16 measure 0.8699x/0.7078x/0.9304x/1.0734x/1.1294x;
-their 95% paired bootstrap intervals are [0.8637, 0.8764], [0.6995, 0.7167],
-[0.9221, 0.9417], [1.0592, 1.0824], and [1.1103, 1.1474]. W8 and W16 win all
-seven pairs; the other widths lose all seven. Every width/backend retains one
-stable output hash across its seven processes, and separate gallery runs
-supply correctness conformance. The final-binary cutout row was refreshed with
-three adjacent alternating pairs per width after the state-handle cache landed.
-It remains below fallback at every width: 0.7695x/0.5105x/0.6193x/0.7298x/0.7111x
-from W1 through W16. The displayed throughput cells are process medians; those
-ratios are the preferred paired geometric means. Its JIT-side query payload
-crossings and sparse cohorts remain the dominant unresolved deficit.
+path tracing the displayed fallback cell is the pooled median and each SIMD
+cell is its seven-process median. The preferred geometric means of adjacent
+SIMD/fallback ratios are 0.8476x/0.7137x/0.9333x/1.0572x/1.1254x from W1
+through W16; their paired 95% log-space Student-t intervals are
+[0.8070, 0.8903], [0.7077, 0.7198], [0.9151, 0.9519], [1.0136, 1.1026], and
+[1.0601, 1.1946]. W8 and W16 win all seven pairs; the other widths lose all
+seven. Every width/backend retains one stable output hash across its seven
+processes, and separate gallery runs supply correctness conformance.
+
+The final-binary cutout row uses the same seven-pair method. It remains below
+fallback at every width: 0.6924x/0.4649x/0.5746x/0.6418x/0.6420x, with paired
+95% intervals [0.6821, 0.7029], [0.4532, 0.4769], [0.5631, 0.5863],
+[0.6258, 0.6582], and [0.6279, 0.6563]. The displayed throughput cells are
+process medians; the ratios are the preferred paired geometric means. Its
+JIT-side query payload crossings and sparse cohorts remain the dominant
+unresolved deficit.
 
 ### Pre-schedule aggregate promotion
 
@@ -1238,29 +1246,31 @@ width; values above one mean ISPC is faster:
 
 | Workload | W4 AVX2 | W4 AVX-512 | W8 AVX2 | W8 AVX-512 | W16 AVX-512 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Mandelbrot | 0.936x [0.923, 0.950] | 0.922x [0.908, 0.936] | 1.012x [0.988, 1.036] | 0.985x [0.963, 1.007] | 1.091x [1.068, 1.116] |
-| masked stream | 0.979x [0.877, 1.092] | 0.945x [0.883, 1.012] | 1.028x [0.957, 1.104] | 1.008x [0.941, 1.081] | 1.073x [1.003, 1.148] |
-| AoS to SoA | 1.036x [1.004, 1.069] | 0.996x [0.967, 1.026] | 1.079x [1.020, 1.140] | 1.068x [1.002, 1.138] | 1.062x [1.017, 1.108] |
-| GEMM | 0.746x [0.735, 0.757] | 0.749x [0.730, 0.769] | 0.771x [0.764, 0.779] | 0.768x [0.749, 0.788] | 0.789x [0.754, 0.826] |
-| analytic path trace | 2.580x [2.519, 2.643] | 2.444x [2.387, 2.503] | 2.387x [2.323, 2.453] | 2.193x [2.104, 2.285] | 2.357x [2.316, 2.399] |
+| Mandelbrot | 0.928x [0.904, 0.953] | 0.921x [0.904, 0.938] | 1.011x [0.989, 1.033] | 0.985x [0.967, 1.003] | 1.088x [1.075, 1.102] |
+| masked stream | 1.000x [0.954, 1.047] | 1.000x [0.958, 1.043] | 1.071x [1.032, 1.111] | 1.066x [1.029, 1.104] | 1.116x [1.072, 1.162] |
+| AoS to SoA | 0.991x [0.939, 1.045] | 0.960x [0.892, 1.033] | 1.107x [1.015, 1.206] | 1.075x [1.036, 1.115] | 1.058x [1.017, 1.100] |
+| GEMM | 0.754x [0.743, 0.765] | 0.750x [0.745, 0.754] | 0.755x [0.743, 0.767] | 0.762x [0.749, 0.776] | 0.801x [0.779, 0.825] |
+| analytic path trace | 2.161x [2.103, 2.222] | 2.024x [1.927, 2.126] | 2.130x [2.047, 2.216] | 2.007x [1.899, 2.120] | 2.114x [2.012, 2.222] |
 
 Mandelbrot, masked stream, AoS-to-SoA, and GEMM are bit-identical across all
 eight implementations. The asset-free analytic path tracer validates 921,600
 floats per implementation with zero tolerance violations; its maximum absolute
 and relative errors against Luisa W4 are `1.1921e-7` and `2.7532e-7`.
 The Luisa W4/W8/W16 process medians are respectively
-713.060/1,182.480/1,770.326 Mitems/s for Mandelbrot,
-6,356.242/5,887.078/5,677.879 Mitems/s for masked stream,
-2,722.494/2,521.626/2,499.919 Mitems/s for AoS-to-SoA,
-263.789/339.163/437.597 GFLOP/s for GEMM, and
-734.532/1,071.991/1,219.368 Mitems/s for analytic path tracing.
+708.907/1,173.274/1,745.410 Mitems/s for Mandelbrot,
+6,266.961/5,734.358/5,665.303 Mitems/s for masked stream,
+2,752.720/2,578.397/2,563.350 Mitems/s for AoS-to-SoA,
+263.854/344.693/431.829 GFLOP/s for GEMM, and
+871.429/1,157.886/1,293.358 Mitems/s for analytic path tracing.
 
 The balanced intervals matter on this shared host: several small memory-kernel
 differences include parity, while GEMM and analytic path tracing remain
-unambiguous. Luisa is 27--34% faster than the best matched-width ISPC GEMM
-variants. Mandelbrot is at parity through W8 and trails ISPC by 9.1% at W16.
-The analytic path tracer remains the outlier: the best same-width ISPC target
-is 2.36--2.58x faster, while AVX-512 x8 measures 2.19x. The
+unambiguous. Luisa is 25--33% faster than the matched-width ISPC GEMM
+variants. Mandelbrot is at parity through W8 and trails ISPC by 8.8% at W16.
+The analytic path tracer remains the outlier: the matched ISPC targets are
+2.01--2.16x faster. Their process medians are 1,850.996/1,776.445 Mitems/s at
+W4 AVX2/AVX-512, 2,380.414/2,372.723 Mitems/s at W8, and 2,889.757 Mitems/s
+at W16. All fifteen paired rounds favor ISPC. The
 compiler executable is passed explicitly to the standalone runner and remains
 absent from CMake; this sweep excludes fallback so every ratio is a direct
 same-width compiler comparison.
@@ -1559,6 +1569,73 @@ requires byte-identical LLVM IR. The threshold admits the 61-slot analytic,
 38-slot Voxel, and 37-slot ordinary path-trace kernels while excluding the
 measured low-state regression.
 
+### Liveness-proven PHI state-slot coalescing
+
+Schedule IR keeps logical PHI versions distinct, but the prior LLVM lowering
+also gave every version a distinct fixed-vector alloca. The current lowering
+builds the exact Schedule CFG, treats each edge assignment as one member of a
+parallel PHI copy, and solves per-lane backwards liveness to a fixed point:
+
+```text
+live(edge) = uses(edge) union (live_in(target) - defs(edge))
+```
+
+Move-related state values may share one physical alloca only when they have
+the same nonempty source name, value class, and LLVM storage type, and no pair
+in the proposed groups interferes. The name is only a bounded profitability
+and provenance hint; the liveness relation is the safety proof. Destinations
+also interfere with every other parallel copy's source so source-order
+emission cannot clobber an unread value. If a matching source and destination
+share a slot, their masked copy is an identity and is omitted.
+
+This is a storage refinement, not a Schedule semantic change. Divergent
+cohorts parked at different CFG locations occupy disjoint physical lanes, so
+per-lane liveness is the relevant relation for one fixed-vector slot. Logical
+`state_slots` remains unchanged, while `coalesced_state_slots` reports removed
+physical slots. W1 and coherent direct CFG are byte-identical. Setting
+`LUISA_SIMD_DISABLE_STATE_PHI_COALESCING=1` restores the old allocation and
+copy path in the same binary.
+
+The analytic path tracer eliminates 31/29/29/31 physical slots at
+W2/W4/W8/W16. At W8 the final body falls from 3,468 to 3,080 instructions,
+1,901 to 1,545 vector instructions, 917 to 639 stack references, and a
+4,992-byte to 3,136-byte frame; branches fall from 383 to 377. Both objects
+have zero calls and zero scalar-math calls. After coalescing, the compact
+physical state set remains promotable instead of applying the old cold-slot
+volatile pinning policy; a separate 21-pair analytic gate and seven-pair Voxel
+gate found that reapplying pinning was consistently slower.
+
+Fifteen alternating single-core candidate/oracle processes, each taking the
+median of seven timed dispatches, retain checksum `a93089e651f98582`:
+
+| Width | speedup | 95% paired CI | wins | candidate/oracle median, Mitems/s |
+| ---: | ---: | ---: | ---: | ---: |
+| W2 | 1.1083x | [1.0990, 1.1177] | 15/15 | 39.177 / 35.597 |
+| W4 | 1.1618x | [1.1595, 1.1641] | 15/15 | 70.436 / 60.705 |
+| W8 | 1.0825x | [1.0787, 1.0863] | 15/15 | 103.631 / 95.529 |
+| W16 | 1.1575x | [1.1522, 1.1629] | 15/15 | 131.681 / 113.486 |
+
+The real Voxel kernel eliminates twelve of 38 logical state slots at W8. Seven
+alternating 64-render candidate/oracle processes on 32 workers produce
+byte-identical PNGs at every width:
+
+| Width | speedup | 95% paired CI | wins | candidate/oracle median, ms |
+| ---: | ---: | ---: | ---: | ---: |
+| W2 | 1.1202x | [1.1070, 1.1336] | 7/7 | 13.570 / 15.126 |
+| W4 | 1.1613x | [1.1521, 1.1706] | 7/7 | 7.542 / 8.724 |
+| W8 | 1.1226x | [1.1127, 1.1327] | 7/7 | 6.024 / 6.778 |
+| W16 | 1.1633x | [1.1493, 1.1775] | 7/7 | 4.686 / 5.440 |
+
+Ordinary Embree path tracing improves at W4 by 1.0232x
+[1.0066, 1.0401], while W8 and W16 are statistically neutral at 0.9972x
+[0.9801, 1.0145] and 1.0109x [0.9951, 1.0270]. Cutout path tracing is neutral
+at W4/W8 and has a small W16 gain: 1.0066x [0.9985, 1.0148], 1.0076x
+[0.9967, 1.0186], and 1.0108x [1.0033, 1.0185]. All candidate/oracle images
+are byte-identical within each workload and width. Image processing remains
+direct CFG, while SDF and Spacex have no eligible move chain; their final
+objects are unchanged. The refreshed fallback and ISPC tables above include
+this retained state layout.
+
 ## Interpreting widths
 
 W8 is a semantic fixed-vector width, not an AVX-512 contract. On this host LLVM
@@ -1753,3 +1830,23 @@ at 39.58 and 63.13 dB. Fresh fallback checks also pass Voxel at 48.08 dB,
 image processing at 100.00 dB, and ordinary path tracing at 62.22 dB. All
 gallery outputs were written only in temporary directories; no reference image
 was regenerated or modified.
+
+The PHI state-slot coalescing stage again completed both full Release builds,
+the required four-test native-math/fallback-math/runtime-width/Schedule-codegen
+gate, the SIMD-only suite (129/129), and the complete SIMD+fallback suite
+(140/140). Formatting and diff checks pass, as do the seven standalone ISPC
+driver tests. The standalone compiler control validates all eight variants,
+runs the first four workloads for seven balanced rounds, and replaces the
+noisier analytic path row with a separate fifteen-round sweep. The permanent
+W1/W2/W4/W8/W16 regression compares the disabled
+oracle for every active-tail length, exercises a cross-source parallel PHI
+swap, and verifies direct-W1 assembly identity.
+Fresh all-width Voxel and image-processing galleries pass at 82.83 and
+89.25 dB. Ordinary 1024-spp path tracing passes at
+35.43/42.78/40.94/39.22/37.80 dB from W1 through W16; W8 cutout and
+non-coroutine SDF pass at 39.58 and 63.13 dB. Both path tracers report Embree
+4.4.1 W4/W8/W16 native packets enabled. A fresh W8 dump contains five JIT
+objects, reports zero scalar-math calls for every kernel, and has no unresolved
+scalar f32 libm symbol; the backend dynamically references all
+`rtcIntersect4/8/16` and `rtcOccluded4/8/16` packet entries. All gallery and
+object artifacts remain in temporary directories.

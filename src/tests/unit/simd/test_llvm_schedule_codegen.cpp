@@ -320,6 +320,160 @@ make_cold_state_pressure(uint32_t width) {
 }
 
 [[nodiscard]] std::optional<schedule::Function>
+make_state_phi_coalescing(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("state_phi_coalescing");
+    auto *entry = kernel->create_body_block();
+    auto *first_true = kernel->create_basic_block();
+    auto *first_false = kernel->create_basic_block();
+    auto *first_merge = kernel->create_basic_block();
+    auto *second_true = kernel->create_basic_block();
+    auto *second_false = kernel->create_basic_block();
+    auto *second_merge = kernel->create_basic_block();
+    entry->set_name("entry");
+    first_true->set_name("first_true");
+    first_false->set_name("first_false");
+    first_merge->set_name("first_merge");
+    second_true->set_name("second_true");
+    second_false->set_name("second_false");
+    second_merge->set_name("second_merge");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t two_value = 2u;
+    uint32_t ten_value = 10u;
+    uint32_t hundred_value = 100u;
+    uint32_t two_hundred_value = 200u;
+    uint32_t thousand_value = 1000u;
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    auto *ten = module.create_constant(
+        Type::of<uint32_t>(), &ten_value);
+    auto *hundred = module.create_constant(
+        Type::of<uint32_t>(), &hundred_value);
+    auto *two_hundred = module.create_constant(
+        Type::of<uint32_t>(), &two_hundred_value);
+    auto *thousand = module.create_constant(
+        Type::of<uint32_t>(), &thousand_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *initial = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, ten});
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one});
+    auto *first_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {parity, zero});
+    builder.cond_br(first_condition, first_true, first_false);
+
+    builder.set_insertion_point(first_true);
+    auto *first_true_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {initial, hundred});
+    auto *first_true_left = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {initial, ten});
+    auto *first_true_right = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {initial, two_hundred});
+    builder.br(first_merge);
+    builder.set_insertion_point(first_false);
+    auto *first_false_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {initial, two_hundred});
+    auto *first_false_left = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {initial, hundred});
+    auto *first_false_right = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {initial, thousand});
+    builder.br(first_merge);
+
+    builder.set_insertion_point(first_merge);
+    auto *first_state = builder.phi(
+        Type::of<uint32_t>(),
+        {{first_true_value, first_true},
+         {first_false_value, first_false}});
+    first_state->set_name("state_chain");
+    auto *first_left = builder.phi(
+        Type::of<uint32_t>(),
+        {{first_true_left, first_true},
+         {first_false_left, first_false}});
+    auto *first_right = builder.phi(
+        Type::of<uint32_t>(),
+        {{first_true_right, first_true},
+         {first_false_right, first_false}});
+    first_left->set_name("parallel_chain");
+    first_right->set_name("parallel_chain");
+    auto *second_bits = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, two});
+    auto *second_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {second_bits, zero});
+    builder.cond_br(second_condition, second_true, second_false);
+
+    builder.set_insertion_point(second_true);
+    auto *second_true_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {first_state, thousand});
+    builder.br(second_merge);
+    builder.set_insertion_point(second_false);
+    builder.br(second_merge);
+
+    builder.set_insertion_point(second_merge);
+    auto *second_state = builder.phi(
+        Type::of<uint32_t>(),
+        {{second_true_value, second_true},
+         {first_state, second_false}});
+    second_state->set_name("state_chain");
+    auto *second_left = builder.phi(
+        Type::of<uint32_t>(),
+        {{first_right, second_true},
+         {first_left, second_false}});
+    auto *second_right = builder.phi(
+        Type::of<uint32_t>(),
+        {{first_left, second_true},
+         {first_right, second_false}});
+    second_left->set_name("parallel_chain");
+    second_right->set_name("parallel_chain");
+    auto *scaled_state = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MUL,
+        {second_state, thousand});
+    auto *result = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {scaled_state, second_right});
+    result->set_name("coalescing_result");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name != "second_merge") { continue; }
+        for (auto &&value : lowered.function->values()) {
+            if (value.defining_block == block.id &&
+                value.name == "coalescing_result") {
+                block.terminator = schedule::ReturnTerminator{value.id};
+                break;
+            }
+        }
+    }
+    if (!schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
 make_varying_loop(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -1676,6 +1830,107 @@ template<size_t Width>
         }
     }
     return true;
+}
+
+template<size_t Width>
+[[nodiscard]] bool run_state_phi_coalescing_width() {
+    auto schedule_function = make_state_phi_coalescing(Width);
+    CHECK(schedule_function.has_value());
+    struct RunResult {
+        size_t state_slots{0u};
+        size_t coalesced_slots{0u};
+        bool direct_control_flow{false};
+        std::string assembly{};
+        std::array<std::array<uint32_t, Width>, Width + 1u> outputs{};
+    };
+    auto run = [&](bool disable) -> std::optional<RunResult> {
+        ScopedEnvironmentVariable setting{
+            "LUISA_SIMD_DISABLE_STATE_PHI_COALESCING",
+            disable ? "1" : "0"};
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(
+            "state-phi-coalescing", *context);
+        auto name = std::string{"state_phi_coalescing_w"} +
+                    std::to_string(Width);
+        auto codegen = lower_schedule_to_llvm(
+            *module, *schedule_function, Width, name);
+        if (!codegen.succeeded() ||
+            ::llvm::verifyModule(*module, &::llvm::errs())) {
+            if (!codegen.error.empty()) {
+                std::cerr << codegen.error << '\n';
+            }
+            return std::nullopt;
+        }
+        LLVMJIT jit;
+        if (!jit.succeeded()) { return std::nullopt; }
+        auto assembly = jit.emit_assembly_copy(*module);
+        if (assembly.empty() ||
+            !jit.add_module(std::move(module), std::move(context))) {
+            return std::nullopt;
+        }
+        using Entry = void(
+            const void *, uint32_t *,
+            const SIMDPacketLaunchConfig *, uint32_t);
+        auto *entry = reinterpret_cast<Entry *>(jit.lookup(name));
+        if (entry == nullptr) { return std::nullopt; }
+        RunResult result{
+            .state_slots = codegen.state_slot_count,
+            .coalesced_slots = codegen.coalesced_state_slot_count,
+            .direct_control_flow = codegen.direct_control_flow,
+            .assembly = std::move(assembly),
+        };
+        for (auto active_lanes = uint32_t{0u};
+             active_lanes <= Width; active_lanes++) {
+            auto &output = result.outputs[active_lanes];
+            output.fill(0xdeadbeefu);
+            auto config = launch_1d(active_lanes, Width);
+            entry(nullptr, output.data(), &config, active_lanes);
+        }
+        return result;
+    };
+
+    auto candidate = run(false);
+    auto oracle = run(true);
+    CHECK(candidate.has_value());
+    CHECK(oracle.has_value());
+    CHECK(candidate->state_slots == oracle->state_slots);
+    CHECK(oracle->coalesced_slots == 0u);
+    if constexpr (Width == 1u) {
+        CHECK(candidate->direct_control_flow);
+        CHECK(candidate->coalesced_slots == 0u);
+        CHECK(candidate->assembly == oracle->assembly);
+    } else {
+        CHECK(!candidate->direct_control_flow);
+        CHECK(candidate->coalesced_slots != 0u);
+        CHECK(candidate->assembly != oracle->assembly);
+    }
+    CHECK(candidate->outputs == oracle->outputs);
+    for (auto active_lanes = uint32_t{0u};
+         active_lanes <= Width; active_lanes++) {
+        for (auto lane = uint32_t{0u}; lane < Width; lane++) {
+            auto initial = lane + 10u;
+            auto even = lane % 2u == 0u;
+            auto low_pair = (lane & 2u) == 0u;
+            auto first_state = initial + (even ? 100u : 200u);
+            auto second_state = first_state +
+                                (low_pair ? 1000u : 0u);
+            auto first_left = initial + (even ? 10u : 100u);
+            auto first_right = initial + (even ? 200u : 1000u);
+            auto expected = second_state * 1000u +
+                            (low_pair ? first_left : first_right);
+            CHECK(candidate->outputs[active_lanes][lane] ==
+                  (lane < active_lanes ? expected : 0xdeadbeefu));
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_state_phi_coalescing_codegen() {
+    return run_state_phi_coalescing_width<1u>() &&
+           run_state_phi_coalescing_width<2u>() &&
+           run_state_phi_coalescing_width<4u>() &&
+           run_state_phi_coalescing_width<8u>() &&
+           run_state_phi_coalescing_width<16u>();
 }
 
 [[nodiscard]] bool run_uniform_value_codegen() {
@@ -6823,6 +7078,8 @@ int main() {
         {"Schedule IR nested convergence W2", &run_nested_w2_codegen},
         {"Schedule IR 96-block CFG", &run_large_cfg_codegen},
         {"scheduler state residency", &run_state_residency_codegen},
+        {"scheduler state PHI coalescing",
+         &run_state_phi_coalescing_codegen},
         {"scalar uniform values", &run_uniform_value_codegen},
         {"scalar uniform switch", &run_uniform_switch_codegen},
         {"varying switch convergence", &run_varying_switch_codegen},

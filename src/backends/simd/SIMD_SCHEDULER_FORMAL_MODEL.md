@@ -317,6 +317,35 @@ the transfer, and `vF` still performs the same destination-side dynamic
 arrival. The rule requires the runtime divergence test, which proves both
 masks nonempty; it is not valid for an empty child or a non-LIFO scheduler.
 
+#### 4.3.1 PHI state-storage refinement
+
+The abstract rule retains distinct logical values and applies every edge's
+PHI assignments in parallel. LLVM need not allocate one physical slot per
+logical version. For one lane, define `use(b)` as state values read by block
+`b` and define an edge's parallel-copy destinations and sources as `D(e)` and
+`S(e)`. Backwards liveness uses
+
+```text
+live_e = S(e) union (live_in(target(e)) - D(e))
+live_in(b) = use(b) union union { live_e | e leaves b }
+```
+
+to its least fixed point. Two move-related logical state values may share a
+physical LLVM slot only if no members of their proposed equivalence classes
+are simultaneously live. Because LLVM emits the edge copies in a deterministic
+order, each destination additionally interferes with every *other* assignment's
+source on the same edge. The destination may still coalesce with its own
+source; that copy is an identity.
+
+This relation is per lane. Distinct divergent cohorts at different PCs own
+disjoint masks by Lane ownership, so they may occupy different components of
+the same fixed-vector slot. For any traversing lane `l`, noninterference means
+the slot component overwritten for a new logical version is not an observable
+live value. Parallel-copy source interference prevents an earlier emitted
+assignment from destroying a later source. PHI fidelity is therefore
+preserved, while logical state cardinality, lane ownership, tokens, epochs,
+and scheduling order are unchanged.
+
 Dynamic target arrival examines the top frame of `M`. If its `target` is not
 `v`, the edge is an ordinary continuation. If its `target` is `v`:
 
@@ -454,6 +483,10 @@ The bounded audit is complemented by permanent LLVM regressions for:
   graphs), 96 larger generated forward CFGs, and a 96-block JIT CFG;
 - the non-dominating shared-entry counterexample described in Section 4.3,
   with a warp collective at the merge;
+- move-related PHI state-slot coalescing and its disabled oracle at
+  W1/W2/W4/W8/W16, including a state-to-state passthrough, a two-value
+  parallel-copy swap, every inactive-tail size, exact outputs, direct-CFG
+  identity, and final-assembly differentiation;
 - a return that completes an inner gate sharing its target with the parent,
   with a warp collective proving that the released lanes cascade through both
   gates before the target executes;
@@ -478,7 +511,7 @@ refinement.
 | terminating-execution post-dominance | `PostDomTreeOptions::account_for_infinite_paths = false` |
 | dynamic target arrival/cascade | `_arrive_at_convergence_target`, `_cascade_at_convergence_target` |
 | branch partition | `_emit_terminator` split/switch lowering |
-| PHI edge transfer | `_apply_assignments` before `_route_edge` |
+| PHI edge transfer | `_apply_assignments` before `_route_edge`; `_coalesce_state_slots` may reuse noninterfering physical storage without changing logical assignments |
 | scalar-uniform storage | `LLVMValueLayout` plus `WarpUniformity` |
 
 The first column remains an abstract independent-lane transition system. The
@@ -507,12 +540,15 @@ fixtures while W1/W2 remain unchanged. The permanent regression checks all
 active-lane counts including zero, inactive sentinels, branch-local collective
 state, exact candidate/oracle results, and identical W2 IR.
 
-Cross-block Schedule values remain abstract lane state. LLVM may keep a hot
-state slot in SSA/registers or retain a cold slot as an explicit volatile stack
-load/store; this residency choice does not change the state transition. The
-current heuristic activates only when cold slots are at least half of the
-kernel's state slots, avoiding a global dispatcher PHI set that exceeds the
-physical register file while leaving hot values promotable.
+Cross-block Schedule values remain abstract lane state. LLVM first applies the
+Section 4.3.1 interference proof to reuse physical storage for nonoverlapping
+move-related PHI versions. `state_slots` remains the logical count and
+`coalesced_state_slots` reports the physical reduction. It may then keep a hot
+physical slot in SSA/registers or retain a cold slot as an explicit volatile
+stack load/store; neither choice changes the state transition. Cold pinning is
+considered only for an uncoalesced state set whose cold slots are at least
+half of its distinct physical slots. A compact coalesced set remains
+promotable because measured re-pinning increased copy/load traffic.
 
 Use-site memory provenance is likewise an LLVM refinement rather than a new
 scheduler transition. If static block geometry and integer expression analysis
