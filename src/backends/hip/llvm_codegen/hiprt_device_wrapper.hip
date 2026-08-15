@@ -1855,6 +1855,27 @@ enum : uint32_t {
     LUISA_PIPELINE_CANDIDATE_TERMINATED = 1u << 1u,
 };
 
+static __device__ __forceinline__ void
+luisa_pipeline_export_committed_state(
+    LuisaPipelineRayQueryState *state,
+    const LuisaPipelineRayQueryHit &committed_hit,
+    uint8_t committed_kind, float active_t_max) {
+    state->committed_hit = committed_hit;
+    state->committed_kind = committed_kind;
+    state->ray.maxT = active_t_max;
+}
+
+static __device__ __forceinline__ void
+luisa_pipeline_finish_trace(
+    LuisaPipelineRayQueryState *state,
+    const LuisaPipelineRayQueryHit &committed_hit,
+    uint8_t committed_kind, float active_t_max) {
+    luisa_pipeline_export_committed_state(
+        state, committed_hit, committed_kind, active_t_max);
+    state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
+    state->terminated = true;
+}
+
 // An opaque surface has no user candidate observation. Commit its public
 // result directly instead of materializing the unobservable candidate state
 // and crossing the out-of-line callback boundary. This is the exact
@@ -1869,31 +1890,37 @@ enum : uint32_t {
 template<bool terminate_on_first>
 static __device__ __forceinline__ uint32_t
 luisa_pipeline_commit_opaque_surface(
-    LuisaPipelineRayQueryState *state,
+    LuisaPipelineRayQueryHit &committed_hit,
+    uint8_t &committed_kind, float &active_t_max,
     uint32_t instance_id, uint32_t primitive_id,
     float u, float v, float t) {
-    state->committed_hit = LuisaPipelineRayQueryHit{
+    committed_hit = LuisaPipelineRayQueryHit{
         instance_id, primitive_id, u, v, t};
-    state->committed_kind = LUISA_PIPELINE_HIT_SURFACE;
-    state->ray.maxT = t;
+    committed_kind = LUISA_PIPELINE_HIT_SURFACE;
+    active_t_max = t;
     auto result = static_cast<uint32_t>(
         LUISA_PIPELINE_CANDIDATE_COMMITTED);
     if constexpr (terminate_on_first) {
-        state->terminated = true;
         result |= LUISA_PIPELINE_CANDIDATE_TERMINATED;
     }
     return result;
 }
 
-// Candidate callbacks are deliberately out of line from flat traversal. This
-// bounds the BVH live range at the call site while keeping callback semantics
-// fully generic: the generated direct dispatcher still owns all user code.
-static __device__ __attribute__((noinline)) uint32_t
+// A synchronous query is observable only at callback boundaries and after
+// trace completion. Export the register-shadowed committed state immediately
+// before dispatch; the caller imports callback mutations only when a commit
+// occurred. This is scalar replacement across the maximal unobservable region,
+// not a scene- or callback-specific shortcut.
+static __device__ __forceinline__ uint32_t
 luisa_pipeline_process_nonopaque_surface_candidate(
     LuisaPipelineRayQueryState *state,
+    const LuisaPipelineRayQueryHit &committed_hit,
+    uint8_t committed_kind, float active_t_max,
     void *callback_context, uint32_t pipeline_id,
     uint32_t instance_id, uint32_t primitive_id,
     float u, float v, float t) {
+    luisa_pipeline_export_committed_state(
+        state, committed_hit, committed_kind, active_t_max);
     state->candidate_hit = LuisaPipelineRayQueryHit{
         instance_id, primitive_id, u, v, t};
     state->state = LUISA_PIPELINE_RQ_STATE_SURFACE;
@@ -1912,12 +1939,15 @@ luisa_pipeline_process_nonopaque_surface_candidate(
     return result;
 }
 
-static __device__ __attribute__((noinline)) uint32_t
+static __device__ __forceinline__ uint32_t
 luisa_pipeline_process_procedural_candidate(
     LuisaPipelineRayQueryState *state,
+    const LuisaPipelineRayQueryHit &committed_hit,
+    uint8_t committed_kind, float active_t_max,
     void *callback_context, uint32_t pipeline_id,
-    uint32_t instance_id, uint32_t primitive_id,
-    float active_t_max) {
+    uint32_t instance_id, uint32_t primitive_id) {
+    luisa_pipeline_export_committed_state(
+        state, committed_hit, committed_kind, active_t_max);
     state->candidate_hit = LuisaPipelineRayQueryHit{
         instance_id, primitive_id, 0.0f, 0.0f, active_t_max};
     luisa_pipeline_dispatch_candidate(
@@ -1989,13 +2019,20 @@ luisa_pipeline_ray_query_trace_hw(
     const auto descriptor = luisa_hiprt_pack_descriptor(
         static_cast<uint32_t>(traversal_hint) & 0x3u);
 
+    const auto instances = state->instances;
+    const auto mask = state->mask;
+    const auto time = state->time;
+    auto world_ray = state->ray;
+    auto committed_hit = state->committed_hit;
+    auto committed_kind = state->committed_kind;
+
     auto scene_header = reinterpret_cast<SceneHeader *>(state->scene_handle);
     auto tlas_box_nodes = scene_header->m_boxNodes;
     auto instance_nodes = scene_header->m_primNodes;
     auto box_nodes = tlas_box_nodes;
     void *primitive_nodes = nullptr;
     auto instance_id = InvalidValue;
-    auto ray = state->ray;
+    auto ray = world_ray;
 
     LuisaPipelineHwBvhStack stack{
         luisa_hiprt_shared_stack_cache};
@@ -2008,7 +2045,7 @@ luisa_pipeline_ray_query_trace_hw(
     auto inside_instance = false;
     auto second_triangle_iteration = false;
 
-    while (!state->terminated) {
+    while (true) {
         if (node_index == LuisaPipelineHwBvhStack::terminal_node) {
             break;
         }
@@ -2026,7 +2063,7 @@ luisa_pipeline_ray_query_trace_hw(
             instance_id = InvalidValue;
             box_nodes = tlas_box_nodes;
             primitive_nodes = nullptr;
-            ray = state->ray;
+            ray = world_ray;
             previous_node = tlas_instance_node;
             primitive_parent_node =
                 tlas_instance_parent_node;
@@ -2094,7 +2131,7 @@ luisa_pipeline_ray_query_trace_hw(
                 InvalidValue, InvalidValue,
                 LuisaPipelineHwBvhStack::skip_children_0_to_7,
                 LuisaPipelineHwBvhStack::skip_children_0_to_7};
-            if ((instance.m_mask & state->mask) != 0u) {
+            if ((instance.m_mask & mask) != 0u) {
                 hip_float3 transformed_origin, transformed_direction;
                 auto transform_result =
                     __builtin_amdgcn_image_bvh8_intersect_ray(
@@ -2156,8 +2193,8 @@ luisa_pipeline_ray_query_trace_hw(
             auto primitive_id =
                 custom_nodes[getNodeAddr(node_index)].m_primIndex;
             auto is_surface = false;
-            if (state->instances != nullptr) {
-                const auto &instance = state->instances[instance_id];
+            if (instances != nullptr) {
+                const auto &instance = instances[instance_id];
                 is_surface = instance.geometry_data != 0u &&
                              (instance.geometry_kind ==
                                   LUISA_GEOMETRY_KIND_CURVE ||
@@ -2170,35 +2207,58 @@ luisa_pipeline_ray_query_trace_hw(
                 surface_hit.instanceID = instance_id;
                 surface_hit.primID = primitive_id;
                 if (luisa_intersect_surface(
-                        state->instances, ray, state->time, surface_hit) &&
+                        instances, ray, time, surface_hit) &&
                     ray.minT <= surface_hit.t &&
                     surface_hit.t <= ray.maxT) {
-                    candidate_result = luisa_instance_is_opaque(
-                                           state->instances, instance_id) ?
+                    const auto candidate_is_opaque =
+                        luisa_instance_is_opaque(instances, instance_id);
+                    candidate_result = candidate_is_opaque ?
                                            luisa_pipeline_commit_opaque_surface<terminate_on_first>(
-                                               state, instance_id, primitive_id,
+                                               committed_hit, committed_kind,
+                                               world_ray.maxT,
+                                               instance_id, primitive_id,
                                                surface_hit.uv.x, surface_hit.uv.y,
                                                surface_hit.t) :
                                            luisa_pipeline_process_nonopaque_surface_candidate(
-                            state, callback_context, pipeline_id,
-                            instance_id, primitive_id,
-                            surface_hit.uv.x, surface_hit.uv.y,
-                            surface_hit.t);
+                                               state, committed_hit,
+                                               committed_kind, world_ray.maxT,
+                                               callback_context, pipeline_id,
+                                               instance_id, primitive_id,
+                                               surface_hit.uv.x,
+                                               surface_hit.uv.y,
+                                               surface_hit.t);
+                    if (!candidate_is_opaque &&
+                        (candidate_result &
+                         LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                        committed_hit = state->committed_hit;
+                        committed_kind = state->committed_kind;
+                        world_ray.maxT = state->ray.maxT;
+                    }
                 } else {
                     candidate_result = 0u;
                 }
             } else {
                 candidate_result =
                     luisa_pipeline_process_procedural_candidate(
-                        state, callback_context, pipeline_id,
-                        instance_id, primitive_id, ray.maxT);
+                        state, committed_hit, committed_kind,
+                        world_ray.maxT, callback_context, pipeline_id,
+                        instance_id, primitive_id);
+                if ((candidate_result &
+                     LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                    committed_hit = state->committed_hit;
+                    committed_kind = state->committed_kind;
+                    world_ray.maxT = state->ray.maxT;
+                }
             }
             if ((candidate_result &
                  LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
-                ray.maxT = state->ray.maxT;
+                ray.maxT = world_ray.maxT;
             }
             if ((candidate_result &
                  LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                luisa_pipeline_finish_trace(
+                    state, committed_hit, committed_kind,
+                    world_ray.maxT);
                 return;
             }
             node_index = stack.pop();
@@ -2242,21 +2302,35 @@ luisa_pipeline_ray_query_trace_hw(
                 const auto t = select_hit0 ? t0 : t1;
                 const auto candidate_is_opaque =
                     luisa_instance_is_opaque(
-                        state->instances, instance_id);
+                        instances, instance_id);
                 const auto candidate_result = candidate_is_opaque ?
                                                   luisa_pipeline_commit_opaque_surface<terminate_on_first>(
-                                                      state, instance_id,
+                                                      committed_hit,
+                                                      committed_kind,
+                                                      world_ray.maxT,
+                                                      instance_id,
                                                       primitive_id, u, v, t) :
                                                   luisa_pipeline_process_nonopaque_surface_candidate(
-                                                      state, callback_context,
+                                                      state, committed_hit,
+                                                      committed_kind,
+                                                      world_ray.maxT,
+                                                      callback_context,
                                                       pipeline_id, instance_id,
                                                       primitive_id, u, v, t);
                 if ((candidate_result &
                      LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
-                    ray.maxT = state->ray.maxT;
+                    if (!candidate_is_opaque) {
+                        committed_hit = state->committed_hit;
+                        committed_kind = state->committed_kind;
+                        world_ray.maxT = state->ray.maxT;
+                    }
+                    ray.maxT = world_ray.maxT;
                 }
                 if ((candidate_result &
                      LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                    luisa_pipeline_finish_trace(
+                        state, committed_hit, committed_kind,
+                        world_ray.maxT);
                     return;
                 }
             }
@@ -2299,6 +2373,8 @@ luisa_pipeline_ray_query_trace_hw(
         }
         node_index = stack.pop();
     }
+    luisa_pipeline_finish_trace(
+        state, committed_hit, committed_kind, world_ray.maxT);
 }
 
 static __device__ bool luisa_hiprt_hw_trace_closest(
