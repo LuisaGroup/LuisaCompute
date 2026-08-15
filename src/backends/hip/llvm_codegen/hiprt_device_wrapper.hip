@@ -699,34 +699,31 @@ struct LuisaPipelineRayQueryHit {
 struct alignas(16) LuisaPipelineRayQueryState {
     uint64_t scene_handle;
     const LuisaAccelInstance *instances;
-    void *callback_context;
-    uint32_t query_state_address;
     hiprtRay ray;
     LuisaPipelineRayQueryHit candidate_hit;
     LuisaPipelineRayQueryHit committed_hit;
+    uint32_t query_state_address;
     uint32_t mask;
     uint32_t flags;// bit 0: terminate on the first committed hit
-    uint32_t pipeline_id;
     float time;
     uint8_t state;
-    uint8_t candidate_kind;
     uint8_t committed_kind;
     bool candidate_committed;
     bool terminated;
 };
 
 static_assert(sizeof(LuisaPipelineRayQueryHit) == 20);
-static_assert(sizeof(LuisaPipelineRayQueryState) == 128,
+static_assert(sizeof(LuisaPipelineRayQueryState) == 112,
               "Synchronous HIP ray-query state/codegen allocation mismatch");
 static_assert(alignof(LuisaPipelineRayQueryState) == 16);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, ray) == 16);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, candidate_hit) == 48);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, committed_hit) == 68);
 static_assert(__builtin_offsetof(
                   LuisaPipelineRayQueryState,
-                  query_state_address) == 24);
-static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, ray) == 32);
-static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, candidate_hit) == 64);
-static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, committed_hit) == 84);
-static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, mask) == 104);
-static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, state) == 120);
+                  query_state_address) == 88);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, mask) == 92);
+static_assert(__builtin_offsetof(LuisaPipelineRayQueryState, state) == 104);
 
 extern "C" __device__ void luisa_ray_query_pipeline_dispatch(
     void *query_object, void *context,
@@ -758,13 +755,14 @@ luisa_pipeline_commit_surface(LuisaPipelineRayQueryState *state) {
 
 static __device__ __forceinline__ void
 luisa_pipeline_dispatch_candidate(LuisaPipelineRayQueryState *state,
+                                  void *callback_context,
+                                  uint32_t pipeline_id,
                                   uint8_t candidate_kind) {
     state->state = candidate_kind;
-    state->candidate_kind = candidate_kind;
     state->candidate_committed = false;
     luisa_ray_query_pipeline_dispatch(
-        luisa_pipeline_query_object(state), state->callback_context,
-        state->pipeline_id, candidate_kind);
+        luisa_pipeline_query_object(state), callback_context,
+        pipeline_id, candidate_kind);
 }
 
 // The generic ray-query callback is defined before its in-place state type.
@@ -1324,7 +1322,8 @@ luisa_pipeline_ray_query_next_hit(
 template<bool terminate_on_first>
 static __device__ void
 luisa_pipeline_ray_query_trace_hw(
-    LuisaPipelineRayQueryState *state);
+    LuisaPipelineRayQueryState *state,
+    void *callback_context, uint32_t pipeline_id);
 #endif
 
 extern "C" __device__ __attribute__((used, noinline)) void
@@ -1346,7 +1345,6 @@ luisa_pipeline_ray_query_initialize(
     state->scene_handle = scene_handle;
     state->instances =
         reinterpret_cast<const LuisaAccelInstance *>(instance_data);
-    state->callback_context = nullptr;
     state->query_state_address = query_state_address;
     state->ray.origin = hiprtFloat3{ox, oy, oz};
     state->ray.minT = tmin;
@@ -1357,10 +1355,8 @@ luisa_pipeline_ray_query_initialize(
     state->committed_hit = state->candidate_hit;
     state->mask = mask;
     state->flags = flags;
-    state->pipeline_id = 0u;
     state->time = time;
     state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
-    state->candidate_kind = LUISA_PIPELINE_RQ_STATE_TERMINATED;
     state->committed_kind = LUISA_PIPELINE_HIT_MISS;
     state->candidate_committed = false;
     state->terminated = false;
@@ -1372,14 +1368,13 @@ luisa_pipeline_ray_query_trace_impl(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
     auto state = reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr);
-    state->callback_context = callback_context;
-    state->pipeline_id = pipeline_id;
 
 #if HIPRT_RTIP >= 31 && (defined(__gfx1200__) || defined(__gfx1201__))
     static_cast<void>(stack_size);
     static_cast<void>(stack_count);
     static_cast<void>(stack_data);
-    luisa_pipeline_ray_query_trace_hw<terminate_on_first>(state);
+    luisa_pipeline_ray_query_trace_hw<terminate_on_first>(
+        state, callback_context, pipeline_id);
 #else
     hiprtGlobalStackBuffer global_stack_buffer{
         stack_size, stack_count, stack_data};
@@ -1400,7 +1395,6 @@ luisa_pipeline_ray_query_trace_impl(
 
     while (!state->terminated) {
         state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
-        state->candidate_kind = LUISA_PIPELINE_RQ_STATE_TERMINATED;
         state->candidate_committed = false;
         auto hit = luisa_pipeline_ray_query_next_hit(&traversal);
         if (!hit.hasHit()) { break; }
@@ -1410,11 +1404,11 @@ luisa_pipeline_ray_query_trace_impl(
                 hit.instanceIDs[0], hit.primID,
                 0.0f, 0.0f, state->ray.maxT};
             luisa_pipeline_dispatch_candidate(
-                state, LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
+                state, callback_context, pipeline_id,
+                LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
         } else {
             luisa_pipeline_store_hit(state->candidate_hit, hit);
             state->state = LUISA_PIPELINE_RQ_STATE_SURFACE;
-            state->candidate_kind = LUISA_PIPELINE_RQ_STATE_SURFACE;
             state->candidate_committed = false;
             if (luisa_instance_is_opaque(
                     state->instances, state->candidate_hit.instance_id)) {
@@ -1422,7 +1416,7 @@ luisa_pipeline_ray_query_trace_impl(
             } else {
                 luisa_ray_query_pipeline_dispatch(
                     luisa_pipeline_query_object(state),
-                    state->callback_context, state->pipeline_id,
+                    callback_context, pipeline_id,
                     LUISA_PIPELINE_RQ_STATE_SURFACE);
             }
         }
@@ -1437,7 +1431,6 @@ luisa_pipeline_ray_query_trace_impl(
     }
 #endif
     state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
-    state->candidate_kind = LUISA_PIPELINE_RQ_STATE_TERMINATED;
     state->terminated = true;
 }
 
@@ -1898,17 +1891,17 @@ luisa_pipeline_commit_opaque_surface(
 static __device__ __attribute__((noinline)) uint32_t
 luisa_pipeline_process_nonopaque_surface_candidate(
     LuisaPipelineRayQueryState *state,
+    void *callback_context, uint32_t pipeline_id,
     uint32_t instance_id, uint32_t primitive_id,
     float u, float v, float t) {
     state->candidate_hit = LuisaPipelineRayQueryHit{
         instance_id, primitive_id, u, v, t};
     state->state = LUISA_PIPELINE_RQ_STATE_SURFACE;
-    state->candidate_kind = LUISA_PIPELINE_RQ_STATE_SURFACE;
     state->candidate_committed = false;
     auto result = 0u;
     luisa_ray_query_pipeline_dispatch(
         luisa_pipeline_query_object(state),
-        state->callback_context, state->pipeline_id,
+        callback_context, pipeline_id,
         LUISA_PIPELINE_RQ_STATE_SURFACE);
     if (state->candidate_committed) {
         result |= LUISA_PIPELINE_CANDIDATE_COMMITTED;
@@ -1922,12 +1915,14 @@ luisa_pipeline_process_nonopaque_surface_candidate(
 static __device__ __attribute__((noinline)) uint32_t
 luisa_pipeline_process_procedural_candidate(
     LuisaPipelineRayQueryState *state,
+    void *callback_context, uint32_t pipeline_id,
     uint32_t instance_id, uint32_t primitive_id,
     float active_t_max) {
     state->candidate_hit = LuisaPipelineRayQueryHit{
         instance_id, primitive_id, 0.0f, 0.0f, active_t_max};
     luisa_pipeline_dispatch_candidate(
-        state, LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
+        state, callback_context, pipeline_id,
+        LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
     auto result = 0u;
     if (state->candidate_committed) {
         result |= LUISA_PIPELINE_CANDIDATE_COMMITTED;
@@ -1983,7 +1978,8 @@ luisa_pipeline_resolve_instance_parent(
 template<bool terminate_on_first>
 static __device__ void
 luisa_pipeline_ray_query_trace_hw(
-    LuisaPipelineRayQueryState *state) {
+    LuisaPipelineRayQueryState *state,
+    void *callback_context, uint32_t pipeline_id) {
     using namespace hiprt;
 
     const auto traversal_hint =
@@ -2184,7 +2180,8 @@ luisa_pipeline_ray_query_trace_hw(
                                                surface_hit.uv.x, surface_hit.uv.y,
                                                surface_hit.t) :
                                            luisa_pipeline_process_nonopaque_surface_candidate(
-                            state, instance_id, primitive_id,
+                            state, callback_context, pipeline_id,
+                            instance_id, primitive_id,
                             surface_hit.uv.x, surface_hit.uv.y,
                             surface_hit.t);
                 } else {
@@ -2193,7 +2190,8 @@ luisa_pipeline_ray_query_trace_hw(
             } else {
                 candidate_result =
                     luisa_pipeline_process_procedural_candidate(
-                        state, instance_id, primitive_id, ray.maxT);
+                        state, callback_context, pipeline_id,
+                        instance_id, primitive_id, ray.maxT);
             }
             if ((candidate_result &
                  LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
@@ -2250,7 +2248,8 @@ luisa_pipeline_ray_query_trace_hw(
                                                       state, instance_id,
                                                       primitive_id, u, v, t) :
                                                   luisa_pipeline_process_nonopaque_surface_candidate(
-                                                      state, instance_id,
+                                                      state, callback_context,
+                                                      pipeline_id, instance_id,
                                                       primitive_id, u, v, t);
                 if ((candidate_result &
                      LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
