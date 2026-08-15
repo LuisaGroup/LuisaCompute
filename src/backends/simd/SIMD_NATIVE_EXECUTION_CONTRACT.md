@@ -2089,13 +2089,34 @@ frame pointer, count, and mode through the plain instance table. MATRIX frames
 are composed with the instance's outer affine before being supplied to Embree.
 SRT frames map pivot/quaternion/scale/shear/translation to
 `RTCQuaternionDecomposition`; Embree normalizes each nonzero quaternion and
-performs quaternion interpolation. Since the deployed Embree ABI has only one
-instance-stack level, an SRT motion instance currently requires an identity
-outer affine; accepting a nonidentity affine would otherwise silently replace
-quaternion interpolation with matrix interpolation. A time range beginning
-inside the camera shutter requires `should_vanish_start`, and a range ending
-inside it requires `should_vanish_end`, matching Embree's disappear-outside-
-range behavior instead of inventing endpoint clamping.
+performs quaternion interpolation. An identity outer affine is represented by
+one native Embree instance. A nonidentity outer affine must not approximate the
+composition by interpolating endpoint matrices. It is represented by one
+top-level user geometry whose private native SRT helper supplies the exact
+Embree transform at the active ray time. The callback composes `outer * SRT`,
+checks that a finite inverse is representable, inverse-transforms origin and
+direction without normalization so public `t` is invariant, traverses the
+child scene once at the native packet width, and inverse-transpose transforms
+the committed geometric normal. Embree 4 uses its forwarding ABI; Embree 3
+uses the documented recursive `rtcIntersect1/4/8/16` or
+`rtcOccluded1/4/8/16` call with an explicit context instance-ID push/pop. W2 is
+padded into one W4 call. Only W1 may call a scalar child traversal. A non-finite
+ray time, singular composition, or composition whose finite inverse cannot be
+represented is a miss; inactive lanes do not evaluate the inverse. Empty child
+bounds remain empty. A time range beginning inside the camera shutter requires
+`should_vanish_start`, and a range ending inside it requires
+`should_vanish_end`, matching Embree's disappear-outside-range behavior instead
+of inventing endpoint clamping.
+
+Each motion resource build advances a host generation. A later ordinary TLAS
+build must import a newer generation and mark the corresponding instance dirty
+even when the Accel command carries no modifications. Without a newer host
+generation, device-authored keyframe writes in the TLAS-owned copy remain
+authoritative. The committed user-geometry callback payload has scene lifetime:
+an `update_instance_buffer_only` transform change may update the public table,
+but it must retain the old route and payload until the next ordinary build.
+That build may replace USER with native INSTANCE, or the reverse, at the same
+geometry ID before committing traversal state.
 
 MATRIX/SRT keyframe reads and writes use the same scalar-or-masked policy as
 static metadata. Both instance and keyframe IDs are sanitized before checks or
@@ -2126,12 +2147,11 @@ attached task scheduler after releasing the device and before `dlclose` can
 unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
-Nonidentity outer affine composition for SRT motion and deeper instance-stack
-behavior are not part of this slice. They must fail at a specific capability
-boundary until their independent semantic, IR-shape, and machine-boundary gates
-exist; triangle,
-curve, procedural-query, and opacity support does not imply those deeper
-instancing capabilities.
+Deeper public instance-stack behavior beyond this one logical outer-SRT-child
+composition is not part of this slice. It must fail at a specific capability
+boundary until its independent semantic, ABI, and machine-boundary gates exist;
+triangle, curve, procedural-query, opacity, and outer-SRT support do not imply
+arbitrary nested instancing.
 
 ## 7. Executable audit matrix
 

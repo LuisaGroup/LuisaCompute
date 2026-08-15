@@ -59,6 +59,7 @@ set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_emitter_accel.cpp
         llvm/llvm_schedule_emitter_collectives.cpp
         llvm/llvm_schedule_emitter_control.cpp
+        llvm/llvm_schedule_emitter_direct.cpp
         llvm/llvm_schedule_emitter_memory.cpp
         llvm/llvm_schedule_emitter_local_regions.cpp
         llvm/llvm_schedule_emitter_predication.cpp
@@ -135,6 +136,7 @@ set_target_properties(luisa-compute-simd-compiler PROPERTIES
 luisa_compute_add_backend(simd SOURCES
         ../fallback/fallback_texture.cpp
         runtime/simd_accel.cpp
+        runtime/simd_accel_motion.cpp
         runtime/simd_bindless_array.cpp
         runtime/simd_buffer.cpp
         runtime/simd_curve.cpp

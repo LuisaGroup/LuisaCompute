@@ -2,8 +2,8 @@
 // This test covers:
 // - W1/W2/W4/W8/W16 closest-hit and any-hit traversal
 // - varying-time motion closest-hit and any-hit traversal
-// - MATRIX/SRT motion-instance keyframes, quaternion interpolation, device
-//   mutation, and packet traversal
+// - MATRIX/SRT motion-instance keyframes, quaternion interpolation, outer
+//   affine composition, device mutation, and packet traversal
 // - non-opaque triangle ray-query rejection/commit under divergent handlers
 // - varying device opacity mutation, opaque auto-commit, and inactive tails
 // - direct varying and uniform instance metadata reads
@@ -164,6 +164,14 @@ int main(int argc, char *argv[]) {
                 make_float3(3.0f, 0.0f, -2.0f))};
         srt_motion_instance.set_keyframes(
             luisa::span{srt_instance_keys});
+        // Keep the outer-affine resource isolated from the device-authored
+        // SRT mutation tests below. Its host build generation is changed
+        // independently to verify that an Accel build imports rebuilt motion
+        // keyframes even when the Accel modification list is empty.
+        auto outer_srt_motion_instance = device.create_motion_instance(
+            mesh, srt_instance_option);
+        outer_srt_motion_instance.set_keyframes(
+            luisa::span{srt_instance_keys});
         auto accel = device.create_accel({.allow_update = true});
         accel.emplace_back(
             mesh, make_float4x4(1.0f), 0x1u, true, 11u);
@@ -181,6 +189,16 @@ int main(int argc, char *argv[]) {
         instance_motion_accel.emplace_back(
             srt_motion_instance, make_float4x4(1.0f),
             0x8u, true, 55u);
+        auto outer_srt_accel =
+            device.create_accel({.allow_update = true});
+        auto outer_srt_transform = make_float4x4(
+            make_float4(2.0f, 0.25f, 0.0f, 0.0f),
+            make_float4(0.5f, 1.5f, 0.0f, 0.0f),
+            make_float4(0.0f, 0.0f, 1.0f, 0.0f),
+            make_float4(1.0f, -2.0f, -2.0f, 1.0f));
+        outer_srt_accel.emplace_back(
+            outer_srt_motion_instance, outer_srt_transform,
+            0x80u, false, 56u);
         auto query_accel = device.create_accel();
         query_accel.emplace_back(
             mesh, make_float4x4(1.0f), 0x10u, false, 66u);
@@ -336,9 +354,11 @@ int main(int argc, char *argv[]) {
                << motion_mesh.build()
                << matrix_motion_instance.build()
                << srt_motion_instance.build()
+               << outer_srt_motion_instance.build()
                << accel.build()
                << motion_accel.build()
                << instance_motion_accel.build()
+               << outer_srt_accel.build()
                << query_accel.build()
                << deep_query_accel.build()
                << opacity_accel.build()
@@ -992,6 +1012,188 @@ int main(int argc, char *argv[]) {
         expect(std::abs(host_motion_instance_distances[0u] - 2.0f) <=
                1.0e-5f)
             << "SRT quaternion interpolation traversal distance mismatch";
+
+        // A static outer affine and quaternion-SRT motion form two logical
+        // transform levels. The deployed Embree build exposes only one
+        // instance-ID stack level, so the SIMD runtime must preserve spherical
+        // interpolation through packet forwarding instead of converting the
+        // composed endpoints to linearly interpolated matrices. The chosen
+        // nonuniform/sheared outer transform does not commute with the
+        // forty-five-degree midpoint rotation and therefore catches that
+        // approximation. Dispatching thirty-five lanes also exercises every
+        // width's inactive tail.
+        Kernel1D trace_outer_srt = [width](
+                                       AccelVar scene,
+                                       BufferFloat3 origins,
+                                       BufferUInt4 metadata,
+                                       BufferFloat4 details) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                origins.read(index),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 10.0f);
+            auto options = AccelTraceOptions{
+                .visibility_mask = 0x80u};
+            auto hit = scene.intersect_motion(ray, 0.5f, options);
+            auto any = scene.intersect_any_motion(ray, 0.5f, options);
+            UInt callback_count = 0u;
+            auto query = scene.traverse_motion(ray, 0.5f, options)
+                             .on_surface_candidate(
+                                 [&](SurfaceCandidate &candidate) noexcept {
+                                     callback_count += 1u;
+                                     candidate.commit();
+                                 })
+                             .on_procedural_candidate(
+                                 [](ProceduralCandidate &) noexcept {})
+                             .trace();
+            metadata.write(
+                index,
+                make_uint4(
+                    hit->inst, cast<uint>(any),
+                    query->inst, callback_count));
+            details.write(
+                index,
+                make_float4(
+                    hit->bary.x, hit->bary.y,
+                    hit->committed_ray_t,
+                    query->committed_ray_t));
+        };
+        auto trace_outer_srt_shader = device.compile(trace_outer_srt);
+        auto outer_srt_origins =
+            device.create_buffer<float3>(thread_count);
+        auto outer_srt_metadata =
+            device.create_buffer<uint4>(thread_count);
+        auto outer_srt_details =
+            device.create_buffer<float4>(thread_count);
+        std::array<uint4, thread_count> host_outer_srt_metadata{};
+        std::array<float4, thread_count> host_outer_srt_details{};
+        auto check_outer_srt = [&](float3 origin, float expected_t,
+                                   luisa::string_view phase) {
+            std::array<float3, thread_count> host_origins{};
+            host_origins.fill(origin);
+            stream << outer_srt_origins.copy_from(
+                          luisa::span{host_origins})
+                   << trace_outer_srt_shader(
+                          outer_srt_accel, outer_srt_origins,
+                          outer_srt_metadata, outer_srt_details)
+                          .dispatch(thread_count)
+                   << outer_srt_metadata.copy_to(
+                          luisa::span{host_outer_srt_metadata})
+                   << outer_srt_details.copy_to(
+                          luisa::span{host_outer_srt_details})
+                   << synchronize();
+            for (auto i = 0u; i < thread_count; i++) {
+                expect(static_cast<bool>(
+                    all(host_outer_srt_metadata[i] ==
+                        make_uint4(0u, 1u, 0u, 1u))))
+                    << luisa::format(
+                           "{} metadata mismatch", phase);
+                expect(
+                    std::abs(host_outer_srt_details[i].x - 0.375f) <=
+                        2.0e-5f &&
+                    std::abs(host_outer_srt_details[i].y - 0.5f) <=
+                        2.0e-5f &&
+                    std::abs(
+                        host_outer_srt_details[i].z - expected_t) <=
+                        2.0e-5f &&
+                    std::abs(
+                        host_outer_srt_details[i].w - expected_t) <=
+                        2.0e-5f)
+                    << luisa::format(
+                           "{} detail mismatch", phase);
+            }
+        };
+        auto initial_outer_origin = make_float3(
+            7.441941738241592f,
+            -0.9406407832308854f, 1.0f);
+        check_outer_srt(
+            initial_outer_origin, 4.0f,
+            "initial outer-affine SRT traversal");
+
+        // Rebuilding the MotionInstance is not an Accel modification. The
+        // following empty Accel build must still import the new generation.
+        auto rebuilt_outer_srt_keys = srt_instance_keys;
+        rebuilt_outer_srt_keys[0u].translation[0u] += 1.0f;
+        rebuilt_outer_srt_keys[1u].translation[0u] += 1.0f;
+        outer_srt_motion_instance.set_keyframes(
+            luisa::span{rebuilt_outer_srt_keys});
+        stream << outer_srt_motion_instance.build()
+               << outer_srt_accel.build(
+                      Accel::BuildRequest::PREFER_UPDATE)
+               << synchronize();
+        auto rebuilt_outer_origin = make_float3(
+            9.441941738241592f,
+            -0.6906407832308854f, 1.0f);
+        check_outer_srt(
+            rebuilt_outer_origin, 4.0f,
+            "rebuilt outer-affine SRT traversal");
+
+        // A buffer-only transform update changes the public instance table but
+        // deliberately keeps the old Embree BVH and its user-geometry payload
+        // alive. Traversal therefore stays on the old route until the next
+        // ordinary build, which then switches USER -> INSTANCE exactly once.
+        outer_srt_accel.set_transform_on_update(
+            0u, make_float4x4(1.0f));
+        stream << outer_srt_accel.update_instance_buffer()
+               << synchronize();
+        check_outer_srt(
+            rebuilt_outer_origin, 4.0f,
+            "buffer-only committed outer-affine SRT traversal");
+        stream << outer_srt_accel.build(
+                      Accel::BuildRequest::PREFER_UPDATE)
+               << synchronize();
+        auto identity_outer_origin = make_float3(
+            4.176776695296637f,
+            0.17677669529663687f, 1.0f);
+        check_outer_srt(
+            identity_outer_origin, 2.0f,
+            "identity outer SRT traversal");
+
+        // Exercise the reverse INSTANCE -> USER route transition and define
+        // the singular-composition boundary as a miss. The collapsed x axis
+        // still places the ray exactly on the conservative bounds plane, so a
+        // callback that is reached must reject before using an invalid inverse.
+        auto singular_outer_transform = make_float4x4(
+            make_float4(0.0f, 0.0f, 0.0f, 0.0f),
+            make_float4(0.0f, 1.0f, 0.0f, 0.0f),
+            make_float4(0.0f, 0.0f, 1.0f, 0.0f),
+            make_float4(
+                identity_outer_origin.x, 0.0f, 0.0f, 1.0f));
+        outer_srt_accel.set_transform_on_update(
+            0u, singular_outer_transform);
+        stream << outer_srt_accel.build(
+                      Accel::BuildRequest::PREFER_UPDATE)
+               << synchronize();
+        {
+            std::array<float3, thread_count> host_origins{};
+            host_origins.fill(identity_outer_origin);
+            stream << outer_srt_origins.copy_from(
+                          luisa::span{host_origins})
+                   << trace_outer_srt_shader(
+                          outer_srt_accel, outer_srt_origins,
+                          outer_srt_metadata, outer_srt_details)
+                          .dispatch(thread_count)
+                   << outer_srt_metadata.copy_to(
+                          luisa::span{host_outer_srt_metadata})
+                   << synchronize();
+            for (auto i = 0u; i < thread_count; i++) {
+                expect(static_cast<bool>(
+                    all(host_outer_srt_metadata[i] ==
+                        make_uint4(~0u, 0u, ~0u, 0u))))
+                    << "singular outer-affine SRT must miss";
+            }
+        }
+
+        outer_srt_accel.set_transform_on_update(
+            0u, outer_srt_transform);
+        stream << outer_srt_accel.build(
+                      Accel::BuildRequest::PREFER_UPDATE)
+               << synchronize();
+        check_outer_srt(
+            rebuilt_outer_origin, 4.0f,
+            "restored outer-affine SRT traversal");
 
         Kernel1D read_motion_keyframes = [width](
                                              AccelVar scene,

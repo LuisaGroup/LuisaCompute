@@ -1,4 +1,5 @@
 #include "simd_accel.h"
+#include "simd_accel_motion.h"
 #include "simd_accel_ray_query.h"
 
 #include <algorithm>
@@ -1589,6 +1590,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                 state->option = motion->option();
                 state->keyframes.assign(
                     motion->keyframes().begin(), motion->keyframes().end());
+                state->source_build_version = motion->build_version();
                 instance.motion_frames = state->keyframes.data();
                 instance.motion_keyframe_count =
                     static_cast<uint32_t>(state->keyframes.size());
@@ -1641,6 +1643,39 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         instance.dirty = 1u;
     }
 
+    // A MotionInstance build is a resource update rather than an Accel
+    // modification. Import a new host keyframe generation here, while leaving
+    // device-authored keyframe stores intact when the source generation did
+    // not change.
+    for (auto i = size_t{0u}; i < _instances.size(); i++) {
+        auto *primitive = _primitives[i];
+        auto &state = _motion_states[i];
+        if (primitive == nullptr || state == nullptr ||
+            primitive->kind() != SIMDPrimitive::Kind::motion_instance) {
+            continue;
+        }
+        auto *motion = static_cast<SIMDMotionInstance *>(primitive);
+        if (state->source_build_version == motion->build_version()) {
+            continue;
+        }
+        LUISA_ASSERT(
+            motion->child() != nullptr &&
+                motion->keyframes().size() ==
+                    motion->option().keyframe_count,
+            "SIMD motion instance must be built before its accel.");
+        state->option = motion->option();
+        state->keyframes.assign(
+            motion->keyframes().begin(), motion->keyframes().end());
+        state->source_build_version = motion->build_version();
+        auto &instance = _instances[i];
+        instance.motion_frames = state->keyframes.data();
+        instance.motion_keyframe_count =
+            static_cast<uint32_t>(state->keyframes.size());
+        instance.motion_mode =
+            static_cast<uint32_t>(state->option.mode);
+        instance.dirty = 1u;
+    }
+
     auto refresh_instance_summary = [&]() noexcept {
         _has_curve_instances = std::any_of(
             _committed_instances.cbegin(), _committed_instances.cend(),
@@ -1676,14 +1711,18 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         return;
     }
 
+    auto device = rtcGetSceneDevice(_scene);
     if (instance_count < _geometries.size()) {
         for (auto i = instance_count; i < _geometries.size(); i++) {
             rtcDetachGeometry(_scene, static_cast<unsigned>(i));
         }
         _geometries.resize(instance_count);
+        _geometry_routes.resize(instance_count);
+        _motion_forwarders.resize(instance_count);
     } else {
-        auto device = rtcGetSceneDevice(_scene);
         _geometries.reserve(instance_count);
+        _geometry_routes.reserve(instance_count);
+        _motion_forwarders.reserve(instance_count);
         for (auto i = _geometries.size(); i < instance_count; i++) {
             auto geometry = rtcNewGeometry(
                 device, RTC_GEOMETRY_TYPE_INSTANCE);
@@ -1693,31 +1732,73 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                 _scene, geometry, static_cast<unsigned>(i));
             rtcReleaseGeometry(geometry);
             _geometries.emplace_back(geometry);
+            _geometry_routes.emplace_back(GeometryRoute::instance);
+            _motion_forwarders.emplace_back();
             _instances[i].dirty = 1u;
         }
     }
+    auto ensure_geometry_route = [&](
+                                     size_t index,
+                                     GeometryRoute route) noexcept {
+        if (_geometry_routes[index] == route) { return; }
+        rtcDetachGeometry(
+            _scene, static_cast<unsigned>(index));
+        _motion_forwarders[index].reset();
+        auto geometry = rtcNewGeometry(
+            device,
+            route == GeometryRoute::forwarded_srt ?
+                RTC_GEOMETRY_TYPE_USER :
+                RTC_GEOMETRY_TYPE_INSTANCE);
+        rtcSetGeometryBuildQuality(
+            geometry, RTC_BUILD_QUALITY_HIGH);
+        rtcAttachGeometryByID(
+            _scene, geometry, static_cast<unsigned>(index));
+        rtcReleaseGeometry(geometry);
+        _geometries[index] = geometry;
+        _geometry_routes[index] = route;
+    };
     _committed_instances.resize(instance_count);
     for (auto i = size_t{0u}; i < _instances.size(); i++) {
         auto &instance = _instances[i];
-        auto geometry = _geometries[i];
+        auto *primitive = _primitives[i];
+        LUISA_ASSERT(
+            primitive != nullptr,
+            "SIMD accel instance {} has no primitive binding.", i);
+        auto &motion = _motion_states[i];
+        auto forwarded_srt =
+            motion != nullptr &&
+            motion->option.mode == AccelMotionMode::SRT &&
+            !affine_is_identity(instance.affine);
         if (instance.dirty != 0u) {
-            auto *primitive = _primitives[i];
+            ensure_geometry_route(
+                i, forwarded_srt ?
+                       GeometryRoute::forwarded_srt :
+                       GeometryRoute::instance);
+        }
+        auto geometry = _geometries[i];
+        if (motion != nullptr) {
             LUISA_ASSERT(
-                primitive != nullptr,
-                "SIMD accel instance {} has no primitive binding.", i);
-            if (auto &motion = _motion_states[i]; motion != nullptr) {
-                LUISA_ASSERT(
-                    primitive->kind() == SIMDPrimitive::Kind::motion_instance,
-                    "SIMD motion-instance state has a non-motion primitive.");
-                auto *motion_primitive =
-                    static_cast<SIMDMotionInstance *>(primitive);
-                LUISA_ASSERT(
-                    instance.motion_frames == motion->keyframes.data() &&
-                        instance.motion_keyframe_count ==
-                            motion->keyframes.size() &&
-                        instance.motion_mode ==
-                            static_cast<uint32_t>(motion->option.mode),
-                    "SIMD motion-instance metadata is inconsistent.");
+                primitive->kind() == SIMDPrimitive::Kind::motion_instance,
+                "SIMD motion-instance state has a non-motion primitive.");
+            auto *motion_primitive =
+                static_cast<SIMDMotionInstance *>(primitive);
+            LUISA_ASSERT(
+                instance.motion_frames == motion->keyframes.data() &&
+                    instance.motion_keyframe_count ==
+                        motion->keyframes.size() &&
+                    instance.motion_mode ==
+                        static_cast<uint32_t>(motion->option.mode),
+                "SIMD motion-instance metadata is inconsistent.");
+            if (forwarded_srt) {
+                auto forwarder =
+                    luisa::make_unique<SIMDSRTMotionForwarder>(
+                        device, motion_primitive->child()->handle(),
+                        motion->option, motion->keyframes,
+                        instance.affine);
+                forwarder->configure_geometry(geometry);
+                _motion_forwarders[i] = std::move(forwarder);
+            } else if (instance.dirty != 0u) {
+                _motion_forwarders[i].reset();
                 rtcSetGeometryInstancedScene(
                     geometry, motion_primitive->child()->handle());
                 rtcSetGeometryTimeStepCount(
@@ -1738,10 +1819,6 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                             composed.data());
                     }
                 } else {
-                    LUISA_ASSERT(
-                        affine_is_identity(instance.affine),
-                        "SIMD SRT motion instances currently require an "
-                        "identity outer affine transform.");
                     for (auto key = size_t{0u};
                          key < motion->keyframes.size(); key++) {
                         auto quaternion = quaternion_keyframe(
@@ -1751,20 +1828,23 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                             &quaternion);
                     }
                 }
-            } else {
-                LUISA_ASSERT(
-                    primitive->kind() == SIMDPrimitive::Kind::mesh ||
-                        primitive->kind() == SIMDPrimitive::Kind::curve ||
-                        primitive->kind() == SIMDPrimitive::Kind::procedural,
-                    "SIMD static instance has an invalid primitive binding.");
-                rtcSetGeometryInstancedScene(
-                    geometry, primitive->handle());
-                rtcSetGeometryTimeStepCount(geometry, 1u);
-                rtcSetGeometryTimeRange(geometry, 0.0f, 1.0f);
-                rtcSetGeometryTransform(
-                    geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
-                    instance.affine);
             }
+        } else if (instance.dirty != 0u) {
+            _motion_forwarders[i].reset();
+            LUISA_ASSERT(
+                primitive->kind() == SIMDPrimitive::Kind::mesh ||
+                    primitive->kind() == SIMDPrimitive::Kind::curve ||
+                    primitive->kind() == SIMDPrimitive::Kind::procedural,
+                "SIMD static instance has an invalid primitive binding.");
+            rtcSetGeometryInstancedScene(
+                geometry, primitive->handle());
+            rtcSetGeometryTimeStepCount(geometry, 1u);
+            rtcSetGeometryTimeRange(geometry, 0.0f, 1.0f);
+            rtcSetGeometryTransform(
+                geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR,
+                instance.affine);
+        }
+        if (instance.dirty != 0u) {
             rtcSetGeometryMask(geometry, instance.mask);
             _committed_instances[i] = {
                 .geometry_kind = instance.geometry_kind,
@@ -1784,6 +1864,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         _instance_summary_dirty = false;
     }
     rtcCommitScene(_scene);
+    rtcReleaseDevice(device);
 }
 
 void SIMDAccel::_trace_closest(

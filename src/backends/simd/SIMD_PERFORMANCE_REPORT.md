@@ -3812,3 +3812,49 @@ graphics tests. The six changed translation units pass the project clangd
 syntax checker, its Python harness passes 13/13, LLVM 22.1.8
 `clang-format --dry-run --Werror` passes every changed C++ source and header,
 and `git diff --check` is clean.
+
+## Exact outer-affine SRT motion packets
+
+Quaternion SRT motion under a nonidentity outer affine is now exact rather
+than endpoint-matrix interpolation. A private native Embree SRT instance
+provides quaternion interpolation and conservative linear bounds. One
+top-level user geometry composes `outer * SRT(time)`, inverse-transforms the
+ray without normalizing its direction, traverses the child scene once, and
+inverse-transpose transforms a committed geometric normal. Identity outer
+transforms continue to use a native Embree instance. Nonfinite keyframe/outer
+components and zero quaternions are rejected at build time. Nonfinite ray
+times, singular composed transforms, and nonrepresentable finite inverses fail
+closed as misses; inactive lanes do not evaluate these operations.
+
+The Embree 4 object references exactly one each of
+`rtcForwardIntersect{1,4,8,16}` and `rtcForwardOccluded{1,4,8,16}`. It has no
+per-lane `rtcIntersect1` fallback. Embree 3.13.5 lacks the forwarding API, so
+the compatibility object uses the documented recursive user-geometry route
+and references exactly one matching-width `rtcIntersect{1,4,8,16}` and
+`rtcOccluded{1,4,8,16}` operation. W2 is padded into W4; only W1 uses the
+scalar interface. The Embree 3 check used official tag `v3.13.5`, commit
+`698442324ccddd11725fb8875275dc1384f7fb40`, and covered compile plus object-
+symbol shape rather than a linked runtime execution.
+
+The permanent acceleration regression executes 35 rays at W1/W2/W4/W8/W16,
+including packet tails, and checks closest hit, any hit, stateful query,
+callback count, barycentrics, and distance. It also checks host SRT-generation
+import without an explicit acceleration modification, buffer-only committed-
+payload lifetime, USER-to-INSTANCE route replacement, singular-transform
+misses, and restoration to the packet route. The test passes 6,405 assertions.
+After complete builds, both Release trees pass the focused native-math,
+Schedule-codegen, runtime-width, and acceleration gate 5/5, the SIMD-labelled
+conformance gate 35/35, and their complete CTest inventories 140/140.
+
+Fresh correctness smoke runs kept all outputs outside the repository. Ordinary
+1024-spp path tracing accepts its checked-in reference at every width; observed
+one-process FPS and RGB PSNR were 85.411/35.426871 at W1,
+68.137/42.781428 at W2, 88.297/40.940426 at W4, 100.186/39.219318 at W8,
+and 99.711/37.801696 at W16. The corresponding fallback observation was
+90.441 FPS at 62.136588 dB. A fresh fallback motion-blur image was then used as
+the comparison oracle: W1/W2/W4/W8/W16 pass at respectively
+88.636435/88.279279/88.279279/88.279279/88.279279 dB. Their one-process render
+times were 3213/5589/4332/3703/3474 ms versus 3279 ms for fallback. These are
+correctness smokes, not a throughput claim: they are single sequential
+observations, and the existing graphics kernels use identity outer transforms,
+so they do not select the new nonidentity route.

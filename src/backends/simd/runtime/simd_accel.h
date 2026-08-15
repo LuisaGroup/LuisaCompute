@@ -10,6 +10,7 @@
 namespace luisa::compute::simd {
 
 class SIMDPrimitive;
+class SIMDSRTMotionForwarder;
 
 namespace triangle_ray_query {
 
@@ -32,6 +33,12 @@ private:
     struct MotionState {
         AccelMotionOption option{};
         luisa::vector<MotionInstanceTransform> keyframes;
+        uint64_t source_build_version{0u};
+    };
+
+    enum class GeometryRoute : uint8_t {
+        instance,
+        forwarded_srt,
     };
 
 private:
@@ -43,6 +50,13 @@ private:
     // and the next ordinary build must still be able to commit that binding.
     luisa::vector<SIMDPrimitive *> _primitives;
     luisa::vector<RTCGeometry> _geometries;
+    luisa::vector<GeometryRoute> _geometry_routes;
+    // Callback payloads belong to the committed Embree scene rather than the
+    // desired public instance table. A buffer-only update must keep the old
+    // payload alive until the following ordinary build detaches or replaces
+    // its user geometry.
+    luisa::vector<luisa::unique_ptr<SIMDSRTMotionForwarder>>
+        _motion_forwarders;
     // Primitive kinds and last-built opacity for the committed Embree scene.
     // This remains at the committed geometry count across buffer-only
     // resize/rebind commands; current in-range opacity still comes directly

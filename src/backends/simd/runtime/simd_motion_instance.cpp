@@ -51,6 +51,7 @@ void SIMDMotionInstance::build(
     _child = child;
     _keyframes.assign(
         command.keyframes().begin(), command.keyframes().end());
+    _build_version++;
 }
 
 RTCScene SIMDMotionInstance::handle() const noexcept {

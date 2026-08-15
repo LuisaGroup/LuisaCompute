@@ -2840,9 +2840,8 @@ query observes the new opacity bit: opaque surface hits auto-commit without
 entering the handler, while non-opaque hits enter it exactly once. The exact
 LLVM fixture requires scalar and masked paths without an indirect callback;
 the runtime fixture covers W1/W2/W4/W8/W16, thirty-five distinct instances,
-both query modes, divergent opacity, and a three-lane W16 tail. Nonidentity
-outer affine composition for SRT motion and full instance-stack semantics
-remain explicit work.
+both query modes, divergent opacity, and a three-lane W16 tail. Full deeper
+instance-stack semantics remain explicit work.
 
 Procedural primitives now use Embree user geometry with public AABB buffers,
 including primitive motion and MATRIX/SRT motion-instance children. Bounds are
@@ -3192,10 +3191,30 @@ and time range, copies resource keyframes into TLAS-owned 64-byte frame arrays,
 and keeps their pointer/count/mode in the stable instance table. MATRIX
 keyframes compose with the top-level affine. SRT keyframes map directly to
 Embree quaternion decompositions and therefore retain spherical rotation
-interpolation; with the deployed one-level Embree instance ABI, SRT currently
-rejects a nonidentity outer affine rather than changing interpolation through
-a matrix approximation. Sub-shutter time ranges require the corresponding
-vanish flag because Embree makes the geometry absent outside its time range.
+interpolation. An identity outer affine uses Embree's native instance geometry.
+A nonidentity outer affine uses one top-level user geometry plus a private
+native SRT helper: the helper supplies Embree's exact interpolated transform
+and conservative linear bounds, the callback composes outer times SRT at each
+active ray time, inverse-transforms one complete packet without renormalizing
+its direction, enters the child BLAS once, and inverse-transpose transforms a
+committed geometric normal. Embree 4 uses `rtcForwardIntersect4/8/16` and
+`rtcForwardOccluded4/8/16`; Embree 3 uses its documented same-width recursive
+packet traversal with an explicit instance-ID push/pop. W2 remains one padded
+W4 packet and only W1 uses scalar traversal. No endpoint matrix interpolation
+or active-lane traversal loop is introduced. Sub-shutter time ranges require
+the corresponding vanish flag because Embree makes the geometry absent outside
+its time range.
+
+The callback payload belongs to the last committed Embree route, not merely to
+the desired public instance table. A buffer-only transform change therefore
+keeps an old user-geometry payload alive until a following ordinary build
+detaches it; that build may switch USER to native INSTANCE or back at the same
+geometry ID. MotionInstance resources carry a monotonically increasing host
+build generation. An ordinary TLAS build imports a newly built resource even
+when its own modification list is empty, while device-authored TLAS keyframes
+remain authoritative until such a new host generation appears. Empty child
+bounds stay empty, and a non-finite ray time or a composed transform whose
+finite inverse cannot be represented produces a miss in the forwarded route.
 
 Device MATRIX/SRT get/set operations use scalar loads/stores for uniform
 instance/key/value tuples and inactive-safe masked gathers/scatters otherwise.
@@ -3469,10 +3488,11 @@ on 2026-08-11. The repository now contains:
   bookkeeping, and whose mesh/procedural/mesh rebuild regression proves that
   one compiled shader follows provider changes without stale host views;
 - MATRIX and quaternion-SRT motion-instance resources with validated time
-  ranges, TLAS-owned keyframe storage, MATRIX outer-affine composition,
-  quaternion interpolation, scalar uniform keyframe access, inactive-safe
-  varying keyframe gather/scatter, and dirty refit through the normal accel
-  build boundary;
+  ranges, TLAS-owned keyframe storage, exact outer-affine composition,
+  quaternion interpolation, Embree 3/4 same-width child-packet forwarding,
+  scalar uniform keyframe access, inactive-safe varying keyframe gather/
+  scatter, host-resource generation import, and dirty refit through the normal
+  accel build boundary;
 - a stable static-instance metadata table where uniform transform/user-id/
   visibility reads and writes remain scalar, varying operations use
   inactive-safe bounds-checked LLVM masked gathers/scatters without a host
@@ -3522,9 +3542,8 @@ on 2026-08-11. The repository now contains:
   indirect `kernel_id()` propagation.
 
 The next implementation boundary is completion of the remaining Embree
-vertical slice: nonidentity outer affine composition for SRT motion, deeper
-instance-stack semantics, and a SoA packet-query-state experiment guarded by
-stable measurement. Candidate chains beyond
+vertical slice: deeper instance-stack semantics and a SoA packet-query-state
+experiment guarded by stable measurement. Candidate chains beyond
 the fixed batch remain a measured continuation case rather than an unbounded
 state allocation. Broader callable conformance, cooperative shared memory,
 block barriers, and the remaining device-library surface follow. The current
