@@ -16,7 +16,6 @@ namespace {
 
 constexpr auto hip_hardware_ray_query_state_size = 224u;
 constexpr auto hip_software_ray_query_state_size = 576u;
-constexpr auto hip_synchronous_ray_query_state_size = 112u;
 // The synchronous gfx12 traversal is latency-bound and its unconstrained
 // allocation falls immediately below the next useful occupancy tier. Express
 // that tier to LLVM instead of encoding a VGPR count: waves-per-EU lets the

@@ -59,6 +59,11 @@ struct HIPCodegenLLVMConfig {
 // query whose handler values remain in their ordinary SSA/callable context.
 inline constexpr size_t hip_synchronous_ray_query_environment_budget = 64u;
 
+// Shared with the native LuisaPipelineRayQueryState static assertion. Both
+// the kernel-owned exact state and the scalar-replaceable compact transaction
+// must allocate the same cross-bitcode ABI object.
+inline constexpr size_t hip_synchronous_ray_query_state_size = 112u;
+
 [[nodiscard]] constexpr bool
 hip_synchronous_ray_query_environment_is_profitable(
     size_t projected_bytes) noexcept {

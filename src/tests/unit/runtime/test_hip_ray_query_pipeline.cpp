@@ -1143,9 +1143,9 @@ void test_hip_ray_query_any_automatic_termination(Device &device) {
            << accel.build()
            << synchronize();
 
-    auto metadata = device.create_buffer<uint4>(2u);
-    auto callback_order = device.create_buffer<uint2>(2u);
-    auto detail = device.create_buffer<float2>(2u);
+    auto metadata = device.create_buffer<uint4>(4u);
+    auto callback_order = device.create_buffer<uint2>(4u);
+    auto detail = device.create_buffer<float2>(4u);
 
     Kernel1D trace_all = [](AccelVar accel, BufferUInt4 metadata,
                             BufferUInt2 callback_order,
@@ -1222,13 +1222,72 @@ void test_hip_ray_query_any_automatic_termination(Device &device) {
         detail.write(1u, make_float2(committed->distance(), final_tmax));
     };
 
+    Kernel1D trace_compact_transactions = [](
+                                                  AccelVar accel,
+                                                  BufferUInt4 metadata,
+                                                  BufferUInt2 callback_order,
+                                                  BufferFloat2 detail) noexcept {
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 2.0f),
+                            make_float3(0.0f, 0.0f, -1.0f),
+                            0.0f, 3.0f);
+        UInt all_count = 0u;
+        UInt all_first = ~0u;
+        UInt all_second = ~0u;
+        auto all = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [](SurfaceCandidate &) noexcept {})
+                       .on_procedural_candidate(
+                           [&](ProceduralCandidate &candidate) noexcept {
+                               auto hit = candidate.hit();
+                               $if (all_count == 0u) {
+                                   all_first = hit->prim;
+                                   candidate.commit(1.5f);
+                               }
+                               $else {
+                                   all_second = hit->prim;
+                                   candidate.commit(1.0f);
+                                   candidate.terminate();
+                               };
+                               all_count += 1u;
+                           })
+                       .trace();
+        metadata.write(2u, make_uint4(
+                               all->hit_type, all->inst,
+                               all->prim, all_count));
+        callback_order.write(2u, make_uint2(all_first, all_second));
+        detail.write(2u, make_float2(all->distance(), 0.0f));
+
+        UInt any_count = 0u;
+        UInt any_first = ~0u;
+        auto any = accel.traverse_any(ray, {})
+                       .on_surface_candidate(
+                           [](SurfaceCandidate &) noexcept {})
+                       .on_procedural_candidate(
+                           [&](ProceduralCandidate &candidate) noexcept {
+                               any_first = candidate.hit()->prim;
+                               any_count += 1u;
+                               candidate.commit(1.5f);
+                           })
+                       .trace();
+        metadata.write(3u, make_uint4(
+                               any->hit_type, any->inst,
+                               any->prim, any_count));
+        callback_order.write(3u, make_uint2(any_first, ~0u));
+        detail.write(3u, make_float2(any->distance(), 0.0f));
+    };
+
     auto all_shader = device.compile(trace_all);
     auto any_shader = device.compile(trace_any);
-    std::array<uint4, 2u> host_metadata{};
-    std::array<uint2, 2u> host_callback_order{};
-    std::array<float2, 2u> host_detail{};
+    auto compact_shader = device.compile(
+        trace_compact_transactions,
+        ShaderOption{.enable_cache = false});
+    std::array<uint4, 4u> host_metadata{};
+    std::array<uint2, 4u> host_callback_order{};
+    std::array<float2, 4u> host_detail{};
     stream << all_shader(accel, metadata, callback_order, detail).dispatch(1u)
            << any_shader(accel, metadata, callback_order, detail).dispatch(1u)
+           << compact_shader(accel, metadata, callback_order, detail)
+                  .dispatch(1u)
            << metadata.copy_to(luisa::span{host_metadata})
            << callback_order.copy_to(luisa::span{host_callback_order})
            << detail.copy_to(luisa::span{host_detail})
@@ -1256,6 +1315,27 @@ void test_hip_ray_query_any_automatic_termination(Device &device) {
     expect(host_metadata[1].z == host_callback_order[1].x);
     expect(std::abs(host_detail[1].x - 1.5f) < 1.0e-5f);
     expect(std::abs(host_detail[1].y - 1.5f) < 1.0e-5f);
+
+    // These two handlers never observe committed state or the world ray.
+    // They therefore exercise the compact scalar action ABI, including a
+    // procedural distance return, explicit termination, and RayQueryAny's
+    // implicit termination on commit.
+    expect(host_metadata[2].x == procedural_hit);
+    expect(host_metadata[2].y == 0u);
+    expect(host_metadata[2].w == 2u);
+    expect(host_callback_order[2].x < 2u);
+    expect(host_callback_order[2].y < 2u);
+    expect(host_callback_order[2].x != host_callback_order[2].y);
+    expect(host_metadata[2].z == host_callback_order[2].y);
+    expect(std::abs(host_detail[2].x - 1.0f) < 1.0e-5f);
+
+    expect(host_metadata[3].x == procedural_hit);
+    expect(host_metadata[3].y == 0u);
+    expect(host_metadata[3].w == 1u);
+    expect(host_callback_order[3].x < 2u);
+    expect(host_callback_order[3].y == ~0u);
+    expect(host_metadata[3].z == host_callback_order[3].x);
+    expect(std::abs(host_detail[3].x - 1.5f) < 1.0e-5f);
 }
 
 void test_hip_ray_query_reentrant_handler_trace(Device &device) {

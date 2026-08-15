@@ -273,6 +273,34 @@ void compile_minimal_ray_query(Device &device) noexcept {
         kernel, ShaderOption{.enable_cache = false}));
 }
 
+void compile_observing_ray_query(Device &device) noexcept {
+    Kernel1D kernel = [](BufferUInt output, AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        Float observed_t_max = -1.0f;
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [&](SurfaceCandidate &candidate) noexcept {
+                               // Put the world-ray observation in a nested
+                               // generated Callable. The compact-transaction
+                               // eligibility proof must follow this edge, not
+                               // merely scan the immediate handler body.
+                               Callable observe = [&candidate]() noexcept {
+                                   return candidate.ray()->t_max();
+                               };
+                               observed_t_max = observe();
+                               candidate.commit();
+                           })
+                       .trace();
+        output.write(
+            dispatch_x(),
+            hit->prim ^ cast<uint>(observed_t_max > 0.0f));
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -390,16 +418,30 @@ int main(int argc, char *argv[]) {
             }
         };
 
-    "HIP RayQuery separates identity from its callback environment"_test =
+    "HIP RayQuery projects candidate-only callback transactions"_test =
         [&] {
             compile_minimal_ray_query(device);
+            compile_observing_ray_query(device);
             const auto module = read_text_file(
                 dump_directory / "hip_kernel_final_4.ll");
+            const auto observing_module = read_text_file(
+                dump_directory / "hip_kernel_final_5.ll");
             const auto root = amdgpu_kernel_body(module);
-            const auto dispatcher_all = llvm_function_body(
+            const auto trace_all = llvm_function_body(
                 module,
-                "@luisa_ray_query_pipeline_dispatch.constant.0");
-            expect(!root.empty() && !dispatcher_all.empty())
+                "@luisa_pipeline_ray_query_trace_all_stable_opacity");
+            const auto trace_any = llvm_function_body(
+                module,
+                "@luisa_pipeline_ray_query_trace_any_stable_opacity");
+            const auto observing_dispatcher = llvm_function_body(
+                observing_module,
+                "@luisa_ray_query_pipeline_dispatch");
+            const auto observing_trace = llvm_function_body(
+                observing_module,
+                "@luisa_pipeline_ray_query_trace_all_stable_opacity");
+            expect(!root.empty() && !trace_all.empty() &&
+                   !trace_any.empty() && !observing_dispatcher.empty() &&
+                   !observing_trace.empty())
                 << "failed to locate the generated RayQuery functions";
             expect(module.find(
                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
@@ -439,24 +481,47 @@ int main(int argc, char *argv[]) {
             expect(module.find(
                        "@luisa_ray_query_pipeline_dispatch(") ==
                    std::string_view::npos)
-                << "RayQuery retained the dynamic pipeline dispatcher";
-            expect(dispatcher_all.find(
-                       "@luisa_ray_query_pipeline_dispatch.constant.0"
-                       "(ptr %0, i32 %1)") !=
-                       std::string_view::npos)
-                << "RayQuery constant specialization did not remove the "
-                   "pipeline identity from the dispatcher ABI";
+                << "candidate-only RayQuery retained the full-state "
+                   "dispatcher";
             expect(module.find(
-                       "@luisa_ray_query_pipeline_dispatch.constant.1") ==
+                       "@luisa_pipeline_ray_query_dispatch_compact(") ==
                    std::string_view::npos)
-                << "identical RayQuery pipeline bodies were not merged";
-            expect(dispatcher_all.find("load i32, ptr %0") !=
+                << "compact RayQuery transaction remained as an outlined "
+                   "state-pointer boundary";
+            expect(trace_all.find("pipeline_dispatch") ==
+                       std::string_view::npos &&
+                   trace_any.find("pipeline_dispatch") ==
                        std::string_view::npos)
-                << "RayQuery dispatcher did not decode the state token "
-                   "directly from its dedicated identity argument";
-            expect(module.find(
+                << "candidate-only RayQuery failed to inline its scalar "
+                   "action transaction into native traversal";
+
+            // The second kernel hides a world-ray observation in a nested
+            // Callable. The fixed-point proof must follow that call edge and
+            // retain the full query transaction, while constant specialization
+            // still removes pipeline identity from its three-argument
+            // {query, context, candidate-kind} ABI.
+            expect(observing_dispatcher.find(
+                       "@luisa_ray_query_pipeline_dispatch"
+                       "(ptr %0, ptr %1, i32 %2)") !=
+                       std::string_view::npos)
+                << "observing RayQuery did not retain the exact full-state "
+                   "dispatcher ABI";
+            expect(observing_dispatcher.find("load i32, ptr %0") !=
+                       std::string_view::npos &&
+                   observing_dispatcher.find("i32 44") !=
+                       std::string_view::npos)
+                << "nested world-ray observation was not decoded from the "
+                   "dedicated query identity";
+            expect(observing_trace.find(
+                       "@luisa_ray_query_pipeline_dispatch") !=
+                       std::string_view::npos)
+                << "nested world-ray observation unsafely selected the "
+                   "candidate-only transaction";
+            expect(module.find("luisa-specialize-constant-argument") ==
+                       std::string_view::npos &&
+                   observing_module.find(
                        "luisa-specialize-constant-argument") ==
-                   std::string_view::npos)
+                       std::string_view::npos)
                 << "internal constant-specialization marker escaped HIP "
                    "codegen";
             if (module.find(
@@ -499,7 +564,7 @@ int main(int argc, char *argv[]) {
                     module.find("llvm.vector.reduce.fadd") !=
                     std::string::npos;
             }
-            expect(dumped_module_count == 5u)
+            expect(dumped_module_count == 6u)
                 << "expected one final HIP LLVM module per compiled shader";
             expect(!retained_vector_reduction)
                 << "fixed-vector dot product retained the target-unstable "

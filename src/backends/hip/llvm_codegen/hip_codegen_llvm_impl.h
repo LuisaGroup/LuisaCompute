@@ -129,6 +129,10 @@ public:
         llvm::Function *on_procedural;
         luisa::vector<llvm::StoreInst *> stores;
         luisa::vector<llvm::LoadInst *> loads;
+        // The compact candidate transaction decodes the same projected user
+        // environment but constructs query identity locally. Index zero is
+        // therefore null; every other entry mirrors `loads`.
+        luisa::vector<llvm::LoadInst *> compact_loads;
     };
 
     static constexpr auto llvm_buffer_type_ptr_index = 0;
@@ -193,6 +197,11 @@ public:
     static constexpr auto llvm_ray_query_state_surface_candidate = 1;
     static constexpr auto llvm_ray_query_state_procedural_candidate = 2;
     static constexpr auto llvm_ray_query_state_custom_candidate = 3;
+
+    // Sound over-approximate observations made by synchronous candidate
+    // handler call graphs. These bits match the native wrapper ABI.
+    static constexpr auto llvm_ray_query_observes_committed_hit = 1u << 0u;
+    static constexpr auto llvm_ray_query_observes_world_ray = 1u << 1u;
 
     static constexpr std::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa_ray_query_world_space_ray";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa_ray_query_procedural_candidate_hit";
@@ -266,6 +275,10 @@ private:
     size_t _ray_query_pipeline_count{0u};
     llvm::Function *_llvm_ray_query_pipeline_dispatch{nullptr};
     llvm::SwitchInst *_llvm_ray_query_pipeline_switch{nullptr};
+    llvm::Function *_llvm_ray_query_pipeline_compact_dispatch{nullptr};
+    llvm::SwitchInst *_llvm_ray_query_pipeline_compact_switch{nullptr};
+    llvm::Value *_llvm_ray_query_pipeline_compact_query{nullptr};
+    llvm::BasicBlock *_llvm_ray_query_pipeline_compact_finish{nullptr};
     luisa::vector<RayQueryPipelineContext>
         _llvm_ray_query_pipeline_contexts;
 
