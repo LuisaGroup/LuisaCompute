@@ -3858,3 +3858,66 @@ times were 3213/5589/4332/3703/3474 ms versus 3279 ms for fallback. These are
 correctness smokes, not a throughput claim: they are single sequential
 observations, and the existing graphics kernels use identity outer transforms,
 so they do not select the new nonidentity route.
+
+## Rejected ray-query candidate SoA publication
+
+The next measured boundary was candidate-payload ownership. The retained
+status-aware callback already scans active state pointers to publish
+`terminated` and candidate-kind bits, while a later JIT candidate read gathers
+the `SurfaceHit` leaves from the 1,216-byte-per-lane AoS state. A prototype
+therefore let that same status scan optionally publish a field-major packet of
+`inst`, `prim`, both barycentrics, and `t`. The status/scratch coloring proof
+also owned the packet, inactive lanes remained untouched, and a disabled
+same-binary oracle restored the prior callback ABI and gathers. W1/W2/W4/W8/W16
+sparse-mask and inactive-tail differential tests were exact. Raw W4+ LLVM IR
+removed the seven masked gathers attributable to a complete candidate read.
+
+That IR improvement did not survive the runtime boundary. The W16 fused
+provider's optimized object showed five scalar candidate loads followed by five
+field-major scalar stores for each surface lane. The first procedural version
+unnecessarily paid the same five-field cost; a second version published only
+the two defined procedural IDs. Multiple pinned, alternating processes were
+run because unrelated load was present. Ratios below are paired geomeans, with
+values above one favoring the prototype:
+
+| workload | W8 | W16 | pairs | result |
+| --- | ---: | ---: | ---: | --- |
+| 16-candidate surface rejection chain, five fields | 0.988640x | 0.999267x | 6 | neutral/regressed |
+| 16-candidate procedural rejection chain, five fields | 0.965845x | 0.932894x | 4 | regressed |
+| procedural rejection chain, IDs only | 0.988005x | 0.983788x | 4 | still regressed |
+| real 64-spp cutout path tracer, five fields | 1.012058x | 1.002874x | 4 | small, non-general gain |
+
+Every cutout image passed the checked-in reference: W8 reported 33.351280 dB
+and W16 33.337215 dB in both modes. The real W8 gain was too small to outweigh
+the repeatable synthetic and procedural regressions, while W16 was effectively
+neutral on the renderer. The prototype, its callback ABI extension, diagnostic
+counter, environment oracle, and tests were therefore removed rather than
+being presented as a production optimization.
+
+A follow-up tested the suggested lane/value transpose directly. Instead of
+five field-major stores, the provider copied one compact lane-major 20-byte
+surface record or 8-byte procedural record; the JIT issued one contiguous
+masked load and shuffled it into field vectors. It was also rejected after six
+alternating pairs:
+
+| compact AoS plus JIT transpose | W8 | W16 |
+| --- | ---: | ---: |
+| surface rejection chain | 0.992988x | 0.994474x |
+| procedural rejection chain | 0.953886x | 0.906576x |
+
+This isolates the boundary more strongly: even a compact copy plus transpose
+loses to LLVM's existing direct gathers, especially for the two-field
+procedural payload. A future payload experiment must therefore change native
+provider ownership rather than copy an already materialized AoS state. The
+remaining plausible form is consumer-field demand feeding values that the
+provider naturally produces in packet registers, with no intervening per-lane
+AoS publication. It should retain the same exact oracle and must win both the
+surface/procedural rejection chains and at least one real renderer before being
+kept.
+
+After both prototypes were removed, complete Release builds of
+`build-sdf-bench` and `build-sdf-tbb` passed. Each tree passed the focused
+native-math/Schedule/runtime-width/acceleration gate 5/5, its full CTest
+inventory 140/140, and the separately repeated SIMD-labelled conformance gate
+35/35. Thus the audit leaves no callback ABI, environment switch, allocation,
+or code-generation change in production.
