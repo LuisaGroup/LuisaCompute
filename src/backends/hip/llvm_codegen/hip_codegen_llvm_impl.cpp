@@ -679,6 +679,35 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
         LUISA_ERROR_WITH_LOCATION("Failed to link kernel module with HIPRT wrapper bitcode.");
     }
 
+    // HIPRT has one dynamically-dispatched intersectFunc/filterFunc pair for
+    // all ray types. Consequently LinkOnlyNeeded may retain the native-closest
+    // callback arm while linking an otherwise resumable query module, even
+    // though no traversal in that module can construct the reserved native
+    // ray type. Such a module intentionally has no generated pipeline
+    // dispatcher. Close this optional cross-bitcode interface with a trapping
+    // definition: the call is unreachable under the ray-type construction
+    // invariant and regular IPO can remove it, while an ABI regression fails
+    // deterministically instead of surfacing as an unresolved device symbol.
+    // A module with a native pipeline already owns the real strong definition
+    // and never enters this branch.
+    auto close_optional_pipeline_dispatch =
+        [&](llvm::StringRef name) noexcept {
+            if (auto dispatcher = _llvm_module->getFunction(name);
+                dispatcher != nullptr && dispatcher->isDeclaration()) {
+                auto entry = llvm::BasicBlock::Create(
+                    _llvm_context, "unavailable", dispatcher);
+                IB b{entry};
+                auto trap = llvm::Intrinsic::getOrInsertDeclaration(
+                    _llvm_module.get(), llvm::Intrinsic::trap);
+                b.CreateCall(trap);
+                b.CreateUnreachable();
+            }
+        };
+    close_optional_pipeline_dispatch(
+        "luisa_ray_query_pipeline_dispatch");
+    close_optional_pipeline_dispatch(
+        "luisa_pipeline_ray_query_dispatch_compact");
+
     // The embedded wrapper must retain support for every curve basis, but each
     // generated kernel only needs the bases declared by its trace operations.
     // Turning the externally mutable wrapper mask into a constant here lets the
@@ -715,7 +744,7 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
             // instance protocol. Resumable RayQuery keeps the proven disjoint
             // TLAS/BLAS regions and its exact parent-link continuation.
             const auto native_pipeline_stack =
-                _uses_synchronous_ray_query_pipeline;
+                _uses_iterative_synchronous_ray_query_pipeline;
             const auto hw_stack_max_entries =
                 native_pipeline_stack ? 16u :
                                         (_rt_analysis.uses_ray_query ? 9u : 8u);
@@ -805,10 +834,12 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
                            calls_to_replace.size(), hw_stack_max_entries);
             }
         }
-        if (!_uses_hardware_rt_stack) {
-            // Pre-gfx12 traversal uses HIPRT's LDS-fronted dynamic stack.
-            // Synchronous gfx12 RayQuery pipelines use a private stack and do
-            // not reserve a second, overlapping shared-memory layout.
+        if (!_uses_hardware_rt_stack ||
+            _uses_native_closest_ray_query_pipeline) {
+            // Pre-gfx12 traversal and the native closest-callback reduction use
+            // HIPRT's LDS-fronted dynamic stack. Other synchronous gfx12
+            // pipelines use the explicit hardware frontier and do not reserve
+            // a second, overlapping shared-memory layout.
             shared_array_size = std::max(
                 shared_array_size,
                 LUISA_HIPRT_SHARED_STACK_SIZE * block_size);
@@ -1224,6 +1255,8 @@ luisa::string HIPCodegenLLVMImpl::_generate_code() const noexcept {
 luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
     Clock clk;
     _rt_analysis = {};
+    _uses_iterative_synchronous_ray_query_pipeline = false;
+    _uses_native_closest_ray_query_pipeline = false;
     _analyze_ray_tracing_usage(xir_module);
     // AST-derived flags are conservative: optimization may have removed the
     // last reachable operation, but the serialized shader metadata still uses
@@ -1246,6 +1279,21 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     }
     auto ray_query_projection =
         _finalize_ray_query_pipeline_contexts();
+    if (_uses_native_closest_ray_query_pipeline &&
+        _config.max_register_count == 0u) {
+        // The ordinary synchronous frontier is latency-bound and benefits from
+        // a high occupancy target. A native closest callback instead contains
+        // the complete user intersection/filter reduction; forcing that same
+        // target spills its larger live set. Match ordinary HIPRT closest
+        // traversal and let the AMDGPU allocator choose the resource balance.
+        auto llvm_kernel = _llvm_module->getFunction(
+            llvm::StringRef{_config.entry_point.data(),
+                            _config.entry_point.size()});
+        LUISA_ASSERT(llvm_kernel != nullptr,
+                     "Missing HIP kernel while selecting native closest "
+                     "RayQuery resources.");
+        llvm_kernel->removeFnAttr("amdgpu-waves-per-eu");
+    }
     if (_uses_synchronous_ray_query_pipeline &&
         !hip_synchronous_ray_query_environment_is_profitable(
             ray_query_projection

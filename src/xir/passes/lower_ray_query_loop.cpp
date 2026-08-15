@@ -3,6 +3,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
@@ -432,42 +433,94 @@ struct RayQueryHandlerLocalAllocas {
     luisa::unordered_set<Value *> all;
 };
 
-[[nodiscard]] static bool handler_local_alloca_is_definitely_initialized(
-    AllocaInst *alloca, BasicBlock *entry,
-    const RayQueryHandlerRegion &region) noexcept {
-    // This analysis deliberately recognizes only direct, whole-object loads
-    // and stores. GEPs, address casts, calls, or storing the pointer itself may
-    // observe identity, partial initialization, or escaping lifetime and fail
-    // closed. Stores outside the handler are permitted: if every handler path
-    // overwrites the object before its first load, those earlier definitions
-    // are killed and cannot affect this invocation. Loads remain handler-local.
-    for (auto &&use : alloca->use_list()) {
+struct RayQueryHandlerAllocaAccesses {
+    luisa::unordered_set<Instruction *> pointer_users;
+    luisa::unordered_set<Instruction *> reads;
+    luisa::unordered_set<Instruction *> full_definitions;
+};
+
+// Collect the closed lvalue-use graph rooted at an alloca. GEP preserves
+// ownership; a load is a memory observation, a store through a derived lvalue
+// is a partial definition, and only a direct whole-object store kills every
+// prior aggregate field. XIR casts are rvalues rather than address-preserving
+// lvalues, so they (like calls and every other use) fail closed. Cycles are
+// rejected instead of assuming a fixed point over provenance.
+[[nodiscard]] static bool collect_handler_alloca_accesses(
+    Value *pointer, AllocaInst *root,
+    RayQueryHandlerAllocaAccesses &accesses,
+    luisa::unordered_set<Value *> &active) noexcept {
+    if (pointer == nullptr || !active.emplace(pointer).second) {
+        return false;
+    }
+    auto finish = [&](bool result) noexcept {
+        active.erase(pointer);
+        return result;
+    };
+    for (auto &&use : pointer->use_list()) {
         auto *user = use->user();
-        if (user == nullptr || !user->isa<Instruction>()) { return false; }
+        if (user == nullptr || !user->isa<Instruction>()) {
+            return finish(false);
+        }
         auto *inst = static_cast<Instruction *>(user);
-        if (inst->isa<LoadInst>()) {
-            if (!region.blocks.contains(inst->parent_block()) ||
-                static_cast<LoadInst *>(inst)->variable() != alloca) {
-                return false;
-            }
-        } else if (inst->isa<StoreInst>()) {
+        accesses.pointer_users.emplace(inst);
+        if (inst->isa<LoadInst>() &&
+            static_cast<LoadInst *>(inst)->variable() == pointer) {
+            accesses.reads.emplace(inst);
+            continue;
+        }
+        if (inst->isa<StoreInst>()) {
             auto *store = static_cast<StoreInst *>(inst);
-            if (store->variable() != alloca || store->value() == alloca) {
-                return false;
+            if (store->variable() != pointer || store->value() == pointer) {
+                return finish(false);
             }
-        } else {
+            if (pointer == root) {
+                accesses.full_definitions.emplace(inst);
+            }
+            continue;
+        }
+        if (inst->isa<GEPInst>() &&
+            static_cast<GEPInst *>(inst)->base() == pointer) {
+            if (!collect_handler_alloca_accesses(
+                    inst, root, accesses, active)) {
+                return finish(false);
+            }
+            continue;
+        }
+        return finish(false);
+    }
+    return finish(true);
+}
+
+[[nodiscard]] static bool collect_handler_alloca_accesses(
+    AllocaInst *alloca,
+    RayQueryHandlerAllocaAccesses &accesses) noexcept {
+    luisa::unordered_set<Value *> active;
+    return collect_handler_alloca_accesses(
+        alloca, alloca, accesses, active);
+}
+
+[[nodiscard]] static bool handler_local_alloca_is_definitely_initialized(
+    const RayQueryHandlerAllocaAccesses &accesses, BasicBlock *entry,
+    const RayQueryHandlerRegion &region) noexcept {
+    // A definition outside the callback merely supplies the killed incoming
+    // value. Every other pointer-derived operation must belong to this one
+    // handler, so moving the allocation cannot change identity or expose its
+    // callback-local post-state.
+    for (auto *inst : accesses.pointer_users) {
+        if (!region.blocks.contains(inst->parent_block()) &&
+            !accesses.full_definitions.contains(inst)) {
             return false;
         }
     }
 
-    // Definite initialization has an equivalent sparse formulation. Delete
-    // every CFG suffix after its first full store to this object. A handler
-    // load is safe exactly when it is unreachable from entry in the remaining
-    // graph: such a path would be precisely a counterexample with no preceding
-    // definition. This handles joins by path union (both diamond arms must be
-    // cut), handles cycles without fixed-point iteration, and respects
-    // instruction order by scanning each reached block up to its first store.
-    // Each block is visited at most once for this allocation.
+    // Definite initialization has an equivalent sparse formulation over the
+    // product {CFG block, no-full-definition-yet}. Delete every CFG suffix
+    // after its first whole-object store. A direct or sub-aggregate load is
+    // safe exactly when it is unreachable from entry in the remaining graph:
+    // such a path is precisely a counterexample with no preceding complete
+    // definition. Partial stores do not cut the path. Joins are handled by path
+    // union, cycles need no iteration beyond reachability, and instruction
+    // order is respected by scanning each reached block to its first full def.
     luisa::unordered_set<BasicBlock *> reached_without_store;
     luisa::vector<BasicBlock *> worklist{entry};
     while (!worklist.empty()) {
@@ -479,13 +532,11 @@ struct RayQueryHandlerLocalAllocas {
         }
         auto path_was_cut = false;
         for (auto *inst : block->instructions()) {
-            if (inst->isa<StoreInst>() &&
-                static_cast<StoreInst *>(inst)->variable() == alloca) {
+            if (accesses.full_definitions.contains(inst)) {
                 path_was_cut = true;
                 break;
             }
-            if (inst->isa<LoadInst>() &&
-                static_cast<LoadInst *>(inst)->variable() == alloca) {
+            if (accesses.reads.contains(inst)) {
                 return false;
             }
         }
@@ -514,12 +565,15 @@ find_handler_local_allocas(
         auto *alloca = static_cast<AllocaInst *>(value);
         if (!alloca->is_local()) { continue; }
 
+        RayQueryHandlerAllocaAccesses accesses;
+        if (!collect_handler_alloca_accesses(alloca, accesses)) {
+            continue;
+        }
+
         auto used_by_surface = false;
         auto used_by_procedural = false;
-        for (auto &&use : alloca->use_list()) {
-            auto *user = use->user();
-            if (user == nullptr || !user->isa<Instruction>()) { continue; }
-            auto *block = static_cast<Instruction *>(user)->parent_block();
+        for (auto *inst : accesses.pointer_users) {
+            auto *block = inst->parent_block();
             used_by_surface |= surface_region.blocks.contains(block);
             used_by_procedural |= procedural_region.blocks.contains(block);
         }
@@ -531,7 +585,7 @@ find_handler_local_allocas(
         auto *entry = used_by_surface ? surface_entry : procedural_entry;
         auto &region = used_by_surface ? surface_region : procedural_region;
         if (!handler_local_alloca_is_definitely_initialized(
-                alloca, entry, region)) {
+                accesses, entry, region)) {
             continue;
         }
         (used_by_surface ? result.surface : result.procedural)

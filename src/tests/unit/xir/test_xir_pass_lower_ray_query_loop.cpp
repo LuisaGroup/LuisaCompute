@@ -466,6 +466,124 @@ void register_tests() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "whole_aggregate_store_localizes_subfield_reads"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *value =
+            f.kernel->create_value_argument(Type::of<float3>());
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(Type::of<float3>());
+        scratch->set_name("surface_aggregate_scratch");
+        auto *observed = b.alloca_local(Type::of<float>());
+        b.store(
+            scratch,
+            m.create_constant_zero(Type::of<float3>()));
+        b.set_insertion_point(f.surface);
+        b.store(scratch, value);
+        auto *x = b.gep(
+            Type::of<float>(), scratch,
+            {m.create_constant_zero(Type::of<uint>())});
+        b.store(observed, b.load(Type::of<float>(), x));
+        b.br(f.dispatch);
+        b.set_insertion_point(f.merge->terminator()->prev());
+        b.load(Type::of<float>(), observed);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(info.localized_alloca_count == 1u);
+
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline == nullptr) { return; }
+        auto captures_scratch = false;
+        for (auto i = 0u; i < pipeline->captured_argument_count(); ++i) {
+            captures_scratch |=
+                pipeline->captured_argument(i) == scratch;
+        }
+        expect(!captures_scratch);
+
+        AllocaInst *localized = nullptr;
+        GEPInst *localized_x = nullptr;
+        pipeline->on_surface_function()
+            ->definition()
+            ->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+                block->traverse_instructions(
+                    [&](Instruction *inst) noexcept {
+                        if (inst->isa<AllocaInst>() && inst->name() &&
+                            *inst->name() ==
+                                "surface_aggregate_scratch") {
+                            localized =
+                                static_cast<AllocaInst *>(inst);
+                        }
+                        if (inst->isa<GEPInst>() &&
+                            inst->type() == Type::of<float>()) {
+                            localized_x = static_cast<GEPInst *>(inst);
+                        }
+                    });
+            });
+        expect(localized != nullptr);
+        expect(localized_x != nullptr);
+        if (localized_x != nullptr) {
+            expect(localized_x->base() == localized);
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "partial_aggregate_store_does_not_prove_other_fields"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *value =
+            f.kernel->create_value_argument(Type::of<float>());
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(Type::of<float3>());
+        auto *observed = b.alloca_local(Type::of<float>());
+        b.store(
+            scratch,
+            m.create_constant_zero(Type::of<float3>()));
+        b.set_insertion_point(f.surface);
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        auto *x = b.gep(Type::of<float>(), scratch, {zero});
+        auto *y = b.gep(Type::of<float>(), scratch, {one});
+        b.store(x, value);
+        b.store(observed, b.load(Type::of<float>(), y));
+        b.br(f.dispatch);
+        b.set_insertion_point(f.merge->terminator()->prev());
+        b.load(Type::of<float>(), observed);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(info.localized_alloca_count == 0u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline != nullptr) {
+            auto captures_scratch = false;
+            for (auto i = 0u;
+                 i < pipeline->captured_argument_count(); ++i) {
+                captures_scratch |=
+                    pipeline->captured_argument(i) == scratch;
+            }
+            expect(captures_scratch);
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "load_before_store_keeps_cross_candidate_state_captured"_test = [] {
         Module m;
         auto f = make_fixture(m);

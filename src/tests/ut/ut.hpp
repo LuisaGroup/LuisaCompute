@@ -876,7 +876,10 @@ struct cfg {
           std::cerr << "for additional help" << std::endl;
           std::exit(-1);
         } else {
-          if (i > 1U) {
+          // The first positional argument may be reserved for the runtime
+          // backend, so the first actual test-name pattern is not
+          // necessarily argv[1]. Separate only patterns already collected.
+          if (!query_pattern.empty()) {
             query_pattern.append(" ");
           }
           query_pattern.append(cmd);

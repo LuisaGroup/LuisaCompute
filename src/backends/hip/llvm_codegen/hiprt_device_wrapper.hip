@@ -700,12 +700,17 @@ static constexpr float LUISA_PROCEDURAL_NAN = __builtin_nanf("");
 // trace call rather than to the query object. Keep only the state observable by
 // candidate handlers here; HIPRT supplies the LDS/global traversal stack below.
 static constexpr uint32_t LUISA_PIPELINE_RAY_TYPE = 2u;
+static constexpr uint32_t LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE = 3u;
 static constexpr uint8_t LUISA_PIPELINE_RQ_STATE_TERMINATED = 0u;
 static constexpr uint8_t LUISA_PIPELINE_RQ_STATE_SURFACE = 1u;
 static constexpr uint8_t LUISA_PIPELINE_RQ_STATE_PROCEDURAL = 2u;
 static constexpr uint8_t LUISA_PIPELINE_HIT_MISS = 0u;
 static constexpr uint8_t LUISA_PIPELINE_HIT_SURFACE = 1u;
 static constexpr uint8_t LUISA_PIPELINE_HIT_PROCEDURAL = 2u;
+enum : uint32_t {
+    LUISA_PIPELINE_CANDIDATE_COMMITTED = 1u << 0u,
+    LUISA_PIPELINE_CANDIDATE_TERMINATED = 1u << 1u,
+};
 
 struct LuisaPipelineRayQueryHit {
     uint32_t instance_id;
@@ -794,6 +799,67 @@ luisa_pipeline_dispatch_candidate(LuisaPipelineRayQueryState *state,
         pipeline_id, candidate_kind);
 }
 
+// Payload for the formally selected closest-hit reduction. The query state
+// keeps the original world-space ray required by RayQuery semantics; HIPRT's
+// callback ray may already be transformed into instance space. No traversal
+// frontier escapes through this payload.
+struct LuisaPipelineNativeClosestPayload {
+    LuisaPipelineRayQueryState *state;
+    void *callback_context;
+    uint32_t pipeline_id;
+};
+
+static __device__ __forceinline__ bool
+luisa_pipeline_native_closest_surface_candidate(
+    LuisaPipelineNativeClosestPayload *payload,
+    const hiprtHit &hit) {
+    auto state = payload->state;
+    // The candidate-only transaction is the exact quotient of the public query
+    // state by the proven handler observation relation. It avoids manufacturing
+    // a private-pointer identity merely to recover values already present in
+    // the HIPRT callback arguments.
+    const auto packed = luisa_pipeline_ray_query_dispatch_compact(
+        payload->callback_context, payload->pipeline_id,
+        LUISA_PIPELINE_RQ_STATE_SURFACE, state->flags,
+        hit.instanceIDs[0], hit.primID,
+        hit.uv.x, hit.uv.y, hit.t);
+    const auto actions = static_cast<uint32_t>(packed);
+    // The XIR proof excludes explicit terminate and QueryAny. Keep this check
+    // as an executable cross-bitcode invariant rather than silently accepting
+    // a malformed reduction if either side of the ABI changes.
+    if ((actions & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+        __builtin_trap();
+    }
+    return (actions & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u;
+}
+
+static __device__ __forceinline__ bool
+luisa_pipeline_native_closest_procedural_candidate(
+    LuisaPipelineNativeClosestPayload *payload,
+    const hiprtRay &active_ray, hiprtHit &hit) {
+    auto state = payload->state;
+    const auto packed = luisa_pipeline_ray_query_dispatch_compact(
+        payload->callback_context, payload->pipeline_id,
+        LUISA_PIPELINE_RQ_STATE_PROCEDURAL, state->flags,
+        hit.instanceIDs[0], hit.primID,
+        0.0f, 0.0f, active_ray.maxT);
+    const auto actions = static_cast<uint32_t>(packed);
+    if ((actions & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+        __builtin_trap();
+    }
+    if ((actions & LUISA_PIPELINE_CANDIDATE_COMMITTED) == 0u) {
+        return false;
+    }
+    hit.t = __uint_as_float(
+        static_cast<uint32_t>(packed >> 32u));
+    hit.uv = hiprtFloat2{0.0f, 0.0f};
+    hit.normal = hiprtFloat3{
+        LUISA_PROCEDURAL_NAN,
+        LUISA_PROCEDURAL_NAN,
+        LUISA_PROCEDURAL_NAN};
+    return true;
+}
+
 // The generic ray-query callback is defined before its in-place state type.
 // Keep the state access behind this helper so intersectFunc does not depend on
 // the state layout directly.
@@ -851,6 +917,19 @@ HIPRT_DEVICE bool intersectFunc(
             LUISA_PROCEDURAL_NAN};
         return true;
     }
+    if (ray_type == LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE &&
+        payload != nullptr) {
+        auto direct = reinterpret_cast<
+            LuisaPipelineNativeClosestPayload *>(payload);
+        auto state = direct->state;
+        if (luisa_hit_is_curve(state->instances, hit) ||
+            luisa_hit_is_motion_triangle(state->instances, hit)) {
+            return luisa_intersect_surface(
+                state->instances, ray, state->time, hit);
+        }
+        return luisa_pipeline_native_closest_procedural_candidate(
+            direct, ray, hit);
+    }
     return false;
 }
 
@@ -862,8 +941,23 @@ HIPRT_DEVICE bool filterFunc(
     void *payload,
     const hiprtHit &hit) {
     static_cast<void>(geom_type);
-    static_cast<void>(ray_type);
     static_cast<void>(table_header);
+    if (ray_type == LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE &&
+        payload != nullptr) {
+        // A committed user procedural candidate has already executed its
+        // handler in intersectFunc. The NaN marker is transported in hiprtHit,
+        // so this classification does not depend on generic/private pointer
+        // aliasing through the payload.
+        if (luisa_is_procedural_sentinel(hit.normal)) { return false; }
+        auto direct = reinterpret_cast<
+            LuisaPipelineNativeClosestPayload *>(payload);
+        if (luisa_instance_is_opaque(
+                direct->state->instances, hit.instanceIDs[0])) {
+            return false;
+        }
+        return !luisa_pipeline_native_closest_surface_candidate(
+            direct, hit);
+    }
     static_cast<void>(ray);
     static_cast<void>(payload);
     static_cast<void>(hit);
@@ -1390,6 +1484,82 @@ luisa_pipeline_ray_query_initialize(
     state->terminated = false;
 }
 
+// HIPRT only tests funcDataSets for null before invoking the statically linked
+// callback symbols. Keep a complete immutable ray-type table nevertheless, so
+// the header remains valid if HIPRT begins consulting the selected entry in a
+// future revision. Candidate-specific data travels in the traversal payload.
+static __device__ hiprtFuncDataSet
+    luisa_pipeline_native_closest_func_data_sets[
+        LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE + 1u] = {};
+
+static __device__ __forceinline__ void
+luisa_pipeline_ray_query_trace_native_closest_impl(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    // A native closest reduction observes neither committed state nor the
+    // mutable world-ray frontier and cannot terminate explicitly. Reject any
+    // cross-bitcode disagreement instead of silently changing query semantics.
+    if (observation_mask != 0u) { __builtin_trap(); }
+
+    auto state = reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr);
+    LuisaPipelineNativeClosestPayload payload{
+        state, callback_context, pipeline_id};
+    hiprtFuncTableHeader function_table{
+        1u, LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE + 1u,
+        luisa_pipeline_native_closest_func_data_sets};
+    hiprtGlobalStackBuffer global_stack_buffer{
+        stack_size, stack_count, stack_data};
+    hiprtSharedStackBuffer shared_stack_buffer{
+        LUISA_HIPRT_SHARED_STACK_SIZE,
+        luisa_hiprt_shared_stack_cache};
+    hiprtDynamicStack stack{global_stack_buffer, shared_stack_buffer};
+    hiprtPrivateInstanceStack instance_stack;
+    auto scene = reinterpret_cast<hiprtScene>(state->scene_handle);
+    hiprtSceneTraversalClosestCustomStack<
+        hiprtDynamicStack, hiprtPrivateInstanceStack>
+        traversal{
+            scene, state->ray, stack, instance_stack,
+            static_cast<hiprtRayMask>(state->mask),
+            hiprtTraversalHintReflectionRays,
+            &payload, reinterpret_cast<hiprtFuncTable>(&function_table),
+            LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE, state->time};
+    auto hit = traversal.getNextHit();
+    if (hit.hasHit()) {
+        luisa_pipeline_store_hit(state->committed_hit, hit);
+        state->committed_kind =
+            luisa_is_procedural_sentinel(hit.normal) ?
+                LUISA_PIPELINE_HIT_PROCEDURAL :
+                LUISA_PIPELINE_HIT_SURFACE;
+        state->ray.maxT = hit.t;
+    } else {
+        state->committed_kind = LUISA_PIPELINE_HIT_MISS;
+    }
+    state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
+    state->candidate_committed = false;
+    state->terminated = true;
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_all_native_closest(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_native_closest_impl(
+        state_ptr, callback_context, pipeline_id, observation_mask,
+        stack_size, stack_count, stack_data);
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_native_closest_impl(
+        state_ptr, callback_context, pipeline_id, observation_mask,
+        stack_size, stack_count, stack_data);
+}
+
 template<bool terminate_on_first, bool opacity_may_change>
 static __device__ __forceinline__ void
 luisa_pipeline_ray_query_trace_impl(
@@ -1902,11 +2072,6 @@ luisa_hiprt_resolve_static_motion_geometry(
     ray = transform.transformRay(ray, 0.0f);
     return child.m_geometry;
 }
-
-enum : uint32_t {
-    LUISA_PIPELINE_CANDIDATE_COMMITTED = 1u << 0u,
-    LUISA_PIPELINE_CANDIDATE_TERMINATED = 1u << 1u,
-};
 
 static __device__ __forceinline__ void
 luisa_pipeline_export_committed_state(

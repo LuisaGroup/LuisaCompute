@@ -134,6 +134,11 @@ public:
         // Such a handler requires the exact query-object transaction instead
         // of the compact {candidate, commit, terminate} action product.
         bool full_candidate_state_observed;
+        // True when the XIR handler pair and the query's only observable
+        // post-state form a closest-hit reduction. This permits HIPRT to run
+        // the handlers as native intersection/filter callbacks and return one
+        // final hit, instead of exposing a resumable candidate frontier.
+        bool native_closest_reduction;
         luisa::vector<llvm::StoreInst *> stores;
         luisa::vector<llvm::LoadInst *> loads;
         // The compact candidate transaction decodes the same projected user
@@ -263,6 +268,8 @@ private:
     bool _supports_hardware_rt_stack{false};
     bool _uses_hardware_rt_stack{false};
     bool _uses_synchronous_ray_query_pipeline{false};
+    bool _uses_iterative_synchronous_ray_query_pipeline{false};
+    bool _uses_native_closest_ray_query_pipeline{false};
     bool _requires_global_rt_stack{false};
     bool _retry_with_resumable_ray_query_pipeline{false};
 

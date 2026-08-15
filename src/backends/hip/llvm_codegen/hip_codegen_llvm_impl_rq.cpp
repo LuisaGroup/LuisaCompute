@@ -3,6 +3,16 @@
 //
 
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/xir/argument.h>
+#include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/gep.h>
+#include <luisa/xir/instructions/load.h>
+#include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/resource.h>
+#include <luisa/xir/instructions/store.h>
+
+#include <limits>
 
 #include "hip_codegen_llvm_impl.h"
 
@@ -223,6 +233,384 @@ void accumulate_ray_query_handler_observations(
         return true;
     }
     return false;
+}
+
+// A native closest traversal is an order-insensitive reduction only when the
+// parent observes no query state other than the final committed hit. Whole-
+// object stores are definitions, and a load is accepted only when every use of
+// the loaded query is exactly COMMITTED_HIT. Unknown uses fail closed. This is
+// deliberately a use-graph property rather than a source-shape match.
+[[nodiscard]] bool
+ray_query_pipeline_post_state_is_committed_hit_only(
+    const xir::RayQueryPipelineInst *pipeline) noexcept {
+    auto query_object = pipeline->query_object();
+    if (query_object == nullptr || !query_object->isa<xir::AllocaInst>() ||
+        !static_cast<const xir::AllocaInst *>(query_object)->is_local()) {
+        return false;
+    }
+    auto observes_committed_hit = false;
+    auto is_committed_hit_read = [&](const xir::User *user,
+                                     const xir::Use *use) noexcept {
+        if (user == nullptr || !user->isa<xir::RayQueryObjectReadInst>()) {
+            return false;
+        }
+        auto read = static_cast<const xir::RayQueryObjectReadInst *>(user);
+        if (read->op() != xir::RayQueryObjectReadOp::
+                              RAY_QUERY_OBJECT_COMMITTED_HIT ||
+            use != read->operand_use(0u)) {
+            return false;
+        }
+        observes_committed_hit = true;
+        return true;
+    };
+    for (auto use : query_object->use_list()) {
+        auto user = use->user();
+        if (user == pipeline &&
+            use == pipeline->operand_use(
+                       xir::RayQueryPipelineInst::
+                           operand_index_query_object)) {
+            continue;
+        }
+        if (user != nullptr && user->isa<xir::StoreInst>() &&
+            static_cast<const xir::StoreInst *>(user)->variable() ==
+                query_object) {
+            continue;
+        }
+        if (is_committed_hit_read(user, use)) { continue; }
+        if (user != nullptr && user->isa<xir::LoadInst>() &&
+            static_cast<const xir::LoadInst *>(user)->variable() ==
+                query_object) {
+            auto load = static_cast<const xir::LoadInst *>(user);
+            auto only_committed_reads = true;
+            for (auto load_use : load->use_list()) {
+                only_committed_reads &=
+                    is_committed_hit_read(load_use->user(), load_use);
+            }
+            if (only_committed_reads) { continue; }
+        }
+        return false;
+    }
+    return observes_committed_hit;
+}
+
+struct NativeClosestHandlerAnalysisContext {
+    const xir::Function *function;
+    luisa::vector<bool> local_reference_arguments;
+    luisa::vector<bool> active_query_reference_arguments;
+};
+
+[[nodiscard]] size_t function_argument_index(
+    const xir::Function *function,
+    const xir::Argument *argument) noexcept {
+    auto index = 0u;
+    for (auto candidate : function->arguments()) {
+        if (candidate == argument) { return index; }
+        ++index;
+    }
+    return std::numeric_limits<size_t>::max();
+}
+
+// Prove that a store target belongs to the current handler invocation. GEP
+// preserves provenance and a PHI is local iff every incoming value is local.
+// Cycles fail closed. Reference arguments are local only when the caller proved
+// their actual argument local and propagated that fact. CastInst is
+// deliberately absent: XIR casts are rvalues, not address-preserving lvalues.
+[[nodiscard]] bool native_closest_pointer_is_local(
+    const xir::Value *value,
+    const NativeClosestHandlerAnalysisContext &context,
+    llvm::DenseSet<const xir::Value *> &active) noexcept {
+    if (value == nullptr || !active.insert(value).second) { return false; }
+    auto finish = [&](bool result) noexcept {
+        active.erase(value);
+        return result;
+    };
+    if (value->isa<xir::AllocaInst>()) {
+        auto alloca = static_cast<const xir::AllocaInst *>(value);
+        return finish(alloca->is_local() &&
+                      alloca->parent_function() == context.function);
+    }
+    if (value->isa<xir::Argument>()) {
+        auto argument = static_cast<const xir::Argument *>(value);
+        auto index = function_argument_index(context.function, argument);
+        return finish(
+            index < context.local_reference_arguments.size() &&
+            context.local_reference_arguments[index]);
+    }
+    if (value->isa<xir::GEPInst>()) {
+        return finish(native_closest_pointer_is_local(
+            static_cast<const xir::GEPInst *>(value)->base(),
+            context, active));
+    }
+    if (value->isa<xir::PhiInst>()) {
+        auto phi = static_cast<const xir::PhiInst *>(value);
+        auto local = phi->incoming_count() != 0u;
+        for (auto i = 0u; i < phi->incoming_count() && local; ++i) {
+            local &= native_closest_pointer_is_local(
+                phi->incoming(i).value, context, active);
+        }
+        return finish(local);
+    }
+    return finish(false);
+}
+
+// The native callback may mutate exactly the query whose candidate it is
+// evaluating. Query identity is a reference-provenance property, propagated
+// through direct Callable arguments. It is intentionally distinct from
+// locality: another local RayQuery is still not the active traversal.
+[[nodiscard]] bool native_closest_pointer_is_active_query(
+    const xir::Value *value,
+    const NativeClosestHandlerAnalysisContext &context) noexcept {
+    if (value == nullptr || !value->isa<xir::Argument>()) { return false; }
+    auto argument = static_cast<const xir::Argument *>(value);
+    auto index = function_argument_index(context.function, argument);
+    return index < context.active_query_reference_arguments.size() &&
+           context.active_query_reference_arguments[index];
+}
+
+[[nodiscard]] bool native_closest_pointer_is_local(
+    const xir::Value *value,
+    const NativeClosestHandlerAnalysisContext &context) noexcept {
+    llvm::DenseSet<const xir::Value *> active;
+    return native_closest_pointer_is_local(value, context, active);
+}
+
+[[nodiscard]] bool resource_query_is_read_only_for_native_closest(
+    xir::ResourceQueryOp op) noexcept {
+    switch (op) {
+        case xir::ResourceQueryOp::BUFFER_SIZE:
+        case xir::ResourceQueryOp::BYTE_BUFFER_SIZE:
+        case xir::ResourceQueryOp::TEXTURE2D_SIZE:
+        case xir::ResourceQueryOp::TEXTURE3D_SIZE:
+        case xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE:
+        case xir::ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL:
+        case xir::ResourceQueryOp::TEXTURE2D_SAMPLE:
+        case xir::ResourceQueryOp::TEXTURE2D_SAMPLE_LEVEL:
+        case xir::ResourceQueryOp::TEXTURE2D_SAMPLE_GRAD:
+        case xir::ResourceQueryOp::TEXTURE2D_SAMPLE_GRAD_LEVEL:
+        case xir::ResourceQueryOp::TEXTURE3D_SAMPLE:
+        case xir::ResourceQueryOp::TEXTURE3D_SAMPLE_LEVEL:
+        case xir::ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD:
+        case xir::ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER:
+        case xir::ResourceQueryOp::BUFFER_DEVICE_ADDRESS:
+        case xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS:
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM:
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID:
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK:
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX:
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_SRT:
+            return true;
+        case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST:
+        case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY:
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL:
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY:
+        case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR:
+        case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR:
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR:
+            return false;
+    }
+    // Deliberately fail closed if ResourceQueryOp gains a new enumerator.
+    return false;
+}
+
+// Candidate enumeration order is not an observable input to this reduction.
+// Therefore every reachable handler operation must be read-only outside the
+// invocation, with the sole exceptions of COMMIT_TRIANGLE and
+// COMMIT_PROCEDURAL on the active query. Local scratch stores are permitted;
+// resource/atomic writes, explicit termination, nested traversal, and unknown
+// calls are rejected. The analysis is context-sensitive for reference
+// arguments so helpers may mutate caller-local scratch without making the
+// transaction externally effectful.
+[[nodiscard]] bool native_closest_handler_is_reduction(
+    const xir::Function *function,
+    luisa::vector<bool> local_reference_arguments,
+    luisa::vector<bool> active_query_reference_arguments,
+    llvm::DenseSet<const xir::Function *> &active_functions) noexcept {
+    if (function == nullptr || function->definition() == nullptr ||
+        !active_functions.insert(function).second) {
+        return false;
+    }
+    NativeClosestHandlerAnalysisContext context{
+        function, std::move(local_reference_arguments),
+        std::move(active_query_reference_arguments)};
+    auto valid = true;
+    function->definition()->traverse_instructions(
+        [&](const xir::Instruction *instruction) noexcept {
+            if (!valid) { return; }
+            const auto was_valid = valid;
+            switch (instruction->derived_instruction_tag()) {
+                case xir::DerivedInstructionTag::STORE: {
+                    auto store = static_cast<const xir::StoreInst *>(instruction);
+                    // A literal load/store round trip through the same pointer
+                    // is observationally the identity even for an external
+                    // reference. This pattern is emitted for untouched outlined
+                    // PHI state and carries no candidate-order information.
+                    auto value = store->value();
+                    if (value != nullptr && value->isa<xir::LoadInst>() &&
+                        static_cast<const xir::LoadInst *>(value)->variable() ==
+                            store->variable()) {
+                        break;
+                    }
+                    valid = native_closest_pointer_is_local(
+                        store->variable(), context);
+                    break;
+                }
+                case xir::DerivedInstructionTag::RESOURCE_QUERY: {
+                    valid = resource_query_is_read_only_for_native_closest(
+                        static_cast<const xir::ResourceQueryInst *>(instruction)
+                            ->op());
+                    break;
+                }
+                case xir::DerivedInstructionTag::RESOURCE_WRITE:
+                case xir::DerivedInstructionTag::ATOMIC:
+                case xir::DerivedInstructionTag::THREAD_GROUP:
+                case xir::DerivedInstructionTag::PRINT:
+                case xir::DerivedInstructionTag::CLOCK:
+                case xir::DerivedInstructionTag::DEBUG_BREAK:
+                case xir::DerivedInstructionTag::ASSERT:
+                case xir::DerivedInstructionTag::RASTER_DISCARD:
+                case xir::DerivedInstructionTag::AUTODIFF_SCOPE:
+                case xir::DerivedInstructionTag::AUTODIFF_INTRINSIC:
+                case xir::DerivedInstructionTag::CORO_SUSPEND:
+                case xir::DerivedInstructionTag::CORO_RESUME:
+                case xir::DerivedInstructionTag::CORO_TERMINATE:
+                case xir::DerivedInstructionTag::RAY_QUERY_LOOP:
+                case xir::DerivedInstructionTag::RAY_QUERY_DISPATCH:
+                case xir::DerivedInstructionTag::RAY_QUERY_PIPELINE:
+                    valid = false;
+                    break;
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ: {
+                    auto read = static_cast<
+                        const xir::RayQueryObjectReadInst *>(instruction);
+                    // COMMITTED_HIT observes reduction state before the
+                    // reduction is complete. WORLD_SPACE_RAY contains the
+                    // mutable t_max frontier and can make the acceptance
+                    // predicate enumeration-order dependent. Both therefore
+                    // require the exact resumable transaction.
+                    valid = read->operand_count() != 0u &&
+                            native_closest_pointer_is_active_query(
+                                read->operand(0u), context) &&
+                            read->op() != xir::RayQueryObjectReadOp::
+                                              RAY_QUERY_OBJECT_COMMITTED_HIT &&
+                            read->op() != xir::RayQueryObjectReadOp::
+                                              RAY_QUERY_OBJECT_WORLD_SPACE_RAY;
+                    break;
+                }
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
+                    auto write = static_cast<
+                        const xir::RayQueryObjectWriteInst *>(instruction);
+                    valid = write->operand_count() != 0u &&
+                            native_closest_pointer_is_active_query(
+                                write->operand(0u), context) &&
+                            (write->op() == xir::RayQueryObjectWriteOp::
+                                                RAY_QUERY_OBJECT_COMMIT_TRIANGLE ||
+                             write->op() == xir::RayQueryObjectWriteOp::
+                                                RAY_QUERY_OBJECT_COMMIT_PROCEDURAL);
+                    break;
+                }
+                case xir::DerivedInstructionTag::CALL: {
+                    auto call = static_cast<const xir::CallInst *>(instruction);
+                    auto callee = call->callee();
+                    if (callee == nullptr || callee->definition() == nullptr ||
+                        call->argument_count() !=
+                            callee->arguments().count_size()) {
+                        valid = false;
+                        break;
+                    }
+                    luisa::vector<bool> callee_local_arguments(
+                        call->argument_count(), false);
+                    luisa::vector<bool> callee_active_query_arguments(
+                        call->argument_count(), false);
+                    auto i = 0u;
+                    for (auto argument : callee->arguments()) {
+                        if (argument->is_reference()) {
+                            callee_local_arguments[i] =
+                                native_closest_pointer_is_local(
+                                    call->argument(i), context);
+                            callee_active_query_arguments[i] =
+                                native_closest_pointer_is_active_query(
+                                    call->argument(i), context);
+                        }
+                        ++i;
+                    }
+                    valid = native_closest_handler_is_reduction(
+                        callee, std::move(callee_local_arguments),
+                        std::move(callee_active_query_arguments),
+                        active_functions);
+                    break;
+                }
+                default: break;
+            }
+            if (was_valid && !valid) {
+                LUISA_VERBOSE(
+                    "HIP native closest reduction rejected handler "
+                    "instruction '{}'.",
+                    xir::to_string(
+                        instruction->derived_instruction_tag()));
+            }
+        });
+    active_functions.erase(function);
+    return valid;
+}
+
+[[nodiscard]] bool native_closest_handler_is_reduction(
+    const xir::Function *function) noexcept {
+    llvm::DenseSet<const xir::Function *> active_functions;
+    auto argument_count = function == nullptr ? 0u :
+                                               function->arguments().count_size();
+    if (function == nullptr || argument_count == 0u) { return false; }
+    auto query_argument = function->arguments().front();
+    if (!query_argument->is_reference() ||
+        query_argument->type() != Type::of<RayQueryAll>()) {
+        return false;
+    }
+    luisa::vector<bool> active_query_arguments(argument_count, false);
+    active_query_arguments.front() = true;
+    return native_closest_handler_is_reduction(
+        function, luisa::vector<bool>(argument_count, false),
+        std::move(active_query_arguments),
+        active_functions);
+}
+
+[[nodiscard]] bool ray_query_pipeline_admits_native_closest_reduction(
+    const xir::RayQueryPipelineInst *pipeline) noexcept {
+    if (pipeline == nullptr || pipeline->query_object() == nullptr ||
+        pipeline->query_object()->type() != Type::of<RayQueryAll>()) {
+        return false;
+    }
+    const auto committed_post_state_only =
+        ray_query_pipeline_post_state_is_committed_hit_only(pipeline);
+    const auto surface_is_reduction = native_closest_handler_is_reduction(
+        pipeline->on_surface_function());
+    const auto procedural_is_reduction = native_closest_handler_is_reduction(
+        pipeline->on_procedural_function());
+    LUISA_VERBOSE(
+        "HIP native closest reduction proof: committed-post-state-only = "
+        "{}, surface = {}, procedural = {}.",
+        committed_post_state_only, surface_is_reduction,
+        procedural_is_reduction);
+    return committed_post_state_only && surface_is_reduction &&
+           procedural_is_reduction;
 }
 
 }// namespace
@@ -511,8 +899,9 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
         // committed hit/world ray, the exact query transaction remains live.
         // In either case the environment is reloaded across that exact hot
         // boundary and remains subject to the ordinary native-size budget.
-        if (context.post_state_observed ||
-            context.full_candidate_state_observed) {
+        if (!context.native_closest_reduction &&
+            (context.post_state_observed ||
+             context.full_candidate_state_observed)) {
             projection.maximum_budget_constrained_context_bytes = std::max(
                 projection.maximum_budget_constrained_context_bytes,
                 current_projected_context_bytes);
@@ -779,6 +1168,8 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         ray_query_handler_observation_mask(inst);
     const auto post_state_observed =
         ray_query_pipeline_post_state_is_observed(inst);
+    const auto native_closest_reduction =
+        ray_query_pipeline_admits_native_closest_reduction(inst);
     LUISA_ASSERT(
         llvm_on_surface->getReturnType()->isVoidTy() &&
             llvm_on_procedural->getReturnType()->isVoidTy(),
@@ -854,6 +1245,17 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         "HIP ray-query pipeline callback ABI mismatch.");
 
     if (_uses_synchronous_ray_query_pipeline) {
+        // The reduction proof describes the handler semantics, not the
+        // selected execution route. A module that requires reentrant ray
+        // queries lowers every pipeline to the ordinary in-kernel loop; in
+        // that route no native wrapper or callback dispatcher is reachable.
+        // Keep the module feature bit equal to the disjunction of *lowered*
+        // native calls, otherwise post-processing links a callback wrapper
+        // whose dispatcher was never emitted.
+        _uses_native_closest_ray_query_pipeline |=
+            native_closest_reduction;
+        _uses_iterative_synchronous_ray_query_pipeline |=
+            !native_closest_reduction;
         // Materialize the exact callback environment once. The native HIPRT
         // filter/intersection callbacks receive only an opaque context pointer;
         // this typed struct restores the ordinary Callable ABI without an
@@ -1202,9 +1604,10 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         auto llvm_state_pointer = _get_ray_query_state_pointer(
             b, func_ctx, query_object);
         if (observation_mask != 0u) {
-            // Only the exact callback transaction exports query identity. The
-            // compact transaction constructs a private candidate state inside
-            // its dispatcher and never observes this outer identity.
+            // Only a full-dispatch callback transaction exports query
+            // identity. Candidate-only native closest reductions use the same
+            // compact quotient as the iterative synchronous route and recover
+            // every observable value from explicit callback arguments.
             auto llvm_query_address_field = b.CreateInBoundsGEP(
                 b.getInt8Ty(), llvm_state_pointer,
                 b.getInt32(compact_query_layout::query_address),
@@ -1232,14 +1635,17 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
              b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(),
              b.getPtrTy(0)},
             false);
-        auto llvm_trace_name =
-            query_object->type() == Type::of<RayQueryAny>() ?
-                (_rt_analysis.writes_instance_opacity ?
-                     "luisa_pipeline_ray_query_trace_any" :
-                     "luisa_pipeline_ray_query_trace_any_stable_opacity") :
-                (_rt_analysis.writes_instance_opacity ?
-                     "luisa_pipeline_ray_query_trace_all" :
-                     "luisa_pipeline_ray_query_trace_all_stable_opacity");
+        auto llvm_trace_name = native_closest_reduction ?
+            (_rt_analysis.writes_instance_opacity ?
+                 "luisa_pipeline_ray_query_trace_all_native_closest" :
+                 "luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity") :
+            (query_object->type() == Type::of<RayQueryAny>() ?
+                 (_rt_analysis.writes_instance_opacity ?
+                      "luisa_pipeline_ray_query_trace_any" :
+                      "luisa_pipeline_ray_query_trace_any_stable_opacity") :
+                 (_rt_analysis.writes_instance_opacity ?
+                      "luisa_pipeline_ray_query_trace_all" :
+                      "luisa_pipeline_ray_query_trace_all_stable_opacity"));
         auto llvm_trace = _llvm_module->getFunction(
             llvm_trace_name);
         if (llvm_trace == nullptr) {
@@ -1265,6 +1671,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                 llvm_on_procedural,
                 post_state_observed,
                 observation_mask != 0u,
+                native_closest_reduction,
                 std::move(llvm_context_stores),
                 std::move(llvm_context_loads),
                 std::move(llvm_compact_context_loads)});

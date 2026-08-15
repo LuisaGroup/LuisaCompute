@@ -358,6 +358,54 @@ void compile_large_ray_query_environment(
         kernel, ShaderOption{.enable_cache = false}));
 }
 
+void compile_large_pure_closest_reduction(
+    Device &device, bool explicitly_terminate) noexcept {
+    Kernel1D kernel = [explicitly_terminate](
+                          BufferUInt output,
+                          BufferUInt input_0,
+                          BufferUInt input_1,
+                          BufferUInt input_2,
+                          BufferUInt input_3,
+                          BufferUInt input_4,
+                          BufferUInt input_5,
+                          BufferUInt input_6,
+                          BufferUInt input_7,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [&](SurfaceCandidate &candidate) noexcept {
+                               // These eight live resource handles keep the
+                               // projected callback environment above 64
+                               // bytes. Resource reads are pure and the only
+                               // state transition is a conditional closest-hit
+                               // commit, so enumeration order is unobservable
+                               // unless terminate() is present.
+                               auto checksum =
+                                   input_0.read(0u) ^ input_1.read(0u) ^
+                                   input_2.read(0u) ^ input_3.read(0u) ^
+                                   input_4.read(0u) ^ input_5.read(0u) ^
+                                   input_6.read(0u) ^ input_7.read(0u);
+                               Callable commit_if_even =
+                                   [&candidate](UInt value) noexcept {
+                                       $if ((value & 1u) == 0u) {
+                                           candidate.commit();
+                                       };
+                                   };
+                               commit_if_even(checksum);
+                               if (explicitly_terminate) {
+                                   candidate.terminate();
+                               }
+                           })
+                       .trace();
+        output.write(dispatch_x(), hit->prim);
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -482,6 +530,8 @@ int main(int argc, char *argv[]) {
             compile_large_ray_query_environment(device, false);
             compile_large_ray_query_environment(device, true);
             compile_large_ray_query_environment(device, false, true);
+            compile_large_pure_closest_reduction(device, false);
+            compile_large_pure_closest_reduction(device, true);
             const auto before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_4.ll");
             const auto observing_before_module = read_text_file(
@@ -510,35 +560,48 @@ int main(int argc, char *argv[]) {
                 dump_directory / "hip_kernel_before_opt_8.ll");
             const auto full_candidate_large_before_root =
                 amdgpu_kernel_body(full_candidate_large_before_module);
+            const auto pure_reduction_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_9.ll");
+            const auto pure_reduction_before_root =
+                amdgpu_kernel_body(pure_reduction_before_module);
+            const auto terminating_reduction_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_10.ll");
+            const auto terminating_reduction_before_root =
+                amdgpu_kernel_body(terminating_reduction_before_module);
             expect(!before_root.empty() &&
                    !observing_before_root.empty() && !root.empty() &&
                    !observing_dispatcher.empty() &&
                    !handler_only_before_root.empty() &&
                    !observed_large_before_root.empty() &&
-                   !full_candidate_large_before_root.empty())
+                   !full_candidate_large_before_root.empty() &&
+                   !pure_reduction_before_root.empty() &&
+                   !terminating_reduction_before_root.empty())
                 << "failed to locate the generated RayQuery functions";
             // Selection is a codegen property, while outlining is an LLVM
             // profitability decision. Inspect the generated root before the
             // ordinary inliner instead of requiring trace wrappers to survive
             // in final IR.
             expect(before_root.find(
-                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
+                       "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
                    std::string_view::npos)
-                << "RayQueryAll without device opacity writes did not select "
-                   "its stable-opacity native traversal";
+                << "pure RayQueryAll closest reduction did not select one "
+                   "native HIPRT closest traversal";
             expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
                    std::string_view::npos)
                 << "RayQueryAny without device opacity writes did not select "
                    "its stable-opacity native traversal";
             expect(before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
+                       std::string_view::npos &&
+                   before_root.find(
                        "@luisa_pipeline_ray_query_trace_all(") ==
                    std::string_view::npos &&
                    before_root.find(
                        "@luisa_pipeline_ray_query_trace_any(") ==
                        std::string_view::npos)
-                << "stable-opacity RayQuery retained a mutable-opacity "
-                   "traversal entry point";
+                << "native closest reduction retained an iterative "
+                   "RayQueryAll traversal entry point";
             expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace(") ==
                    std::string_view::npos)
@@ -556,29 +619,15 @@ int main(int argc, char *argv[]) {
                    std::string::npos)
                 << "empty RayQuery callback environment was "
                    "materialized in private memory";
-            expect(module.find(
-                       "@luisa_ray_query_pipeline_dispatch(") ==
-                   std::string_view::npos)
-                << "candidate-only RayQuery retained the full-state "
-                   "dispatcher";
-            expect(module.find(
-                       "@luisa_pipeline_ray_query_dispatch_compact(") ==
-                   std::string_view::npos)
-                << "compact RayQuery transaction remained as an outlined "
-                   "state-pointer boundary";
-
             const auto uses_native_gfx12_stack =
                 module.find("@llvm.amdgcn.ds.bvh.stack.push8.pop1.rtn") !=
                 std::string::npos;
             if (uses_native_gfx12_stack) {
-                // A candidate-only query has no cross-function identity in
-                // the semantic state. Local provenance must therefore let
-                // SROA remove both the 112-byte aggregate and its pointer-
-                // integer escape after native traversal is inlined.
-                expect(root.find("alloca [112 x i8]") ==
-                       std::string_view::npos)
-                    << "candidate-only RayQuery state escaped scalar "
-                       "replacement";
+                // Neither the native closest reduction nor the compact
+                // RayQueryAny observes query-object identity. The direct
+                // HIPRT callback still requires an addressable 112-byte
+                // transaction state, but no extra pointer-to-integer identity
+                // may escape it.
                 expect(root.find("ray.query.state.address") ==
                            std::string_view::npos &&
                        root.find("ray.query.identity.address") ==
@@ -611,6 +660,11 @@ int main(int argc, char *argv[]) {
                    std::string_view::npos)
                 << "nested world-ray observation unsafely selected the "
                    "candidate-only transaction";
+            expect(observing_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_native_closest") ==
+                   std::string_view::npos)
+                << "mutable world-ray t_max observation unsafely selected "
+                   "the order-independent closest reduction";
             expect(module.find("luisa-specialize-constant-argument") ==
                        std::string_view::npos &&
                    observing_module.find(
@@ -619,22 +673,19 @@ int main(int argc, char *argv[]) {
                 << "internal constant-specialization marker escaped HIP "
                    "codegen";
             if (uses_native_gfx12_stack) {
-                // A 256-thread block contains eight wave32 waves. Native
-                // synchronous traversal uses one 16-entry instance-aware
-                // stack, hence 16 * 32 * 8 = 4096 dwords. Its intrinsic
-                // immediate and LDS allocation must change together.
-                expect(module.find("[4096 x i32]") !=
+                // The RayQueryAny baseline retains the 16-entry gfx12
+                // hardware frontier, while native HIPRT closest uses a
+                // 32-entry dynamic shared-stack cache. A 256-thread block
+                // therefore reserves max(16, 32) * 256 = 8192 dwords, not
+                // the sum of two mutually exclusive traversal layouts.
+                expect(module.find("[8192 x i32]") !=
                        std::string::npos)
-                    << "synchronous gfx12 RayQuery did not use the native "
-                       "single-region LDS frontier";
+                    << "mixed gfx12 RayQuery traversal did not reserve the "
+                       "native closest shared-stack frontier";
                 expect(module.find(", i32 16)") !=
                        std::string::npos)
                     << "gfx12 BVH-stack intrinsic did not receive the "
                        "native 16-entry frontier capacity";
-                expect(module.find("[8192 x i32]") ==
-                       std::string::npos)
-                    << "synchronous gfx12 RayQuery retained an unreachable "
-                       "second stack region";
             }
 
             // The two large-environment kernels differ only in whether the
@@ -669,6 +720,35 @@ int main(int argc, char *argv[]) {
                        std::string_view::npos)
                 << "large full-candidate RayQuery did not fail closed to the "
                    "resumable traversal ABI";
+
+            // A large environment is not itself a semantic reason to expose
+            // HIPRT's continuation frontier. Prove the candidate callbacks
+            // are a pure closest-hit reduction and lower the complete query
+            // to one native closest traversal. The commit is intentionally in
+            // a nested Callable to exercise active-query provenance across a
+            // call edge. Explicit termination changes the observable candidate
+            // prefix and must fail the same proof.
+            expect(pure_reduction_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
+                       std::string_view::npos &&
+                   pure_reduction_before_module.find(
+                       "@luisa_ray_query_proceed(") ==
+                       std::string::npos)
+                << "large pure closest reduction did not lower to one native "
+                   "HIPRT closest traversal";
+            expect(count_occurrences(
+                       pure_reduction_before_root,
+                       "ray.query.context.projected.field") >= 8u)
+                << "pure closest regression did not retain the intended "
+                   "large callback environment";
+            expect(terminating_reduction_before_module.find(
+                       "@luisa_ray_query_proceed(") !=
+                       std::string::npos &&
+                   terminating_reduction_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") ==
+                       std::string_view::npos)
+                << "explicitly terminating RayQuery did not fail closed to "
+                   "the resumable traversal ABI";
         };
 
     "HIP lowers fixed-vector dot products and preserves FP mode"_test =
@@ -689,7 +769,7 @@ int main(int argc, char *argv[]) {
                     module.find("llvm.vector.reduce.fadd") !=
                     std::string::npos;
             }
-            expect(dumped_module_count == 9u)
+            expect(dumped_module_count == 11u)
                 << "expected one final HIP LLVM module per compiled shader";
             expect(!retained_vector_reduction)
                 << "fixed-vector dot product retained the target-unstable "
