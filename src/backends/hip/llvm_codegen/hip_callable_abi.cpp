@@ -1,6 +1,7 @@
 #include "hip_callable_abi.h"
 
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/IR/Argument.h>
@@ -8,6 +9,8 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Transforms/IPO/MergeFunctions.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/Local.h>
 
 #include <luisa/core/logging.h>
@@ -42,6 +45,49 @@ struct LargeReturnPlan {
     llvm::Type *return_type;
     size_t return_bytes;
 };
+
+struct ConstantArgumentCallGroup {
+    llvm::ConstantInt *value;
+    llvm::SmallVector<llvm::CallInst *, 8> calls;
+};
+
+[[nodiscard]] llvm::AttributeList remove_parameter_attributes(
+    llvm::LLVMContext &context, llvm::AttributeList attributes,
+    unsigned removed_parameter, unsigned old_parameter_count) noexcept {
+    llvm::SmallVector<llvm::AttributeSet, 16> parameter_attributes;
+    parameter_attributes.reserve(old_parameter_count - 1u);
+    for (auto parameter_index = 0u;
+         parameter_index < old_parameter_count; parameter_index++) {
+        if (parameter_index != removed_parameter) {
+            parameter_attributes.emplace_back(
+                attributes.getParamAttrs(parameter_index));
+        }
+    }
+    return llvm::AttributeList::get(
+        context, attributes.getFnAttrs(), attributes.getRetAttrs(),
+        parameter_attributes);
+}
+
+void simplify_constant_argument_clone(
+    llvm::Function &function) noexcept {
+    // CloneFunction substitutes the formal in SSA but intentionally does not
+    // run a pass pipeline. Iterate the local fixed point needed by this
+    // transformation: fold pure instructions, fold constant terminators, then
+    // delete unreachable alternatives. No interprocedural or alias fact is
+    // introduced here.
+    auto changed = false;
+    do {
+        changed = false;
+        for (auto &block : function) {
+            changed |= llvm::SimplifyInstructionsInBlock(&block);
+        }
+        for (auto &block : function) {
+            changed |= llvm::ConstantFoldTerminator(
+                &block, true);
+        }
+        changed |= llvm::removeUnreachableBlocks(function);
+    } while (changed);
+}
 
 // Luisa's retained generated callables use FastCC so LLVM can optimize their
 // internal ABI. Some focused/runtime-generated modules retain the default C
@@ -229,6 +275,157 @@ struct LargeReturnPlan {
 }
 
 }// namespace
+
+ConstantArgumentSpecializationStats
+specialize_marked_constant_integer_arguments(
+    llvm::Module &module,
+    llvm::StringRef argument_attribute) noexcept {
+    llvm::SmallVector<llvm::Function *, 8> marked_functions;
+    for (auto &function : module) {
+        for (auto &argument : function.args()) {
+            if (argument.hasAttribute(argument_attribute)) {
+                marked_functions.emplace_back(&function);
+                break;
+            }
+        }
+    }
+
+    auto stats = ConstantArgumentSpecializationStats{};
+    llvm::SmallVector<llvm::Function *, 16> specialized_functions;
+    for (auto *function : marked_functions) {
+        llvm::SmallVector<unsigned, 2> marked_arguments;
+        for (auto &argument : function->args()) {
+            if (argument.hasAttribute(argument_attribute)) {
+                marked_arguments.emplace_back(argument.getArgNo());
+            }
+        }
+        // The marker is a codegen-internal analysis request, not a target ABI
+        // attribute. Strip every occurrence before any fail-closed exit.
+        for (auto argument_index : marked_arguments) {
+            function->removeParamAttr(
+                argument_index, argument_attribute);
+        }
+        if (marked_arguments.size() != 1u) { continue; }
+        const auto argument_index = marked_arguments.front();
+        auto *argument = function->getArg(argument_index);
+        if (function->isDeclaration() || function->isVarArg() ||
+            !function->hasLocalLinkage() || function->hasAddressTaken() ||
+            function->hasMetadata() || function->hasComdat() ||
+            function->hasGC() || function->hasPersonalityFn() ||
+            function->hasPrefixData() || function->hasPrologueData() ||
+            function->hasFnAttribute(llvm::Attribute::AllocSize) ||
+            !argument->getType()->isIntegerTy() ||
+            argument->getType()->getIntegerBitWidth() > 64u) {
+            continue;
+        }
+
+        llvm::SmallVector<llvm::CallInst *, 16> calls;
+        auto supported_uses = true;
+        for (auto *user : function->users()) {
+            auto *call = llvm::dyn_cast<llvm::CallInst>(user);
+            if (call == nullptr ||
+                call->getCalledOperand() != function ||
+                call->getFunction() == function ||
+                call->getCallingConv() != function->getCallingConv() ||
+                call->isMustTailCall() ||
+                call->hasMetadataOtherThanDebugLoc() ||
+                call->hasFnAttr(llvm::Attribute::AllocSize) ||
+                !llvm::isa<llvm::ConstantInt>(
+                    call->getArgOperand(argument_index))) {
+                supported_uses = false;
+                break;
+            }
+            calls.emplace_back(call);
+        }
+        if (!supported_uses || calls.empty()) { continue; }
+
+        std::vector<ConstantArgumentCallGroup> groups;
+        for (auto *call : calls) {
+            auto *value = llvm::cast<llvm::ConstantInt>(
+                call->getArgOperand(argument_index));
+            auto group = std::find_if(
+                groups.begin(), groups.end(),
+                [value](const auto &candidate) noexcept {
+                    return candidate.value->getValue() ==
+                           value->getValue();
+                });
+            if (group == groups.end()) {
+                groups.emplace_back(ConstantArgumentCallGroup{
+                    .value = value});
+                group = std::prev(groups.end());
+            }
+            group->calls.emplace_back(call);
+        }
+        std::sort(
+            groups.begin(), groups.end(),
+            [](const auto &lhs, const auto &rhs) noexcept {
+                return lhs.value->getValue().ult(
+                    rhs.value->getValue());
+            });
+
+        auto original_name = function->getName().str();
+        for (auto &group : groups) {
+            llvm::ValueToValueMapTy value_map;
+            value_map[argument] = group.value;
+            auto *clone = llvm::CloneFunction(function, value_map);
+            llvm::SmallString<32> value_name;
+            group.value->getValue().toString(
+                value_name, 10u, false);
+            clone->setName(
+                llvm::Twine{original_name} + ".constant." +
+                value_name);
+            simplify_constant_argument_clone(*clone);
+            specialized_functions.emplace_back(clone);
+
+            for (auto *call : group.calls) {
+                llvm::IRBuilder<> builder{call};
+                llvm::SmallVector<llvm::Value *, 16> arguments;
+                arguments.reserve(call->arg_size() - 1u);
+                for (auto actual_index = 0u;
+                     actual_index < call->arg_size(); actual_index++) {
+                    if (actual_index != argument_index) {
+                        arguments.emplace_back(
+                            call->getArgOperand(actual_index));
+                    }
+                }
+                llvm::SmallVector<llvm::OperandBundleDef, 2> bundles;
+                call->getOperandBundlesAsDefs(bundles);
+                auto *new_call = builder.CreateCall(
+                    clone->getFunctionType(), clone,
+                    arguments, bundles);
+                new_call->setCallingConv(call->getCallingConv());
+                new_call->setTailCallKind(call->getTailCallKind());
+                new_call->setAttributes(remove_parameter_attributes(
+                    module.getContext(), call->getAttributes(),
+                    argument_index, call->arg_size()));
+                new_call->setDebugLoc(call->getDebugLoc());
+                new_call->copyMetadata(*call);
+                new_call->setFastMathFlags(
+                    call->getFastMathFlags());
+                new_call->takeName(call);
+                call->replaceAllUsesWith(new_call);
+                call->eraseFromParent();
+                stats.rewritten_call_count++;
+            }
+            stats.cloned_function_count++;
+        }
+        LUISA_ASSERT(
+            function->use_empty(),
+            "Constant-argument specialization left an original use.");
+        function->eraseFromParent();
+        stats.rewritten_function_count++;
+    }
+    if (specialized_functions.size() > 1u) {
+        // Specialization can expose equality that the main IPO pipeline could
+        // not see through the formerly dynamic parameter. Delegate semantic
+        // equivalence (including attributes and constants) to LLVM's own
+        // function comparator instead of inventing a backend hash.
+        auto merged = llvm::MergeFunctionsPass::runOnFunctions(
+            specialized_functions);
+        stats.merged_clone_count = merged.size();
+    }
+    return stats;
+}
 
 AggregateArgumentSpecializationStats
 specialize_generated_callable_aggregate_arguments(

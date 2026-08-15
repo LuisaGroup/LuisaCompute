@@ -176,14 +176,21 @@ evaluate_normalized_vectors_through_callable(
 [[nodiscard]] std::string_view llvm_function_body(
     const std::string &module,
     std::string_view function_name) noexcept {
-    auto name = module.find(function_name);
-    if (name == std::string::npos) { return {}; }
-    auto begin = module.rfind("define ", name);
-    if (begin == std::string::npos) { return {}; }
-    auto end = module.find("\n}", name);
-    if (end == std::string::npos) { return {}; }
-    return std::string_view{module}.substr(
-        begin, end + 2u - begin);
+    for (auto name = module.find(function_name);
+         name != std::string::npos;
+         name = module.find(function_name, name + 1u)) {
+        auto begin = module.rfind('\n', name);
+        begin = begin == std::string::npos ? 0u : begin + 1u;
+        if (!std::string_view{module}.substr(begin).starts_with(
+                "define ")) {
+            continue;
+        }
+        auto end = module.find("\n}", name);
+        if (end == std::string::npos) { return {}; }
+        return std::string_view{module}.substr(
+            begin, end + 2u - begin);
+    }
+    return {};
 }
 
 [[nodiscard]] bool contains_dynamic_fp_operation(
@@ -389,9 +396,10 @@ int main(int argc, char *argv[]) {
             const auto module = read_text_file(
                 dump_directory / "hip_kernel_final_4.ll");
             const auto root = amdgpu_kernel_body(module);
-            const auto dispatcher = llvm_function_body(
-                module, "@luisa_ray_query_pipeline_dispatch");
-            expect(!root.empty() && !dispatcher.empty())
+            const auto dispatcher_all = llvm_function_body(
+                module,
+                "@luisa_ray_query_pipeline_dispatch.constant.0");
+            expect(!root.empty() && !dispatcher_all.empty())
                 << "failed to locate the generated RayQuery functions";
             expect(module.find(
                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
@@ -428,10 +436,29 @@ int main(int argc, char *argv[]) {
                    std::string::npos)
                 << "empty RayQuery callback environment was "
                    "materialized in private memory";
-            expect(dispatcher.find("load i32, ptr %0") !=
+            expect(module.find(
+                       "@luisa_ray_query_pipeline_dispatch(") ==
                    std::string_view::npos)
+                << "RayQuery retained the dynamic pipeline dispatcher";
+            expect(dispatcher_all.find(
+                       "@luisa_ray_query_pipeline_dispatch.constant.0"
+                       "(ptr %0, i32 %1)") !=
+                       std::string_view::npos)
+                << "RayQuery constant specialization did not remove the "
+                   "pipeline identity from the dispatcher ABI";
+            expect(module.find(
+                       "@luisa_ray_query_pipeline_dispatch.constant.1") ==
+                   std::string_view::npos)
+                << "identical RayQuery pipeline bodies were not merged";
+            expect(dispatcher_all.find("load i32, ptr %0") !=
+                       std::string_view::npos)
                 << "RayQuery dispatcher did not decode the state token "
                    "directly from its dedicated identity argument";
+            expect(module.find(
+                       "luisa-specialize-constant-argument") ==
+                   std::string_view::npos)
+                << "internal constant-specialization marker escaped HIP "
+                   "codegen";
             if (module.find(
                     "@llvm.amdgcn.ds.bvh.stack.push8.pop1.rtn") !=
                 std::string::npos) {

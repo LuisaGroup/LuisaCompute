@@ -625,6 +625,10 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                 "luisa_ray_query_pipeline_dispatch", _llvm_module.get());
             _llvm_ray_query_pipeline_dispatch->addFnAttr(
                 llvm::Attribute::NoUnwind);
+            _llvm_ray_query_pipeline_dispatch->getArg(2u)->addAttr(
+                llvm::Attribute::get(
+                    _llvm_context,
+                    llvm_constant_argument_specialization_attribute));
             auto llvm_dispatch_entry = llvm::BasicBlock::Create(
                 _llvm_context, "entry", _llvm_ray_query_pipeline_dispatch);
             auto llvm_dispatch_invalid = llvm::BasicBlock::Create(

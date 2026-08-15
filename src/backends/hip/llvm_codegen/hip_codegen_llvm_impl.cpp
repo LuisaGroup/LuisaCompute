@@ -1280,6 +1280,26 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
 
     _run_optimization_passes();
 
+    // The synchronous native traversal remains one shared function, so IPO
+    // sees its callback dispatcher through a dynamic pipeline parameter even
+    // when every surviving call site supplies a constant. Specialize only the
+    // explicitly marked parameter after IPO: at most one outlined body per
+    // distinct identity removes the switch without cloning that body into
+    // every triangle/procedural candidate site; semantically equal bodies are
+    // merged again afterwards.
+    auto constant_dispatch_stats =
+        specialize_marked_constant_integer_arguments(*_llvm_module);
+    if (constant_dispatch_stats.rewritten_function_count != 0u) {
+        LUISA_VERBOSE(
+            "Specialized {} HIP constant dispatcher(s) into {} outlined "
+            "body/bodies ({} identical clone(s) merged) at {} direct call "
+            "site(s).",
+            constant_dispatch_stats.rewritten_function_count,
+            constant_dispatch_stats.cloned_function_count,
+            constant_dispatch_stats.merged_clone_count,
+            constant_dispatch_stats.rewritten_call_count);
+    }
+
     // IPO has now selected the final generated-Callable boundaries, while
     // their internal marker and noinline attributes are still present. Narrow
     // aggregate ABIs here: no later IPO pass may widen the signatures again,

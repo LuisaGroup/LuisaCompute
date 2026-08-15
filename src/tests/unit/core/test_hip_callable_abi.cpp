@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include <llvm/AsmParser/Parser.h>
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
@@ -528,6 +529,193 @@ static auto suite = [] {
         auto *large = module->getFunction("large");
         expect(large != nullptr);
         expect(large->getReturnType()->isArrayTy());
+    };
+
+    "HIP constant dispatcher specializes once per distinct identity"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private fastcc i32 @dispatch(
+                ptr nonnull %state, i32 noundef %pipeline,
+                i32 noundef %kind) {
+            entry:
+              switch i32 %pipeline, label %invalid [
+                i32 0, label %pipeline.0
+                i32 1, label %pipeline.1
+              ]
+            pipeline.0:
+              %a = add i32 %kind, 10
+              ret i32 %a
+            pipeline.1:
+              %b = add i32 %kind, 20
+              ret i32 %b
+            invalid:
+              unreachable
+            }
+            define i32 @caller(ptr %state) {
+            entry:
+              %a = tail call fastcc i32 @dispatch(
+                  ptr nonnull %state, i32 noundef 0, i32 noundef 1)
+              %b = tail call fastcc i32 @dispatch(
+                  ptr nonnull %state, i32 noundef 0, i32 noundef 2)
+              %c = tail call fastcc i32 @dispatch(
+                  ptr nonnull %state, i32 noundef 1, i32 noundef 1)
+              %d = tail call fastcc i32 @dispatch(
+                  ptr nonnull %state, i32 noundef 1, i32 noundef 2)
+              %ab = add i32 %a, %b
+              %cd = add i32 %c, %d
+              %result = add i32 %ab, %cd
+              ret i32 %result
+            }
+        )");
+        expect(module != nullptr);
+        auto *dispatch = module->getFunction("dispatch");
+        expect(dispatch != nullptr);
+        dispatch->getArg(1u)->addAttr(llvm::Attribute::get(
+            context,
+            llvm_constant_argument_specialization_attribute));
+
+        auto stats =
+            specialize_marked_constant_integer_arguments(*module);
+        expect(stats.rewritten_function_count == 1u);
+        expect(stats.cloned_function_count == 2u);
+        expect(stats.rewritten_call_count == 4u);
+        expect(!llvm::verifyModule(*module));
+        expect(module->getFunction("dispatch") == nullptr);
+
+        auto *zero = module->getFunction("dispatch.constant.0");
+        auto *one = module->getFunction("dispatch.constant.1");
+        expect(zero != nullptr && one != nullptr);
+        for (auto *specialized : {zero, one}) {
+            expect(specialized->arg_size() == 2u);
+            expect(specialized->getArg(0u)->hasAttribute(
+                llvm::Attribute::NonNull));
+            expect(specialized->getArg(1u)->hasAttribute(
+                llvm::Attribute::NoUndef));
+            for (auto &block : *specialized) {
+                expect(!llvm::isa<llvm::SwitchInst>(
+                    block.getTerminator()));
+                if (auto *branch = llvm::dyn_cast<llvm::BranchInst>(
+                        block.getTerminator())) {
+                    expect(!branch->isConditional());
+                }
+            }
+        }
+
+        auto *caller = module->getFunction("caller");
+        auto rewritten_calls = 0u;
+        for (auto &block : *caller) {
+            for (auto &instruction : block) {
+                if (auto *call =
+                        llvm::dyn_cast<llvm::CallInst>(&instruction)) {
+                    rewritten_calls++;
+                    expect(call->getCalledFunction() == zero ||
+                           call->getCalledFunction() == one);
+                    expect(call->arg_size() == 2u);
+                    expect(call->getTailCallKind() ==
+                           llvm::CallInst::TCK_Tail);
+                    expect(call->paramHasAttr(
+                        0u, llvm::Attribute::NonNull));
+                    expect(call->paramHasAttr(
+                        1u, llvm::Attribute::NoUndef));
+                }
+            }
+        }
+        expect(rewritten_calls == 4u);
+    };
+
+    "HIP constant dispatcher merges equal specialized bodies"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private fastcc i32 @dispatch(
+                i32 %pipeline, i32 %value) unnamed_addr {
+            entry:
+              switch i32 %pipeline, label %invalid [
+                i32 0, label %pipeline.0
+                i32 1, label %pipeline.1
+              ]
+            pipeline.0:
+              %a = add i32 %value, 7
+              ret i32 %a
+            pipeline.1:
+              %b = add i32 %value, 7
+              ret i32 %b
+            invalid:
+              unreachable
+            }
+            define i32 @caller(i32 %value) {
+            entry:
+              %a = call fastcc i32 @dispatch(i32 0, i32 %value)
+              %b = call fastcc i32 @dispatch(i32 1, i32 %value)
+              %result = add i32 %a, %b
+              ret i32 %result
+            }
+        )");
+        expect(module != nullptr);
+        auto *dispatch = module->getFunction("dispatch");
+        dispatch->getArg(0u)->addAttr(llvm::Attribute::get(
+            context,
+            llvm_constant_argument_specialization_attribute));
+        auto stats =
+            specialize_marked_constant_integer_arguments(*module);
+        expect(stats.rewritten_function_count == 1u);
+        expect(stats.cloned_function_count == 2u);
+        expect(stats.merged_clone_count == 1u);
+        expect(stats.rewritten_call_count == 2u);
+        expect(!llvm::verifyModule(*module));
+
+        llvm::Function *shared_target = nullptr;
+        auto call_count = 0u;
+        for (auto &block : *module->getFunction("caller")) {
+            for (auto &instruction : block) {
+                if (auto *call =
+                        llvm::dyn_cast<llvm::CallInst>(&instruction)) {
+                    call_count++;
+                    if (shared_target == nullptr) {
+                        shared_target = call->getCalledFunction();
+                    } else {
+                        expect(call->getCalledFunction() ==
+                               shared_target);
+                    }
+                }
+            }
+        }
+        expect(call_count == 2u);
+        expect(shared_target != nullptr);
+        expect(shared_target->arg_size() == 1u);
+    };
+
+    "HIP constant dispatcher rejects a dynamic identity atomically"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private i32 @dispatch(i32 %pipeline, i32 %value) {
+            entry:
+              %result = add i32 %pipeline, %value
+              ret i32 %result
+            }
+            define i32 @caller(i32 %dynamic) {
+            entry:
+              %a = call i32 @dispatch(i32 0, i32 1)
+              %b = call i32 @dispatch(i32 %dynamic, i32 2)
+              %result = add i32 %a, %b
+              ret i32 %result
+            }
+        )");
+        expect(module != nullptr);
+        auto *dispatch = module->getFunction("dispatch");
+        dispatch->getArg(0u)->addAttr(llvm::Attribute::get(
+            context,
+            llvm_constant_argument_specialization_attribute));
+        auto stats =
+            specialize_marked_constant_integer_arguments(*module);
+        expect(stats.rewritten_function_count == 0u);
+        expect(stats.cloned_function_count == 0u);
+        expect(stats.rewritten_call_count == 0u);
+        expect(!llvm::verifyModule(*module));
+        dispatch = module->getFunction("dispatch");
+        expect(dispatch != nullptr);
+        expect(!dispatch->getArg(0u)->hasAttribute(
+            llvm_constant_argument_specialization_attribute));
+        expect(dispatch->arg_size() == 2u);
     };
     return 0;
 }();

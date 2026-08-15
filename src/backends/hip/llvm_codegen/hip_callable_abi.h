@@ -16,6 +16,8 @@ namespace luisa::compute::hip {
 
 inline constexpr auto llvm_generated_callable_attribute =
     "luisa-generated-callable";
+inline constexpr auto llvm_constant_argument_specialization_attribute =
+    "luisa-specialize-constant-argument";
 
 // RetCC_AMDGPU_Func assigns at most VGPR0--VGPR31 to returned legalized
 // values. A larger return is demoted by GlobalISel to a caller-owned stack
@@ -34,6 +36,33 @@ struct LargeReturnDemotionStats {
     size_t shared_result_slot_count{};
     size_t demoted_return_bytes{};
 };
+
+struct ConstantArgumentSpecializationStats {
+    size_t rewritten_function_count{};
+    size_t cloned_function_count{};
+    size_t merged_clone_count{};
+    size_t rewritten_call_count{};
+};
+
+// Specializes an internal function on the unique integer parameter carrying
+// `argument_attribute`, provided every use is a direct non-musttail call with
+// a constant integer at that position. One clone is made per distinct value;
+// the selected formal is replaced by that value and removed from the clone's
+// ABI. The transformation is the SSA beta-reduction
+//
+//   call F(..., c, ...)  ==  call F[p := c](..., ...)
+//
+// and is applied atomically per function. Address-taken functions, dynamic
+// actuals, recursion, or ABI features whose parameter indices require a richer
+// model make the complete function fail closed. Identical specialized clones
+// are deduplicated with LLVM's semantic function comparator. The internal
+// marker is always removed, including on rejected functions, so it cannot
+// escape to target code generation.
+[[nodiscard]] ConstantArgumentSpecializationStats
+specialize_marked_constant_integer_arguments(
+    llvm::Module &module,
+    llvm::StringRef argument_attribute =
+        llvm_constant_argument_specialization_attribute) noexcept;
 
 // Replaces aggregate value arguments of retained generated callables with the
 // statically known leaf values observed by the callable body. An unused
