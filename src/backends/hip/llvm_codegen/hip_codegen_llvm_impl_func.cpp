@@ -17,6 +17,12 @@ namespace {
 constexpr auto hip_hardware_ray_query_state_size = 224u;
 constexpr auto hip_software_ray_query_state_size = 576u;
 constexpr auto hip_synchronous_ray_query_state_size = 112u;
+// The synchronous gfx12 traversal is latency-bound and its unconstrained
+// allocation falls immediately below the next useful occupancy tier. Express
+// that tier to LLVM instead of encoding a VGPR count: waves-per-EU lets the
+// target balance VGPR, SGPR, LDS, and spill costs as one resource constraint.
+// An explicit ShaderOption::max_registers remains authoritative below.
+constexpr auto hip_gfx12_synchronous_ray_query_min_waves_per_eu = 10u;
 
 }// namespace
 
@@ -58,6 +64,14 @@ llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_kernel_function(const xir::Ker
     if (_config.max_register_count != 0u) {
         auto max_vgpr_count = std::min(_config.max_register_count, 256u);
         llvm_kernel->addFnAttr("amdgpu-num-vgpr", std::to_string(max_vgpr_count));
+    } else if ((_config.amdgpu_arch == "gfx1200" ||
+                _config.amdgpu_arch == "gfx1201") &&
+               _uses_hardware_rt_stack &&
+               _uses_synchronous_ray_query_pipeline) {
+        llvm_kernel->addFnAttr(
+            "amdgpu-waves-per-eu",
+            std::to_string(
+                hip_gfx12_synchronous_ray_query_min_waves_per_eu));
     }
 
     return llvm_kernel;

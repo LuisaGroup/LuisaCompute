@@ -85,11 +85,10 @@ int main(int argc, char *argv[]) {
         LUISA_WARNING("Invalid command line: {}", opts.error_message);
         return 1;
     }
-    // The filtered HIPRT traversal has a large resumable state machine. On
-    // gfx12, constraining it to 176 VGPRs improves this example's steady trace
-    // time without changing the rendered result. Keep other backends uncapped
-    // and retain the command-line override for architecture-specific tuning.
-    auto max_registers = std::string_view{argv[1]} == "hip" ? 176u : 0u;
+    // Keep the example backend-neutral. The HIP backend owns its native
+    // traversal occupancy policy; this override remains available for explicit
+    // resource-sensitivity experiments.
+    auto max_registers = 0u;
     auto trace_mode = TraceMode::cutout_query;
     for (auto i = 2; i + 1 < argc; i++) {
         if (std::string_view{argv[i]} == "--max-registers") {
