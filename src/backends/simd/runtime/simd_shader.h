@@ -24,12 +24,18 @@ public:
     // advances that field in place while issuing the packets.
     using PacketBatchEntry = void(
         const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
+    // Same physical ABI as PacketBatchEntry; the fourth argument is the
+    // number of consecutive flattened blocks beginning at block_id.
+    using BlockBatchEntry = void(
+        const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
 
 private:
     SIMDCompiledKernel _compiled;
     Entry *_entry{nullptr};
     PacketBatchEntry *_packet_batch_entry{nullptr};
+    BlockBatchEntry *_block_batch_entry{nullptr};
     bool _enable_packet_batch_entry{false};
+    bool _enable_block_batch_entry{false};
     uint3 _block_size{1u, 1u, 1u};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     luisa::vector<Usage> _argument_usages;
@@ -53,6 +59,9 @@ public:
         luisa::unique_ptr<ShaderDispatchCommand> command) const noexcept;
     [[nodiscard]] Usage argument_usage(size_t index) const noexcept;
     [[nodiscard]] auto native_handle() const noexcept {
+        if (_compiled.block_batch_entry != nullptr) {
+            return _compiled.block_batch_entry;
+        }
         return _compiled.packet_batch_entry != nullptr ?
                    _compiled.packet_batch_entry :
                    _compiled.entry;

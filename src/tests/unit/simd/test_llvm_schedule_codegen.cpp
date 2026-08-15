@@ -8330,6 +8330,108 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_block_batch_entry() {
+    static constexpr auto width = 8u;
+    static constexpr auto dispatch_x = 19u;
+    static constexpr auto dispatch_y = 7u;
+    static constexpr auto dispatch_z = 2u;
+    static constexpr auto block_x = 8u;
+    static constexpr auto block_y = 4u;
+    static constexpr auto grid_x = 3u;
+    static constexpr auto grid_y = 2u;
+    static constexpr auto grid_z = 2u;
+    static constexpr auto first_block = 1u;
+    static constexpr auto block_count = 7u;
+    static constexpr auto sentinel = 0xdeadbeefu;
+    Kernel3D kernel = [](BufferUInt output) noexcept {
+        set_block_size(block_x, block_y, 1u);
+        auto dispatch = dispatch_id();
+        auto block = block_id();
+        auto thread = thread_id();
+        auto index = (dispatch.z * dispatch_y + dispatch.y) *
+                         dispatch_x +
+                     dispatch.x;
+        auto value = 1u + block.x + block.y * 10u +
+                     block.z * 100u + thread.x * 1000u +
+                     thread.y * 10000u;
+        output.write(index, value);
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_block_batch_entry", false, false, 1u, true, true);
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(compiled.entry == nullptr);
+    CHECK(compiled.packet_batch_entry == nullptr);
+    CHECK(compiled.block_batch_entry != nullptr);
+    std::array<uint32_t, dispatch_x * dispatch_y * dispatch_z> output{};
+    output.fill(sentinel);
+    alignas(16) SIMDHostBufferView argument{
+        output.data(), sizeof(output)};
+    using BlockBatchEntry = void(
+        const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
+    auto block_batch_entry = reinterpret_cast<BlockBatchEntry *>(
+        compiled.block_batch_entry);
+    SIMDPacketLaunchConfig config{};
+    config.block_id[0u] = first_block % grid_x;
+    config.block_id[1u] = (first_block / grid_x) % grid_y;
+    config.block_id[2u] = first_block / (grid_x * grid_y);
+    config.dispatch_size[0u] = dispatch_x;
+    config.dispatch_size[1u] = dispatch_y;
+    config.dispatch_size[2u] = dispatch_z;
+    config.block_size[0u] = block_x;
+    config.block_size[1u] = block_y;
+    config.block_size[2u] = 1u;
+    config.thread_index = 29u;
+    config.grid_size[0u] = grid_x;
+    config.grid_size[1u] = grid_y;
+    config.grid_size[2u] = grid_z;
+    block_batch_entry(&argument, nullptr, &config, 0u);
+    CHECK(std::ranges::all_of(output, [](auto value) {
+        return value == sentinel;
+    }));
+    block_batch_entry(
+        &argument, nullptr, &config, block_count);
+    for (auto z = 0u; z < dispatch_z; z++) {
+        for (auto y = 0u; y < dispatch_y; y++) {
+            for (auto x = 0u; x < dispatch_x; x++) {
+                auto bx = x / block_x;
+                auto by = y / block_y;
+                auto bz = z;
+                auto linear_block =
+                    (bz * grid_y + by) * grid_x + bx;
+                auto expected = sentinel;
+                if (linear_block >= first_block &&
+                    linear_block < first_block + block_count) {
+                    expected = 1u + bx + by * 10u + bz * 100u +
+                               (x % block_x) * 1000u +
+                               (y % block_y) * 10000u;
+                }
+                auto index = (z * dispatch_y + y) * dispatch_x + x;
+                CHECK(output[index] == expected);
+            }
+        }
+    }
+    {
+        ScopedEnvironmentVariable disable_direct{
+            "LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG", "1"};
+        auto scheduled = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_block_batch_scheduled", false, false,
+            1u, true, true);
+        CHECK(scheduled.succeeded());
+        CHECK(!scheduled.direct_control_flow);
+        CHECK(scheduled.entry == nullptr);
+        CHECK(scheduled.packet_batch_entry != nullptr);
+        CHECK(scheduled.block_batch_entry == nullptr);
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_aggregate_promotion() {
     static constexpr auto count = 13u;
     Kernel1D kernel = [](BufferFloat4 output) noexcept {
@@ -10484,6 +10586,7 @@ int main() {
          &run_bindless_uniform_gradient_lod_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST packet-batch runtime entry", &run_ast_packet_batch_entry},
+        {"AST block-batch runtime entry", &run_ast_block_batch_entry},
         {"AST aggregate local promotion",
          &run_ast_aggregate_promotion},
         {"AST uniform-loop buffer broadcast",

@@ -1414,6 +1414,29 @@ The permanent W8 regression starts from a nonzero base thread, issues three
 packets including a dispatch-edge tail, and checks the absence/presence of both
 symbols plus exact inactive-lane behavior.
 
+Direct-CFG kernels add one more runtime-only level of batching. A worker may
+claim several consecutive flattened blocks, so the compiler can export an
+exclusive `packet_batch.blocks` entry whose fourth physical argument is that
+block count. `SIMDPacketLaunchConfig` carries the grid extent for this wrapper;
+the wrapper advances `block_id` in x-major order, resets `thread_index`, and
+invokes the internal block-local packet wrapper with its static packet count.
+The ordinary packet body still constructs and applies the exact dispatch-edge
+mask, so a range may cross x/y/z grid boundaries and end on partial dispatch
+blocks without a new semantic fast path. The runtime calls this entry once per
+thread-pool chunk instead of once per block.
+
+This broader wrapper is deliberately restricted to direct LLVM control flow.
+A blanket experiment on scheduler-backed kernels regressed the analytic W8
+path control by roughly 0.6--0.8%, so those kernels retain the established
+block-local packet entry. `LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY=1` restores
+that entry for direct kernels as a compile-time A/B oracle. The packed argument
+record and launch configuration are also marked read-only/no-alias according
+to their runtime ownership contract; this lets LLVM keep descriptors and
+launch geometry invariant across the inlined loops. The independent
+`LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES=1` oracle removes only those
+attributes. Neither optimization asserts that two resources loaded from the
+argument record are mutually disjoint.
+
 Shader dispatches use a device-owned persistent worker pool. The flattened
 block range is split into dynamically claimed chunks; all warps belonging to
 one block execute sequentially on the worker that claimed that block, while
@@ -3423,7 +3446,9 @@ on 2026-08-11. The repository now contains:
   callback, and normal accel builds commit dirty traversal state;
 - a device-owned persistent worker pool that dynamically schedules flattened
   block ranges, keeps all warps of one block together, joins before the next
-  stream command, and retains a one-worker serial diagnostic mode;
+  stream command, and retains a one-worker serial diagnostic mode; direct-CFG
+  kernels may execute a complete claimed block range behind one exclusive JIT
+  entry, while scheduler-backed kernels retain block-local packet batching;
 - a checked SIMD static-block contract requiring each nonzero dimension to be
   a power of two; production launch-ID decomposition uses masks and shifts
   rather than integer division, while SIMD still partitions each block into

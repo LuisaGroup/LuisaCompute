@@ -476,6 +476,10 @@ struct SIMDPacketLaunchConfig {
     uint32_t block_size[3]{1u, 1u, 1u};
     uint32_t thread_index{0u};
     uint32_t kernel_id{0u};
+    // Runtime-only block-range batching advances block_id in flattened grid
+    // order. Ordinary packet and block-local packet-batch entries ignore this
+    // field, so their physical ABI remains unchanged.
+    uint32_t grid_size[3]{1u, 1u, 1u};
 };
 
 // Packet ABI:
@@ -492,12 +496,18 @@ struct LLVMScheduleCodegenResult {
     // fourth argument is a packet count rather than an active-lane count; it
     // advances launch_config.thread_index by specialization_width and invokes
     // entry once per packet. The packet body becomes internal in this mode:
-    // statically small W16 batches unroll only the direct-call shell, while a
-    // target-profitable W8 batch may inline one body into the dynamic loop so
-    // LLVM can reuse the frame and hoist invariants. Neither strategy clones
-    // the body once per packet. Standalone/direct compilation leaves this null
-    // and retains entry as its exported ABI.
+    // statically small W16 batches construct only an unrolled direct-call
+    // shell, while a target-profitable W8 batch may inline one body into the
+    // dynamic loop so LLVM can reuse the frame and hoist invariants. LLVM's
+    // normal inliner may still inline a sufficiently small internal direct-CFG
+    // body. Standalone/direct compilation leaves this null and retains entry
+    // as its exported ABI.
     ::llvm::Function *packet_batch_entry{nullptr};
+    // Optional runtime-only wrapper around packet_batch_entry. The fourth
+    // physical argument is a count of consecutive flattened blocks. The
+    // wrapper advances launch_config.block_id in x-major grid order and
+    // resets thread_index before issuing each complete block.
+    ::llvm::Function *block_batch_entry{nullptr};
     size_t argument_buffer_size{0u};
     size_t schedule_block_count{0u};
     size_t convergence_point_count{0u};
@@ -588,6 +598,10 @@ struct LLVMScheduleCodegenResult {
     bool enable_packet_batch_entry = false,
     // This is a target-profitability decision supplied by the host JIT. The
     // portable default retains direct packet calls in the batch wrapper.
-    bool enable_inlined_packet_batch = false);
+    bool enable_inlined_packet_batch = false,
+    // Runtime workers may amortize their JIT boundary across a consecutive
+    // block range. This requires a statically known packet count and keeps the
+    // block-local packet wrapper internal.
+    bool enable_block_batch_entry = false);
 
 }// namespace luisa::compute::simd

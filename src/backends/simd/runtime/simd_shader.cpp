@@ -9,6 +9,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string_view>
 
 #ifdef _WIN32
@@ -207,6 +208,10 @@ SIMDShader::SIMDShader(
         warp_width != 1u && block_threads > warp_width &&
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY");
+    _enable_block_batch_entry =
+        _enable_packet_batch_entry &&
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY");
     auto *assembly_directory =
         std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR");
     auto capture_assembly =
@@ -216,7 +221,8 @@ SIMDShader::SIMDShader(
         kernel, warp_width,
         kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
         option.enable_fast_math, capture_assembly,
-        dispatch_worker_count, _enable_packet_batch_entry);
+        dispatch_worker_count, _enable_packet_batch_entry,
+        _enable_block_batch_entry);
     if (!_compiled.succeeded()) {
         luisa::string diagnostics;
         for (auto &&message : _compiled.diagnostics) {
@@ -381,7 +387,20 @@ SIMDShader::SIMDShader(
     _entry = reinterpret_cast<Entry *>(_compiled.entry);
     _packet_batch_entry = reinterpret_cast<PacketBatchEntry *>(
         _compiled.packet_batch_entry);
-    if (_enable_packet_batch_entry) {
+    _block_batch_entry = reinterpret_cast<BlockBatchEntry *>(
+        _compiled.block_batch_entry);
+    // Codegen deliberately keeps scheduler-backed kernels on the established
+    // block-local wrapper. Only a proven direct-CFG body exports the broader
+    // block-range entry.
+    _enable_block_batch_entry = _block_batch_entry != nullptr;
+    _enable_packet_batch_entry = _packet_batch_entry != nullptr;
+    if (_enable_block_batch_entry) {
+        LUISA_ASSERT(
+            _block_batch_entry != nullptr && _entry == nullptr &&
+                _packet_batch_entry == nullptr,
+            "SIMD runtime kernel did not produce an exclusive "
+            "block-batch entry.");
+    } else if (_enable_packet_batch_entry) {
         LUISA_ASSERT(
             _packet_batch_entry != nullptr && _entry == nullptr,
             "SIMD runtime kernel did not produce an exclusive "
@@ -397,6 +416,8 @@ SIMDShader::SIMDShader(
             kernel.name().empty() ? "simd_runtime_kernel" :
                                     kernel.name(),
             warp_width,
+            _enable_block_batch_entry ?
+                _compiled.block_batch_entry :
             _enable_packet_batch_entry ?
                 _compiled.packet_batch_entry :
                 _compiled.entry);
@@ -476,22 +497,42 @@ void SIMDShader::_dispatch_once(
     thread_pool.parallel_for(
         grid_count, grain_size,
         [&](uint64_t begin, uint64_t end) noexcept {
-            for (auto block = begin; block < end; block++) {
-                auto bx = static_cast<uint32_t>(block % grid_size.x);
-                auto by = static_cast<uint32_t>(
+            SIMDPacketLaunchConfig config{};
+            config.dispatch_size[0u] = dispatch_size.x;
+            config.dispatch_size[1u] = dispatch_size.y;
+            config.dispatch_size[2u] = dispatch_size.z;
+            config.block_size[0u] = block_size.x;
+            config.block_size[1u] = block_size.y;
+            config.block_size[2u] = block_size.z;
+            config.grid_size[0u] = grid_size.x;
+            config.grid_size[1u] = grid_size.y;
+            config.grid_size[2u] = grid_size.z;
+            config.kernel_id = kernel_id;
+            auto set_block_id = [&](uint64_t block) noexcept {
+                config.block_id[0u] = static_cast<uint32_t>(
+                    block % grid_size.x);
+                config.block_id[1u] = static_cast<uint32_t>(
                     (block / grid_size.x) % grid_size.y);
-                auto bz = static_cast<uint32_t>(block / grid_xy);
-                SIMDPacketLaunchConfig config{};
-                config.block_id[0u] = bx;
-                config.block_id[1u] = by;
-                config.block_id[2u] = bz;
-                config.dispatch_size[0u] = dispatch_size.x;
-                config.dispatch_size[1u] = dispatch_size.y;
-                config.dispatch_size[2u] = dispatch_size.z;
-                config.block_size[0u] = block_size.x;
-                config.block_size[1u] = block_size.y;
-                config.block_size[2u] = block_size.z;
-                config.kernel_id = kernel_id;
+                config.block_id[2u] = static_cast<uint32_t>(
+                    block / grid_xy);
+            };
+            if (_enable_block_batch_entry) {
+                constexpr auto max_batch =
+                    std::numeric_limits<uint32_t>::max();
+                while (begin < end) {
+                    set_block_id(begin);
+                    config.thread_index = 0u;
+                    auto block_count = static_cast<uint32_t>(
+                        std::min<uint64_t>(end - begin, max_batch));
+                    _block_batch_entry(
+                        argument_buffer, nullptr, &config,
+                        block_count);
+                    begin += block_count;
+                }
+                return;
+            }
+            for (auto block = begin; block < end; block++) {
+                set_block_id(block);
                 if (_enable_packet_batch_entry) {
                     config.thread_index = 0u;
                     _packet_batch_entry(

@@ -3067,17 +3067,161 @@ Future overlap work must use a separately discardable prefetch with a bounded,
 sanitized address or batch enough independent rays to amortize the callback,
 and must still pass the same final-object and paired-performance gates.
 
+### Direct-CFG block-range batching
+
+The block-local packet wrapper still crossed the host/JIT boundary once for
+every block. The retained direct-CFG refinement adds one outer JIT loop for the
+consecutive flattened block range already claimed by one persistent-pool
+worker. It advances the private three-dimensional block ID, resets the packet
+origin for every block, and calls the internal packet wrapper with the static
+packet count. `LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY=1` restores the old
+per-block call. Scheduler-backed kernels deliberately keep that oracle path:
+enabling the outer loop indiscriminately regressed the analytic W8 path by
+about 0.6--0.8% in all seven initial pairs.
+
+The packet ABI now also states the ownership facts that were already true at
+runtime: the packed argument record and launch configuration are read-only and
+do not overlap each other or the return record. Resource addresses loaded from
+the argument record may still alias one another. Nine alternating W8 pairs
+isolated these LLVM attributes with
+`LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES=1`:
+
+| workload | attributes / disabled | 95% paired CI | wins |
+| --- | ---: | ---: | ---: |
+| AoS-to-SoA | 1.11133x | [1.09644, 1.12643] | 9/9 |
+| masked stream | 1.00025x | [0.92126, 1.08602] | 7/9 |
+| analytic path | 1.00290x | [1.00139, 1.00442] | 8/9 |
+
+With those attributes fixed in both forms, nine alternating block-range/oracle
+pairs on CPU 6 produced:
+
+| width/workload | block range / per block | 95% paired CI | wins |
+| --- | ---: | ---: | ---: |
+| W8 AoS-to-SoA | 1.02426x | [1.01090, 1.03780] | 8/9 |
+| W8 masked stream | 1.00344x | [0.89496, 1.12506] | 4/9 |
+| W8 GEMM | 1.00036x | [0.99912, 1.00160] | 6/9 |
+| W8 analytic path | 1.00074x | [0.99908, 1.00240] | 5/9 |
+| W16 AoS-to-SoA | 1.15230x | [1.13969, 1.16504] | 9/9 |
+| W16 masked stream | 1.11146x | [1.06176, 1.16348] | 8/9 |
+| W16 GEMM | 1.00627x | [1.00505, 1.00748] | 9/9 |
+| W16 analytic path | 1.00160x | [0.98986, 1.01347] | 3/9 |
+
+The path rows are expected null controls because those kernels are
+scheduler-backed and do not export a block-range entry. Masked W8 was visibly
+disturbed by unrelated machine activity and is not a positive claim. The
+accepted evidence is the stable AoS improvement at both widths plus W16 masked
+and GEMM; W2/W4 exploratory pairs were neutral on GEMM and positive by roughly
+2--3% on AoS.
+
+Final object inspection shows that the gain is not a scalar fallback or libm
+call. Candidate/oracle static instruction counts are 161/180 for W8 AoS,
+124/123 for W8 masked, 1,247/1,296 for W16 AoS, and 585/624 for W16 masked.
+All four candidate objects have zero calls and no undefined symbols. On this
+Zen 5 host W8 uses YMM arithmetic with AVX-512VL opmasks (and ZMM operations
+where the 64-bit gather shape requires them); W16 is predominantly ZMM. Width
+W8 remains a portable eight-lane semantic specialization rather than an
+AVX-512 requirement on other targets.
+
+The official ISPC 1.31.0 suite was then rebuilt explicitly with
+`--cpu=znver5`, AVX-512 x8/x16 targets, precise arithmetic and FMA contraction
+disabled. Fifteen rotating process rounds used one worker pinned to CPU 6.
+Mandelbrot, masked stream, AoS-to-SoA, and GEMM were bit-exact across both
+implementations; the analytic path output passed its absolute-plus-relative
+tolerance:
+
+| workload | Luisa W8 / ISPC x8 | 95% CI | Luisa W16 / ISPC x16 | 95% CI |
+| --- | ---: | ---: | ---: | ---: |
+| Mandelbrot | **1.40165x** | [1.39871, 1.40460] | **1.54284x** | [1.54012, 1.54558] |
+| masked stream | 0.63265x | [0.61440, 0.65144] | 0.69323x | [0.66548, 0.72214] |
+| AoS-to-SoA | 0.89964x | [0.88815, 0.91128] | 0.84961x | [0.83840, 0.86096] |
+| GEMM | **1.33436x** | [1.33044, 1.33829] | **1.37180x** | [1.37050, 1.37310] |
+| analytic path | **1.08682x** | [1.08587, 1.08776] | **1.02091x** | [1.01971, 1.02212] |
+
+Thus Luisa wins three of the five matched compiler controls, including the
+analytic path at both widths, but does not claim general superiority over
+ISPC: sparse/mixed masking and AoS conversion remain concrete gaps. The raw
+record is `/tmp/luisa-simd-ispc-block-batch-final-15r.json`; the ISPC binary
+and generated objects remain outside CMake and the repository.
+
+The same standalone algorithms also expose why W1 is not equivalent to the
+fallback backend. Fallback owns a different dispatch/code-generation pipeline,
+and its scalar block loop can be auto-vectorized vertically by the host
+compiler; SIMD W1 still pays packet launch and SIMD-backend ABI costs. Seven
+rotating pinned-process rounds completed before a later external build began
+contending for the machine:
+
+| workload | W1/fallback | W2/fallback | W4/fallback | W8/fallback | W16/fallback |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mandelbrot | 0.052x | 0.089x | 0.180x | 0.311x | 0.565x |
+| masked stream | 0.096x | 0.106x | 0.287x | 0.369x | 0.424x |
+| AoS-to-SoA | 0.185x | 0.205x | 0.299x | 0.316x | 0.303x |
+| GEMM | 0.047x | 0.052x | 0.234x | 0.388x | 0.654x |
+
+These controls favor fallback's vertical/inner-loop vectorization and motivate
+the planned horizontal/vertical layout selection; they are not evidence that
+the explicit width should be increased blindly. The path-trace fallback fell
+from about 700 to 348 and then 187 Mitems/s when two unrelated HIP compiler
+processes started, so that workload's generated interval is rejected and will
+not be used. The disturbed raw record is retained at
+`/tmp/luisa-simd-block-batch-vs-fallback-all-widths-7r.json` rather than being
+used to claim a speedup.
+
+A separate quiet-machine gate measured three repository graphics examples in
+the Release build. Processes were rotated in opposite orders on alternating
+rounds, restricted to logical CPUs `0-12,14-28,30-31`, and SIMD used thirty
+workers. Image processing repeated the complete pipeline 64 times per process,
+Voxel repeated 128 renders, and ordinary Embree path tracing rendered 256 spp
+at a fixed 32 spp per dispatch. Seven rounds give the following process
+medians and paired throughput ratios:
+
+| workload | fallback | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| image processing, ms/iteration | 8.622 | 18.352 (0.484x) | 9.504 (0.929x) | 6.770 (**1.310x**) | 5.209 (**1.707x**) | 4.468 (**1.992x**) |
+| Voxel, ms/iteration | 7.022 | 9.004 (0.793x) | 12.640 (0.565x) | 5.913 (**1.206x**) | 4.930 (**1.444x**) | 3.368 (**2.112x**) |
+| ordinary path tracing, spp/s | 89.449 | 82.966 (0.922x) | 65.047 (0.723x) | 84.648 (0.939x) | 96.515 (**1.077x**) | 96.580 (**1.077x**) |
+
+The parenthesized values are paired-geomean SIMD/fallback throughput ratios,
+not ratios of the displayed medians. Their 95% bootstrap intervals are
+respectively W1 through W16: image processing
+`[0.460,0.511]`, `[0.885,0.983]`, `[1.250,1.380]`,
+`[1.622,1.810]`, `[1.892,2.112]`; Voxel `[0.782,0.805]`,
+`[0.556,0.575]`, `[1.191,1.223]`, `[1.418,1.472]`,
+`[2.068,2.156]`; and path tracing `[0.914,0.928]`,
+`[0.718,0.727]`, `[0.932,0.945]`, `[1.073,1.081]`,
+`[1.071,1.084]`. Thus W8/W16 beat fallback on all three real examples, but
+the profitable width is workload-dependent and W1 is not a fallback-equivalent
+baseline.
+
+The same image and Voxel processes also alternated the enabled block-range
+entry with `LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY=1`. Image processing measured
+enabled/disabled ratios of 1.0010x, 0.9968x, **1.0127x**, 1.0033x, and 1.0039x
+at W1/W2/W4/W8/W16. Only the W4 gain and the small W2 loss excluded one at 95%;
+the remaining widths were neutral. Every Voxel interval included one, as
+expected because its scheduler-backed kernel cannot export the entry. These
+real examples therefore do not reproduce the standalone AoS kernel's larger
+block-range gain. Raw records are
+`/tmp/luisa-simd-block-image-ab-7r.tsv`,
+`/tmp/luisa-simd-block-voxel-ab-7r.tsv`, and
+`/tmp/luisa-simd-block-path-vs-fallback-7r.tsv`.
+
+Fresh reference-image sweeps use the actual
+`LUISA_SIMD_WARP_WIDTH=1|2|4|8|16` selector. Image processing and Voxel pass at
+89.251953 dB and 82.834519 dB at every width. Ordinary 1024-spp Embree path
+tracing passes at 35.426795/42.781582/40.940376/39.219305/37.801771 dB, and
+non-coroutine 1024-spp SDF passes at 63.129346 dB at every width. Each path
+process reports Embree 4.4.1 W4/W8/W16 packet support enabled.
+
 ## Validation
 
-The required native-math/fallback-math/runtime-width gate passes 3/3. The
-focused `unit_simd` and `integration_simd` gates pass 11/11 and 26/26,
-including in-place packet codegen, accel, curve/procedural summary replacement,
-local memory, atomics, bindless resources, and three graphics tests. After a
-full Release build, the current configured repository CTest suite passes
-140/140. The examples runner accepts its default backend matrix and explicit
-backend lists, the C++ syntax-check script has 13 passing Python unit tests,
-and clangd syntax checks pass for the status wrapper, emitter, and regression
-fixture.
+The required native-math/fallback-math/runtime-width/Schedule-codegen gate
+passes 4/4, including the new block-range JIT differential. After complete
+Release builds, both `build-sdf-bench` and `build-sdf-tbb` pass their configured
+repository suites 140/140. A separately repeated SIMD-labelled conformance
+gate passes 35/35, covering scheduler, LLVM, runtime, accel, bindless, atomics,
+local memory, and graphics. The standalone ISPC-driver suite passes 8/8, the
+C++ syntax-check harness passes 13/13, and clangd reports no issue in all five
+changed translation units. LLVM 22.1.8 `clang-format --dry-run --Werror` and
+`git diff --check` also pass.
 This also includes the coroutine-frame tests merged from `next`, the repaired
 lazy-dispatch scalar snapshot regression, and the W1/W2/W4/W8/W16 aggregate-
 promotion differential test. Separate 1024-SPP gallery gates pass ordinary

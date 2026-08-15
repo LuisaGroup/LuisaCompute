@@ -1,5 +1,7 @@
 #include "llvm_schedule_emitter.h"
 
+#include <llvm/IR/Attributes.h>
+
 #include "../../common/env_flag.h"
 
 namespace luisa::compute::simd::detail {
@@ -1720,6 +1722,18 @@ void ScheduleEmitter::_build() {
     _launch_config->setName("launch_config");
     _active_lane_count = &*argument;
     _active_lane_count->setName("active_lane_count");
+    // The runtime owns launch_config separately from every resource and from
+    // the packed descriptor buffer. The packet body only observes it. These
+    // attributes let an inlined batch hoist immutable launch geometry across
+    // packet iterations without changing the portable packet ABI.
+    if (!luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES")) {
+        _entry->addParamAttr(0u, ::llvm::Attribute::NoAlias);
+        _entry->addParamAttr(0u, ::llvm::Attribute::ReadOnly);
+        _entry->addParamAttr(2u, ::llvm::Attribute::NoAlias);
+        _entry->addParamAttr(2u, ::llvm::Attribute::NonNull);
+        _entry->addParamAttr(2u, ::llvm::Attribute::ReadOnly);
+    }
 
     auto *prologue = ::llvm::BasicBlock::Create(
         context, "prologue", _entry);

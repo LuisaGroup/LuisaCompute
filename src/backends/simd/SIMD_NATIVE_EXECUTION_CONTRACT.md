@@ -383,14 +383,47 @@ the exact logical extent. The wrapper may mutate only that block job's private
 launch configuration, which is not observable by a kernel or another worker.
 
 The lowering may use a dynamic wrapper loop, unroll only a statically bounded
-call shell, or inline one packet body into one dynamic loop. It must never clone
-the body once per packet. The original packet function has internal linkage in
-batch mode, and exactly one of the ordinary entry and batch entry is externally
-discoverable. W1, a single-packet block, the disabled oracle, and standalone
-lowering retain the ordinary entry. W8 inlining is a measured target policy and
-requires TargetTransformInfo evidence for a wide register file; correctness
-does not depend on it. `LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY=1` restores the
-host-side single-packet loop before JIT construction.
+call shell, or inline one packet body into one dynamic loop. The handwritten
+lowering must not clone the source body once per packet; LLVM may subsequently
+inline a sufficiently small internal direct-CFG body under its ordinary target
+cost model, while large scheduled bodies remain one local function. The
+original packet function has internal linkage in batch mode, and exactly one of
+the ordinary entry and batch entry is externally discoverable. W1, a
+single-packet block, the disabled oracle, and standalone lowering retain the
+ordinary entry. W8 inlining is a measured target policy and requires
+TargetTransformInfo evidence for a wide register file; correctness does not
+depend on it. `LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY=1` restores the host-side
+single-packet loop before JIT construction.
+
+For a direct-CFG runtime kernel, a thread-pool chunk containing consecutive
+flattened blocks may instead enter an exclusive block-range wrapper. The first
+three physical parameters are unchanged; the fourth is the number of blocks,
+not the number of packets. The private launch configuration supplies the
+three-dimensional grid size. Starting at its authored `block_id`, the wrapper
+must visit exactly that many blocks in x-major order, wrap x then y, reset
+`thread_index` to zero for every block, and issue the statically known complete
+packet count through the internal block-local wrapper. A zero block count is a
+no-op. The ordinary packet body remains responsible for active-tail and exact
+dispatch-extent masking before any potentially trapping, poison-producing, or
+memory operation.
+
+The block-range entry is legal only when direct control flow, a static nonzero
+packet count, and the packet-batch entry are all available. Scheduler-backed
+kernels must export the block-local packet wrapper even when block-range
+batching was requested; they may not acquire a second outer scheduler loop.
+Exactly one of the ordinary, packet-batch, and block-range symbols is returned
+by the JIT facade. `LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY=1` selects the
+block-local oracle before compilation.
+
+The packet argument record, return-lane storage, and launch configuration are
+separate ABI objects. The packet body only reads the argument record and launch
+configuration, and the runtime always supplies a nonnull launch configuration.
+LLVM may therefore attach `noalias readonly` to the argument record and
+`noalias nonnull readonly` to the launch configuration. This says nothing
+about aliasing among resource addresses loaded from the record. Callers must
+not overlap return-lane storage with the argument record. The diagnostic
+`LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES=1` removes these attributes
+without changing the physical ABI or execution result.
 
 Each block job owns its `SIMDPacketLaunchConfig`; the argument descriptor buffer
 is immutable for the duration of the dispatch. Dispatch-edge packet masks are
@@ -443,6 +476,11 @@ logs per-shader transform, scheduler-state, ray-query scratch, ray-query
 status-color, and cached state-handle counters.
 `LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY=1` restores one exported JIT call per
 packet and is the runtime/codegen A/B oracle for block-local packet batching.
+`LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY=1` restores one block-local packet-batch
+call per block for otherwise eligible direct-CFG kernels.
+`LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES=1` removes the read-only,
+nonnull, and no-alias packet ABI facts used to hoist launch and descriptor
+loads; it does not alter resource aliasing semantics.
 `LUISA_SIMD_REPORT_XIR=1` logs canonical XIR immediately before and after the
 SIMD scheduling rewrites. `LUISA_SIMD_REPORT_SCHEDULE=1` logs the verified
 Schedule IR immediately before LLVM lowering, including value classes,
