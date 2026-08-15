@@ -262,7 +262,9 @@ bool LLVMJIT::supports_native_predicated_loop(
 
 bool LLVMJIT::supports_inlined_packet_batch(
     uint32_t width) const noexcept {
-    if (!succeeded() || width != 8u) { return false; }
+    if (!succeeded() || (width != 8u && width != 16u)) {
+        return false;
+    }
     ::llvm::LLVMContext context;
     ::llvm::Module module{"simd-packet-batch-probe", context};
     module.setDataLayout(_target_machine->createDataLayout());

@@ -102,6 +102,10 @@ struct SIMDCompiledKernel {
     size_t convergence_token_guard_count{0u};
     size_t return_frame_guard_count{0u};
     size_t direct_divergent_child_count{0u};
+    size_t unit_dimension_mask_elision_count{0u};
+    size_t linear_1d_thread_id_count{0u};
+    size_t linear_1d_packet_tail_narrowing_count{0u};
+    size_t linear_1d_block_coalescing_count{0u};
     bool direct_control_flow{false};
     uint32_t warp_width{0u};
     std::string target_triple{};

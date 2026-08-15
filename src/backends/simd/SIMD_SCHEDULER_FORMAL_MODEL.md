@@ -674,6 +674,21 @@ seed because the proof covers every physical lane and reconstructs the same
 distinction prevents an empty or inactive arm operand from becoming observable
 while allowing LLVM to keep an outer affine index in SSA/registers.
 
+Linear-1D cross-block batching is a launch-trace refinement, not a scheduler
+transition. It applies only when there is one direct Schedule block, no local
+allocation or barrier, no observation of block/thread identity, and
+`dispatch_id` is consumed only through component zero. Because the authored
+block size is divisible by `W`, no packet straddles a block boundary; replacing
+the sequence of per-block packet ranges by their concatenation therefore
+preserves every lane's global `dispatch_id.x` and memory trace. The wrapper
+checks at runtime that dispatch y/z are one and narrows the final prefix before
+execution. The minimal rejected counterexample is a two-dimensional dispatch
+with a `{X, 1, 1}` block whose kernel extracts `dispatch_id.xy`: block shape
+alone is insufficient because fixing `block_id.y` would duplicate rows. The
+LLVM differential regression permanently covers that rejection together with
+block/thread-sensitive kernels, a nonzero starting block, multiple blocks, and
+an inactive final tail.
+
 The generated LLVM remains target-independent fixed-vector IR. Machine ISA
 selection, legalization, register allocation, and scheduling remain LLVM's
 responsibility.

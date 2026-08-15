@@ -5251,6 +5251,45 @@ make_lane_affine_buffer_schedule(uint32_t width) {
         make_lane_affine_buffer_schedule(width);
     CHECK(schedule_function.has_value());
 
+    auto check_packet_wrapper_attributes = [&](
+                                               bool enabled) {
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(
+            enabled ? "simd-packet-wrapper-attributes" :
+                      "simd-packet-wrapper-attributes-disabled",
+            *context);
+        auto codegen = lower_schedule_to_llvm(
+            *module, *schedule_function, width,
+            enabled ? "simd_packet_wrapper_attributes" :
+                      "simd_packet_wrapper_attributes_disabled",
+            false, {64u, 1u, 1u}, true, true, false, 1u, true,
+            true, true, true);
+        CHECK(codegen.succeeded());
+        CHECK(codegen.packet_batch_entry != nullptr);
+        CHECK(codegen.block_batch_entry != nullptr);
+        for (auto *wrapper : {codegen.packet_batch_entry,
+                              codegen.block_batch_entry}) {
+            CHECK(wrapper->hasParamAttribute(
+                      0u, ::llvm::Attribute::NoAlias) == enabled);
+            CHECK(wrapper->hasParamAttribute(
+                      0u, ::llvm::Attribute::ReadOnly) == enabled);
+            CHECK(wrapper->hasParamAttribute(
+                      2u, ::llvm::Attribute::NoAlias) == enabled);
+            CHECK(wrapper->hasParamAttribute(
+                      2u, ::llvm::Attribute::NonNull) == enabled);
+            CHECK(!wrapper->hasParamAttribute(
+                2u, ::llvm::Attribute::ReadOnly));
+        }
+        CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+        return true;
+    };
+    CHECK(check_packet_wrapper_attributes(true));
+    {
+        ScopedEnvironmentVariable disable_attributes{
+            "LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES", "1"};
+        CHECK(check_packet_wrapper_attributes(false));
+    }
+
     struct ModuleBundle {
         std::unique_ptr<::llvm::LLVMContext> context;
         std::unique_ptr<::llvm::Module> module;
@@ -8310,6 +8349,9 @@ void bindless_uniform_gradient_probe(
     }
     CHECK(compiled.entry == nullptr);
     CHECK(compiled.packet_batch_entry != nullptr);
+    CHECK(compiled.linear_1d_thread_id_count == 1u);
+    CHECK(compiled.linear_1d_packet_tail_narrowing_count == 1u);
+    CHECK(compiled.linear_1d_block_coalescing_count == 0u);
     std::array<uint32_t, count> output{};
     output.fill(0xdeadbeefu);
     alignas(16) SIMDHostBufferView argument{
@@ -8325,6 +8367,63 @@ void bindless_uniform_gradient_probe(
     for (auto index = uint32_t{0u}; index < count; index++) {
         auto expected = index < 3u ? 0xdeadbeefu : index * 7u + 3u;
         CHECK(output[index] == expected);
+    }
+    {
+        ScopedEnvironmentVariable disable_tail_narrowing{
+            "LUISA_SIMD_DISABLE_LINEAR_1D_PACKET_TAIL_NARROWING",
+            "1"};
+        auto oracle = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_packet_batch_entry_oracle", false, false,
+            1u, true);
+        CHECK(oracle.succeeded());
+        CHECK(oracle.linear_1d_thread_id_count == 1u);
+        CHECK(oracle.linear_1d_packet_tail_narrowing_count == 0u);
+        CHECK(oracle.packet_batch_entry != nullptr);
+        std::array<uint32_t, count> oracle_output{};
+        oracle_output.fill(0xdeadbeefu);
+        alignas(16) SIMDHostBufferView oracle_argument{
+            oracle_output.data(), sizeof(oracle_output)};
+        auto oracle_entry = reinterpret_cast<PacketBatchEntry *>(
+            oracle.packet_batch_entry);
+        auto oracle_config = launch_1d(count, 32u);
+        oracle_config.thread_index = 3u;
+        oracle_entry(
+            &oracle_argument, nullptr, &oracle_config, 4u);
+        CHECK(oracle_config.thread_index == 3u + 3u * width);
+        CHECK(oracle_output == output);
+    }
+    {
+        // The standalone packet ABI deliberately accepts an arbitrary packet
+        // offset. Keep its block decomposition so lanes past the end of a 1D
+        // block remain inactive when a packet crosses the boundary.
+        auto standalone = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_packet_entry_arbitrary_offset", false, false,
+            1u, false, false);
+        CHECK(standalone.succeeded());
+        CHECK(standalone.linear_1d_thread_id_count == 0u);
+        CHECK(standalone.linear_1d_packet_tail_narrowing_count == 0u);
+        CHECK(standalone.entry != nullptr);
+        std::array<uint32_t, 64u> standalone_output{};
+        standalone_output.fill(0xdeadbeefu);
+        alignas(16) SIMDHostBufferView standalone_argument{
+            standalone_output.data(), sizeof(standalone_output)};
+        using PacketEntry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto standalone_entry = reinterpret_cast<PacketEntry *>(
+            standalone.entry);
+        auto standalone_config = launch_1d(64u, 32u);
+        standalone_config.thread_index = 29u;
+        standalone_entry(
+            &standalone_argument, nullptr, &standalone_config,
+            3u);
+        for (auto index = uint32_t{0u}; index < 64u; index++) {
+            auto visited = index >= 29u && index < 32u;
+            auto expected = visited ? index * 7u + 3u : 0xdeadbeefu;
+            CHECK(standalone_output[index] == expected);
+        }
     }
 
     return true;
@@ -8368,6 +8467,8 @@ void bindless_uniform_gradient_probe(
     CHECK(compiled.entry == nullptr);
     CHECK(compiled.packet_batch_entry == nullptr);
     CHECK(compiled.block_batch_entry != nullptr);
+    CHECK(compiled.unit_dimension_mask_elision_count == 1u);
+    CHECK(compiled.linear_1d_block_coalescing_count == 0u);
     std::array<uint32_t, dispatch_x * dispatch_y * dispatch_z> output{};
     output.fill(sentinel);
     alignas(16) SIMDHostBufferView argument{
@@ -8390,6 +8491,7 @@ void bindless_uniform_gradient_probe(
     config.grid_size[0u] = grid_x;
     config.grid_size[1u] = grid_y;
     config.grid_size[2u] = grid_z;
+    auto initial_config = config;
     block_batch_entry(&argument, nullptr, &config, 0u);
     CHECK(std::ranges::all_of(output, [](auto value) {
         return value == sentinel;
@@ -8417,6 +8519,30 @@ void bindless_uniform_gradient_probe(
         }
     }
     {
+        ScopedEnvironmentVariable disable_elision{
+            "LUISA_SIMD_DISABLE_UNIT_DIMENSION_MASK_ELISION", "1"};
+        auto oracle = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_block_batch_mask_oracle", false, false,
+            1u, true, true);
+        CHECK(oracle.succeeded());
+        CHECK(oracle.unit_dimension_mask_elision_count == 0u);
+        CHECK(oracle.block_batch_entry != nullptr);
+        std::array<uint32_t,
+                   dispatch_x * dispatch_y * dispatch_z>
+            oracle_output{};
+        oracle_output.fill(sentinel);
+        alignas(16) SIMDHostBufferView oracle_argument{
+            oracle_output.data(), sizeof(oracle_output)};
+        auto oracle_entry = reinterpret_cast<BlockBatchEntry *>(
+            oracle.block_batch_entry);
+        auto oracle_config = initial_config;
+        oracle_entry(
+            &oracle_argument, nullptr, &oracle_config,
+            block_count);
+        CHECK(oracle_output == output);
+    }
+    {
         ScopedEnvironmentVariable disable_direct{
             "LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG", "1"};
         auto scheduled = compile_simd_kernel(
@@ -8428,6 +8554,158 @@ void bindless_uniform_gradient_probe(
         CHECK(scheduled.entry == nullptr);
         CHECK(scheduled.packet_batch_entry != nullptr);
         CHECK(scheduled.block_batch_entry == nullptr);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_ast_linear_1d_block_coalescing() {
+    static constexpr auto width = 8u;
+    static constexpr auto dispatch_size = 93u;
+    static constexpr auto block_size = 32u;
+    static constexpr auto first_block = 1u;
+    static constexpr auto block_count = 2u;
+    static constexpr auto sentinel = 0xdeadbeefu;
+    Kernel1D kernel = [](BufferUInt output) noexcept {
+        set_block_size(block_size, 1u, 1u);
+        auto index = dispatch_id().x;
+        auto value = index * 11u + 5u;
+        value = value ^ (index * 3u + 7u);
+        value = value + index * index;
+        output.write(index, value);
+    };
+    auto compile = [&](std::string_view name) {
+        return compile_simd_kernel(
+            kernel.function()->function(), width, name,
+            false, false, 1u, true, true);
+    };
+    auto candidate = compile("simd_ast_linear_block_coalescing");
+    if (!candidate.succeeded()) {
+        for (auto &&diagnostic : candidate.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(candidate.entry == nullptr);
+    CHECK(candidate.packet_batch_entry == nullptr);
+    CHECK(candidate.block_batch_entry != nullptr);
+    CHECK(candidate.linear_1d_packet_tail_narrowing_count == 1u);
+    CHECK(candidate.linear_1d_block_coalescing_count == 1u);
+
+    using BlockBatchEntry = void(
+        const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
+    auto run = [&](SIMDCompiledKernel &compiled,
+                   std::array<uint32_t, dispatch_size> &output,
+                   SIMDPacketLaunchConfig &config) {
+        alignas(16) SIMDHostBufferView argument{
+            output.data(), sizeof(output)};
+        auto entry = reinterpret_cast<BlockBatchEntry *>(
+            compiled.block_batch_entry);
+        entry(&argument, nullptr, &config, block_count);
+    };
+    auto initial_config = launch_1d(dispatch_size, block_size);
+    initial_config.block_id[0u] = first_block;
+    initial_config.grid_size[0u] =
+        (dispatch_size + block_size - 1u) / block_size;
+    std::array<uint32_t, dispatch_size> output{};
+    output.fill(sentinel);
+    auto config = initial_config;
+    run(candidate, output, config);
+    CHECK(config.block_id[0u] == first_block + block_count - 1u);
+    CHECK(config.block_id[1u] == 0u);
+    CHECK(config.block_id[2u] == 0u);
+    CHECK(config.thread_index == block_size - width);
+    for (auto index = uint32_t{0u}; index < dispatch_size; index++) {
+        auto value = index * 11u + 5u;
+        value = value ^ (index * 3u + 7u);
+        value = value + index * index;
+        auto expected = index < first_block * block_size ?
+                            sentinel :
+                            value;
+        CHECK(output[index] == expected);
+    }
+    {
+        ScopedEnvironmentVariable disable_coalescing{
+            "LUISA_SIMD_DISABLE_LINEAR_1D_BLOCK_COALESCING", "1"};
+        auto oracle = compile("simd_ast_linear_block_coalescing_oracle");
+        CHECK(oracle.succeeded());
+        CHECK(oracle.block_batch_entry != nullptr);
+        CHECK(oracle.linear_1d_block_coalescing_count == 0u);
+        std::array<uint32_t, dispatch_size> oracle_output{};
+        oracle_output.fill(sentinel);
+        auto oracle_config = initial_config;
+        run(oracle, oracle_output, oracle_config);
+        CHECK(oracle_output == output);
+        CHECK(std::memcmp(
+                  &oracle_config, &config,
+                  sizeof(SIMDPacketLaunchConfig)) == 0);
+    }
+    {
+        static constexpr auto wide_width = 16u;
+        auto compile_wide = [&](std::string_view name) {
+            return compile_simd_kernel(
+                kernel.function()->function(), wide_width, name,
+                false, false, 1u, true, true);
+        };
+        auto wide = compile_wide(
+            "simd_ast_linear_block_coalescing_w16");
+        CHECK(wide.succeeded());
+        CHECK(wide.block_batch_entry != nullptr);
+        CHECK(wide.linear_1d_packet_tail_narrowing_count == 1u);
+        CHECK(wide.linear_1d_block_coalescing_count == 1u);
+        std::array<uint32_t, dispatch_size> wide_output{};
+        wide_output.fill(sentinel);
+        auto wide_config = initial_config;
+        run(wide, wide_output, wide_config);
+        CHECK(wide_output == output);
+        CHECK(wide_config.block_id[0u] ==
+              first_block + block_count - 1u);
+        CHECK(wide_config.thread_index == block_size - wide_width);
+        ScopedEnvironmentVariable disable_coalescing{
+            "LUISA_SIMD_DISABLE_LINEAR_1D_BLOCK_COALESCING", "1"};
+        auto wide_oracle = compile_wide(
+            "simd_ast_linear_block_coalescing_w16_oracle");
+        CHECK(wide_oracle.succeeded());
+        CHECK(wide_oracle.linear_1d_block_coalescing_count == 0u);
+        std::array<uint32_t, dispatch_size> wide_oracle_output{};
+        wide_oracle_output.fill(sentinel);
+        auto wide_oracle_config = initial_config;
+        run(wide_oracle, wide_oracle_output, wide_oracle_config);
+        CHECK(wide_oracle_output == wide_output);
+        CHECK(std::memcmp(
+                  &wide_oracle_config, &wide_config,
+                  sizeof(SIMDPacketLaunchConfig)) == 0);
+    }
+    {
+        Kernel1D block_sensitive = [](BufferUInt sensitive_output) noexcept {
+            set_block_size(block_size, 1u, 1u);
+            auto index = dispatch_id().x;
+            auto block = block_id().x;
+            auto thread = thread_id().x;
+            sensitive_output.write(index, block * block_size + thread);
+        };
+        auto sensitive = compile_simd_kernel(
+            block_sensitive.function()->function(), width,
+            "simd_ast_linear_block_sensitive", false, false,
+            1u, true, true);
+        CHECK(sensitive.succeeded());
+        CHECK(sensitive.block_batch_entry != nullptr);
+        CHECK(sensitive.linear_1d_block_coalescing_count == 0u);
+    }
+    {
+        Kernel2D multidimensional = [](
+                                        BufferUInt multidimensional_output) noexcept {
+            set_block_size(block_size, 1u, 1u);
+            auto coordinate = dispatch_id().xy();
+            auto index = coordinate.y * block_size + coordinate.x;
+            multidimensional_output.write(index, index + 1u);
+        };
+        auto compiled = compile_simd_kernel(
+            multidimensional.function()->function(), width,
+            "simd_ast_multidimensional_block_batch", false, false,
+            1u, true, true);
+        CHECK(compiled.succeeded());
+        CHECK(compiled.block_batch_entry != nullptr);
+        CHECK(compiled.linear_1d_block_coalescing_count == 0u);
     }
     return true;
 }
@@ -10587,6 +10865,8 @@ int main() {
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST packet-batch runtime entry", &run_ast_packet_batch_entry},
         {"AST block-batch runtime entry", &run_ast_block_batch_entry},
+        {"AST linear 1D block coalescing",
+         &run_ast_linear_1d_block_coalescing},
         {"AST aggregate local promotion",
          &run_ast_aggregate_promotion},
         {"AST uniform-loop buffer broadcast",

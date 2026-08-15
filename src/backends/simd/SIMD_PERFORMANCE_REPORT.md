@@ -1,6 +1,6 @@
 # SIMD CPU backend performance report
 
-Snapshot date: 2026-08-15. This report covers the Release build after merging
+Snapshot date: 2026-08-16. This report covers the Release build after merging
 `origin/next@62b77df36b6dae05aff558d4db84e415b5e84e75` into
 `codex/simd-cpu-backend`, adding coherent direct-CFG lowering, completing the
 bindless gradient-sampling vertical slice, and eliminating curve-hit
@@ -92,11 +92,18 @@ Voxel now supplies the complementary two-sided case: both arithmetic arms stay
 behind their own nonempty-mask guard and reconverge without a scheduler frame.
 This removes 37% of the W8 kernel's dynamic instructions while retaining one
 source copy and exact candidate/oracle output.
-The latest runtime stage moves the serial packet loop for one block across the
-JIT boundary. W8 on the recorded wide-register host inlines one body into one
-loop; W16 unrolls only its sixteen-call shell for the common 256-thread block.
-W2/W4 retain a compact dynamic wrapper. The ordinary packet body is internal,
-so no object carries two exported implementations.
+The initial packet-batch runtime stage moves the serial packet loop for one
+block across the JIT boundary. W8 on the recorded wide-register host inlines
+one body into one loop; W16 initially unrolled only its sixteen-call shell for
+the common 256-thread block. W2/W4 retain a compact dynamic wrapper. The
+ordinary packet body is internal, so no object carries two exported
+implementations.
+The current launch stage makes linear 1D tails explicit, removes redundant
+unit-dimension masks/thread decomposition, propagates valid alias facts to the
+mutable wrappers, and permits bounded W16 inlining for one small straight-line
+shape. A fail-closed block-agnostic proof may concatenate a worker's 1D block
+range; multidimensional and block/thread-sensitive kernels keep the generic
+loop.
 The current state-layout stage then colors compatible non-move scheduler state
 roots under the existing exact per-lane interference proof. Production is
 limited to W16 schedules with at least 32 logical slots and retains the result
@@ -3079,11 +3086,13 @@ per-block call. Scheduler-backed kernels deliberately keep that oracle path:
 enabling the outer loop indiscriminately regressed the analytic W8 path by
 about 0.6--0.8% in all seven initial pairs.
 
-The packet ABI now also states the ownership facts that were already true at
-runtime: the packed argument record and launch configuration are read-only and
-do not overlap each other or the return record. Resource addresses loaded from
-the argument record may still alias one another. Nine alternating W8 pairs
-isolated these LLVM attributes with
+At this stage the packet-body ABI also stated the ownership facts that were
+already true at runtime: the packed argument record and launch configuration
+are read-only and do not overlap each other or the return record. The outer
+wrappers were not yet annotated because they mutate launch indices; the later
+linear-1D stage below propagates their strictly weaker valid facts. Resource
+addresses loaded from the argument record may still alias one another. Nine
+alternating W8 pairs isolated the packet-body LLVM attributes with
 `LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES=1`:
 
 | workload | attributes / disabled | 95% paired CI | wins |
@@ -3211,7 +3220,106 @@ tracing passes at 35.426795/42.781582/40.940376/39.219305/37.801771 dB, and
 non-coroutine 1024-spp SDF passes at 63.129346 dB at every width. Each path
 process reports Embree 4.4.1 W4/W8/W16 packet support enabled.
 
+### Linear-1D full-packet and cross-block specialization
+
+The next launch refinement targets the two concrete costs left in straight-line
+1D kernels. First, a runtime packet wrapper computes the exact dispatch/block
+remainder once, executes a full-width main loop, and calls at most one narrowed
+tail. The packet body therefore omits three repeated dispatch compares, and a
+1D runtime packet uses its linear lane index directly as `thread_id.x`.
+Statically unit block dimensions independently omit their redundant compare.
+Second, a proven block-agnostic direct body may concatenate a worker's block
+range into that packet loop. The proof rejects block/thread IDs, local storage,
+barriers, and every `dispatch_id` use except component zero; a runtime y/z
+dispatch guard retains the generic block loop for a multidimensional launch.
+
+The exported packet and block wrappers now carry `noalias readonly` on the
+packed argument record and `noalias nonnull` on their mutable launch record.
+They deliberately do not mark that record `readonly`. This lets LLVM hoist
+descriptor loads out of an inlined packet loop. A bounded W16 policy inlines
+only a linear-1D, single-block Schedule body with 8--32 instructions on a host
+with at least 512 fixed-vector bits and 32 vector registers. The mixed-mask
+control retains its prior call-shell policy.
+
+The individual A/B gates identify the retained effects:
+
+| candidate / disabled oracle | paired result | 95% CI | wins |
+| --- | ---: | ---: | ---: |
+| W16 AoS wrapper-attribute propagation, 21 pairs | 1.01250x | [1.00631, 1.01873] | 17/21 |
+| W8 AoS linear block coalescing, 15 pairs | 1.00764x | [1.00085, 1.01447] | 12/15 |
+| W16 AoS linear block coalescing, 15 pairs | 1.01340x | [1.00578, 1.02108] | 12/15 |
+
+The coalescing gate is intentionally small: it buys about 0.8--1.3% on the
+memory-bound AoS control and is ineligible for the mixed-mask control and all
+measured 2D graphics shaders. Broadly inlining both dynamic wrapper paths grew
+the W16 AoS object to 851 instructions without a throughput gain and was
+removed. Preventing LLVM's two-packet W16 loop unroll was also rejected after
+21 interleaved same-binary pairs measured 0.99837x [0.99103, 1.00577] against
+the original, with 9/21 wins. The retained final objects contain 240/274 static
+instructions for W8/W16 masked stream and 384/557 for W8/W16 AoS. The two AoS
+objects contain two internal dual-path wrapper calls; no object has an
+unresolved symbol or varying scalar-libm call.
+
+The final official ISPC 1.31.0 comparison used an explicit standalone ISPC
+path, `--cpu=znver5`, AVX-512 x8/x16, precise arithmetic with FMA contraction
+disabled, one worker pinned to CPU 15, and rotating process order. The two
+linear workloads used separate 21-round width runs; Mandelbrot, GEMM, and the
+analytic path used 15 rounds. Exact workloads were bit-identical, and the path
+output passed the independent absolute-plus-relative tolerance:
+
+| workload | Luisa W8 / ISPC x8 | 95% CI | Luisa W16 / ISPC x16 | 95% CI |
+| --- | ---: | ---: | ---: | ---: |
+| Mandelbrot | **1.40329x** | [1.39907, 1.40753] | **1.54555x** | [1.53157, 1.55965] |
+| masked stream | **1.27656x** | [1.24271, 1.31134] | **1.19031x** | [1.17620, 1.20458] |
+| AoS-to-SoA | 0.99348x | [0.98625, 1.00076] | 0.97479x | [0.96955, 0.98005] |
+| GEMM | **1.35374x** | [1.34930, 1.35819] | **1.38332x** | [1.38158, 1.38506] |
+| analytic path | **1.10136x** | [1.09715, 1.10560] | **1.02758x** | [1.02454, 1.03062] |
+
+The unweighted five-workload Luisa/ISPC geometric means are **1.21552x at W8**
+and **1.20581x at W16**. Luisa therefore wins four controls at each width; W8
+AoS is statistically tied and W16 AoS remains 2.52% slower. This is an overall
+same-algorithm compiler win, not a claim of universal per-kernel superiority or
+an ISPC baseline for the full Embree renderer. Raw records are
+`/tmp/luisa-simd-final-attrs-coalesce-ispc-w8-21r.json`,
+`/tmp/luisa-simd-final-attrs-coalesce-ispc-w16-21r.json`, and
+`/tmp/luisa-simd-final-attrs-coalesce-ispc-rest-15r.json`.
+
+A fresh real-example matrix used seven alternating process rounds on logical
+CPUs `0-12,14-28,30-31`; SIMD used 30 workers. Image processing and Voxel ran
+eight synchronized iterations, and ordinary Embree path tracing ran 64 spp at
+one spp per dispatch:
+
+| workload | fallback | W1 | W2 | W4 | W8 | W16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| image, median ms | 9.171 | 17.674 (0.531x) | 9.097 (1.028x) | 6.763 (**1.382x**) | 5.268 (**1.776x**) | 4.655 (**1.994x**) |
+| Voxel, median ms | 7.324 | 8.508 (0.863x) | 11.724 (0.623x) | 5.598 (**1.308x**) | 4.754 (**1.548x**) | 3.277 (**2.207x**) |
+| ordinary path, median spp/s | 70.538 | 60.129 (0.850x) | 52.198 (0.725x) | 67.761 (0.959x) | 78.081 (**1.095x**) | 81.260 (**1.136x**) |
+
+Parenthesized values are paired geometric throughput ratios against fallback.
+The W8/W16 95% intervals are image `[1.691,1.865]`/`[1.881,2.114]`, Voxel
+`[1.497,1.600]`/`[2.145,2.271]`, and path `[1.069,1.122]`/`[1.098,1.174]`.
+Every image-processing kernel and the Voxel kernel report zero linear block
+coalescings, confirming that the new 1D proof does not select their 2D launch.
+A current-binary 1024-spp reference sweep also passes fallback and every SIMD
+width. W1/W2/W4/W8/W16 RGB PSNRs are
+35.426795/42.781582/40.940376/39.219305/37.801771 dB; fallback reaches
+62.223429 dB. Every SIMD process reports Embree 4.4.1 native W4/W8/W16 packet
+support. This final sweep is a correctness gate rather than another paired
+throughput claim.
+
 ## Validation
+
+The linear-1D specialization stage completed full Release builds of both
+configured trees. Each passes the required native-math/fallback-math/runtime-
+width/Schedule-codegen gate 4/4, the SIMD/XIR/runtime/graphics gate 35/35, and
+the complete configured suite 140/140. The focused Schedule executable covers
+W8 and W16 cross-block execution, a nonzero starting block, a 13-lane final
+W16 tail (five lanes at W8), exact disabled-oracle launch state,
+block/thread-sensitive rejection,
+and the minimal two-dimensional `dispatch_id.xy` rejection. The standalone
+ISPC-driver and syntax-script Python tests pass 21/21; all seven changed C++
+translation units pass clangd 22.1.8. Clang-format 22.1.8 dry-run and
+`git diff --check` are clean.
 
 The required native-math/fallback-math/runtime-width/Schedule-codegen gate
 passes 4/4, including the new block-range JIT differential. After complete

@@ -561,6 +561,10 @@ struct LLVMScheduleCodegenResult {
     size_t convergence_token_guard_count{0u};
     size_t return_frame_guard_count{0u};
     size_t direct_divergent_child_count{0u};
+    size_t unit_dimension_mask_elision_count{0u};
+    size_t linear_1d_thread_id_count{0u};
+    size_t linear_1d_packet_tail_narrowing_count{0u};
+    size_t linear_1d_block_coalescing_count{0u};
     bool direct_control_flow{false};
     std::string error{};
 
@@ -594,14 +598,18 @@ struct LLVMScheduleCodegenResult {
     // can exercise the transformation without pretending to query a host.
     bool enable_native_predicated_loop = true,
     // Runtime kernels may amortize their host/JIT boundary across all packets
-    // in one block. Standalone lowering keeps the single-packet ABI only.
+    // in one block. Eligible linear 1D kernels may additionally narrow their
+    // final packet and coalesce a proven block-agnostic range. Standalone
+    // lowering keeps the single-packet ABI only.
     bool enable_packet_batch_entry = false,
     // This is a target-profitability decision supplied by the host JIT. The
-    // portable default retains direct packet calls in the batch wrapper.
+    // portable default retains direct packet calls in the batch wrapper; a
+    // separate bounded source-shape policy decides whether W16 may use it.
     bool enable_inlined_packet_batch = false,
     // Runtime workers may amortize their JIT boundary across a consecutive
     // block range. This requires a statically known packet count and keeps the
-    // block-local packet wrapper internal.
+    // block-local packet wrapper internal. A guarded linear-1D refinement may
+    // collapse a proven block-agnostic range into one packet loop.
     bool enable_block_batch_entry = false);
 
 }// namespace luisa::compute::simd

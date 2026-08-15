@@ -1754,13 +1754,36 @@ void ScheduleEmitter::_build() {
         _width, _active_lane_count);
     auto *initial_mask = _builder.CreateICmpULT(lane_ids, count);
     _ensure_launch_vectors();
-    for (auto i = uint32_t{0u}; i < 3u; i++) {
-        initial_mask = _builder.CreateAnd(
-            initial_mask,
-            _builder.CreateICmpULT(
-                _dispatch_id[i],
-                _builder.CreateVectorSplat(
-                    _width, _dispatch_size[i])));
+    // Runtime block IDs are always drawn from ceil(dispatch_size / block_size)
+    // in each dimension. A statically unit-sized dimension therefore has
+    // thread_id == 0 and block_id < dispatch_size for every launched block;
+    // it cannot contribute a dispatch-edge tail. Avoid materializing that
+    // redundant vector compare, especially for the two unit dimensions of a
+    // 1D kernel. Standalone packet callers have the same valid-block contract.
+    auto elide_unit_dimension_masks =
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_UNIT_DIMENSION_MASK_ELISION");
+    if (_enable_linear_1d_packet_tail_narrowing) {
+        // The runtime-only packet wrapper narrows its final 1D packet to the
+        // exact dispatch and block remainder, and skips packets with no live
+        // lanes. The active-lane prefix above is therefore the complete
+        // dispatch mask; rebuilding dispatch_id < dispatch_size in every
+        // packet would be redundant. Standalone entries never take this path.
+        _result.linear_1d_packet_tail_narrowing_count++;
+    } else {
+        for (auto i = uint32_t{0u}; i < 3u; i++) {
+            if (elide_unit_dimension_masks &&
+                _static_block_size[i] == 1u) {
+                _result.unit_dimension_mask_elision_count++;
+                continue;
+            }
+            initial_mask = _builder.CreateAnd(
+                initial_mask,
+                _builder.CreateICmpULT(
+                    _dispatch_id[i],
+                    _builder.CreateVectorSplat(
+                        _width, _dispatch_size[i])));
+        }
     }
     if (_direct_control_flow) {
         _build_direct(initial_mask);

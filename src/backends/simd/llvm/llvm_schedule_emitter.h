@@ -53,6 +53,8 @@ private:
     bool _enable_paired_leaf_gather{false};
     uint32_t _dispatch_worker_count{1u};
     bool _enable_native_predicated_loop{true};
+    bool _enable_runtime_packet_geometry{false};
+    bool _enable_linear_1d_packet_tail_narrowing{false};
     bool _use_scalar_frame_metadata{false};
     bool _direct_control_flow{false};
     LLVMScheduleCodegenResult _result{};
@@ -573,7 +575,9 @@ public:
                     bool enable_lane_affine_buffer,
                     bool enable_paired_leaf_gather,
                     uint32_t dispatch_worker_count,
-                    bool enable_native_predicated_loop);
+                    bool enable_native_predicated_loop,
+                    bool enable_runtime_packet_geometry,
+                    bool enable_linear_1d_packet_tail_narrowing);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

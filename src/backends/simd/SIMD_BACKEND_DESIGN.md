@@ -1400,11 +1400,27 @@ the internal packet body in the same increasing order. W2/W4 and batches whose
 static packet count is unavailable or exceeds 32 retain a dynamic loop. A W8
 host for which TargetTransformInfo reports at least 512 fixed-vector bits and
 32 registers in the relevant vector class may inline exactly one body into the
-dynamic loop; otherwise W8 and W16 with at most 32 packets unroll only the
-direct-call shell. Global dead-code elimination removes the now-unused W8
-body after inlining. The W16 body remains one local function, so a 256-thread
-block emits sixteen local calls rather than sixteen body copies. No strategy
+dynamic loop. W16 may use the same target capability only for a measured,
+linear-1D, single-Schedule-block body containing 8--32 instructions; mixed CFGs
+retain the bounded direct-call shell. The latter gate can be restored with
+`LUISA_SIMD_DISABLE_W16_LINEAR_1D_PACKET_INLINE=1`. Global dead-code
+elimination removes an internal body after successful inlining. No strategy
 introduces a target intrinsic or changes the fixed-vector packet ABI.
+
+A runtime packet wrapper whose static block is `{power_of_two, 1, 1}` and
+divisible by `W` computes the exact remaining x extent before entering the
+packet body. It emits a constant-width all-on loop followed by at most one
+narrowed prefix packet and skips an empty suffix. Consequently the hot packet
+body needs neither x/y/z dispatch comparisons nor modulo-style thread-ID
+decomposition: its linear packet index is already `thread_id.x`, while y/z are
+zero. The wrapper uses 64-bit range arithmetic before forming any active
+packet. Standalone packet lowering deliberately retains the general
+decomposition because its diagnostic ABI accepts an arbitrary thread origin.
+`LUISA_SIMD_DISABLE_LINEAR_1D_PACKET_TAIL_NARROWING=1` and
+`LUISA_SIMD_DISABLE_LINEAR_1D_THREAD_ID=1` are independent differential
+oracles. Outside this specialization, a statically unit block dimension also
+omits its provably redundant dispatch comparison; the corresponding oracle is
+`LUISA_SIMD_DISABLE_UNIT_DIMENSION_MASK_ELISION=1`.
 
 `LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY=1` is the same-binary runtime oracle.
 It is sampled before JIT compilation so the oracle exports only the ordinary
@@ -1429,10 +1445,27 @@ This broader wrapper is deliberately restricted to direct LLVM control flow.
 A blanket experiment on scheduler-backed kernels regressed the analytic W8
 path control by roughly 0.6--0.8%, so those kernels retain the established
 block-local packet entry. `LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY=1` restores
-that entry for direct kernels as a compile-time A/B oracle. The packed argument
-record and launch configuration are also marked read-only/no-alias according
-to their runtime ownership contract; this lets LLVM keep descriptors and
-launch geometry invariant across the inlined loops. The independent
+that entry for direct kernels as a compile-time A/B oracle.
+
+A still narrower 1D refinement can collapse that block loop into one packet
+range. It is accepted only for direct control flow with one Schedule block, at
+most 32 Schedule instructions, a statically bounded inlined packet body, no
+alloca or barrier, no `thread_id`/`block_id`, and no use of `dispatch_id`
+except extracting component zero. A runtime guard additionally requires
+`dispatch_size.y == dispatch_size.z == 1`; otherwise the ordinary x-major
+block loop runs. Packet boundaries remain aligned to the original block width,
+the final dispatch suffix is narrowed before execution, and the wrapper
+restores the same final block/thread configuration as the generic path.
+`LUISA_SIMD_DISABLE_LINEAR_1D_BLOCK_COALESCING=1` is the exact oracle. This
+fail-closed proof is why image, Voxel, and other two-dimensional kernels report
+zero sites even when their authored block has unit y/z dimensions.
+
+The packet body marks the packed argument record `noalias readonly` and its
+launch configuration `noalias nonnull readonly`. Packet/block wrappers inherit
+the argument facts and the launch configuration's `noalias nonnull` facts, but
+not `readonly`, because they advance packet/block state. Propagating these
+facts to the exported wrapper lets LLVM keep descriptor loads outside the
+inlined packet loop. The independent
 `LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES=1` oracle removes only those
 attributes. Neither optimization asserts that two resources loaded from the
 argument record are mutually disjoint.

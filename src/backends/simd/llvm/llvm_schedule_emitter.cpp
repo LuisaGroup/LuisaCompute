@@ -2,6 +2,8 @@
 
 #include <unordered_set>
 
+#include "../../common/env_flag.h"
+
 namespace luisa::compute::simd::detail {
 
 namespace {
@@ -41,7 +43,9 @@ ScheduleEmitter::ScheduleEmitter(
     bool enable_lane_affine_buffer,
     bool enable_paired_leaf_gather,
     uint32_t dispatch_worker_count,
-    bool enable_native_predicated_loop)
+    bool enable_native_predicated_loop,
+    bool enable_runtime_packet_geometry,
+    bool enable_linear_1d_packet_tail_narrowing)
     : _module{module},
       _source{source},
       _width{width},
@@ -53,6 +57,9 @@ ScheduleEmitter::ScheduleEmitter(
       _enable_paired_leaf_gather{enable_paired_leaf_gather},
       _dispatch_worker_count{std::max(dispatch_worker_count, 1u)},
       _enable_native_predicated_loop{enable_native_predicated_loop},
+      _enable_runtime_packet_geometry{enable_runtime_packet_geometry},
+      _enable_linear_1d_packet_tail_narrowing{
+          enable_linear_1d_packet_tail_narrowing},
       _layout{module.getContext(), width},
       _collectives{width},
       _builder{module.getContext()} {}
@@ -886,20 +893,40 @@ void ScheduleEmitter::_ensure_launch_vectors() {
             return _builder.CreateVectorSplat(
                 _width, _builder.getInt32(value));
         };
-        _thread_id[0u] = _builder.CreateAnd(
-            _linear_thread_indices,
-            splat_u32(_static_block_size[0u] - 1u),
-            "thread.id.x");
-        auto *yz = _builder.CreateLShr(
-            _linear_thread_indices,
-            splat_u32(exact_log2(_static_block_size[0u])),
-            "thread.id.yz");
-        _thread_id[1u] = _builder.CreateAnd(
-            yz, splat_u32(_static_block_size[1u] - 1u),
-            "thread.id.y");
-        _thread_id[2u] = _builder.CreateLShr(
-            yz, splat_u32(exact_log2(_static_block_size[1u])),
-            "thread.id.z");
+        auto linear_1d =
+            _enable_runtime_packet_geometry &&
+            _static_block_size[1u] == 1u &&
+            _static_block_size[2u] == 1u &&
+            !luisa::compute::detail::env_flag(
+                "LUISA_SIMD_DISABLE_LINEAR_1D_THREAD_ID");
+        if (linear_1d) {
+            // Runtime packet batching starts at thread zero and emits exactly
+            // the statically known packets of one block. For a 1D block the
+            // linear thread index is therefore already thread_id.x and the
+            // other components are identically zero. Keep the standalone
+            // packet ABI on the general decomposition because its caller may
+            // deliberately supply an arbitrary thread index; decomposing its
+            // overflow into y/z preserves block-boundary lane masking.
+            _result.linear_1d_thread_id_count++;
+            _thread_id[0u] = _linear_thread_indices;
+            _thread_id[1u] = splat_u32(0u);
+            _thread_id[2u] = _thread_id[1u];
+        } else {
+            _thread_id[0u] = _builder.CreateAnd(
+                _linear_thread_indices,
+                splat_u32(_static_block_size[0u] - 1u),
+                "thread.id.x");
+            auto *yz = _builder.CreateLShr(
+                _linear_thread_indices,
+                splat_u32(exact_log2(_static_block_size[0u])),
+                "thread.id.yz");
+            _thread_id[1u] = _builder.CreateAnd(
+                yz, splat_u32(_static_block_size[1u] - 1u),
+                "thread.id.y");
+            _thread_id[2u] = _builder.CreateLShr(
+                yz, splat_u32(exact_log2(_static_block_size[1u])),
+                "thread.id.z");
+        }
     } else {
         auto *x_size = _builder.CreateVectorSplat(
             _width, _block_size[0u]);

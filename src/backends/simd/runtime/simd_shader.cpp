@@ -278,6 +278,10 @@ SIMDShader::SIMDShader(
             "convergence_token_guards={}, "
             "return_frame_guards={}, "
             "direct_divergent_children={}, "
+            "unit_dimension_mask_elisions={}, "
+            "linear_1d_thread_ids={}, "
+            "linear_1d_packet_tail_narrowings={}, "
+            "linear_1d_block_coalescings={}, "
             "direct_control_flow={}, "
             "schedule_blocks={}, convergence_points={}, "
             "scalar_frame_metadata={}, "
@@ -341,6 +345,10 @@ SIMDShader::SIMDShader(
             _compiled.convergence_token_guard_count,
             _compiled.return_frame_guard_count,
             _compiled.direct_divergent_child_count,
+            _compiled.unit_dimension_mask_elision_count,
+            _compiled.linear_1d_thread_id_count,
+            _compiled.linear_1d_packet_tail_narrowing_count,
+            _compiled.linear_1d_block_coalescing_count,
             _compiled.direct_control_flow,
             _compiled.schedule_block_count,
             _compiled.convergence_point_count,

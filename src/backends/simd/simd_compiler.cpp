@@ -249,6 +249,14 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.return_frame_guard_count;
     result.direct_divergent_child_count =
         llvm_result.direct_divergent_child_count;
+    result.unit_dimension_mask_elision_count =
+        llvm_result.unit_dimension_mask_elision_count;
+    result.linear_1d_thread_id_count =
+        llvm_result.linear_1d_thread_id_count;
+    result.linear_1d_packet_tail_narrowing_count =
+        llvm_result.linear_1d_packet_tail_narrowing_count;
+    result.linear_1d_block_coalescing_count =
+        llvm_result.linear_1d_block_coalescing_count;
     result.direct_control_flow = llvm_result.direct_control_flow;
     auto llvm_entry_name = llvm_result.entry->getName().str();
     auto llvm_packet_batch_entry_name =
