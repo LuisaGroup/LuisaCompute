@@ -17,6 +17,7 @@ struct PredicatedIfConversionInfo {
     size_t removed_forwarding_block_count{0u};
     size_t widened_update_diamond_count{0u};
     size_t wide_select_ladder_diamond_count{0u};
+    size_t ray_query_filter_diamond_count{0u};
 
     [[nodiscard]] bool changed() const noexcept {
         return if_conversion.changed() ||
@@ -38,6 +39,7 @@ struct PredicatedIfConversionInfo {
     bool enable_refinement = true,
     size_t max_speculation_cost = 12u,
     bool enable_widened_updates = false,
-    bool enable_wide_select_ladder = false) noexcept;
+    bool enable_wide_select_ladder = false,
+    bool enable_ray_query_filter = false) noexcept;
 
 }// namespace luisa::compute::simd::schedule

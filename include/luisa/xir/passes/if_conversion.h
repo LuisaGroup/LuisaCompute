@@ -36,6 +36,11 @@ struct IfConversionOptions {
     // Integer division and every remainder operation remain ineligible.
     bool allow_speculative_float_division{false};
 
+    // A fully constant, verifier-valid aggregate extraction cannot address an
+    // invalid element. Keep it opt-in because generic callers may intentionally
+    // retain aggregate accesses behind control flow for target cost reasons.
+    bool allow_speculative_static_extract{false};
+
     // Optional target policy. Structural and speculation-safety checks remain
     // inside the pass; the filter can reject otherwise valid candidates (for
     // example, a SIMD backend retaining warp-uniform scalar control flow).

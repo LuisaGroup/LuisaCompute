@@ -6658,6 +6658,252 @@ struct RayQueryStatusProbe {
     return true;
 }
 
+struct RayQueryFilterProbe {
+    uint32_t calls{0u};
+    uint32_t expected_lane_count{0u};
+    SIMDHostAccelRayQueryProceed *expected_proceed{nullptr};
+    bool valid{true};
+};
+
+void ray_query_filter_probe_impl(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    auto *first_state = static_cast<SIMDHostRayQueryState *>(nullptr);
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if (states[lane] != nullptr) {
+            first_state = states[lane];
+            break;
+        }
+    }
+    if (first_state == nullptr) { return; }
+    auto *probe = static_cast<RayQueryFilterProbe *>(first_state->accel);
+    probe->calls++;
+    probe->valid &= lane_count == probe->expected_lane_count;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        auto active =
+            (active_mask_bits & (uint64_t{1u} << lane)) != 0u;
+        if (!active) {
+            probe->valid &= states[lane] == nullptr;
+            continue;
+        }
+        auto *state = states[lane];
+        auto valid_state =
+            state != nullptr && state->accel == probe &&
+            state->proceed == probe->expected_proceed &&
+            std::isfinite(state->world_ray[0u]) &&
+            state->world_ray[0u] >= 0.0f;
+        probe->valid &= valid_state;
+        if (!valid_state) { continue; }
+        if (state->terminated != 0u) {
+            state->candidate_kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::none);
+            continue;
+        }
+        auto index = static_cast<uint32_t>(state->world_ray[0u]);
+        probe->valid &= state->world_ray[0u] ==
+                        static_cast<float>(index);
+        auto phase_even = ((index / 3u) & 1u) == 0u;
+        auto instance = index % 3u == 0u ? 6u :
+                        index % 3u == 1u ? 5u :
+                                           99u;
+        state->candidate = SIMDHostRayQuerySurfaceHit{
+            .inst = instance,
+            .prim = index,
+            .bary = {
+                phase_even ? 0.04f : 0.08f,
+                phase_even ? 0.05f : 0.15f},
+            .t = 1.0f,
+        };
+        state->candidate_kind = static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::surface);
+        state->candidate_committed = 0u;
+        state->terminated = 0u;
+    }
+}
+
+void ray_query_filter_plain_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    ray_query_filter_probe_impl(
+        lane_count, active_mask_bits, states);
+}
+
+[[nodiscard]] uint64_t ray_query_filter_status_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    ray_query_filter_probe_impl(
+        lane_count, active_mask_bits, states);
+    return simd_host_ray_query_pack_status(
+        lane_count, active_mask_bits, states);
+}
+
+[[nodiscard]] bool run_ast_ray_query_filter_predication() {
+    static constexpr auto count = uint32_t{13u};
+    Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        static_cast<void>(
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        auto hit = candidate.hit();
+                        Bool valid = def(true);
+                        $if (hit.inst == 6u) {
+                            valid = fract(6.0f * hit.bary.y) < 0.6f;
+                        }
+                        $elif (hit.inst == 5u) {
+                            valid = fract(10.0f * hit.bary.x) < 0.5f;
+                        };
+                        output.write(index, cast<uint>(valid));
+                        candidate.terminate();
+                    })
+                .trace());
+    };
+
+    auto compile = [&](uint32_t width, bool disable) {
+        ScopedEnvironmentVariable force{
+            "LUISA_SIMD_FORCE_RAY_QUERY_FILTER_PREDICATION",
+            width != 1u && width != 8u ? "1" : nullptr};
+        ScopedEnvironmentVariable oracle{
+            "LUISA_SIMD_DISABLE_RAY_QUERY_FILTER_PREDICATION",
+            disable ? "1" : nullptr};
+        return compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_ray_query_filter_w" +
+                std::to_string(width) +
+                (disable ? "_oracle" : "_candidate"),
+            false, width == 8u);
+    };
+
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        SIMDHostBufferView output;
+    };
+    auto execute = [&](const SIMDCompiledKernel &compiled,
+                       uint32_t width,
+                       std::array<uint32_t, 16u> &output) {
+        output.fill(0xdeadbeefu);
+        RayQueryFilterProbe probe{
+            .expected_lane_count = width,
+            .expected_proceed = ray_query_filter_plain_probe,
+        };
+        SIMDHostAccelInstanceTable instance_table{
+            .ray_query_proceed_status =
+                ray_query_filter_status_probe,
+            .ray_query_proceed_wide_status =
+                ray_query_filter_status_probe,
+        };
+        Arguments arguments{
+            .accel = {
+                .accel = &probe,
+                .instances = &instance_table,
+                .ray_query_proceed =
+                    ray_query_filter_plain_probe,
+                .ray_query_proceed_wide =
+                    ray_query_filter_plain_probe,
+            },
+            .output = {output.data(), sizeof(output)},
+        };
+        CHECK(compiled.argument_buffer_size == sizeof(Arguments));
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto *entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < count;
+             first += width) {
+            config.thread_index = first;
+            entry(&arguments, nullptr, &config, width);
+        }
+        CHECK(probe.valid);
+        CHECK(probe.calls ==
+              2u * ((count + width - 1u) / width));
+        return true;
+    };
+
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        auto candidate = compile(width, false);
+        auto oracle = compile(width, true);
+        if (!candidate.succeeded() || !oracle.succeeded()) {
+            for (auto *compiled : {&candidate, &oracle}) {
+                for (auto &&diagnostic : compiled->diagnostics) {
+                    std::cerr << diagnostic << '\n';
+                }
+            }
+            return false;
+        }
+        auto expected_diamonds = width == 1u ? 0u : 2u;
+        CHECK(candidate.predicated_ray_query_filter_diamond_count ==
+              expected_diamonds);
+        CHECK(oracle.predicated_ray_query_filter_diamond_count == 0u);
+        CHECK(candidate.predicated_diamond_count ==
+              oracle.predicated_diamond_count + expected_diamonds);
+        if (width == 8u) {
+            CHECK(candidate.schedule_block_count <
+                  oracle.schedule_block_count);
+            CHECK(candidate.convergence_point_count <
+                  oracle.convergence_point_count);
+            CHECK(candidate.state_slot_count <= oracle.state_slot_count);
+            if (candidate.target_triple.starts_with("x86_64")) {
+                CHECK(candidate.assembly.size() <
+                      oracle.assembly.size());
+            }
+        }
+        std::array<uint32_t, 16u> candidate_output{};
+        std::array<uint32_t, 16u> oracle_output{};
+        CHECK(execute(candidate, width, candidate_output));
+        CHECK(execute(oracle, width, oracle_output));
+        CHECK(std::memcmp(
+                  candidate_output.data(), oracle_output.data(),
+                  sizeof(candidate_output)) == 0);
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto phase_even = ((index / 3u) & 1u) == 0u;
+            auto expected = index % 3u == 2u || phase_even;
+            CHECK(candidate_output[index] == expected);
+        }
+        for (auto index = count; index < candidate_output.size();
+             index++) {
+            CHECK(candidate_output[index] == 0xdeadbeefu);
+        }
+    }
+
+    // An equal-shaped filter on SurfaceHit::prim is semantically safe but is
+    // outside the measured instance-ID specialization and must fail closed.
+    Kernel1D wrong_member = [](
+                                AccelVar accel,
+                                BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        static_cast<void>(
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        auto hit = candidate.hit();
+                        Bool valid = def(true);
+                        $if (hit.prim == 6u) {
+                            valid = fract(6.0f * hit.bary.y) < 0.6f;
+                        }
+                        $elif (hit.prim == 5u) {
+                            valid = fract(10.0f * hit.bary.x) < 0.5f;
+                        };
+                        output.write(index, cast<uint>(valid));
+                        candidate.terminate();
+                    })
+                .trace());
+    };
+    auto wrong = compile_simd_kernel(
+        wrong_member.function()->function(), 8u,
+        "simd_ast_ray_query_filter_wrong_member");
+    CHECK(wrong.succeeded());
+    CHECK(wrong.predicated_ray_query_filter_diamond_count == 0u);
+    return true;
+}
+
 [[nodiscard]] uint64_t ray_query_status_probe_impl(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states) {
@@ -10218,6 +10464,8 @@ int main() {
         {"XIR ray-query packet callback",
          &run_ray_query_packet_codegen},
         {"ray-query status packing", &run_ray_query_status_pack},
+        {"AST ray-query filter predication",
+         &run_ast_ray_query_filter_predication},
         {"XIR ray-query status cache",
          &run_ray_query_status_cache_codegen},
         {"sequential ray-query scratch coloring",

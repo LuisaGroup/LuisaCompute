@@ -26,6 +26,12 @@ select/Phi forwarding ladder at W4/W8, exposing one additional small varying
 diamond without applying a whole-function CFG cleanup. A measured W8-only
 follow-up permits one further `float3` ladder layer while W4 retains the
 original cost boundary.
+The current ray-query control stage if-converts only the exact W8 cutout
+instance-filter ladder inside an already active surface handler. Static
+aggregate extracts receive an independent bounds/type proof; query traversal,
+candidate payload reads, commits, termination, and memory remain under the
+ordinary scheduler. A broader whole-query-loop prototype and an extra select-
+factoring experiment were rejected by real-renderer measurements.
 The newest memory stage independently applies ISPC's bounded-gather lesson to
 one much narrower Luisa pattern: eligible W8 direct typed-buffer vectors pack
 adjacent 32-bit leaves into legal 64-bit LLVM masked gathers. TargetTransformInfo
@@ -3437,3 +3443,120 @@ sites. The ten-round W8 and twenty-round W16 matched analytic comparisons,
 final-object audit, and three-repeat hardware counters are recorded in the
 structured-loop section above; all generated artifacts remain outside the
 repository.
+
+## W8 ray-query cutout-filter predication
+
+The next experiment targeted the repository's real cutout renderer rather than
+the analytic path control. Predicating the complete lowered ray-query loop was
+rejected. In ten alternating 64-spp process pairs, W8 candidate/oracle reached
+0.979629x [0.974575, 0.984709], and W16 reached 0.972440x
+[0.963077, 0.981893]. W8 hardware counters explained the regression: despite
+fewer static/dynamic branches, cycles increased 1.74%, L1D loads 3.51%, and
+L1D load misses 6.13%. Extending both handler payload paths kept too much of the
+large AoS query state live. The production implementation therefore does not
+predicate a query loop, payload read, commit, terminate, callback, or memory
+operation.
+
+The retained transform is an exact XIR-side filter specialization. It proves
+all aggregate extraction indices constant, nonnegative, in-bounds, and type-
+correct, then accepts only the nested `SurfaceHit::inst` cutout ladder described
+in the design and execution contract. The two real query sites produce four
+W8 conversions. A forced W16 ten-pair control was neutral at 0.999825x
+[0.994087, 1.005596], so production remains W8-only. Factoring the two
+speculated `fract` paths through an additional select was also rejected:
+1.001027x [0.992321, 1.009809], with no stable evidence of a gain.
+
+The final W8 candidate/oracle code-shape comparison is:
+
+| metric | filter predication | disabled oracle |
+| --- | ---: | ---: |
+| dedicated filter diamonds | 4 | 0 |
+| Schedule blocks | 57 | 67 |
+| convergence points | 15 | 19 |
+| logical state slots | 48 | 50 |
+| assembly bytes | 289,473 | 319,880 |
+| static instructions | 5,301 | 5,910 |
+| vector instructions | 3,153 | 3,341 |
+| branches | 476 | 582 |
+| calls | 5 | 5 |
+| stack references | 1,287 | 1,348 |
+| recognized stack allocation | 19,712 B | 20,352 B |
+| scalar math calls | 0 | 0 |
+
+Thus the narrow transform removes ten Schedule blocks, four convergence
+points, two state slots, 609 static instructions, and 106 branches without
+duplicating the query callback boundary. Fresh candidate and oracle objects
+have no undefined symbol (`nm -u` is empty), and neither assembly contains a
+scalar f32 libm call.
+
+The final throughput gate used the Release build, W8, 30 workers pinned to
+logical CPUs `0-12,14-28,30-31`, 64 samples at one sample per dispatch, and a
+new JIT process for every entry. Candidate and disabled-oracle order alternated
+per pair. Because unrelated machine activity was present, the measurement was
+split and reported rather than selecting only the favorable run:
+
+| balanced process set | candidate median | oracle median | candidate/oracle paired geomean | 95% bootstrap CI | wins |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| first 15 final pairs | 44.757 FPS | 44.567 FPS | 1.002342x | [0.997166, 1.007817] | 8/15 |
+| following 20 final pairs | 45.058 FPS | 44.796 FPS | 1.004746x | [1.001735, 1.007572] | 15/20 |
+| complete final 35 pairs | 44.930 FPS | 44.778 FPS | **1.003715x** | **[1.000851, 1.006571]** | 23/35 |
+| final plus earlier compatible 10 pairs | -- | -- | **1.004665x** | **[1.002075, 1.007287]** | 31/45 |
+
+The primary claim is therefore a small 0.37% gain in the fresh 35-pair batch,
+not the earlier batch's larger result. All seventy final rendered PNGs have the
+same SHA-256,
+`ad97b2a0e41cab86019e7def16f0bd8d63007e640eb4a468d2b71c09a9e74eda`.
+
+Four additional alternating 256-spp `perf stat` pairs give the following
+candidate/oracle ratios. Counter runs were multiplexed at approximately 83%,
+so the paired ratios, rather than their absolute scaled totals, are the useful
+evidence:
+
+| process metric | candidate/oracle | change |
+| --- | ---: | ---: |
+| FPS | 1.003417x | +0.34% |
+| cycles | 0.992568x | -0.74% |
+| instructions | 0.993352x | -0.66% |
+| branches | 0.989617x | -1.04% |
+| branch misses | 0.974477x | -2.55% |
+| L1D loads | 0.998808x | -0.12% |
+| L1D load misses | 0.930735x | -6.93% |
+
+The permanent differential JIT regression compiles and executes the exact
+query/filter shape at W1/W2/W4/W8/W16. W2/W4/W16 use the diagnostic force;
+W8 exercises production policy; W1 must remain scalar. Candidate and disabled
+oracle consume tall, short, and unrelated instance candidates through the
+plain/packed-status query ABI, execute a 13-element inactive tail, and compare
+all sixteen output slots exactly. A `SurfaceHit::prim` lookalike must report
+zero dedicated conversions. The target-independent XIR test separately keeps
+dynamic extraction ineligible and proves that an explicitly enabled nested
+structure/vector static extraction is accepted.
+
+Fresh production applicability and reference-image checks cover all five
+widths. Only cutout W8 reports dedicated sites (four); cutout W1/W2/W4/W16 and
+every image-processing, Voxel, ordinary path-tracing, and non-coroutine SDF
+kernel report zero. All reference comparisons pass:
+
+| gallery | W1/W2/W4/W8/W16 RGB PSNR |
+| --- | --- |
+| image processing | 89.251953 dB at every width |
+| Voxel | 82.834519 dB at every width |
+| ordinary 1024-spp path tracing | 35.426795 / 42.781582 / 40.940376 / 39.219305 / 37.801771 dB |
+| cutout 1024-spp path tracing | 39.100980 / 39.738460 / 39.667107 / 39.576002 / 39.476901 dB |
+| non-coroutine 1024-spp SDF | 63.129346 dB at every width |
+
+Every path process reports Embree 4.4.1 native W4/W8/W16 packet support. All
+logs, counters, objects, assemblies, and rendered images remain under `/tmp`;
+no checked-in reference was regenerated or modified.
+
+Final validation used both Release build trees after a complete (not
+target-only) build. `build-sdf-bench` and `build-sdf-tbb` each pass the required
+native-math/runtime-width gate 3/3, the scheduler JIT executable including the
+new ray-query differential case, and the XIR mutation-safety executable (185
+assertions in 28 tests). Each tree then passes its complete CTest inventory
+140/140 and a separately repeated SIMD-labelled conformance gate 35/35,
+covering scheduler, LLVM, runtime, accel, bindless, atomic, local-memory, and
+graphics tests. The six changed translation units pass the project clangd
+syntax checker, its Python harness passes 13/13, LLVM 22.1.8
+`clang-format --dry-run --Werror` passes every changed C++ source and header,
+and `git diff --check` is clean.

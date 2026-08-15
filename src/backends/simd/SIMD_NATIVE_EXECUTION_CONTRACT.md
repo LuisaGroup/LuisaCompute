@@ -419,6 +419,10 @@ forwarding, while
 restores the W8 speculation-cost ceiling from sixteen to twelve;
 `LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE=1` disables the separately
 costed one-sided update policy at W2/W4/W8/W16;
+`LUISA_SIMD_DISABLE_RAY_QUERY_FILTER_PREDICATION=1` restores the scheduled
+cutout-filter diamonds, while
+`LUISA_SIMD_FORCE_RAY_QUERY_FILTER_PREDICATION=1` bypasses only their W8
+profitability gate for semantic tests;
 `LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE=1` restores derived successor masks on
 runtime-coherent varying branches and switches;
 `LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD=1` restores the explicit LIFO
@@ -615,7 +619,53 @@ division requires the explicit option and integer division remains
 ineligible. The execution fixture also speculates a zero denominator in a
 formerly untaken lane and proves that its selected output is unchanged.
 
-#### 4.4.1 Predicated direct-memory diamond
+#### 4.4.1 Static-extract ray-query filter refinement
+
+The generic XIR if-conversion safety set may include `EXTRACT` only when its
+caller explicitly enables `allow_speculative_static_extract`. The pass decodes
+every index as a nonnegative integer constant, checks it at each array, vector,
+matrix, or structure level, and requires the final walked type to equal the
+instruction result type. Failure at any level rejects the diamond atomically.
+The option remains false for every ordinary target-independent pipeline. A
+dynamic extraction is never accepted, and proving an extraction total does not
+authorize speculation of its aggregate producer.
+
+The SIMD ray-query policy is narrower still. Its condition is varying and must
+be `SurfaceHit::inst == constant` (in either operand order), where member zero
+is extracted directly from one
+`RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT` read. Both unannotated plain arms have
+one direct common merge and exactly the measured `(0, 5)` or `(5, 8)`
+nonterminator counts. Arm instructions may contain only bounded static extracts
+from that same hit, floating multiply, less/equal comparison, `fract`, and
+select; at least one `fract` is present and exactly one Boolean PHI differs at
+the merge. The generic predecessor, metadata, live-out, type, purity, and
+speculation-cost checks are then reapplied. A different hit field/root, dynamic
+index, memory operation, call, query operation, or side effect retains the
+original CFG.
+
+The candidate-hit read remains inside its original surface-handler execution
+domain. Its masked gathers already supply zero to inactive physical lanes
+before the newly hoisted extracts or arithmetic execute. For every active lane
+whose original branch chose one filter arm, the final select observes exactly
+that arm's Boolean result. Arithmetic from the other arm may produce ordinary
+IEEE NaN/Inf values, but it cannot trap, form an invalid address, mutate query
+state, or become observable. This does not extend the accepted input domain or
+change `fract`, NaN, Inf, signed-zero, or subnormal semantics on the selected
+path. Commit, terminate, and `proceed` ordering are unchanged.
+
+Production enables the policy only at W8 and attempts at most three conversion
+rounds. `LUISA_SIMD_DISABLE_RAY_QUERY_FILTER_PREDICATION=1` restores the
+original scheduler path in the same binary.
+`LUISA_SIMD_FORCE_RAY_QUERY_FILTER_PREDICATION=1` bypasses only the width gate;
+all semantic checks remain mandatory. The optimization report counter is
+`predicated_ray_query_filter_diamonds`. Permanent execution compiles candidate
+and oracle at W1/W2/W4/W8/W16, forces nonproduction widths, executes a
+13-element dispatch with inactive tails, supplies tall/short/other candidates
+through both plain and packed-status query ABIs, and requires bit-identical
+outputs and untouched inactive sentinels. A `SurfaceHit::prim` lookalike and a
+dynamic XIR extraction fail closed.
+
+#### 4.4.2 Predicated direct-memory diamond
 
 Schedule-to-LLVM may also straighten a small varying diamond containing direct
 typed-buffer reads. This is separate from the XIR transformation above: memory

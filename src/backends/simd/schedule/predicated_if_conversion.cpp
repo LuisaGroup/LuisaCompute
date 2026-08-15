@@ -2,10 +2,12 @@
 
 #include <luisa/ast/type.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/ray_query.h>
 
 #include <algorithm>
 
@@ -168,6 +170,207 @@ namespace {
         differing_float3_phis++;
     }
     return differing_float3_phis == 1u;
+}
+
+[[nodiscard]] const xir::RayQueryObjectReadInst *
+triangle_candidate_hit_root(const xir::Value *value) noexcept {
+    while (value != nullptr && value->isa<xir::ArithmeticInst>()) {
+        auto *arithmetic = static_cast<
+            const xir::ArithmeticInst *>(value);
+        if (arithmetic->op() != xir::ArithmeticOp::EXTRACT ||
+            arithmetic->operand_count() < 2u ||
+            arithmetic->operand(0u) == nullptr) {
+            break;
+        }
+        auto *current_type = arithmetic->operand(0u)->type();
+        for (auto i = size_t{1u};
+             i < arithmetic->operand_count(); i++) {
+            auto index = uint64_t{0u};
+            if (current_type == nullptr ||
+                !xir::try_decode_constant_nonnegative_integer(
+                    arithmetic->operand(i), index)) {
+                return nullptr;
+            }
+            switch (current_type->tag()) {
+                case Type::Tag::ARRAY:
+                case Type::Tag::VECTOR:
+                    if (index >= current_type->dimension()) {
+                        return nullptr;
+                    }
+                    current_type = current_type->element();
+                    break;
+                case Type::Tag::MATRIX:
+                    if (index >= current_type->dimension()) {
+                        return nullptr;
+                    }
+                    current_type = Type::vector(
+                        current_type->element(),
+                        current_type->dimension());
+                    break;
+                case Type::Tag::STRUCTURE:
+                    if (index >= current_type->members().size()) {
+                        return nullptr;
+                    }
+                    current_type = current_type->members()[static_cast<size_t>(index)];
+                    break;
+                default: return nullptr;
+            }
+        }
+        if (current_type != arithmetic->type()) { return nullptr; }
+        value = arithmetic->operand(0u);
+    }
+    if (value == nullptr ||
+        !value->isa<xir::RayQueryObjectReadInst>()) {
+        return nullptr;
+    }
+    auto *read = static_cast<
+        const xir::RayQueryObjectReadInst *>(value);
+    return read->op() ==
+                   xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT ?
+               read :
+               nullptr;
+}
+
+[[nodiscard]] const xir::RayQueryObjectReadInst *
+triangle_candidate_instance_root(const xir::Value *value) noexcept {
+    if (value == nullptr || !value->isa<xir::ArithmeticInst>()) {
+        return nullptr;
+    }
+    auto *extract = static_cast<const xir::ArithmeticInst *>(value);
+    auto member = uint64_t{0u};
+    if (extract->op() != xir::ArithmeticOp::EXTRACT ||
+        extract->operand_count() != 2u ||
+        extract->type() == nullptr ||
+        !extract->type()->is_uint32() ||
+        !xir::try_decode_constant_nonnegative_integer(
+            extract->operand(1u), member) ||
+        member != 0u) {
+        return nullptr;
+    }
+    // SurfaceHit member zero is the public instance identifier. Requiring a
+    // direct extraction prevents an equal-shaped prim/bary/t predicate from
+    // accidentally selecting this workload-specific cost policy.
+    auto *root = extract->operand(0u);
+    if (root == nullptr ||
+        !root->isa<xir::RayQueryObjectReadInst>()) {
+        return nullptr;
+    }
+    return triangle_candidate_hit_root(root);
+}
+
+[[nodiscard]] bool is_ray_query_filter_candidate(
+    const xir::ConditionalBranchInst *branch,
+    const void *context) noexcept {
+    if (!is_varying_candidate(branch, context)) { return false; }
+    auto *condition = branch->condition();
+    if (condition == nullptr ||
+        !condition->isa<xir::ArithmeticInst>()) {
+        return false;
+    }
+    auto *condition_arithmetic = static_cast<
+        const xir::ArithmeticInst *>(condition);
+    if (condition_arithmetic->op() !=
+            xir::ArithmeticOp::BINARY_EQUAL ||
+        condition_arithmetic->operand_count() != 2u) {
+        return false;
+    }
+    auto *query_hit = triangle_candidate_instance_root(
+        condition_arithmetic->operand(0u));
+    auto *constant = condition_arithmetic->operand(1u);
+    if (query_hit == nullptr) {
+        query_hit = triangle_candidate_instance_root(
+            condition_arithmetic->operand(1u));
+        constant = condition_arithmetic->operand(0u);
+    }
+    if (query_hit == nullptr || constant == nullptr ||
+        !constant->isa<xir::Constant>()) {
+        return false;
+    }
+
+    auto *true_block = branch->true_block();
+    auto *false_block = branch->false_block();
+    if (true_block == nullptr || false_block == nullptr ||
+        !true_block->is_terminated() ||
+        !false_block->is_terminated() ||
+        !true_block->terminator()->isa<xir::BranchInst>() ||
+        !false_block->terminator()->isa<xir::BranchInst>()) {
+        return false;
+    }
+    auto *true_merge = static_cast<const xir::BranchInst *>(
+                           true_block->terminator())
+                           ->target_block();
+    auto *false_merge = static_cast<const xir::BranchInst *>(
+                            false_block->terminator())
+                            ->target_block();
+    if (true_merge == nullptr || true_merge != false_merge) {
+        return false;
+    }
+    auto true_count = instruction_count(true_block);
+    auto false_count = instruction_count(false_block);
+    auto smaller = std::min(true_count, false_count);
+    auto larger = std::max(true_count, false_count);
+    if (!((smaller == 0u && larger == 5u) ||
+          (smaller == 5u && larger == 8u))) {
+        return false;
+    }
+
+    auto saw_fract = false;
+    auto validate_arm = [&](const xir::BasicBlock *arm) noexcept {
+        for (auto *instruction : arm->instructions()) {
+            if (instruction->is_terminator()) { continue; }
+            if (!instruction->isa<xir::ArithmeticInst>()) {
+                return false;
+            }
+            auto *arithmetic = static_cast<
+                const xir::ArithmeticInst *>(instruction);
+            switch (arithmetic->op()) {
+                case xir::ArithmeticOp::EXTRACT:
+                    if (triangle_candidate_hit_root(arithmetic) !=
+                        query_hit) {
+                        return false;
+                    }
+                    break;
+                case xir::ArithmeticOp::BINARY_MUL:
+                case xir::ArithmeticOp::BINARY_LESS:
+                case xir::ArithmeticOp::BINARY_EQUAL:
+                case xir::ArithmeticOp::SELECT: break;
+                case xir::ArithmeticOp::FRACT:
+                    saw_fract = true;
+                    break;
+                default: return false;
+            }
+        }
+        return true;
+    };
+    if (!validate_arm(true_block) ||
+        !validate_arm(false_block) || !saw_fract) {
+        return false;
+    }
+
+    auto differing_bool_phis = size_t{0u};
+    for (auto *instruction : true_merge->instructions()) {
+        if (!instruction->isa<xir::PhiInst>()) { continue; }
+        auto *phi = static_cast<const xir::PhiInst *>(instruction);
+        auto *true_value = static_cast<const xir::Value *>(nullptr);
+        auto *false_value = static_cast<const xir::Value *>(nullptr);
+        for (auto i = size_t{0u}; i < phi->incoming_count(); i++) {
+            auto incoming = phi->incoming(i);
+            if (incoming.block == true_block) {
+                true_value = incoming.value;
+            } else if (incoming.block == false_block) {
+                false_value = incoming.value;
+            }
+        }
+        if (true_value == nullptr || false_value == nullptr ||
+            true_value == false_value) {
+            continue;
+        }
+        if (phi->type() == nullptr || !phi->type()->is_bool()) {
+            return false;
+        }
+        differing_bool_phis++;
+    }
+    return differing_bool_phis == 1u;
 }
 
 [[nodiscard]] xir::BasicBlock *single_predecessor(
@@ -371,7 +574,8 @@ PredicatedIfConversionInfo predicate_small_varying_diamonds(
     xir::Function *function, bool enable_refinement,
     size_t max_speculation_cost,
     bool enable_widened_updates,
-    bool enable_wide_select_ladder) noexcept {
+    bool enable_wide_select_ladder,
+    bool enable_ray_query_filter) noexcept {
     PredicatedIfConversionInfo result;
     auto accumulate = [&](const xir::IfConversionInfo &converted) noexcept {
         result.if_conversion.converted_diamond_count +=
@@ -383,6 +587,42 @@ PredicatedIfConversionInfo predicate_small_varying_diamonds(
         result.if_conversion.structured_cfg_error_count +=
             converted.structured_cfg_error_count;
     };
+    if (enable_ray_query_filter) {
+        static constexpr auto max_ray_query_filter_rounds = size_t{3u};
+        for (auto round = size_t{0u};
+             round < max_ray_query_filter_rounds; round++) {
+            WarpUniformityAnalysis uniformity;
+            uniformity.analyze(function);
+            auto previous_selects = collect_selects(function);
+            auto converted = xir::if_conversion_pass_run_on_function(
+                function,
+                {.max_arm_instruction_count = 8u,
+                 .max_total_instruction_count = 13u,
+                 .max_live_out_register_units = 1u,
+                 .max_speculation_cost = 64u,
+                 .allow_speculative_static_extract = true,
+                 .candidate_filter = is_ray_query_filter_candidate,
+                 .candidate_filter_context = &uniformity});
+            accumulate(converted);
+            result.ray_query_filter_diamond_count +=
+                converted.converted_diamond_count;
+            if (!converted.changed()) { break; }
+            auto generated_selects = collect_selects(function);
+            for (auto *select : previous_selects) {
+                generated_selects.erase(select);
+            }
+            auto collapsed = false;
+            for (auto forwarding = size_t{0u};
+                 forwarding < max_ray_query_filter_rounds * 2u &&
+                 collapse_select_phi_forwarder(
+                     function, generated_selects, result);
+                 forwarding++) {
+                collapsed = true;
+            }
+            result.refinement_round_count += collapsed;
+            if (!collapsed) { break; }
+        }
+    }
     if (enable_widened_updates) {
         WarpUniformityAnalysis uniformity;
         uniformity.analyze(function);

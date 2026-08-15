@@ -400,7 +400,12 @@ SIMDCompiledKernel compile_simd_kernel(
                 warp_width != 1u &&
                     !detail::env_flag(
                         "LUISA_SIMD_DISABLE_WIDENED_PREDICATED_UPDATE"),
-                enable_wide_refinement);
+                enable_wide_refinement,
+                (warp_width == 8u ||
+                 detail::env_flag(
+                     "LUISA_SIMD_FORCE_RAY_QUERY_FILTER_PREDICATION")) &&
+                    !detail::env_flag(
+                        "LUISA_SIMD_DISABLE_RAY_QUERY_FILTER_PREDICATION"));
     }
     if (predication_info.changed()) {
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));
@@ -456,6 +461,8 @@ SIMDCompiledKernel compile_simd_kernel(
         predication_info.widened_update_diamond_count;
     result.predicated_wide_select_ladder_diamond_count =
         predication_info.wide_select_ladder_diamond_count;
+    result.predicated_ray_query_filter_diamond_count =
+        predication_info.ray_query_filter_diamond_count;
     result.factored_select_count =
         predication_info.select_factoring.factored_select_count;
     result.unswitched_loop_count =

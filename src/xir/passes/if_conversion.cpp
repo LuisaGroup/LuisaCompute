@@ -2,6 +2,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/core/logging.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
@@ -16,6 +17,43 @@
 namespace luisa::compute::xir {
 
 namespace detail {
+
+[[nodiscard]] static bool is_total_static_extract(
+    const ArithmeticInst *extract) noexcept {
+    if (extract == nullptr ||
+        extract->op() != ArithmeticOp::EXTRACT ||
+        extract->operand_count() < 2u ||
+        extract->operand(0u) == nullptr) {
+        return false;
+    }
+    auto *current = extract->operand(0u)->type();
+    for (auto i = size_t{1u}; i < extract->operand_count(); i++) {
+        auto index = uint64_t{0u};
+        if (current == nullptr ||
+            !try_decode_constant_nonnegative_integer(
+                extract->operand(i), index)) {
+            return false;
+        }
+        switch (current->tag()) {
+            case Type::Tag::ARRAY:
+            case Type::Tag::VECTOR:
+                if (index >= current->dimension()) { return false; }
+                current = current->element();
+                break;
+            case Type::Tag::MATRIX:
+                if (index >= current->dimension()) { return false; }
+                current = Type::vector(
+                    current->element(), current->dimension());
+                break;
+            case Type::Tag::STRUCTURE:
+                if (index >= current->members().size()) { return false; }
+                current = current->members()[index];
+                break;
+            default: return false;
+        }
+    }
+    return current == extract->type();
+}
 
 [[nodiscard]] static bool is_speculation_safe(
     Instruction *inst,
@@ -45,6 +83,10 @@ namespace detail {
     if (!inst->isa<ArithmeticInst>()) { return false; }
     auto *arithmetic = static_cast<ArithmeticInst *>(inst);
     auto op = arithmetic->op();
+    if (op == ArithmeticOp::EXTRACT) {
+        return options.allow_speculative_static_extract &&
+               is_total_static_extract(arithmetic);
+    }
     if (op == ArithmeticOp::BINARY_DIV) {
         // Floating division is non-trapping on the supported XIR targets:
         // a zero divisor produces an IEEE Inf/NaN value. Keep it opt-in so

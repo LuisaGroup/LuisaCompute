@@ -350,6 +350,59 @@ all four widths; the exact distributions and assembly deltas are recorded in
 tracing, Voxel, and image-processing kernels currently produce zero widened
 updates, so this stage makes no performance claim for those examples.
 
+### W8 ray-query cutout-filter predication
+
+Predicating a complete stateful ray-query loop is not profitable. The query
+object is a large per-lane AoS record, and evaluating both handler paths extends
+the live range of gathered candidate fields even when the transformation
+removes branches. A measured whole-loop prototype reduced static instructions
+but increased L1 traffic and regressed W8/W16 cutout throughput. The retained
+refinement therefore leaves `proceed`, candidate-kind dispatch, commit,
+terminate, query storage, and every memory operation under the ordinary
+independent-PC scheduler. It converts only the small pure Boolean filter inside
+the already selected surface-candidate handler.
+
+The target-independent XIR if-conversion pass now has an opt-in
+`allow_speculative_static_extract` capability. An accepted `EXTRACT` must have
+constant nonnegative indices, remain in bounds while walking every array,
+vector, matrix, or structure level, and end at exactly the instruction result
+type. Dynamic indices and malformed paths remain ineligible. The default is
+false, so existing pass callers do not change policy; this proof also does not
+make the aggregate producer, a memory access, or a ray-query operation
+speculation-safe.
+
+The SIMD caller applies that capability only to an exact ray-query-filter
+shape. The varying branch predicate must compare a constant with a direct
+static extraction of member zero (`SurfaceHit::inst`) from
+`RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT`. Both plain arms must branch to one
+merge. Their nonterminator counts must be the measured inner `(0, 5)` or outer
+`(5, 8)` pair; every arm instruction is restricted to a total static
+candidate-hit extraction, multiply, comparison, `fract`, or select; at least
+one `fract` and exactly one differing Boolean PHI are required. Every candidate
+extract must resolve to the same query-hit read. A `prim`, barycentric, or
+distance predicate, a dynamic index, a different aggregate root, metadata that
+the generic pass cannot preserve, or any call/effect fails closed.
+
+At most three dedicated conversion/refinement rounds are attempted. Only
+select/Phi forwarding blocks produced by the immediately preceding round may
+be collapsed, under the existing metadata and edge-uniqueness proof. The
+generated arithmetic remains target-independent fixed-vector LLVM IR; no
+query payload is speculated and no target intrinsic is introduced.
+`predicated_ray_query_filter_diamonds` reports accepted sites.
+`LUISA_SIMD_DISABLE_RAY_QUERY_FILTER_PREDICATION=1` is the same-binary oracle,
+while `LUISA_SIMD_FORCE_RAY_QUERY_FILTER_PREDICATION=1` bypasses only the
+production width gate for regression/measurement. Production enables the rule
+only at W8: W16 was neutral, and the narrower widths have no demonstrated real-
+renderer gain.
+
+The cutout renderer contains two query sites and accepts four diamonds at W8.
+The permanent JIT regression independently covers one query site, W1/W2/W4/W8/
+W16, a 13-thread inactive tail, forced nonproduction widths, exact disabled-
+oracle output, and a `SurfaceHit::prim` near miss. The generic XIR pass also
+retains a dynamic-index rejection and a nested bounded-static-extract positive
+case. Final throughput, counter, assembly, and all-width gallery evidence is
+recorded in [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
+
 ### Innermost-loop local predicated regions
 
 Whole-loop predication is intentionally selective: a large loop with calls,
