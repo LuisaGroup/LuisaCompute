@@ -392,6 +392,8 @@ private:
         const schedule::Instruction &instruction);
     void _bindless_resource_write(
         const schedule::Instruction &instruction);
+    void _indirect_dispatch_write(
+        const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_bindless_resource_query(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_bindless_texture_read(

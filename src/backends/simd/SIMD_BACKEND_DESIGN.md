@@ -1211,7 +1211,33 @@ one block execute sequentially on the worker that claimed that block, while
 different blocks may execute in any order and concurrently. A dispatch joins
 all of its block jobs before the stream advances to the next command or invokes
 command-list callbacks. Multiple dispatch sizes in one command also remain
-ordered. `SIMDDeviceConfigExt::worker_count()` selects the pool size: zero uses
+ordered. Direct batched dispatches assign their zero-based command index to
+`kernel_id()`.
+
+Indirect dispatch buffers use the shared target-independent source ABI from
+`backends/common/indirect_dispatch_layout.h`: one count word followed by seven
+words per record (logical size, kernel id, and authored group count). The SIMD
+runtime owns and tags this physical allocation; capacity must be positive and
+fit the 32-bit record-index ABI, and external memory cannot impersonate the
+opaque resource. JIT authoring clamps the count to capacity and collapses the
+usual identical cohort writes to the first active lane, ignores out-of-range
+record indices, writes a zero group count for any zero block dimension, and
+uses masked fixed-vector stores. Inactive indices, block sizes, and logical
+sizes are selected to benign values before pointer formation or integer
+division.
+
+Because a SIMD stream joins each authoring kernel before advancing, the host
+consumer can read the records without an extra fence. It applies the common
+offset/maximum-count planner, interprets the authored count relative to the
+selected offset exactly like the Vulkan preparation kernel, rejects malformed
+backend handles/layouts, skips records with an invalid authored group count,
+and launches from the authoritative logical size with the authored
+`kernel_id()`. The target shader's own block size determines physical blocks;
+the writer's block size is only the portable validity proof. W1/W2/W4/W8/W16
+tests cover count clamping, out-of-range writes, a zero block dimension,
+partial tails, offset/maximum slicing, and kernel-id propagation.
+
+`SIMDDeviceConfigExt::worker_count()` selects the pool size: zero uses
 host hardware concurrency and one provides a serial diagnostic path. When the
 extension leaves the count at zero, `LUISA_SIMD_WORKER_COUNT=<positive integer>`
 provides a process-wide diagnostic/benchmark override; an explicit nonzero
@@ -3138,7 +3164,8 @@ on 2026-08-11. The repository now contains:
   local loads, promotes SSA storage, destructures CFG, and compiles a real DSL
   Buffer kernel through ORC;
 - a runnable `DeviceInterface` module with host buffers, 2D/3D textures,
-  streams, events, direct dispatch, and a public `SIMDDeviceConfigExt` that
+  streams, events, direct/batched/indirect dispatch, and a public
+  `SIMDDeviceConfigExt` that
   specializes every shader on the device to warp1/2/4/8/16 and selects the
   device worker count;
 - a W1/W2/W4/W8/W16 direct and bindless texture packet callback ABI with SoA
@@ -3223,7 +3250,9 @@ on 2026-08-11. The repository now contains:
   with a partial dispatch tail; dedicated bindless texture and arithmetic
   fixtures cover W1/W2/W4/W8/W16, divergent slots, 2D/3D sampling and reads,
   explicit samplers, invalid mip levels, uniform execution, and a three-lane
-  W16 tail.
+  W16 tail; the same five-width gate covers GPU-authored indirect records,
+  invalid-block suppression, range clamping, inactive tails, and direct or
+  indirect `kernel_id()` propagation.
 
 The next implementation boundary is completion of the remaining Embree
 vertical slice: nonidentity outer affine composition for SRT motion, deeper

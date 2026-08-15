@@ -10,6 +10,16 @@ SIMDBuffer::SIMDBuffer(size_t size_bytes) noexcept
     _data = luisa::allocate_with_allocator<std::byte>(_size);
 }
 
+SIMDBuffer::SIMDBuffer(
+    size_t size_bytes, size_t indirect_dispatch_capacity) noexcept
+    : _size{size_bytes},
+      _indirect_dispatch_capacity{indirect_dispatch_capacity} {
+    LUISA_ASSERT(
+        indirect_dispatch_capacity != 0u,
+        "SIMD indirect-dispatch buffer capacity must be positive.");
+    _data = luisa::allocate_with_allocator<std::byte>(_size);
+}
+
 SIMDBuffer::SIMDBuffer(std::byte *data, size_t size_bytes) noexcept
     : _data{data}, _size{size_bytes}, _external{true} {}
 

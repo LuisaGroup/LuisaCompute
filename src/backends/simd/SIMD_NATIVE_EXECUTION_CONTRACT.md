@@ -1291,6 +1291,41 @@ Codegen may select an implementation only if `C` is satisfied. A scalar C++
 callback is permitted for W1 or an explicitly documented sparse fallback; it
 is not completion for a normal W2/W4/W8/W16 path.
 
+Indirect dispatch uses the shared `IndirectDispatchLayout` source ABI. A
+backend-owned buffer contains one `uint32_t` authored-count word followed by
+capacity records of seven words: logical size xyz, kernel id, and authored
+group count xyz. Capacity is positive, no greater than `UINT32_MAX`, and cannot
+be supplied through external memory. The encoded shader argument remains the
+public logical capacity, while the SIMD packet ABI receives a view of the full
+header-plus-record allocation. A non-indirect backend buffer is not a valid
+source even if its bytes happen to match this layout.
+
+`INDIRECT_DISPATCH_SET_COUNT` clamps the selected active value to capacity and
+publishes it from the first active lane of the dynamic cohort; identical
+uniform writes therefore issue one store. Differing active values remain an
+unordered device data race.
+`INDIRECT_DISPATCH_SET_KERNEL` writes only active in-range indices. Logical
+size and kernel id are written for a valid index; a block size with any zero
+component publishes three zero group-count words, otherwise the authored group
+count is component-wise ceiling division. Before division or pointer
+formation, inactive indices, logical sizes, and block sizes are selected to
+zero, zero, and one respectively. Stores use the exact active-and-in-range
+mask. Conflicting active lanes or packets that author the same word remain an
+unordered device data race.
+
+The host consumer first applies `plan_indirect_dispatch(capacity, offset,
+maximum_count)`. It executes
+`min(planned_command_count, authored_count)` records beginning at `offset`;
+the authored count is relative to that host-selected range, matching the
+Vulkan preparation contract. A record with any zero authored group component
+is a no-op. Otherwise the consumer recomputes physical blocks from the logical
+size and the target shader's block size, and supplies the record's kernel id in
+the packet launch configuration. Authored group counts therefore validate the
+writer's block size but cannot under-dispatch a target with a different block
+size. Direct batched dispatch likewise assigns zero-based batch indices to
+`kernel_id()`. SIMD stream command ordering joins the authoring dispatch before
+host consumption, so no implicit asynchronous read is permitted.
+
 Direct texture reads and writes cross the JIT/runtime boundary once per
 packet, not once per lane. The packet ABI carries the active lanes as low bits
 of a `uint64_t`, coordinates as three `lane_count`-element SoA arrays, and a

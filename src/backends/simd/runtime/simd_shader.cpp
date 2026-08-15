@@ -20,6 +20,7 @@
 #include <luisa/core/logging.h>
 
 #include "../../common/env_flag.h"
+#include "../../common/indirect_dispatch_layout.h"
 #include "simd_bindless_array.h"
 #include "simd_accel.h"
 #include "simd_buffer.h"
@@ -409,7 +410,8 @@ void SIMDShader::_build_bound_arguments(
 
 void SIMDShader::_dispatch_once(
     SIMDThreadPool &thread_pool,
-    const void *argument_buffer, uint3 dispatch_size) const noexcept {
+    const void *argument_buffer, uint3 dispatch_size,
+    uint32_t kernel_id) const noexcept {
     auto block_size = _block_size;
     LUISA_ASSERT(
         block_size.x != 0u && block_size.y != 0u && block_size.z != 0u,
@@ -456,6 +458,7 @@ void SIMDShader::_dispatch_once(
                 config.block_size[0u] = block_size.x;
                 config.block_size[1u] = block_size.y;
                 config.block_size[2u] = block_size.z;
+                config.kernel_id = kernel_id;
                 for (auto warp = uint32_t{0u};
                      warp < warps_per_block; warp++) {
                     config.thread_index =
@@ -489,8 +492,19 @@ void SIMDShader::dispatch(
             case Argument::Tag::BUFFER: {
                 auto *buffer = reinterpret_cast<SIMDBuffer *>(
                     argument.buffer.handle);
-                auto view = buffer->view(
-                    argument.buffer.offset, argument.buffer.size);
+                auto view = buffer->is_indirect_dispatch_buffer() ?
+                                buffer->view(0u, buffer->size()) :
+                                buffer->view(
+                                    argument.buffer.offset,
+                                    argument.buffer.size);
+                if (buffer->is_indirect_dispatch_buffer()) {
+                    LUISA_ASSERT(
+                        argument.buffer.offset == 0u &&
+                            argument.buffer.size ==
+                                buffer->indirect_dispatch_capacity(),
+                        "SIMD indirect-dispatch shader argument has an "
+                        "invalid logical range.");
+                }
                 std::memcpy(
                     allocate(sizeof(view)), &view, sizeof(view));
                 break;
@@ -538,12 +552,89 @@ void SIMDShader::dispatch(
     auto *arguments = argument_buffer.empty() ? nullptr :
                                                 argument_buffer.data();
     if (command->is_indirect()) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Indirect SIMD dispatch is not implemented yet.");
+        auto indirect = command->indirect_dispatch();
+        LUISA_ASSERT(
+            indirect.handle != 0u,
+            "SIMD indirect dispatch has an invalid source handle.");
+        auto *source = reinterpret_cast<SIMDBuffer *>(indirect.handle);
+        LUISA_ASSERT(
+            source->is_indirect_dispatch_buffer(),
+            "SIMD indirect dispatch source is not a backend-owned "
+            "IndirectDispatchBuffer.");
+        auto plan = lc::plan_indirect_dispatch(
+            source->indirect_dispatch_capacity(),
+            indirect.offset, indirect.max_dispatch_size);
+        LUISA_ASSERT(
+            static_cast<bool>(plan),
+            "Invalid SIMD indirect-dispatch range: capacity {}, offset {}, "
+            "maximum count {}, planner error {}.",
+            source->indirect_dispatch_capacity(), indirect.offset,
+            indirect.max_dispatch_size,
+            static_cast<uint32_t>(plan.error));
+        size_t expected_size = 0u;
+        LUISA_ASSERT(
+            lc::IndirectDispatchLayout::try_total_size(
+                source->indirect_dispatch_capacity(), expected_size) &&
+                source->size() == expected_size,
+            "SIMD indirect-dispatch buffer has an invalid physical layout: "
+            "capacity {}, expected {} bytes, got {} bytes.",
+            source->indirect_dispatch_capacity(), expected_size,
+            source->size());
+        auto load_word = [&](size_t word) noexcept {
+            auto value = uint32_t{0u};
+            auto byte_offset = word *
+                               lc::IndirectDispatchLayout::word_size;
+            LUISA_ASSERT(
+                byte_offset <= source->size() &&
+                    sizeof(value) <= source->size() - byte_offset,
+                "SIMD indirect-dispatch record read is out of range.");
+            std::memcpy(
+                &value, source->data() + byte_offset,
+                sizeof(value));
+            return value;
+        };
+        auto command_count = std::min(
+            plan.plan.command_count, load_word(0u));
+        for (auto command_index = uint32_t{0u};
+             command_index < command_count; command_index++) {
+            auto source_index =
+                plan.plan.source_record_offset + command_index;
+            auto record = lc::IndirectDispatchLayout::record_word_offset(
+                source_index);
+            auto group_count = make_uint3(
+                load_word(
+                    record +
+                    lc::IndirectDispatchLayout::group_count_word),
+                load_word(
+                    record +
+                    lc::IndirectDispatchLayout::group_count_word + 1u),
+                load_word(
+                    record +
+                    lc::IndirectDispatchLayout::group_count_word + 2u));
+            if (any(group_count == 0u)) { continue; }
+            auto dispatch_size = make_uint3(
+                load_word(
+                    record +
+                    lc::IndirectDispatchLayout::logical_size_word),
+                load_word(
+                    record +
+                    lc::IndirectDispatchLayout::logical_size_word + 1u),
+                load_word(
+                    record +
+                    lc::IndirectDispatchLayout::logical_size_word + 2u));
+            auto kernel_id = load_word(
+                record + lc::IndirectDispatchLayout::kernel_id_word);
+            _dispatch_once(
+                thread_pool, arguments, dispatch_size, kernel_id);
+        }
+        return;
     }
     if (command->is_multiple_dispatch()) {
+        auto kernel_id = uint32_t{0u};
         for (auto dispatch_size : command->dispatch_sizes()) {
-            _dispatch_once(thread_pool, arguments, dispatch_size);
+            _dispatch_once(
+                thread_pool, arguments, dispatch_size,
+                kernel_id++);
         }
     } else {
         _dispatch_once(

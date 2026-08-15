@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstring>
 #include <cstdlib>
+#include <limits>
 #include <string_view>
 #include <thread>
 
@@ -16,7 +18,9 @@
 #include <luisa/core/platform.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/backends/ext/simd_config_ext.h>
+#include <luisa/runtime/dispatch_buffer.h>
 
+#include "../../common/indirect_dispatch_layout.h"
 #include "simd_bindless_array.h"
 #include "simd_accel.h"
 #include "simd_buffer.h"
@@ -182,6 +186,38 @@ BufferCreationInfo SIMDDevice::create_buffer(
     const Type *element, size_t elem_count,
     void *external_memory) noexcept {
     BufferCreationInfo info{};
+    if (element != nullptr && element->is_custom()) [[unlikely]] {
+        LUISA_ASSERT(
+            element == Type::of<IndirectKernelDispatch>(),
+            "Unsupported SIMD custom buffer element type '{}'.",
+            element->description());
+        LUISA_ASSERT(
+            external_memory == nullptr,
+            "SIMD indirect-dispatch buffers cannot wrap external memory: "
+            "their header/record ABI is backend-owned.");
+        LUISA_ASSERT(
+            elem_count != 0u &&
+                elem_count <= std::numeric_limits<uint32_t>::max(),
+            "SIMD indirect-dispatch buffer capacity {} is outside the "
+            "32-bit record-index ABI.",
+            elem_count);
+        size_t size_bytes = 0u;
+        LUISA_ASSERT(
+            lc::IndirectDispatchLayout::try_total_size(
+                elem_count, size_bytes),
+            "SIMD indirect-dispatch buffer size overflows for capacity {}.",
+            elem_count);
+        auto *buffer = luisa::new_with_allocator<SIMDBuffer>(
+            size_bytes, elem_count);
+        std::memset(
+            buffer->data(), 0,
+            lc::IndirectDispatchLayout::header_size);
+        info.handle = reinterpret_cast<uint64_t>(buffer);
+        info.native_handle = buffer->data();
+        info.element_stride = lc::IndirectDispatchLayout::record_size;
+        info.total_size_bytes = size_bytes;
+        return info;
+    }
     info.element_stride = element == Type::of<void>() ?
                               1u :
                               element->size();

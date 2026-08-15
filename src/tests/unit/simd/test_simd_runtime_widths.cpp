@@ -1,5 +1,6 @@
 #include "ut/ut.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <cstdlib>
@@ -13,7 +14,9 @@
 #endif
 
 #include <luisa/backends/ext/simd_config_ext.h>
+#include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/luisa-compute.h>
+#include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/dsl/sugar.h>
 
 using namespace luisa;
@@ -269,6 +272,84 @@ int main(int argc, char *argv[]) {
                        uint_image_input[i] +
                            make_uint4(5u, 7u, 11u, 13u)))
                 << "SIMD contiguous INT4 packet mismatch";
+        }
+
+        // Indirect dispatch uses a backend-owned header/record ABI. Author
+        // more records than the capacity to exercise masked out-of-range
+        // lanes and an inactive packet tail at every supported width. A zero
+        // block dimension deliberately invalidates record 2.
+        constexpr auto indirect_capacity = 7u;
+        auto indirect = device.create_indirect_dispatch_buffer(
+            indirect_capacity);
+        auto indirect_output = device.create_buffer<uint>(
+            indirect_capacity);
+        Kernel1D set_indirect_count = [](
+                                          Var<IndirectDispatchBuffer> buffer) noexcept {
+            set_block_size(32u, 1u, 1u);
+            buffer.set_dispatch_count(indirect_capacity + 5u);
+        };
+        Kernel1D write_indirect_records = [](
+                                              Var<IndirectDispatchBuffer> buffer) noexcept {
+            set_block_size(32u, 1u, 1u);
+            auto index = dispatch_x();
+            auto block_size = ite(
+                index == 2u,
+                make_uint3(0u, 1u, 1u),
+                make_uint3(8u, 1u, 1u));
+            buffer.set_kernel(
+                index, block_size,
+                make_uint3(index + 1u, 1u, 1u), index);
+        };
+        Kernel1D consume_indirect = [](
+                                        BufferUInt result) noexcept {
+            set_block_size(32u, 1u, 1u);
+            result.atomic(kernel_id()).fetch_add(dispatch_size().x);
+        };
+        auto set_indirect_count_shader = device.compile(
+            set_indirect_count);
+        auto write_indirect_records_shader = device.compile(
+            write_indirect_records);
+        auto consume_indirect_shader = device.compile(
+            consume_indirect);
+        luisa::vector<uint> indirect_host(
+            indirect_capacity, 0u);
+        stream << indirect_output.copy_from(
+                      luisa::span{indirect_host})
+               << set_indirect_count_shader(indirect).dispatch(width)
+               << write_indirect_records_shader(indirect).dispatch(
+                      indirect_capacity + 2u)
+               << consume_indirect_shader(indirect_output).dispatch(indirect, 1u, 4u)
+               << consume_indirect_shader(indirect_output).dispatch(indirect, 6u)
+               << consume_indirect_shader(indirect_output).dispatch(indirect)
+               << indirect_output.copy_to(
+                      luisa::span{indirect_host})
+               << synchronize();
+        constexpr std::array indirect_expected{
+            1u, 8u, 0u, 32u, 50u, 36u, 98u};
+        for (auto i = 0u; i < indirect_capacity; i++) {
+            expect(indirect_host[i] == indirect_expected[i])
+                << "SIMD indirect dispatch mismatch";
+        }
+
+        // Batched direct dispatch shares kernel_id() semantics with indirect
+        // records: each logical command receives its zero-based batch index.
+        std::fill(
+            indirect_host.begin(), indirect_host.end(), 0u);
+        constexpr std::array direct_batches{
+            make_uint3(1u, 1u, 1u),
+            make_uint3(2u, 1u, 1u),
+            make_uint3(3u, 1u, 1u)};
+        stream << indirect_output.copy_from(
+                      luisa::span{indirect_host})
+               << consume_indirect_shader(indirect_output).dispatch(luisa::span{direct_batches})
+               << indirect_output.copy_to(
+                      luisa::span{indirect_host})
+               << synchronize();
+        constexpr std::array direct_expected{
+            1u, 4u, 9u, 0u, 0u, 0u, 0u};
+        for (auto i = 0u; i < indirect_capacity; i++) {
+            expect(indirect_host[i] == direct_expected[i])
+                << "SIMD batched dispatch kernel-id mismatch";
         }
     }
 }

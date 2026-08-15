@@ -2,6 +2,8 @@
 
 #include <bit>
 
+#include "../../common/indirect_dispatch_layout.h"
+
 namespace luisa::compute::simd::detail {
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_lane_offsets(
@@ -1215,6 +1217,11 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
     }
     auto op = static_cast<xir::ResourceWriteOp>(
         *instruction.source_op);
+    if (op == xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT ||
+        op == xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL) {
+        _indirect_dispatch_write(instruction);
+        return;
+    }
     if (op == xir::ResourceWriteOp::BINDLESS_BUFFER_WRITE ||
         op == xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE) {
         _bindless_resource_write(instruction);
@@ -1296,6 +1303,222 @@ void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) 
     }
     _scatter_data(
         base, _lane_offsets(index, stride), written_value->type, value);
+}
+
+void ScheduleEmitter::_indirect_dispatch_write(
+    const schedule::Instruction &instruction) {
+    auto op = static_cast<xir::ResourceWriteOp>(
+        *instruction.source_op);
+    auto set_count =
+        op == xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT;
+    auto expected_operands = set_count ? 2u : 5u;
+    if (instruction.operands.size() != expected_operands) {
+        _fail("indirect-dispatch write instruction is malformed");
+        return;
+    }
+    auto *buffer_value = _source.value(instruction.operands[0u]);
+    auto *buffer = _load_value(instruction.operands[0u]);
+    auto *indirect_type = Type::custom("LC_IndirectDispatchBuffer");
+    if (buffer_value == nullptr || buffer == nullptr ||
+        buffer_value->type != indirect_type) {
+        _fail("indirect-dispatch write has an invalid buffer operand");
+        return;
+    }
+    auto *base = _builder.CreateExtractValue(buffer, {0u});
+    auto *size = _builder.CreateExtractValue(buffer, {1u});
+    auto *size_valid = _builder.CreateICmpUGE(
+        size,
+        _builder.getInt64(lc::IndirectDispatchLayout::header_size));
+    auto *capacity_bytes = _builder.CreateSelect(
+        size_valid,
+        _builder.CreateSub(
+            size,
+            _builder.getInt64(lc::IndirectDispatchLayout::header_size)),
+        _builder.getInt64(0u));
+    auto *capacity = _builder.CreateUDiv(
+        capacity_bytes,
+        _builder.getInt64(lc::IndirectDispatchLayout::record_size));
+    auto *capacity_lanes = _builder.CreateVectorSplat(
+        _width, capacity);
+    auto *layout_mask = _builder.CreateAnd(
+        _active_mask,
+        _builder.CreateVectorSplat(_width, size_valid));
+    auto *i32_lanes = ::llvm::FixedVectorType::get(
+        _builder.getInt32Ty(), _width);
+    auto *i64_lanes = ::llvm::FixedVectorType::get(
+        _builder.getInt64Ty(), _width);
+    auto *zero_i32 = ::llvm::Constant::getNullValue(i32_lanes);
+    auto *zero_i64 = ::llvm::Constant::getNullValue(i64_lanes);
+    auto masked_scatter_u32 = [&](::llvm::Value *offsets,
+                                  ::llvm::Value *value,
+                                  ::llvm::Value *mask) noexcept {
+        auto *pointers = _leaf_pointers(base, offsets, 0u);
+        _builder.CreateMaskedScatter(
+            value, pointers, ::llvm::Align{1u}, mask);
+    };
+
+    if (set_count) {
+        auto *count_value = _source.value(instruction.operands[1u]);
+        auto *count = count_value == nullptr ? nullptr :
+                                               _as_lane_vector(
+                                                   _load_value(instruction.operands[1u]),
+                                                   *count_value);
+        if (count_value == nullptr || count_value->type == nullptr ||
+            count == nullptr ||
+            !count_value->type->is_uint32()) {
+            _fail("indirect-dispatch count write expects a uint count");
+            return;
+        }
+        count = _builder.CreateSelect(
+            _active_mask, count, zero_i32,
+            "indirect.count.sanitized");
+        auto *count64 = _builder.CreateZExt(count, i64_lanes);
+        auto *clamped64 = _builder.CreateSelect(
+            _builder.CreateICmpULT(count64, capacity_lanes),
+            count64, capacity_lanes,
+            "indirect.count.clamped");
+        auto *clamped = _builder.CreateTrunc(clamped64, i32_lanes);
+        auto *first_lane = _safe_first_lane(layout_mask);
+        auto *first_lane_mask = _builder.CreateAnd(
+            layout_mask,
+            _builder.CreateICmpEQ(
+                _lane_ids(),
+                _builder.CreateVectorSplat(
+                    _width, first_lane)),
+            "indirect.count.first.lane");
+        masked_scatter_u32(
+            zero_i64, clamped, first_lane_mask);
+        return;
+    }
+
+    auto *index_value = _source.value(instruction.operands[1u]);
+    auto *block_size_value = _source.value(instruction.operands[2u]);
+    auto *logical_size_value = _source.value(instruction.operands[3u]);
+    auto *kernel_id_value = _source.value(instruction.operands[4u]);
+    auto *index = index_value == nullptr ? nullptr :
+                                           _as_lane_vector(
+                                               _load_value(instruction.operands[1u]),
+                                               *index_value);
+    auto *block_size = block_size_value == nullptr ? nullptr :
+                                                     _as_lane_vector(
+                                                         _load_value(instruction.operands[2u]),
+                                                         *block_size_value);
+    auto *logical_size = logical_size_value == nullptr ? nullptr :
+                                                         _as_lane_vector(
+                                                             _load_value(instruction.operands[3u]),
+                                                             *logical_size_value);
+    auto *kernel_id = kernel_id_value == nullptr ? nullptr :
+                                                   _as_lane_vector(
+                                                       _load_value(instruction.operands[4u]),
+                                                       *kernel_id_value);
+    if (index_value == nullptr || block_size_value == nullptr ||
+        logical_size_value == nullptr || kernel_id_value == nullptr ||
+        index_value->type == nullptr ||
+        block_size_value->type == nullptr ||
+        logical_size_value->type == nullptr ||
+        kernel_id_value->type == nullptr ||
+        index == nullptr || block_size == nullptr ||
+        logical_size == nullptr || kernel_id == nullptr ||
+        !index_value->type->is_uint32() ||
+        !block_size_value->type->is_vector() ||
+        block_size_value->type->dimension() != 3u ||
+        !block_size_value->type->element()->is_uint32() ||
+        !logical_size_value->type->is_vector() ||
+        logical_size_value->type->dimension() != 3u ||
+        !logical_size_value->type->element()->is_uint32() ||
+        !kernel_id_value->type->is_uint32()) {
+        _fail("indirect-dispatch record write expects "
+              "(uint, uint3, uint3, uint)");
+        return;
+    }
+
+    index = _builder.CreateSelect(
+        _active_mask, index, zero_i32,
+        "indirect.index.sanitized");
+    auto *index64 = _builder.CreateZExt(index, i64_lanes);
+    auto *valid_index = _builder.CreateICmpULT(
+        index64, capacity_lanes,
+        "indirect.index.valid");
+    auto *write_mask = _builder.CreateAnd(layout_mask, valid_index);
+    auto *safe_index = _builder.CreateSelect(
+        write_mask, index64, zero_i64,
+        "indirect.index.safe");
+    auto *record_offsets = _builder.CreateAdd(
+        _builder.CreateMul(
+            safe_index,
+            _builder.CreateVectorSplat(
+                _width,
+                _builder.getInt64(
+                    lc::IndirectDispatchLayout::record_size))),
+        _builder.CreateVectorSplat(
+            _width,
+            _builder.getInt64(
+                lc::IndirectDispatchLayout::header_size)));
+    auto store_record_word = [&](uint32_t word,
+                                 ::llvm::Value *value) noexcept {
+        auto byte_offset = static_cast<uint64_t>(word) *
+                           lc::IndirectDispatchLayout::word_size;
+        auto *offsets = byte_offset == 0u ?
+                            record_offsets :
+                            _builder.CreateAdd(
+                                record_offsets,
+                                _builder.CreateVectorSplat(
+                                    _width,
+                                    _builder.getInt64(byte_offset)));
+        masked_scatter_u32(offsets, value, write_mask);
+    };
+
+    auto *valid_block = _active_mask;
+    std::array<::llvm::Value *, 3u> blocks{};
+    std::array<::llvm::Value *, 3u> logicals{};
+    for (auto component = uint32_t{0u}; component < 3u; component++) {
+        auto *raw_block = _extract_child(
+            block_size, block_size_value->type, component, true);
+        auto *raw_logical = _extract_child(
+            logical_size, logical_size_value->type, component, true);
+        blocks[component] = _builder.CreateSelect(
+            _active_mask, raw_block,
+            _builder.CreateVectorSplat(
+                _width, _builder.getInt32(1u)),
+            "indirect.block.sanitized");
+        logicals[component] = _builder.CreateSelect(
+            _active_mask, raw_logical, zero_i32,
+            "indirect.logical.sanitized");
+        valid_block = _builder.CreateAnd(
+            valid_block,
+            _builder.CreateICmpNE(
+                blocks[component], zero_i32));
+        store_record_word(
+            lc::IndirectDispatchLayout::logical_size_word + component,
+            logicals[component]);
+    }
+    for (auto component = uint32_t{0u}; component < 3u; component++) {
+        auto *safe_block = _builder.CreateSelect(
+            valid_block, blocks[component],
+            _builder.CreateVectorSplat(
+                _width, _builder.getInt32(1u)),
+            "indirect.block.safe");
+        auto *quotient = _builder.CreateUDiv(
+            logicals[component], safe_block);
+        auto *remainder = _builder.CreateURem(
+            logicals[component], safe_block);
+        auto *group_count = _builder.CreateAdd(
+            quotient,
+            _builder.CreateZExt(
+                _builder.CreateICmpNE(remainder, zero_i32),
+                i32_lanes));
+        group_count = _builder.CreateSelect(
+            valid_block, group_count, zero_i32,
+            "indirect.group.count");
+        store_record_word(
+            lc::IndirectDispatchLayout::group_count_word + component,
+            group_count);
+    }
+    kernel_id = _builder.CreateSelect(
+        _active_mask, kernel_id, zero_i32,
+        "indirect.kernel.id.sanitized");
+    store_record_word(
+        lc::IndirectDispatchLayout::kernel_id_word, kernel_id);
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_resource_query(

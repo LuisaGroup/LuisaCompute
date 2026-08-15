@@ -12,6 +12,12 @@ namespace {
             type == Type::custom("LC_RayQueryAny"));
 }
 
+[[nodiscard]] bool is_indirect_dispatch_type(
+    const Type *type) noexcept {
+    return type != nullptr && type->is_custom() &&
+           type == Type::custom("LC_IndirectDispatchBuffer");
+}
+
 [[nodiscard]] constexpr bool is_power_of_two(uint32_t value) noexcept {
     return value != 0u && (value & (value - 1u)) == 0u;
 }
@@ -94,6 +100,9 @@ void ScheduleEmitter::_fail(std::string message) {
 
 [[nodiscard]] size_t ScheduleEmitter::_abi_size(const Type *type) noexcept {
     if (is_ray_query_type(type)) { return sizeof(void *); }
+    if (is_indirect_dispatch_type(type)) {
+        return sizeof(SIMDHostBufferView);
+    }
     if (type != nullptr && type->is_buffer()) {
         return sizeof(SIMDHostBufferView);
     }
@@ -111,6 +120,9 @@ void ScheduleEmitter::_fail(std::string message) {
 
 [[nodiscard]] size_t ScheduleEmitter::_abi_alignment(const Type *type) noexcept {
     if (is_ray_query_type(type)) { return alignof(void *); }
+    if (is_indirect_dispatch_type(type)) {
+        return alignof(SIMDHostBufferView);
+    }
     if (type != nullptr && type->is_buffer()) {
         return alignof(SIMDHostBufferView);
     }
@@ -481,7 +493,8 @@ void ScheduleEmitter::_preflight() {
             }
             auto argument_tag = static_cast<xir::DerivedArgumentTag>(
                 metadata->argument_tag);
-            if (argument_tag == xir::DerivedArgumentTag::REFERENCE ||
+            if ((argument_tag == xir::DerivedArgumentTag::REFERENCE &&
+                 !is_indirect_dispatch_type(value.type)) ||
                 (argument_tag == xir::DerivedArgumentTag::VALUE &&
                  !_is_data(value.type)) ||
                 (argument_tag == xir::DerivedArgumentTag::RESOURCE &&
@@ -490,7 +503,7 @@ void ScheduleEmitter::_preflight() {
                    !value.type->is_texture() &&
                    !value.type->is_bindless_array() &&
                    !value.type->is_accel())))) {
-                _fail("packet ABI supports data, buffer, texture, bindless, and accel arguments only");
+                _fail("packet ABI supports data, buffer, texture, bindless, accel, and indirect-dispatch arguments only");
                 return;
             }
             if (parameters.size() <= metadata->index) {
@@ -968,7 +981,9 @@ void ScheduleEmitter::_create_external_values() {
                     i8, _argument_buffer, _builder.getInt64(offset));
                 auto tag = static_cast<xir::DerivedArgumentTag>(
                     metadata->argument_tag);
-                if (tag == xir::DerivedArgumentTag::RESOURCE) {
+                if (is_indirect_dispatch_type(value.type)) {
+                    llvm_value = _load_buffer_view(pointer);
+                } else if (tag == xir::DerivedArgumentTag::RESOURCE) {
                     if (value.type->is_buffer()) {
                         llvm_value = _load_buffer_view(pointer);
                     } else if (value.type->is_texture()) {

@@ -32,7 +32,8 @@ private:
         luisa::span<const Function::Binding> bindings) noexcept;
     void _dispatch_once(
         SIMDThreadPool &thread_pool,
-        const void *argument_buffer, uint3 dispatch_size) const noexcept;
+        const void *argument_buffer, uint3 dispatch_size,
+        uint32_t kernel_id = 0u) const noexcept;
 
 public:
     SIMDShader(

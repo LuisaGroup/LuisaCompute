@@ -17,6 +17,12 @@ namespace {
             type == Type::custom("LC_RayQueryAny"));
 }
 
+[[nodiscard]] bool is_indirect_dispatch_type(
+    const Type *type) noexcept {
+    return type != nullptr && type->is_custom() &&
+           type == Type::custom("LC_IndirectDispatchBuffer");
+}
+
 }// namespace
 
 LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
@@ -124,6 +130,11 @@ LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
         case Tag::CUSTOM:
             if (is_ray_query_type(type)) {
                 result = ::llvm::PointerType::getUnqual(_context);
+            } else if (is_indirect_dispatch_type(type)) {
+                result = ::llvm::StructType::get(
+                    _context,
+                    {::llvm::PointerType::getUnqual(_context),
+                     ::llvm::Type::getInt64Ty(_context)});
             }
             break;
     }
