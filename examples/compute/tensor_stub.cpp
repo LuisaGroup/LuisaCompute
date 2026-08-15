@@ -21,7 +21,7 @@
 //   tile_min_abs      MIN / ABS (whole-tile elementwise ops)
 //   tile_vote_shuffle ANY_OF / ALL_OF / SHUFFLE (xor / up / down)
 //
-// Each kernel is (1) traced with tile::Kernel / tile::jit(...).compile(),
+// Each kernel is (1) traced with tile::jit(...).compile(),
 // (2) lowered to a REGULAR Luisa kernel with `tile_to_kernel`
 // (<luisa/ast/tile_to_kernel.h>), (3) compiled on the backend named on the
 // command line (`dx` / `vk` / `cuda` / ...), (4) dispatched on real buffers,
@@ -61,7 +61,6 @@ using tile_i32 = luisa::compute::tile::int32;
 // =============================================================================
 // 1. Elementwise add — ALLOC / CEILDIV / KERNEL_2D / COPY / BINARY / STORE
 // =============================================================================
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> elementwise_add(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
     constexpr tile_i32 M = 64, N = 64;
     constexpr tile_i32 block_M = 16, block_N = 16;
@@ -98,7 +97,6 @@ Tensor<tile_f32, 2> elementwise_add(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B
 // 2. Tiled GEMM with a software pipeline — CLEAR / PIPELINED / GEMM / MAX /
 //    PRINT / STORE (plus ALLOC / CEILDIV / KERNEL_2D / COPY)
 // =============================================================================
-TILELANG_PRIM_FUNC
 Tensor<tile_f16, 2> pipelined_matmul(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> B) {
     constexpr tile_i32 M = 64, N = 64, K = 64;
     constexpr tile_i32 block_M = 16, block_N = 16, block_K = 8;
@@ -172,7 +170,6 @@ Tensor<tile_f32, 2> rms_norm(Tensor<tile_f32, 2> A) {
 // 4. T.fill — FILL
 // =============================================================================
 // Fill a per-thread fragment tile with a constant and copy it out.
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 1> tile_fill_kernel() {
     constexpr tile_i32 N = 64;
     constexpr tile_i32 threads = 32;
@@ -190,7 +187,6 @@ Tensor<tile_f32, 1> tile_fill_kernel() {
 // =============================================================================
 // 5. T.transpose — TRANSPOSE (shared-memory 2D transpose)
 // =============================================================================
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> tile_transpose_kernel(Tensor<tile_f32, 2> A) {
     constexpr tile_i32 BM = 8, BN = 8;
     constexpr tile_i32 threads = 32;
@@ -212,7 +208,6 @@ Tensor<tile_f32, 2> tile_transpose_kernel(Tensor<tile_f32, 2> A) {
 // =============================================================================
 // 6. T.clamp — CLAMP (in-place elementwise clamp into [lo, hi])
 // =============================================================================
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> tile_clamp_kernel(Tensor<tile_f32, 2> A) {
     constexpr tile_i32 BM = 8, BN = 8;
     constexpr tile_i32 threads = 32;
@@ -237,7 +232,6 @@ Tensor<tile_f32, 2> tile_clamp_kernel(Tensor<tile_f32, 2> A) {
 //   load -> store 5 -> add 2 -> max 3 -> min 4 -> or 8
 // leaves every element at ((((5 + 2) max 3) min 4) | 8) = (7 min 4) | 8 =
 // 4 | 8 = 12.
-TILELANG_PRIM_FUNC
 Tensor<tile_i32, 1> tile_atomic_kernel() {
     constexpr tile_i32 N = 32;
     constexpr tile_i32 threads = 32;
@@ -258,7 +252,6 @@ Tensor<tile_i32, 1> tile_atomic_kernel() {
 // =============================================================================
 // 8. T.sync_threads — SYNC (explicit block barrier between shared accesses)
 // =============================================================================
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> tile_sync_kernel(Tensor<tile_f32, 2> A) {
     constexpr tile_i32 BM = 8, BN = 8;
     constexpr tile_i32 threads = 32;
@@ -281,7 +274,6 @@ Tensor<tile_f32, 2> tile_sync_kernel(Tensor<tile_f32, 2> A) {
 // The warp-reduce result currently has no consumer in the tile IR, so it is
 // computed into a throw-away register; the kernel also copies the reduced
 // fragment out so the whole program is verifiable.
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 1> tile_warp_reduce_kernel() {
     constexpr tile_i32 N = 1;
     constexpr tile_i32 threads = 32;
@@ -301,7 +293,6 @@ Tensor<tile_f32, 1> tile_warp_reduce_kernel() {
 // =============================================================================
 // 10. T.loop_break — LOOP_BREAK (traced only; see the file header)
 // =============================================================================
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> loop_break_kernel(Tensor<tile_f32, 2> A) {
     Tensor<tile_f32, 2> B = LuisaTensor.empty(LuisaTensor.shape(8, 8), tile_f32{});
     for (auto [bx, by] : LuisaTensor.Kernel(1, 1, 32)) {
@@ -318,7 +309,6 @@ Tensor<tile_f32, 2> loop_break_kernel(Tensor<tile_f32, 2> A) {
 // 12. T.reduce_max / reduce_min / reduce_abssum / reduce_absmax — REDUCE
 // =============================================================================
 // Row-wise reductions of a fragment tile (the generic TileLang reduce family).
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 1> tile_reduce_kernel(Tensor<tile_f32, 2> A,
                                        Tensor<tile_f32, 1> Bmax,
                                        Tensor<tile_f32, 1> Bmin,
@@ -355,7 +345,6 @@ Tensor<tile_f32, 1> tile_reduce_kernel(Tensor<tile_f32, 2> A,
 // =============================================================================
 // 13. T.cumsum / T.cummax — CUMSUM / CUMMAX (inclusive prefix scan)
 // =============================================================================
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 1> tile_scan_kernel(Tensor<tile_f32, 1> A, Tensor<tile_f32, 1> S) {
     constexpr tile_i32 N = 64;
     constexpr tile_i32 threads = 32;
@@ -379,7 +368,6 @@ Tensor<tile_f32, 1> tile_scan_kernel(Tensor<tile_f32, 1> A, Tensor<tile_f32, 1> 
 // =============================================================================
 // 14. T.min / T.abs — MIN / ABS (whole-tile elementwise ops)
 // =============================================================================
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> tile_min_abs_kernel(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
     constexpr tile_i32 BM = 8, BN = 8;
     constexpr tile_i32 threads = 32;
@@ -406,7 +394,6 @@ Tensor<tile_f32, 2> tile_min_abs_kernel(Tensor<tile_f32, 2> A, Tensor<tile_f32, 
 // The vote/shuffle results have no consumer in the tile IR (they are computed
 // into throw-away registers, like WARP_REDUCE); the filled fragment is copied
 // out so the whole program is verifiable.
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 1> tile_vote_shuffle_kernel() {
     constexpr tile_i32 N = 2;
     constexpr tile_i32 threads = 32;
@@ -433,7 +420,6 @@ Tensor<tile_f32, 1> tile_vote_shuffle_kernel() {
 //     rejected: jit(...).compile() derives the SIMT launch metadata and logs
 //     an error + aborts when the body contains more than one T.Kernel.
 // =============================================================================
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> two_kernels(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
     for (auto [bx, by] : LuisaTensor.Kernel(4, 4, 32)) {
         LuisaTensor.copy(A(0, 0), B(0, 0));
@@ -488,121 +474,53 @@ int main(int argc, char *argv[]) {
         return result;
     };
 
-    // ---- 1. elementwise_add: T.Kernel(4, 4, 32); globals A, B, C ------------
-    luisa::compute::tile::Kernel elementwise_kernel{elementwise_add};
-    LUISA_INFO("[tensor-stub] elementwise_add traced {} statements: [{}]",
-               elementwise_kernel.function()->body()->size(), elementwise_kernel.describe());
-    auto elementwise_result = translate_and_verify(
-        "elementwise_add", elementwise_kernel.function(),
-        luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
-
-    // ---- 2. matmul (pipelined): T.Kernel(4, 4, 32); globals A, B, C ---------
-    // This also produces the required "kernel.compile" log line.
-    auto matmul_kernel = luisa::compute::tile::jit(pipelined_matmul).compile();
-    LUISA_INFO("[tensor-stub] pipelined_matmul traced {} statements: [{}]",
-               matmul_kernel.function()->body()->size(), matmul_kernel.describe());
-    auto matmul_result = translate_and_verify(
-        "pipelined_matmul", matmul_kernel.function(),
-        luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
-
-    // ---- 3. rms_norm: T.Kernel(8, 64); globals A, B ------------------------
-    luisa::compute::tile::Kernel rms_kernel{rms_norm};
-    LUISA_INFO("[tensor-stub] rms_norm traced {} statements: [{}]",
-               rms_kernel.function()->body()->size(), rms_kernel.describe());
-    auto rms_result = translate_and_verify(
-        "rms_norm", rms_kernel.function(),
-        luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
-
-    // ---- 4. fill: T.Kernel(1, 32); global C ---------------------------------
-    luisa::compute::tile::Kernel fill_kernel{tile_fill_kernel};
-    LUISA_INFO("[tensor-stub] tile_fill traced {} statements: [{}]",
-               fill_kernel.function()->body()->size(), fill_kernel.describe());
-    auto fill_result = translate_and_verify(
-        "tile_fill", fill_kernel.function(),
-        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
-
-    // ---- 5. transpose: T.Kernel(1, 1, 32); globals A, B ---------------------
-    luisa::compute::tile::Kernel transpose_kernel{tile_transpose_kernel};
-    LUISA_INFO("[tensor-stub] tile_transpose traced {} statements: [{}]",
-               transpose_kernel.function()->body()->size(), transpose_kernel.describe());
-    auto transpose_result = translate_and_verify(
-        "tile_transpose", transpose_kernel.function(),
-        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
-
-    // ---- 6. clamp: T.Kernel(1, 1, 32); globals A, C -------------------------
-    luisa::compute::tile::Kernel clamp_kernel{tile_clamp_kernel};
-    LUISA_INFO("[tensor-stub] tile_clamp traced {} statements: [{}]",
-               clamp_kernel.function()->body()->size(), clamp_kernel.describe());
-    auto clamp_result = translate_and_verify(
-        "tile_clamp", clamp_kernel.function(),
-        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
-
-    // ---- 7. atomic: T.Kernel(1, 32); global D (i32) -------------------------
-    luisa::compute::tile::Kernel atomic_kernel{tile_atomic_kernel};
-    LUISA_INFO("[tensor-stub] tile_atomic traced {} statements: [{}]",
-               atomic_kernel.function()->body()->size(), atomic_kernel.describe());
-    auto atomic_result = translate_and_verify(
-        "tile_atomic", atomic_kernel.function(),
-        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
-
-    // ---- 8. sync: T.Kernel(1, 1, 32); globals A, C --------------------------
-    luisa::compute::tile::Kernel sync_kernel{tile_sync_kernel};
-    LUISA_INFO("[tensor-stub] tile_sync traced {} statements: [{}]",
-               sync_kernel.function()->body()->size(), sync_kernel.describe());
-    auto sync_result = translate_and_verify(
-        "tile_sync", sync_kernel.function(),
-        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
-
-    // ---- 9. warp_reduce: T.Kernel(1, 32); global W --------------------------
-    luisa::compute::tile::Kernel warp_reduce_kernel_obj{tile_warp_reduce_kernel};
-    LUISA_INFO("[tensor-stub] tile_warp_reduce traced {} statements: [{}]",
-               warp_reduce_kernel_obj.function()->body()->size(), warp_reduce_kernel_obj.describe());
-    auto warp_reduce_result = translate_and_verify(
-        "tile_warp_reduce", warp_reduce_kernel_obj.function(),
-        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
-
-    // ---- 12. reduce family: T.Kernel(8, 64); globals A, Bmax, Bmin, Babssum, Babsmax
-    luisa::compute::tile::Kernel reduce_kernel{tile_reduce_kernel};
-    LUISA_INFO("[tensor-stub] tile_reduce traced {} statements: [{}]",
-               reduce_kernel.function()->body()->size(), reduce_kernel.describe());
-    auto reduce_result = translate_and_verify(
-        "tile_reduce", reduce_kernel.function(),
-        luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 5u);
-
-    // ---- 13. scan: T.Kernel(1, 32); globals A, S, Mx ------------------------
-    luisa::compute::tile::Kernel scan_kernel{tile_scan_kernel};
-    LUISA_INFO("[tensor-stub] tile_scan traced {} statements: [{}]",
-               scan_kernel.function()->body()->size(), scan_kernel.describe());
-    auto scan_result = translate_and_verify(
-        "tile_scan", scan_kernel.function(),
-        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
-
-    // ---- 14. min/abs: T.Kernel(1, 1, 32); globals A, B, C -------------------
-    luisa::compute::tile::Kernel min_abs_kernel{tile_min_abs_kernel};
-    LUISA_INFO("[tensor-stub] tile_min_abs traced {} statements: [{}]",
-               min_abs_kernel.function()->body()->size(), min_abs_kernel.describe());
-    auto min_abs_result = translate_and_verify(
-        "tile_min_abs", min_abs_kernel.function(),
-        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
-
-    // ---- 15. vote/shuffle: T.Kernel(1, 32); global W ------------------------
-    luisa::compute::tile::Kernel vote_shuffle_kernel{tile_vote_shuffle_kernel};
-    LUISA_INFO("[tensor-stub] tile_vote_shuffle traced {} statements: [{}]",
-               vote_shuffle_kernel.function()->body()->size(), vote_shuffle_kernel.describe());
-    auto vote_shuffle_result = translate_and_verify(
-        "tile_vote_shuffle", vote_shuffle_kernel.function(),
-        luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
-
-    // ---- 10. loop_break: traced only (no lowering; see file header) ---------
-    luisa::compute::tile::Kernel loop_break_kernel_obj{loop_break_kernel};
-    LUISA_INFO("[tensor-stub] loop_break traced {} statements: [{}] (not lowered: "
-               "break_() requires an enclosing loop, see the file header)",
-               loop_break_kernel_obj.function()->body()->size(), loop_break_kernel_obj.describe());
+    auto trace_and_verify = [&]<typename F>(luisa::string_view name, F &&fn,
+                                            luisa::uint3 expected_dispatch,
+                                            luisa::uint3 expected_block,
+                                            size_t expected_buffers) {
+        auto kernel = luisa::compute::tile::jit(std::forward<F>(fn)).compile();
+        LUISA_INFO("[tensor-stub] {} traced {} statements: [{}]",
+                   name, kernel.function()->body()->size(), kernel.describe());
+        auto result = translate_and_verify(name, kernel.function(),
+                                           expected_dispatch, expected_block, expected_buffers);
+        return std::make_pair(std::move(kernel), std::move(result));
+    };
 
     // =========================================================================
     // Device pass: compile + dispatch + host verification (backend given).
     // =========================================================================
     if (backend.empty()) {
+        LUISA_INFO("=== tensor-dsl: structural verification only ===");
+        trace_and_verify("elementwise_add", elementwise_add,
+                         luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+        trace_and_verify("pipelined_matmul", pipelined_matmul,
+                         luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+        trace_and_verify("rms_norm", rms_norm,
+                         luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
+        trace_and_verify("tile_fill", tile_fill_kernel,
+                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+        trace_and_verify("tile_transpose", tile_transpose_kernel,
+                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("tile_clamp", tile_clamp_kernel,
+                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("tile_atomic", tile_atomic_kernel,
+                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+        trace_and_verify("tile_sync", tile_sync_kernel,
+                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("tile_warp_reduce", tile_warp_reduce_kernel,
+                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+        trace_and_verify("tile_reduce", tile_reduce_kernel,
+                         luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 5u);
+        trace_and_verify("tile_scan", tile_scan_kernel,
+                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+        trace_and_verify("tile_min_abs", tile_min_abs_kernel,
+                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+        trace_and_verify("tile_vote_shuffle", tile_vote_shuffle_kernel,
+                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+        luisa::compute::tile::Kernel loop_break_kernel_obj{loop_break_kernel};
+        LUISA_INFO("[tensor-stub] loop_break traced {} statements: [{}] (not lowered: "
+                   "break_() requires an enclosing loop, see the file header)",
+                   loop_break_kernel_obj.function()->body()->size(), loop_break_kernel_obj.describe());
         LUISA_INFO("[tensor-stub] no backend given: translation verified structurally only "
                    "(pass a backend name, e.g. 'dx'/'vk', to also compile, dispatch and verify).");
     } else {
@@ -611,9 +529,6 @@ int main(int argc, char *argv[]) {
         Device device = ctx.create_device(backend);
         auto stream = device.create_stream();
 
-        auto wrap = [](luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> fb) {
-            return luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder>{std::move(fb)};
-        };
         auto check = [](luisa::string_view name, float err, float tol) {
             LUISA_INFO("[tensor-stub] {} runtime check: max error = {}", name, err);
             LUISA_ASSERT(err < tol, "{} produced wrong results on the device (max error {} >= {}).",
@@ -622,6 +537,9 @@ int main(int argc, char *argv[]) {
 
         // ---- elementwise_add: C = A + B -------------------------------------
         {
+            auto [elementwise_kernel, elementwise_result] = trace_and_verify(
+                "elementwise_add", elementwise_add,
+                luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
             constexpr uint32_t M = 64u, N = 64u;
             auto bufA = device.create_buffer<float>(M * N);
             auto bufB = device.create_buffer<float>(M * N);
@@ -634,13 +552,11 @@ int main(int argc, char *argv[]) {
             }
             stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
 
-            // Guarded type-less path: keep the explicit Kernel<...> instantiation
-            // but first validate the runtime bindings against the tile IR.
+            // Typed path: tile::jit(...).compile().to_kernel<Dim>() carries the
+            // buffer element types from the tile function signature automatically.
             elementwise_kernel.validate(bufA, bufB, bufC);
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(elementwise_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>>{fb});
+            auto typed_elementwise = elementwise_kernel.to_kernel<2>();
+            auto sh = device.compile(typed_elementwise);
             stream << sh(bufA, bufB, bufC).dispatch(elementwise_result.dispatch_size.x, elementwise_result.dispatch_size.y)
                    << bufC.copy_to(luisa::span{hC}) << synchronize();
             auto err = 0.0f;
@@ -650,6 +566,9 @@ int main(int argc, char *argv[]) {
 
         // ---- pipelined_matmul: C = max(A @ B, 0) ----------------------------
         {
+            auto [matmul_kernel, matmul_result] = trace_and_verify(
+                "pipelined_matmul", pipelined_matmul,
+                luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
             constexpr uint32_t M = 64u, N = 64u, K = 64u;
             auto bufA = device.create_buffer<luisa::half>(M * K);
             auto bufB = device.create_buffer<luisa::half>(K * N);
@@ -683,6 +602,9 @@ int main(int argc, char *argv[]) {
 
         // ---- rms_norm: B[r][c] = A[r][c] * rsqrt(sum_c A[r][c]^2 / N + 1e-12) --
         {
+            auto [rms_kernel, rms_result] = trace_and_verify(
+                "rms_norm", rms_norm,
+                luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
             constexpr uint32_t M = 64u, N = 64u;
             auto bufA = device.create_buffer<float>(M * N);
             auto bufB = device.create_buffer<float>(M * N);
@@ -690,9 +612,9 @@ int main(int argc, char *argv[]) {
             for (auto i = 0u; i < M * N; ++i) { hA[i] = static_cast<float>(i) * 0.5f; }
             stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(rms_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>>{fb});
+            rms_kernel.validate(bufA, bufB);
+            auto typed_rms = rms_kernel.to_kernel<1>();
+            auto sh = device.compile(typed_rms);
             stream << sh(bufA, bufB).dispatch(rms_result.dispatch_size.x)
                    << bufB.copy_to(luisa::span{hB}) << synchronize();
             auto err = 0.0f;
@@ -709,11 +631,15 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_fill: C[i] = 3.5 ------------------------------------------
         {
+            auto [fill_kernel, fill_result] = trace_and_verify(
+                "tile_fill", tile_fill_kernel,
+                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
             constexpr uint32_t N = 64u;
             auto bufC = device.create_buffer<float>(N);
             luisa::vector<float> hC(N);
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(fill_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>>{fb});
+            fill_kernel.validate(bufC);
+            auto typed_fill = fill_kernel.to_kernel<1>();
+            auto sh = device.compile(typed_fill);
             stream << sh(bufC).dispatch(fill_result.dispatch_size.x)
                    << bufC.copy_to(luisa::span{hC}) << synchronize();
             auto err = 0.0f;
@@ -723,6 +649,9 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_transpose: B[i][j] = A[j][i] ------------------------------
         {
+            auto [transpose_kernel, transpose_result] = trace_and_verify(
+                "tile_transpose", tile_transpose_kernel,
+                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t BM = 8u, BN = 8u;
             auto bufA = device.create_buffer<float>(BM * BN);
             auto bufB = device.create_buffer<float>(BM * BN);
@@ -730,9 +659,9 @@ int main(int argc, char *argv[]) {
             for (auto i = 0u; i < BM * BN; ++i) { hA[i] = static_cast<float>(i); }
             stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(transpose_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>>{fb});
+            transpose_kernel.validate(bufA, bufB);
+            auto typed_transpose = transpose_kernel.to_kernel<2>();
+            auto sh = device.compile(typed_transpose);
             stream << sh(bufA, bufB).dispatch(transpose_result.dispatch_size.x, transpose_result.dispatch_size.y)
                    << bufB.copy_to(luisa::span{hB}) << synchronize();
             auto err = 0.0f;
@@ -746,6 +675,9 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_clamp: C[i] = clamp(A[i], 0.1, 0.9) ----------------------
         {
+            auto [clamp_kernel, clamp_result] = trace_and_verify(
+                "tile_clamp", tile_clamp_kernel,
+                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t BM = 8u, BN = 8u;
             auto bufA = device.create_buffer<float>(BM * BN);
             auto bufC = device.create_buffer<float>(BM * BN);
@@ -753,9 +685,9 @@ int main(int argc, char *argv[]) {
             for (auto i = 0u; i < BM * BN; ++i) { hA[i] = static_cast<float>(i % 16) * 0.1f; }
             stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(clamp_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>>{fb});
+            clamp_kernel.validate(bufA, bufC);
+            auto typed_clamp = clamp_kernel.to_kernel<2>();
+            auto sh = device.compile(typed_clamp);
             stream << sh(bufA, bufC).dispatch(clamp_result.dispatch_size.x, clamp_result.dispatch_size.y)
                    << bufC.copy_to(luisa::span{hC}) << synchronize();
             auto err = 0.0f;
@@ -768,13 +700,17 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_atomic: D[i] = 15 -----------------------------------------
         {
+            auto [atomic_kernel, atomic_result] = trace_and_verify(
+                "tile_atomic", tile_atomic_kernel,
+                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
             constexpr uint32_t N = 32u;
             auto bufD = device.create_buffer<int>(N);
             luisa::vector<int> hD(N, 0);
             stream << bufD.copy_from(luisa::span{hD}) << synchronize();
 
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(atomic_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<int>>{fb});
+            atomic_kernel.validate(bufD);
+            auto typed_atomic = atomic_kernel.to_kernel<1>();
+            auto sh = device.compile(typed_atomic);
             stream << sh(bufD).dispatch(atomic_result.dispatch_size.x)
                    << bufD.copy_to(luisa::span{hD}) << synchronize();
             auto err = 0;
@@ -785,6 +721,9 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_sync: C = A ----------------------------------------------
         {
+            auto [sync_kernel, sync_result] = trace_and_verify(
+                "tile_sync", tile_sync_kernel,
+                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t BM = 8u, BN = 8u;
             auto bufA = device.create_buffer<float>(BM * BN);
             auto bufC = device.create_buffer<float>(BM * BN);
@@ -792,9 +731,9 @@ int main(int argc, char *argv[]) {
             for (auto i = 0u; i < BM * BN; ++i) { hA[i] = static_cast<float>(i) * 0.25f; }
             stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(sync_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>>{fb});
+            sync_kernel.validate(bufA, bufC);
+            auto typed_sync = sync_kernel.to_kernel<2>();
+            auto sh = device.compile(typed_sync);
             stream << sh(bufA, bufC).dispatch(sync_result.dispatch_size.x, sync_result.dispatch_size.y)
                    << bufC.copy_to(luisa::span{hC}) << synchronize();
             auto err = 0.0f;
@@ -804,11 +743,15 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_warp_reduce: W[0] = 7.0 -----------------------------------
         {
+            auto [warp_reduce_kernel_obj, warp_reduce_result] = trace_and_verify(
+                "tile_warp_reduce", tile_warp_reduce_kernel,
+                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
             constexpr uint32_t N = 1u;
             auto bufW = device.create_buffer<float>(N);
             luisa::vector<float> hW(N);
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(warp_reduce_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>>{fb});
+            warp_reduce_kernel_obj.validate(bufW);
+            auto typed_warp_reduce = warp_reduce_kernel_obj.to_kernel<1>();
+            auto sh = device.compile(typed_warp_reduce);
             stream << sh(bufW).dispatch(warp_reduce_result.dispatch_size.x)
                    << bufW.copy_to(luisa::span{hW}) << synchronize();
             auto err = luisa::abs(hW[0] - 7.0f);
@@ -817,6 +760,9 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_reduce: row-wise max/min/abssum/absmax ----------------------
         {
+            auto [reduce_kernel, reduce_result] = trace_and_verify(
+                "tile_reduce", tile_reduce_kernel,
+                luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 5u);
             constexpr uint32_t M = 64u, N = 64u;
             auto bufA = device.create_buffer<float>(M * N);
             auto bufMax = device.create_buffer<float>(M);
@@ -832,12 +778,8 @@ int main(int argc, char *argv[]) {
             stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
             reduce_kernel.validate(bufA, bufMax, bufMin, bufAbsSum, bufAbsMax);
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(reduce_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>>{fb});
+            auto typed_reduce = reduce_kernel.to_kernel<1>();
+            auto sh = device.compile(typed_reduce);
             stream << sh(bufA, bufMax, bufMin, bufAbsSum, bufAbsMax).dispatch(reduce_result.dispatch_size.x)
                    << bufMax.copy_to(luisa::span{hMax}) << bufMin.copy_to(luisa::span{hMin})
                    << bufAbsSum.copy_to(luisa::span{hAbsSum}) << bufAbsMax.copy_to(luisa::span{hAbsMax})
@@ -862,6 +804,9 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_scan: S = inclusive prefix sum, Mx = inclusive prefix max ----
         {
+            auto [scan_kernel, scan_result] = trace_and_verify(
+                "tile_scan", tile_scan_kernel,
+                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufS = device.create_buffer<float>(N);
@@ -871,10 +816,8 @@ int main(int argc, char *argv[]) {
             stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
             scan_kernel.validate(bufA, bufS, bufMx);
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(scan_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>>{fb});
+            auto typed_scan = scan_kernel.to_kernel<1>();
+            auto sh = device.compile(typed_scan);
             stream << sh(bufA, bufS, bufMx).dispatch(scan_result.dispatch_size.x)
                    << bufS.copy_to(luisa::span{hS}) << bufMx.copy_to(luisa::span{hMx}) << synchronize();
             auto err = 0.0f;
@@ -890,6 +833,9 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_min_abs: B = min(A, 0.5), C = abs(A) ----------------------
         {
+            auto [min_abs_kernel, min_abs_result] = trace_and_verify(
+                "tile_min_abs", tile_min_abs_kernel,
+                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
             constexpr uint32_t BM = 8u, BN = 8u;
             auto bufA = device.create_buffer<float>(BM * BN);
             auto bufB = device.create_buffer<float>(BM * BN);
@@ -901,10 +847,8 @@ int main(int argc, char *argv[]) {
             stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
             min_abs_kernel.validate(bufA, bufB, bufC);
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(min_abs_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<2, luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>,
-                                                            luisa::compute::Buffer<float>>{fb});
+            auto typed_min_abs = min_abs_kernel.to_kernel<2>();
+            auto sh = device.compile(typed_min_abs);
             stream << sh(bufA, bufB, bufC).dispatch(min_abs_result.dispatch_size.x, min_abs_result.dispatch_size.y)
                    << bufB.copy_to(luisa::span{hB}) << bufC.copy_to(luisa::span{hC}) << synchronize();
             auto err = 0.0f;
@@ -917,12 +861,15 @@ int main(int argc, char *argv[]) {
 
         // ---- tile_vote_shuffle: W = 1.0 (votes/shuffles exercised) -----------
         {
+            auto [vote_shuffle_kernel, vote_shuffle_result] = trace_and_verify(
+                "tile_vote_shuffle", tile_vote_shuffle_kernel,
+                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
             constexpr uint32_t N = 2u;
             auto bufW = device.create_buffer<float>(N);
             luisa::vector<float> hW(N);
             vote_shuffle_kernel.validate(bufW);
-            luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder> fb{wrap(vote_shuffle_result.function)};
-            auto sh = device.compile(luisa::compute::Kernel<1, luisa::compute::Buffer<float>>{fb});
+            auto typed_vote_shuffle = vote_shuffle_kernel.to_kernel<1>();
+            auto sh = device.compile(typed_vote_shuffle);
             stream << sh(bufW).dispatch(vote_shuffle_result.dispatch_size.x)
                    << bufW.copy_to(luisa::span{hW}) << synchronize();
             auto err = 0.0f;

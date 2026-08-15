@@ -36,7 +36,6 @@ using tile_f32 = tile::float32;
 using tile_i32 = tile::int32;
 
 // Mirrors examples/compute/tensor_stub.cpp elementwise_add (smaller sizes).
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> elementwise_add(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
     constexpr tile_i32 M = 32, N = 32;
     constexpr tile_i32 block_M = 8, block_N = 8;
@@ -88,7 +87,6 @@ auto elementwise_add_lambda = [](Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
 // guards F1: the range-for must emit exactly ONE PipelinedStmt and trace its
 // body exactly once (a real lowering would unroll/pipeline all `count` K
 // steps, but the traced IR holds one representative copy/copy/gemm trip).
-TILELANG_PRIM_FUNC
 Tensor<tile_f16, 2> pipelined_matmul(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> B) {
     constexpr tile_i32 M = 64, N = 64, K = 32;
     constexpr tile_i32 block_M = 16, block_N = 16, block_K = 8;
@@ -120,7 +118,6 @@ Tensor<tile_f16, 2> pipelined_matmul(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> 
 // has an unspecified evaluation order (MSVC evaluates right-to-left), so the
 // buffer arguments of two-argument kernels came out swapped — elementwise add
 // masked it (A+B is commutative), but matmul (A*B) produced wrong results.
-TILELANG_PRIM_FUNC
 Tensor<tile_i32, 1> two_arg_order_kernel(Tensor<tile_f32, 2> A, Tensor<tile_i32, 1> B) {
     Tensor<tile_i32, 1> C = T.empty(T.shape(4), tile_i32{});
     for (auto bx : T.Kernel(1, 4)) {
@@ -132,7 +129,6 @@ Tensor<tile_i32, 1> two_arg_order_kernel(Tensor<tile_f32, 2> A, Tensor<tile_i32,
 // Kernel exercising the gap-analysis ops (FILL / TRANSPOSE / CLAMP / ATOMIC /
 // SYNC / WARP_REDUCE / LOOP_BREAK) — they must emit the matching TileOpKind
 // statements in program order.
-TILELANG_PRIM_FUNC
 Tensor<tile_i32, 1> gap_ops_kernel(Tensor<tile_f32, 2> A) {
     constexpr tile_i32 BM = 8, BN = 8;
     Tensor<tile_i32, 1> D = T.empty(T.shape(32), tile_i32{});
@@ -162,7 +158,6 @@ Tensor<tile_i32, 1> gap_ops_kernel(Tensor<tile_f32, 2> A) {
 // Kernel using the quantized dtype handles (int8 / fp8): the DSL must map
 // them to the matching R1 TensorElementType tags (I8 / FP8) on the traced
 // AllocStmt operands.
-TILELANG_PRIM_FUNC
 Tensor<tile::int8, 1> quantized_copy_kernel(Tensor<tile::int8, 1> A, Tensor<tile::fp8, 1> B) {
     Tensor<tile::int8, 1> C = T.empty(T.shape(8), tile::int8{});
     Tensor<tile::fp8, 1> D = T.empty(T.shape(8), tile::fp8{});

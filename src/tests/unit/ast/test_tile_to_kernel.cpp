@@ -32,7 +32,6 @@ using tile_f16 = tile::half;
 using tile_f32 = tile::float32;
 using tile_i32 = tile::int32;
 
-TILELANG_PRIM_FUNC
 Tensor<tile_f32, 2> elementwise_add(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
     constexpr tile_i32 M = 32, N = 32;
     constexpr tile_i32 block_M = 8, block_N = 8;
@@ -50,7 +49,6 @@ Tensor<tile_f32, 2> elementwise_add(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B
     return C;
 }
 
-TILELANG_PRIM_FUNC
 Tensor<tile_f16, 2> pipelined_matmul(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> B) {
     constexpr tile_i32 M = 64, N = 64, K = 32;
     constexpr tile_i32 block_M = 16, block_N = 16, block_K = 8;
@@ -95,7 +93,6 @@ Tensor<tile_f32, 2> rms_norm(Tensor<tile_f32, 2> A) {
 // (zero fill is carried as a raw zero byte and cast to fp8).  As in the other
 // tile kernels, global-to-global copies are not traced (global views are
 // extent-less), so each copy routes through a shared/fragment intermediate.
-TILELANG_PRIM_FUNC
 Tensor<tile::int8, 1> int8_copy_kernel(Tensor<tile::int8, 1> A) {
     constexpr tile_i32 threads = 8;
     Tensor<tile::int8, 1> C = T.empty(T.shape(8), tile::int8{});
@@ -107,7 +104,6 @@ Tensor<tile::int8, 1> int8_copy_kernel(Tensor<tile::int8, 1> A) {
     return C;
 }
 
-TILELANG_PRIM_FUNC
 Tensor<tile::fp8, 1> fp8_clear_kernel() {
     constexpr tile_i32 threads = 8;
     Tensor<tile::fp8, 1> C = T.empty(T.shape(8), tile::fp8{});

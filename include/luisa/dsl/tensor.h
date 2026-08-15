@@ -72,10 +72,6 @@
 #include <type_traits>
 #include <utility>
 
-// Marks a function as a TileLang kernel factory (the C++ spelling of
-// `@T.prim_func`).  The stub performs no TIR lowering, so it is a no-op.
-#define TILELANG_PRIM_FUNC
-
 namespace luisa::compute::tile {
 
 // The AST tile-function builder this DSL traces into when a pseudo kernel is
