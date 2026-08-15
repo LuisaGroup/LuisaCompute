@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <utility>
 
+#include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/type_traits.h>
 #include <luisa/xir/argument.h>

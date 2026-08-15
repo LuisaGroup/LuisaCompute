@@ -833,7 +833,8 @@ private:
         states.at(entry)->reached = true;
         states.at(entry)->effect = identity;
         luisa::vector<BasicBlock *> worklist{entry};
-        luisa::unordered_set<BasicBlock *> queued{entry};
+        luisa::unordered_set<BasicBlock *> queued;
+        queued.insert(entry);
         RayQueryHandlerScratchBlockState exits{_root_type};
         while (!worklist.empty()) {
             auto *block = worklist.back();

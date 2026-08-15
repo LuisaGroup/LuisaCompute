@@ -1410,7 +1410,8 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
                 .pNext = &vk12_vmm_features};
             vkGetPhysicalDeviceFeatures2(physical_device, &vmm_features2);
-            enable_vulkan_memory_model = vk12_vmm_features.vulkanMemoryModel == VK_TRUE;
+            enable_vulkan_memory_model = vk12_vmm_features.vulkanMemoryModel == VK_TRUE &&
+                                         vk12_vmm_features.vulkanMemoryModelDeviceScope == VK_TRUE;
             if (supported_ext.find(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME) != supported_ext.end()) {
                 VkPhysicalDeviceFeatures2 rc_features2{
                     .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
@@ -2108,7 +2109,14 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
           .timelineSemaphore =
               required_device_features.supported ? VK_TRUE : VK_FALSE,
           .bufferDeviceAddress = device_address_enabled ? VK_TRUE : VK_FALSE,
-          .vulkanMemoryModel = enable_vulkan_memory_model ? VK_TRUE : VK_FALSE};
+          // The SPIR-V codegen switches to the Vulkan memory model only for
+          // cooperative-vector shaders (target_feature::cooperative_vector), so
+          // enable the memory-model features only when the extension is fully
+          // usable. On devices missing any prerequisite, keep the pre-existing
+          // GLSL450 device-scope behavior instead of toggling the memory model.
+          .vulkanMemoryModel = cooperative_vector_enabled ? VK_TRUE : VK_FALSE,
+          .vulkanMemoryModelDeviceScope =
+              cooperative_vector_enabled ? VK_TRUE : VK_FALSE};
     VK_CHECK_RESULT(_vk_device->create_logical_device(device_features, _enable_device_exts, &vk12_feature, surface_enabled));
     if (external_device != VK_NULL_HANDLE) {
         _vk_device->queue_family_indices.graphics =
