@@ -1244,18 +1244,34 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             static_cast<void>(_translate_function(def));
         }
     }
-    auto max_ray_query_environment_bytes =
+    auto ray_query_projection =
         _finalize_ray_query_pipeline_contexts();
     if (_uses_synchronous_ray_query_pipeline &&
         !hip_synchronous_ray_query_environment_is_profitable(
-            max_ray_query_environment_bytes)) {
+            ray_query_projection
+                .maximum_post_state_observed_context_bytes)) {
         _retry_with_resumable_ray_query_pipeline = true;
         LUISA_VERBOSE(
             "HIP synchronous RayQuery plan rejected: maximum projected "
-            "callback environment is {} bytes (budget={} bytes).",
-            max_ray_query_environment_bytes,
-            hip_synchronous_ray_query_environment_budget);
+            "callback environment whose post-state is observed is {} bytes "
+            "(budget={} bytes; overall maximum={} bytes).",
+            ray_query_projection
+                .maximum_post_state_observed_context_bytes,
+            hip_synchronous_ray_query_environment_budget,
+            ray_query_projection.maximum_context_bytes);
         return {};
+    }
+    if (_uses_synchronous_ray_query_pipeline &&
+        ray_query_projection.maximum_context_bytes >
+            hip_synchronous_ray_query_environment_budget) {
+        LUISA_VERBOSE(
+            "HIP synchronous RayQuery retained {} handler-only pipeline(s) "
+            "above the ordinary {}-byte callback budget (overall maximum={} "
+            "bytes): their query post-state is unobservable and candidate "
+            "side effects are the traversal result.",
+            ray_query_projection.oversized_handler_only_pipeline_count,
+            hip_synchronous_ray_query_environment_budget,
+            ray_query_projection.maximum_context_bytes);
     }
 
     _link_native_include();

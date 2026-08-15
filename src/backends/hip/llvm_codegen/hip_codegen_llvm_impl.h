@@ -127,12 +127,23 @@ public:
         llvm::CallInst *trace_call;
         llvm::Function *on_surface;
         llvm::Function *on_procedural;
+        // True exactly when the parent function can observe query state after
+        // the synchronous pipeline. A handler-only traversal transports its
+        // result through captured side effects and does not need the generic
+        // resumable ABI merely because that captured environment is large.
+        bool post_state_observed;
         luisa::vector<llvm::StoreInst *> stores;
         luisa::vector<llvm::LoadInst *> loads;
         // The compact candidate transaction decodes the same projected user
         // environment but constructs query identity locally. Index zero is
         // therefore null; every other entry mirrors `loads`.
         luisa::vector<llvm::LoadInst *> compact_loads;
+    };
+
+    struct RayQueryPipelineProjectionInfo {
+        size_t maximum_context_bytes{0u};
+        size_t maximum_post_state_observed_context_bytes{0u};
+        size_t oversized_handler_only_pipeline_count{0u};
     };
 
     static constexpr auto llvm_buffer_type_ptr_index = 0;
@@ -325,7 +336,7 @@ private:
     void _specialize_oclc_options() noexcept;
     void _link_ockl_if_needed() noexcept;
     void _postprocess_rt_kernel() noexcept;
-    [[nodiscard]] size_t
+    [[nodiscard]] RayQueryPipelineProjectionInfo
     _finalize_ray_query_pipeline_contexts() noexcept;
     void _run_optimization_passes() noexcept;
     void _dump_module(const std::filesystem::path &path) const noexcept;

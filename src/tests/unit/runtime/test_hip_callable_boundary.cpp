@@ -206,6 +206,17 @@ evaluate_normalized_vectors_through_callable(
     return false;
 }
 
+[[nodiscard]] size_t count_occurrences(
+    std::string_view text, std::string_view pattern) noexcept {
+    auto count = size_t{0u};
+    for (auto position = text.find(pattern);
+         position != std::string_view::npos;
+         position = text.find(pattern, position + pattern.size())) {
+        ++count;
+    }
+    return count;
+}
+
 [[nodiscard]] CompileResult compile_reused_callable(
     Device &device, CapturingBinaryIO &binary_io,
     uint32_t reuse_count, uint32_t seed) noexcept {
@@ -296,6 +307,47 @@ void compile_observing_ray_query(Device &device) noexcept {
         output.write(
             dispatch_x(),
             hit->prim ^ cast<uint>(observed_t_max > 0.0f));
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
+void compile_large_ray_query_environment(
+    Device &device, bool observe_post_state) noexcept {
+    Kernel1D kernel = [observe_post_state](
+                          BufferUInt output,
+                          BufferUInt input_0,
+                          BufferUInt input_1,
+                          BufferUInt input_2,
+                          BufferUInt input_3,
+                          BufferUInt input_4,
+                          BufferUInt input_5,
+                          BufferUInt input_6,
+                          BufferUInt input_7,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [&](SurfaceCandidate &candidate) noexcept {
+                               // Every buffer is consumed by the handler, so
+                               // argument-demand projection cannot shrink this
+                               // environment below the ordinary 64-byte native
+                               // budget. The output write is the semantic result
+                               // when the query post-state is discarded.
+                               auto checksum =
+                                   input_0.read(0u) ^ input_1.read(0u) ^
+                                   input_2.read(0u) ^ input_3.read(0u) ^
+                                   input_4.read(0u) ^ input_5.read(0u) ^
+                                   input_6.read(0u) ^ input_7.read(0u);
+                               output.write(dispatch_x(), checksum);
+                               candidate.commit();
+                           })
+                       .trace();
+        if (observe_post_state) {
+            output.write(dispatch_x(), hit->prim);
+        }
     };
     static_cast<void>(device.compile(
         kernel, ShaderOption{.enable_cache = false}));
@@ -422,6 +474,8 @@ int main(int argc, char *argv[]) {
         [&] {
             compile_minimal_ray_query(device);
             compile_observing_ray_query(device);
+            compile_large_ray_query_environment(device, false);
+            compile_large_ray_query_environment(device, true);
             const auto before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_4.ll");
             const auto observing_before_module = read_text_file(
@@ -430,6 +484,10 @@ int main(int argc, char *argv[]) {
                 dump_directory / "hip_kernel_final_4.ll");
             const auto observing_module = read_text_file(
                 dump_directory / "hip_kernel_final_5.ll");
+            const auto handler_only_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_6.ll");
+            const auto observed_large_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_7.ll");
             const auto before_root =
                 amdgpu_kernel_body(before_module);
             const auto observing_before_root =
@@ -438,9 +496,15 @@ int main(int argc, char *argv[]) {
             const auto observing_dispatcher = llvm_function_body(
                 observing_module,
                 "@luisa_ray_query_pipeline_dispatch");
+            const auto handler_only_before_root =
+                amdgpu_kernel_body(handler_only_before_module);
+            const auto observed_large_before_root =
+                amdgpu_kernel_body(observed_large_before_module);
             expect(!before_root.empty() &&
                    !observing_before_root.empty() && !root.empty() &&
-                   !observing_dispatcher.empty())
+                   !observing_dispatcher.empty() &&
+                   !handler_only_before_root.empty() &&
+                   !observed_large_before_root.empty())
                 << "failed to locate the generated RayQuery functions";
             // Selection is a codegen property, while outlining is an LLVM
             // profitability decision. Inspect the generated root before the
@@ -561,6 +625,31 @@ int main(int argc, char *argv[]) {
                     << "synchronous gfx12 RayQuery retained an unreachable "
                        "second stack region";
             }
+
+            // The two large-environment kernels differ only in whether the
+            // parent observes the committed-hit post-state. A local query
+            // whose only result is handler side effects may retain the native
+            // synchronous traversal even when its projected capture product
+            // exceeds the ordinary budget. Adding one post-state read must
+            // fail the closed-use proof and select the resumable ABI.
+            expect(handler_only_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
+                   std::string_view::npos)
+                << "large handler-only RayQuery did not retain native "
+                   "synchronous traversal";
+            expect(count_occurrences(
+                       handler_only_before_root,
+                       "ray.query.context.projected.field") >= 8u)
+                << "large handler-only RayQuery regression did not exercise "
+                   "an environment above the ordinary native budget";
+            expect(observed_large_before_module.find(
+                       "@luisa_ray_query_proceed(") !=
+                   std::string_view::npos &&
+                   observed_large_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
+                       std::string_view::npos)
+                << "observable large RayQuery post-state did not fail closed "
+                   "to the resumable traversal ABI";
         };
 
     "HIP lowers fixed-vector dot products and preserves FP mode"_test =
@@ -581,7 +670,7 @@ int main(int argc, char *argv[]) {
                     module.find("llvm.vector.reduce.fadd") !=
                     std::string::npos;
             }
-            expect(dumped_module_count == 6u)
+            expect(dumped_module_count == 8u)
                 << "expected one final HIP LLVM module per compiled shader";
             expect(!retained_vector_reduction)
                 << "fixed-vector dot product retained the target-unstable "

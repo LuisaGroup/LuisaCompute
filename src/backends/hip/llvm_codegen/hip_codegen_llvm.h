@@ -54,9 +54,11 @@ struct HIPCodegenLLVMConfig {
 };
 
 // The synchronous pipeline copies its projected callback product once per
-// query and reloads it at every accepted candidate. Restrict that hot object
-// to four 16-byte ABI quanta; larger environments use the resumable hardware
-// query whose handler values remain in their ordinary SSA/callable context.
+// query and reloads it at every accepted candidate. When the parent observes
+// the query post-state, restrict that hot object to four 16-byte ABI quanta;
+// larger environments use the resumable hardware query whose handler values
+// remain in their ordinary SSA/callable context. A handler-only pipeline has
+// a separate, proven semantic result channel and is classified independently.
 inline constexpr size_t hip_synchronous_ray_query_environment_budget = 64u;
 
 // Shared with the native LuisaPipelineRayQueryState static assertion. Both

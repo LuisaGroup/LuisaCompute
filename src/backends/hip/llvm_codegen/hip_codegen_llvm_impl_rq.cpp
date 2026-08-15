@@ -188,15 +188,53 @@ void accumulate_ray_query_handler_observations(
     return ray_query_value_has_function_local_state(value, active);
 }
 
+// A synchronous pipeline mutates one query object and then returns to its
+// parent function. Its post-state is proven dead under this closed, local use
+// criterion:
+//
+//   1. the object has function-local storage;
+//   2. every non-defining use is the pipeline being classified.
+//
+// Whole-object stores are definitions and cannot observe the previous state.
+// Every other use (including a load, read, write, another pipeline, or an
+// unknown escape) may observe the post-state and therefore fails closed. The
+// proof intentionally does not depend on instruction order: accepting fewer
+// handler-only pipelines is safe, while accepting an escaping object is not.
+[[nodiscard]] bool ray_query_pipeline_post_state_is_observed(
+    const xir::RayQueryPipelineInst *pipeline) noexcept {
+    auto query_object = pipeline->query_object();
+    if (query_object == nullptr || !query_object->isa<xir::AllocaInst>() ||
+        !static_cast<const xir::AllocaInst *>(query_object)->is_local()) {
+        return true;
+    }
+    for (auto use : query_object->use_list()) {
+        auto user = use->user();
+        if (user == pipeline &&
+            use == pipeline->operand_use(
+                       xir::RayQueryPipelineInst::
+                           operand_index_query_object)) {
+            continue;
+        }
+        if (user != nullptr && user->isa<xir::StoreInst>() &&
+            static_cast<const xir::StoreInst *>(user)->variable() ==
+                query_object) {
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
 }// namespace
 
-size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
+HIPCodegenLLVMImpl::RayQueryPipelineProjectionInfo
+HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
+    RayQueryPipelineProjectionInfo projection;
     size_t projected_argument_count = 0u;
     size_t separated_query_argument_count = 0u;
     size_t scalarized_context_count = 0u;
     size_t original_context_bytes = 0u;
     size_t projected_context_bytes = 0u;
-    size_t max_projected_context_bytes = 0u;
 
     // Compute the least fixed point of interprocedural argument demand over
     // the local generated-Callable graph. A use that only forwards argument
@@ -460,9 +498,17 @@ size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
         auto current_projected_context_bytes =
             _data_layout->getTypeAllocSize(projected_type).getFixedValue();
         projected_context_bytes += current_projected_context_bytes;
-        max_projected_context_bytes = std::max(
-            max_projected_context_bytes,
+        projection.maximum_context_bytes = std::max(
+            projection.maximum_context_bytes,
             current_projected_context_bytes);
+        if (context.post_state_observed) {
+            projection.maximum_post_state_observed_context_bytes = std::max(
+                projection.maximum_post_state_observed_context_bytes,
+                current_projected_context_bytes);
+        } else if (current_projected_context_bytes >
+                   hip_synchronous_ray_query_environment_budget) {
+            projection.oversized_handler_only_pipeline_count++;
+        }
         projected_argument_count +=
             argument_count - 1u - retained_indices.size();
 
@@ -545,7 +591,7 @@ size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
             projected_context_bytes);
     }
     _llvm_ray_query_pipeline_contexts.clear();
-    return max_projected_context_bytes;
+    return projection;
 }
 
 void HIPCodegenLLVMImpl::_translate_ray_query_loop_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryLoopInst *inst) noexcept {
@@ -720,6 +766,8 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         inst->on_procedural_function());
     const auto observation_mask =
         ray_query_handler_observation_mask(inst);
+    const auto post_state_observed =
+        ray_query_pipeline_post_state_is_observed(inst);
     LUISA_ASSERT(
         llvm_on_surface->getReturnType()->isVoidTy() &&
             llvm_on_procedural->getReturnType()->isVoidTy(),
@@ -1204,6 +1252,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                 llvm_trace_call,
                 llvm_on_surface,
                 llvm_on_procedural,
+                post_state_observed,
                 std::move(llvm_context_stores),
                 std::move(llvm_context_loads),
                 std::move(llvm_compact_context_loads)});
