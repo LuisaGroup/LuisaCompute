@@ -5873,9 +5873,12 @@ struct TexturePacketProbe {
     bool valid{true};
     uint32_t read_calls{0u};
     uint32_t write_calls{0u};
+    uint32_t sample_calls{0u};
     uint32_t lane_count{0u};
     uint64_t read_mask{0u};
     uint64_t write_mask{0u};
+    uint64_t varying_sample_mask{0u};
+    uint64_t uniform_sample_mask{0u};
     std::array<uint32_t, 8u> x{};
     std::array<uint32_t, 8u> y{};
     std::array<uint32_t, 8u> z{};
@@ -5934,6 +5937,58 @@ void texture_packet_write_probe(
 uint32_t texture_packet_size_probe(
     void *, uint32_t, uint32_t) {
     return 8u;
+}
+
+void texture_packet_sample_probe(
+    void *texture, uint32_t base_level, uint32_t dimension,
+    uint32_t lane_count, uint64_t active_mask_bits,
+    const uint32_t *sampler_codes, const float *u,
+    const float *v, const float *w, const float *levels,
+    float *values) {
+    auto *probe = static_cast<TexturePacketProbe *>(texture);
+    probe->sample_calls++;
+    probe->valid &= base_level == 3u && dimension == 2u &&
+                    lane_count == 8u && sampler_codes != nullptr &&
+                    u != nullptr && v != nullptr && w != nullptr &&
+                    values != nullptr;
+    auto uniform = levels == nullptr;
+    if (uniform) {
+        probe->uniform_sample_mask = active_mask_bits;
+        probe->valid &= active_mask_bits == 0x01u;
+    } else {
+        probe->varying_sample_mask = active_mask_bits;
+        probe->valid &= active_mask_bits == 0x1fu;
+    }
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        if (uniform) {
+            probe->valid &= sampler_codes[lane] ==
+                            Sampler::point_edge().code();
+            probe->valid &= std::abs(u[lane] - 0.75f) < 1.0e-6f &&
+                            std::abs(v[lane] - 0.25f) < 1.0e-6f &&
+                            w[lane] == 0.0f;
+        } else {
+            probe->valid &= sampler_codes[lane] ==
+                            Sampler::linear_point_edge().code();
+            auto expected_u =
+                (static_cast<float>(lane) + 0.5f) * 0.125f;
+            auto expected_level = (lane & 1u) == 0u ? 1.0f : 2.0f;
+            probe->valid &= std::abs(u[lane] - expected_u) < 1.0e-6f &&
+                            std::abs(v[lane] - 0.0625f) < 1.0e-6f &&
+                            w[lane] == 0.0f &&
+                            std::abs(levels[lane] - expected_level) <
+                                2.0e-5f;
+        }
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            values[component * lane_count + lane] =
+                uniform ? static_cast<float>(1u + component) :
+                          static_cast<float>(
+                              100u + 10u * component + lane);
+        }
+    }
 }
 
 [[nodiscard]] bool run_texture_packet_codegen() {
@@ -6025,6 +6080,184 @@ uint32_t texture_packet_size_probe(
         CHECK(probe.x[lane] == lane);
         CHECK(probe.y[lane] == 0u);
         CHECK(probe.z[lane] == 0u);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_direct_texture_sample_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto active_lanes = 5u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("direct_texture_sample");
+    auto *texture = kernel->create_resource_argument(
+        Type::texture(Type::of<float>(), 2u));
+    auto *output = kernel->create_resource_argument(
+        Type::buffer(Type::of<luisa::float4>()));
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero_u32 = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one_u32 = module.create_constant_one(Type::of<uint32_t>());
+    auto *zero_f32 = module.create_constant_zero(Type::of<float>());
+    auto half_value = 0.5f;
+    auto eighth_value = 0.125f;
+    auto quarter_value = 0.25f;
+    auto sixteenth_value = 0.0625f;
+    auto uniform_uv_value = make_float2(0.75f, 0.25f);
+    auto linear_filter_value = static_cast<uint32_t>(
+        Sampler::Filter::LINEAR_POINT);
+    auto point_filter_value = static_cast<uint32_t>(
+        Sampler::Filter::POINT);
+    auto edge_address_value = static_cast<uint32_t>(
+        Sampler::Address::EDGE);
+    auto *half = module.create_constant(
+        Type::of<float>(), &half_value);
+    auto *eighth = module.create_constant(
+        Type::of<float>(), &eighth_value);
+    auto *quarter = module.create_constant(
+        Type::of<float>(), &quarter_value);
+    auto *sixteenth = module.create_constant(
+        Type::of<float>(), &sixteenth_value);
+    auto *uniform_uv = module.create_constant(
+        Type::of<luisa::float2>(), &uniform_uv_value);
+    auto *linear_filter = module.create_constant(
+        Type::of<uint32_t>(), &linear_filter_value);
+    auto *point_filter = module.create_constant(
+        Type::of<uint32_t>(), &point_filter_value);
+    auto *edge_address = module.create_constant(
+        Type::of<uint32_t>(), &edge_address_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero_u32});
+    auto *x_f32 = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST, x);
+    auto *u = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {builder.call(
+             Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+             {x_f32, half}),
+         eighth});
+    auto *coordinate = builder.call(
+        Type::of<luisa::float2>(), xir::ArithmeticOp::AGGREGATE,
+        {u, sixteenth});
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {x, one_u32});
+    auto *parity_f32 = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST, parity);
+    auto *gradient_scale = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {builder.call(
+             Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+             {parity_f32, module.create_constant_one(Type::of<float>())}),
+         quarter});
+    auto *ddx = builder.call(
+        Type::of<luisa::float2>(), xir::ArithmeticOp::AGGREGATE,
+        {gradient_scale, zero_f32});
+    auto *ddy = builder.call(
+        Type::of<luisa::float2>(), xir::ArithmeticOp::AGGREGATE,
+        {zero_f32, gradient_scale});
+    auto *varying_sample = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceQueryOp::TEXTURE2D_SAMPLE_GRAD,
+        {texture, coordinate, ddx, ddy,
+         linear_filter, edge_address});
+    auto *uniform_sample = builder.call(
+        Type::of<luisa::float4>(),
+        xir::ResourceQueryOp::TEXTURE2D_SAMPLE,
+        {texture, uniform_uv, point_filter, edge_address});
+    auto *sum = builder.call(
+        Type::of<luisa::float4>(), xir::ArithmeticOp::BINARY_ADD,
+        {varying_sample, uniform_sample});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, x, sum});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-direct-texture-sample", *context);
+    auto name = std::string{"simd_direct_texture_sample"};
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    struct alignas(16) Arguments {
+        SIMDHostTextureView texture;
+        SIMDHostBufferView output;
+    };
+    CHECK(codegen.argument_buffer_size == sizeof(Arguments));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    CHECK(ir.find("texture.sample.result") != std::string::npos);
+    CHECK(ir.find("texture.sample.safe.gradient") !=
+          std::string::npos);
+    CHECK(ir.find("__luisa_cpu_native_log2_f32_v8_u35") !=
+          std::string::npos);
+    CHECK(ir.find("texture.sample.lane") == std::string::npos);
+    CHECK(ir.find("bindless.uniform.callback.mask") !=
+          std::string::npos);
+
+    LLVMJIT jit{true};
+    CHECK(jit.succeeded());
+    auto assembly = jit.emit_assembly_copy(*llvm_module);
+    std::transform(
+        assembly.begin(), assembly.end(), assembly.begin(),
+        [](unsigned char c) noexcept {
+            return static_cast<char>(std::tolower(c));
+        });
+    CHECK(assembly.find("log2f") == std::string::npos);
+    CHECK(assembly.find("_zgv") == std::string::npos);
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    CHECK(!jit.object().empty());
+
+    TexturePacketProbe probe;
+    std::array<luisa::float4, active_lanes> output_values{};
+    Arguments arguments{
+        .texture = {
+            .texture = &probe,
+            .read_float = texture_packet_read_probe,
+            .read_uint = texture_packet_read_probe,
+            .write_float = texture_packet_write_probe,
+            .write_uint = texture_packet_write_probe,
+            .size = texture_packet_size_probe,
+            .level = 3u,
+            .dimension = 2u,
+            .sample_float = texture_packet_sample_probe,
+        },
+        .output = {output_values.data(), sizeof(output_values)},
+    };
+    auto config = launch_1d(active_lanes, width);
+    function(&arguments, nullptr, &config, active_lanes);
+    CHECK(probe.valid);
+    CHECK(probe.sample_calls == 2u);
+    CHECK(probe.varying_sample_mask == 0x1fu);
+    CHECK(probe.uniform_sample_mask == 0x01u);
+    for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            CHECK(output_values[lane][component] ==
+                  static_cast<float>(
+                      101u + 11u * component + lane));
+        }
     }
     return true;
 }
@@ -11049,6 +11282,8 @@ int main() {
         {"uniform buffer read broadcast",
          &run_uniform_buffer_broadcast_codegen},
         {"XIR texture packet callback", &run_texture_packet_codegen},
+        {"XIR direct texture sample callback",
+         &run_direct_texture_sample_codegen},
         {"XIR accel instance metadata",
          &run_accel_instance_metadata_codegen},
         {"XIR accel direct packet ABI",

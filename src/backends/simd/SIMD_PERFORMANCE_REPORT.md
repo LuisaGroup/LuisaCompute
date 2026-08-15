@@ -4068,3 +4068,39 @@ reports 63.129346 dB. Path tracing reports respectively 35.426795, 42.781582,
 40.940376, 39.219305, and 37.800295 dB for W1/W2/W4/W8/W16. These single-run
 correctness executions are intentionally not treated as stable performance
 measurements.
+
+## Direct sampled-texture completion
+
+The next resource checkpoint lowers all eight direct 2D/3D `sample`,
+`sample_level`, `sample_grad`, and `sample_grad_level` operations. This is a
+capability and correctness stage, not a performance claim: the previous SIMD
+compiler rejected these instructions, so there is no valid old/new throughput
+ratio. The JIT now computes gradient LOD with target-independent fixed-vector
+IR, sanitizes inactive operands before arithmetic and scratch publication, and
+crosses one packet callback. Uniform gradients execute one scalar `log2`, and
+a uniform sampled result invokes only the first active lane. The runtime groups
+divergent sampler codes and interprets every LOD relative to the texture view's
+bound base mip. The appended callback consumes existing descriptor padding,
+leaving the 64-byte texture argument ABI and prior offsets unchanged.
+
+The implementation also corrects three sampler semantics shared by bindless
+and direct paths: `POINT` and `LINEAR_POINT` select the nearest mip, linear
+`REPEAT` preserves tap order at the wrap seam, and linear `ZERO` performs the
+required border blend rather than collapsing the two taps. A fractional 1.6
+POINT-LOD case, a nonzero base-mip direct case, sparse samplers, every runtime
+width, and a three-lane W16 tail are permanent independent oracles. The LLVM
+shape gate requires one varying callback with the exact tail mask, one
+first-active-lane uniform callback, the shared fixed-vector native `log2`
+symbol, no lane extract/call/insert path, and no optimized `log2f` or platform
+vector-library symbol.
+
+Fresh full Release builds of `build-sdf-bench` and `build-sdf-tbb` pass their
+complete 142/142 CTest inventories. The separately repeated SIMD-labelled gate
+passes 37/37. Checked-in references remain read-only. At W1/W2/W4/W8/W16,
+image processing passes at 89.251953 dB RGB PSNR and Voxel at 82.834519 dB;
+1024-spp path tracing passes at 35.426871/42.781428/40.940426/39.219318/
+37.800219 dB, and 1024-spp non-coroutine SDF passes at 63.129346 dB at every
+width. Every path process reports Embree 4.4.1 native W4/W8/W16 packet support.
+These sequential executions are correctness smokes, not new stable throughput
+measurements; the official same-algorithm ISPC and fallback-relative tables
+above therefore remain the current performance evidence.

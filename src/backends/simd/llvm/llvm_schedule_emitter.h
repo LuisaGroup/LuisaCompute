@@ -358,6 +358,8 @@ private:
         ::llvm::Type *type, std::string_view name);
     [[nodiscard]] ::llvm::Value *_texture_read(
         const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_direct_texture_sample(
+        const schedule::Instruction &instruction);
     void _texture_write(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_gather_data(

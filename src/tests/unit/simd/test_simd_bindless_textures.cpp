@@ -3,6 +3,7 @@
 #include <array>
 #include <limits>
 
+#include <luisa/ast/function_builder.h>
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/luisa-compute.h>
@@ -405,6 +406,215 @@ int main(int argc, char *argv[]) {
                 host[gid * output_stride + 29u],
                 image_mip_texel(0u, x2_mip, y2_mip),
                 "SIMD bindless uniform-gradient LOD sample mismatch");
+        }
+
+        // Direct sampled-image CallOps use the same packet sampler, but the
+        // resource descriptor carries a bound base mip and an explicit
+        // per-lane sampler. Exercise all eight 2D/3D variants at every
+        // runtime width, including the three-lane W16 tail.
+        constexpr auto direct_stride = 9u;
+        auto direct_output = device.create_buffer<float4>(
+            thread_count * direct_stride);
+        Kernel1D direct_kernel = [width, direct_stride](
+                                     ImageFloat image,
+                                     VolumeFloat volume,
+                                     BufferVar<float4> result) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto gid = dispatch_x();
+            auto parity = gid & 1u;
+            auto dynamic_filter = ite(
+                parity != 0u,
+                static_cast<uint32_t>(Sampler::Filter::LINEAR_POINT),
+                static_cast<uint32_t>(Sampler::Filter::POINT));
+            auto dynamic_address = ite(
+                (gid & 2u) != 0u,
+                static_cast<uint32_t>(Sampler::Address::REPEAT),
+                static_cast<uint32_t>(Sampler::Address::EDGE));
+
+            auto x2 = gid & 3u;
+            auto y2 = (gid >> 2u) & 3u;
+            auto coord2 = make_uint2(x2, y2);
+            auto uv2 = (make_float2(coord2) + 0.5f) / 4.0f;
+            auto mip_coord2 = make_uint2(x2 & 1u, y2 & 1u);
+            auto mip_uv2 =
+                (make_float2(mip_coord2) + 0.5f) / 2.0f;
+            auto varying_level = cast<float>(parity);
+            auto gradient_scale2 =
+                0.5f + cast<float>(parity) * 0.25f;
+            auto ddx2 = make_float2(gradient_scale2, 0.0f);
+            auto ddy2 = make_float2(0.0f, gradient_scale2);
+            auto minimum_gradient_scale2 =
+                cast<float>(parity) * 0.125f;
+            auto minimum_ddx2 = make_float2(
+                minimum_gradient_scale2, 0.0f);
+            auto minimum_ddy2 = make_float2(
+                0.0f, minimum_gradient_scale2);
+
+            auto x3 = gid & 1u;
+            auto y3 = (gid >> 1u) & 1u;
+            auto z3 = (gid >> 2u) & 1u;
+            auto coord3 = make_uint3(x3, y3, z3);
+            auto uvw3 = (make_float3(coord3) + 0.5f) / 2.0f;
+            auto gradient_scale3 =
+                1.0f + cast<float>(parity) * 0.5f;
+            auto ddx3 = make_float3(gradient_scale3, 0.0f, 0.0f);
+            auto ddy3 = make_float3(0.0f, gradient_scale3, 0.0f);
+            auto minimum_gradient_scale3 =
+                cast<float>(parity) * 0.25f;
+            auto minimum_ddx3 = make_float3(
+                minimum_gradient_scale3, 0.0f, 0.0f);
+            auto minimum_ddy3 = make_float3(
+                0.0f, minimum_gradient_scale3, 0.0f);
+
+            auto &builder =
+                *luisa::compute::detail::FunctionBuilder::current();
+            auto literal = [&](auto value) noexcept {
+                return builder.literal(
+                    Type::of<decltype(value)>(), value);
+            };
+            auto write_sample = [&](uint32_t field,
+                                    const Expression *sample) noexcept {
+                result.write(
+                    gid * direct_stride + field,
+                    def<float4>(sample));
+            };
+            write_sample(
+                0u,
+                builder.call(
+                    Type::of<float4>(), CallOp::TEXTURE2D_SAMPLE,
+                    {image.expression(), uv2.expression(),
+                     dynamic_filter.expression(),
+                     dynamic_address.expression()}));
+            write_sample(
+                1u,
+                builder.call(
+                    Type::of<float4>(),
+                    CallOp::TEXTURE2D_SAMPLE_LEVEL,
+                    {image.expression(), mip_uv2.expression(),
+                     varying_level.expression(),
+                     literal(static_cast<uint32_t>(
+                         Sampler::Filter::POINT)),
+                     dynamic_address.expression()}));
+            write_sample(
+                2u,
+                builder.call(
+                    Type::of<float4>(),
+                    CallOp::TEXTURE2D_SAMPLE_GRAD,
+                    {image.expression(), mip_uv2.expression(),
+                     ddx2.expression(), ddy2.expression(),
+                     literal(static_cast<uint32_t>(
+                         Sampler::Filter::LINEAR_POINT)),
+                     dynamic_address.expression()}));
+            write_sample(
+                3u,
+                builder.call(
+                    Type::of<float4>(),
+                    CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL,
+                    {image.expression(), mip_uv2.expression(),
+                     minimum_ddx2.expression(),
+                     minimum_ddy2.expression(), literal(1.0f),
+                     literal(static_cast<uint32_t>(
+                         Sampler::Filter::LINEAR_POINT)),
+                     dynamic_address.expression()}));
+            write_sample(
+                4u,
+                builder.call(
+                    Type::of<float4>(), CallOp::TEXTURE3D_SAMPLE,
+                    {volume.expression(), uvw3.expression(),
+                     dynamic_filter.expression(),
+                     dynamic_address.expression()}));
+            write_sample(
+                5u,
+                builder.call(
+                    Type::of<float4>(),
+                    CallOp::TEXTURE3D_SAMPLE_LEVEL,
+                    {volume.expression(), literal(make_float3(0.5f)),
+                     literal(1.0f),
+                     literal(static_cast<uint32_t>(
+                         Sampler::Filter::LINEAR_POINT)),
+                     dynamic_address.expression()}));
+            write_sample(
+                6u,
+                builder.call(
+                    Type::of<float4>(),
+                    CallOp::TEXTURE3D_SAMPLE_GRAD,
+                    {volume.expression(), literal(make_float3(0.5f)),
+                     ddx3.expression(), ddy3.expression(),
+                     literal(static_cast<uint32_t>(
+                         Sampler::Filter::LINEAR_POINT)),
+                     dynamic_address.expression()}));
+            write_sample(
+                7u,
+                builder.call(
+                    Type::of<float4>(),
+                    CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL,
+                    {volume.expression(), literal(make_float3(0.5f)),
+                     minimum_ddx3.expression(),
+                     minimum_ddy3.expression(), literal(1.0f),
+                     literal(static_cast<uint32_t>(
+                         Sampler::Filter::LINEAR_POINT)),
+                     dynamic_address.expression()}));
+            write_sample(
+                8u,
+                builder.call(
+                    Type::of<float4>(), CallOp::TEXTURE2D_SAMPLE,
+                    {image.expression(), literal(make_float2(0.125f)),
+                     literal(static_cast<uint32_t>(
+                         Sampler::Filter::POINT)),
+                     literal(static_cast<uint32_t>(
+                         Sampler::Address::EDGE))}));
+        };
+        auto direct_shader = device.compile(direct_kernel);
+        luisa::vector<float4> direct_host(
+            thread_count * direct_stride);
+        stream << direct_shader(
+                      images[0u], volumes[0u], direct_output)
+                      .dispatch(thread_count)
+               << direct_output.copy_to(luisa::span{direct_host})
+               << synchronize();
+        for (auto gid = 0u; gid < thread_count; gid++) {
+            auto x2 = gid & 3u;
+            auto y2 = (gid >> 2u) & 3u;
+            auto mip_x2 = x2 & 1u;
+            auto mip_y2 = y2 & 1u;
+            expect_close(
+                direct_host[gid * direct_stride],
+                image_texel(0u, x2, y2),
+                "SIMD direct 2D implicit sample mismatch");
+            auto expected_level2 = (gid & 1u) == 0u ?
+                                       image_texel(
+                                           0u, mip_x2 * 2u + 1u,
+                                           mip_y2 * 2u + 1u) :
+                                       image_mip_texel(
+                                           0u, mip_x2, mip_y2);
+            expect_close(
+                direct_host[gid * direct_stride + 1u],
+                expected_level2,
+                "SIMD direct 2D varying LOD sample mismatch");
+            for (auto field : {2u, 3u}) {
+                expect_close(
+                    direct_host[gid * direct_stride + field],
+                    image_mip_texel(0u, mip_x2, mip_y2),
+                    "SIMD direct 2D gradient sample mismatch");
+            }
+            auto x3 = gid & 1u;
+            auto y3 = (gid >> 1u) & 1u;
+            auto z3 = (gid >> 2u) & 1u;
+            expect_close(
+                direct_host[gid * direct_stride + 4u],
+                volume_texel(0u, x3, y3, z3),
+                "SIMD direct 3D implicit sample mismatch");
+            for (auto field : {5u, 6u, 7u}) {
+                expect_close(
+                    direct_host[gid * direct_stride + field],
+                    volume_mip_texel(0u),
+                    "SIMD direct 3D mip sample mismatch");
+            }
+            expect_close(
+                direct_host[gid * direct_stride + 8u],
+                image_texel(0u, 0u, 0u),
+                "SIMD uniform direct sample mismatch");
         }
 
         // The common uniform-slot BYTE1/mip-zero/stored-mirror path executes

@@ -766,7 +766,7 @@ void ScheduleEmitter::_preflight() {
         context,
         {pointer_type, pointer_type, pointer_type, pointer_type,
          pointer_type, pointer_type,
-         _builder.getInt32Ty(), _builder.getInt32Ty()});
+         _builder.getInt32Ty(), _builder.getInt32Ty(), pointer_type});
     auto *result = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(type));
     constexpr std::array pointer_offsets{
@@ -794,7 +794,12 @@ void ScheduleEmitter::_preflight() {
         field->setAlignment(::llvm::Align{alignof(uint32_t)});
         result = _builder.CreateInsertValue(result, field, {i + 6u});
     }
-    return result;
+    auto *sample = _builder.CreateLoad(
+        pointer_type,
+        _byte_pointer(
+            base, offsetof(SIMDHostTextureView, sample_float)));
+    sample->setAlignment(::llvm::Align{alignof(void *)});
+    return _builder.CreateInsertValue(result, sample, {8u});
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_bindless_view(

@@ -7,6 +7,8 @@
 #include <cstring>
 #include <type_traits>
 
+#include <luisa/core/logging.h>
+
 #include "../../common/env_flag.h"
 
 namespace {
@@ -94,19 +96,42 @@ template<Address Mode>
 [[nodiscard]] LUISA_FORCE_INLINE LinearCoordinate
 texture_coordinate_linear_precomputed(
     float uv, float size, float half_inverse_size) noexcept {
-    if (!(size > 0.0f) || !std::isfinite(uv)) {
+    constexpr auto invalid_coordinate = 65536u;
+    if (!(size > 0.0f) || !std::isfinite(size) ||
+        !std::isfinite(uv) || !std::isfinite(half_inverse_size)) {
         return {65536u, 65536u, 0.0f};
+    }
+    if constexpr (Mode == Address::ZERO) {
+        auto position = uv * size - 0.5f;
+        if (!std::isfinite(position)) {
+            return {invalid_coordinate, invalid_coordinate, 0.0f};
+        }
+        auto lower = std::floor(position);
+        auto upper = lower + 1.0f;
+        auto encode = [size](float index) noexcept {
+            return index >= 0.0f && index < size ?
+                       static_cast<uint32_t>(index) :
+                       invalid_coordinate;
+        };
+        return {encode(lower), encode(upper), position - lower};
     }
     auto a = texture_coordinate_point_unchecked<Mode>(
         uv - half_inverse_size, size);
     auto b = texture_coordinate_point_unchecked<Mode>(
         uv + half_inverse_size, size);
-    auto lo = std::min(a, b);
-    auto hi = std::max(a, b);
+    if constexpr (Mode == Address::MIRROR) {
+        auto lo = std::min(a, b);
+        auto hi = std::max(a, b);
+        return {
+            static_cast<uint32_t>(lo),
+            static_cast<uint32_t>(hi),
+            hi - std::floor(hi),
+        };
+    }
     return {
-        static_cast<uint32_t>(lo),
-        static_cast<uint32_t>(hi),
-        hi - std::floor(hi),
+        static_cast<uint32_t>(a),
+        static_cast<uint32_t>(b),
+        b - std::floor(b),
     };
 }
 
@@ -264,27 +289,29 @@ template<uint32_t Dimension, Filter FilterMode, Address AddressMode>
 template<uint32_t Dimension, Filter FilterMode, Address AddressMode>
 [[nodiscard]] LUISA_FORCE_INLINE luisa::float4 sample_texture(
     luisa::compute::simd::SIMDTexture *texture,
-    float u, float v, float w, float level) noexcept {
-    auto mip_levels = texture->mip_levels();
-    if (mip_levels == 0u) { return {}; }
+    uint32_t base_level, float u, float v, float w,
+    float level) noexcept {
+    auto total_mip_levels = texture->mip_levels();
+    if (base_level >= total_mip_levels) { return {}; }
+    auto mip_levels = total_mip_levels - base_level;
     if (std::isnan(level) || level < 0.0f) { level = 0.0f; }
     if (!std::isfinite(level)) {
         level = static_cast<float>(mip_levels - 1u);
     }
     auto spatial = [&](uint32_t mip) noexcept {
-        auto view = texture->view(mip);
+        auto view = texture->view(base_level + mip);
         return sample_spatial<Dimension, FilterMode, AddressMode>(
             view, u, v, w);
     };
-    if (level <= 0.0f || mip_levels == 1u ||
-        FilterMode == Filter::POINT) {
+    if (level <= 0.0f || mip_levels == 1u) {
         return spatial(0u);
     }
     auto last_level = mip_levels - 1u;
     if (level >= static_cast<float>(last_level)) {
         return spatial(last_level);
     }
-    if constexpr (FilterMode == Filter::LINEAR_POINT) {
+    if constexpr (FilterMode == Filter::POINT ||
+                  FilterMode == Filter::LINEAR_POINT) {
         auto nearest_level = static_cast<uint32_t>(
             std::floor(level + 0.5f));
         return spatial(std::min(nearest_level, last_level));
@@ -300,7 +327,7 @@ template<size_t Width, uint32_t Dimension,
          Filter FilterMode, Address AddressMode>
 LUISA_FORCE_INLINE void sample_packet_fixed_specialized(
     luisa::compute::simd::SIMDTexture *texture,
-    uint64_t active_mask_bits, const float *u,
+    uint32_t base_level, uint64_t active_mask_bits, const float *u,
     const float *v, const float *w, const float *levels,
     float *values) noexcept {
     active_mask_bits &= full_lane_mask<Width>();
@@ -330,8 +357,8 @@ LUISA_FORCE_INLINE void sample_packet_fixed_specialized(
     // bindless cohort has been grouped, so resolve them once rather than once
     // per lane. BYTE1 additionally bypasses the generic pixel-format switch
     // for each of the four bilinear taps.
-    if (levels == nullptr && texture->mip_levels() != 0u) {
-        auto view = texture->view(0u);
+    if (levels == nullptr && base_level < texture->mip_levels()) {
+        auto view = texture->view(base_level);
         if constexpr (Dimension == 2u) {
             if (view.storage() == luisa::compute::PixelStorage::BYTE1) {
                 sample_byte1_2d_packet<
@@ -353,7 +380,7 @@ LUISA_FORCE_INLINE void sample_packet_fixed_specialized(
         store_pixel(
             lane,
             sample_texture<Dimension, FilterMode, AddressMode>(
-                texture, u[lane], v[lane], w[lane],
+                texture, base_level, u[lane], v[lane], w[lane],
                 levels == nullptr ? 0.0f : levels[lane]));
     });
 }
@@ -361,7 +388,7 @@ LUISA_FORCE_INLINE void sample_packet_fixed_specialized(
 template<size_t Width, uint32_t Dimension, Filter FilterMode>
 void sample_packet_fixed_address(
     luisa::compute::simd::SIMDTexture *texture,
-    Address address,
+    uint32_t base_level, Address address,
     uint64_t active_mask_bits, const float *u,
     const float *v, const float *w, const float *levels,
     float *values) noexcept {
@@ -369,22 +396,26 @@ void sample_packet_fixed_address(
         case Address::EDGE:
             sample_packet_fixed_specialized<
                 Width, Dimension, FilterMode, Address::EDGE>(
-                texture, active_mask_bits, u, v, w, levels, values);
+                texture, base_level, active_mask_bits,
+                u, v, w, levels, values);
             break;
         case Address::REPEAT:
             sample_packet_fixed_specialized<
                 Width, Dimension, FilterMode, Address::REPEAT>(
-                texture, active_mask_bits, u, v, w, levels, values);
+                texture, base_level, active_mask_bits,
+                u, v, w, levels, values);
             break;
         case Address::MIRROR:
             sample_packet_fixed_specialized<
                 Width, Dimension, FilterMode, Address::MIRROR>(
-                texture, active_mask_bits, u, v, w, levels, values);
+                texture, base_level, active_mask_bits,
+                u, v, w, levels, values);
             break;
         case Address::ZERO:
             sample_packet_fixed_specialized<
                 Width, Dimension, FilterMode, Address::ZERO>(
-                texture, active_mask_bits, u, v, w, levels, values);
+                texture, base_level, active_mask_bits,
+                u, v, w, levels, values);
             break;
     }
 }
@@ -392,31 +423,31 @@ void sample_packet_fixed_address(
 template<size_t Width, uint32_t Dimension>
 void sample_packet_fixed_dimension(
     luisa::compute::simd::SIMDTexture *texture,
-    Sampler sampler, uint64_t active_mask_bits,
+    Sampler sampler, uint32_t base_level, uint64_t active_mask_bits,
     const float *u, const float *v, const float *w,
     const float *levels, float *values) noexcept {
     switch (sampler.filter()) {
         case Filter::POINT:
             sample_packet_fixed_address<Width, Dimension, Filter::POINT>(
-                texture, sampler.address(), active_mask_bits,
+                texture, base_level, sampler.address(), active_mask_bits,
                 u, v, w, levels, values);
             break;
         case Filter::LINEAR_POINT:
             sample_packet_fixed_address<
                 Width, Dimension, Filter::LINEAR_POINT>(
-                texture, sampler.address(), active_mask_bits,
+                texture, base_level, sampler.address(), active_mask_bits,
                 u, v, w, levels, values);
             break;
         case Filter::LINEAR_LINEAR:
             sample_packet_fixed_address<
                 Width, Dimension, Filter::LINEAR_LINEAR>(
-                texture, sampler.address(), active_mask_bits,
+                texture, base_level, sampler.address(), active_mask_bits,
                 u, v, w, levels, values);
             break;
         case Filter::ANISOTROPIC:
             sample_packet_fixed_address<
                 Width, Dimension, Filter::ANISOTROPIC>(
-                texture, sampler.address(), active_mask_bits,
+                texture, base_level, sampler.address(), active_mask_bits,
                 u, v, w, levels, values);
             break;
     }
@@ -425,23 +456,23 @@ void sample_packet_fixed_dimension(
 template<size_t Width>
 void sample_packet_fixed(
     luisa::compute::simd::SIMDTexture *texture,
-    Sampler sampler, uint64_t active_mask_bits,
+    Sampler sampler, uint32_t base_level, uint64_t active_mask_bits,
     const float *u, const float *v, const float *w,
     const float *levels, float *values) noexcept {
     if (texture->dimension() == 2u) {
         sample_packet_fixed_dimension<Width, 2u>(
-            texture, sampler, active_mask_bits,
+            texture, sampler, base_level, active_mask_bits,
             u, v, w, levels, values);
     } else {
         sample_packet_fixed_dimension<Width, 3u>(
-            texture, sampler, active_mask_bits,
+            texture, sampler, base_level, active_mask_bits,
             u, v, w, levels, values);
     }
 }
 
 void sample_packet_dynamic(
     luisa::compute::simd::SIMDTexture *texture,
-    Sampler sampler, uint32_t lane_count,
+    Sampler sampler, uint32_t base_level, uint32_t lane_count,
     uint64_t active_mask_bits, const float *u,
     const float *v, const float *w, const float *levels,
     float *values) noexcept {
@@ -451,7 +482,7 @@ void sample_packet_dynamic(
         auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
         std::array<float, 4u> pixel{};
         sample_packet_fixed<1u>(
-            texture, sampler, 1u,
+            texture, sampler, base_level, 1u,
             u + lane, v + lane, w + lane,
             levels == nullptr ? nullptr : levels + lane,
             pixel.data());
@@ -878,40 +909,84 @@ uint32_t SIMDTexture::_size(
     return axis < 3u ? size[axis] : 0u;
 }
 
+void SIMDTexture::_sample_float(
+    void *texture, uint32_t base_level, uint32_t dimension,
+    uint32_t lane_count, uint64_t active_mask_bits,
+    const uint32_t *sampler_codes, const float *u,
+    const float *v, const float *w, const float *levels,
+    float *values) noexcept {
+    active_mask_bits &= lane_mask(lane_count);
+    if (active_mask_bits == 0u) { return; }
+    auto *self = static_cast<SIMDTexture *>(texture);
+    LUISA_ASSERT(
+        self != nullptr && sampler_codes != nullptr &&
+            u != nullptr && v != nullptr && w != nullptr &&
+            values != nullptr,
+        "SIMD direct texture sample received a null packet field.");
+    LUISA_ASSERT(
+        dimension == self->dimension(),
+        "SIMD direct texture sample dimension mismatch ({} vs {}).",
+        dimension, self->dimension());
+    LUISA_ASSERT(
+        base_level < self->mip_levels(),
+        "SIMD direct texture base mip {} is out of range (size {}).",
+        base_level, self->mip_levels());
+    for (auto remaining = active_mask_bits; remaining != 0u;) {
+        auto seed = static_cast<uint32_t>(std::countr_zero(remaining));
+        auto sampler_code = sampler_codes[seed];
+        LUISA_ASSERT(
+            sampler_code < 16u,
+            "Invalid SIMD direct sampler code {}.", sampler_code);
+        auto group = uint64_t{0u};
+        for (auto candidates = remaining; candidates != 0u;
+             candidates &= candidates - 1u) {
+            auto lane = static_cast<uint32_t>(
+                std::countr_zero(candidates));
+            if (sampler_codes[lane] == sampler_code) {
+                group |= uint64_t{1u} << lane;
+            }
+        }
+        self->sample_float_packet(
+            Sampler::decode(sampler_code), base_level,
+            lane_count, group, u, v, w, levels, values);
+        remaining &= ~group;
+    }
+}
+
 void SIMDTexture::sample_float_packet(
-    Sampler sampler, uint32_t lane_count,
+    Sampler sampler, uint32_t base_level, uint32_t lane_count,
     uint64_t active_mask_bits, const float *u,
     const float *v, const float *w, const float *levels,
     float *values) noexcept {
     switch (lane_count) {
         case 1u:
             sample_packet_fixed<1u>(
-                this, sampler, active_mask_bits,
+                this, sampler, base_level, active_mask_bits,
                 u, v, w, levels, values);
             break;
         case 2u:
             sample_packet_fixed<2u>(
-                this, sampler, active_mask_bits,
+                this, sampler, base_level, active_mask_bits,
                 u, v, w, levels, values);
             break;
         case 4u:
             sample_packet_fixed<4u>(
-                this, sampler, active_mask_bits,
+                this, sampler, base_level, active_mask_bits,
                 u, v, w, levels, values);
             break;
         case 8u:
             sample_packet_fixed<8u>(
-                this, sampler, active_mask_bits,
+                this, sampler, base_level, active_mask_bits,
                 u, v, w, levels, values);
             break;
         case 16u:
             sample_packet_fixed<16u>(
-                this, sampler, active_mask_bits,
+                this, sampler, base_level, active_mask_bits,
                 u, v, w, levels, values);
             break;
         default:
             sample_packet_dynamic(
-                this, sampler, lane_count, active_mask_bits,
+                this, sampler, base_level, lane_count, active_mask_bits,
                 u, v, w, levels, values);
             break;
     }
@@ -927,6 +1002,7 @@ SIMDHostTextureView SIMDTexture::host_view(uint level) noexcept {
         .size = _size,
         .level = level,
         .dimension = _dimension,
+        .sample_float = _sample_float,
     };
 }
 

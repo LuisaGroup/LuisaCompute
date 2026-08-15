@@ -454,6 +454,12 @@ using SIMDHostTextureWrite = void(
     const uint32_t *y, const uint32_t *z, const void *values);
 using SIMDHostTextureSize = uint32_t(
     void *texture, uint32_t level, uint32_t axis);
+using SIMDHostTextureSample = void(
+    void *texture, uint32_t base_level, uint32_t dimension,
+    uint32_t lane_count, uint64_t active_mask_bits,
+    const uint32_t *sampler_codes, const float *u,
+    const float *v, const float *w, const float *levels,
+    float *values);
 
 struct alignas(16) SIMDHostTextureView {
     void *texture{nullptr};
@@ -464,7 +470,20 @@ struct alignas(16) SIMDHostTextureView {
     SIMDHostTextureSize *size{nullptr};
     uint32_t level{0u};
     uint32_t dimension{0u};
+    // Appended after the established read/write/size fields. On the supported
+    // 64-bit hosts this consumes the descriptor's existing tail padding, so
+    // the argument-slot size and every earlier field offset stay unchanged.
+    SIMDHostTextureSample *sample_float{nullptr};
 };
+static_assert(offsetof(SIMDHostTextureView, texture) == 0u);
+static_assert(offsetof(SIMDHostTextureView, read_float) == sizeof(void *));
+static_assert(offsetof(SIMDHostTextureView, size) == 5u * sizeof(void *));
+static_assert(offsetof(SIMDHostTextureView, level) == 6u * sizeof(void *));
+static_assert(offsetof(SIMDHostTextureView, dimension) ==
+              6u * sizeof(void *) + sizeof(uint32_t));
+static_assert(offsetof(SIMDHostTextureView, sample_float) ==
+              7u * sizeof(void *));
+static_assert(sizeof(SIMDHostTextureView) == 8u * sizeof(void *));
 
 // Per-packet launch state. thread_index is the first linear thread within the
 // current block; lane i executes thread_index + i. The generated entry derives

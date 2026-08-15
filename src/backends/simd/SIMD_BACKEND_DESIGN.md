@@ -1232,6 +1232,17 @@ raw storage to JIT code. Direct JIT AoS gathers and speculative wide
 load/deinterleave were measured and rejected because lower instruction counts
 did not translate into lower end-to-end latency.
 
+Direct sampled textures use a second packet boundary for all 2D/3D level and
+gradient variants. It carries the view-relative base mip, explicit sampler
+codes, SoA coordinates and optional levels, and returns four SoA components.
+The runtime groups divergent sampler codes before entering the fixed-width
+sampler. Gradient LOD remains target-independent fixed-vector LLVM IR and uses
+the shared precise/fast native `log2`; a uniform derivative computes one
+scalar LOD and a uniform sampled result invokes only the first active callback
+lane. The sample callback consumes existing tail padding in the 64-byte direct
+texture descriptor, preserving every previous field offset and argument-slot
+size.
+
 Embree remains the CPU ray-tracing implementation. Width-specialized kernels
 must use the matching packet traversal interfaces (`rtcIntersect4/8/16` and
 `rtcOccluded4/8/16`) with the scheduler mask wired to Embree's valid-lane mask.
@@ -3482,11 +3493,12 @@ on 2026-08-11. The repository now contains:
   device worker count;
 - a W1/W2/W4/W8/W16 direct and bindless texture packet callback ABI with SoA
   coordinates and components, packed active masks, same-resource/sampler/level
-  batching, same-texel broadcast detection, contiguous row batching, a direct
-  fixed-vector JIT path for uniform-slot 2D mip-zero `BYTE1` linear/mirror
-  sampling, proven W4/W8 wide gathers with a narrow tail oracle, sparse set-bit
-  fallback, uniform one-lane callback, and inactive-tail sanitization while
-  retaining the public row-major texture storage ABI;
+  batching, same-texel broadcast detection, contiguous row batching, all eight
+  direct 2D/3D level/gradient sample operations with view-relative base mips,
+  a direct fixed-vector JIT path for uniform-slot 2D mip-zero `BYTE1`
+  linear/mirror sampling, proven W4/W8 wide gathers with a narrow tail oracle,
+  sparse set-bit fallback, uniform one-lane callback, and inactive-tail
+  sanitization while retaining the public row-major texture storage ABI;
 - a static, vertex-motion, and instance-motion triangle Embree packet ABI for
   closest-hit and occlusion, extended to all four round-curve bases, curve
   control-point motion, and curve motion-instance children, where W1
@@ -3577,11 +3589,18 @@ ends in a three-lane tail. A direct XIR-to-Schedule-to-LLVM fixture additionally
 requires fixed-vector rotate and integer-power IR, rejects lane
 extract/call/insert sequences and target-specific intrinsic namespaces, checks
 the optimized object for scalar `powf`, executes every width, and verifies that
-tail sentinels remain untouched. Full Release builds of both maintained build
-trees pass 141/141 tests and their separately repeated SIMD-labelled gates pass
-36/36. Image processing, voxel ray tracing, path tracing, and the SDF renderer
-also pass checked-in reference images at every width; path tracing and SDF use
-1024 samples per pixel.
+tail sentinels remain untouched.
+
+The direct-sampling checkpoint adds independent W1/W2/W4/W8/W16 runtime
+oracles for all eight direct 2D/3D sample variants, divergent sampler/LOD,
+uniform execution, nonzero base mip, and a 35-thread three-lane W16 tail. A
+direct XIR-to-Schedule-to-LLVM fixture requires one packet callback, native
+fixed-vector gradient `log2`, a one-lane uniform callback, and no scalar
+`log2f` or vector-library dependency in the optimized object. Full Release
+builds of both maintained build trees pass 142/142 tests; the separately
+repeated SIMD-labelled gate passes 37/37. Image processing, voxel ray tracing,
+path tracing, and the SDF renderer pass checked-in reference images at every
+width; path tracing and SDF use 1024 samples per pixel.
 
 The next implementation boundary is completion of the remaining Embree
 vertical slice: deeper instance-stack semantics and a SoA packet-query-state

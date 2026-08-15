@@ -1563,6 +1563,10 @@ void ScheduleEmitter::_indirect_dispatch_write(
          op <= xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER)) {
         return _bindless_texture_query(instruction);
     }
+    if (op >= xir::ResourceQueryOp::TEXTURE2D_SAMPLE &&
+        op <= xir::ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL) {
+        return _direct_texture_sample(instruction);
+    }
     if (instruction.operands.size() != 1u) {
         _fail("direct resource query instruction is malformed");
         return nullptr;

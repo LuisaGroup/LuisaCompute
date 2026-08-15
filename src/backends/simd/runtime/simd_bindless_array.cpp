@@ -204,7 +204,7 @@ void SIMDBindlessArray::_sample_texture(
             }
         }
         texture->sample_float_packet(
-            Sampler::decode(sampler_code), lane_count, group,
+            Sampler::decode(sampler_code), 0u, lane_count, group,
             u, v, w, levels, values);
         remaining &= ~group;
     }

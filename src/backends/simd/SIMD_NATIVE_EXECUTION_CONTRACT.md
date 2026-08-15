@@ -1687,6 +1687,19 @@ set bits for a sparse cohort. It must inspect no inactive coordinate and issue
 no inactive resource access; read scratch is initialized before the callback
 so an inactive tail cannot expose poison.
 
+Direct 2D/3D sampling uses a distinct packet callback for `sample`,
+`sample_level`, `sample_grad`, and `sample_grad_level`. It receives the bound
+base mip, resource dimension, lane count and active bits, one packed explicit
+sampler code per lane, SoA `u/v/w`, an optional SoA level, and four SoA result
+components. The runtime groups active lanes by sampler code and invokes the
+fixed-width sampler once per group. A uniform sampled result narrows the mask
+to the first active lane; a varying result preserves the complete cohort and
+tail mask. Coordinate, sampler, derivative, and level operands are selected to
+benign values before scratch stores, conversions, native logarithms, or the
+callback. The callback pointer is appended to the direct texture descriptor in
+its existing 64-bit-host tail padding: the descriptor remains 64 bytes and all
+established read/write/size field offsets remain unchanged.
+
 The physical texture remains Luisa's native row-major resource layout. The
 packet ABI is the SIMD-facing layout boundary: it permits coherence-aware
 batching without changing native handles, upload/download layout, external
@@ -1747,16 +1760,21 @@ tail.
 Mip behavior is explicit. A read whose integer level is outside the allocated
 mip range returns the initialized zero pixel. A size query is computed from
 the base extent as `max(base >> level, 1)`; levels at least the integer bit
-width return one without performing an invalid shift. Sampling without an
-explicit level uses mip zero. A finite explicit level below zero uses zero;
-finite positive levels clamp to the last allocated mip, `NaN` and negative
-infinity use zero, and positive infinity uses the last allocated mip. Point
-filtering retains the fallback contract and samples mip zero even when a
-positive level is supplied. `LINEAR_POINT` selects the nearest mip while
-`LINEAR_LINEAR` and anisotropic mode interpolate adjacent mips. A zero gradient
-selects mip zero. A NaN in either derivative produces derived LOD zero before
-an optional minimum-LOD clamp; a non-NaN infinite derivative selects the last
-mip.
+width return one without performing an invalid shift. Bindless sampling uses
+mip zero as its base; direct sampling uses the mip bound into the texture view,
+and every explicit or derived LOD is relative to that base. Sampling without
+an explicit level uses the base mip. A finite explicit level below zero uses
+zero; finite positive levels clamp to the last mip available from the base,
+`NaN` and negative infinity use zero, and positive infinity uses that last
+mip. `POINT` and `LINEAR_POINT` select the nearest mip while `LINEAR_LINEAR`
+and anisotropic mode interpolate adjacent mips. Gradient LOD uses the bound
+base-mip extents. A zero gradient selects relative mip zero. A NaN in either
+derivative produces derived LOD zero before an optional minimum-LOD clamp; a
+non-NaN infinite derivative selects the last available mip. Non-finite sample
+coordinates return the initialized zero pixel. Linear `ZERO` addressing keeps
+the two mathematical taps distinct, so coordinates within half a texel of the
+edge blend the in-range texel with the zero border; `REPEAT` likewise preserves
+tap order across its wrap seam.
 
 The common varying 2D `BYTE1`, mip-zero, stored
 `LINEAR_POINT`/`MIRROR`, uniform-slot path is lowered directly in
