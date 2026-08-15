@@ -150,6 +150,36 @@ value's lane-wise suspension slot nor propagates through arbitrary users. A
 multiple-entry/multiple-latch loop, nonconstant recurrence, nonuniform start,
 or use outside the loop receives no annotation.
 
+The same epoch argument admits a second, terminator-only fact for a canonical
+counted header with additional early exits. Remove only the non-header exit
+edges from the analysis view. If the remaining view has one preheader and
+latch, an integer induction PHI with constant nonzero stride, a uniform start
+and bound, and the header's direct induction comparison as its continuation
+predicate, then every lane in one continuation key observes the same PHI and
+bound. The comparison is therefore equal across that executing cohort even
+though its global value class remains `varying`. Schedule IR records this as
+`cohort_uniform_condition` on that split; it does not propagate the fact to an
+arbitrary expression or use.
+
+Let `C` be the varying predicate vector and `A` the nonempty executing mask.
+The LLVM refinement computes
+
+```text
+C_safe = select(A, C, false)
+t      = or.reduce(C_safe)
+```
+
+and routes the complete `A` through the true edge when `t` is true, otherwise
+through the false edge. Inactive poison cannot reach the reduction. Since all
+members of `A` agree on `C`, `t` equals that common predicate and this is the
+same partition as Section 4.2 with exactly one nonempty successor. The split's
+convergence metadata is retained: cohorts leaving through another exit in
+earlier epochs may still be parked at the post-loop gate. Multiple latches,
+nonconstant stride, a nonuniform start or bound, an indirect header predicate,
+or failure of any structural proof leaves the ordinary varying split intact.
+The current 25-block minimum is solely a measured profitability gate, not a
+semantic assumption.
+
 ## 3. Dynamic state
 
 A machine state is
@@ -489,6 +519,10 @@ The bounded audit is complemented by permanent LLVM regressions for:
 - multiple natural-loop back-edges;
 - different per-lane loop trip counts followed by a collective, including a
   loop with two distinct exits that share the collective merge;
+- a 25-block canonical counted loop whose lanes take a second early exit in
+  different epochs, with W1/W2/W4/W8/W16 inactive tails, a post-loop active
+  sum, exact disabled-oracle equality, and fail-closed smaller-loop/nonuniform-
+  bound cases for the header annotation;
 - nested convergence, every reachable five-block forward topology (122
   graphs), 96 larger generated forward CFGs, and a 96-block JIT CFG;
 - the non-dominating shared-entry counterexample described in Section 4.3,

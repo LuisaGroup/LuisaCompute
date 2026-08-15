@@ -37,6 +37,10 @@ struct XIRToScheduleDiagnostic {
 struct XIRToScheduleOptions {
     // Zero preserves symbolic width until target specialization.
     uint32_t logical_warp_width{0u};
+    // Canonical early-exit loop induction values remain lane-wise state, but
+    // a proven cohort-equal header predicate may route the whole active
+    // continuation without constructing two successor masks.
+    bool enable_cohort_uniform_induction{true};
 };
 
 struct XIRToScheduleResult {

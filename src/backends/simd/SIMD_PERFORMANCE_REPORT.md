@@ -2215,7 +2215,15 @@ identical.
 
 ## Next measured optimization targets
 
-1. Generalize the accepted innermost-loop local regions beyond the completed
+1. Close the remaining analytic W8 gap with a bounded innermost-loop
+   continuation refinement. The accepted header proof removes one partition
+   but W8 is still 10.29% behind matched AVX-512 x8 ISPC. The next experiment
+   should keep the current loop-local mask/token/target in SSA across a proven
+   no-suspension trace and enter the generic worklist only at a real mixed
+   split or exit. It must retain epoch-separated post-loop convergence, avoid
+   whole-loop all-on/mixed cloning, cap static code growth, and beat the
+   disabled oracle in final-object counters and repeated analytic runs.
+2. Generalize the accepted innermost-loop local regions beyond the completed
    two-sided arithmetic form through bounded branch splitting and pure code
    motion: hoist or sink total single-use operations to expose a safe read
    subregion, and fold compatible
@@ -2225,33 +2233,33 @@ identical.
    processing is already branchless direct CFG. The next gate is another real
    nonzero site, exact inactive-tail/oracle equality, a register-pressure-aware
    cost model, and a stable real-example gain beyond those existing sites.
-2. Extend the completed within-read W8 leaf pairing to compatible nearby
+3. Extend the completed within-read W8 leaf pairing to compatible nearby
    gathers only when they share base, dynamic offset, scale, and mask. Cap the
    scan window to control register pressure and stop at any possible write.
    Separately narrow known constant prefix-tail masks. Both need inactive-
    address and final-assembly gates; W4/W16 remain disabled until independently
    profitable.
-3. Extend the accepted local aggregate promotion to the remaining ray-query
+4. Extend the accepted local aggregate promotion to the remaining ray-query
    payload only through a provider-native packet/SoA representation or a
    larger host/state-boundary elimination, following the liveness/frame
    principles merged from `next`. Both a wrapper-side second scan and a fused
    two-field payload cache are measured and rejected on real graphics; the
    accepted provider-native status publication removes the full status scan,
    while the state-handle cache covers pointers only.
-4. Compact or rebatch sparse ray cohorts before Embree and reduce the remaining
+5. Compact or rebatch sparse ray cohorts before Embree and reduce the remaining
    JIT-side ray-query state crossings. The accepted triangle-only host provider
    removes surface-runtime bookkeeping but does not compact lanes; inlining
    Embree LLVM IR is exploratory and cannot replace this measured scheduler
    work.
-5. Generalize the completed fixed-vector `BYTE1` linear/mirror sampler only
+6. Generalize the completed fixed-vector `BYTE1` linear/mirror sampler only
    where a real workload supplies a nonzero hit count. Other address modes,
    formats, mip paths, or a tile/swizzle upload boundary each require their own
    semantics and stable A/B gate; preserve row-major public image semantics.
-6. Extend the completed direct-buffer lane/value rotation across bounded
+7. Extend the completed direct-buffer lane/value rotation across bounded
    coherent affine tiles so a profitable layout can remain live across several
    operations. Divergent control, warp operations, and externally visible
    lane-wise effects continue to pin lane identity.
-7. Add software prefetch only for proven affine lookahead with a stable A/B.
+8. Add software prefetch only for proven affine lookahead with a stable A/B.
    Immediate masked gathers and L1-sized textures have not justified it.
 
 Device-side instance-opacity mutation is now complete but is intentionally not
@@ -2851,6 +2859,78 @@ W16 is now statistically tied with ISPC, not demonstrably faster. W8 remains
 about 9.5% slower. The accepted packet batch closes boundary overhead but does
 not erase W8's remaining structured-mask/register-residency gap.
 
+### Canonical early-exit header cohort specialization
+
+The analytic path loop has a canonical counted header plus lane-varying early
+exits. Its induction and header comparison correctly remain `varying` after
+global uniformity analysis because post-loop state can contain lanes from
+different exit epochs. Within one executing continuation, however, the loop
+epoch proves that all active lanes have the same induction value. The retained
+lowering records that fact only on the direct header comparison, sanitizes
+inactive predicate bits, performs one `or.reduce`, and routes the complete
+cohort through one edge. It does not scalarize the PHI or remove the post-loop
+convergence.
+
+Candidate/oracle measurements used one worker pinned to CPU 6, alternating
+process order, seven internal samples of 64 analytic renders, and exact
+checksum `a93089e651f98582`. The oracle is the same binary with
+`LUISA_SIMD_DISABLE_COHORT_UNIFORM_INDUCTION=1`:
+
+| width | paired rounds | candidate/oracle geomean | 95% paired CI | wins |
+| ---: | ---: | ---: | ---: | ---: |
+| W4 | 6 | 1.0021x | [0.9997, 1.0045] | 5/6 |
+| W8 | 10 | 1.0027x | [1.0014, 1.0041] | 9/10 |
+| W16 | 6 | 1.0101x | [1.0080, 1.0122] | 6/6 |
+
+The final optimized objects distinguish the candidate at the intended header
+without introducing a call or scalar-math lane loop:
+
+| analytic entry | W8 candidate | W8 oracle | W16 candidate | W16 oracle |
+| --- | ---: | ---: | ---: | ---: |
+| static instructions | 1,849 | 1,927 | 2,487 | 2,571 |
+| vector instructions | 1,109 | 1,140 | 1,120 | 1,153 |
+| branches | 165 | 175 | 263 | 276 |
+| stack references | 416 | 442 | 418 | 448 |
+| stack allocation | 2,112 B | 2,240 B | 2,240 B | 2,304 B |
+| calls / varying scalar-math calls | 0 / 0 | 0 / 0 | 15 / 0 | 15 / 0 |
+
+Three-repeat `perf stat` measurements over the same 256-dispatch runner
+quantify the removed dynamic scheduler work. Counts below are candidate versus
+the disabled oracle; the process includes identical JIT setup, so throughput
+claims remain based on the alternating table above:
+
+| width | cycles | instructions | branches | branch misses |
+| ---: | ---: | ---: | ---: | ---: |
+| W8 | -0.293% | -2.560% | -9.142% | -4.368% |
+| W16 | -0.888% | -2.742% | -4.639% | -8.484% |
+
+This is the expected signature of eliminating successor-mask construction and
+the generic coherent/divergent decision at one hot loop header: branch work
+falls much more than arithmetic, while the fixed-vector math body is unchanged.
+
+A fresh official ISPC 1.31.0 comparison used the same validated analytic
+algorithm, AVX-512 x8/x16 targets, pinned single-worker execution, and ten
+balanced rotating process rounds. Luisa W16/ISPC x16 reached 1.01608x
+[1.01455, 1.01761] with 10/10 wins; the process medians were 347.276 versus
+342.154 Mitems/s. W16 has therefore crossed parity by about 1.61% on this
+workload. Luisa W8/ISPC x8 remains 0.90668x [0.90516, 0.90821], with process
+medians of 197.227 versus 217.341 Mitems/s, so ISPC is still about 10.29%
+faster at W8. This is a same-algorithm analytic result, not a claim that the
+complete Embree renderer has an equivalent ISPC baseline. The standalone ISPC
+executable and generated objects remain outside CMake and the repository; the
+raw record is `/tmp/luisa-simd-cohort-final-ispc-w8-w16-10r.json`.
+
+The profitability boundary is deliberately real-workload driven. Removing the
+25-Schedule-block minimum made the ordinary Embree path kernel eligible, but
+seven candidate/oracle pairs measured only 1.0026x at W4, 0.9991x at W8, and
+0.9976x at W16, with just 1/7 W16 wins. Image processing still had no eligible
+header, and Voxel's wider paths continued to prefer the existing predicated
+loop. The relaxed policy was therefore rejected. A variable seed-lane extract,
+a direct seed predicate-bit extract, a second non-header condition, and removal
+of convergence metadata also regressed roughly 1.5--5.4%; none is retained.
+The last case is additionally outside the semantic contract because earlier
+exit epochs may still need the post-loop rendezvous.
+
 ### Rejected cross-query early gather
 
 The ordinary W8 path tracer has one tempting memory/compute-overlap site. Its
@@ -3227,3 +3307,28 @@ thirty-round W16 official-ISPC comparison uses the corrected strictly
 alternating order and is recorded in the general-coloring section above.
 Outputs and raw benchmark records remain outside the repository; no checked-in
 gallery reference was regenerated or modified.
+
+The canonical early-exit header stage completed fresh full Release builds of
+both configured trees, its Schedule/Schedule-projection/LLVM-codegen focus gate
+(3/3), the required native-math/fallback-math/runtime-width gate (3/3), two
+consecutive SIMD-only runs (129/129 each), and the complete SIMD+fallback/XIR/
+runtime/graphics/tutorial suite (140/140). Changed-line clang-format is clean,
+all six changed C++ translation units pass the clangd syntax checker, and the
+final diff has no whitespace errors. The permanent differential regression
+covers W1/W2/W4/W8/W16, an inactive tail, distinct early/normal exits in
+different epochs, a post-loop collective, exact disabled-oracle output, and
+fail-closed 24-block/nonuniform-bound cases.
+
+Fresh W1/W2/W4/W8/W16 image-processing, Voxel, ordinary 1024-spp path-tracing,
+and non-coroutine 1024-spp SDF gallery comparisons all pass. Their RGB PSNRs
+are respectively 89.251953, 82.834519,
+35.426795/42.781582/40.940376/39.219305/37.801771, and 63.129346 dB. Every
+path-tracing process reports Embree 4.4.1 native W4/W8/W16 packet support.
+Production W4/W8/W16 applicability scans record zero new header sites in all
+image, Voxel, and ordinary path kernels, while the analytic W8/W16 kernel
+records exactly one. Fresh dumped analytic objects have no unresolved symbol
+and no scalar f32 math call; the W8 object uses YMM arithmetic plus AVX-512
+mask/ZMM operations, while W16 is predominantly ZMM. The final ten-round
+official-ISPC comparison and three-repeat hardware counters are recorded in
+the specialization section above. All images, objects, logs, and raw JSON stay
+under `/tmp`; no reference image was regenerated or modified.

@@ -194,6 +194,43 @@ eligible static successor edges. Permanent tests execute coherent true/false
 and every indexed case/default at W2/W4/W8/W16, compare the oracle, cover
 partial tails and one-lane cohorts, and retain a genuinely divergent switch.
 
+#### 4.1.1 Canonical early-exit header routing
+
+The general scheduler may avoid partitioning one varying counted-loop header
+when Schedule lowering attaches `cohort_uniform_condition`. This annotation is
+valid only for the direct comparison recognized by the canonical loop-bounds
+analyzer after a local analysis view removes non-header early-exit edges. The
+source loop must retain one preheader and latch, an integer induction PHI,
+constant nonzero stride, and uniform start and bound. The backing PHI and
+predicate remain lane-wise `varying`; the annotation authorizes no scalar spill
+and no use outside that terminator.
+
+The executing continuation is keyed by the relevant natural-loop epoch, so
+all of its active lanes have the same induction value. Codegen first forms
+`select(active_mask, condition, false)` and only then performs `or.reduce`.
+The inactive lanes are therefore benign before the reduction, including when
+their stored predicate bits are stale or poison. Because the executing mask is
+nonempty and every active predicate agrees, the scalar reduction selects the
+same unique edge as the ordinary two-mask partition. The entire incoming mask
+is passed to that edge; no convergence frame is allocated merely for this
+coherent header decision.
+
+The split's convergence and edge-join metadata must remain present. A sibling
+early exit can park lanes from an earlier epoch, and the eventual normal exit
+must still complete the same post-loop rendezvous and collective instance.
+Failure of any structural, recurrence, or uniform-bound proof falls back to
+the ordinary varying path. A 25-Schedule-block minimum is a performance policy,
+not part of correctness. `LUISA_SIMD_DISABLE_COHORT_UNIFORM_INDUCTION=1`
+restores the generic lowering in the same binary, and
+`cohort_uniform_loop_branches` reports accepted general-scheduler sites. W1
+continues to use its direct scalar CFG.
+
+Permanent differential coverage uses a 25-block loop, lane-dependent exits in
+different epochs, two exit destinations, a post-loop `warp_active_sum`, W1/W2/
+W4/W8/W16, inactive output sentinels, LLVM verification, and exact candidate/
+oracle results. Separate structural cases reject a 24-block loop and a
+lane-varying bound.
+
 On a genuinely divergent binary split, the worklist is LIFO: after the true
 and false records are appended, the false record is necessarily the next
 record removed. At W4/W8/W16 and at least 32 Schedule state slots, codegen may

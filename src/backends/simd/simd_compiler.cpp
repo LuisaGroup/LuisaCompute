@@ -80,7 +80,11 @@ SIMDCompiledKernel compile_simd_kernel(
         .warp_width = warp_width,
     };
     auto schedule_result = schedule::lower_xir_to_schedule(
-        function, {.logical_warp_width = warp_width});
+        function,
+        {.logical_warp_width = warp_width,
+         .enable_cohort_uniform_induction =
+             !detail::env_flag(
+                 "LUISA_SIMD_DISABLE_COHORT_UNIFORM_INDUCTION")});
     if (!schedule_result.succeeded()) {
         result.diagnostics.reserve(schedule_result.diagnostics.size());
         for (auto &&diagnostic : schedule_result.diagnostics) {
@@ -214,6 +218,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.predicated_loop_instruction_count;
     result.predicated_loop_batch_iteration_count =
         llvm_result.predicated_loop_batch_iteration_count;
+    result.cohort_uniform_loop_branch_count =
+        llvm_result.cohort_uniform_loop_branch_count;
     result.coherent_mask_reuse_count =
         llvm_result.coherent_mask_reuse_count;
     result.all_on_region_version_count =

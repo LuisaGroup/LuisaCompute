@@ -924,6 +924,26 @@ later reconverge lanes from different epochs. This distinction was fixed by
 the permanent varying-trip-count counterexample: globally scalarizing the PHI
 made W2/W4/W8 loop exits return the first exiting lane's value for every lane.
 
+An early-exit canonical counted loop can also carry a terminator-only
+`cohort_uniform_condition` proof. Lowering temporarily ignores non-header exit
+edges only for bounds recognition, then requires one preheader/latch, constant
+stride, uniform start and bound, and the analyzer's direct header comparison.
+The condition and induction PHI remain `varying` values with lane-wise state.
+At the header, however, the continuation key separates loop epochs, so all
+currently active lanes agree on the comparison. LLVM sanitizes inactive bits,
+performs one `or.reduce`, and routes the complete incoming mask through one
+edge instead of constructing and testing two successor masks. It retains the
+original convergence record because lanes that used another exit in earlier
+epochs can still rendezvous after the loop.
+
+The production policy accepts this header specialization only for loops with
+at least 25 Schedule blocks. Smaller real graphics loops were neutral to
+slightly negative in repeated candidate/oracle measurements and retain the
+ordinary coherent-mask or predicated-loop path. The diagnostic oracle
+`LUISA_SIMD_DISABLE_COHORT_UNIFORM_INDUCTION=1` disables the annotation, while
+`cohort_uniform_loop_branches` reports emitted wider-than-W1 sites. W1 already
+uses direct scalar CFG lowering and does not need this scheduler refinement.
+
 ### 8.2 Control operations
 
 The minimum control vocabulary is:

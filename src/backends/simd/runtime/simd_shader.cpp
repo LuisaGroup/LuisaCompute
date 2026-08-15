@@ -256,6 +256,7 @@ SIMDShader::SIMDShader(
             "predicated_loops={}, predicated_loop_blocks={}, "
             "predicated_loop_instructions={}, "
             "predicated_loop_batch_iterations={}, "
+            "cohort_uniform_loop_branches={}, "
             "factored_selects={}, unswitched_loops={}, "
             "guarded_unswitched_loops={}, cloned_blocks={}, "
             "cloned_instructions={}, merged_live_outs={}, "
@@ -310,6 +311,7 @@ SIMDShader::SIMDShader(
             _compiled.predicated_loop_block_count,
             _compiled.predicated_loop_instruction_count,
             _compiled.predicated_loop_batch_iteration_count,
+            _compiled.cohort_uniform_loop_branch_count,
             _compiled.factored_select_count,
             _compiled.unswitched_loop_count,
             _compiled.guarded_unswitched_loop_count,

@@ -165,6 +165,7 @@ private:
     struct LoopRecord {
         const xir::NaturalLoop *source{nullptr};
         const xir::PhiInst *cohort_uniform_induction{nullptr};
+        const xir::ArithmeticInst *cohort_uniform_header_condition{nullptr};
         LoopId id{};
         size_t size{0u};
     };
@@ -192,6 +193,8 @@ private:
         _convergence_by_branch{};
     std::vector<LoopRecord> _loops{};
     std::vector<ConvergenceRecord> _convergences{};
+    std::unordered_set<const xir::Instruction *>
+        _cohort_uniform_header_conditions{};
     WarpUniformityAnalysis _uniformity{};
     const xir::DomTree *_dom_tree{nullptr};
     uint32_t _next_collective_id{0u};
@@ -410,6 +413,7 @@ private:
         _loop_back_ids.reserve(back_edge_count);
         for (auto &&source_loop : natural_loops) {
             auto bounds = xir::analyze_loop_bounds(source_loop);
+            const xir::ArithmeticInst *early_exit_header_condition = nullptr;
             auto max_trip_count = std::optional<uint64_t>{};
             if (bounds.trip_count_is_constant) {
                 max_trip_count = bounds.constant_trip_count;
@@ -431,6 +435,15 @@ private:
                 if (bounded_loop.exit_edges.size() == 1u) {
                     auto upper_bound =
                         xir::analyze_loop_bounds(bounded_loop);
+                    if (!bounds.is_valid() && upper_bound.is_valid() &&
+                        upper_bound.stride_is_constant &&
+                        _uniformity.is_uniform(
+                            upper_bound.start_value) &&
+                        _uniformity.is_uniform(
+                            upper_bound.bound_value)) {
+                        early_exit_header_condition =
+                            upper_bound.comparison_inst;
+                    }
                     if (upper_bound.trip_count_is_constant) {
                         max_trip_count =
                             upper_bound.constant_trip_count;
@@ -473,6 +486,8 @@ private:
             _loops.emplace_back(LoopRecord{
                 .source = &source_loop,
                 .cohort_uniform_induction = cohort_uniform_induction,
+                .cohort_uniform_header_condition =
+                    early_exit_header_condition,
                 .id = id,
                 .size = source_loop.body_blocks.size() + 1u,
             });
@@ -511,6 +526,27 @@ private:
             if (parent_index) {
                 _function->loop(_loops[i].id)->parent =
                     _loops[*parent_index].id;
+            }
+        }
+    }
+
+    void _discover_cohort_uniform_header_conditions() {
+        // The coherent-mask path is already efficient for smaller loops.
+        // Real path tracing is neutral-to-negative below this boundary, while
+        // the larger analytic path loop benefits from the reduced header
+        // control. Eligible smaller loops may still use whole-loop
+        // predication later in LLVM lowering.
+        static constexpr auto min_loop_block_count = size_t{25u};
+        if (!_options.enable_cohort_uniform_induction) { return; }
+        for (auto &&loop : _loops) {
+            if (loop.size < min_loop_block_count) { continue; }
+            auto *condition = loop.cohort_uniform_header_condition;
+            if (condition != nullptr &&
+                !_uniformity.is_uniform(condition)) {
+                // This is only a terminator use-site equality proof. The
+                // condition and its induction PHI retain lane-wise storage
+                // because different exit epochs may later reconverge.
+                _cohort_uniform_header_conditions.emplace(condition);
             }
         }
     }
@@ -1106,6 +1142,12 @@ private:
                     static_cast<const xir::ConditionalBranchInst *>(terminator);
                 auto condition = _map_value(
                     branch->condition(), source_block, terminator);
+                auto cohort_uniform_condition =
+                    branch->condition() != nullptr &&
+                    branch->condition()->isa<xir::Instruction>() &&
+                    _cohort_uniform_header_conditions.contains(
+                        static_cast<const xir::Instruction *>(
+                            branch->condition()));
                 target_block.strategy =
                     condition && is_uniform(
                                      _function->value(*condition)
@@ -1119,9 +1161,11 @@ private:
                     .false_edge = _edge(
                         branch->false_block(), source_block, terminator),
                     .convergence = _convergence_by_branch.contains(source_block) ?
-                        std::optional{
-                            _convergence_by_branch.at(source_block)} :
-                        std::nullopt,
+                                       std::optional{
+                                           _convergence_by_branch.at(source_block)} :
+                                       std::nullopt,
+                    .cohort_uniform_condition =
+                        cohort_uniform_condition,
                 };
                 break;
             }
@@ -1414,6 +1458,7 @@ public:
 
         _create_function_and_blocks();
         _create_loops(natural_loops);
+        _discover_cohort_uniform_header_conditions();
         _create_convergences(post_dom_tree);
         _create_values();
         _emit_blocks();

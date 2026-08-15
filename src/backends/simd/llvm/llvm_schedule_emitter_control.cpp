@@ -626,6 +626,26 @@ void ScheduleEmitter::_emit_terminator(
                 }
                 if (condition_value->value_class ==
                     schedule::ValueClass::varying) {
+                    if (control.cohort_uniform_condition) {
+                        _result.cohort_uniform_loop_branch_count++;
+                        auto *safe_condition = _builder.CreateSelect(
+                            _active_mask, condition, _zero_mask());
+                        auto *take_true =
+                            _builder.CreateOrReduce(safe_condition);
+                        auto *true_path = ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "cohort.uniform.true", _entry);
+                        auto *false_path = ::llvm::BasicBlock::Create(
+                            _module.getContext(),
+                            "cohort.uniform.false", _entry);
+                        _builder.CreateCondBr(
+                            take_true, true_path, false_path);
+                        _builder.SetInsertPoint(true_path);
+                        _emit_arrival(control.true_edge, _active_mask);
+                        _builder.SetInsertPoint(false_path);
+                        _emit_arrival(control.false_edge, _active_mask);
+                        return;
+                    }
                     auto true_region = allow_all_on_region_versioning ?
                                            _find_coherent_all_on_region(
                                                control, control.true_edge) :

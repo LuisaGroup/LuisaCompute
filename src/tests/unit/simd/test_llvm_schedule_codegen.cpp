@@ -1662,6 +1662,119 @@ make_multiple_exit_loop_collective(uint32_t width) {
     return std::move(*lowered.function);
 }
 
+template<size_t BodyBlockCount = 24u>
+[[nodiscard]] std::optional<schedule::Function>
+make_cohort_uniform_loop_collective(
+    uint32_t width, bool enable_specialization,
+    bool uniform_bound = true) {
+    static_assert(BodyBlockCount >= 2u);
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    std::array<xir::BasicBlock *, BodyBlockCount> body{};
+    for (auto &block : body) {
+        block = kernel->create_basic_block();
+    }
+    auto *side_exit = kernel->create_basic_block();
+    auto *normal_exit = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    header->set_name("cohort_loop_header");
+    merge->set_name("cohort_loop_merge");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t eight_value = 8u;
+    uint32_t fifteen_value = 15u;
+    auto *eight = module.create_constant(
+        Type::of<uint32_t>(), &eight_value);
+    auto *fifteen = module.create_constant(
+        Type::of<uint32_t>(), &fifteen_value);
+    xir::Value *bound = lane;
+    if (uniform_bound) { bound = eight; }
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.br(header);
+    builder.set_insertion_point(header);
+    auto *index = builder.phi(Type::of<uint32_t>());
+    auto *running = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {index, bound});
+    running->set_name("cohort_loop_running");
+    builder.cond_br(running, body.front(), normal_exit);
+
+    builder.set_insertion_point(body.front());
+    auto *lane_epoch = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, fifteen});
+    auto *leave_early = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {lane_epoch, index});
+    builder.cond_br(leave_early, side_exit, body[1u]);
+    for (auto i = 1u; i + 1u < body.size(); i++) {
+        builder.set_insertion_point(body[i]);
+        builder.br(body[i + 1u]);
+    }
+    builder.set_insertion_point(body.back());
+    auto *next = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one});
+    builder.br(header);
+    index->add_incoming(zero, entry);
+    index->add_incoming(next, body.back());
+
+    builder.set_insertion_point(side_exit);
+    builder.br(merge);
+    builder.set_insertion_point(normal_exit);
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *sum = builder.call(
+        Type::of<uint32_t>(),
+        xir::ThreadGroupOp::WARP_ACTIVE_SUM, {one});
+    sum->set_name("cohort_loop_sum");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel,
+        {.logical_warp_width = width,
+         .enable_cohort_uniform_induction =
+             enable_specialization});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> sum_id;
+    const schedule::Value *condition = nullptr;
+    const schedule::SplitTerminator *header_split = nullptr;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "cohort_loop_sum") { sum_id = value.id; }
+        if (value.name == "cohort_loop_running") {
+            condition = &value;
+        }
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "cohort_loop_header") {
+            header_split = std::get_if<schedule::SplitTerminator>(
+                &block.terminator);
+        } else if (block.name == "cohort_loop_merge") {
+            block.terminator = schedule::ReturnTerminator{sum_id};
+        }
+    }
+    constexpr auto statically_profitable = BodyBlockCount + 1u >= 25u;
+    auto expect_specialization =
+        enable_specialization && uniform_bound && statically_profitable;
+    if (!sum_id || condition == nullptr ||
+        condition->value_class != schedule::ValueClass::varying ||
+        header_split == nullptr || !header_split->convergence ||
+        header_split->cohort_uniform_condition != expect_specialization ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
 [[nodiscard]] std::optional<schedule::Function>
 make_nested_divergence(uint32_t width) {
     xir::Module module;
@@ -3191,6 +3304,78 @@ template<size_t Width>
     return run_loop_collective_codegen(
         make_multiple_exit_loop_collective(8u),
         "simd_multiple_exit_loop_collective");
+}
+
+[[nodiscard]] bool run_cohort_uniform_loop_collective_codegen() {
+    CHECK(make_cohort_uniform_loop_collective<23u>(8u, true).has_value());
+    CHECK(make_cohort_uniform_loop_collective(8u, true, false).has_value());
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        auto run_variant = [&](bool enable_specialization,
+                               std::array<uint32_t, 16u> &output,
+                               LLVMScheduleCodegenResult &result) {
+            auto schedule_function =
+                make_cohort_uniform_loop_collective(
+                    width, enable_specialization);
+            if (!schedule_function) { return false; }
+            auto context = std::make_unique<::llvm::LLVMContext>();
+            auto name = std::string{
+                            enable_specialization ?
+                                "simd_cohort_loop_w" :
+                                "simd_cohort_loop_oracle_w"} +
+                        std::to_string(width);
+            auto module = std::make_unique<::llvm::Module>(
+                name, *context);
+            result = lower_schedule_to_llvm(
+                *module, *schedule_function, width, name);
+            if (!result.succeeded() ||
+                ::llvm::verifyModule(*module, &::llvm::errs())) {
+                return false;
+            }
+            std::string ir;
+            ::llvm::raw_string_ostream stream{ir};
+            module->print(stream, nullptr);
+            stream.flush();
+            auto emitted_specialization =
+                ir.find("cohort.uniform.true") != std::string::npos;
+            if (emitted_specialization !=
+                (enable_specialization && width != 1u)) {
+                return false;
+            }
+            LLVMJIT jit;
+            if (!jit.succeeded() ||
+                !jit.add_module(
+                    std::move(module), std::move(context))) {
+                return false;
+            }
+            using Entry = void(
+                const void *, uint32_t *,
+                const SIMDPacketLaunchConfig *, uint32_t);
+            auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
+            if (entry == nullptr) { return false; }
+            output.fill(0xdeadbeefu);
+            auto active_lanes = width == 1u ? 1u : width - 1u;
+            auto config = launch_1d(active_lanes, 16u);
+            entry(nullptr, output.data(), &config, active_lanes);
+            return true;
+        };
+
+        std::array<uint32_t, 16u> candidate_output{};
+        std::array<uint32_t, 16u> oracle_output{};
+        LLVMScheduleCodegenResult candidate;
+        LLVMScheduleCodegenResult oracle;
+        CHECK(run_variant(true, candidate_output, candidate));
+        CHECK(run_variant(false, oracle_output, oracle));
+        CHECK(candidate.cohort_uniform_loop_branch_count ==
+              (width == 1u ? 0u : 1u));
+        CHECK(oracle.cohort_uniform_loop_branch_count == 0u);
+        CHECK(candidate_output == oracle_output);
+        auto active_lanes = width == 1u ? 1u : width - 1u;
+        for (auto lane = 0u; lane < candidate_output.size(); lane++) {
+            CHECK(candidate_output[lane] ==
+                  (lane < active_lanes ? active_lanes : 0xdeadbeefu));
+        }
+    }
+    return true;
 }
 
 template<size_t Width>
@@ -9667,6 +9852,8 @@ int main() {
          &run_varying_loop_collective_codegen},
         {"multiple-exit loop collective",
          &run_multiple_exit_loop_collective_codegen},
+        {"cohort-uniform loop collective",
+         &run_cohort_uniform_loop_collective_codegen},
         {"Schedule IR nested convergence", &run_nested_codegen},
         {"Schedule IR nested convergence W2", &run_nested_w2_codegen},
         {"Schedule IR 96-block CFG", &run_large_cfg_codegen},

@@ -566,6 +566,14 @@ VerificationResult verify(const Function &function) {
                     if (!valid_value(terminator.condition)) {
                         add_error(result, "split has an invalid condition",
                                   block.id);
+                    } else if (terminator.cohort_uniform_condition &&
+                               function.value(terminator.condition)
+                                       ->value_class !=
+                                   ValueClass::varying) {
+                        add_error(
+                            result,
+                            "cohort-uniform split annotation requires a varying backing condition",
+                            block.id);
                     }
                     add_edge(terminator.true_edge);
                     add_edge(terminator.false_edge);
@@ -807,6 +815,9 @@ std::string to_string(const Function &function) {
                     if (terminator.convergence) {
                         out << " convergence=c"
                             << terminator.convergence->value;
+                    }
+                    if (terminator.cohort_uniform_condition) {
+                        out << " cohort_uniform_condition";
                     }
                 } else if constexpr (std::is_same_v<T, SwitchTerminator>) {
                     out << "switch %" << terminator.selector.value;

@@ -86,6 +86,7 @@ struct SIMDCompiledKernel {
     size_t predicated_loop_instruction_count{0u};
     size_t predicated_loop_batch_iteration_count{0u};
     bool native_predicated_loop{false};
+    size_t cohort_uniform_loop_branch_count{0u};
     size_t coherent_mask_reuse_count{0u};
     size_t all_on_region_version_count{0u};
     size_t all_on_region_block_count{0u};

@@ -185,6 +185,9 @@ struct SplitTerminator {
     ControlEdge true_edge{};
     ControlEdge false_edge{};
     std::optional<ConvergenceId> convergence{};
+    // The backing condition remains varying across loop exits, but all active
+    // lanes in this dynamic continuation are proven to agree on it.
+    bool cohort_uniform_condition{false};
 };
 
 struct SwitchCase {
