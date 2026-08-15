@@ -433,9 +433,21 @@ Tensor<tile_f32, 2> two_kernels(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
 int main(int argc, char *argv[]) {
     using namespace luisa::compute;// Kernel / Device / Context / detail for the translation test
     auto executable = argc > 0 && argv != nullptr && argv[0] != nullptr ? argv[0] : "";
-    auto backend = argc > 1 && argv != nullptr && argv[1] != nullptr ? luisa::string_view{argv[1]} : luisa::string_view{};
-    auto trigger_guard = argc > 2 && argv != nullptr && argv[2] != nullptr &&
-                         luisa::string_view{argv[2]} == "--trigger-guard";
+    auto has_flag = [&](luisa::string_view flag) {
+        for (auto i = 1; i < argc; ++i) {
+            if (argv != nullptr && argv[i] != nullptr && luisa::string_view{argv[i]} == flag) { return true; }
+        }
+        return false;
+    };
+    auto backend = argc > 1 && argv != nullptr && argv[1] != nullptr &&
+                           !luisa::string_view{argv[1]}.starts_with("--") ?
+                       luisa::string_view{argv[1]} :
+                       luisa::string_view{};
+    auto trigger_guard = has_flag("--trigger-guard");
+    // --cooperative: lower every tile kernel with
+    // TileToKernelConfig::use_cooperative (matrix ops — currently T.gemm — are
+    // computed with cooperative vectors instead of the per-thread path).
+    auto use_cooperative = has_flag("--cooperative");
 
     // =========================================================================
     // Trace every tile kernel and lower it with tile_to_kernel.  Structural
@@ -450,8 +462,9 @@ int main(int argc, char *argv[]) {
                                     luisa::shared_ptr<const luisa::compute::detail::TileFunctionBuilder> const &tile_fn,
                                     luisa::uint3 expected_dispatch, luisa::uint3 expected_block,
                                     size_t expected_buffers) -> TileCompileResult {
-        LUISA_INFO("=== tensor-dsl: tile_to_kernel({}) ===", name);
-        auto result = tile_to_kernel(tile_fn);
+        LUISA_INFO("=== tensor-dsl: tile_to_kernel({}){} ===", name,
+                   use_cooperative ? luisa::string_view{" [cooperative]"} : luisa::string_view{});
+        auto result = tile_to_kernel(tile_fn, TileToKernelConfig{.use_cooperative = use_cooperative});
         LUISA_ASSERT(result.function != nullptr,
                      "[tensor-stub] tile_to_kernel({}) produced a null FunctionBuilder.", name);
         LUISA_ASSERT(same_u3(result.dispatch_size, expected_dispatch),
@@ -581,11 +594,23 @@ int main(int argc, char *argv[]) {
 
             // Typed path: tile::jit(...).compile().to_kernel<Dim>() carries the
             // buffer element types from the tile function signature automatically.
+            // In cooperative mode the kernel is rebuilt from the cooperative
+            // lowering (to_kernel<> always lowers with the default config).
             matmul_kernel.validate(bufA, bufB, bufC);
-            auto typed_matmul = matmul_kernel.to_kernel<2>();
-            auto sh = device.compile(typed_matmul);
-            stream << sh(bufA, bufB, bufC).dispatch(matmul_result.dispatch_size.x, matmul_result.dispatch_size.y)
-                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            if (use_cooperative) {
+                auto lowered = tile_to_kernel(matmul_kernel.function(),
+                                              TileToKernelConfig{.use_cooperative = true});
+                Kernel2D<Buffer<luisa::half>, Buffer<luisa::half>, Buffer<luisa::half>> typed_matmul{
+                    luisa::const_pointer_cast<const luisa::compute::detail::FunctionBuilder>(lowered.function)};
+                auto sh = device.compile(typed_matmul);
+                stream << sh(bufA, bufB, bufC).dispatch(lowered.dispatch_size.x, lowered.dispatch_size.y)
+                       << bufC.copy_to(luisa::span{hC}) << synchronize();
+            } else {
+                auto typed_matmul = matmul_kernel.to_kernel<2>();
+                auto sh = device.compile(typed_matmul);
+                stream << sh(bufA, bufB, bufC).dispatch(matmul_result.dispatch_size.x, matmul_result.dispatch_size.y)
+                       << bufC.copy_to(luisa::span{hC}) << synchronize();
+            }
             auto err = 0.0f;
             for (auto r = 0u; r < M; ++r) {
                 for (auto c = 0u; c < N; ++c) {

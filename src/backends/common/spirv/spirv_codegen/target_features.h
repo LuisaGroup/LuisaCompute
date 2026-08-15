@@ -62,6 +62,7 @@ struct SpirvTargetFeatures {
     bool shader_device_clock{false};
     bool buffer_device_address{false};
     bool shader_untyped_pointers{false};
+    bool cooperative_vector{false};
     SpirvBufferFloat32AtomicRmwPolicy buffer_float32_atomic_rmw_policy{
         SpirvBufferFloat32AtomicRmwPolicy::NATIVE_IF_SUPPORTED};
 
@@ -138,6 +139,8 @@ struct SpirvTargetFeatures {
                target_feature::buffer_device_address);
         enable(shader_untyped_pointers,
                target_feature::shader_untyped_pointers);
+        enable(cooperative_vector,
+               target_feature::cooperative_vector);
         return mask;
     }
 
@@ -214,7 +217,9 @@ struct SpirvTargetFeatures {
             .buffer_device_address =
                 has(target_feature::buffer_device_address),
             .shader_untyped_pointers =
-                has(target_feature::shader_untyped_pointers)};
+                has(target_feature::shader_untyped_pointers),
+            .cooperative_vector =
+                has(target_feature::cooperative_vector)};
     }
 };
 

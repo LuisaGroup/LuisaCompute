@@ -315,6 +315,19 @@ enum class ResourceReadOp {
     BINDLESS_TEXTURE3D_READ_LEVEL,// (bindless_array, index: uint, coord: uint3, level: uint): float4
 
     DEVICE_ADDRESS_READ,// (address: uint64) -> value: T
+
+    // cooperative vector operations. Cooperative vector/matrix references are
+    // lowered to plain uint32 byte offsets in XIR; the buffer-data component
+    // interpretation is carried by trailing constant uint32 operands.
+    COOPERATIVE_MUL_ADD,        // (matrix_buffer, matrix_offset: uint, bias_buffer, bias_offset: uint, input: coopvec<K>, matrix_interp: const uint, bias_interp: const uint) -> coopvec<M>
+    BINDLESS_COOPERATIVE_MUL_ADD,// (bindless_array, matrix_index: uint, matrix_offset: uint, bias_index: uint, bias_offset: uint, input: coopvec<K>, matrix_interp: const uint, bias_interp: const uint) -> coopvec<M>
+    COOPERATIVE_MUL,            // (matrix_buffer, matrix_offset: uint, input: coopvec<K>, matrix_interp: const uint) -> coopvec<M>
+    BINDLESS_COOPERATIVE_MUL,   // (bindless_array, matrix_index: uint, matrix_offset: uint, input: coopvec<K>, matrix_interp: const uint) -> coopvec<M>
+    COOPERATIVE_VECTOR_LOAD,    // (byte_buffer, offset: uint) -> coopvec<T, N>
+    BINDLESS_COOPERATIVE_VECTOR_LOAD,// (bindless_array, index: uint, offset: uint) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_SPLAT,   // (scalar: T) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_CAST,    // (coopvec<S, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_WORKGROUP_LOAD,// (shared_array, index: uint) -> coopvec<T, N>
 };
 
 enum class ResourceWriteOp {
@@ -347,6 +360,14 @@ enum class ResourceWriteOp {
     // indirect dispatch
     INDIRECT_DISPATCH_SET_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
     INDIRECT_DISPATCH_SET_COUNT, // (Buffer, uint count)
+
+    // cooperative vector operations (see ResourceReadOp for the XIR encoding
+    // of references and interpretations)
+    COOPERATIVE_OUTER_PRODUCT_ACCUMULATE,// (matrix_buffer, matrix_offset: uint, a: coopvec<M>, b: coopvec<N>, matrix_interp: const uint) -> void
+    COOPERATIVE_VECTOR_ACCUMULATE,       // (byte_buffer, offset: uint, coopvec<T, N>) -> void
+    COOPERATIVE_VECTOR_STORE,            // (byte_buffer, offset: uint, coopvec<T, N>) -> void
+    BINDLESS_COOPERATIVE_VECTOR_STORE,   // (bindless_array, index: uint, offset: uint, coopvec<T, N>) -> void
+    COOPERATIVE_VECTOR_WORKGROUP_STORE,  // (shared_array, index: uint, coopvec<T, N>) -> void
 };
 
 [[nodiscard]] constexpr bool is_bindless_resource_op(
@@ -389,6 +410,9 @@ enum class ResourceWriteOp {
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ:
         case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
             return true;
         default: return false;
     }
@@ -399,6 +423,7 @@ enum class ResourceWriteOp {
     switch (op) {
         case ResourceWriteOp::BINDLESS_BUFFER_WRITE:
         case ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
+        case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
             return true;
         default: return false;
     }

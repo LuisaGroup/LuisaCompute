@@ -125,7 +125,6 @@ namespace {
     constexpr std::array reasons{
         detail::UserComputeHlslFallbackReason::NATIVE_INCLUDE,
         detail::UserComputeHlslFallbackReason::PRINTING,
-        detail::UserComputeHlslFallbackReason::COOPERATIVE_OPERATIONS,
         detail::UserComputeHlslFallbackReason::ASYNC_COPY,
         detail::UserComputeHlslFallbackReason::MOTION_BLUR};
     luisa::string description;
@@ -1378,6 +1377,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         }
     }
     // Probe for cooperative-vector support (VK_NV_cooperative_vector).
+    // SPV_NV_cooperative_vector requires the Vulkan memory model, and splat
+    // construction goes through SPV_EXT_replicated_composites, so the
+    // extension is only usable when both prerequisites are supported.
+    bool enable_vulkan_memory_model = false;
+    bool enable_replicated_composites = false;
+    VkPhysicalDeviceShaderReplicatedCompositesFeaturesEXT replicated_composites_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_REPLICATED_COMPOSITES_FEATURES_EXT,
+        .pNext = nullptr,
+        .shaderReplicatedComposites = VK_FALSE};
     VkPhysicalDeviceCooperativeVectorFeaturesNV cooperative_vector_features_nv{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV,
         .pNext = nullptr,
@@ -1396,6 +1404,21 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         vkGetPhysicalDeviceProperties2(physical_device, &properties2);
         if (cooperative_vector_features_nv.cooperativeVector == VK_TRUE &&
             (cooperative_vector_properties_nv.cooperativeVectorSupportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u) {
+            VkPhysicalDeviceVulkan12Features vk12_vmm_features{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+            VkPhysicalDeviceFeatures2 vmm_features2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                .pNext = &vk12_vmm_features};
+            vkGetPhysicalDeviceFeatures2(physical_device, &vmm_features2);
+            enable_vulkan_memory_model = vk12_vmm_features.vulkanMemoryModel == VK_TRUE;
+            if (supported_ext.find(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME) != supported_ext.end()) {
+                VkPhysicalDeviceFeatures2 rc_features2{
+                    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                    .pNext = &replicated_composites_features};
+                vkGetPhysicalDeviceFeatures2(physical_device, &rc_features2);
+                enable_replicated_composites =
+                    replicated_composites_features.shaderReplicatedComposites == VK_TRUE;
+            }
             // Query the list of supported cooperative-vector configurations.
             uint32_t prop_count = 0u;
             VkResult cv_result = vkGetPhysicalDeviceCooperativeVectorPropertiesNV(
@@ -1463,10 +1486,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                     }
                 }
             }
-            // Enable the extension if the hardware supports it.
-            cooperative_vector_enabled = true;
-            enable_device_extension(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
-            LUISA_INFO("VK_NV_cooperative_vector extension enabled on device.");
+          // Enable the extension if the hardware supports it.
+          cooperative_vector_enabled = enable_vulkan_memory_model && enable_replicated_composites;
+          if (cooperative_vector_enabled) {
+              enable_device_extension(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
+              enable_device_extension(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME);
+              LUISA_INFO("VK_NV_cooperative_vector extension enabled on device.");
+          } else {
+              LUISA_INFO("VK_NV_cooperative_vector disabled: vulkanMemoryModel or shaderReplicatedComposites is unavailable.");
+          }
         }
     }
     {
@@ -1986,10 +2014,13 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 break;
         }
     }
-    if (cooperative_vector_enabled) {
-        cooperative_vector_features_nv.pNext = feature_next;
-        feature_next = &cooperative_vector_features_nv;
-    }
+  if (cooperative_vector_enabled) {
+      cooperative_vector_features_nv.pNext = feature_next;
+      feature_next = &cooperative_vector_features_nv;
+      replicated_composites_features.pNext = feature_next;
+      replicated_composites_features.shaderReplicatedComposites = VK_TRUE;
+      feature_next = &replicated_composites_features;
+  }
     VkPhysicalDeviceShaderUntypedPointersFeaturesKHR
         untyped_pointers_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR,
@@ -2074,9 +2105,10 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
 
         .shaderSubgroupExtendedTypes = enable_subgroup_extended_types ? VK_TRUE : VK_FALSE,
 
-        .timelineSemaphore =
-            required_device_features.supported ? VK_TRUE : VK_FALSE,
-        .bufferDeviceAddress = device_address_enabled ? VK_TRUE : VK_FALSE};
+          .timelineSemaphore =
+              required_device_features.supported ? VK_TRUE : VK_FALSE,
+          .bufferDeviceAddress = device_address_enabled ? VK_TRUE : VK_FALSE,
+          .vulkanMemoryModel = enable_vulkan_memory_model ? VK_TRUE : VK_FALSE};
     VK_CHECK_RESULT(_vk_device->create_logical_device(device_features, _enable_device_exts, &vk12_feature, surface_enabled));
     if (external_device != VK_NULL_HANDLE) {
         _vk_device->queue_family_indices.graphics =
@@ -2820,6 +2852,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::buffer_device_address);
     enable(owned_logical_device && shader_untyped_pointers_enabled,
            target_feature::shader_untyped_pointers);
+    enable(owned_logical_device && cooperative_vector_enabled,
+           target_feature::cooperative_vector);
     return mask;
 }
 
@@ -3039,7 +3073,6 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     detail::UserComputeCodegenRequirements codegen_requirements{
         .native_include = !option.native_include.empty(),
         .printing = kernel.requires_printing(),
-        .cooperative_operations = kernel.use_cooperative_operations(),
         .async_copy = builtin_calls.test(CallOp::ASYNC_COPY) ||
                       builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
                       builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),

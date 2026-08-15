@@ -188,6 +188,16 @@ static size_t get_global_index_count(Instruction *inst) noexcept {
                 case ResourceReadOp::BINDLESS_TEXTURE3D_READ: return 2u;
                 case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
                 case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: return 3u;
+                // conservative: cooperative ops may alias anything in the resource
+                case ResourceReadOp::COOPERATIVE_MUL_ADD:
+                case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+                case ResourceReadOp::COOPERATIVE_MUL:
+                case ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+                case ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+                case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+                case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+                case ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+                case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return 0u;
             }
             break;
         }
@@ -213,6 +223,13 @@ static size_t get_global_index_count(Instruction *inst) noexcept {
                 case ResourceWriteOp::DEVICE_ADDRESS_WRITE:
                     return 1u;
                 case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT:
+                    return 0u;
+                // conservative: cooperative ops may alias anything in the resource
+                case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+                case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+                case ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+                case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+                case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
                     return 0u;
             }
             break;

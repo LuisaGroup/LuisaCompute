@@ -499,6 +499,15 @@ luisa::string_view to_string(ResourceReadOp op) noexcept {
         case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL: return "bindless_texture2d_read_level"sv;
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: return "bindless_texture3d_read_level"sv;
         case ResourceReadOp::DEVICE_ADDRESS_READ: return "device_address_read"sv;
+        case ResourceReadOp::COOPERATIVE_MUL_ADD: return "cooperative_mul_add"sv;
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD: return "bindless_cooperative_mul_add"sv;
+        case ResourceReadOp::COOPERATIVE_MUL: return "cooperative_mul"sv;
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL: return "bindless_cooperative_mul"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOAD: return "cooperative_vector_load"sv;
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD: return "bindless_cooperative_vector_load"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT: return "cooperative_vector_splat"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return "cooperative_vector_cast"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return "cooperative_vector_workgroup_load"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown resource_read operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -519,6 +528,15 @@ ResourceReadOp resource_read_op_from_string(luisa::string_view name) noexcept {
         {"bindless_texture2d_read_level"sv, ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL},
         {"bindless_texture3d_read_level"sv, ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL},
         {"device_address_read"sv, ResourceReadOp::DEVICE_ADDRESS_READ},
+        {"cooperative_mul_add"sv, ResourceReadOp::COOPERATIVE_MUL_ADD},
+        {"bindless_cooperative_mul_add"sv, ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD},
+        {"cooperative_mul"sv, ResourceReadOp::COOPERATIVE_MUL},
+        {"bindless_cooperative_mul"sv, ResourceReadOp::BINDLESS_COOPERATIVE_MUL},
+        {"cooperative_vector_load"sv, ResourceReadOp::COOPERATIVE_VECTOR_LOAD},
+        {"bindless_cooperative_vector_load"sv, ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD},
+        {"cooperative_vector_splat"sv, ResourceReadOp::COOPERATIVE_VECTOR_SPLAT},
+        {"cooperative_vector_cast"sv, ResourceReadOp::COOPERATIVE_VECTOR_CAST},
+        {"cooperative_vector_workgroup_load"sv, ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown resource_read operation: {}.", name);
@@ -545,6 +563,11 @@ luisa::string_view to_string(ResourceWriteOp op) noexcept {
         case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: return "ray_tracing_set_instance_motion_srt"sv;
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: return "indirect_dispatch_set_kernel"sv;
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: return "indirect_dispatch_set_count"sv;
+        case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: return "cooperative_outer_product_accumulate"sv;
+        case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE: return "cooperative_vector_accumulate"sv;
+        case ResourceWriteOp::COOPERATIVE_VECTOR_STORE: return "cooperative_vector_store"sv;
+        case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE: return "bindless_cooperative_vector_store"sv;
+        case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: return "cooperative_vector_workgroup_store"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown resource_write operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -569,6 +592,11 @@ ResourceWriteOp resource_write_op_from_string(luisa::string_view name) noexcept 
         {"ray_tracing_set_instance_motion_srt"sv, ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT},
         {"indirect_dispatch_set_kernel"sv, ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL},
         {"indirect_dispatch_set_count"sv, ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT},
+        {"cooperative_outer_product_accumulate"sv, ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE},
+        {"cooperative_vector_accumulate"sv, ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE},
+        {"cooperative_vector_store"sv, ResourceWriteOp::COOPERATIVE_VECTOR_STORE},
+        {"bindless_cooperative_vector_store"sv, ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE},
+        {"cooperative_vector_workgroup_store"sv, ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown resource_write operation: {}.", name);

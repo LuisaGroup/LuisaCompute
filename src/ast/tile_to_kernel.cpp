@@ -719,7 +719,9 @@ struct Layout {
 class TileLowerer {
 
 public:
-    TileCompileResult lower(const luisa::shared_ptr<const TileFunctionBuilder> &tile_fn) {
+    TileCompileResult lower(const luisa::shared_ptr<const TileFunctionBuilder> &tile_fn,
+                            const TileToKernelConfig &config) {
+        _use_cooperative = config.use_cooperative;
         auto meta = tile_fn->compile_meta_data();// block size + dispatch grid
         _threads = meta.block_size[0];
         _gx = meta.dispatch_size[0];
@@ -768,6 +770,8 @@ private:
 
     FunctionBuilder *_fb = nullptr;
     const TileFunctionBuilder *_tile = nullptr;
+    // lowering configuration
+    bool _use_cooperative = false;
     // launch metadata
     uint32_t _threads = 1u;
     uint32_t _gx = 1u;
@@ -1555,6 +1559,10 @@ private:
     }
 
     void _emit_gemm(const GemmStmt *s) {
+        if (_use_cooperative) {
+            _emit_gemm_cooperative(s);
+            return;
+        }
         auto *a = s->a();
         auto *b = s->b();
         auto *c = s->c();
@@ -1597,6 +1605,139 @@ private:
                 _fb->assign(acc, _fb->call(wide_t, CallOp::FMA, {av, bv, acc}));
             });
             _write_to(c, cc, acc);
+        });
+        _current_extent = saved;
+    }
+
+    // Cooperative-vector GEMM (TileToKernelConfig::use_cooperative): the
+    // whole-tile matrix multiply is computed with cooperative vectors instead
+    // of the per-thread FMA loop above.  For every row r of the MxK A tile
+    // the K-loop becomes
+    //     acc[0:N] += splat(A[r][k]) * B[k][0:N]
+    // where the accumulator and the two operand rows are cooperative vectors
+    // (Type::cooperative_vector), the A scalar is broadcast with
+    // COOPERATIVE_VECTOR_SPLAT and the multiply-accumulate is the elementwise
+    // FMA expansion over cooperative-vector components — exactly what the DSL
+    // of <luisa/dsl/coop_vector.h> + cooperative_vector_splat / _fma
+    // (<luisa/dsl/resource.h>) emits.  Loads/stores between the cooperative
+    // vectors and the shared/fragment tiles go through per-component access
+    // (COOPERATIVE_VECTOR_WORKGROUP_LOAD/_STORE cannot bind shared arrays on
+    // current backends, and COOPERATIVE_VECTOR_LOAD/_STORE require a byte
+    // buffer, which a shared/fragment tile is not).
+    void _emit_gemm_cooperative(const GemmStmt *s) {
+        auto *a = s->a();
+        auto *b = s->b();
+        auto *c = s->c();
+        // ---- constraint checks: fail loudly instead of mis-lowering --------
+        if (a->rank() != 2u || b->rank() != 2u || c->rank() != 2u) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: cooperative GEMM requires rank-2 tiles "
+                "(got ranks {}/{}/{}).",
+                a->rank(), b->rank(), c->rank());
+        }
+        auto in_e = a->dtype();
+        auto out_e = c->dtype();
+        auto is_coop_dtype = [](TensorElementType e) noexcept {
+            return e == TensorElementType::F16 || e == TensorElementType::F32;
+        };
+        if (!is_coop_dtype(in_e) || b->dtype() != in_e || !is_coop_dtype(out_e)) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: cooperative GEMM requires F16/F32 tiles with "
+                "matching input dtypes (got a={}, b={}, c={}).",
+                tensor_element_type_name(in_e), tensor_element_type_name(b->dtype()),
+                tensor_element_type_name(out_e));
+        }
+        if (s->trans_a() != 0 || s->trans_b() != 0) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: cooperative GEMM requires non-transposed "
+                "row-major operand tiles (trans_a={}, trans_b={}).",
+                s->trans_a(), s->trans_b());
+        }
+        auto &sa = _storage_for(a);
+        auto &sb = _storage_for(b);
+        auto &sc = _storage_for(c);
+        static_cast<void>(sa);
+        if (sb.scope == TensorScope::Global ||
+            sc.scope == TensorScope::Global) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: cooperative GEMM requires shared/fragment "
+                "operand tiles (cooperative vectors stage through local/shared "
+                "storage, not global buffers).");
+        }
+        auto M = static_cast<uint32_t>(axis_extent(c, 0u));
+        auto N = static_cast<uint32_t>(axis_extent(c, 1u));
+        auto K = static_cast<uint32_t>(axis_extent(a, 1u));
+        if (static_cast<uint32_t>(axis_extent(a, 0u)) != M ||
+            static_cast<uint32_t>(axis_extent(b, 0u)) != K ||
+            static_cast<uint32_t>(axis_extent(b, 1u)) != N) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: cooperative GEMM tile shape mismatch "
+                "(a={}x{}, b={}x{}, c={}x{}).",
+                axis_extent(a, 0u), K, K, axis_extent(b, 1u), M, N);
+        }
+        auto saved = _current_extent;
+        _current_extent = c;
+        auto wide_t = Type::of<float>();// accumulate in f32 (f16 inputs too)
+        auto in_t = tensor_element_type(in_e);
+        auto out_t = tensor_element_type(out_e);
+        auto acc_vec_t = Type::cooperative_vector(wide_t, N);
+        auto in_vec_t = Type::cooperative_vector(in_t, N);
+        // component access / assignment of a cooperative vector (the AST-level
+        // form of the DSL CoopVector::operator[])
+        auto vec_at = [&](const Expression *v, const Type *elem, uint32_t i) {
+            return _fb->access(elem, v, _literal_u(i));
+        };
+        // uniform (non-partitioned) row loop: every thread of the block
+        // executes the same cooperative ops, block-wide
+        _for_range(_literal_u(0u), _literal_u(M), _literal_u(1u),
+                   [&](const Expression *r) {
+            auto acc = _fb->local(acc_vec_t);
+            if (s->clear_accum() != 0) {
+                _fb->assign(acc, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT,
+                                           {_fb->literal(wide_t, 0.f)}));
+            } else {
+                // load the existing C row into the accumulator
+                for (auto i = 0u; i < N; ++i) {
+                    Coord cc = _zero_coord();
+                    cc[0] = r;
+                    cc[1] = _literal_u(i);
+                    _fb->assign(vec_at(acc, wide_t, i),
+                                _maybe_cast(_value_at(c, cc), wide_t));
+                }
+            }
+            _for_range(_literal_u(0u), _literal_u(K), _literal_u(1u),
+                       [&](const Expression *k) {
+                // broadcast A[r][k] into a cooperative vector
+                Coord ac = _zero_coord();
+                ac[0] = r;
+                ac[1] = k;
+                auto av = _maybe_cast(_value_at(a, ac), wide_t);
+                auto a_vec = _fb->local(acc_vec_t);
+                _fb->assign(a_vec, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT, {av}));
+                // stage B[k][0:N] into a cooperative vector
+                auto b_vec = _fb->local(in_vec_t);
+                for (auto i = 0u; i < N; ++i) {
+                    Coord bc = _zero_coord();
+                    bc[0] = k;
+                    bc[1] = _literal_u(i);
+                    _fb->assign(vec_at(b_vec, in_t, i), _value_at(b, bc));
+                }
+                // acc += a_vec * b_vec (elementwise FMA expansion, as the DSL
+                // cooperative_vector_fma emits)
+                for (auto i = 0u; i < N; ++i) {
+                    auto ai = vec_at(a_vec, wide_t, i);
+                    auto bi = _maybe_cast(vec_at(b_vec, in_t, i), wide_t);
+                    auto ci = vec_at(acc, wide_t, i);
+                    _fb->assign(ci, _fb->call(wide_t, CallOp::FMA, {ai, bi, ci}));
+                }
+            });
+            // store the accumulated row back into the C tile
+            for (auto i = 0u; i < N; ++i) {
+                Coord cc = _zero_coord();
+                cc[0] = r;
+                cc[1] = _literal_u(i);
+                _write_to(c, cc, _maybe_cast(vec_at(acc, wide_t, i), out_t));
+            }
         });
         _current_extent = saved;
     }
@@ -1937,11 +2078,12 @@ private:
 }// namespace
 
 TileCompileResult tile_to_kernel(
-    luisa::shared_ptr<const detail::TileFunctionBuilder> const &tile_function) {
+    luisa::shared_ptr<const detail::TileFunctionBuilder> const &tile_function,
+    TileToKernelConfig const &config) {
     if (tile_function == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("tile_to_kernel: null tile function.");
     }
-    return TileLowerer{}.lower(tile_function);
+    return TileLowerer{}.lower(tile_function, config);
 }
 
 }// namespace luisa::compute

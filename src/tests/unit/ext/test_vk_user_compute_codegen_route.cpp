@@ -23,9 +23,6 @@ int main(int argc, char *argv[]) {
         constexpr auto printing =
             vk_route::plan_user_compute_codegen_route(
                 {.printing = true});
-        constexpr auto cooperative =
-            vk_route::plan_user_compute_codegen_route(
-                {.cooperative_operations = true});
         constexpr auto async_copy =
             vk_route::plan_user_compute_codegen_route(
                 {.async_copy = true});
@@ -37,15 +34,12 @@ int main(int argc, char *argv[]) {
             vk_route::UserComputeHlslFallbackReason::NATIVE_INCLUDE));
         expect(printing.contains(
             vk_route::UserComputeHlslFallbackReason::PRINTING));
-        expect(cooperative.contains(
-            vk_route::UserComputeHlslFallbackReason::COOPERATIVE_OPERATIONS));
         expect(async_copy.contains(
             vk_route::UserComputeHlslFallbackReason::ASYNC_COPY));
         expect(motion_blur.contains(
             vk_route::UserComputeHlslFallbackReason::MOTION_BLUR));
         expect(native_include.requires_hlsl_fallback());
         expect(printing.requires_hlsl_fallback());
-        expect(cooperative.requires_hlsl_fallback());
         expect(async_copy.requires_hlsl_fallback());
         expect(motion_blur.requires_hlsl_fallback());
     };

@@ -43,11 +43,14 @@ struct LUISA_AST_API TileCompileResult {
     /// stream << sh(buffers...).dispatch(result.dispatch_size.x, result.dispatch_size.y).
     uint3 dispatch_size;
 };
-
+struct TileToKernelConfig {
+    bool use_cooperative : 1 {false};
+};
 /// Translate a compiled tile kernel (a traced TileFunctionBuilder) into a
 /// regular Luisa kernel (FunctionBuilder).  The traced builder is only read;
 /// a const shared_ptr (as returned by tile::Kernel::function()) is accepted.
 [[nodiscard]] LUISA_AST_API TileCompileResult tile_to_kernel(
-    luisa::shared_ptr<const detail::TileFunctionBuilder> const &tile_function);
+    luisa::shared_ptr<const detail::TileFunctionBuilder> const &tile_function,
+    TileToKernelConfig const &config = {});
 
 }// namespace luisa::compute

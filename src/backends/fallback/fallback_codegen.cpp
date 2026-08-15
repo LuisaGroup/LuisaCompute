@@ -2953,6 +2953,16 @@ private:
             case xir::ResourceReadOp::BINDLESS_BUFFER_READ: return _translate_bindless_buffer_read(current, b, inst);
             case xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ: return _translate_bindless_buffer_read(current, b, inst, true);
             case xir::ResourceReadOp::DEVICE_ADDRESS_READ: return _translate_device_address_read(current, b, inst);
+            case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::COOPERATIVE_MUL:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+                LUISA_NOT_IMPLEMENTED();
         }
         LUISA_ERROR_WITH_LOCATION("Unexpected resource read operation: {}.", xir::to_string(inst->op()));
     }
@@ -2977,6 +2987,12 @@ private:
             case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: return _translate_accel_access(current, b, "luisa.accel.set.instance.motion.srt", inst);
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: break;
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: break;
+            case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+            case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                LUISA_NOT_IMPLEMENTED();
         }
         LUISA_ERROR_WITH_LOCATION("Unexpected resource write operation: {}.", xir::to_string(inst->op()));
     }

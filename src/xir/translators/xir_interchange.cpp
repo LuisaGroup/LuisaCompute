@@ -1302,7 +1302,16 @@ constexpr std::array resource_read_wire_ops{
     wire_op(ResourceReadOp::BINDLESS_TEXTURE3D_READ, "bindless_texture3d_read"sv),
     wire_op(ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL, "bindless_texture2d_read_level"sv),
     wire_op(ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL, "bindless_texture3d_read_level"sv),
-    wire_op(ResourceReadOp::DEVICE_ADDRESS_READ, "device_address_read"sv)};
+    wire_op(ResourceReadOp::DEVICE_ADDRESS_READ, "device_address_read"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_MUL_ADD, "cooperative_mul_add"sv),
+ wire_op(ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD, "bindless_cooperative_mul_add"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_MUL, "cooperative_mul"sv),
+ wire_op(ResourceReadOp::BINDLESS_COOPERATIVE_MUL, "bindless_cooperative_mul"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LOAD, "cooperative_vector_load"sv),
+ wire_op(ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD, "bindless_cooperative_vector_load"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SPLAT, "cooperative_vector_splat"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_CAST, "cooperative_vector_cast"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD, "cooperative_vector_workgroup_load"sv)};
 
 constexpr std::array resource_write_wire_ops{
     wire_op(ResourceWriteOp::BUFFER_WRITE, "buffer_write"sv),
@@ -1321,7 +1330,12 @@ constexpr std::array resource_write_wire_ops{
     wire_op(ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX, "ray_tracing_set_instance_motion_matrix"sv),
     wire_op(ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT, "ray_tracing_set_instance_motion_srt"sv),
     wire_op(ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL, "indirect_dispatch_set_kernel"sv),
-    wire_op(ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT, "indirect_dispatch_set_count"sv)};
+    wire_op(ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT, "indirect_dispatch_set_count"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE, "cooperative_outer_product_accumulate"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE, "cooperative_vector_accumulate"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_VECTOR_STORE, "cooperative_vector_store"sv),
+ wire_op(ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE, "bindless_cooperative_vector_store"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE, "cooperative_vector_workgroup_store"sv)};
 
 constexpr std::array thread_group_wire_ops{
     wire_op(ThreadGroupOp::SHADER_EXECUTION_REORDER, "shader_execution_reorder"sv),
@@ -2742,8 +2756,17 @@ public:
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ: return count == 3u;
         case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: return count == 4u;
-        case ResourceReadOp::DEVICE_ADDRESS_READ: return count == 1u;
-    }
+ case ResourceReadOp::DEVICE_ADDRESS_READ: return count == 1u;
+ case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+ case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return count == 1u;
+ case ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+ case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return count == 2u;
+ case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD: return count == 3u;
+ case ResourceReadOp::COOPERATIVE_MUL: return count == 4u;
+ case ResourceReadOp::BINDLESS_COOPERATIVE_MUL: return count == 5u;
+ case ResourceReadOp::COOPERATIVE_MUL_ADD: return count == 7u;
+ case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD: return count == 8u;
+ }
     return false;
 }
 
@@ -2765,8 +2788,13 @@ public:
         case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: return count == 4u;
         case ResourceWriteOp::DEVICE_ADDRESS_WRITE:
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: return count == 2u;
-        case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: return count == 5u;
-    }
+ case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: return count == 5u;
+ case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+ case ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+ case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: return count == 3u;
+ case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE: return count == 4u;
+ case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: return count == 5u;
+ }
     return false;
 }
 
@@ -2890,7 +2918,8 @@ template<typename IndexSpan>
         }
         switch (current->tag()) {
             case Type::Tag::ARRAY:
-            case Type::Tag::VECTOR: {
+            case Type::Tag::VECTOR:
+            case Type::Tag::COOPERATIVE_VECTOR: {
                 uint64_t constant_index = 0u;
                 if (index->template isa<Constant>() &&
                     (!try_decode_constant_nonnegative_integer(index, constant_index) ||
@@ -3517,6 +3546,19 @@ template<typename OperandSpan>
             return resource_argument_valid(base_value) && base->is_bindless_array();
         case ResourceReadOp::DEVICE_ADDRESS_READ:
             return data_operand_valid(base_value) && base->is_uint64();
+        case ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case ResourceReadOp::COOPERATIVE_MUL:
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+            return resource_argument_valid(base_value) && base->is_buffer();
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            return resource_argument_valid(base_value) && base->is_bindless_array();
+        case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            return typed_value_operand_valid(base_value) && base_value->is_lvalue();
+        case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+            return data_operand_valid(base_value);
     }
     return false;
 }
@@ -3674,6 +3716,20 @@ template<typename OperandSpan>
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL:
             return index32_at(1u) && uint_vector_type(operands[2]->type(), 3u) && integer_at(3u);
         case ResourceReadOp::DEVICE_ADDRESS_READ: return true;
+        case ResourceReadOp::COOPERATIVE_MUL_ADD:
+            return integer_at(1u) && integer_at(3u) && integer_at(5u) && integer_at(6u);
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            return index32_at(1u) && integer_at(2u) && index32_at(3u) && integer_at(4u) &&
+                   integer_at(6u) && integer_at(7u);
+        case ResourceReadOp::COOPERATIVE_MUL: return integer_at(1u) && integer_at(3u);
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+            return index32_at(1u) && integer_at(2u) && integer_at(4u);
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOAD: return integer_at(1u);
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            return index32_at(1u) && integer_at(2u);
+        case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return true;
+        case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return integer_at(1u);
     }
     return false;
 }
@@ -3715,6 +3771,13 @@ template<typename OperandSpan>
             return uint_at(1u) && uint_vector_type(operands[2]->type(), 3u) &&
                    uint_vector_type(operands[3]->type(), 3u) && uint_at(4u);
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: return uint_at(1u);
+        case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+            return integer_at(1u) && integer_at(4u);
+        case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case ResourceWriteOp::COOPERATIVE_VECTOR_STORE: return integer_at(1u);
+        case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            return index32_at(1u) && integer_at(2u);
+        case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: return integer_at(1u);
     }
     return false;
 }
@@ -3889,6 +3952,14 @@ template<typename OperandSpan>
                     return (resource_argument_valid(operands[0]) && base->is_buffer()) ||
                            (typed_value_operand_valid(operands[0]) && operands[0]->is_lvalue() &&
                             base == indirect_dispatch_buffer_type());
+                case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+                case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+                case ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+                    return resource_argument_valid(operands[0]) && base->is_buffer();
+                case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+                    return resource_argument_valid(operands[0]) && base->is_bindless_array();
+                case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                    return typed_value_operand_valid(operands[0]) && operands[0]->is_lvalue();
             }
             return false;
         }

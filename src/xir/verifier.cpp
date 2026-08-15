@@ -139,6 +139,10 @@ template<typename IndexAt>
                 current = current->members()[member_index];
                 break;
             }
+            case Type::Tag::COOPERATIVE_VECTOR: {
+                current = current->element();
+                break;
+            }
             default: return nullptr;
         }
     }
@@ -389,7 +393,16 @@ template<typename IndexAt>
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ: return count == 3u;
         case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: return count == 4u;
-        case ResourceReadOp::DEVICE_ADDRESS_READ: return count == 1u;
+        case ResourceReadOp::DEVICE_ADDRESS_READ:
+        case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return count == 1u;
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+        case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return count == 2u;
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD: return count == 3u;
+        case ResourceReadOp::COOPERATIVE_MUL: return count == 4u;
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL: return count == 5u;
+        case ResourceReadOp::COOPERATIVE_MUL_ADD: return count == 7u;
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD: return count == 8u;
     }
     return false;
 }
@@ -414,6 +427,11 @@ template<typename IndexAt>
         case ResourceWriteOp::DEVICE_ADDRESS_WRITE:
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: return count == 2u;
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: return count == 5u;
+        case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+        case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: return count == 3u;
+        case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE: return count == 4u;
+        case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: return count == 5u;
     }
     return false;
 }
@@ -507,16 +525,16 @@ template<typename Enum>
                 static_cast<const ResourceQueryInst *>(instruction)->op(),
                 ResourceQueryOp::BUFFER_SIZE,
                 ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR);
-        case DerivedInstructionTag::RESOURCE_READ:
-            return enum_value_between(
-                static_cast<const ResourceReadInst *>(instruction)->op(),
-                ResourceReadOp::BUFFER_READ,
-                ResourceReadOp::DEVICE_ADDRESS_READ);
+ case DerivedInstructionTag::RESOURCE_READ:
+ return enum_value_between(
+ static_cast<const ResourceReadInst *>(instruction)->op(),
+ ResourceReadOp::BUFFER_READ,
+ ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD);
         case DerivedInstructionTag::RESOURCE_WRITE:
             return enum_value_between(
                 static_cast<const ResourceWriteInst *>(instruction)->op(),
                 ResourceWriteOp::BUFFER_WRITE,
-                ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT);
+                ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE);
         case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
             return enum_value_between(
                 static_cast<const RayQueryObjectReadInst *>(instruction)->op(),

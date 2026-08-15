@@ -13,7 +13,6 @@ namespace lc::vk::detail {
 enum class UserComputeHlslFallbackReason : uint32_t {
     NATIVE_INCLUDE = 1u << 0u,
     PRINTING = 1u << 1u,
-    COOPERATIVE_OPERATIONS = 1u << 2u,
     ASYNC_COPY = 1u << 3u,
     MOTION_BLUR = 1u << 4u,
 };
@@ -23,7 +22,6 @@ using UserComputeHlslFallbackReasonMask = uint32_t;
 struct UserComputeCodegenRequirements {
     bool native_include{};
     bool printing{};
-    bool cooperative_operations{};
     bool async_copy{};
     bool motion_blur{};
 };
@@ -88,8 +86,6 @@ plan_user_compute_codegen_route(
         UserComputeHlslFallbackReason::NATIVE_INCLUDE);
     add(requirements.printing,
         UserComputeHlslFallbackReason::PRINTING);
-    add(requirements.cooperative_operations,
-        UserComputeHlslFallbackReason::COOPERATIVE_OPERATIONS);
     add(requirements.async_copy,
         UserComputeHlslFallbackReason::ASYNC_COPY);
     add(requirements.motion_blur,
@@ -106,8 +102,6 @@ user_compute_hlsl_fallback_reason_name(
             return "native include"sv;
         case UserComputeHlslFallbackReason::PRINTING:
             return "printing"sv;
-        case UserComputeHlslFallbackReason::COOPERATIVE_OPERATIONS:
-            return "cooperative operations"sv;
         case UserComputeHlslFallbackReason::ASYNC_COPY:
             return "async copy"sv;
         case UserComputeHlslFallbackReason::MOTION_BLUR:

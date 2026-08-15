@@ -131,11 +131,15 @@ template<typename Enum>
                 if (!is_spirv_plain_data_type(member)) { return false; }
             }
             return true;
+        case Type::Tag::COOPERATIVE_VECTOR:
+            return type->element() != nullptr &&
+                   type->element()->is_scalar() &&
+                   !type->element()->is_bool() &&
+                   type->dimension() != 0u;
         case Type::Tag::BUFFER:
         case Type::Tag::TEXTURE:
         case Type::Tag::BINDLESS_ARRAY:
         case Type::Tag::ACCEL:
-        case Type::Tag::COOPERATIVE_VECTOR:
         case Type::Tag::COOPERATIVE_VECTOR_REF:
         case Type::Tag::COOPERATIVE_MATRIX_REF:
         case Type::Tag::CUSTOM: return false;
@@ -787,6 +791,25 @@ private:
             case xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
             case xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL:
             case xir::ResourceReadOp::DEVICE_ADDRESS_READ: break;
+            case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::COOPERATIVE_MUL:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+                if (!is_spirv_plain_data_type(inst->type())) {
+                    _error(function, block, inst,
+                           luisa::format(
+                               "Native XIR-to-SPIR-V resource read '{}' cannot "
+                               "materialize cooperative-vector type {}.",
+                               xir::to_string(inst->op()),
+                               inst->type() == nullptr ? "<null>" :
+                                                         inst->type()->description()));
+                }
+                break;
         }
     }
 
@@ -875,6 +898,14 @@ private:
             case xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
                 payload_index = 3u;
                 break;
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                payload_index = 2u;
+                break;
+            case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+                payload_index = 3u;
+                break;
             case xir::ResourceWriteOp::DEVICE_ADDRESS_WRITE:
             case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
             case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK:
@@ -884,6 +915,7 @@ private:
             case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT:
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL:
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: break;
+            case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: break;
         }
         if (payload_index != 0u && inst->operand_count() > payload_index) {
             auto payload = inst->operand(payload_index);
@@ -2409,6 +2441,18 @@ spirv_xir_dialect_support(xir::ResourceReadOp op) noexcept {
         case xir::ResourceReadOp::DEVICE_ADDRESS_READ:
             return unsupported(
                 "physical-storage-buffer loads are not implemented");
+        case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_MUL:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+            return supported();
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            return unsupported(
+                "cooperative-vector workgroup loads are not implemented");
     }
     return unknown();
 }
@@ -2439,6 +2483,15 @@ spirv_xir_dialect_support(xir::ResourceWriteOp op) noexcept {
             return unsupported(
                 "the Vulkan acceleration-structure instance ABI has no native "
                 "motion-key representation in this code generator");
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            return supported();
+        case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+            return unsupported(
+                "cooperative-vector training and workgroup stores are not "
+                "implemented");
     }
     return unknown();
 }

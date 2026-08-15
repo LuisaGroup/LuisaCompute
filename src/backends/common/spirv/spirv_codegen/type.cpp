@@ -222,6 +222,21 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             _uses_float8 = true;
             id = _builder.makeFloatE5M2Type();
             break;
+        case Type::Tag::COOPERATIVE_VECTOR: {
+            _require_target_feature(target_feature::cooperative_vector,
+                                    _target_features.cooperative_vector);
+            _uses_cooperative_vector = true;
+            _builder.setMemoryModel(spv::AddressingModel::Logical,
+                                    spv::MemoryModel::Vulkan);
+            _builder.addExtension(spv::E_SPV_KHR_vulkan_memory_model);
+            _builder.addCapability(spv::Capability::VulkanMemoryModel);
+            _builder.addExtension(spv::E_SPV_NV_cooperative_vector);
+            _builder.addCapability(spv::Capability::CooperativeVectorNV);
+            auto component = _convert_type(type->element(), usage);
+            auto count = _builder.makeUintConstant(static_cast<uint32_t>(type->dimension()));
+            id = _builder.makeCooperativeVectorTypeNV(component, count);
+            break;
+        }
         case Type::Tag::CUSTOM: {
             auto desc = type->description();
             if (desc == "LC_RayQueryAll" || desc == "LC_RayQueryAny") {

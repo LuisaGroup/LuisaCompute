@@ -334,7 +334,14 @@ private:
         auto ast_var = expr->variable();
         LUISA_ASSERT(ast_var.type() == expr->type(), "Variable type mismatch.");
         if (auto var = _current.variables.lookup(ast_var)) {
-            return load_lval && var->is_lvalue() ? b.load(expr->type(), var) : var;
+            // Cooperative vector/matrix references are represented as plain
+            // uint32 byte offsets in XIR; the static reference metadata is
+            // attached to the cooperative operation call sites instead.
+            auto load_type = ast_var.type()->is_cooperative_vector_ref() ||
+                                     ast_var.type()->is_cooperative_matrix_ref() ?
+                                 Type::of<uint32_t>() :
+                                 expr->type();
+            return load_lval && var->is_lvalue() ? b.load(load_type, var) : var;
         }
         return _translate_builtin_variable(ast_var);
     }
@@ -887,6 +894,29 @@ private:
             case CallOp::TEXTURE3D_SAMPLE_GRAD: return resource_call(ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD);
             case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: return resource_call(ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL);
             case CallOp::CLOCK: return b.clock();
+            // Cooperative vector operations. Reference arguments are lowered to
+            // their uint32 byte offset, and the static buffer-data component
+            // interpretation of each reference is appended as a constant
+            // uint32 operand carrying the raw CoopRefVecType value.
+            case CallOp::COOPERATIVE_MUL_ADD:
+            case CallOp::COOPERATIVE_MUL:
+            case CallOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD:
+            case CallOp::BINDLESS_COOPERATIVE_MUL:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL:
+            case CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+            case CallOp::COOPERATIVE_VECTOR_ACCUMULATE:
+            case CallOp::COOPERATIVE_VECTOR_LOAD:
+            case CallOp::COOPERATIVE_VECTOR_STORE:
+            case CallOp::COOPERATIVE_VECTOR_SPLAT:
+            case CallOp::COOPERATIVE_VECTOR_CAST:
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                return _translate_cooperative_call(b, expr);
             case CallOp::ASYNC_COPY:
                 LUISA_NOT_IMPLEMENTED(
                     "AST ASYNC_COPY cannot be represented faithfully in XIR: the AST API models "
@@ -898,6 +928,113 @@ private:
                 luisa::to_string(ast_op));
         }
         LUISA_NOT_IMPLEMENTED();
+    }
+
+    // Cooperative vector/matrix references carry only a uint32 byte offset at
+    // runtime; their static component interpretation is appended to the call
+    // as a constant uint32 operand with the raw CoopRefVecType value.
+    [[nodiscard]] Value *_cooperative_interpretation(const Expression *ast_ref) noexcept {
+        auto type = ast_ref->type();
+        LUISA_ASSERT(type != nullptr &&
+                         (type->is_cooperative_vector_ref() ||
+                          type->is_cooperative_matrix_ref()),
+                     "Cooperative reference operand must have a cooperative reference type.");
+        auto interp = static_cast<uint32_t>(type->coop_vec_ref_type());
+        return _module->create_constant(Type::of<uint32_t>(), &interp);
+    }
+
+    [[nodiscard]] Value *_translate_cooperative_call(XIRBuilder &b, const CallExpr *expr) noexcept {
+        auto ast_op = expr->op();
+        auto typed = ast_op == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD ||
+                     ast_op == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL ||
+                     ast_op == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD ||
+                     ast_op == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE;
+        auto bindless_access = BindlessResourceAccess{
+            .typed = typed, .uniform = false};
+        auto &&ast_args = expr->arguments();
+        auto base = [&](size_t i) noexcept {
+            return _translate_expression(b, ast_args[i], false);
+        };
+        auto value = [&](size_t i) noexcept {
+            return _translate_expression(b, ast_args[i], true);
+        };
+        switch (ast_op) {
+            case CallOp::COOPERATIVE_MUL_ADD:
+                // (matrix_buffer, matrix_ref, bias_buffer, bias_ref, input)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_MUL_ADD,
+                              {base(0), value(1), base(2), value(3), value(4),
+                               _cooperative_interpretation(ast_args[1]),
+                               _cooperative_interpretation(ast_args[3])},
+                              bindless_access);
+            case CallOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD:
+                // (bindless_array, matrix_index, matrix_ref, bias_index, bias_ref, input)
+                return b.call(expr->type(), ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD,
+                              {base(0), value(1), value(2), value(3), value(4), value(5),
+                               _cooperative_interpretation(ast_args[2]),
+                               _cooperative_interpretation(ast_args[4])},
+                              bindless_access);
+            case CallOp::COOPERATIVE_MUL:
+                // (matrix_buffer, matrix_ref, input)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_MUL,
+                              {base(0), value(1), value(2),
+                               _cooperative_interpretation(ast_args[1])},
+                              bindless_access);
+            case CallOp::BINDLESS_COOPERATIVE_MUL:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL:
+                // (bindless_array, matrix_index, matrix_ref, input)
+                return b.call(expr->type(), ResourceReadOp::BINDLESS_COOPERATIVE_MUL,
+                              {base(0), value(1), value(2), value(3),
+                               _cooperative_interpretation(ast_args[2])},
+                              bindless_access);
+            case CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+                // (matrix_buffer, matrix_ref, input1, input2)
+                return b.call(ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE,
+                              {base(0), value(1), value(2), value(3),
+                               _cooperative_interpretation(ast_args[1])},
+                              bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ACCUMULATE:
+                // (vector_buffer, vector_ref, input)
+                return b.call(ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE,
+                              {base(0), value(1), value(2)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LOAD:
+                // (buffer, vector_ref)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LOAD,
+                              {base(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_STORE:
+                // (buffer, vector_ref, value)
+                return b.call(ResourceWriteOp::COOPERATIVE_VECTOR_STORE,
+                              {base(0), value(1), value(2)}, bindless_access);
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD:
+                // (bindless_array, buffer_index, vector_ref)
+                return b.call(expr->type(), ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD,
+                              {base(0), value(1), value(2)}, bindless_access);
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE:
+                // (bindless_array, buffer_index, vector_ref, value)
+                return b.call(ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE,
+                              {base(0), value(1), value(2), value(3)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SPLAT:
+                // (scalar)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SPLAT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_CAST:
+                // (coopvec)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_CAST,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+                // (shared_array, index)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD,
+                              {base(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                // (shared_array, index, value)
+                return b.call(ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE,
+                              {base(0), value(1), value(2)}, bindless_access);
+            default: break;
+        }
+        LUISA_ERROR_WITH_LOCATION("Unexpected cooperative operation {}.",
+                                  luisa::to_string(ast_op));
     }
 
     [[nodiscard]] Value *_translate_cast_expr(XIRBuilder &b, const CastExpr *expr) noexcept {
@@ -1304,11 +1441,18 @@ private:
                     _current.variables.bind(ast_arg, arg));
             }
         }
-        for (auto ast_local : _current.ast->local_variables()) {
-            LUISA_DEBUG_ASSERT(!_current.variables.contains(ast_local),
-                               "Local variable already exists.");
-            auto v = _current.variables.bind(
-                ast_local, b.alloca_local(ast_local.type()));
+          for (auto ast_local : _current.ast->local_variables()) {
+              LUISA_DEBUG_ASSERT(!_current.variables.contains(ast_local),
+                                 "Local variable already exists.");
+              auto local_type = ast_local.type();
+              // Cooperative vector/matrix reference locals only ever carry a
+              // uint32 byte offset, so XIR stores them as plain uint32 values.
+              if (local_type->is_cooperative_vector_ref() ||
+                  local_type->is_cooperative_matrix_ref()) {
+                  local_type = Type::of<uint32_t>();
+              }
+              auto v = _current.variables.bind(
+                  ast_local, b.alloca_local(local_type));
             if (auto name = _current.ast->get_variable_name(ast_local.uid()); !name.empty()) {
                 v->set_name(name);
             } else {

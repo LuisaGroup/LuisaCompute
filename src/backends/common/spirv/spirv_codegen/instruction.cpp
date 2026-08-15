@@ -1724,6 +1724,18 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                         spv::StorageClass::Function, temp_var,
                         dynamic_indices);
                     id = _builder.createLoad(ptr, spv::NoPrecision);
+                } else if (base_type->tag() == Type::Tag::COOPERATIVE_VECTOR) {
+                    // cooperative vectors support OpCompositeExtract but not
+                    // OpVectorExtractDynamic; round-trip through Function memory
+                    auto temp_var = _builder.createVariable(
+                        spv::NoPrecision, spv::StorageClass::Function,
+                        _convert_type(base_type, Usage::READ),
+                        "extract_tmp");
+                    _builder.createStore(v, temp_var);
+                    auto ptr = _create_access_chain(
+                        spv::StorageClass::Function, temp_var,
+                        dynamic_indices);
+                    id = _builder.createLoad(ptr, spv::NoPrecision);
                 } else {
                     LUISA_NOT_IMPLEMENTED(
                         "SPIR-V dynamic extract for type {}.",
@@ -3974,6 +3986,55 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
     _emit_buffer_write_impl(buffer, byte_offset, value, value_type, byte_alignment, memory_access);
 }
 
+namespace {
+
+[[nodiscard]] spv::Id spirv_cooperative_component_type_constant(
+    spv::Builder &builder, const xir::Value *interp) noexcept {
+    uint64_t raw = 0u;
+    LUISA_ASSERT(
+        interp != nullptr &&
+            xir::try_decode_constant_nonnegative_integer(interp, raw),
+        "SPIR-V cooperative-vector interpretation must be a constant.");
+    uint32_t component = 0u;
+    switch (static_cast<CoopRefVecType>(raw)) {
+        case CoopRefVecType::UINT8: component = 7u; break;      // UnsignedInt8NV
+        case CoopRefVecType::INT8: component = 3u; break;       // SignedInt8NV
+        case CoopRefVecType::UINT32: component = 9u; break;     // UnsignedInt32NV
+        case CoopRefVecType::INT32: component = 5u; break;      // SignedInt32NV
+        case CoopRefVecType::FLOAT16: component = 0u; break;    // Float16NV
+        case CoopRefVecType::FLOAT32: component = 1u; break;    // Float32NV
+        case CoopRefVecType::FLOAT8_E4M3: component = 1000491002u; break;
+        case CoopRefVecType::FLOAT8_E5M2: component = 1000491003u; break;
+    }
+    return builder.makeIntConstant(static_cast<int32_t>(component));
+}
+
+[[nodiscard]] spv::Id spirv_cooperative_scalar_component_constant(
+    spv::Builder &builder, const Type *type) noexcept {
+    uint32_t component = 0u;
+    switch (type == nullptr ? Type::Tag::CUSTOM : type->tag()) {
+        case Type::Tag::FLOAT16: component = 0u; break;
+        case Type::Tag::FLOAT32: component = 1u; break;
+        case Type::Tag::FLOAT64: component = 2u; break;
+        case Type::Tag::INT8: component = 3u; break;
+        case Type::Tag::INT16: component = 4u; break;
+        case Type::Tag::INT32: component = 5u; break;
+        case Type::Tag::INT64: component = 6u; break;
+        case Type::Tag::UINT8: component = 7u; break;
+        case Type::Tag::UINT16: component = 8u; break;
+        case Type::Tag::UINT32: component = 9u; break;
+        case Type::Tag::UINT64: component = 10u; break;
+        default:
+            LUISA_ERROR_WITH_LOCATION(
+                "SPIR-V cooperative-vector input component type {} is not "
+                "representable.",
+                type == nullptr ? "<null>" : type->description());
+    }
+    return builder.makeIntConstant(static_cast<int32_t>(component));
+}
+
+}// namespace
+
 void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept {
     auto type = _convert_type(inst->type(), Usage::READ);
     spv::Id id = spv::NoResult;
@@ -4116,9 +4177,162 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
                 BufferIndexUnit::BYTE);
             break;
         }
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD: {
+            auto bindless = inst->op() == xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD;
+            spv::Id pointer;
+            spv::Id offset;
+            if (bindless) {
+                auto bindless_array = _emit_value(inst->operand(0));
+                auto binding = _load_bindless_buffer_binding(
+                    bindless_array, inst->operand(1), inst->bindless_access());
+                pointer = _emit_cooperative_array_pointer(binding.buffer);
+                offset = _ensure_type(_emit_value(inst->operand(2)), uint_type);
+                offset = _add_bindless_buffer_bias(
+                    bindless_array, binding.slot_index, offset,
+                    inst->bindless_access());
+            } else {
+                pointer = _emit_cooperative_array_pointer(_emit_value(inst->operand(0)));
+                offset = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            }
+            std::vector<spv::IdImmediate> operands;
+            operands.emplace_back(true, pointer);
+            operands.emplace_back(true, offset);
+            id = _builder.createOp(spv::Op::OpCooperativeVectorLoadNV, type, operands);
+            break;
+        }
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT: {
+            auto scalar = _emit_value(inst->operand(0));
+            auto component = _convert_type(inst->type()->element(), Usage::READ);
+            scalar = _ensure_type(scalar, component);
+            std::vector<spv::Id> constituents(
+                inst->type()->dimension(), scalar);
+            id = _builder.createCompositeConstruct(type, constituents);
+            break;
+        }
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST: {
+            auto value = _emit_value(inst->operand(0));
+            auto component = _convert_type(inst->type()->element(), Usage::READ);
+            auto dst_elem = inst->type()->element();
+            auto src_elem = inst->operand(0)->type()->element();
+            spv::Op op;
+            if (dst_elem->is_float32() || dst_elem->is_float16() || dst_elem->is_float64()) {
+                op = (src_elem->is_int() || src_elem->is_uint()) ?
+                         (src_elem->is_int() ? spv::Op::OpConvertSToF : spv::Op::OpConvertUToF) :
+                         spv::Op::OpFConvert;
+            } else if (dst_elem->is_int()) {
+                op = (src_elem->is_float32() || src_elem->is_float16() || src_elem->is_float64()) ?
+                         spv::Op::OpConvertFToS : spv::Op::OpSConvert;
+            } else if (dst_elem->is_uint()) {
+                op = (src_elem->is_float32() || src_elem->is_float16() || src_elem->is_float64()) ?
+                         spv::Op::OpConvertFToU : spv::Op::OpUConvert;
+            } else {
+                LUISA_ERROR_WITH_LOCATION(
+                    "SPIR-V cooperative-vector cast to {} is not supported.",
+                    dst_elem->description());
+            }
+            // build the result component-wise through composite extract/construct
+            auto n = inst->type()->dimension();
+            std::vector<spv::Id> constituents;
+            constituents.reserve(n);
+            for (auto i = 0u; i < n; i++) {
+                auto elem = _builder.createCompositeExtract(
+                    value, _convert_type(src_elem, Usage::READ), {i});
+                constituents.emplace_back(
+                    _builder.createUnaryOp(op, component, elem));
+            }
+            id = _builder.createCompositeConstruct(type, constituents);
+            break;
+        }
+        case xir::ResourceReadOp::COOPERATIVE_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD: {
+            auto bindless = inst->op() == xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL ||
+                            inst->op() == xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD;
+            auto mul_add = inst->op() == xir::ResourceReadOp::COOPERATIVE_MUL_ADD ||
+                           inst->op() == xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD;
+            // canonical operand layout (see ast2xir):
+            //   plain:   (matrix_buffer, matrix_offset, [bias_buffer, bias_offset,] input, matrix_interp[, bias_interp])
+            //   bindless: (bindless, matrix_slot, matrix_offset, [bias_slot, bias_offset,] input, matrix_interp[, bias_interp])
+            auto input_index = bindless ? (mul_add ? 5u : 3u) : (mul_add ? 4u : 2u);
+            auto interp_index = input_index + 1u;
+            auto input = _emit_value(inst->operand(input_index));
+            std::vector<spv::IdImmediate> operands;
+            operands.emplace_back(true, input);
+            operands.emplace_back(
+                true, spirv_cooperative_scalar_component_constant(
+                          _builder, inst->operand(input_index)->type()->element()));
+            spv::Id matrix_pointer;
+            spv::Id matrix_offset;
+            if (bindless) {
+                auto bindless_array = _emit_value(inst->operand(0));
+                auto binding = _load_bindless_buffer_binding(
+                    bindless_array, inst->operand(1), inst->bindless_access());
+                matrix_pointer = _emit_cooperative_array_pointer(binding.buffer);
+                matrix_offset = _ensure_type(_emit_value(inst->operand(2)), uint_type);
+                matrix_offset = _add_bindless_buffer_bias(
+                    bindless_array, binding.slot_index, matrix_offset,
+                    inst->bindless_access());
+            } else {
+                matrix_pointer = _emit_cooperative_array_pointer(_emit_value(inst->operand(0)));
+                matrix_offset = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            }
+            operands.emplace_back(true, matrix_pointer);
+            operands.emplace_back(true, matrix_offset);
+            operands.emplace_back(
+                true, spirv_cooperative_component_type_constant(
+                          _builder, inst->operand(interp_index)));
+            if (mul_add) {
+                spv::Id bias_pointer;
+                spv::Id bias_offset;
+                if (bindless) {
+                    auto bindless_array = _emit_value(inst->operand(0));
+                    auto binding = _load_bindless_buffer_binding(
+                        bindless_array, inst->operand(3), inst->bindless_access());
+                    bias_pointer = _emit_cooperative_array_pointer(binding.buffer);
+                    bias_offset = _ensure_type(_emit_value(inst->operand(4)), uint_type);
+                    bias_offset = _add_bindless_buffer_bias(
+                        bindless_array, binding.slot_index, bias_offset,
+                        inst->bindless_access());
+                } else {
+                    bias_pointer = _emit_cooperative_array_pointer(_emit_value(inst->operand(2)));
+                    bias_offset = _ensure_type(_emit_value(inst->operand(3)), uint_type);
+                }
+                operands.emplace_back(true, bias_pointer);
+                operands.emplace_back(true, bias_offset);
+                operands.emplace_back(
+                    true, spirv_cooperative_component_type_constant(
+                              _builder, inst->operand(interp_index + 1u)));
+            }
+            operands.emplace_back(
+                true, _builder.makeIntConstant(
+                          static_cast<int32_t>(inst->type()->dimension())));// M
+            operands.emplace_back(
+                true, _builder.makeIntConstant(
+                          static_cast<int32_t>(
+                              inst->operand(input_index)->type()->dimension())));// K
+            operands.emplace_back(
+                true, _builder.makeIntConstant(2));// InferencingOptimalNV
+            operands.emplace_back(true, _builder.makeBoolConstant(false));
+            id = _builder.createOp(
+                mul_add ? spv::Op::OpCooperativeVectorMatrixMulAddNV :
+                          spv::Op::OpCooperativeVectorMatrixMulNV,
+                type, operands);
+            break;
+        }
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            LUISA_NOT_IMPLEMENTED();
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit resource read.");
     _value_map.emplace(inst, id);
+}
+
+spv::Id SpirvCodegenEntry::_emit_cooperative_array_pointer(spv::Id buffer) noexcept {
+    // Cooperative-vector memory instructions take a pointer to the scalar
+    // array inside the buffer block struct (member 0).
+    return _create_access_chain(_builder.getStorageClass(buffer), buffer,
+                                {_builder.makeUintConstant(0u)});
 }
 
 void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept {
@@ -4244,6 +4458,50 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
                 BufferIndexUnit::BYTE);
             break;
         }
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE: {
+            auto bindless = inst->op() == xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE;
+            spv::Id pointer;
+            spv::Id offset;
+            spv::Id object;
+            if (bindless) {
+                auto bindless_array = _emit_value(inst->operand(0));
+                auto binding = _load_bindless_buffer_binding(
+                    bindless_array, inst->operand(1), inst->bindless_access());
+                pointer = _emit_cooperative_array_pointer(binding.buffer);
+                offset = _ensure_type(_emit_value(inst->operand(2)), uint_type);
+                offset = _add_bindless_buffer_bias(
+                    bindless_array, binding.slot_index, offset,
+                    inst->bindless_access());
+                object = _emit_value(inst->operand(3));
+            } else {
+                pointer = _emit_cooperative_array_pointer(_emit_value(inst->operand(0)));
+                offset = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+                object = _emit_value(inst->operand(2));
+            }
+            std::vector<spv::IdImmediate> operands;
+            operands.emplace_back(true, pointer);
+            operands.emplace_back(true, offset);
+            operands.emplace_back(true, object);
+            _builder.createNoResultOp(spv::Op::OpCooperativeVectorStoreNV, operands);
+            break;
+        }
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE: {
+            _builder.addCapability(spv::Capability::CooperativeVectorTrainingNV);
+            auto pointer = _emit_cooperative_array_pointer(_emit_value(inst->operand(0)));
+            auto offset = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto value = _emit_value(inst->operand(2));
+            std::vector<spv::IdImmediate> operands;
+            operands.emplace_back(true, pointer);
+            operands.emplace_back(true, offset);
+            operands.emplace_back(true, value);
+            _builder.createNoResultOp(
+                spv::Op::OpCooperativeVectorReduceSumAccumulateNV, operands);
+            break;
+        }
+        case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+            LUISA_NOT_IMPLEMENTED();
         case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: {
             LUISA_ASSERT(
                 inst->operand_count() == 2u &&
