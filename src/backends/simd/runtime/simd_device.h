@@ -22,6 +22,7 @@ public:
 
     [[nodiscard]] void *native_handle() const noexcept override;
     [[nodiscard]] uint compute_warp_size() const noexcept override;
+    [[nodiscard]] size_t compute_max_shared_memory_size() const noexcept override;
     [[nodiscard]] uint64_t memory_granularity() const noexcept override;
 
     [[nodiscard]] BufferCreationInfo create_buffer(

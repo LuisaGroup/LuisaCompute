@@ -23,6 +23,17 @@ class Function;
 
 namespace luisa::compute::simd {
 
+inline constexpr size_t simd_max_cooperative_frame_bytes =
+    4u * 1024u * 1024u;
+inline constexpr size_t simd_max_shared_memory_bytes =
+    1u * 1024u * 1024u;
+inline constexpr uint32_t simd_cooperative_packet_running =
+    UINT32_MAX - 2u;
+inline constexpr uint32_t simd_cooperative_packet_complete =
+    UINT32_MAX - 1u;
+inline constexpr uint32_t simd_cooperative_packet_inactive =
+    UINT32_MAX;
+
 // Host-side buffer descriptor passed through the packet argument buffer. The
 // descriptor is intentionally backend-local: a runtime Buffer handle is
 // resolved to this plain view immediately before a dispatch.
@@ -512,6 +523,17 @@ struct SIMDPacketLaunchConfig {
         void *context, uint64_t format_id,
         const void *arguments) noexcept {nullptr};
     void (*assert_fail_callback)(const char *message) noexcept {nullptr};
+    // Cooperative-block kernels append all mutable synchronization state to
+    // the established packet record. The runtime callbacks keep coroutine
+    // allocation and shared storage out of the portable JIT symbol table.
+    // Ordinary kernels leave these fields null and retain the previous ABI
+    // prefix unchanged.
+    void *shared_memory{nullptr};
+    uint32_t *barrier_ids{nullptr};
+    void *(*cooperative_block_begin)(
+        size_t shared_memory_size) noexcept {nullptr};
+    void *(*cooperative_frame_alloc)(size_t size) noexcept {nullptr};
+    void (*cooperative_frame_free)(void *memory) noexcept {nullptr};
 };
 
 struct SIMDLLVMPrintFormat {
@@ -603,6 +625,9 @@ struct LLVMScheduleCodegenResult {
     size_t linear_1d_thread_id_count{0u};
     size_t linear_1d_packet_tail_narrowing_count{0u};
     size_t linear_1d_block_coalescing_count{0u};
+    size_t shared_memory_size{0u};
+    size_t block_barrier_count{0u};
+    bool cooperative_block{false};
     bool direct_control_flow{false};
     std::string error{};
 

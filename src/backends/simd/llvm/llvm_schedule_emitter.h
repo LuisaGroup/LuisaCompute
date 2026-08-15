@@ -57,6 +57,10 @@ private:
     bool _enable_linear_1d_packet_tail_narrowing{false};
     bool _use_scalar_frame_metadata{false};
     bool _direct_control_flow{false};
+    bool _has_block_barrier{false};
+    bool _has_shared_memory{false};
+    bool _cooperative_block{false};
+    size_t _shared_memory_size{0u};
     LLVMScheduleCodegenResult _result{};
     LLVMValueLayout _layout;
     LLVMWarpCollectives _collectives;
@@ -87,6 +91,7 @@ private:
     std::vector<::llvm::AllocaInst *> _state_slots{};
     std::vector<uint8_t> _spilled_instruction_values{};
     std::vector<uint8_t> _local_lvalue_values{};
+    std::vector<uint8_t> _shared_lvalue_values{};
     std::vector<::llvm::Value *> _local_allocations{};
     std::vector<uint32_t> _ray_query_scratch_slots{};
     std::vector<::llvm::AllocaInst *> _ray_query_scratch_storage{};
@@ -103,6 +108,13 @@ private:
         _print_argument_storage{};
     ::llvm::Value *_active_mask{nullptr};
     ::llvm::Value *_seed_lane{nullptr};
+    ::llvm::Value *_coroutine_token{nullptr};
+    ::llvm::Value *_coroutine_handle{nullptr};
+    ::llvm::Value *_packet_index{nullptr};
+    ::llvm::Value *_packet_participating{nullptr};
+    ::llvm::BasicBlock *_coroutine_final{nullptr};
+    ::llvm::BasicBlock *_coroutine_cleanup{nullptr};
+    ::llvm::BasicBlock *_coroutine_suspend{nullptr};
     ::llvm::Value *_linear_thread_indices{nullptr};
     std::array<::llvm::Value *, 3u> _block_id{};
     std::array<::llvm::Value *, 3u> _dispatch_size{};
@@ -261,6 +273,8 @@ private:
         ::llvm::Value *mask);
     [[nodiscard]] bool _is_local_lvalue(
         schedule::ValueId id) const noexcept;
+    [[nodiscard]] bool _is_shared_lvalue(
+        schedule::ValueId id) const noexcept;
     static void _for_each_assignment(
         const schedule::BasicBlock &block,
         const std::function<void(schedule::EdgeAssignment)> &visit);
@@ -353,6 +367,12 @@ private:
     [[nodiscard]] ::llvm::Value *_local_load(
         const schedule::Instruction &instruction);
     void _local_store(const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_atomic_lanes(
+        xir::AtomicOp op, const schedule::Value &result,
+        ::llvm::Value *base, ::llvm::Value *offsets,
+        const std::vector<::llvm::Value *> &values);
+    [[nodiscard]] ::llvm::Value *_shared_atomic(
+        const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_atomic(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_leaf_pointers(
@@ -517,6 +537,12 @@ private:
         schedule::BlockId target, ::llvm::Value *mask);
     void _emit_arrival(const schedule::ControlEdge &edge,
                        ::llvm::Value *mask);
+    void _begin_cooperative_coroutine();
+    [[nodiscard]] ::llvm::Value *_cooperative_barrier_slot();
+    void _initialize_cooperative_packet(::llvm::Value *initial_mask);
+    void _emit_block_barrier(
+        const schedule::BlockBarrierTerminator &barrier);
+    void _finish_entry();
     [[nodiscard]] std::optional<PredicatedMemoryDiamond>
     _find_predicated_memory_diamond(
         const schedule::BasicBlock &block) const noexcept;

@@ -98,6 +98,7 @@ luisa_compute_add_test(test_simd_xir_to_schedule
         unit/simd/test_xir_to_schedule.cpp
         LABELS "unit;unit_simd;unit_xir")
 target_sources(test_simd_xir_to_schedule PRIVATE
+        ../backends/simd/schedule/block_barrier.cpp
         ../backends/simd/schedule/schedule_ir.cpp
         ../backends/simd/schedule/warp_uniformity.cpp
         ../backends/simd/schedule/xir_to_schedule.cpp)
@@ -701,6 +702,8 @@ if (TARGET luisa-compute-backend-simd)
             test_dsl_slp_vectorization
             test_printer
             test_printer_custom_callback
+            test_shared_mem
+            test_shared_memory
             test_warp
             test_warp_prefix_scan
             test_warp_sparse_collectives)
@@ -710,6 +713,21 @@ if (TARGET luisa-compute-backend-simd)
                 COMMAND $<TARGET_FILE:${_simd_runtime_test}> simd)
         set_tests_properties(simd_${_simd_runtime_test} PROPERTIES
                 LABELS "integration_simd;runtime_simd")
+    endforeach ()
+    foreach (_simd_shared_width IN ITEMS 1 2 4 16)
+        foreach (_simd_shared_test IN ITEMS
+                test_shared_mem
+                test_shared_memory)
+            add_test(
+                    NAME simd_${_simd_shared_test}_w${_simd_shared_width}
+                    COMMAND $<TARGET_FILE:${_simd_shared_test}> simd)
+            set_tests_properties(
+                    simd_${_simd_shared_test}_w${_simd_shared_width}
+                    PROPERTIES
+                    LABELS "integration_simd;runtime_simd"
+                    ENVIRONMENT
+                    "LUISA_SIMD_WARP_WIDTH=${_simd_shared_width}")
+        endforeach ()
     endforeach ()
     add_dependencies(test_bindless_mip
             luisa-compute-backend-simd)

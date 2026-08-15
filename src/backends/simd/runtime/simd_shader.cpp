@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <string_view>
 
 #ifdef _WIN32
@@ -38,6 +39,53 @@ namespace {
     size_t value, size_t alignment) noexcept {
     return (value + alignment - 1u) & ~(alignment - 1u);
 }
+
+struct alignas(64) SIMDCooperativeThreadContext {
+    alignas(64) std::array<
+        std::byte, simd_max_cooperative_frame_bytes> frames{};
+    alignas(64) std::array<
+        std::byte, simd_max_shared_memory_bytes> shared{};
+    size_t frame_offset{0u};
+};
+
+[[nodiscard]] SIMDCooperativeThreadContext &
+cooperative_thread_context() noexcept {
+    static thread_local std::unique_ptr<
+        SIMDCooperativeThreadContext>
+        context;
+    if (context == nullptr) {
+        context = std::make_unique<SIMDCooperativeThreadContext>();
+    }
+    return *context;
+}
+
+[[nodiscard]] void *simd_cooperative_block_begin(
+    size_t shared_memory_size) noexcept {
+    auto &context = cooperative_thread_context();
+    LUISA_ASSERT(
+        shared_memory_size <= context.shared.size(),
+        "SIMD cooperative shared-memory request {} exceeds {} bytes.",
+        shared_memory_size, context.shared.size());
+    context.frame_offset = 0u;
+    return context.shared.data();
+}
+
+[[nodiscard]] void *simd_cooperative_frame_alloc(
+    size_t size) noexcept {
+    auto &context = cooperative_thread_context();
+    constexpr auto alignment = size_t{64u};
+    auto aligned_size = align_up(size, alignment);
+    auto offset = align_up(context.frame_offset, alignment);
+    LUISA_ASSERT(
+        offset <= context.frames.size() &&
+            aligned_size <= context.frames.size() - offset,
+        "SIMD cooperative coroutine frames exceed {} bytes.",
+        context.frames.size());
+    context.frame_offset = offset + aligned_size;
+    return context.frames.data() + offset;
+}
+
+void simd_cooperative_frame_free(void *) noexcept {}
 
 struct AssemblyStats {
     size_t instructions{0u};
@@ -574,6 +622,12 @@ void SIMDShader::_dispatch_once(
             config.debug_context = &debug_context;
             config.print_callback = simd_print_callback;
             config.assert_fail_callback = simd_assert_fail_callback;
+            config.cooperative_block_begin =
+                simd_cooperative_block_begin;
+            config.cooperative_frame_alloc =
+                simd_cooperative_frame_alloc;
+            config.cooperative_frame_free =
+                simd_cooperative_frame_free;
             auto set_block_id = [&](uint64_t block) noexcept {
                 config.block_id[0u] = static_cast<uint32_t>(
                     block % grid_size.x);

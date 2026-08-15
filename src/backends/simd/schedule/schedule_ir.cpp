@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <sstream>
 #include <type_traits>
+#include <unordered_set>
 
 namespace luisa::compute::simd::schedule {
 
@@ -358,6 +359,7 @@ VerificationResult verify(const Function &function) {
     std::vector<uint32_t> assignment_marks(function.values().size(), 0u);
     std::vector<uint32_t> convergence_marks(
         function.convergence_points().size(), 0u);
+    std::unordered_set<uint32_t> barrier_ids;
     auto assignment_epoch = uint32_t{0u};
     auto convergence_epoch = uint32_t{0u};
     auto next_epoch = [](std::vector<uint32_t> &marks,
@@ -639,6 +641,14 @@ VerificationResult verify(const Function &function) {
                             std::nullopt);
                 } else if constexpr (
                     std::is_same_v<T, BlockBarrierTerminator>) {
+                    if (!barrier_ids.emplace(
+                                        terminator.barrier_id)
+                             .second) {
+                        add_error(
+                            result,
+                            "block barrier IDs must identify unique static sites",
+                            block.id);
+                    }
                     add_edge(terminator.resume_edge);
                 } else if constexpr (std::is_same_v<T, ReturnTerminator>) {
                     if (terminator.value && !valid_value(*terminator.value)) {

@@ -19,6 +19,14 @@
 
 namespace luisa::compute::simd {
 
+namespace detail {
+[[nodiscard]] ::llvm::Function *build_cooperative_packet_batch_entry(
+    ::llvm::Module &module, ::llvm::Function *packet_entry,
+    uint32_t specialization_width, uint32_t static_packet_count,
+    size_t shared_memory_size, size_t block_barrier_count,
+    std::string &error);
+}// namespace detail
+
 namespace {
 
 enum class PacketBatchLowering {
@@ -716,7 +724,25 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         enable_packet_batch_entry,
         enable_linear_1d_packet_tail_narrowing}
                       .run();
-    if (result.succeeded() && enable_packet_batch_entry) {
+    if (result.succeeded() && result.cooperative_block) {
+        auto block_thread_count = uint64_t{1u};
+        for (auto dimension : static_block_size) {
+            block_thread_count *= dimension;
+        }
+        auto packet_count = block_thread_count / specialization_width;
+        if (packet_count == 0u ||
+            packet_count > std::numeric_limits<uint32_t>::max()) {
+            result.error =
+                "cooperative SIMD wrapper has an invalid static packet count";
+            return result;
+        }
+        result.packet_batch_entry =
+            detail::build_cooperative_packet_batch_entry(
+                module, result.entry, specialization_width,
+                static_cast<uint32_t>(packet_count),
+                result.shared_memory_size,
+                result.block_barrier_count, result.error);
+    } else if (result.succeeded() && enable_packet_batch_entry) {
         constexpr auto max_specialized_packet_count = uint64_t{32u};
         auto block_thread_count = uint64_t{1u};
         for (auto dimension : static_block_size) {

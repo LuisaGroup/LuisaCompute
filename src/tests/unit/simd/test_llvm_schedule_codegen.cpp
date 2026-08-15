@@ -8872,6 +8872,53 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_cooperative_block_codegen() {
+    static constexpr auto width = 8u;
+    Kernel1D kernel = [](BufferUInt output) noexcept {
+        set_block_size(32u, 1u, 1u);
+        Shared<uint> tile{32u};
+        tile.write(thread_x(), dispatch_x() + 1u);
+        sync_block();
+        output.write(dispatch_x(), tile.read(thread_x()));
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_cooperative_block", false, true, 1u, true);
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(compiled.cooperative_block);
+    CHECK(compiled.entry == nullptr);
+    CHECK(compiled.packet_batch_entry != nullptr);
+    CHECK(compiled.block_batch_entry == nullptr);
+    CHECK(compiled.shared_memory_size == 32u * sizeof(uint32_t));
+    CHECK(compiled.block_barrier_count == 1u);
+    // Cooperative wrappers issue every static packet in a block. They must
+    // keep the packet body's exact dispatch-extent mask rather than claiming
+    // the ordinary 1D wrapper has narrowed the final packet.
+    CHECK(compiled.linear_1d_packet_tail_narrowing_count == 0u);
+    CHECK(!compiled.assembly.empty());
+    CHECK(compiled.assembly.find(
+              "simd_ast_cooperative_block.cooperative_block") !=
+          std::string::npos);
+    CHECK(compiled.assembly.find(
+              "simd_ast_cooperative_block.resume") !=
+          std::string::npos);
+    CHECK(compiled.assembly.find(
+              "simd_ast_cooperative_block.destroy") !=
+          std::string::npos);
+    CHECK(compiled.assembly.find("llvm.coro") == std::string::npos);
+    CHECK(!compiled.jit->object().empty());
+    CHECK(compiled.jit->object().find(
+              "cooperative_frame_alloc") == std::string::npos);
+    CHECK(compiled.jit->object().find(
+              "cooperative_block_begin") == std::string::npos);
+    return true;
+}
+
 [[nodiscard]] bool run_ast_block_batch_entry() {
     static constexpr auto width = 8u;
     static constexpr auto dispatch_x = 19u;
@@ -11311,6 +11358,8 @@ int main() {
          &run_bindless_uniform_gradient_lod_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST packet-batch runtime entry", &run_ast_packet_batch_entry},
+        {"AST cooperative block codegen",
+         &run_ast_cooperative_block_codegen},
         {"AST block-batch runtime entry", &run_ast_block_batch_entry},
         {"AST linear 1D block coalescing",
          &run_ast_linear_1d_block_coalescing},

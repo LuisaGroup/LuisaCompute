@@ -966,6 +966,10 @@ void ScheduleEmitter::_emit_terminator(
                 edge.assignments = control.assignments;
                 _emit_arrival(edge, _active_mask);
             } else if constexpr (
+                std::is_same_v<
+                    T, schedule::BlockBarrierTerminator>) {
+                _emit_block_barrier(control);
+            } else if constexpr (
                 std::is_same_v<T, schedule::ReturnTerminator>) {
                 if (control.value) {
                     auto *schedule_value = _source.value(*control.value);
@@ -1439,6 +1443,7 @@ void ScheduleEmitter::_allocate_state() {
     }
     _find_instruction_spills();
     _local_allocations.resize(_source.values().size(), nullptr);
+    _shared_memory_size = 0u;
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
             if (instruction.opcode != schedule::Opcode::alloca ||
@@ -1456,22 +1461,56 @@ void ScheduleEmitter::_allocate_state() {
                 _fail("thread-local allocation has an invalid data type");
                 return;
             }
-            auto byte_count = static_cast<uint64_t>(_width) *
-                              value_size;
-            auto *storage_type = ::llvm::ArrayType::get(
-                _builder.getInt8Ty(), byte_count);
-            auto *storage = _builder.CreateAlloca(
-                storage_type, nullptr, value->name + ".local");
-            storage->setAlignment(
-                ::llvm::Align{value_alignment});
-            auto *offsets = _lane_offsets(
-                _lane_ids(), value_size);
-            _local_allocations[instruction.result->value] =
-                _local_handle(
-                    _builder.CreateVectorSplat(_width, storage),
-                    offsets);
+            if (_is_shared_lvalue(*instruction.result)) {
+                auto alignment = std::max<size_t>(
+                    value_alignment, 16u);
+                auto offset = _align_up(
+                    _shared_memory_size, alignment);
+                if (offset > simd_max_shared_memory_bytes ||
+                    value_size >
+                        simd_max_shared_memory_bytes - offset) {
+                    _fail("SIMD cooperative shared memory exceeds the runtime limit");
+                    return;
+                }
+                _shared_memory_size = offset + value_size;
+                auto *shared_address = _byte_pointer(
+                    _launch_config,
+                    offsetof(SIMDPacketLaunchConfig, shared_memory));
+                auto *shared = _builder.CreateLoad(
+                    ::llvm::PointerType::getUnqual(
+                        _module.getContext()),
+                    shared_address, "shared.memory");
+                auto *base = offset == 0u ?
+                                 shared :
+                                 _builder.CreateInBoundsPtrAdd(
+                                     shared,
+                                     _builder.getInt64(offset));
+                auto *zero_offsets = ::llvm::Constant::getNullValue(
+                    ::llvm::FixedVectorType::get(
+                        _builder.getInt64Ty(), _width));
+                _local_allocations[instruction.result->value] =
+                    _local_handle(
+                        _builder.CreateVectorSplat(_width, base),
+                        zero_offsets);
+            } else {
+                auto byte_count = static_cast<uint64_t>(_width) *
+                                  value_size;
+                auto *storage_type = ::llvm::ArrayType::get(
+                    _builder.getInt8Ty(), byte_count);
+                auto *storage = _builder.CreateAlloca(
+                    storage_type, nullptr, value->name + ".local");
+                storage->setAlignment(
+                    ::llvm::Align{value_alignment});
+                auto *offsets = _lane_offsets(
+                    _lane_ids(), value_size);
+                _local_allocations[instruction.result->value] =
+                    _local_handle(
+                        _builder.CreateVectorSplat(_width, storage),
+                        offsets);
+            }
         }
     }
+    _result.shared_memory_size = _shared_memory_size;
     for (auto slot = size_t{0u};
          slot < _ray_query_status_storage.size(); slot++) {
         auto *storage = _builder.CreateAlloca(
@@ -1593,7 +1632,11 @@ void ScheduleEmitter::_partition_state_residency() {
 void ScheduleEmitter::_build() {
     auto &context = _module.getContext();
     auto *function_type = ::llvm::FunctionType::get(
-        ::llvm::Type::getVoidTy(context),
+        _cooperative_block ?
+            static_cast<::llvm::Type *>(
+                ::llvm::PointerType::getUnqual(context)) :
+            static_cast<::llvm::Type *>(
+                ::llvm::Type::getVoidTy(context)),
         {::llvm::PointerType::getUnqual(context),
          ::llvm::PointerType::getUnqual(context),
          ::llvm::PointerType::getUnqual(context),
@@ -1633,17 +1676,24 @@ void ScheduleEmitter::_build() {
         _entry->addParamAttr(0u, ::llvm::Attribute::ReadOnly);
         _entry->addParamAttr(2u, ::llvm::Attribute::NoAlias);
         _entry->addParamAttr(2u, ::llvm::Attribute::NonNull);
-        _entry->addParamAttr(2u, ::llvm::Attribute::ReadOnly);
+        if (!_cooperative_block) {
+            _entry->addParamAttr(2u, ::llvm::Attribute::ReadOnly);
+        }
     }
 
     auto *prologue = ::llvm::BasicBlock::Create(
         context, "prologue", _entry);
     _builder.SetInsertPoint(prologue);
+    if (_cooperative_block) {
+        _begin_cooperative_coroutine();
+        if (_failed()) { return; }
+    }
     _direct_control_flow =
-        _width == 1u ||
-        (!luisa::compute::detail::env_flag(
-             "LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG") &&
-         _can_emit_direct_control_flow());
+        !_cooperative_block &&
+        (_width == 1u ||
+         (!luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG") &&
+          _can_emit_direct_control_flow()));
     _result.direct_control_flow = _direct_control_flow;
     _allocate_state();
     if (_failed()) { return; }
@@ -1664,12 +1714,16 @@ void ScheduleEmitter::_build() {
     auto elide_unit_dimension_masks =
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_UNIT_DIMENSION_MASK_ELISION");
-    if (_enable_linear_1d_packet_tail_narrowing) {
+    if (_enable_linear_1d_packet_tail_narrowing &&
+        !_cooperative_block) {
         // The runtime-only packet wrapper narrows its final 1D packet to the
         // exact dispatch and block remainder, and skips packets with no live
         // lanes. The active-lane prefix above is therefore the complete
         // dispatch mask; rebuilding dispatch_id < dispatch_size in every
-        // packet would be redundant. Standalone entries never take this path.
+        // packet would be redundant. Cooperative wrappers deliberately issue
+        // every static packet in a block so all participating packets can
+        // rendezvous. They must retain the full dispatch-extent mask for a
+        // partial edge block, including a mixed final packet.
         _result.linear_1d_packet_tail_narrowing_count++;
     } else {
         for (auto i = uint32_t{0u}; i < 3u; i++) {
@@ -1685,6 +1739,9 @@ void ScheduleEmitter::_build() {
                     _builder.CreateVectorSplat(
                         _width, _dispatch_size[i])));
         }
+    }
+    if (_cooperative_block) {
+        _initialize_cooperative_packet(initial_mask);
     }
     if (_direct_control_flow) {
         _build_direct(initial_mask);
@@ -1818,7 +1875,11 @@ void ScheduleEmitter::_build() {
     _builder.CreateUnreachable();
 
     _builder.SetInsertPoint(exit);
-    _builder.CreateRetVoid();
+    if (_cooperative_block) {
+        _finish_entry();
+    } else {
+        _builder.CreateRetVoid();
+    }
 
     std::vector<uint8_t> locally_inlined_blocks(
         _source.blocks().size(), uint8_t{0u});

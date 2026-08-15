@@ -180,6 +180,10 @@ void *SIMDDevice::native_handle() const noexcept {
 
 uint SIMDDevice::compute_warp_size() const noexcept { return _warp_width; }
 
+size_t SIMDDevice::compute_max_shared_memory_size() const noexcept {
+    return simd_max_shared_memory_bytes;
+}
+
 uint64_t SIMDDevice::memory_granularity() const noexcept { return 1u; }
 
 BufferCreationInfo SIMDDevice::create_buffer(

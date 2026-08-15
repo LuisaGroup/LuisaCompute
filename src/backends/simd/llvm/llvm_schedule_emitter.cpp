@@ -320,6 +320,12 @@ void ScheduleEmitter::_fail(std::string message) {
            _local_lvalue_values[id.value] != 0u;
 }
 
+[[nodiscard]] bool ScheduleEmitter::_is_shared_lvalue(
+    schedule::ValueId id) const noexcept {
+    return id.value < _shared_lvalue_values.size() &&
+           _shared_lvalue_values[id.value] != 0u;
+}
+
 void ScheduleEmitter::_for_each_assignment(
     const schedule::BasicBlock &block,
     const std::function<void(schedule::EdgeAssignment)> &visit) {
@@ -361,24 +367,37 @@ void ScheduleEmitter::_for_each_assignment(
 void ScheduleEmitter::_analyze_local_lvalues() {
     _local_lvalue_values.assign(
         _source.values().size(), uint8_t{0u});
+    _shared_lvalue_values.assign(
+        _source.values().size(), uint8_t{0u});
     std::vector<std::vector<schedule::ValueId>> dependents(
         _source.values().size());
-    std::vector<schedule::ValueId> ready;
+    struct PendingLValue {
+        schedule::ValueId value{};
+        bool shared{false};
+    };
+    std::vector<PendingLValue> ready;
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
             if (instruction.opcode == schedule::Opcode::alloca) {
                 if (!instruction.result || !instruction.source_op) {
-                    _fail("local allocation is missing its result or address space");
+                    _fail("allocation is missing its result or address space");
                     return;
                 }
                 auto op = static_cast<xir::AllocaOp>(
                     *instruction.source_op);
-                if (op != xir::AllocaOp::LOCAL) {
-                    _fail("shared allocation requires cooperative-block scheduling");
+                if (op != xir::AllocaOp::LOCAL &&
+                    op != xir::AllocaOp::SHARED) {
+                    _fail("packet allocation has an unsupported address space");
                     return;
                 }
                 _local_lvalue_values[instruction.result->value] = 1u;
-                ready.emplace_back(*instruction.result);
+                auto shared = op == xir::AllocaOp::SHARED;
+                _shared_lvalue_values[instruction.result->value] =
+                    static_cast<uint8_t>(shared);
+                ready.emplace_back(PendingLValue{
+                    .value = *instruction.result,
+                    .shared = shared,
+                });
             } else if (instruction.opcode == schedule::Opcode::gep &&
                        instruction.result &&
                        !instruction.operands.empty()) {
@@ -393,10 +412,19 @@ void ScheduleEmitter::_analyze_local_lvalues() {
             });
     }
     for (auto i = size_t{0u}; i < ready.size(); i++) {
-        for (auto dependent : dependents[ready[i].value]) {
+        for (auto dependent : dependents[ready[i].value.value]) {
             if (!_is_local_lvalue(dependent)) {
                 _local_lvalue_values[dependent.value] = 1u;
-                ready.emplace_back(dependent);
+                _shared_lvalue_values[dependent.value] =
+                    static_cast<uint8_t>(ready[i].shared);
+                ready.emplace_back(PendingLValue{
+                    .value = dependent,
+                    .shared = ready[i].shared,
+                });
+            } else if (_is_shared_lvalue(dependent) !=
+                       ready[i].shared) {
+                _fail("control flow mixes local and shared references");
+                return;
             }
         }
     }
@@ -420,12 +448,14 @@ void ScheduleEmitter::_analyze_local_lvalues() {
             } else if ((instruction.opcode == schedule::Opcode::ray_query_read ||
                         instruction.opcode == schedule::Opcode::ray_query_write) &&
                        (instruction.operands.empty() ||
-                        !_is_local_lvalue(instruction.operands.front()))) {
+                        !_is_local_lvalue(instruction.operands.front()) ||
+                        _is_shared_lvalue(instruction.operands.front()))) {
                 _fail("ray-query object access requires thread-local storage");
                 return;
             } else if (instruction.opcode == schedule::Opcode::atomic &&
                        !instruction.operands.empty() &&
-                       _is_local_lvalue(instruction.operands.front())) {
+                       _is_local_lvalue(instruction.operands.front()) &&
+                       !_is_shared_lvalue(instruction.operands.front())) {
                 _fail("thread-local atomics are not supported by LLVM packet codegen");
                 return;
             }
@@ -433,7 +463,9 @@ void ScheduleEmitter::_analyze_local_lvalues() {
         _for_each_assignment(
             block, [&](schedule::EdgeAssignment assignment) {
                 if (_is_local_lvalue(assignment.destination) !=
-                    _is_local_lvalue(assignment.source)) {
+                        _is_local_lvalue(assignment.source) ||
+                    _is_shared_lvalue(assignment.destination) !=
+                        _is_shared_lvalue(assignment.source)) {
                     _fail("control-flow assignment mixes local references and data values");
                 }
             });
@@ -478,6 +510,39 @@ void ScheduleEmitter::_preflight() {
         _fail("cannot lower invalid Schedule IR: " +
               verification.errors.front().message);
         return;
+    }
+    for (auto &&block : _source.blocks()) {
+        if (std::holds_alternative<
+                schedule::BlockBarrierTerminator>(block.terminator)) {
+            _has_block_barrier = true;
+            _result.block_barrier_count++;
+        }
+        for (auto &&instruction : block.instructions) {
+            if (instruction.opcode == schedule::Opcode::alloca &&
+                instruction.source_op &&
+                static_cast<xir::AllocaOp>(*instruction.source_op) ==
+                    xir::AllocaOp::SHARED) {
+                _has_shared_memory = true;
+            }
+        }
+    }
+    _cooperative_block = _has_block_barrier || _has_shared_memory;
+    _result.cooperative_block = _cooperative_block;
+    if (_cooperative_block) {
+        auto block_thread_count = uint64_t{1u};
+        for (auto size : _static_block_size) {
+            if (size == 0u ||
+                block_thread_count >
+                    std::numeric_limits<uint32_t>::max() / size) {
+                _fail("cooperative SIMD kernels require a finite static block size");
+                return;
+            }
+            block_thread_count *= size;
+        }
+        if (block_thread_count % _width != 0u) {
+            _fail("cooperative SIMD block size must be divisible by packet width");
+            return;
+        }
     }
     _analyze_local_lvalues();
     if (_failed()) { return; }
@@ -617,6 +682,10 @@ void ScheduleEmitter::_preflight() {
                     if (point == nullptr) {
                         _fail("join references an invalid convergence point");
                     }
+                } else if constexpr (
+                    std::is_same_v<
+                        T, schedule::BlockBarrierTerminator>) {
+                    _preflight_edge(terminator.resume_edge, false);
                 } else if constexpr (
                     std::is_same_v<T, schedule::ReturnTerminator>) {
                     if (terminator.value) {

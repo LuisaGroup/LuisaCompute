@@ -206,6 +206,177 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
     }
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_atomic_lanes(
+    xir::AtomicOp op, const schedule::Value &result,
+    ::llvm::Value *base, ::llvm::Value *offsets,
+    const std::vector<::llvm::Value *> &values) {
+    auto *result_type = _layout.expression_type(result);
+    if (result_type == nullptr || !result_type->isVectorTy()) {
+        _fail("packet atomic result must be lane-varying");
+        return nullptr;
+    }
+    ::llvm::Value *old_values =
+        ::llvm::Constant::getNullValue(result_type);
+    auto alignment = ::llvm::MaybeAlign{result.type->alignment()};
+    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+        auto *before = _builder.GetInsertBlock();
+        auto *active = _builder.CreateExtractElement(
+            _active_mask, lane);
+        auto *atomic_block = ::llvm::BasicBlock::Create(
+            _module.getContext(),
+            "atomic.lane." + std::to_string(lane), _entry);
+        auto *continue_block = ::llvm::BasicBlock::Create(
+            _module.getContext(),
+            "atomic.continue." + std::to_string(lane), _entry);
+        _builder.CreateCondBr(active, atomic_block, continue_block);
+
+        _builder.SetInsertPoint(atomic_block);
+        auto *offset = _builder.CreateExtractElement(offsets, lane);
+        auto *lane_base = base->getType()->isVectorTy() ?
+                              _builder.CreateExtractElement(base, lane) :
+                              base;
+        auto *pointer = _builder.CreateGEP(
+            _builder.getInt8Ty(), lane_base, offset);
+        std::vector<::llvm::Value *> lane_values;
+        lane_values.reserve(values.size());
+        for (auto *value : values) {
+            lane_values.emplace_back(
+                _builder.CreateExtractElement(value, lane));
+        }
+        ::llvm::Value *old = nullptr;
+        if (op == xir::AtomicOp::COMPARE_EXCHANGE) {
+            auto *expected = lane_values[0u];
+            auto *desired = lane_values[1u];
+            auto *value_type = expected->getType();
+            auto floating = value_type->isFloatingPointTy();
+            if (floating) {
+                auto *integer = ::llvm::IntegerType::get(
+                    _module.getContext(),
+                    value_type->getPrimitiveSizeInBits());
+                expected = _builder.CreateBitCast(expected, integer);
+                desired = _builder.CreateBitCast(desired, integer);
+            }
+            auto *pair = _builder.CreateAtomicCmpXchg(
+                pointer, expected, desired, alignment,
+                ::llvm::AtomicOrdering::Monotonic,
+                ::llvm::AtomicOrdering::Monotonic);
+            old = _builder.CreateExtractValue(pair, {0u});
+            if (floating) {
+                old = _builder.CreateBitCast(old, value_type);
+            }
+        } else {
+            auto atomic_op = ::llvm::AtomicRMWInst::BAD_BINOP;
+            auto floating = result.type->is_float16() ||
+                            result.type->is_float32() ||
+                            result.type->is_float64();
+            auto signed_integer = result.type->is_int();
+            switch (op) {
+                case xir::AtomicOp::EXCHANGE:
+                    atomic_op = ::llvm::AtomicRMWInst::Xchg;
+                    break;
+                case xir::AtomicOp::FETCH_ADD:
+                    atomic_op = floating ?
+                                    ::llvm::AtomicRMWInst::FAdd :
+                                    ::llvm::AtomicRMWInst::Add;
+                    break;
+                case xir::AtomicOp::FETCH_SUB:
+                    atomic_op = floating ?
+                                    ::llvm::AtomicRMWInst::FSub :
+                                    ::llvm::AtomicRMWInst::Sub;
+                    break;
+                case xir::AtomicOp::FETCH_AND:
+                    atomic_op = ::llvm::AtomicRMWInst::And;
+                    break;
+                case xir::AtomicOp::FETCH_OR:
+                    atomic_op = ::llvm::AtomicRMWInst::Or;
+                    break;
+                case xir::AtomicOp::FETCH_XOR:
+                    atomic_op = ::llvm::AtomicRMWInst::Xor;
+                    break;
+                case xir::AtomicOp::FETCH_MIN:
+                    atomic_op = floating ?
+                                    ::llvm::AtomicRMWInst::FMin :
+                                signed_integer ?
+                                    ::llvm::AtomicRMWInst::Min :
+                                    ::llvm::AtomicRMWInst::UMin;
+                    break;
+                case xir::AtomicOp::FETCH_MAX:
+                    atomic_op = floating ?
+                                    ::llvm::AtomicRMWInst::FMax :
+                                signed_integer ?
+                                    ::llvm::AtomicRMWInst::Max :
+                                    ::llvm::AtomicRMWInst::UMax;
+                    break;
+                case xir::AtomicOp::COMPARE_EXCHANGE: break;
+            }
+            if (atomic_op == ::llvm::AtomicRMWInst::BAD_BINOP) {
+                _fail("unsupported packet atomic operation");
+                return nullptr;
+            }
+            old = _builder.CreateAtomicRMW(
+                atomic_op, pointer, lane_values[0u], alignment,
+                ::llvm::AtomicOrdering::Monotonic);
+        }
+        auto *updated = _builder.CreateInsertElement(
+            old_values, old, lane);
+        _builder.CreateBr(continue_block);
+        auto *atomic_end = _builder.GetInsertBlock();
+
+        _builder.SetInsertPoint(continue_block);
+        auto *phi = _builder.CreatePHI(result_type, 2u);
+        phi->addIncoming(old_values, before);
+        phi->addIncoming(updated, atomic_end);
+        old_values = phi;
+    }
+    return old_values;
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_shared_atomic(
+    const schedule::Instruction &instruction) {
+    auto op = static_cast<xir::AtomicOp>(*instruction.source_op);
+    auto value_count = xir::atomic_op_value_count(op);
+    auto index_count =
+        instruction.operands.size() - 1u - value_count;
+    auto *result = _source.value(*instruction.result);
+    auto base_id = instruction.operands.front();
+    auto *base_value = _source.value(base_id);
+    auto *handle = _load_value(base_id);
+    if (result == nullptr || base_value == nullptr ||
+        base_value->type == nullptr || handle == nullptr ||
+        !_is_shared_lvalue(base_id) ||
+        !_is_scalar_data(result->type)) {
+        _fail("shared atomic has an invalid target");
+        return nullptr;
+    }
+    auto *base = _local_base(_builder, handle);
+    auto *offsets = _local_offsets(_builder, handle);
+    auto *current_type = base_value->type;
+    for (auto i = size_t{0u}; i < index_count; i++) {
+        if (!_advance_aggregate_offset(
+                offsets, current_type,
+                instruction.operands[1u + i])) {
+            return nullptr;
+        }
+    }
+    if (current_type != result->type) {
+        _fail("shared atomic result type does not match its aggregate index path");
+        return nullptr;
+    }
+    std::vector<::llvm::Value *> values;
+    values.reserve(value_count);
+    for (auto i = size_t{0u}; i < value_count; i++) {
+        auto operand_id = instruction.operands[instruction.operands.size() - value_count + i];
+        auto *operand = _source.value(operand_id);
+        auto *value = operand == nullptr ?
+                          nullptr :
+                          _as_lane_vector(
+                              _load_value(operand_id), *operand);
+        if (value == nullptr) { return nullptr; }
+        values.emplace_back(value);
+    }
+    return _atomic_lanes(op, *result, base, offsets, values);
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_atomic(
     const schedule::Instruction &instruction) {
     if (!instruction.result || !instruction.source_op) {
@@ -214,9 +385,12 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
     }
     auto op = static_cast<xir::AtomicOp>(*instruction.source_op);
     auto value_count = xir::atomic_op_value_count(op);
-    if (instruction.operands.size() < 2u + value_count) {
+    if (instruction.operands.size() < 1u + value_count) {
         _fail("atomic instruction has an invalid operand count");
         return nullptr;
+    }
+    if (_is_shared_lvalue(instruction.operands.front())) {
+        return _shared_atomic(instruction);
     }
     auto index_count =
         instruction.operands.size() - 1u - value_count;
@@ -266,129 +440,15 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
     for (auto i = size_t{0u}; i < value_count; i++) {
         auto operand_id = instruction.operands[instruction.operands.size() - value_count + i];
         auto *operand = _source.value(operand_id);
-        auto *value = operand == nullptr ? nullptr :
-                                           _as_lane_vector(_load_value(operand_id), *operand);
+        auto *value = operand == nullptr ?
+                          nullptr :
+                          _as_lane_vector(
+                              _load_value(operand_id), *operand);
         if (value == nullptr) { return nullptr; }
         values.emplace_back(value);
     }
-
     auto *base = _builder.CreateExtractValue(buffer, {0u});
-    auto *result_type = _layout.expression_type(*result);
-    if (result_type == nullptr || !result_type->isVectorTy()) {
-        _fail("buffer atomic result must be lane-varying");
-        return nullptr;
-    }
-    ::llvm::Value *old_values =
-        ::llvm::Constant::getNullValue(result_type);
-    auto alignment = ::llvm::MaybeAlign{result->type->alignment()};
-    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-        auto *before = _builder.GetInsertBlock();
-        auto *active = _builder.CreateExtractElement(
-            _active_mask, lane);
-        auto *atomic_block = ::llvm::BasicBlock::Create(
-            _module.getContext(),
-            "atomic.lane." + std::to_string(lane), _entry);
-        auto *continue_block = ::llvm::BasicBlock::Create(
-            _module.getContext(),
-            "atomic.continue." + std::to_string(lane), _entry);
-        _builder.CreateCondBr(active, atomic_block, continue_block);
-
-        _builder.SetInsertPoint(atomic_block);
-        auto *offset = _builder.CreateExtractElement(offsets, lane);
-        auto *pointer = _builder.CreateGEP(
-            _builder.getInt8Ty(), base, offset);
-        std::vector<::llvm::Value *> lane_values;
-        lane_values.reserve(values.size());
-        for (auto *value : values) {
-            lane_values.emplace_back(
-                _builder.CreateExtractElement(value, lane));
-        }
-        ::llvm::Value *old = nullptr;
-        if (op == xir::AtomicOp::COMPARE_EXCHANGE) {
-            auto *expected = lane_values[0u];
-            auto *desired = lane_values[1u];
-            auto *value_type = expected->getType();
-            auto floating = value_type->isFloatingPointTy();
-            if (floating) {
-                auto *integer = ::llvm::IntegerType::get(
-                    _module.getContext(),
-                    value_type->getPrimitiveSizeInBits());
-                expected = _builder.CreateBitCast(expected, integer);
-                desired = _builder.CreateBitCast(desired, integer);
-            }
-            auto *pair = _builder.CreateAtomicCmpXchg(
-                pointer, expected, desired, alignment,
-                ::llvm::AtomicOrdering::Monotonic,
-                ::llvm::AtomicOrdering::Monotonic);
-            old = _builder.CreateExtractValue(pair, {0u});
-            if (floating) {
-                old = _builder.CreateBitCast(old, value_type);
-            }
-        } else {
-            auto atomic_op = ::llvm::AtomicRMWInst::BAD_BINOP;
-            auto floating = result->type->is_float16() ||
-                            result->type->is_float32() ||
-                            result->type->is_float64();
-            auto signed_integer = result->type->is_int();
-            switch (op) {
-                case xir::AtomicOp::EXCHANGE:
-                    atomic_op = ::llvm::AtomicRMWInst::Xchg;
-                    break;
-                case xir::AtomicOp::FETCH_ADD:
-                    atomic_op = floating ?
-                                    ::llvm::AtomicRMWInst::FAdd :
-                                    ::llvm::AtomicRMWInst::Add;
-                    break;
-                case xir::AtomicOp::FETCH_SUB:
-                    atomic_op = floating ?
-                                    ::llvm::AtomicRMWInst::FSub :
-                                    ::llvm::AtomicRMWInst::Sub;
-                    break;
-                case xir::AtomicOp::FETCH_AND:
-                    atomic_op = ::llvm::AtomicRMWInst::And;
-                    break;
-                case xir::AtomicOp::FETCH_OR:
-                    atomic_op = ::llvm::AtomicRMWInst::Or;
-                    break;
-                case xir::AtomicOp::FETCH_XOR:
-                    atomic_op = ::llvm::AtomicRMWInst::Xor;
-                    break;
-                case xir::AtomicOp::FETCH_MIN:
-                    atomic_op = floating ?
-                                    ::llvm::AtomicRMWInst::FMin :
-                                signed_integer ?
-                                    ::llvm::AtomicRMWInst::Min :
-                                    ::llvm::AtomicRMWInst::UMin;
-                    break;
-                case xir::AtomicOp::FETCH_MAX:
-                    atomic_op = floating ?
-                                    ::llvm::AtomicRMWInst::FMax :
-                                signed_integer ?
-                                    ::llvm::AtomicRMWInst::Max :
-                                    ::llvm::AtomicRMWInst::UMax;
-                    break;
-                case xir::AtomicOp::COMPARE_EXCHANGE: break;
-            }
-            if (atomic_op == ::llvm::AtomicRMWInst::BAD_BINOP) {
-                _fail("unsupported direct-buffer atomic operation");
-                return nullptr;
-            }
-            old = _builder.CreateAtomicRMW(
-                atomic_op, pointer, lane_values[0u], alignment,
-                ::llvm::AtomicOrdering::Monotonic);
-        }
-        auto *updated = _builder.CreateInsertElement(
-            old_values, old, lane);
-        _builder.CreateBr(continue_block);
-        auto *atomic_end = _builder.GetInsertBlock();
-
-        _builder.SetInsertPoint(continue_block);
-        auto *phi = _builder.CreatePHI(result_type, 2u);
-        phi->addIncoming(old_values, before);
-        phi->addIncoming(updated, atomic_end);
-        old_values = phi;
-    }
-    return old_values;
+    return _atomic_lanes(op, *result, base, offsets, values);
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_leaf_pointers(

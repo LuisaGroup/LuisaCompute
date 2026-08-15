@@ -37,6 +37,7 @@ endif ()
 message(STATUS "Build SIMD CPU codegen core with LLVM ${LLVM_PACKAGE_VERSION}")
 
 add_library(luisa-compute-simd-schedule STATIC
+        schedule/block_barrier.cpp
         schedule/predicated_if_conversion.cpp
         schedule/loop_unswitch.cpp
         schedule/schedule_ir.cpp
@@ -53,11 +54,13 @@ set_target_properties(luisa-compute-simd-schedule PROPERTIES
 
 set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_codegen.cpp
+        llvm/llvm_schedule_codegen_cooperative.cpp
         llvm/llvm_schedule_emitter_bindless.cpp
         llvm/llvm_schedule_emitter.cpp
         llvm/llvm_schedule_emitter_arithmetic.cpp
         llvm/llvm_schedule_emitter_accel.cpp
         llvm/llvm_schedule_emitter_collectives.cpp
+        llvm/llvm_schedule_emitter_cooperative.cpp
         llvm/llvm_schedule_emitter_control.cpp
         llvm/llvm_schedule_emitter_debug.cpp
         llvm/llvm_schedule_emitter_direct.cpp

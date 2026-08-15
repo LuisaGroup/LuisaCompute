@@ -12,7 +12,9 @@
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/dce.h>
 
+#include "block_barrier.h"
 #include "xir_to_schedule.h"
 
 using namespace luisa;
@@ -355,6 +357,90 @@ void register_loop_tests() {
         expect(back_branch->edge.assignments.size() == 1u);
         expect(back_branch->edge.loop_back == LoopId{0u});
         expect(verify(function).succeeded());
+    };
+}
+
+void register_block_barrier_tests() {
+    "simd_xir_canonicalizes_and_lowers_block_barrier_phase"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *entry = kernel->create_body_block();
+        auto *one = module.create_constant_one(Type::of<uint>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.call(
+            nullptr, ThreadGroupOp::SYNCHRONIZE_BLOCK, {});
+        auto *value = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {one, one});
+        value->set_name("after_barrier");
+        builder.return_void();
+
+        auto canonical = canonicalize_block_barriers(kernel);
+        expect(canonical.succeeded());
+        expect(canonical.barrier_count == 1u);
+        expect(canonical.split_block_count == 1u);
+        // Cross-block instruction moves must rebuild operand use-lists; DCE
+        // is the minimal permanent oracle for the previously corrupted list.
+        static_cast<void>(dce_pass_run_on_module(&module));
+        auto result = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 8u});
+        expect(result.succeeded()) << diagnostics_text(result);
+        if (!result.succeeded()) { return; }
+        auto barrier_count = size_t{0u};
+        for (auto &&block : result.function->blocks()) {
+            if (auto *barrier = std::get_if<
+                    BlockBarrierTerminator>(&block.terminator)) {
+                barrier_count++;
+                expect(barrier->barrier_id == 0u);
+                expect(
+                    barrier->resume_edge.target.value <
+                    result.function->blocks().size());
+            }
+        }
+        expect(barrier_count == 1u);
+        expect(verify(*result.function).succeeded());
+    };
+
+    "simd_xir_rejects_divergent_static_block_barriers"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *entry = kernel->create_body_block();
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *lane = module.create_warp_lane_id();
+        auto *one = module.create_constant_one(Type::of<uint>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *condition = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {lane, one});
+        builder.cond_br(condition, left, right);
+        builder.set_insertion_point(left);
+        builder.call(
+            nullptr, ThreadGroupOp::SYNCHRONIZE_BLOCK, {});
+        builder.br(merge);
+        builder.set_insertion_point(right);
+        builder.call(
+            nullptr, ThreadGroupOp::SYNCHRONIZE_BLOCK, {});
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        auto canonical = canonicalize_block_barriers(kernel);
+        expect(canonical.succeeded());
+        expect(canonical.barrier_count == 2u);
+        auto result = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 8u});
+        expect(!result.succeeded());
+        auto found = false;
+        for (auto &&diagnostic : result.diagnostics) {
+            found |= diagnostic.code ==
+                     XIRToScheduleDiagnosticCode::
+                         non_uniform_block_barrier;
+        }
+        expect(found);
     };
 }
 
@@ -718,6 +804,7 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     register_diamond_tests();
     register_loop_tests();
+    register_block_barrier_tests();
     register_reducible_cfg_tests();
     register_memory_layout_tests();
     register_debug_instruction_tests();

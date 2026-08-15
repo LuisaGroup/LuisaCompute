@@ -27,6 +27,7 @@
 
 #include "../common/env_flag.h"
 #include "llvm/llvm_schedule_codegen.h"
+#include "schedule/block_barrier.h"
 #include "schedule/loop_unswitch.h"
 #include "schedule/predicated_if_conversion.h"
 #include "schedule/xir_to_schedule.h"
@@ -258,6 +259,9 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.linear_1d_packet_tail_narrowing_count;
     result.linear_1d_block_coalescing_count =
         llvm_result.linear_1d_block_coalescing_count;
+    result.shared_memory_size = llvm_result.shared_memory_size;
+    result.block_barrier_count = llvm_result.block_barrier_count;
+    result.cooperative_block = llvm_result.cooperative_block;
     result.direct_control_flow = llvm_result.direct_control_flow;
     auto llvm_entry_name = llvm_result.entry->getName().str();
     auto llvm_packet_batch_entry_name =
@@ -373,6 +377,19 @@ SIMDCompiledKernel compile_simd_kernel(
     promote_aggregate_allocas();
     static_cast<void>(xir::mem2reg_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+    // A block barrier is a control/memory phase boundary, not an ordinary
+    // movable side effect. Isolate it before speculative if-conversion or
+    // loop unswitching inspect regions so neither rewrite can hoist, sink, or
+    // clone instructions across synchronization.
+    auto barrier_canonicalization =
+        schedule::canonicalize_block_barriers(xir_kernel);
+    if (!barrier_canonicalization.succeeded()) {
+        SIMDCompiledKernel result{.warp_width = warp_width};
+        result.diagnostics.emplace_back(
+            "XIR block-barrier canonicalization failed: " +
+            barrier_canonicalization.error);
+        return result;
+    }
     auto fast_math_info = xir::FastMathSimplifyInfo{};
     if (enable_fast_math) {
         fast_math_info =

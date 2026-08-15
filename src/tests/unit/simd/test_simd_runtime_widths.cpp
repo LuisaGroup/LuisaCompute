@@ -211,6 +211,72 @@ int main(int argc, char *argv[]) {
                 << "SIMD outlined callable legalization mismatch";
         }
 
+        // Cooperative blocks keep one coroutine per SIMD packet. The second
+        // block below has only three logical invocations, so every wider
+        // configuration also contains wholly inactive packets. Those packets
+        // must not participate in the barrier, while the active packet still
+        // observes the one shared allocation owned by the block. Cross-packet
+        // shared-memory visibility is covered separately by test_shared_mem.
+        constexpr auto shared_tail_threads = block_threads + 3u;
+        auto shared_tail_output = device.create_buffer<uint>(
+            shared_tail_threads);
+        Kernel1D shared_tail_kernel = [width](
+                                          BufferUInt result) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            Shared<uint> tile{32u};
+            tile.write(thread_x(), dispatch_x() + 17u);
+            sync_block();
+            result.write(dispatch_x(), tile.read(thread_x()));
+        };
+        auto shared_tail_shader = device.compile(shared_tail_kernel);
+        luisa::vector<uint> shared_tail_host(
+            shared_tail_threads, 0u);
+        stream << shared_tail_shader(shared_tail_output).dispatch(shared_tail_threads)
+               << shared_tail_output.copy_to(
+                      luisa::span{shared_tail_host})
+               << synchronize();
+        for (auto thread = 0u;
+             thread < shared_tail_threads; thread++) {
+            expect(shared_tail_host[thread] == thread + 17u)
+                << "SIMD cooperative inactive-tail mismatch";
+        }
+
+        // A partial 2D edge block is not generally a lane-prefix tail. For
+        // example, the right edge below has three live lanes followed by five
+        // inactive lanes in each row. Cooperative wrappers must retain the
+        // full per-dimension dispatch mask rather than relying on the 1D
+        // packet-tail narrowing contract.
+        constexpr auto shared_2d_size = make_uint2(11u, 5u);
+        auto shared_2d_output = device.create_buffer<uint>(
+            shared_2d_size.x * shared_2d_size.y);
+        Kernel2D shared_2d_kernel = [width](
+                                        BufferUInt result) noexcept {
+            set_block_size(8u, 4u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            Shared<uint> tile{32u};
+            auto local = thread_x() + thread_y() * 8u;
+            auto value = dispatch_x() + dispatch_y() * 100u;
+            tile.write(local, value);
+            sync_block();
+            auto output = dispatch_x() + dispatch_y() * 11u;
+            result.write(output, tile.read(local));
+        };
+        auto shared_2d_shader = device.compile(shared_2d_kernel);
+        luisa::vector<uint> shared_2d_host(
+            shared_2d_size.x * shared_2d_size.y, 0u);
+        stream << shared_2d_shader(shared_2d_output).dispatch(shared_2d_size)
+               << shared_2d_output.copy_to(
+                      luisa::span{shared_2d_host})
+               << synchronize();
+        for (auto y = 0u; y < shared_2d_size.y; y++) {
+            for (auto x = 0u; x < shared_2d_size.x; x++) {
+                expect(shared_2d_host[y * shared_2d_size.x + x] ==
+                       x + y * 100u)
+                    << "SIMD cooperative sparse 2D edge mismatch";
+            }
+        }
+
         // Regression: LLVM integer div/rem may lower to trapping scalar
         // instructions even when a zero divisor exists only in an inactive
         // tail lane. Sanitization therefore has to happen before the vector

@@ -48,6 +48,8 @@ const char *to_string(XIRToScheduleDiagnosticCode code) noexcept {
             return "structured_control_flow";
         case XIRToScheduleDiagnosticCode::irreducible_control_flow:
             return "irreducible_control_flow";
+        case XIRToScheduleDiagnosticCode::non_uniform_block_barrier:
+            return "non_uniform_block_barrier";
         case XIRToScheduleDiagnosticCode::unsupported_instruction:
             return "unsupported_instruction";
         case XIRToScheduleDiagnosticCode::unsupported_value:
@@ -142,9 +144,7 @@ struct CFGEdgeHash {
         case Tag::ASSUME:
         case Tag::OUTLINE: return true;
         case Tag::THREAD_GROUP: {
-            auto op = static_cast<const xir::ThreadGroupInst *>(instruction)
-                          ->op();
-            return op != xir::ThreadGroupOp::SYNCHRONIZE_BLOCK;
+            return true;
         }
         default: return false;
     }
@@ -153,6 +153,14 @@ struct CFGEdgeHash {
 [[nodiscard]] bool is_collective(xir::ThreadGroupOp op) noexcept {
     return op != xir::ThreadGroupOp::SHADER_EXECUTION_REORDER &&
            op != xir::ThreadGroupOp::SYNCHRONIZE_BLOCK;
+}
+
+[[nodiscard]] bool is_block_barrier(
+    const xir::Instruction *instruction) noexcept {
+    return instruction != nullptr &&
+           instruction->isa<xir::ThreadGroupInst>() &&
+           static_cast<const xir::ThreadGroupInst *>(instruction)->op() ==
+               xir::ThreadGroupOp::SYNCHRONIZE_BLOCK;
 }
 
 class LoweringContext {
@@ -193,6 +201,8 @@ private:
     std::unordered_map<CFGEdge, LoopId, CFGEdgeHash> _loop_back_ids{};
     std::unordered_map<const xir::BasicBlock *, ConvergenceId>
         _convergence_by_branch{};
+    std::unordered_map<const xir::BasicBlock *, uint32_t>
+        _barrier_ids{};
     std::vector<LoopRecord> _loops{};
     std::vector<ConvergenceRecord> _convergences{};
     std::unordered_set<const xir::Instruction *>
@@ -321,6 +331,26 @@ private:
                         block, instruction);
                     continue;
                 }
+                if (is_block_barrier(instruction)) {
+                    if (terminator_tag !=
+                            xir::DerivedInstructionTag::BRANCH ||
+                        terminator->prev() != instruction ||
+                        _barrier_ids.contains(block)) {
+                        _diagnose(
+                            XIRToScheduleDiagnosticCode::
+                                non_uniform_block_barrier,
+                            "block barrier must be canonicalized as the "
+                            "single final non-terminator before an "
+                            "unconditional resume edge",
+                            block, instruction);
+                    } else {
+                        _barrier_ids.emplace(
+                            block,
+                            static_cast<uint32_t>(
+                                _barrier_ids.size()));
+                    }
+                    continue;
+                }
                 if (is_supported_non_terminator(instruction)) { continue; }
                 auto tag = instruction->derived_instruction_tag();
                 auto message = "XIR instruction '" +
@@ -341,6 +371,89 @@ private:
                         XIRToScheduleDiagnosticCode::unsupported_instruction,
                     std::move(message), block, instruction);
             }
+        }
+    }
+
+    void _validate_barrier_phases(
+        const luisa::vector<xir::NaturalLoop> &natural_loops) {
+        if (_barrier_ids.empty()) { return; }
+        for (auto &&[barrier, id] : _barrier_ids) {
+            static_cast<void>(id);
+            for (auto &&loop : natural_loops) {
+                if (loop.contains(
+                        const_cast<xir::BasicBlock *>(barrier))) {
+                    _diagnose(
+                        XIRToScheduleDiagnosticCode::
+                            non_uniform_block_barrier,
+                        "a repeated block barrier requires a uniform-trip "
+                        "loop proof that is not yet available",
+                        barrier);
+                    return;
+                }
+            }
+        }
+        std::queue<const xir::BasicBlock *> pending;
+        std::unordered_set<const xir::BasicBlock *> visited_roots;
+        pending.emplace(_definition->body_block());
+        while (!pending.empty()) {
+            auto *root = pending.front();
+            pending.pop();
+            if (!visited_roots.emplace(root).second) { continue; }
+
+            std::vector<uint8_t> reached(_blocks.size(), uint8_t{0u});
+            std::unordered_set<const xir::BasicBlock *> barriers;
+            auto reaches_termination = false;
+            std::queue<const xir::BasicBlock *> work;
+            work.emplace(root);
+            while (!work.empty()) {
+                auto *block = work.front();
+                work.pop();
+                auto block_iter = _block_indices.find(block);
+                if (block_iter == _block_indices.end() ||
+                    reached[block_iter->second] != 0u) {
+                    continue;
+                }
+                reached[block_iter->second] = 1u;
+                if (_barrier_ids.contains(block)) {
+                    barriers.emplace(block);
+                    continue;
+                }
+                auto tag = block->terminator()
+                               ->derived_instruction_tag();
+                reaches_termination |=
+                    tag == xir::DerivedInstructionTag::RETURN ||
+                    tag == xir::DerivedInstructionTag::UNREACHABLE;
+                for (auto *successor :
+                     _successors[block_iter->second]) {
+                    work.emplace(successor);
+                }
+            }
+            if (barriers.empty()) {
+                // No later synchronization remains, so ordinary reducible
+                // control flow may finish or loop without a barrier proof.
+                continue;
+            }
+            if (barriers.size() != 1u || reaches_termination) {
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::
+                        non_uniform_block_barrier,
+                    "every terminating path in a cooperative block phase "
+                    "must reach the same static block barrier",
+                    root);
+                return;
+            }
+
+            auto *barrier = *barriers.begin();
+            auto &successors =
+                _successors[_block_indices.at(barrier)];
+            if (successors.size() != 1u) {
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::malformed_cfg,
+                    "canonical block barrier must have one resume edge",
+                    barrier);
+                return;
+            }
+            pending.emplace(successors.front());
         }
     }
 
@@ -1142,6 +1255,16 @@ private:
     void _emit_terminator(
         const xir::BasicBlock *source_block, BasicBlock &target_block) {
         auto *terminator = source_block->terminator();
+        if (auto barrier = _barrier_ids.find(source_block);
+            barrier != _barrier_ids.end()) {
+            auto *branch = static_cast<const xir::BranchInst *>(terminator);
+            target_block.terminator = BlockBarrierTerminator{
+                .barrier_id = barrier->second,
+                .resume_edge = _edge(
+                    branch->target_block(), source_block, terminator),
+            };
+            return;
+        }
         using Tag = xir::DerivedInstructionTag;
         switch (terminator->derived_instruction_tag()) {
             case Tag::BRANCH: {
@@ -1242,6 +1365,7 @@ private:
                 _function->block(_block_ids.at(source_block));
             for (auto *instruction : source_block->instructions()) {
                 if (instruction->is_terminator()) { break; }
+                if (is_block_barrier(instruction)) { continue; }
                 _emit_instruction(instruction, *target_block);
             }
             _emit_terminator(source_block, *target_block);
@@ -1459,6 +1583,8 @@ public:
                 "CFG remains cyclic after removing natural back-edges; run lower_irreducible_cfg before SIMD scheduling");
             return std::move(_result);
         }
+        _validate_barrier_phases(natural_loops);
+        if (_failed()) { return std::move(_result); }
         // SIMD reconvergence is conditional on scalar-lane termination. Use
         // post-dominance over terminating executions so a natural-loop
         // back-edge does not hide the common exit where lanes with different

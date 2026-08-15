@@ -34,7 +34,10 @@ The source obligations are:
 3. removing all natural-loop back-edges makes the graph acyclic;
 4. every cycle therefore has a dominating natural-loop header;
 5. structured XIR has already been destructured;
-6. block barriers are excluded until cooperative-block scheduling is enabled.
+6. `SYNCHRONIZE_BLOCK` is not an inner small-step transition: canonical
+   barrier-free phases are checked by this model and an outer cooperative
+   block scheduler performs the inter-phase rendezvous described in the
+   backend design and native-execution contract.
 
 Condition 3 is the operational reducibility check in `xir_to_schedule.cpp`.
 Irreducible input is rejected before Schedule IR is constructed.
@@ -498,9 +501,10 @@ Under the static assumptions and invariants above:
 - **scheduler-policy independence:** for race-free programs, changing the
   order in which ready equivalence classes execute does not change per-lane
   results or collective participant sets;
-- **conditional progress:** if every scalar lane execution terminates and no
-  unsupported barrier is present, the packet cannot finish with live lanes and
-  no runnable cohort; such a state is a lowering/runtime invariant failure.
+- **conditional progress:** if every scalar lane execution terminates, then
+  within one canonical barrier-free phase the packet cannot finish with live
+  lanes and no runnable cohort; such a state is a lowering/runtime invariant
+  failure.
 
 The proof argument is induction over the small-step relation. Pure execution
 preserves lane ownership. Branch partition preserves masks by construction.

@@ -4104,3 +4104,54 @@ width. Every path process reports Embree 4.4.1 native W4/W8/W16 packet support.
 These sequential executions are correctness smokes, not new stable throughput
 measurements; the official same-algorithm ISPC and fallback-relative tables
 above therefore remain the current performance evidence.
+
+## Cooperative block and shared-memory completion
+
+The cooperative-block checkpoint adds shared allocas, shared atomics, and
+block barriers without changing the entry selected for an ordinary kernel.
+Each fixed-vector packet is one LLVM coroutine, and one exclusive block wrapper
+drives the statically known packet handles through barrier phases. The wrapper
+rejects mismatched static barrier IDs and completion mixed with live packets;
+the inner scheduler independently requires the complete live mask and no
+pending cohort before suspension. A 35-thread one-dimensional dispatch and a
+`{11, 5}` dispatch over `{8, 4}` blocks permanently cover mixed and non-prefix
+edge masks. The existing multi-barrier/shared-atomic programs run at
+W1/W2/W4/W8/W16. Barriers in natural loops remain rejected until a uniform
+dynamic-instance proof is available.
+
+The compiler-focused Release tree passes 143/143 tests. Both maintained
+fallback+SIMD Release trees pass 154/154, including the complete tutorial,
+graphics, acceleration, ray-query, local-memory, atomic, bindless, and
+runtime-width inventories. The focused cooperative gate passes 13/13, and the
+required precise/fast native-math plus runtime-width gate passes 3/3. Ten
+shared-memory objects across the supported widths have no unresolved symbol;
+only the cooperative wrapper is externally visible, while packet, resume, and
+destroy functions have local linkage.
+
+Because unrelated host work was active, the ordinary-path ISPC regression
+audit used two independent seven-round runs rather than a single process.
+Every process was pinned to logical CPU 6 with one worker. Implementation order
+rotated and reversed within each run. The control was official ISPC 1.31.0,
+`--cpu=znver5`, precise arithmetic with FMA contraction disabled, and
+AVX-512 x8/x16 at the matching logical width. All exact workloads were
+bit-identical; the analytic path passed its independent tolerance. Combining
+all fourteen paired rounds, without removing the visibly disturbed first
+Mandelbrot pair, gives:
+
+| workload | Luisa W8 / ISPC x8 | 95% CI | Luisa W16 / ISPC x16 | 95% CI |
+| --- | ---: | ---: | ---: | ---: |
+| Mandelbrot | **1.40043x** | [1.38054, 1.42060] | **1.54230x** | [1.51886, 1.56610] |
+| masked stream | **1.48404x** | [1.43251, 1.53742] | **1.44505x** | [1.40559, 1.48562] |
+| AoS-to-SoA | 1.00963x | [1.00008, 1.01927] | 0.98300x | [0.97407, 0.99201] |
+| GEMM | **1.34093x** | [1.33743, 1.34444] | **1.38131x** | [1.37978, 1.38284] |
+| analytic path | **1.09611x** | [1.09378, 1.09845] | **1.02332x** | [1.02077, 1.02587] |
+
+The unweighted five-workload geometric means are 1.25264x at W8 and 1.25366x
+at W16. W8 wins every combined point estimate, although the AoS lower bound is
+effectively a tie; W16 wins four of five. This independently confirms the
+ordinary-kernel compiler lead after the cooperative changes. It does not
+replace the longer official table above, establish a cooperative-kernel
+speedup, or supply the still-missing matched full-Embree ISPC renderer. Raw
+records are
+`/tmp/luisa-simd-ispc-cooperative-confirm-a-7r-20260816.json` and
+`/tmp/luisa-simd-ispc-cooperative-confirm-b-7r-20260816.json`.

@@ -21,6 +21,7 @@ enum struct XIRToScheduleDiagnosticCode {
     malformed_cfg,
     structured_control_flow,
     irreducible_control_flow,
+    non_uniform_block_barrier,
     unsupported_instruction,
     unsupported_value,
     invalid_phi,

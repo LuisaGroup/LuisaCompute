@@ -67,6 +67,14 @@ shell. The packet body is internal and is never cloned once per packet. W1 and
 single-packet blocks retain the ordinary entry. This removes host/JIT boundary
 and branch work without changing packet order, block ownership, masks, or the
 Schedule scheduler inside a packet.
+The current cooperative-block stage extends that boundary to kernels containing
+shared allocas or block barriers. One fixed-vector LLVM coroutine represents one
+packet, and one exclusive block wrapper drives all packet handles through
+statically identified barrier phases. It preserves exact sparse edge masks,
+shared pointer provenance, shared atomics, release/acquire visibility, and
+W1/W2/W4/W8/W16 inactive-tail behavior. A barrier in a natural loop remains a
+fail-closed diagnostic until the compiler can prove a uniform dynamic barrier
+instance count.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -1007,14 +1015,40 @@ One block can contain multiple logical warps. The runtime has two launch modes:
   block barrier;
 - **cooperative-block launch** when it does.
 
-In cooperative-block launch, each warp executor is resumable. A
-`SYNCHRONIZE_BLOCK` instruction yields the current warp phase. The block
-scheduler resumes the next phase only after every non-terminated invocation in
-the block has arrived. Shared memory is allocated once per block.
+Before scheduling, every `SYNCHRONIZE_BLOCK` is canonicalized as the final
+non-terminator of its XIR block. Its ordinary successor becomes an explicit
+Schedule `block_barrier` resume edge. Moving the suffix to a new block rebuilds
+instruction parents, operand use-lists, and successor PHI labels; DCE after the
+move is a permanent integrity oracle.
 
-Potentially non-uniform barrier reachability is diagnosed. The initial backend
-rejects a barrier that is not proven uniformly reachable by all live threads in
-the block, matching the practical safety requirement of GPU backends.
+In cooperative-block launch, each SIMD packet is one LLVM coroutine, not one
+coroutine per scalar lane. The block-local wrapper constructs the statically
+known packets, lets each run to its next barrier or completion, and resumes the
+next phase only when every live packet reports the same static barrier ID.
+Wholly inactive edge packets complete without participating. A mixed edge
+packet retains the full per-dimension `dispatch_id < dispatch_size` mask;
+cooperative code must not inherit the ordinary 1D packet wrapper's tail-mask
+elision because that wrapper issues every static packet for rendezvous.
+
+The inner cohort scheduler also checks a barrier dynamically: the current
+active mask must equal the packet's live mask, and no runnable or pending
+cohort may remain. The outer wrapper traps if complete and live packets are
+mixed in one phase, if live packets name different static barriers, or if a
+status is invalid. XIR phase validation independently requires every
+non-final path to reach one static barrier and rejects a barrier inside a
+natural loop until a uniform-trip proof is implemented. Thus a source-level
+divergent or repeated barrier fails closed rather than deadlocking a worker.
+
+Shared allocas are laid out once per block with at least 16-byte alignment and
+one common base. Loads, stores, GEPs, PHIs, and shared atomics retain shared
+provenance; local/shared reference mixing is rejected. The current runtime
+limits are 1 MiB of shared storage and 4 MiB of coroutine frames per executing
+worker. Both arenas are lazy thread-local allocations reset only after all
+packet handles from the preceding block have been destroyed. Barrier release
+and resume acquire fences make preceding shared writes visible in the next
+phase. Generated objects call allocation hooks indirectly through
+`SIMDPacketLaunchConfig` and therefore introduce no backend-private unresolved
+symbol.
 
 ## 8. Schedule IR
 
@@ -3626,7 +3660,10 @@ The next implementation boundary is completion of the remaining Embree
 vertical slice: deeper instance-stack semantics and a SoA packet-query-state
 experiment guarded by stable measurement. Candidate chains beyond
 the fixed batch remain a measured continuation case rather than an unbounded
-state allocation. Broader callable conformance, cooperative shared memory,
-block barriers, and the remaining device-library surface follow. The current
-compiler returns precise diagnostics for unsupported features rather than
-silently accepting them.
+state allocation. Cooperative shared memory and block barriers now use the
+packet-coroutine phase model in Section 7, including partial edge blocks and
+shared atomics at every supported width. Barriers in loops remain deliberately
+unsupported until a uniform dynamic-instance proof is available. Broader
+callable conformance and the remaining device-library surface follow. The
+current compiler returns precise diagnostics for unsupported features rather
+than silently accepting them.
