@@ -714,8 +714,12 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             false);
         auto llvm_trace_name =
             query_object->type() == Type::of<RayQueryAny>() ?
-                "luisa_pipeline_ray_query_trace_any" :
-                "luisa_pipeline_ray_query_trace_all";
+                (_rt_analysis.writes_instance_opacity ?
+                     "luisa_pipeline_ray_query_trace_any" :
+                     "luisa_pipeline_ray_query_trace_any_stable_opacity") :
+                (_rt_analysis.writes_instance_opacity ?
+                     "luisa_pipeline_ray_query_trace_all" :
+                     "luisa_pipeline_ray_query_trace_all_stable_opacity");
         auto llvm_trace = _llvm_module->getFunction(
             llvm_trace_name);
         if (llvm_trace == nullptr) {

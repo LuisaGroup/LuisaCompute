@@ -394,15 +394,23 @@ int main(int argc, char *argv[]) {
             expect(!root.empty() && !dispatcher.empty())
                 << "failed to locate the generated RayQuery functions";
             expect(module.find(
-                       "@luisa_pipeline_ray_query_trace_all(") !=
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
                    std::string_view::npos)
-                << "RayQueryAll did not select its compile-time-specialized "
-                   "native traversal";
+                << "RayQueryAll without device opacity writes did not select "
+                   "its stable-opacity native traversal";
             expect(module.find(
-                       "@luisa_pipeline_ray_query_trace_any(") !=
+                       "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
                    std::string_view::npos)
-                << "RayQueryAny did not select its compile-time-specialized "
-                   "native traversal";
+                << "RayQueryAny without device opacity writes did not select "
+                   "its stable-opacity native traversal";
+            expect(module.find(
+                       "@luisa_pipeline_ray_query_trace_all(") ==
+                   std::string_view::npos &&
+                   module.find(
+                       "@luisa_pipeline_ray_query_trace_any(") ==
+                       std::string_view::npos)
+                << "stable-opacity RayQuery retained a mutable-opacity "
+                   "traversal entry point";
             expect(module.find(
                        "@luisa_pipeline_ray_query_trace(") ==
                    std::string_view::npos)

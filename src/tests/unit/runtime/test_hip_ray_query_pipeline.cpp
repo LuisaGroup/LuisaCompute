@@ -591,6 +591,55 @@ void test_hip_ray_query_paired_triangle_resume(Device &device) {
                 transformed_direction_tmax.w, 4.0f);
     check_float(transformed_case, "world_tmax_after_commit",
                 host_committed_detail[transformed_case].w, 3.0f);
+
+    // Opacity is mutable device state, not immutable TLAS metadata. The near
+    // member of the hardware triangle pair is initially non-opaque and reaches
+    // the callback, which changes the same instance to opaque without
+    // committing. The farther member must then observe that store, bypass its
+    // callback, and auto-commit. This guards the exact boundary of the native
+    // stable-opacity specialization: any reachable opacity write must select
+    // the per-candidate-load variant for the whole kernel.
+    auto opacity_result = device.create_buffer<uint4>(1u);
+    Kernel1D mutate_opacity_during_trace = [](
+                                               AccelVar accel,
+                                               BufferUInt4 result) noexcept {
+        UInt callback_count = 0u;
+        UInt first_primitive = ~0u;
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f, 2.0f);
+        auto committed =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        auto hit = candidate.hit();
+                        $if (callback_count == 0u) {
+                            first_primitive = hit->prim;
+                        };
+                        callback_count += 1u;
+                        accel.set_instance_opaque(hit->inst, true);
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
+        result.write(
+            0u,
+            make_uint4(
+                committed->hit_type, committed->prim,
+                callback_count, first_primitive));
+    };
+    auto mutate_opacity_shader = device.compile(
+        mutate_opacity_during_trace,
+        ShaderOption{.enable_cache = false});
+    std::array<uint4, 1u> host_opacity_result{};
+    stream << mutate_opacity_shader(accel, opacity_result).dispatch(1u)
+           << opacity_result.copy_to(luisa::span{host_opacity_result})
+           << synchronize();
+    expect(host_opacity_result[0].x == surface);
+    expect(host_opacity_result[0].y == 0u);
+    expect(host_opacity_result[0].z == 1u);
+    expect(host_opacity_result[0].w == 1u);
 }
 
 void test_ray_query_near_surface_resume(Device &device) {

@@ -1106,7 +1106,11 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             auto llvm_mask_ptr = b.CreateStructGEP(llvm_instance_type, llvm_instance_ptr, llvm_accel_instance_type_mask_index);
             auto llvm_mask = b.CreateLoad(llvm_instance_type->getStructElementType(llvm_accel_instance_type_mask_index), llvm_mask_ptr);
             auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
-            return b.CreateZExtOrTrunc(llvm_mask, llvm_result_type);
+            return b.CreateZExtOrTrunc(
+                b.CreateAnd(
+                    llvm_mask,
+                    llvm_accel_instance_visibility_mask_bits),
+                llvm_result_type);
         }
         case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX: {
             LUISA_DEBUG_ASSERT(inst->type() == Type::of<luisa::float4x4>());
@@ -1646,10 +1650,20 @@ void HIPCodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext &
             auto llvm_instance_index = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_instance_type = _get_llvm_accel_instance_type();
             auto llvm_mask_type = llvm_instance_type->getStructElementType(llvm_accel_instance_type_mask_index);
-            auto llvm_mask = b.CreateZExtOrTrunc(_get_llvm_value(b, func_ctx, inst->operand(2)), llvm_mask_type);
             auto llvm_instance_ptr = _get_accel_instance_pointer(b, llvm_accel, llvm_instance_index);
             auto llvm_mask_ptr = b.CreateStructGEP(llvm_instance_type, llvm_instance_ptr, llvm_accel_instance_type_mask_index);
-            b.CreateStore(llvm_mask, llvm_mask_ptr);
+            auto llvm_old_mask = b.CreateLoad(llvm_mask_type, llvm_mask_ptr);
+            auto llvm_public_mask = b.CreateAnd(
+                b.CreateZExtOrTrunc(
+                    _get_llvm_value(b, func_ctx, inst->operand(2)),
+                    llvm_mask_type),
+                llvm_accel_instance_visibility_mask_bits);
+            auto llvm_packed_opacity = b.CreateAnd(
+                llvm_old_mask,
+                llvm_accel_instance_packed_opacity_bit);
+            b.CreateStore(
+                b.CreateOr(llvm_packed_opacity, llvm_public_mask),
+                llvm_mask_ptr);
             return;
         }
         case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY: {
@@ -1924,6 +1938,22 @@ void HIPCodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel, 
                                             fb.getInt32(instance_flag_opaque),
                                             fb.getInt32(0u));
         fb.CreateStore(fb.CreateOr(cleared_flags, new_flag_bit), flags_ptr);
+        // Mirror opacity into the private high bit of the packed visibility
+        // field. HIPAccel copies that field into HIPRT's instance node on the
+        // next build/refit; public visibility reads and writes mask it out.
+        auto mask_ptr = fb.CreateStructGEP(
+            _get_llvm_accel_instance_type(), f->getArg(0),
+            llvm_accel_instance_type_mask_index);
+        auto mask = fb.CreateLoad(fb.getInt32Ty(), mask_ptr);
+        auto cleared_mask = fb.CreateAnd(
+            mask, ~llvm_accel_instance_packed_opacity_bit);
+        auto new_packed_opacity = fb.CreateSelect(
+            f->getArg(1),
+            fb.getInt32(llvm_accel_instance_packed_opacity_bit),
+            fb.getInt32(0u));
+        fb.CreateStore(
+            fb.CreateOr(cleared_mask, new_packed_opacity),
+            mask_ptr);
         fb.CreateRetVoid();
     }
     b.CreateCall(f, {instance_ptr, is_opaque});

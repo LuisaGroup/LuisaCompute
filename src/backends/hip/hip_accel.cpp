@@ -255,7 +255,11 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
         }
 
         if (m.flags & AccelBuildCommand::Modification::flag_visibility) {
-            inst.visibility_mask = m.vis_mask;
+            inst.visibility_mask =
+                (inst.visibility_mask &
+                 CodegenInstance::packed_visibility_opaque_bit) |
+                (static_cast<uint32_t>(m.vis_mask) &
+                 CodegenInstance::visibility_mask_bits);
         }
 
         if (m.flags & AccelBuildCommand::Modification::flag_user_id) {
@@ -264,8 +268,12 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
 
         if (m.flags & AccelBuildCommand::Modification::flag_opaque_on) {
             inst.flags |= CodegenInstance::flag_opaque;
+            inst.visibility_mask |=
+                CodegenInstance::packed_visibility_opaque_bit;
         } else if (m.flags & AccelBuildCommand::Modification::flag_opaque_off) {
             inst.flags &= ~CodegenInstance::flag_opaque;
+            inst.visibility_mask &=
+                ~CodegenInstance::packed_visibility_opaque_bit;
         }
     }
 
@@ -400,9 +408,19 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
                 upload_field(Mod::flag_transform,
                              offsetof(CodegenInstance, affine),
                              sizeof(CodegenInstance::affine));
+                // Visibility and opacity are independently shader-mutable.
+                // Upload only their disjoint packed bytes so a host change to
+                // one field cannot overwrite a newer device-side value of the
+                // other. The public visibility domain is exactly eight bits;
+                // opacity occupies bit 31 (the high byte on HIP's little-
+                // endian targets).
                 upload_field(Mod::flag_visibility,
                              offsetof(CodegenInstance, visibility_mask),
-                             sizeof(CodegenInstance::visibility_mask));
+                             sizeof(uint8_t));
+                upload_field(
+                    Mod::flag_opaque,
+                    offsetof(CodegenInstance, visibility_mask) + 3u,
+                    sizeof(uint8_t));
                 upload_field(Mod::flag_user_id,
                              offsetof(CodegenInstance, user_id),
                              sizeof(CodegenInstance::user_id));

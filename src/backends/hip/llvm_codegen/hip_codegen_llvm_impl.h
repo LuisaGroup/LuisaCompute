@@ -99,6 +99,10 @@ public:
         // semantics and therefore disqualify the module-wide compact ABI.
         bool uses_ray_query_pipeline = false;
         bool uses_resumable_ray_query_control = false;
+        // A kernel-reachable device opacity write makes the packed HIPRT
+        // instance-node copy stale until the next scene build. Such kernels
+        // must retain exact per-candidate reads from CodegenInstance.
+        bool writes_instance_opacity = false;
         // Hardware LDS traversal stacks are lane-local but not reentrant. A
         // trace issued by a candidate handler would overwrite the suspended
         // outer frontier, so such pipelines must retain the software path.
@@ -157,6 +161,8 @@ public:
     static constexpr auto llvm_accel_instance_type_flags_index = 4;
     static constexpr auto llvm_accel_instance_type_handle_index = 5;
     static constexpr auto llvm_accel_instance_type_motion_data_index = 6;
+    static constexpr auto llvm_accel_instance_visibility_mask_bits = 0xffu;
+    static constexpr auto llvm_accel_instance_packed_opacity_bit = 1u << 31u;
 
     static constexpr auto llvm_ray_type_origin_index = 0;
     static constexpr auto llvm_ray_type_t_min_index = 1;

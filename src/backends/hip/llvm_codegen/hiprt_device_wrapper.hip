@@ -52,12 +52,31 @@ static_assert(__builtin_offsetof(LuisaAccelInstance, motion_data) == 72);
 // helper. Opaque surface hits are committed by traversal without invoking the
 // user surface-candidate callback.
 static constexpr uint32_t LUISA_INSTANCE_FLAG_OPAQUE = 1u << 0u;
+static constexpr uint32_t LUISA_INSTANCE_VISIBILITY_MASK_BITS = 0xffu;
+static constexpr uint32_t LUISA_INSTANCE_PACKED_OPAQUE_BIT = 1u << 31u;
 
 static __device__ __forceinline__ bool
 luisa_instance_is_opaque(const LuisaAccelInstance *instances,
                          uint32_t instance_id) {
     return instances != nullptr && instance_id != ~0u &&
            (instances[instance_id].flags & LUISA_INSTANCE_FLAG_OPAQUE) != 0u;
+}
+
+// A native traversal surface candidate is emitted only after a scene instance
+// node has passed the visibility test and installed its m_primIndex. HIPAccel
+// construction requires a non-empty CodegenInstance buffer, and every HIPRT
+// instance index addresses that same buffer. Therefore the candidate-domain
+// precondition is exactly
+//
+//   instances != nullptr && instance_id != InvalidValue.
+//
+// Keep the defensive predicate above for general wrapper entry points, but do
+// not re-evaluate its already-proven domain checks for every triangle hit.
+static __device__ __forceinline__ bool
+luisa_candidate_instance_is_opaque(const LuisaAccelInstance *instances,
+                                   uint32_t instance_id) {
+    return (instances[instance_id].flags &
+            LUISA_INSTANCE_FLAG_OPAQUE) != 0u;
 }
 
 // Must match HIPCurveDeviceData in hip_curve.h.
@@ -1319,7 +1338,7 @@ luisa_pipeline_ray_query_next_hit(
     return traversal->getNextHit();
 }
 #else
-template<bool terminate_on_first>
+template<bool terminate_on_first, bool opacity_may_change>
 static __device__ void
 luisa_pipeline_ray_query_trace_hw(
     LuisaPipelineRayQueryState *state,
@@ -1353,7 +1372,7 @@ luisa_pipeline_ray_query_initialize(
     state->candidate_hit = LuisaPipelineRayQueryHit{
         ~0u, ~0u, 0.0f, 0.0f, tmax};
     state->committed_hit = state->candidate_hit;
-    state->mask = mask;
+    state->mask = mask & LUISA_INSTANCE_VISIBILITY_MASK_BITS;
     state->flags = flags;
     state->time = time;
     state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
@@ -1362,7 +1381,7 @@ luisa_pipeline_ray_query_initialize(
     state->terminated = false;
 }
 
-template<bool terminate_on_first>
+template<bool terminate_on_first, bool opacity_may_change>
 static __device__ __forceinline__ void
 luisa_pipeline_ray_query_trace_impl(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
@@ -1373,7 +1392,8 @@ luisa_pipeline_ray_query_trace_impl(
     static_cast<void>(stack_size);
     static_cast<void>(stack_count);
     static_cast<void>(stack_data);
-    luisa_pipeline_ray_query_trace_hw<terminate_on_first>(
+    luisa_pipeline_ray_query_trace_hw<terminate_on_first,
+                                      opacity_may_change>(
         state, callback_context, pipeline_id);
 #else
     hiprtGlobalStackBuffer global_stack_buffer{
@@ -1438,7 +1458,7 @@ extern "C" __device__ __attribute__((used, noinline)) void
 luisa_pipeline_ray_query_trace_all(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
-    luisa_pipeline_ray_query_trace_impl<false>(
+    luisa_pipeline_ray_query_trace_impl<false, true>(
         state_ptr, callback_context, pipeline_id,
         stack_size, stack_count, stack_data);
 }
@@ -1447,7 +1467,25 @@ extern "C" __device__ __attribute__((used, noinline)) void
 luisa_pipeline_ray_query_trace_any(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
-    luisa_pipeline_ray_query_trace_impl<true>(
+    luisa_pipeline_ray_query_trace_impl<true, true>(
+        state_ptr, callback_context, pipeline_id,
+        stack_size, stack_count, stack_data);
+}
+
+extern "C" __device__ __attribute__((used, noinline)) void
+luisa_pipeline_ray_query_trace_all_stable_opacity(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_impl<false, false>(
+        state_ptr, callback_context, pipeline_id,
+        stack_size, stack_count, stack_data);
+}
+
+extern "C" __device__ __attribute__((used, noinline)) void
+luisa_pipeline_ray_query_trace_any_stable_opacity(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_impl<true, false>(
         state_ptr, callback_context, pipeline_id,
         stack_size, stack_count, stack_data);
 }
@@ -1964,11 +2002,30 @@ luisa_pipeline_process_procedural_candidate(
 }
 
 // Apply one complete surface-candidate transition to the register-shadowed
-// query state. The opacity decision is deliberately made for every candidate:
-// device code may change instance flags between two callbacks in one triangle
-// packet. Only a non-opaque callback can mutate the committed state stored in
-// the query object, so importing it is conditional on that exact transition.
-template<bool terminate_on_first>
+// query state. A module containing any device opacity write reads the
+// authoritative CodegenInstance flag for every candidate, since a callback can
+// change it between the two triangles in one packet. Under a whole reachable-
+// module absence proof, the HIPRT instance-node snapshot is invariant during
+// the dispatch and its bit is transported in the existing instance-id value.
+// Only a non-opaque callback can mutate the committed query state, so importing
+// it remains conditional on that exact transition.
+template<bool opacity_may_change>
+static __device__ __forceinline__ uint32_t
+luisa_pipeline_decode_instance_id(uint32_t tagged_instance_id) {
+    if constexpr (opacity_may_change) {
+        return tagged_instance_id;
+    } else {
+        // HIPRT's gfx12 hardware instance ID occupies 24 bits. Bit 31 is
+        // carried only in the traversal-local register and never reaches the
+        // public hit ABI or an instance-buffer address calculation.
+        static_assert(hiprt::InstanceIDBits < 31u);
+        constexpr auto instance_id_bits =
+            (1u << hiprt::InstanceIDBits) - 1u;
+        return tagged_instance_id & instance_id_bits;
+    }
+}
+
+template<bool terminate_on_first, bool opacity_may_change>
 static __device__ __forceinline__ uint32_t
 luisa_pipeline_process_surface_candidate(
     LuisaPipelineRayQueryState *state,
@@ -1976,10 +2033,20 @@ luisa_pipeline_process_surface_candidate(
     uint8_t &committed_kind, float &active_t_max,
     const LuisaAccelInstance *instances,
     void *callback_context, uint32_t pipeline_id,
-    uint32_t instance_id, uint32_t primitive_id,
+    uint32_t tagged_instance_id, uint32_t primitive_id,
     float u, float v, float t) {
-    const auto candidate_is_opaque =
-        luisa_instance_is_opaque(instances, instance_id);
+    const auto instance_id =
+        luisa_pipeline_decode_instance_id<opacity_may_change>(
+            tagged_instance_id);
+    auto candidate_is_opaque = false;
+    if constexpr (opacity_may_change) {
+        candidate_is_opaque =
+            luisa_candidate_instance_is_opaque(instances, instance_id);
+    } else {
+        candidate_is_opaque =
+            (tagged_instance_id &
+             LUISA_INSTANCE_PACKED_OPAQUE_BIT) != 0u;
+    }
     const auto result = candidate_is_opaque ?
                             luisa_pipeline_commit_opaque_surface<terminate_on_first>(
                                 committed_hit, committed_kind,
@@ -2013,7 +2080,7 @@ luisa_pipeline_box_contains_instance(
     return false;
 }
 
-[[nodiscard]] static __device__ uint32_t
+[[nodiscard]] static __device__ __attribute__((cold)) uint32_t
 luisa_pipeline_resolve_instance_parent(
     const hiprt::SceneHeader *scene, uint32_t instance_node,
     uint32_t cached_parent) {
@@ -2040,7 +2107,7 @@ luisa_pipeline_resolve_instance_parent(
     return hiprt::InvalidValue;
 }
 
-template<bool terminate_on_first>
+template<bool terminate_on_first, bool opacity_may_change>
 static __device__ void
 luisa_pipeline_ray_query_trace_hw(
     LuisaPipelineRayQueryState *state,
@@ -2205,6 +2272,15 @@ luisa_pipeline_ray_query_trace_hw(
                         instance_children[7] = transformed_root;
                         ray = transformed_ray;
                         instance_id = instance.m_primIndex;
+                        if constexpr (!opacity_may_change) {
+                            // The bit is read from the instance node together
+                            // with visibility and rides in the already-live ID
+                            // register. It therefore adds neither a global
+                            // candidate load nor a BLAS-wide live value.
+                            instance_id |=
+                                instance.m_mask &
+                                LUISA_INSTANCE_PACKED_OPAQUE_BIT;
+                        }
                         box_nodes = geometry->m_boxNodes;
                         primitive_nodes = geometry->m_primNodes;
                         tlas_instance_node = node_index;
@@ -2222,13 +2298,17 @@ luisa_pipeline_ray_query_trace_hw(
         }
 
         if (node_type == CustomType && instance_id != InvalidValue) {
+            const auto candidate_instance_id =
+                luisa_pipeline_decode_instance_id<opacity_may_change>(
+                    instance_id);
             auto custom_nodes =
                 reinterpret_cast<CustomNode *>(primitive_nodes);
             auto primitive_id =
                 custom_nodes[getNodeAddr(node_index)].m_primIndex;
             auto is_surface = false;
             if (instances != nullptr) {
-                const auto &instance = instances[instance_id];
+                const auto &instance =
+                    instances[candidate_instance_id];
                 is_surface = instance.geometry_data != 0u &&
                              (instance.geometry_kind ==
                                   LUISA_GEOMETRY_KIND_CURVE ||
@@ -2238,14 +2318,15 @@ luisa_pipeline_ray_query_trace_hw(
             uint32_t candidate_result;
             if (is_surface) {
                 hiprtHit surface_hit;
-                surface_hit.instanceID = instance_id;
+                surface_hit.instanceID = candidate_instance_id;
                 surface_hit.primID = primitive_id;
                 if (luisa_intersect_surface(
                         instances, ray, time, surface_hit) &&
                     ray.minT <= surface_hit.t &&
                     surface_hit.t <= ray.maxT) {
                     candidate_result =
-                        luisa_pipeline_process_surface_candidate<terminate_on_first>(
+                        luisa_pipeline_process_surface_candidate<
+                            terminate_on_first, opacity_may_change>(
                             state, committed_hit, committed_kind,
                             world_ray.maxT, instances,
                             callback_context, pipeline_id,
@@ -2260,7 +2341,7 @@ luisa_pipeline_ray_query_trace_hw(
                     luisa_pipeline_process_procedural_candidate(
                         state, committed_hit, committed_kind,
                         world_ray.maxT, callback_context, pipeline_id,
-                        instance_id, primitive_id);
+                        candidate_instance_id, primitive_id);
                 if ((candidate_result &
                      LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
                     committed_hit = state->committed_hit;
@@ -2323,7 +2404,8 @@ luisa_pipeline_ray_query_trace_hw(
                         intersections[6]);
                 const auto first_t = first_is_hit0 ? t0 : t1;
                 const auto first_result =
-                    luisa_pipeline_process_surface_candidate<terminate_on_first>(
+                    luisa_pipeline_process_surface_candidate<
+                        terminate_on_first, opacity_may_change>(
                         state, committed_hit, committed_kind,
                         world_ray.maxT, instances,
                         callback_context, pipeline_id,
@@ -2367,7 +2449,8 @@ luisa_pipeline_ray_query_trace_hw(
                             intersections[2] :
                             intersections[6]);
                     const auto second_result =
-                        luisa_pipeline_process_surface_candidate<terminate_on_first>(
+                        luisa_pipeline_process_surface_candidate<
+                            terminate_on_first, opacity_may_change>(
                             state, committed_hit, committed_kind,
                             world_ray.maxT, instances,
                             callback_context, pipeline_id,

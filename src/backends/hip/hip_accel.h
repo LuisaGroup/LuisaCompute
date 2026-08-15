@@ -26,11 +26,18 @@ public:
     //   { [3 x <4 x float>] affine, u32 user_id, u32 sbt_offset, u32 mask, u32 flags, u64 handle }
     struct alignas(16) CodegenInstance {
         static constexpr uint32_t flag_opaque = 1u << 0u;
+        static constexpr uint32_t visibility_mask_bits = 0xffu;
+        // HIPRT copies visibility_mask into the gfx12 hardware instance node.
+        // The public visibility domain is eight bits, so keep a coherent copy
+        // of opacity in an otherwise unobservable bit. Native synchronous
+        // queries can then transport it in their existing instance-id state
+        // without another live value or per-candidate global load.
+        static constexpr uint32_t packed_visibility_opaque_bit = 1u << 31u;
 
         float affine[3][4];// row-major 3x4
         uint32_t user_id;
         uint32_t sbt_offset;
-        uint32_t visibility_mask;
+        uint32_t visibility_mask;// low 8 bits public; bit 31 mirrors opacity
         uint32_t flags;
         uint64_t mesh_handle;
         uint64_t motion_data;

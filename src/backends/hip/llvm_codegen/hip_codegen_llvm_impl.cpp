@@ -237,6 +237,16 @@ void HIPCodegenLLVMImpl::_analyze_ray_tracing_in_function(
                 xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED) {
                 _rt_analysis.uses_resumable_ray_query_control = true;
             }
+        } else if (instruction->isa<xir::ResourceWriteInst>()) {
+            auto write = static_cast<const xir::ResourceWriteInst *>(instruction);
+            if (write->op() ==
+                xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY) {
+                // The same dispatch may make the update observable from a
+                // candidate handler or another lane. Only a complete absence
+                // proof over the kernel-reachable graph licenses the packed
+                // instance-node snapshot.
+                _rt_analysis.writes_instance_opacity = true;
+            }
         }
         if (instruction->isa<xir::ResourceQueryInst>()) {
             switch (static_cast<const xir::ResourceQueryInst *>(instruction)->op()) {
@@ -1025,6 +1035,13 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
                     func.removeFnAttr(llvm::Attribute::AlwaysInline);
                     func.addFnAttr(llvm::Attribute::NoInline);
                 }
+            } else if (func.hasFnAttribute(llvm::Attribute::Cold)) {
+                // A cold helper represents a source-level path-frequency
+                // proof, not a mandatory ABI boundary. Do not override that
+                // proof with the blanket wrapper AlwaysInline policy; LLVM's
+                // cost model remains free to inline it when profitable.
+                func.removeFnAttr(llvm::Attribute::AlwaysInline);
+                func.removeFnAttr(llvm::Attribute::NoInline);
             } else {
                 func.addFnAttr(llvm::Attribute::AlwaysInline);
             }
