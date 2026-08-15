@@ -1,3 +1,7 @@
+// Test for SIMD Schedule-to-LLVM lowering and host JIT execution.
+// This test covers fixed-vector IR shape, runtime semantics, and machine-code
+// boundaries across uniform, varying, memory, control-flow, and resource ops.
+
 #include "llvm_schedule_codegen.h"
 #include "llvm_jit.h"
 #include "predicated_if_conversion.h"
@@ -5064,6 +5068,212 @@ template<size_t Width>
               *ordinary, "call <8 x i64> @llvm.masked.gather") == 0u);
     CHECK(count_occurrences(
               *ordinary, "call <8 x i32> @llvm.masked.gather") == 3u);
+    return true;
+}
+
+[[nodiscard]] float pow_integer_reference(
+    float base, int32_t exponent) noexcept {
+    auto negative = exponent < 0;
+    auto magnitude = negative ?
+                         uint32_t{0u} - static_cast<uint32_t>(exponent) :
+                         static_cast<uint32_t>(exponent);
+    auto factor = negative ? 1.0f / base : base;
+    auto result = 1.0f;
+    while (magnitude != 0u) {
+        if ((magnitude & 1u) != 0u) { result *= factor; }
+        magnitude >>= 1u;
+        factor *= factor;
+    }
+    return result;
+}
+
+[[nodiscard]] bool run_integer_rotate_and_pow_codegen_width(
+    uint32_t width) {
+    static constexpr auto count = 13u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("integer_rotate_and_pow");
+    kernel->set_block_size(luisa::make_uint3(64u, 1u, 1u));
+    auto *uint_buffer = Type::buffer(Type::of<uint32_t>());
+    auto *int_buffer = Type::buffer(Type::of<int32_t>());
+    auto *float_buffer = Type::buffer(Type::of<float>());
+    auto *uint2_buffer = Type::buffer(Type::of<luisa::uint2>());
+    auto *values_argument = kernel->create_resource_argument(uint_buffer);
+    auto *shifts_argument = kernel->create_resource_argument(uint_buffer);
+    auto *bases_argument = kernel->create_resource_argument(float_buffer);
+    auto *exponents_argument = kernel->create_resource_argument(int_buffer);
+    auto *rotates_argument = kernel->create_resource_argument(uint2_buffer);
+    auto *powers_argument = kernel->create_resource_argument(float_buffer);
+    auto *entry = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *value = builder.call(
+        Type::of<uint32_t>(), xir::ResourceReadOp::BUFFER_READ,
+        {values_argument, index});
+    auto *shift = builder.call(
+        Type::of<uint32_t>(), xir::ResourceReadOp::BUFFER_READ,
+        {shifts_argument, index});
+    auto *base = builder.call(
+        Type::of<float>(), xir::ResourceReadOp::BUFFER_READ,
+        {bases_argument, index});
+    auto *exponent = builder.call(
+        Type::of<int32_t>(), xir::ResourceReadOp::BUFFER_READ,
+        {exponents_argument, index});
+    auto *rotated_left = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ROTATE_LEFT,
+        {value, shift});
+    auto *rotated_right = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ROTATE_RIGHT,
+        {value, shift});
+    auto *rotate_pair = builder.call(
+        Type::of<luisa::uint2>(), xir::ArithmeticOp::AGGREGATE,
+        {rotated_left, rotated_right});
+    auto *power = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::POW_INT,
+        {base, exponent});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {rotates_argument, index, rotate_pair});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {powers_argument, index, power});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return false;
+    }
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = std::make_unique<::llvm::Module>(
+        "simd-integer-rotate-and-pow", *context);
+    auto name = std::string{"simd_integer_rotate_and_pow_w"} +
+                std::to_string(width);
+    auto codegen = lower_schedule_to_llvm(
+        *llvm_module, *lowered.function, width, name,
+        false, {64u, 1u, 1u});
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(codegen.argument_buffer_size ==
+          6u * sizeof(SIMDHostBufferView));
+    CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+
+    std::string ir;
+    ::llvm::raw_string_ostream stream{ir};
+    llvm_module->print(stream, nullptr);
+    stream.flush();
+    auto vector_suffix = "v" + std::to_string(width);
+    CHECK(ir.find("@llvm.fshl." + vector_suffix + "i32") !=
+          std::string::npos);
+    CHECK(ir.find("@llvm.fshr." + vector_suffix + "i32") !=
+          std::string::npos);
+    auto helper_name =
+        "@luisa.simd.pow_int.s32.f32.v" + std::to_string(width);
+    auto helper_reference = ir.find(helper_name);
+    CHECK(helper_reference != std::string::npos);
+    auto helper_begin = ir.find("define private", helper_reference);
+    CHECK(helper_begin != std::string::npos);
+    auto helper_header_end = ir.find('\n', helper_begin);
+    CHECK(helper_header_end != std::string::npos);
+    CHECK(std::string_view{ir}.substr(
+                                  helper_begin, helper_header_end - helper_begin)
+              .find(helper_name) != std::string_view::npos);
+    auto helper_end = ir.find("\n}", helper_begin);
+    CHECK(helper_end != std::string::npos);
+    auto helper_ir = std::string_view{ir}.substr(
+        helper_begin, helper_end + 2u - helper_begin);
+    CHECK(helper_ir.find("extractelement") == std::string_view::npos);
+    CHECK(helper_ir.find("insertelement") == std::string_view::npos);
+    CHECK(helper_ir.find("fmul <" + std::to_string(width) +
+                         " x float>") != std::string_view::npos);
+    CHECK(helper_ir.find("lshr <" + std::to_string(width) +
+                         " x i32>") != std::string_view::npos);
+    CHECK(helper_ir.find("@llvm.vector.reduce.or." + vector_suffix +
+                         "i1") != std::string_view::npos);
+    CHECK(ir.find("llvm.x86.") == std::string::npos);
+    CHECK(ir.find("llvm.aarch64.") == std::string::npos);
+    CHECK(ir.find("llvm.arm.neon.") == std::string::npos);
+
+    LLVMJIT jit{true};
+    CHECK(jit.succeeded());
+    auto assembly = jit.emit_assembly_copy(*llvm_module);
+    std::transform(
+        assembly.begin(), assembly.end(), assembly.begin(),
+        [](unsigned char c) noexcept {
+            return static_cast<char>(std::tolower(c));
+        });
+    CHECK(!assembly.empty());
+    CHECK(assembly.find("powf") == std::string::npos);
+    CHECK(jit.add_module(std::move(llvm_module), std::move(context)));
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(function != nullptr);
+    CHECK(!jit.object().empty());
+    CHECK(jit.object().find("powf") == std::string::npos);
+
+    std::array<uint32_t, count + 16u> values{};
+    std::array<uint32_t, count + 16u> shifts{};
+    std::array<float, count + 16u> bases{};
+    std::array<int32_t, count + 16u> exponents{};
+    std::array<luisa::uint2, count + 16u> rotates{};
+    std::array<float, count + 16u> powers{};
+    for (auto i = uint32_t{0u}; i < values.size(); i++) {
+        values[i] = 0x81234567u ^ (i * 0x01010101u);
+        shifts[i] = i * 7u + 33u;
+        bases[i] = i == count - 1u ?
+                       -1.0f :
+                       0.75f + static_cast<float>(i % 7u) * 0.125f;
+        exponents[i] = i == count - 1u ?
+                           std::numeric_limits<int32_t>::min() :
+                           static_cast<int32_t>(i % 9u) - 4;
+        rotates[i] = luisa::make_uint2(0xdeadbeefu);
+        powers[i] = -12345.0f;
+    }
+    alignas(16) std::array<SIMDHostBufferView, 6u> arguments{
+        SIMDHostBufferView{values.data(), sizeof(values)},
+        SIMDHostBufferView{shifts.data(), sizeof(shifts)},
+        SIMDHostBufferView{bases.data(), sizeof(bases)},
+        SIMDHostBufferView{exponents.data(), sizeof(exponents)},
+        SIMDHostBufferView{rotates.data(), sizeof(rotates)},
+        SIMDHostBufferView{powers.data(), sizeof(powers)},
+    };
+    auto config = launch_1d(count, 64u);
+    for (auto first = uint32_t{0u}; first < count; first += width) {
+        config.thread_index = first;
+        function(arguments.data(), nullptr, &config, width);
+    }
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        CHECK(rotates[i].x ==
+              std::rotl(values[i], static_cast<int>(shifts[i])));
+        CHECK(rotates[i].y ==
+              std::rotr(values[i], static_cast<int>(shifts[i])));
+        CHECK(std::bit_cast<uint32_t>(powers[i]) ==
+              std::bit_cast<uint32_t>(
+                  pow_integer_reference(bases[i], exponents[i])));
+    }
+    for (auto i = count; i < values.size(); i++) {
+        CHECK(luisa::all(
+            rotates[i] == luisa::make_uint2(0xdeadbeefu)));
+        CHECK(powers[i] == -12345.0f);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_integer_rotate_and_pow_codegen() {
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        if (!run_integer_rotate_and_pow_codegen_width(width)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -10830,6 +11040,8 @@ int main() {
          &run_sparse_lane_value_transpose_codegen},
         {"paired direct-buffer leaf gather",
          &run_paired_leaf_gather_ir},
+        {"XIR integer rotate and pow_int fixed-vector arithmetic",
+         &run_integer_rotate_and_pow_codegen},
         {"XIR faceforward fixed-vector arithmetic",
          &run_faceforward_codegen},
         {"lane-affine scalar buffer load/store",

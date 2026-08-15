@@ -457,6 +457,62 @@ namespace luisa::compute::simd::detail {
         }
         return sum;
     };
+    auto matrix_element = [&](::llvm::Value *matrix,
+                              const Type *matrix_type,
+                              uint32_t column,
+                              uint32_t row) -> ::llvm::Value * {
+        auto *column_type = _child_type(matrix_type, column);
+        auto *column_value = _extract_child(
+            matrix, matrix_type, column, varying);
+        return _extract_child(
+            column_value, column_type, row, varying);
+    };
+    auto determinant_minor =
+        [&](auto &&self, ::llvm::Value *matrix,
+            const Type *matrix_type, uint32_t row_mask,
+            uint32_t column_mask,
+            std::array<::llvm::Value *, 256u> &cache)
+        -> ::llvm::Value * {
+        auto key = (row_mask << 4u) | column_mask;
+        if (cache[key] != nullptr) { return cache[key]; }
+        auto first_row = uint32_t{0u};
+        while ((row_mask & (1u << first_row)) == 0u) {
+            first_row++;
+        }
+        if ((row_mask & (row_mask - 1u)) == 0u) {
+            auto first_column = uint32_t{0u};
+            while ((column_mask & (1u << first_column)) == 0u) {
+                first_column++;
+            }
+            return cache[key] = matrix_element(
+                       matrix, matrix_type, first_column, first_row);
+        }
+        auto remaining_rows = row_mask & ~(1u << first_row);
+        auto term_index = uint32_t{0u};
+        ::llvm::Value *sum = nullptr;
+        for (auto column = uint32_t{0u};
+             column < matrix_type->dimension(); column++) {
+            if ((column_mask & (1u << column)) == 0u) { continue; }
+            auto *minor = self(
+                self, matrix, matrix_type, remaining_rows,
+                column_mask & ~(1u << column), cache);
+            auto *term = _builder.CreateFMul(
+                matrix_element(
+                    matrix, matrix_type, column, first_row),
+                minor);
+            if (sum == nullptr) {
+                sum = (term_index & 1u) == 0u ?
+                          term :
+                          _builder.CreateFNeg(term);
+            } else {
+                sum = (term_index & 1u) == 0u ?
+                          _builder.CreateFAdd(sum, term) :
+                          _builder.CreateFSub(sum, term);
+            }
+            term_index++;
+        }
+        return cache[key] = sum;
+    };
     auto binary_leaf = [&](::llvm::Value *lhs, ::llvm::Value *rhs,
                            const Type *lhs_type,
                            const Type *) -> ::llvm::Value * {
@@ -511,6 +567,15 @@ namespace luisa::compute::simd::detail {
                 rhs = sanitize_inactive_integer(rhs, 0u);
                 return is_signed ? _builder.CreateAShr(lhs, rhs) :
                                    _builder.CreateLShr(lhs, rhs);
+            case xir::ArithmeticOp::BINARY_ROTATE_LEFT:
+            case xir::ArithmeticOp::BINARY_ROTATE_RIGHT:
+                lhs = sanitize_inactive_integer(lhs, 0u);
+                rhs = sanitize_inactive_integer(rhs, 0u);
+                return intrinsic(
+                    op == xir::ArithmeticOp::BINARY_ROTATE_LEFT ?
+                        ::llvm::Intrinsic::fshl :
+                        ::llvm::Intrinsic::fshr,
+                    {lhs, lhs, rhs});
             case xir::ArithmeticOp::BINARY_LESS:
             case xir::ArithmeticOp::BINARY_GREATER:
             case xir::ArithmeticOp::BINARY_LESS_EQUAL:
@@ -606,6 +671,8 @@ namespace luisa::compute::simd::detail {
         case xir::ArithmeticOp::BINARY_BIT_XOR:
         case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
         case xir::ArithmeticOp::BINARY_SHIFT_RIGHT:
+        case xir::ArithmeticOp::BINARY_ROTATE_LEFT:
+        case xir::ArithmeticOp::BINARY_ROTATE_RIGHT:
         case xir::ArithmeticOp::BINARY_LESS:
         case xir::ArithmeticOp::BINARY_GREATER:
         case xir::ArithmeticOp::BINARY_LESS_EQUAL:
@@ -668,6 +735,16 @@ namespace luisa::compute::simd::detail {
                         {minus_two, t, three});
                     return _builder.CreateFMul(tt, polynomial);
                 });
+        case xir::ArithmeticOp::STEP:
+            return binary(
+                [&](::llvm::Value *edge, ::llvm::Value *x,
+                    const Type *, const Type *) {
+                    auto *less = _builder.CreateFCmpOLT(x, edge);
+                    return _builder.CreateSelect(
+                        less,
+                        float_constant_like(x, 0.0),
+                        float_constant_like(x, 1.0));
+                });
         case xir::ArithmeticOp::ABS:
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
@@ -689,6 +766,28 @@ namespace luisa::compute::simd::detail {
                 return minmax_leaf(
                     lhs, rhs, type,
                     op == xir::ArithmeticOp::MAX);
+            });
+        case xir::ArithmeticOp::CLZ:
+        case xir::ArithmeticOp::CTZ:
+            return unary([&](::llvm::Value *value, const Type *) {
+                value = sanitize_inactive_integer(value, 0u);
+                return intrinsic(
+                    op == xir::ArithmeticOp::CLZ ?
+                        ::llvm::Intrinsic::ctlz :
+                        ::llvm::Intrinsic::cttz,
+                    {value, _builder.getFalse()});
+            });
+        case xir::ArithmeticOp::POPCOUNT:
+            return unary([&](::llvm::Value *value, const Type *) {
+                return intrinsic(
+                    ::llvm::Intrinsic::ctpop,
+                    {sanitize_inactive_integer(value, 0u)});
+            });
+        case xir::ArithmeticOp::REVERSE:
+            return unary([&](::llvm::Value *value, const Type *) {
+                return intrinsic(
+                    ::llvm::Intrinsic::bitreverse,
+                    {sanitize_inactive_integer(value, 0u)});
             });
         case xir::ArithmeticOp::ISNAN:
             return unary([&](::llvm::Value *value, const Type *) {
@@ -1057,6 +1156,146 @@ namespace luisa::compute::simd::detail {
                 return intrinsic(
                     ::llvm::Intrinsic::pow, {base, exponent});
             });
+        case xir::ArithmeticOp::POW_INT:
+            return binary([&](::llvm::Value *base,
+                              ::llvm::Value *exponent,
+                              const Type *, const Type *exponent_type)
+                              -> ::llvm::Value * {
+                if (varying) {
+                    // A parked physical lane has no semantic exponent. Make
+                    // it the exact multiplicative identity before entering
+                    // the vector loop, including the INT_MIN magnitude path.
+                    base = _builder.CreateSelect(
+                        _active_mask, base,
+                        float_constant_like(base, 1.0));
+                    exponent = _builder.CreateSelect(
+                        _active_mask, exponent,
+                        integer_constant_like(exponent, 0u));
+                }
+                auto *base_llvm_type = base->getType();
+                auto *exponent_llvm_type = exponent->getType();
+                auto *base_scalar_type = base_llvm_type->getScalarType();
+                auto *exponent_scalar_type =
+                    ::llvm::dyn_cast<::llvm::IntegerType>(
+                        exponent_llvm_type->getScalarType());
+                if (!base_scalar_type->isFloatingPointTy() ||
+                    exponent_scalar_type == nullptr ||
+                    exponent_scalar_type->isIntegerTy(1)) {
+                    _fail("pow_int requires floating-point bases and non-boolean integer exponents");
+                    return nullptr;
+                }
+                auto vector_width = uint32_t{0u};
+                if (auto *vector = ::llvm::dyn_cast<::llvm::FixedVectorType>(
+                        base_llvm_type)) {
+                    vector_width = vector->getNumElements();
+                }
+                auto base_code = base_scalar_type->isHalfTy()  ? "f16" :
+                                 base_scalar_type->isFloatTy() ? "f32" :
+                                                                 "f64";
+                auto helper_name = std::string{"luisa.simd.pow_int."} +
+                                   (exponent_type->is_int() ? "s" : "u") +
+                                   std::to_string(
+                                       exponent_scalar_type->getBitWidth()) +
+                                   "." + base_code +
+                                   (vector_width == 0u ? ".scalar" :
+                                                         ".v" + std::to_string(vector_width));
+                auto *helper = _module.getFunction(helper_name);
+                if (helper == nullptr) {
+                    auto *helper_type = ::llvm::FunctionType::get(
+                        base_llvm_type,
+                        {base_llvm_type, exponent_llvm_type}, false);
+                    helper = ::llvm::Function::Create(
+                        helper_type, ::llvm::Function::PrivateLinkage,
+                        helper_name, &_module);
+                    helper->addFnAttr(::llvm::Attribute::AlwaysInline);
+                    helper->setDoesNotAccessMemory();
+                    helper->setDoesNotThrow();
+                    helper->setWillReturn();
+
+                    auto &context = _module.getContext();
+                    auto *entry = ::llvm::BasicBlock::Create(
+                        context, "entry", helper);
+                    auto *loop = ::llvm::BasicBlock::Create(
+                        context, "loop", helper);
+                    auto *body = ::llvm::BasicBlock::Create(
+                        context, "body", helper);
+                    auto *exit = ::llvm::BasicBlock::Create(
+                        context, "exit", helper);
+                    ::llvm::IRBuilder<> helper_builder{entry};
+                    helper_builder.setFastMathFlags(
+                        _builder.getFastMathFlags());
+                    auto *zero = ::llvm::Constant::getNullValue(
+                        exponent_llvm_type);
+                    auto *one = float_constant_like(
+                        helper->getArg(0u), 1.0);
+                    auto *condition_type = static_cast<::llvm::Type *>(
+                        helper_builder.getInt1Ty());
+                    if (vector_width != 0u) {
+                        condition_type = ::llvm::FixedVectorType::get(
+                            helper_builder.getInt1Ty(), vector_width);
+                    }
+                    auto *negative = exponent_type->is_int() ?
+                                         helper_builder.CreateICmpSLT(
+                                             helper->getArg(1u), zero) :
+                                         ::llvm::Constant::getNullValue(
+                                             condition_type);
+                    // Unsigned two's-complement magnitude is defined even
+                    // for the most-negative signed exponent; do not attach
+                    // NSW to this subtraction.
+                    auto *magnitude = exponent_type->is_int() ?
+                                          helper_builder.CreateSelect(
+                                              negative,
+                                              helper_builder.CreateSub(
+                                                  zero, helper->getArg(1u)),
+                                              helper->getArg(1u)) :
+                                          helper->getArg(1u);
+                    auto *reciprocal = helper_builder.CreateFDiv(
+                        one, helper->getArg(0u));
+                    auto *factor = helper_builder.CreateSelect(
+                        negative, reciprocal, helper->getArg(0u));
+                    helper_builder.CreateBr(loop);
+
+                    helper_builder.SetInsertPoint(loop);
+                    auto *current_magnitude = helper_builder.CreatePHI(
+                        exponent_llvm_type, 2u, "magnitude");
+                    auto *current_result = helper_builder.CreatePHI(
+                        base_llvm_type, 2u, "result");
+                    auto *current_factor = helper_builder.CreatePHI(
+                        base_llvm_type, 2u, "factor");
+                    current_magnitude->addIncoming(magnitude, entry);
+                    current_result->addIncoming(one, entry);
+                    current_factor->addIncoming(factor, entry);
+                    auto *nonzero = helper_builder.CreateICmpNE(
+                        current_magnitude, zero);
+                    auto *any_nonzero = vector_width == 0u ?
+                                            nonzero :
+                                            helper_builder.CreateOrReduce(
+                                                nonzero);
+                    helper_builder.CreateCondBr(
+                        any_nonzero, body, exit);
+
+                    helper_builder.SetInsertPoint(body);
+                    auto *odd = helper_builder.CreateTrunc(
+                        current_magnitude, condition_type);
+                    auto *multiplied = helper_builder.CreateFMul(
+                        current_result, current_factor);
+                    auto *next_result = helper_builder.CreateSelect(
+                        odd, multiplied, current_result);
+                    auto *next_magnitude = helper_builder.CreateLShr(
+                        current_magnitude, 1u);
+                    auto *next_factor = helper_builder.CreateFMul(
+                        current_factor, current_factor);
+                    helper_builder.CreateBr(loop);
+                    current_magnitude->addIncoming(
+                        next_magnitude, body);
+                    current_result->addIncoming(next_result, body);
+                    current_factor->addIncoming(next_factor, body);
+
+                    helper_builder.SetInsertPoint(exit);
+                    helper_builder.CreateRet(current_result);
+                }
+                return _builder.CreateCall(helper, {base, exponent});
+            });
         case xir::ArithmeticOp::SQRT:
             return unary_intrinsic(::llvm::Intrinsic::sqrt);
         case xir::ArithmeticOp::RSQRT:
@@ -1092,6 +1331,191 @@ namespace luisa::compute::simd::detail {
                 });
         case xir::ArithmeticOp::COPYSIGN:
             return binary_intrinsic(::llvm::Intrinsic::copysign);
+        case xir::ArithmeticOp::REDUCE_SUM:
+        case xir::ArithmeticOp::REDUCE_PRODUCT:
+        case xir::ArithmeticOp::REDUCE_MIN:
+        case xir::ArithmeticOp::REDUCE_MAX: {
+            if (!require(1u) || !operand_types[0u]->is_vector()) {
+                _fail("vector reduction requires one vector operand");
+                return nullptr;
+            }
+            auto *vector_type = operand_types[0u];
+            auto *element_type = vector_type->element();
+            auto *first = _extract_child(
+                operands[0u], vector_type, 0u, varying);
+            ::llvm::Value *reduced = nullptr;
+            auto first_component = uint32_t{0u};
+            if (op == xir::ArithmeticOp::REDUCE_MIN ||
+                op == xir::ArithmeticOp::REDUCE_MAX) {
+                reduced = first;
+                first_component = 1u;
+            } else if (element_type->is_float16() ||
+                       element_type->is_float32() ||
+                       element_type->is_float64()) {
+                reduced = float_constant_like(
+                    first,
+                    op == xir::ArithmeticOp::REDUCE_SUM ?
+                        -0.0 :
+                        1.0);
+            } else {
+                reduced = integer_constant_like(
+                    first,
+                    op == xir::ArithmeticOp::REDUCE_SUM ?
+                        0u :
+                        1u);
+            }
+            for (auto i = first_component;
+                 i < vector_type->dimension(); i++) {
+                auto *component = _extract_child(
+                    operands[0u], vector_type, i, varying);
+                if (op == xir::ArithmeticOp::REDUCE_SUM) {
+                    reduced = element_type->is_float16() ||
+                                      element_type->is_float32() ||
+                                      element_type->is_float64() ?
+                                  _builder.CreateFAdd(
+                                      reduced, component) :
+                                  _builder.CreateAdd(
+                                      reduced, component);
+                } else if (op == xir::ArithmeticOp::REDUCE_PRODUCT) {
+                    reduced = element_type->is_float16() ||
+                                      element_type->is_float32() ||
+                                      element_type->is_float64() ?
+                                  _builder.CreateFMul(
+                                      reduced, component) :
+                                  _builder.CreateMul(
+                                      reduced, component);
+                } else {
+                    reduced = minmax_leaf(
+                        reduced, component, element_type,
+                        op == xir::ArithmeticOp::REDUCE_MAX);
+                }
+            }
+            return reduced;
+        }
+        case xir::ArithmeticOp::OUTER_PRODUCT: {
+            if (!require(2u) || !result->type->is_matrix()) {
+                _fail("outer product requires two vectors or two matrices");
+                return nullptr;
+            }
+            auto *lhs_type = operand_types[0u];
+            auto *rhs_type = operand_types[1u];
+            auto dimension = result->type->dimension();
+            if (lhs_type->dimension() != dimension ||
+                rhs_type->dimension() != dimension ||
+                lhs_type->is_matrix() != rhs_type->is_matrix()) {
+                _fail("outer product operand dimensions do not match its result");
+                return nullptr;
+            }
+            return _assemble(
+                result->type, varying, [&](uint32_t column) {
+                    auto *column_type = _child_type(
+                        result->type, column);
+                    return _assemble(
+                        column_type, varying, [&](uint32_t row) {
+                            if (lhs_type->is_vector()) {
+                                return _builder.CreateFMul(
+                                    _extract_child(
+                                        operands[0u], lhs_type,
+                                        row, varying),
+                                    _extract_child(
+                                        operands[1u], rhs_type,
+                                        column, varying));
+                            }
+                            ::llvm::Value *sum = nullptr;
+                            for (auto k = uint32_t{0u};
+                                 k < dimension; k++) {
+                                auto *term = _builder.CreateFMul(
+                                    matrix_element(
+                                        operands[0u], lhs_type,
+                                        k, row),
+                                    matrix_element(
+                                        operands[1u], rhs_type,
+                                        k, column));
+                                sum = sum == nullptr ?
+                                          term :
+                                          _builder.CreateFAdd(sum, term);
+                            }
+                            return sum;
+                        });
+                });
+        }
+        case xir::ArithmeticOp::MATRIX_TRANSPOSE: {
+            if (!require(1u) ||
+                !operand_types[0u]->is_matrix() ||
+                operand_types[0u] != result->type) {
+                _fail("matrix transpose requires a same-type matrix result");
+                return nullptr;
+            }
+            return _assemble(
+                result->type, varying, [&](uint32_t column) {
+                    auto *column_type = _child_type(
+                        result->type, column);
+                    return _assemble(
+                        column_type, varying, [&](uint32_t row) {
+                            return matrix_element(
+                                operands[0u], operand_types[0u],
+                                row, column);
+                        });
+                });
+        }
+        case xir::ArithmeticOp::MATRIX_DETERMINANT: {
+            if (!require(1u) || !operand_types[0u]->is_matrix()) {
+                _fail("matrix determinant requires one matrix operand");
+                return nullptr;
+            }
+            auto dimension = operand_types[0u]->dimension();
+            if (dimension < 2u || dimension > 4u) {
+                _fail("matrix determinant supports dimensions two through four");
+                return nullptr;
+            }
+            auto full_mask = (1u << dimension) - 1u;
+            std::array<::llvm::Value *, 256u> cache{};
+            return determinant_minor(
+                determinant_minor, operands[0u], operand_types[0u],
+                full_mask, full_mask, cache);
+        }
+        case xir::ArithmeticOp::MATRIX_INVERSE: {
+            if (!require(1u) ||
+                !operand_types[0u]->is_matrix() ||
+                operand_types[0u] != result->type) {
+                _fail("matrix inverse requires a same-type matrix result");
+                return nullptr;
+            }
+            auto dimension = result->type->dimension();
+            if (dimension < 2u || dimension > 4u) {
+                _fail("matrix inverse supports dimensions two through four");
+                return nullptr;
+            }
+            auto full_mask = (1u << dimension) - 1u;
+            std::array<::llvm::Value *, 256u> cache{};
+            auto *determinant = determinant_minor(
+                determinant_minor, operands[0u], operand_types[0u],
+                full_mask, full_mask, cache);
+            auto *inverse_determinant = _builder.CreateFDiv(
+                float_constant_like(determinant, 1.0), determinant);
+            return _assemble(
+                result->type, varying, [&](uint32_t column) {
+                    auto *column_type = _child_type(
+                        result->type, column);
+                    return _assemble(
+                        column_type, varying, [&](uint32_t row) {
+                            // inverse[row][column] is the transposed
+                            // cofactor C[column][row]. With column-major
+                            // storage this excludes source row=column and
+                            // source column=row.
+                            auto *cofactor = determinant_minor(
+                                determinant_minor,
+                                operands[0u], operand_types[0u],
+                                full_mask & ~(1u << column),
+                                full_mask & ~(1u << row), cache);
+                            if (((column + row) & 1u) != 0u) {
+                                cofactor = _builder.CreateFNeg(cofactor);
+                            }
+                            return _builder.CreateFMul(
+                                cofactor, inverse_determinant);
+                        });
+                });
+        }
         case xir::ArithmeticOp::MATRIX_LINALG_MUL: {
             if (!require(2u)) { return nullptr; }
             auto *lhs_type = operand_types[0u];

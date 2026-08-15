@@ -121,6 +121,18 @@ set and exclusively owns legalization, instruction selection, register
 allocation, and machine scheduling. A scalar C++ implementation of warp
 collectives exists under unit tests only as a semantic oracle.
 
+The Schedule-to-LLVM arithmetic switch is exhaustive for the operand/result
+shapes accepted by the XIR verifier. Rotates use target-independent
+`llvm.fshl`/`llvm.fshr`; bit count/reverse operations use the corresponding
+LLVM intrinsics; and integer-exponent power is one scalar or whole
+fixed-vector exponentiation-by-squaring loop rather than a source-level lane
+loop. Source-vector reductions fold the two-to-four component axis separately
+inside every SIMD lane. Vector/matrix outer product and 2x2/3x3/4x4 transpose,
+determinant, and inverse operate directly on the SoA aggregate leaves. Uniform
+operands retain the same scalar lowering, while varying partial tails sanitize
+the operands of rotate, bit-count, and integer-power operations before they
+execute.
+
 ## 2. Why this is a separate backend
 
 The current `fallback` backend is a useful semantic and runtime reference, but
@@ -3437,7 +3449,11 @@ on 2026-08-11. The repository now contains:
 - recursive Luisa-ABI loading for uniform aggregate values, SoA splatting,
   cohort spill/reload, component-wise integer arithmetic, aggregate
   construction/extraction/insertion/shuffle, scalar/vector casts, 2/3/4-wide
-  matrix linear algebra, `smoothstep`, and `reflect`;
+  matrix linear algebra, `smoothstep`, `step`, and `reflect`; verifier-legal
+  arithmetic coverage additionally includes rotate, count-leading/trailing-
+  zero, population count, bit reverse, signed/unsigned integer-exponent power,
+  component-axis reductions, vector/matrix outer product, and 2x2/3x3/4x4
+  transpose, determinant, and inverse;
 - direct Buffer descriptors with typed and byte-address queries plus masked
   LLVM gather/scatter for scalar, vector, matrix, array, and structure leaves;
 - use-site lane-step provenance for direct typed scalar buffers, with static
@@ -3554,6 +3570,18 @@ on 2026-08-11. The repository now contains:
   W16 tail; the same five-width gate covers GPU-authored indirect records,
   invalid-block suppression, range clamping, inactive tails, and direct or
   indirect `kernel_id()` propagation.
+
+The arithmetic-completion checkpoint adds independent runtime oracles for all
+newly covered operations at W1/W2/W4/W8/W16 with a 35-thread dispatch, so W16
+ends in a three-lane tail. A direct XIR-to-Schedule-to-LLVM fixture additionally
+requires fixed-vector rotate and integer-power IR, rejects lane
+extract/call/insert sequences and target-specific intrinsic namespaces, checks
+the optimized object for scalar `powf`, executes every width, and verifies that
+tail sentinels remain untouched. Full Release builds of both maintained build
+trees pass 141/141 tests and their separately repeated SIMD-labelled gates pass
+36/36. Image processing, voxel ray tracing, path tracing, and the SDF renderer
+also pass checked-in reference images at every width; path tracing and SDF use
+1024 samples per pixel.
 
 The next implementation boundary is completion of the remaining Embree
 vertical slice: deeper instance-stack semantics and a SoA packet-query-state

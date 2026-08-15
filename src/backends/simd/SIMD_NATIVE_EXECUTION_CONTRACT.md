@@ -1325,6 +1325,59 @@ equality. Runtime reports all accepted accesses in `contiguous_buffer_reads`/
 `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` is the same-binary A/B oracle for
 both scalar and lane/value refinements.
 
+### 4.9 Complete verifier-legal arithmetic lowering
+
+For every `ArithmeticOp` and operand/result shape accepted by the XIR verifier,
+Schedule-to-LLVM either emits the operation under this contract or reports a
+specific capability failure before execution. The current arithmetic switch
+has no accepted opcode that falls through to an unimplemented default.
+
+The newly completed integer and scalar operations have these semantics:
+
+- rotate-left/right use `llvm.fshl`/`llvm.fshr`; the shift is reduced modulo
+  the integer bit width by the intrinsic semantics;
+- `clz(0)` and `ctz(0)` return the integer bit width. Population count and bit
+  reverse preserve the operand width;
+- `step(edge, x)` is zero exactly when the ordered comparison `x < edge` is
+  true and one otherwise, so an unordered NaN comparison returns one;
+- `pow_int(base, exponent)` preserves the declared signedness and full width of
+  the exponent. A signed negative exponent selects `1 / base`; its magnitude
+  is formed with wrapping unsigned arithmetic, including the most-negative
+  value. Exponent zero returns one.
+
+`pow_int` is implemented by exponentiation by squaring. A uniform input invokes
+one scalar helper. A varying input invokes one whole fixed-vector helper whose
+loop terminates when `llvm.vector.reduce.or(exponent != 0)` is false; the loop
+contains vector multiply, logical shift, and select, but no physical-lane
+induction variable, `extractelement`/scalar-call/`insertelement` sequence, or
+scalar libm dependency. Before the varying helper executes, inactive bases are
+selected to one and inactive exponents to zero. Rotates and integer bit
+operations similarly select benign inactive operands, so parked physical-lane
+state is never fed to those intrinsics.
+
+Source-vector `reduce_sum`, `reduce_product`, `reduce_min`, and `reduce_max`
+fold the source aggregate's component axis. They never reduce across SIMD
+thread lanes. Integer min/max preserves signedness; floating reduction order is
+the deterministic component order, beginning with negative zero for sum and
+one for product as in the scalar backend.
+
+For dimensions two through four, vector outer product is
+`result[column][row] = lhs[row] * rhs[column]`; matrix outer product is
+`lhs * transpose(rhs)`. Transpose, determinant, and inverse are expanded over
+SoA leaves. Determinants use cached recursive minors, and inverse uses the
+transposed cofactor matrix divided by the determinant. A singular inverse has
+no finite-result guarantee: division by a zero determinant and subsequent
+non-finite propagation follow the configured LLVM floating arithmetic rather
+than inventing a domain extension or invoking a host matrix routine.
+
+Runtime semantic coverage uses independent host oracles at W1/W2/W4/W8/W16
+and 35 threads, including zero count operands, signed and unsigned reductions,
+the most-negative signed exponent, uniform NaN `step`, all matrix dimensions,
+and a three-lane W16 tail. A direct XIR fixture additionally checks raw
+fixed-vector rotate/power IR, absence of target-specific intrinsic namespaces
+and lane extract/insert loops, absence of `powf` from optimized assembly and
+object bytes, bit-exact active results, and untouched inactive-tail sentinels.
+
 ## 5. Vector-math providers
 
 Provider selection is ordered:

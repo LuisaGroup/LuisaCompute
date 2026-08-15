@@ -4038,3 +4038,33 @@ backend object has exactly the expected unresolved packet entries
 scalar fallback. Disassembly confines the coherent-flag construction and
 sixteen-entry validity scan to the W16 arms; the W4/W8 arms retain their prior
 incoherent call shape.
+
+## Verifier-legal arithmetic completion
+
+The next compiler checkpoint completes Schedule-to-LLVM lowering for the XIR
+arithmetic operations that previously reached the explicit unimplemented-op
+diagnostic: rotate, `step`, count-leading/trailing-zero, population count, bit
+reverse, signed/unsigned integer-exponent power, component reductions,
+vector/matrix outer product, and 2x2/3x3/4x4 transpose, determinant, and
+inverse. This is a capability and correctness change, not a measured speedup:
+the old backend rejected these kernels, and no existing renderer hot path was
+changed. Consequently there is no valid candidate/oracle throughput ratio to
+report for this checkpoint.
+
+The varying integer-power path is nevertheless machine-audited. Its raw helper
+contains one fixed-vector exponentiation-by-squaring loop with vector multiply,
+shift, select, and `llvm.vector.reduce.or`, no lane extract/insert loop, and no
+target-specific intrinsic. Optimized assembly and object bytes contain no
+`powf`. Rotate remains target-independent `llvm.fshl`/`llvm.fshr`. Uniform
+inputs continue through one scalar helper invocation rather than one per lane.
+
+Both Release build trees pass 141/141 full CTest and 36/36 separately repeated
+SIMD-labelled tests. The focused arithmetic/runtime/native-math/Schedule gate
+passes 5/5 in each tree. A fresh real-example sweep passes image processing,
+voxel ray tracing, 1024-spp path tracing, and the 1024-spp SDF renderer against
+their checked-in references at W1/W2/W4/W8/W16. Image processing reports
+89.251953 dB RGB PSNR at every width, voxel reports 82.834519 dB, and SDF
+reports 63.129346 dB. Path tracing reports respectively 35.426795, 42.781582,
+40.940376, 39.219305, and 37.800295 dB for W1/W2/W4/W8/W16. These single-run
+correctness executions are intentionally not treated as stable performance
+measurements.
