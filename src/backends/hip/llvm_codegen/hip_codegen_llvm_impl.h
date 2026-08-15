@@ -128,10 +128,12 @@ public:
         llvm::Function *on_surface;
         llvm::Function *on_procedural;
         // True exactly when the parent function can observe query state after
-        // the synchronous pipeline. A handler-only traversal transports its
-        // result through captured side effects and does not need the generic
-        // resumable ABI merely because that captured environment is large.
+        // the synchronous pipeline.
         bool post_state_observed;
+        // True when either handler observes committed state or the world ray.
+        // Such a handler requires the exact query-object transaction instead
+        // of the compact {candidate, commit, terminate} action product.
+        bool full_candidate_state_observed;
         luisa::vector<llvm::StoreInst *> stores;
         luisa::vector<llvm::LoadInst *> loads;
         // The compact candidate transaction decodes the same projected user
@@ -142,8 +144,8 @@ public:
 
     struct RayQueryPipelineProjectionInfo {
         size_t maximum_context_bytes{0u};
-        size_t maximum_post_state_observed_context_bytes{0u};
-        size_t oversized_handler_only_pipeline_count{0u};
+        size_t maximum_budget_constrained_context_bytes{0u};
+        size_t oversized_compact_handler_only_pipeline_count{0u};
     };
 
     static constexpr auto llvm_buffer_type_ptr_index = 0;

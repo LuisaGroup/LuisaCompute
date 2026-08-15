@@ -313,8 +313,9 @@ void compile_observing_ray_query(Device &device) noexcept {
 }
 
 void compile_large_ray_query_environment(
-    Device &device, bool observe_post_state) noexcept {
-    Kernel1D kernel = [observe_post_state](
+    Device &device, bool observe_post_state,
+    bool observe_world_ray = false) noexcept {
+    Kernel1D kernel = [observe_post_state, observe_world_ray](
                           BufferUInt output,
                           BufferUInt input_0,
                           BufferUInt input_1,
@@ -341,6 +342,10 @@ void compile_large_ray_query_environment(
                                    input_2.read(0u) ^ input_3.read(0u) ^
                                    input_4.read(0u) ^ input_5.read(0u) ^
                                    input_6.read(0u) ^ input_7.read(0u);
+                               if (observe_world_ray) {
+                                   checksum ^= cast<uint>(
+                                       candidate.ray()->t_max() > 0.0f);
+                               }
                                output.write(dispatch_x(), checksum);
                                candidate.commit();
                            })
@@ -476,6 +481,7 @@ int main(int argc, char *argv[]) {
             compile_observing_ray_query(device);
             compile_large_ray_query_environment(device, false);
             compile_large_ray_query_environment(device, true);
+            compile_large_ray_query_environment(device, false, true);
             const auto before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_4.ll");
             const auto observing_before_module = read_text_file(
@@ -500,11 +506,16 @@ int main(int argc, char *argv[]) {
                 amdgpu_kernel_body(handler_only_before_module);
             const auto observed_large_before_root =
                 amdgpu_kernel_body(observed_large_before_module);
+            const auto full_candidate_large_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_8.ll");
+            const auto full_candidate_large_before_root =
+                amdgpu_kernel_body(full_candidate_large_before_module);
             expect(!before_root.empty() &&
                    !observing_before_root.empty() && !root.empty() &&
                    !observing_dispatcher.empty() &&
                    !handler_only_before_root.empty() &&
-                   !observed_large_before_root.empty())
+                   !observed_large_before_root.empty() &&
+                   !full_candidate_large_before_root.empty())
                 << "failed to locate the generated RayQuery functions";
             // Selection is a codegen property, while outlining is an LLVM
             // profitability decision. Inspect the generated root before the
@@ -650,6 +661,14 @@ int main(int argc, char *argv[]) {
                        std::string_view::npos)
                 << "observable large RayQuery post-state did not fail closed "
                    "to the resumable traversal ABI";
+            expect(full_candidate_large_before_module.find(
+                       "@luisa_ray_query_proceed(") !=
+                       std::string_view::npos &&
+                   full_candidate_large_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
+                       std::string_view::npos)
+                << "large full-candidate RayQuery did not fail closed to the "
+                   "resumable traversal ABI";
         };
 
     "HIP lowers fixed-vector dot products and preserves FP mode"_test =
@@ -670,7 +689,7 @@ int main(int argc, char *argv[]) {
                     module.find("llvm.vector.reduce.fadd") !=
                     std::string::npos;
             }
-            expect(dumped_module_count == 8u)
+            expect(dumped_module_count == 9u)
                 << "expected one final HIP LLVM module per compiled shader";
             expect(!retained_vector_reduction)
                 << "fixed-vector dot product retained the target-unstable "

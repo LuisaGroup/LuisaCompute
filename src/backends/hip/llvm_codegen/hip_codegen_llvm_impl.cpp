@@ -1249,14 +1249,15 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     if (_uses_synchronous_ray_query_pipeline &&
         !hip_synchronous_ray_query_environment_is_profitable(
             ray_query_projection
-                .maximum_post_state_observed_context_bytes)) {
+                .maximum_budget_constrained_context_bytes)) {
         _retry_with_resumable_ray_query_pipeline = true;
         LUISA_VERBOSE(
             "HIP synchronous RayQuery plan rejected: maximum projected "
-            "callback environment whose post-state is observed is {} bytes "
-            "(budget={} bytes; overall maximum={} bytes).",
+            "callback environment requiring an exact candidate or observable "
+            "post-state transaction is {} bytes (budget={} bytes; overall "
+            "maximum={} bytes).",
             ray_query_projection
-                .maximum_post_state_observed_context_bytes,
+                .maximum_budget_constrained_context_bytes,
             hip_synchronous_ray_query_environment_budget,
             ray_query_projection.maximum_context_bytes);
         return {};
@@ -1267,9 +1268,10 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
         LUISA_VERBOSE(
             "HIP synchronous RayQuery retained {} handler-only pipeline(s) "
             "above the ordinary {}-byte callback budget (overall maximum={} "
-            "bytes): their query post-state is unobservable and candidate "
-            "side effects are the traversal result.",
-            ray_query_projection.oversized_handler_only_pipeline_count,
+            "bytes): their query post-state is unobservable and their "
+            "handlers admit the compact candidate-action transaction.",
+            ray_query_projection
+                .oversized_compact_handler_only_pipeline_count,
             hip_synchronous_ray_query_environment_budget,
             ray_query_projection.maximum_context_bytes);
     }

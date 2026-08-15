@@ -501,13 +501,24 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
         projection.maximum_context_bytes = std::max(
             projection.maximum_context_bytes,
             current_projected_context_bytes);
-        if (context.post_state_observed) {
-            projection.maximum_post_state_observed_context_bytes = std::max(
-                projection.maximum_post_state_observed_context_bytes,
+        // A large synchronous environment is admissible only when both sides
+        // of the callback boundary project to compact products:
+        //
+        //   parent result  = handler side effects (post-state is dead), and
+        //   candidate input = {kind, instance, primitive, bary/t}.
+        //
+        // If the parent reads the final query state, or a handler reads the
+        // committed hit/world ray, the exact query transaction remains live.
+        // In either case the environment is reloaded across that exact hot
+        // boundary and remains subject to the ordinary native-size budget.
+        if (context.post_state_observed ||
+            context.full_candidate_state_observed) {
+            projection.maximum_budget_constrained_context_bytes = std::max(
+                projection.maximum_budget_constrained_context_bytes,
                 current_projected_context_bytes);
         } else if (current_projected_context_bytes >
                    hip_synchronous_ray_query_environment_budget) {
-            projection.oversized_handler_only_pipeline_count++;
+            projection.oversized_compact_handler_only_pipeline_count++;
         }
         projected_argument_count +=
             argument_count - 1u - retained_indices.size();
@@ -1253,6 +1264,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                 llvm_on_surface,
                 llvm_on_procedural,
                 post_state_observed,
+                observation_mask != 0u,
                 std::move(llvm_context_stores),
                 std::move(llvm_context_loads),
                 std::move(llvm_compact_context_loads)});
