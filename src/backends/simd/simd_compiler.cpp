@@ -74,7 +74,8 @@ SIMDCompiledKernel compile_simd_kernel(
     std::string_view entry_name, bool enable_fast_math,
     bool enable_uniform_buffer_broadcast,
     bool enable_lane_affine_buffer, bool capture_assembly,
-    uint32_t dispatch_worker_count) {
+    uint32_t dispatch_worker_count,
+    bool enable_packet_batch_entry) {
     SIMDCompiledKernel result{
         .warp_width = warp_width,
     };
@@ -100,6 +101,9 @@ SIMDCompiledKernel compile_simd_kernel(
         jit->supports_native_paired_leaf_gather(warp_width);
     auto use_native_predicated_loop =
         jit->supports_native_predicated_loop(warp_width);
+    auto use_inlined_packet_batch =
+        enable_packet_batch_entry &&
+        jit->supports_inlined_packet_batch(warp_width);
     result.native_predicated_loop = use_native_predicated_loop;
     if (detail::env_flag("LUISA_SIMD_REPORT_SCHEDULE")) {
         LUISA_INFO(
@@ -125,7 +129,9 @@ SIMDCompiledKernel compile_simd_kernel(
         enable_lane_affine_buffer,
         use_paired_leaf_gather,
         dispatch_worker_count,
-        use_native_predicated_loop);
+        use_native_predicated_loop,
+        enable_packet_batch_entry,
+        use_inlined_packet_batch);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
@@ -222,6 +228,10 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.direct_divergent_child_count;
     result.direct_control_flow = llvm_result.direct_control_flow;
     auto llvm_entry_name = llvm_result.entry->getName().str();
+    auto llvm_packet_batch_entry_name =
+        llvm_result.packet_batch_entry == nullptr ?
+            std::string{} :
+            llvm_result.packet_batch_entry->getName().str();
     result.jit = std::move(jit);
     result.target_triple = result.jit->target_triple();
     if (capture_assembly) {
@@ -238,10 +248,19 @@ SIMDCompiledKernel compile_simd_kernel(
         result.jit.reset();
         return result;
     }
-    result.entry = result.jit->lookup(llvm_entry_name);
-    if (result.entry == nullptr) {
-        result.diagnostics.emplace_back(result.jit->error());
-        result.jit.reset();
+    if (llvm_packet_batch_entry_name.empty()) {
+        result.entry = result.jit->lookup(llvm_entry_name);
+        if (result.entry == nullptr) {
+            result.diagnostics.emplace_back(result.jit->error());
+            result.jit.reset();
+        }
+    } else {
+        result.packet_batch_entry = result.jit->lookup(
+            llvm_packet_batch_entry_name);
+        if (result.packet_batch_entry == nullptr) {
+            result.diagnostics.emplace_back(result.jit->error());
+            result.jit.reset();
+        }
     }
     return result;
 }
@@ -250,7 +269,8 @@ SIMDCompiledKernel compile_simd_kernel(
     const compute::Function &kernel, uint32_t warp_width,
     std::string_view entry_name, bool enable_fast_math,
     bool capture_assembly,
-    uint32_t dispatch_worker_count) {
+    uint32_t dispatch_worker_count,
+    bool enable_packet_batch_entry) {
     auto *translation = xir::ast_to_xir_translate_begin({});
     auto *xir_kernel = xir::ast_to_xir_translate_add_function(
         translation, kernel);
@@ -391,7 +411,8 @@ SIMDCompiledKernel compile_simd_kernel(
             "LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST"),
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER"),
-        capture_assembly, dispatch_worker_count);
+        capture_assembly, dispatch_worker_count,
+        enable_packet_batch_entry);
     result.fast_math_identity_count = fast_math_info.identity_count;
     result.fast_math_radix_pow_count = fast_math_info.radix_pow_count;
     result.decomposed_aggregate_alloca_count =

@@ -19,10 +19,17 @@ class SIMDShader {
 public:
     using Entry = void(
         const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    // Same physical ABI as Entry; the fourth argument is the number of full
+    // logical packets to issue from launch_config.thread_index. The wrapper
+    // advances that field in place while issuing the packets.
+    using PacketBatchEntry = void(
+        const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
 
 private:
     SIMDCompiledKernel _compiled;
     Entry *_entry{nullptr};
+    PacketBatchEntry *_packet_batch_entry{nullptr};
+    bool _enable_packet_batch_entry{false};
     uint3 _block_size{1u, 1u, 1u};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     luisa::vector<Usage> _argument_usages;
@@ -45,7 +52,11 @@ public:
         SIMDThreadPool &thread_pool,
         luisa::unique_ptr<ShaderDispatchCommand> command) const noexcept;
     [[nodiscard]] Usage argument_usage(size_t index) const noexcept;
-    [[nodiscard]] auto native_handle() const noexcept { return _entry; }
+    [[nodiscard]] auto native_handle() const noexcept {
+        return _compiled.packet_batch_entry != nullptr ?
+                   _compiled.packet_batch_entry :
+                   _compiled.entry;
+    }
     [[nodiscard]] auto block_size() const noexcept { return _block_size; }
     [[nodiscard]] auto warp_width() const noexcept {
         return _compiled.warp_width;

@@ -22,6 +22,9 @@ namespace luisa::compute::simd {
 struct SIMDCompiledKernel {
     std::unique_ptr<LLVMJIT> jit{};
     void *entry{nullptr};
+    // Optional runtime-only block packet wrapper; see
+    // LLVMScheduleCodegenResult::packet_batch_entry.
+    void *packet_batch_entry{nullptr};
     size_t argument_buffer_size{0u};
     // Pre-schedule rewrite feedback for diagnostics/tests.
     size_t fast_math_identity_count{0u};
@@ -97,7 +100,10 @@ struct SIMDCompiledKernel {
     std::vector<std::string> diagnostics{};
 
     [[nodiscard]] bool succeeded() const noexcept {
-        return jit != nullptr && entry != nullptr && diagnostics.empty();
+        return jit != nullptr &&
+               ((entry != nullptr) !=
+                (packet_batch_entry != nullptr)) &&
+               diagnostics.empty();
     }
 };
 
@@ -111,7 +117,8 @@ struct SIMDCompiledKernel {
     bool enable_uniform_buffer_broadcast = true,
     bool enable_lane_affine_buffer = true,
     bool capture_assembly = false,
-    uint32_t dispatch_worker_count = 1u);
+    uint32_t dispatch_worker_count = 1u,
+    bool enable_packet_batch_entry = false);
 
 // Translates a DSL/AST kernel to XIR, legalizes its structured control flow,
 // inlines callables, promotes local SSA storage, and then invokes the packet
@@ -120,6 +127,7 @@ struct SIMDCompiledKernel {
     const compute::Function &kernel, uint32_t warp_width,
     std::string_view entry_name = {}, bool enable_fast_math = false,
     bool capture_assembly = false,
-    uint32_t dispatch_worker_count = 1u);
+    uint32_t dispatch_worker_count = 1u,
+    bool enable_packet_batch_entry = false);
 
 }// namespace luisa::compute::simd

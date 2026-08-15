@@ -319,6 +319,26 @@ single worker; different blocks may execute concurrently and in any order.
 The pool joins before the next command, dispatch size, download, or callback in
 the same command list becomes observable.
 
+For W2/W4/W8/W16 blocks with more than one packet, the production compiler may
+replace the repeated host-to-JIT calls by one exclusive block-local packet-batch
+entry. Its first three arguments retain the ordinary physical packet ABI and
+its fourth argument is the number of full logical packets. Starting from the
+block-owned `launch_config.thread_index`, packet `p` executes the ordinary body
+with first thread `base + p * W` and active-lane count `W`. Packets remain
+strictly ordered; dispatch-bound checks inside each body still mask lanes beyond
+the exact logical extent. The wrapper may mutate only that block job's private
+launch configuration, which is not observable by a kernel or another worker.
+
+The lowering may use a dynamic wrapper loop, unroll only a statically bounded
+call shell, or inline one packet body into one dynamic loop. It must never clone
+the body once per packet. The original packet function has internal linkage in
+batch mode, and exactly one of the ordinary entry and batch entry is externally
+discoverable. W1, a single-packet block, the disabled oracle, and standalone
+lowering retain the ordinary entry. W8 inlining is a measured target policy and
+requires TargetTransformInfo evidence for a wide register file; correctness
+does not depend on it. `LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY=1` restores the
+host-side single-packet loop before JIT construction.
+
 Each block job owns its `SIMDPacketLaunchConfig`; the argument descriptor buffer
 is immutable for the duration of the dispatch. Dispatch-edge packet masks are
 therefore unchanged by host scheduling. Concurrent non-atomic conflicting
@@ -364,6 +384,8 @@ lane-consecutive typed-buffer accesses.
 eligible W8 direct vector-buffer reads. `LUISA_SIMD_REPORT_OPTIMIZATIONS=1`
 logs per-shader transform, scheduler-state, ray-query scratch, ray-query
 status-color, and cached state-handle counters.
+`LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY=1` restores one exported JIT call per
+packet and is the runtime/codegen A/B oracle for block-local packet batching.
 `LUISA_SIMD_REPORT_XIR=1` logs canonical XIR immediately before and after the
 SIMD scheduling rewrites. `LUISA_SIMD_REPORT_SCHEDULE=1` logs the verified
 Schedule IR immediately before LLVM lowering, including value classes,

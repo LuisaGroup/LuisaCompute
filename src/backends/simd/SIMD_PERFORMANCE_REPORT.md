@@ -86,6 +86,11 @@ Voxel now supplies the complementary two-sided case: both arithmetic arms stay
 behind their own nonempty-mask guard and reconverge without a scheduler frame.
 This removes 37% of the W8 kernel's dynamic instructions while retaining one
 source copy and exact candidate/oracle output.
+The latest runtime stage moves the serial packet loop for one block across the
+JIT boundary. W8 on the recorded wide-register host inlines one body into one
+loop; W16 unrolls only its sixteen-call shell for the common 256-thread block.
+W2/W4 retain a compact dynamic wrapper. The ordinary packet body is internal,
+so no object carries two exported implementations.
 
 ## Test host and method
 
@@ -2708,6 +2713,66 @@ thirty-round W16-only repeat measured 1.010x [1.008, 1.012]. W16 is therefore
 close but has not statistically crossed parity; GEMM remains the established
 same-algorithm workload where Luisa is already faster than matched-width ISPC.
 
+### Block-local packet batching
+
+The host formerly called the JIT packet entry once for every warp in a block.
+For the analytic path tracer's 256-thread block that is 128, 64, 32, or 16
+host/JIT crossings at W2/W4/W8/W16. The retained wrapper executes those packets
+in the same order behind one exported entry. `LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY=1`
+compiles the old single-packet object, so the comparison does not retain an
+unused second body or select between two entries after JIT.
+
+Fifteen alternating single-worker rounds were pinned to CPU 6. Each process
+used seven samples of 64 dispatches, and every candidate/oracle pair validated
+checksum `a93089e651f98582`. One W4 oracle process suffered an unrelated 44%
+slowdown; its robust paired median and trimmed geometric mean agree at about
+1.023x, so the disturbed raw geometric mean is not used as the claim:
+
+| width | retained lowering | candidate/oracle throughput | 95% paired CI | wins |
+| ---: | --- | ---: | ---: | ---: |
+| W1 | ordinary entry | disabled by policy | -- | -- |
+| W2 | dynamic call loop | 1.0169x | [1.0122, 1.0216] | 15/15 |
+| W4 | dynamic call loop | 1.0229x robust | disturbed raw interval | 15/15 |
+| W8 | one inlined body/loop | 1.0355x | [1.0309, 1.0402] | 15/15 |
+| W16 | sixteen-call shell | 1.0094x | [1.0083, 1.0106] | 15/15 |
+
+The W16 counter result over seven alternating pairs attributes the gain to
+boundary/control removal: cycles fell about 0.59%, retired instructions 0.78%,
+branches 0.94%, and branch misses 9.1%. Final code shape also proves that the
+optimization does not buy speed by cloning a large scheduler body:
+
+| analytic entry | W8 | W16 |
+| --- | ---: | ---: |
+| externally visible batch body | 10,402 B | 327 B wrapper |
+| internal packet body | removed after inlining | 13,346 B |
+| static instructions | 1,927 | 2,655 total |
+| calls in final entry/object | 0 | 15 calls plus final tail jump |
+| packet-body stack allocation | 2,240 B | 2,816 B |
+| varying scalar-libm calls | 0 | 0 |
+
+Two plausible broader forms failed their real gates. Inlining the complete W16
+body into an outer loop reduced some dynamic instructions but increased live
+ranges/cache pressure and regressed throughput about 1.85%. Pinning eight
+apparently cold Schedule slots reduced the frame from 2,816 to 2,624 bytes but
+regressed throughput roughly 7--8%; LLVM's promotable state remains preferable.
+A direct thread-index internal ABI was neutral/slightly negative, and `fastcc`
+produced a byte-identical object. Forcing W8 to an AVX2-only target dropped the
+same workload from about 197.3 to 146.0 Mitems/s, so W8's remaining gap is not
+fixed by suppressing AVX-512 masks and paired 64-bit gathers on this host.
+
+A fresh official ISPC 1.31.0 comparison used 21 rotating process rounds,
+single worker, CPU 6, precise math, separately validated output, and no ISPC
+path in CMake:
+
+| pair | Luisa median | ISPC median | ISPC/Luisa | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: |
+| W8 / AVX-512 x8 | 196.834 Mitems/s | 217.222 Mitems/s | 1.1044x | [1.1025, 1.1064] |
+| W16 / AVX-512 x16 | 341.459 Mitems/s | 341.561 Mitems/s | 1.0005x | [0.9986, 1.0025] |
+
+W16 is now statistically tied with ISPC, not demonstrably faster. W8 remains
+about 9.5% slower. The accepted packet batch closes boundary overhead but does
+not erase W8's remaining structured-mask/register-residency gap.
+
 ### Rejected cross-query early gather
 
 The ordinary W8 path tracer has one tempting memory/compute-overlap site. Its
@@ -2769,6 +2834,19 @@ lazy-dispatch scalar snapshot regression, and the W1/W2/W4/W8/W16 aggregate-
 promotion differential test. Separate 1024-SPP gallery gates pass ordinary
 and cutout path tracing at all five widths, and non-coro SDF W8 passes at
 63.13 dB RGB PSNR.
+
+The block-local packet-batch stage completed fresh full builds of both Release
+trees, the required native-math/fallback-math/runtime-width/Schedule-codegen
+gate (4/4), and two consecutive complete SIMD-only runs (129/129 each,
+including `integration_simd` 26/26 and graphics 3/3), followed by the complete
+SIMD+fallback/tutorial configuration (140/140). Clang-format and diff checks
+pass, the syntax checker reports no diagnostics for all five changed C++
+translation units, and its Python suite passes 13/13. Fresh W1/W2/W4/W8/
+W16 image-processing and Voxel galleries pass at 89.251953 and 82.834519 dB.
+Ordinary 1024-spp path tracing passes at
+35.426795/42.781582/40.940376/39.219305/37.801771 dB and every process reports
+Embree 4.4.1 native W4/W8/W16 packet support. All images and raw timing logs
+remain under `/tmp`; no reference or benchmark source was modified.
 
 The state-handle-cache stage reran the required three-test native-math/runtime-
 width gate, the accel/curve/procedural/world-ray focus gate (7/7), the complete

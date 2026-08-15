@@ -7339,6 +7339,45 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_packet_batch_entry() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 22u;
+    Kernel1D kernel = [](BufferUInt output) noexcept {
+        set_block_size(32u, 1u, 1u);
+        auto index = dispatch_id().x;
+        output.write(index, index * 7u + 3u);
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_packet_batch_entry", false, false, 1u, true);
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(compiled.entry == nullptr);
+    CHECK(compiled.packet_batch_entry != nullptr);
+    std::array<uint32_t, count> output{};
+    output.fill(0xdeadbeefu);
+    alignas(16) SIMDHostBufferView argument{
+        output.data(), sizeof(output)};
+    using PacketBatchEntry = void(
+        const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
+    auto packet_batch_entry = reinterpret_cast<PacketBatchEntry *>(
+        compiled.packet_batch_entry);
+    auto config = launch_1d(count, 32u);
+    config.thread_index = 3u;
+    packet_batch_entry(&argument, nullptr, &config, 4u);
+    CHECK(config.thread_index == 3u + 3u * width);
+    for (auto index = uint32_t{0u}; index < count; index++) {
+        auto expected = index < 3u ? 0xdeadbeefu : index * 7u + 3u;
+        CHECK(output[index] == expected);
+    }
+
+    return true;
+}
+
 [[nodiscard]] bool run_ast_aggregate_promotion() {
     static constexpr auto count = 13u;
     Kernel1D kernel = [](BufferFloat4 output) noexcept {
@@ -9168,6 +9207,7 @@ int main() {
         {"XIR bindless uniform gradient LOD",
          &run_bindless_uniform_gradient_lod_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
+        {"AST packet-batch runtime entry", &run_ast_packet_batch_entry},
         {"AST aggregate local promotion",
          &run_ast_aggregate_promotion},
         {"AST uniform-loop buffer broadcast",

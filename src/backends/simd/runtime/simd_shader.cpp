@@ -203,6 +203,10 @@ SIMDShader::SIMDShader(
         warp_width != 0u && block_threads % warp_width == 0u,
         "SIMD thread block size {} must be a multiple of warp width {}.",
         block_threads, warp_width);
+    _enable_packet_batch_entry =
+        warp_width != 1u && block_threads > warp_width &&
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY");
     auto *assembly_directory =
         std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR");
     auto capture_assembly =
@@ -212,7 +216,7 @@ SIMDShader::SIMDShader(
         kernel, warp_width,
         kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
         option.enable_fast_math, capture_assembly,
-        dispatch_worker_count);
+        dispatch_worker_count, _enable_packet_batch_entry);
     if (!_compiled.succeeded()) {
         luisa::string diagnostics;
         for (auto &&message : _compiled.diagnostics) {
@@ -361,12 +365,27 @@ SIMDShader::SIMDShader(
         }
     }
     _entry = reinterpret_cast<Entry *>(_compiled.entry);
+    _packet_batch_entry = reinterpret_cast<PacketBatchEntry *>(
+        _compiled.packet_batch_entry);
+    if (_enable_packet_batch_entry) {
+        LUISA_ASSERT(
+            _packet_batch_entry != nullptr && _entry == nullptr,
+            "SIMD runtime kernel did not produce an exclusive "
+            "packet-batch entry.");
+    } else {
+        LUISA_ASSERT(
+            _entry != nullptr && _packet_batch_entry == nullptr,
+            "SIMD runtime kernel did not produce a single-packet entry.");
+    }
     if (detail::env_flag("LUISA_SIMD_REPORT_JIT_ADDRESS")) {
         LUISA_INFO(
             "SIMD JIT entry [{} W{}]: {}.",
             kernel.name().empty() ? "simd_runtime_kernel" :
                                     kernel.name(),
-            warp_width, _compiled.entry);
+            warp_width,
+            _enable_packet_batch_entry ?
+                _compiled.packet_batch_entry :
+                _compiled.entry);
     }
     _build_bound_arguments(kernel.bound_arguments());
     _argument_usages.reserve(kernel.arguments().size());
@@ -459,13 +478,20 @@ void SIMDShader::_dispatch_once(
                 config.block_size[1u] = block_size.y;
                 config.block_size[2u] = block_size.z;
                 config.kernel_id = kernel_id;
-                for (auto warp = uint32_t{0u};
-                     warp < warps_per_block; warp++) {
-                    config.thread_index =
-                        warp * _compiled.warp_width;
-                    _entry(
+                if (_enable_packet_batch_entry) {
+                    config.thread_index = 0u;
+                    _packet_batch_entry(
                         argument_buffer, nullptr, &config,
-                        _compiled.warp_width);
+                        warps_per_block);
+                } else {
+                    for (auto warp = uint32_t{0u};
+                         warp < warps_per_block; warp++) {
+                        config.thread_index =
+                            warp * _compiled.warp_width;
+                        _entry(
+                            argument_buffer, nullptr, &config,
+                            _compiled.warp_width);
+                    }
                 }
             }
         });

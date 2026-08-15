@@ -76,6 +76,11 @@ public:
     // retain the same portable IR backend through the generic scheduler.
     [[nodiscard]] bool supports_native_predicated_loop(
         uint32_t width) const noexcept;
+    // W8 packet-body inlining is profitable only with the measured wide
+    // fixed-vector register file. Narrower hosts retain the direct-call batch
+    // wrapper to avoid turning cross-packet live ranges into spills.
+    [[nodiscard]] bool supports_inlined_packet_batch(
+        uint32_t width) const noexcept;
     // Exact relocatable object emitted by ORC's compiler, before JITLink
     // applies relocations. Populated only when requested at construction.
     [[nodiscard]] const std::string &object() const noexcept {

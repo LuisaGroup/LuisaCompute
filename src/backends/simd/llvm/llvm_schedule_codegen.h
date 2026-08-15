@@ -488,6 +488,16 @@ struct SIMDPacketLaunchConfig {
 // kernels are normally void and pass a null return_lanes pointer.
 struct LLVMScheduleCodegenResult {
     ::llvm::Function *entry{nullptr};
+    // Optional runtime-only wrapper with the same physical signature. Its
+    // fourth argument is a packet count rather than an active-lane count; it
+    // advances launch_config.thread_index by specialization_width and invokes
+    // entry once per packet. The packet body becomes internal in this mode:
+    // statically small W16 batches unroll only the direct-call shell, while a
+    // target-profitable W8 batch may inline one body into the dynamic loop so
+    // LLVM can reuse the frame and hoist invariants. Neither strategy clones
+    // the body once per packet. Standalone/direct compilation leaves this null
+    // and retains entry as its exported ABI.
+    ::llvm::Function *packet_batch_entry{nullptr};
     size_t argument_buffer_size{0u};
     size_t schedule_block_count{0u};
     size_t convergence_point_count{0u};
@@ -566,6 +576,12 @@ struct LLVMScheduleCodegenResult {
     // Runtime compilation supplies a host-TTI profitability decision. Direct
     // lowering callers default to enabled so target-independent semantic tests
     // can exercise the transformation without pretending to query a host.
-    bool enable_native_predicated_loop = true);
+    bool enable_native_predicated_loop = true,
+    // Runtime kernels may amortize their host/JIT boundary across all packets
+    // in one block. Standalone lowering keeps the single-packet ABI only.
+    bool enable_packet_batch_entry = false,
+    // This is a target-profitability decision supplied by the host JIT. The
+    // portable default retains direct packet calls in the batch wrapper.
+    bool enable_inlined_packet_batch = false);
 
 }// namespace luisa::compute::simd

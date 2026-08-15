@@ -260,4 +260,31 @@ bool LLVMJIT::supports_native_predicated_loop(
            !target.forceScalarizeMaskedGather(gather_type, alignment);
 }
 
+bool LLVMJIT::supports_inlined_packet_batch(
+    uint32_t width) const noexcept {
+    if (!succeeded() || width != 8u) { return false; }
+    ::llvm::LLVMContext context;
+    ::llvm::Module module{"simd-packet-batch-probe", context};
+    module.setDataLayout(_target_machine->createDataLayout());
+#if LLVM_VERSION_MAJOR >= 21
+    module.setTargetTriple(_target_machine->getTargetTriple());
+#else
+    module.setTargetTriple(_target_machine->getTargetTriple().str());
+#endif
+    auto *function_type = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(context), false);
+    auto *function = ::llvm::Function::Create(
+        function_type, ::llvm::GlobalValue::PrivateLinkage,
+        "simd_packet_batch_probe", module);
+    auto target = _target_machine->getTargetTransformInfo(*function);
+    auto fixed_register_bits = target.getRegisterBitWidth(
+        ::llvm::TargetTransformInfo::RGK_FixedWidthVector);
+    auto *vector_type = ::llvm::FixedVectorType::get(
+        ::llvm::Type::getInt32Ty(context), width);
+    auto register_class = target.getRegisterClassForType(
+        true, vector_type);
+    return fixed_register_bits.getKnownMinValue() >= 512u &&
+           target.getNumberOfRegisters(register_class) >= 32u;
+}
+
 }// namespace luisa::compute::simd

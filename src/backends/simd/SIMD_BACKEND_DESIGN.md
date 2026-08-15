@@ -46,6 +46,14 @@ and may fuse a bounded sequence of adjacent diamonds into one LLVM emission
 region. This keeps their live values in SSA/registers and removes intermediate
 merge-to-dispatch round trips without cloning the loop or weakening the general
 independent-PC scheduler.
+The newest runtime/codegen refinement batches all packets of one block behind
+one exported JIT entry. W2/W4 use one small dynamic call loop. A measured W8
+target with a 512-bit fixed-vector register file may inline one packet body into
+that loop, while W16 and other statically small W8 batches unroll only the call
+shell. The packet body is internal and is never cloned once per packet. W1 and
+single-packet blocks retain the ordinary entry. This removes host/JIT boundary
+and branch work without changing packet order, block ownership, masks, or the
+Schedule scheduler inside a packet.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -1204,6 +1212,28 @@ count to be divisible by `W` and loops over exactly `block_threads / W` full
 warps. Dispatch-edge warps receive an initial mask for invocations outside the
 exact dispatch size. As in fallback, the AST block-size contract remains
 independent of the backend warp width.
+
+For W2/W4/W8/W16 blocks containing more than one packet, production runtime
+compilation replaces that host-side per-packet loop with an exclusive
+`packet_batch` JIT entry. Its fourth physical ABI argument is the packet count;
+the wrapper advances its block-owned launch configuration by `W` and invokes
+the internal packet body in the same increasing order. W2/W4 and batches whose
+static packet count is unavailable or exceeds 32 retain a dynamic loop. A W8
+host for which TargetTransformInfo reports at least 512 fixed-vector bits and
+32 registers in the relevant vector class may inline exactly one body into the
+dynamic loop; otherwise W8 and W16 with at most 32 packets unroll only the
+direct-call shell. Global dead-code elimination removes the now-unused W8
+body after inlining. The W16 body remains one local function, so a 256-thread
+block emits sixteen local calls rather than sixteen body copies. No strategy
+introduces a target intrinsic or changes the fixed-vector packet ABI.
+
+`LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY=1` is the same-binary runtime oracle.
+It is sampled before JIT compilation so the oracle exports only the ordinary
+single-packet entry; production exports only the batch entry. This exclusivity
+prevents runtime selection from retaining a duplicate hot body in the object.
+The permanent W8 regression starts from a nonzero base thread, issues three
+packets including a dispatch-edge tail, and checks the absence/presence of both
+symbols plus exact inactive-lane behavior.
 
 Shader dispatches use a device-owned persistent worker pool. The flattened
 block range is split into dynamically claimed chunks; all warps belonging to
