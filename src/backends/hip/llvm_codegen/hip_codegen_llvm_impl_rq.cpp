@@ -433,18 +433,30 @@ struct NativeClosestHandlerAnalysisContext {
     return false;
 }
 
-// Candidate enumeration order is not an observable input to this reduction.
-// Therefore every reachable handler operation must be read-only outside the
+// The native closest route is a reduction over candidate acceptance. Every
+// reachable handler operation must therefore be read-only outside the
 // invocation, with the sole exceptions of COMMIT_TRIANGLE and
 // COMMIT_PROCEDURAL on the active query. Local scratch stores are permitted;
 // resource/atomic writes, explicit termination, nested traversal, and unknown
 // calls are rejected. The analysis is context-sensitive for reference
 // arguments so helpers may mutate caller-local scratch without making the
 // transaction externally effectful.
+//
+// HIPRT's closest traversal may batch/reorder the two members of a triangle
+// packet, so a surface handler may not observe the mutable world-ray t_max.
+// A procedural leaf has one custom candidate. For those leaves, the closest
+// and resumable-any-hit templates execute the same SceneTraversal frontier:
+// rejection advances the same leaf state, while acceptance changes the next
+// active max from m to t by `ray.maxT = t` (closest) or
+// `contractRayMaxT(t)` (resumable). Induction over that shared frontier proves
+// equal world-ray state at every procedural callback. This is the exact case
+// required by curve/ribbon intersection and does not generalize to surface
+// candidates.
 [[nodiscard]] bool native_closest_handler_is_reduction(
     const xir::Function *function,
     luisa::vector<bool> local_reference_arguments,
     luisa::vector<bool> active_query_reference_arguments,
+    bool allow_world_ray,
     llvm::DenseSet<const xir::Function *> &active_functions) noexcept {
     if (function == nullptr || function->definition() == nullptr ||
         !active_functions.insert(function).second) {
@@ -512,8 +524,9 @@ struct NativeClosestHandlerAnalysisContext {
                                 read->operand(0u), context) &&
                             read->op() != xir::RayQueryObjectReadOp::
                                               RAY_QUERY_OBJECT_COMMITTED_HIT &&
-                            read->op() != xir::RayQueryObjectReadOp::
-                                              RAY_QUERY_OBJECT_WORLD_SPACE_RAY;
+                            (allow_world_ray ||
+                             read->op() != xir::RayQueryObjectReadOp::
+                                               RAY_QUERY_OBJECT_WORLD_SPACE_RAY);
                     break;
                 }
                 case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
@@ -556,6 +569,7 @@ struct NativeClosestHandlerAnalysisContext {
                     valid = native_closest_handler_is_reduction(
                         callee, std::move(callee_local_arguments),
                         std::move(callee_active_query_arguments),
+                        allow_world_ray,
                         active_functions);
                     break;
                 }
@@ -574,7 +588,7 @@ struct NativeClosestHandlerAnalysisContext {
 }
 
 [[nodiscard]] bool native_closest_handler_is_reduction(
-    const xir::Function *function) noexcept {
+    const xir::Function *function, bool allow_world_ray) noexcept {
     llvm::DenseSet<const xir::Function *> active_functions;
     auto argument_count = function == nullptr ? 0u :
                                                function->arguments().count_size();
@@ -589,6 +603,7 @@ struct NativeClosestHandlerAnalysisContext {
     return native_closest_handler_is_reduction(
         function, luisa::vector<bool>(argument_count, false),
         std::move(active_query_arguments),
+        allow_world_ray,
         active_functions);
 }
 
@@ -601,9 +616,9 @@ struct NativeClosestHandlerAnalysisContext {
     const auto committed_post_state_only =
         ray_query_pipeline_post_state_is_committed_hit_only(pipeline);
     const auto surface_is_reduction = native_closest_handler_is_reduction(
-        pipeline->on_surface_function());
+        pipeline->on_surface_function(), false);
     const auto procedural_is_reduction = native_closest_handler_is_reduction(
-        pipeline->on_procedural_function());
+        pipeline->on_procedural_function(), true);
     LUISA_VERBOSE(
         "HIP native closest reduction proof: committed-post-state-only = "
         "{}, surface = {}, procedural = {}.",

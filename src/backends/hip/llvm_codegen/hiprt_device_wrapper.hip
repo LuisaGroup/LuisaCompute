@@ -710,6 +710,8 @@ static constexpr uint8_t LUISA_PIPELINE_HIT_PROCEDURAL = 2u;
 enum : uint32_t {
     LUISA_PIPELINE_CANDIDATE_COMMITTED = 1u << 0u,
     LUISA_PIPELINE_CANDIDATE_TERMINATED = 1u << 1u,
+    LUISA_PIPELINE_OBSERVES_COMMITTED_HIT = 1u << 0u,
+    LUISA_PIPELINE_OBSERVES_WORLD_RAY = 1u << 1u,
 };
 
 struct LuisaPipelineRayQueryHit {
@@ -807,6 +809,7 @@ struct LuisaPipelineNativeClosestPayload {
     LuisaPipelineRayQueryState *state;
     void *callback_context;
     uint32_t pipeline_id;
+    uint32_t observation_mask;
 };
 
 static __device__ __forceinline__ bool
@@ -838,6 +841,30 @@ luisa_pipeline_native_closest_procedural_candidate(
     LuisaPipelineNativeClosestPayload *payload,
     const hiprtRay &active_ray, hiprtHit &hit) {
     auto state = payload->state;
+    if (payload->observation_mask != 0u) {
+        // A procedural custom leaf is the one candidate class for which the
+        // XIR proof permits world-ray observation. Closest and resumable HIPRT
+        // traversals reach it with the same active max; restore the ordinary
+        // query object only at that callback boundary.
+        state->ray.maxT = active_ray.maxT;
+        state->candidate_hit = LuisaPipelineRayQueryHit{
+            hit.instanceIDs[0], hit.primID, 0.0f, 0.0f, active_ray.maxT};
+        state->state = LUISA_PIPELINE_RQ_STATE_PROCEDURAL;
+        state->candidate_committed = false;
+        state->terminated = false;
+        luisa_ray_query_pipeline_dispatch(
+            luisa_pipeline_query_object(state), payload->callback_context,
+            payload->pipeline_id, LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
+        if (state->terminated) { __builtin_trap(); }
+        if (!state->candidate_committed) { return false; }
+        hit.t = state->ray.maxT;
+        hit.uv = hiprtFloat2{0.0f, 0.0f};
+        hit.normal = hiprtFloat3{
+            LUISA_PROCEDURAL_NAN,
+            LUISA_PROCEDURAL_NAN,
+            LUISA_PROCEDURAL_NAN};
+        return true;
+    }
     const auto packed = luisa_pipeline_ray_query_dispatch_compact(
         payload->callback_context, payload->pipeline_id,
         LUISA_PIPELINE_RQ_STATE_PROCEDURAL, state->flags,
@@ -1497,14 +1524,18 @@ luisa_pipeline_ray_query_trace_native_closest_impl(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t observation_mask,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
-    // A native closest reduction observes neither committed state nor the
-    // mutable world-ray frontier and cannot terminate explicitly. Reject any
-    // cross-bitcode disagreement instead of silently changing query semantics.
-    if (observation_mask != 0u) { __builtin_trap(); }
+    // Committed state and surface-candidate world rays invalidate the XIR
+    // proof. The only nonzero valid mask is a procedural world-ray observation.
+    // Reject any cross-bitcode disagreement rather than silently changing
+    // query semantics.
+    if ((observation_mask &
+         ~LUISA_PIPELINE_OBSERVES_WORLD_RAY) != 0u) {
+        __builtin_trap();
+    }
 
     auto state = reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr);
     LuisaPipelineNativeClosestPayload payload{
-        state, callback_context, pipeline_id};
+        state, callback_context, pipeline_id, observation_mask};
     hiprtFuncTableHeader function_table{
         1u, LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE + 1u,
         luisa_pipeline_native_closest_func_data_sets};

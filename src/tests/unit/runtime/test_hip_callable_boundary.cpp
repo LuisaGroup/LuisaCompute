@@ -399,6 +399,17 @@ void compile_large_pure_closest_reduction(
                                    candidate.terminate();
                                }
                            })
+                       .on_procedural_candidate(
+                           [](ProceduralCandidate &candidate) noexcept {
+                               // A procedural leaf has one candidate, so the
+                               // native closest and resumable HIPRT state
+                               // machines expose the same active max here.
+                               const auto distance =
+                                   candidate.ray()->t_max() * 0.5f;
+                               $if (distance > 0.0f) {
+                                   candidate.commit(distance);
+                               };
+                           })
                        .trace();
         output.write(dispatch_x(), hit->prim);
     };
@@ -724,10 +735,12 @@ int main(int argc, char *argv[]) {
             // A large environment is not itself a semantic reason to expose
             // HIPRT's continuation frontier. Prove the candidate callbacks
             // are a pure closest-hit reduction and lower the complete query
-            // to one native closest traversal. The commit is intentionally in
-            // a nested Callable to exercise active-query provenance across a
-            // call edge. Explicit termination changes the observable candidate
-            // prefix and must fail the same proof.
+            // to one native closest traversal. The surface commit is
+            // intentionally in a nested Callable to exercise active-query
+            // provenance across a call edge; the procedural handler exercises
+            // the formally equivalent active-ray frontier used by ribbons.
+            // Explicit termination changes the observable candidate prefix and
+            // must fail the same proof.
             expect(pure_reduction_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
                        std::string_view::npos &&
