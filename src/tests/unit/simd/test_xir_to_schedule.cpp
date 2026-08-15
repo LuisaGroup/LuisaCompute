@@ -671,6 +671,46 @@ void register_memory_layout_tests() {
     };
 }
 
+void register_debug_instruction_tests() {
+    "simd_xir_lowering_preserves_debug_side_effects"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *entry = kernel->create_body_block();
+        auto *condition = module.create_constant_one(Type::of<bool>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *clock = builder.clock();
+        builder.print("clock={}", {clock});
+        builder.assert_(condition, "clock assertion");
+        builder.return_void();
+
+        auto result = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 8u});
+        expect(result.succeeded()) << diagnostics_text(result);
+        if (!result.succeeded()) { return; }
+        auto print_count = size_t{0u};
+        auto assert_count = size_t{0u};
+        auto clock_count = size_t{0u};
+        for (auto &&block : result.function->blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode == Opcode::print) {
+                    print_count++;
+                    expect(instruction.message == "clock={}");
+                } else if (instruction.opcode == Opcode::assert_) {
+                    assert_count++;
+                    expect(instruction.message == "clock assertion");
+                } else if (instruction.opcode == Opcode::clock) {
+                    clock_count++;
+                }
+            }
+        }
+        expect(print_count == 1u);
+        expect(assert_count == 1u);
+        expect(clock_count == 1u);
+        expect(verify(*result.function).succeeded());
+    };
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -680,6 +720,7 @@ int main(int argc, char *argv[]) {
     register_loop_tests();
     register_reducible_cfg_tests();
     register_memory_layout_tests();
+    register_debug_instruction_tests();
     register_diagnostic_tests();
     return 0;
 }

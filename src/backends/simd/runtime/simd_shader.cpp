@@ -19,9 +19,11 @@
 #endif
 
 #include <luisa/core/logging.h>
+#include <luisa/ast/type_registry.h>
 
 #include "../../common/env_flag.h"
 #include "../../common/indirect_dispatch_layout.h"
+#include "../../common/shader_print_formatter.h"
 #include "simd_bindless_array.h"
 #include "simd_accel.h"
 #include "simd_buffer.h"
@@ -46,6 +48,44 @@ struct AssemblyStats {
     size_t stack_allocation_bytes{0u};
     size_t scalar_math_calls{0u};
 };
+
+struct SIMDPrintDispatchContext {
+    const luisa::vector<luisa::unique_ptr<ShaderPrintFormatter>>
+        *formatters{nullptr};
+    const DeviceInterface::StreamLogCallback *log_callback{nullptr};
+};
+
+void simd_print_callback(
+    void *opaque_context, uint64_t format_id,
+    const void *arguments) noexcept {
+    auto *context = static_cast<const SIMDPrintDispatchContext *>(
+        opaque_context);
+    LUISA_ASSERT(
+        context != nullptr && context->formatters != nullptr &&
+            format_id < context->formatters->size(),
+        "SIMD print callback received invalid format metadata.");
+    auto *formatter = (*context->formatters)[format_id].get();
+    static thread_local luisa::string scratch;
+    scratch.clear();
+    auto payload = luisa::span<const std::byte>{
+        static_cast<const std::byte *>(arguments),
+        formatter->size()};
+    LUISA_ASSERT(
+        (*formatter)(scratch, payload),
+        "SIMD print callback received a truncated argument pack.");
+    if (context->log_callback != nullptr &&
+        *context->log_callback) {
+        (*context->log_callback)(scratch);
+    } else {
+        LUISA_INFO("[DEVICE] {}", scratch);
+    }
+}
+
+void simd_assert_fail_callback(const char *message) noexcept {
+    LUISA_ERROR_WITH_LOCATION(
+        "SIMD device assertion failed: {}.",
+        message == nullptr ? "" : message);
+}
 
 [[nodiscard]] AssemblyStats inspect_assembly(
     std::string_view assembly) noexcept {
@@ -232,6 +272,14 @@ SIMDShader::SIMDShader(
         LUISA_ERROR_WITH_LOCATION(
             "Failed to compile SIMD kernel (warp width {}):\n{}",
             warp_width, diagnostics);
+    }
+    _print_formatters.reserve(_compiled.print_formats.size());
+    for (auto &&format : _compiled.print_formats) {
+        auto *argument_pack_type = Type::structure(
+            16u, luisa::span{format.argument_types});
+        _print_formatters.emplace_back(
+            luisa::make_unique<ShaderPrintFormatter>(
+                format.format, argument_pack_type, false));
     }
     if (detail::env_flag(
             "LUISA_SIMD_REPORT_OPTIMIZATIONS")) {
@@ -438,6 +486,8 @@ SIMDShader::SIMDShader(
     }
 }
 
+SIMDShader::~SIMDShader() noexcept = default;
+
 void SIMDShader::_build_bound_arguments(
     luisa::span<const Function::Binding> bindings) noexcept {
     _bound_arguments.reserve(bindings.size());
@@ -473,6 +523,7 @@ void SIMDShader::_build_bound_arguments(
 void SIMDShader::_dispatch_once(
     SIMDThreadPool &thread_pool,
     const void *argument_buffer, uint3 dispatch_size,
+    const DeviceInterface::StreamLogCallback &log_callback,
     uint32_t kernel_id) const noexcept {
     auto block_size = _block_size;
     LUISA_ASSERT(
@@ -502,6 +553,10 @@ void SIMDShader::_dispatch_once(
     auto grain_size = grid_count == 0u ?
                           uint64_t{1u} :
                           (grid_count - 1u) / target_chunks + 1u;
+    SIMDPrintDispatchContext debug_context{
+        .formatters = &_print_formatters,
+        .log_callback = &log_callback,
+    };
     thread_pool.parallel_for(
         grid_count, grain_size,
         [&](uint64_t begin, uint64_t end) noexcept {
@@ -516,6 +571,9 @@ void SIMDShader::_dispatch_once(
             config.grid_size[1u] = grid_size.y;
             config.grid_size[2u] = grid_size.z;
             config.kernel_id = kernel_id;
+            config.debug_context = &debug_context;
+            config.print_callback = simd_print_callback;
+            config.assert_fail_callback = simd_assert_fail_callback;
             auto set_block_id = [&](uint64_t block) noexcept {
                 config.block_id[0u] = static_cast<uint32_t>(
                     block % grid_size.x);
@@ -562,6 +620,7 @@ void SIMDShader::_dispatch_once(
 
 void SIMDShader::dispatch(
     SIMDThreadPool &thread_pool,
+    const DeviceInterface::StreamLogCallback &log_callback,
     luisa::unique_ptr<ShaderDispatchCommand> command) const noexcept {
     luisa::vector<std::byte> argument_buffer(
         _compiled.argument_buffer_size, std::byte{});
@@ -714,7 +773,8 @@ void SIMDShader::dispatch(
             auto kernel_id = load_word(
                 record + lc::IndirectDispatchLayout::kernel_id_word);
             _dispatch_once(
-                thread_pool, arguments, dispatch_size, kernel_id);
+                thread_pool, arguments, dispatch_size,
+                log_callback, kernel_id);
         }
         return;
     }
@@ -723,11 +783,13 @@ void SIMDShader::dispatch(
         for (auto dispatch_size : command->dispatch_sizes()) {
             _dispatch_once(
                 thread_pool, arguments, dispatch_size,
+                log_callback,
                 kernel_id++);
         }
     } else {
         _dispatch_once(
-            thread_pool, arguments, command->dispatch_size());
+            thread_pool, arguments, command->dispatch_size(),
+            log_callback);
     }
 }
 

@@ -59,6 +59,7 @@ set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_emitter_accel.cpp
         llvm/llvm_schedule_emitter_collectives.cpp
         llvm/llvm_schedule_emitter_control.cpp
+        llvm/llvm_schedule_emitter_debug.cpp
         llvm/llvm_schedule_emitter_direct.cpp
         llvm/llvm_schedule_emitter_memory.cpp
         llvm/llvm_schedule_emitter_texture.cpp

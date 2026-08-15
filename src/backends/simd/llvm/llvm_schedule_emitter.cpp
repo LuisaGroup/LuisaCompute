@@ -560,7 +560,10 @@ void ScheduleEmitter::_preflight() {
                 instruction.opcode != schedule::Opcode::ray_query_read &&
                 instruction.opcode != schedule::Opcode::ray_query_write &&
                 instruction.opcode != schedule::Opcode::atomic &&
-                instruction.opcode != schedule::Opcode::warp_collective) {
+                instruction.opcode != schedule::Opcode::warp_collective &&
+                instruction.opcode != schedule::Opcode::print &&
+                instruction.opcode != schedule::Opcode::assert_ &&
+                instruction.opcode != schedule::Opcode::clock) {
                 auto message = std::string{
                                    "LLVM packet codegen encountered unsupported Schedule IR opcode '"} +
                                schedule::to_string(instruction.opcode) + "' in block '" + block.name + "'";

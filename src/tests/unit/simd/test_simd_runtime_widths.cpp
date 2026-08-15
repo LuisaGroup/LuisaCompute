@@ -85,6 +85,43 @@ struct ScopedEnvironmentVariable {
 #endif
 }
 
+[[nodiscard]] bool active_assertion_fails_closed(
+    const char *program) noexcept {
+#if defined(__unix__) || defined(__APPLE__)
+    auto child = fork();
+    if (child < 0) { return false; }
+    if (child == 0) {
+        const rlimit no_core{0u, 0u};
+        static_cast<void>(setrlimit(RLIMIT_CORE, &no_core));
+        Context context{program};
+        DeviceConfig config{};
+        config.extension =
+            luisa::make_unique<SIMDDeviceConfigExt>(4u, 1u);
+        auto device = context.create_device("simd", &config);
+        Kernel1D kernel = []() noexcept {
+            set_block_size(4u, 1u, 1u);
+            set_warp_size(4u);
+            device_assert(
+                dispatch_x() != 2u,
+                "active SIMD assertion regression");
+        };
+        auto shader = device.compile(kernel);
+        auto stream = device.create_stream();
+        stream << shader().dispatch(4u) << synchronize();
+        _exit(EXIT_SUCCESS);
+    }
+    auto child_status = 0;
+    while (waitpid(child, &child_status, 0) < 0) {
+        if (errno != EINTR) { return false; }
+    }
+    return WIFSIGNALED(child_status) &&
+           WTERMSIG(child_status) == SIGABRT;
+#else
+    static_cast<void>(program);
+    return true;
+#endif
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -93,6 +130,9 @@ int main(int argc, char *argv[]) {
     expect(invalid_worker_override_fails_closed(
         argc > 0 ? argv[0] : ""))
         << "invalid SIMD worker override must fail closed";
+    expect(active_assertion_fails_closed(
+        argc > 0 ? argv[0] : ""))
+        << "an active false SIMD device assertion must fail closed";
     Context context{argc > 0 ? argv[0] : ""};
     ScopedEnvironmentVariable width_override{
         "LUISA_SIMD_WARP_WIDTH", "2"};
@@ -196,6 +236,35 @@ int main(int argc, char *argv[]) {
         for (auto value : tail_host) {
             expect(value == 2u)
                 << "inactive SIMD tail lane reached integer remainder";
+        }
+
+        // Clock is sampled once at each dynamic packet/cohort. Assertion
+        // reduction must treat inactive tail lanes as true: their synthesized
+        // dispatch IDs intentionally fail the source predicate below.
+        auto debug_threads = width == 1u ? 1u : width - 1u;
+        auto debug_output = device.create_buffer<uint>(debug_threads);
+        Kernel1D debug_kernel = [width, debug_threads](
+                                    BufferUInt result) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto begin = device_clock();
+            device_assert(
+                dispatch_x() < debug_threads,
+                "inactive SIMD tail lane reached device_assert");
+            auto end = device_clock();
+            device_assert(
+                end >= begin,
+                "SIMD device clock moved backwards");
+            result.write(dispatch_x(), ite(end >= begin, 1u, 0u));
+        };
+        auto debug_shader = device.compile(debug_kernel);
+        luisa::vector<uint> debug_host(debug_threads, 0u);
+        stream << debug_shader(debug_output).dispatch(debug_threads)
+               << debug_output.copy_to(luisa::span{debug_host})
+               << synchronize();
+        for (auto value : debug_host) {
+            expect(value == 1u)
+                << "SIMD clock/assert lowering mismatch";
         }
 
         // Exercise the runtime's fixed-width texture packet callback rather

@@ -53,6 +53,15 @@ void ScheduleEmitter::_emit_instruction(
         case schedule::Opcode::warp_collective:
             value = _collective(instruction);
             break;
+        case schedule::Opcode::print:
+            _print(instruction);
+            break;
+        case schedule::Opcode::assert_:
+            _assert(instruction);
+            break;
+        case schedule::Opcode::clock:
+            value = _clock(instruction);
+            break;
         default:
             _fail("unsupported Schedule IR instruction reached LLVM emission");
             return;

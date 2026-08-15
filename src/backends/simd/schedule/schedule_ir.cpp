@@ -399,6 +399,17 @@ VerificationResult verify(const Function &function) {
                     }
                 }
             }
+            auto requires_message =
+                instruction.opcode == Opcode::print ||
+                instruction.opcode == Opcode::assert_;
+            if (requires_message != instruction.message.has_value()) {
+                add_error(
+                    result,
+                    requires_message ?
+                        "print/assert instruction is missing its message" :
+                        "non-debug instruction unexpectedly carries a message",
+                    block.id);
+            }
             if (instruction.opcode == Opcode::warp_collective &&
                 !instruction.collective_id) {
                 add_error(result,
@@ -753,6 +764,9 @@ std::string to_string(const Function &function) {
             out << to_string(instruction.opcode);
             if (instruction.source_op) {
                 out << " op=" << *instruction.source_op;
+            }
+            if (instruction.message) {
+                out << " message=" << std::quoted(*instruction.message);
             }
             if (instruction.collective_id) {
                 out << " collective=" << *instruction.collective_id;

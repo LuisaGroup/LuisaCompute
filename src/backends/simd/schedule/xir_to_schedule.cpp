@@ -16,11 +16,13 @@
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/assert.h>
 #include <luisa/xir/instructions/atomic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/print.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
@@ -1064,6 +1066,15 @@ private:
             .opcode = _opcode(source_instruction),
             .source_op = _source_op(source_instruction),
         };
+        if (source_instruction->isa<xir::PrintInst>()) {
+            instruction.message = copy_string(
+                static_cast<const xir::PrintInst *>(source_instruction)
+                    ->format());
+        } else if (source_instruction->isa<xir::AssertInst>()) {
+            instruction.message = copy_string(
+                static_cast<const xir::AssertInst *>(source_instruction)
+                    ->message());
+        }
         if (source_instruction->type() != nullptr) {
             if (auto iter = _value_ids.find(source_instruction);
                 iter != _value_ids.end()) {

@@ -97,6 +97,10 @@ private:
     std::vector<::llvm::Value *> _external_values{};
     std::vector<size_t> _parameter_offsets{};
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
+    std::unordered_map<const schedule::Instruction *, uint64_t>
+        _print_format_ids{};
+    std::unordered_map<const schedule::Instruction *, ::llvm::AllocaInst *>
+        _print_argument_storage{};
     ::llvm::Value *_active_mask{nullptr};
     ::llvm::Value *_seed_lane{nullptr};
     ::llvm::Value *_linear_thread_indices{nullptr};
@@ -462,6 +466,13 @@ private:
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_collective(
         const schedule::Instruction &instruction);
+    void _print(const schedule::Instruction &instruction);
+    void _assert(const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_clock(
+        const schedule::Instruction &instruction);
+    void _store_debug_data(
+        ::llvm::Value *base, const Type *type,
+        ::llvm::Value *value, size_t offset = 0u);
     void _emit_instruction(
         const schedule::Instruction &instruction,
         ::llvm::Value *lane_affine_seed = nullptr,

@@ -6,11 +6,16 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace llvm {
 class Function;
 class Module;
 }// namespace llvm
+
+namespace luisa::compute {
+class Type;
+}// namespace luisa::compute
 
 namespace luisa::compute::simd::schedule {
 class Function;
@@ -499,6 +504,19 @@ struct SIMDPacketLaunchConfig {
     // order. Ordinary packet and block-local packet-batch entries ignore this
     // field, so their physical ABI remains unchanged.
     uint32_t grid_size[3]{1u, 1u, 1u};
+    // Debug side effects are invoked indirectly through the launch record so
+    // the portable JIT module has no backend-private unresolved symbols. The
+    // context is immutable for the duration of one synchronous dispatch.
+    void *debug_context{nullptr};
+    void (*print_callback)(
+        void *context, uint64_t format_id,
+        const void *arguments) noexcept {nullptr};
+    void (*assert_fail_callback)(const char *message) noexcept {nullptr};
+};
+
+struct SIMDLLVMPrintFormat {
+    std::string format{};
+    std::vector<const Type *> argument_types{};
 };
 
 // Packet ABI:
@@ -528,6 +546,7 @@ struct LLVMScheduleCodegenResult {
     // resets thread_index before issuing each complete block.
     ::llvm::Function *block_batch_entry{nullptr};
     size_t argument_buffer_size{0u};
+    std::vector<SIMDLLVMPrintFormat> print_formats{};
     size_t schedule_block_count{0u};
     size_t convergence_point_count{0u};
     bool scalar_frame_metadata{false};

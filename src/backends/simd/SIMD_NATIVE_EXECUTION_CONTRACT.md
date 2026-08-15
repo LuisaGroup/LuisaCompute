@@ -81,6 +81,37 @@ before that merge, and an out-of-range table gather can fault. The permanent
 partial-tail remainder regression in `test_simd_runtime_widths` fixes this
 distinction.
 
+### 3.1 Debug side effects and device clock
+
+`PRINT` executes exactly once for each lane in the current active mask. Within
+one packet those calls use ascending physical-lane order; ordering between
+packets or worker threads is deliberately unspecified. Uniform arguments stay
+scalar until the individual active-lane call, while varying aggregates are
+extracted recursively and packed with the ordinary Luisa ABI layout. Inactive
+lanes are neither extracted nor passed to the host formatter. The JIT obtains
+the formatter callback and its dispatch-local stream-log context through
+`SIMDPacketLaunchConfig`; the portable module therefore introduces no private
+unresolved print symbol.
+
+`ASSERT` treats every inactive lane as `true`, reduces only the active
+conditions, and continues exactly when all of them pass. A failing active lane
+invokes the host message callback and then emits an unconditional LLVM trap, so
+a missing or accidentally returning callback cannot turn failure into
+continued execution.
+
+`CLOCK` performs one `llvm.readcyclecounter` observation per dynamic
+packet/cohort execution and broadcasts that observation to its active lanes.
+This reflects the single physical SIMD instruction stream: values from
+different dynamic cohorts may differ, while lanes executing the same clock
+instruction together observe the same counter value. The result remains
+classified as varying so a later spill cannot incorrectly merge observations
+from distinct cohorts.
+
+`test_printer`, `test_printer_custom_callback`, and
+`test_simd_runtime_widths` permanently cover exact formatting, stream callback
+delivery, active-lane predication, W1/W2/W4/W8/W16, inactive tails, monotonic
+clock observations, and fail-closed active assertions.
+
 ## 4. Native-lowering predicate
 
 Let `V(op, W, target)` be the machine implementation selected for one varying

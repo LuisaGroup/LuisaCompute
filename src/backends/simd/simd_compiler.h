@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "llvm/llvm_jit.h"
+#include "llvm/llvm_schedule_codegen.h"
 
 namespace luisa::compute::xir {
 class Function;
@@ -29,6 +30,7 @@ struct SIMDCompiledKernel {
     // LLVMScheduleCodegenResult::block_batch_entry.
     void *block_batch_entry{nullptr};
     size_t argument_buffer_size{0u};
+    std::vector<SIMDLLVMPrintFormat> print_formats{};
     // Pre-schedule rewrite feedback for diagnostics/tests.
     size_t fast_math_identity_count{0u};
     size_t fast_math_radix_pow_count{0u};

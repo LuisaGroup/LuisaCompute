@@ -699,6 +699,8 @@ if (TARGET luisa-compute-backend-simd)
             test_accel_visibility
             test_ray_query_world_ray
             test_dsl_slp_vectorization
+            test_printer
+            test_printer_custom_callback
             test_warp
             test_warp_prefix_scan
             test_warp_sparse_collectives)

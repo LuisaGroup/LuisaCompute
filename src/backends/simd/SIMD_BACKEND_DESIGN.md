@@ -3539,6 +3539,14 @@ on 2026-08-11. The repository now contains:
   visibility reads and writes remain scalar, varying operations use
   inactive-safe bounds-checked LLVM masked gathers/scatters without a host
   callback, and normal accel builds commit dirty traversal state;
+- active-mask-correct printing and assertions plus cohort-scoped device-clock
+  reads: print arguments are extracted only for active lanes and packed with
+  the Luisa scalar ABI, stream callbacks share the canonical fallback
+  formatter, inactive assertion lanes are neutralized to true before
+  reduction, active failures call the message hook and then trap, and one
+  target-independent `llvm.readcyclecounter` observation is broadcast within
+  each dynamically executing packet/cohort; host hooks travel through the
+  launch record rather than unresolved backend-private JIT symbols;
 - a device-owned persistent worker pool that dynamically schedules flattened
   block ranges, keeps all warps of one block together, joins before the next
   stream command, and retains a one-worker serial diagnostic mode; direct-CFG
@@ -3601,6 +3609,18 @@ builds of both maintained build trees pass 142/142 tests; the separately
 repeated SIMD-labelled gate passes 37/37. Image processing, voxel ray tracing,
 path tracing, and the SDF renderer pass checked-in reference images at every
 width; path tracing and SDF use 1024 samples per pixel.
+
+The debug-side-effect checkpoint closes the earlier XIR/Schedule/LLVM contract
+gap for `PRINT`, `ASSERT`, and `CLOCK`. The compiler-focused Release tree passes
+133/133 tests, while both full fallback+SIMD rendering trees (including the
+TBB/Embree configuration) pass 144/144 after registering the two existing
+printer programs as SIMD runtime gates. The W1/W2/W4/W8/W16 image-processing,
+shader-toy, game-of-life, and voxel runs all pass their checked-in references;
+the W8 non-coroutine SDF and path-tracing runs additionally pass at 1024 samples
+per pixel. The path-tracing log confirms that the same run exposes Embree's
+native W4/W8/W16 packet entry points. These are correctness and conformance
+results; throughput from a machine carrying unrelated work is not promoted to
+a performance claim.
 
 The next implementation boundary is completion of the remaining Embree
 vertical slice: deeper instance-stack semantics and a SoA packet-query-state

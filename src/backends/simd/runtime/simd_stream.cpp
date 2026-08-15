@@ -59,7 +59,7 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                     command.release());
                 auto shader = reinterpret_cast<SIMDShader *>(raw->handle());
                 shader->dispatch(
-                    *_thread_pool,
+                    *_thread_pool, _log_callback,
                     luisa::unique_ptr<ShaderDispatchCommand>{raw});
                 break;
             }

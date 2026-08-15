@@ -148,6 +148,7 @@ SIMDCompiledKernel compile_simd_kernel(
         return result;
     }
     result.argument_buffer_size = llvm_result.argument_buffer_size;
+    result.print_formats = std::move(llvm_result.print_formats);
     result.schedule_block_count = llvm_result.schedule_block_count;
     result.convergence_point_count =
         llvm_result.convergence_point_count;

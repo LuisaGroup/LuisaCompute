@@ -143,6 +143,10 @@ struct Instruction {
     // owns execution class and scheduling; target codegen still needs the
     // source operation within broad categories such as arithmetic or atomic.
     std::optional<uint32_t> source_op{};
+    // Exact user-visible payload for side-effecting debug operations. An
+    // optional is required because an empty print format or assertion message
+    // is still distinct from an instruction that carries no message.
+    std::optional<std::string> message{};
     std::optional<uint32_t> collective_id{};
     std::optional<ValueId> participant_mask{};
     // One operand may be lane-equal only at this instruction's dynamic
