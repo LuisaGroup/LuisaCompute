@@ -94,6 +94,36 @@ int main(int argc, char *argv[]) {
     expect(film_value == 4.75f);
     expect(count == 0u);
 
+    // A source basic block may be refined into a CAS-loop region during HIP
+    // lowering. Its outgoing SSA edge originates at the region's exit, not at
+    // the source block's LLVM entry. Exercise a value returned by the atomic
+    // on one arm of a merge so LLVM verification and execution both guard the
+    // PHI predecessor mapping.
+    Kernel1D atomic_phi_kernel = [](BufferFloat value,
+                                    BufferFloat result,
+                                    UInt take_atomic) noexcept {
+        Float selected = 0.0f;
+        $if (take_atomic != 0u) {
+            selected = value.atomic(0u).fetch_add(2.0f);
+        }
+        $else {
+            selected = value.read(0u);
+        };
+        result.write(0u, selected);
+    };
+    auto atomic_phi_shader = device.compile(
+        atomic_phi_kernel, ShaderOption{.enable_cache = false});
+    film_value = 3.0f;
+    returned_values[0] = 0.0f;
+    stream << film.copy_from(luisa::span{&film_value, 1u})
+           << atomic_phi_shader(film, returned, 1u).dispatch(1u)
+           << film.copy_to(luisa::span{&film_value, 1u})
+           << returned.copy_to(
+                  luisa::span{returned_values}.subspan(0u, 1u))
+           << synchronize();
+    expect(returned_values[0] == 3.0f);
+    expect(film_value == 5.0f);
+
     auto matched_lowering = false;
     auto retained_raw_float_load = false;
     auto retained_raw_cmpxchg = false;

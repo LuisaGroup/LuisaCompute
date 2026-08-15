@@ -1,22 +1,27 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/passes/aggregate_field_bitmask.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
 #include <algorithm>
+#include <limits>
 
 #include "helpers.h"
 
@@ -433,124 +438,473 @@ struct RayQueryHandlerLocalAllocas {
     luisa::unordered_set<Value *> all;
 };
 
-struct RayQueryHandlerAllocaAccesses {
-    luisa::unordered_set<Instruction *> pointer_users;
-    luisa::unordered_set<Instruction *> reads;
-    luisa::unordered_set<Instruction *> full_definitions;
+struct RayQueryHandlerRootUseInfo {
+    bool valid{true};
+    bool used_by_surface{false};
+    bool used_by_procedural{false};
 };
 
-// Collect the closed lvalue-use graph rooted at an alloca. GEP preserves
-// ownership; a load is a memory observation, a store through a derived lvalue
-// is a partial definition, and only a direct whole-object store kills every
-// prior aggregate field. XIR casts are rvalues rather than address-preserving
-// lvalues, so they (like calls and every other use) fail closed. Cycles are
-// rejected instead of assuming a fixed point over provenance.
-[[nodiscard]] static bool collect_handler_alloca_accesses(
-    Value *pointer, AllocaInst *root,
-    RayQueryHandlerAllocaAccesses &accesses,
-    luisa::unordered_set<Value *> &active) noexcept {
-    if (pointer == nullptr || !active.emplace(pointer).second) {
-        return false;
+// The root-use proof is deliberately separate from definite initialization.
+// It establishes ownership: outside-handler writes are killed incoming state,
+// while every observation or escape must belong to exactly one candidate kind.
+// GEP is the only address-preserving XIR instruction, and a direct Callable is
+// the only interprocedural edge through which an lvalue may legally flow.
+static void collect_handler_alloca_root_uses(
+    Value *pointer, const RayQueryHandlerRegion &surface_region,
+    const RayQueryHandlerRegion &procedural_region,
+    RayQueryHandlerRootUseInfo &info,
+    luisa::unordered_set<Value *> &visited) noexcept {
+    if (!info.valid || pointer == nullptr ||
+        !visited.emplace(pointer).second) {
+        return;
     }
-    auto finish = [&](bool result) noexcept {
-        active.erase(pointer);
-        return result;
-    };
     for (auto &&use : pointer->use_list()) {
         auto *user = use->user();
         if (user == nullptr || !user->isa<Instruction>()) {
-            return finish(false);
+            info.valid = false;
+            return;
         }
         auto *inst = static_cast<Instruction *>(user);
-        accesses.pointer_users.emplace(inst);
-        if (inst->isa<LoadInst>() &&
-            static_cast<LoadInst *>(inst)->variable() == pointer) {
-            accesses.reads.emplace(inst);
-            continue;
-        }
-        if (inst->isa<StoreInst>()) {
-            auto *store = static_cast<StoreInst *>(inst);
-            if (store->variable() != pointer || store->value() == pointer) {
-                return finish(false);
-            }
-            if (pointer == root) {
-                accesses.full_definitions.emplace(inst);
-            }
-            continue;
-        }
         if (inst->isa<GEPInst>() &&
             static_cast<GEPInst *>(inst)->base() == pointer) {
-            if (!collect_handler_alloca_accesses(
-                    inst, root, accesses, active)) {
-                return finish(false);
+            collect_handler_alloca_root_uses(
+                inst, surface_region, procedural_region, info, visited);
+            continue;
+        }
+        auto *block = inst->parent_block();
+        auto in_surface = surface_region.blocks.contains(block);
+        auto in_procedural = procedural_region.blocks.contains(block);
+        if (in_surface || in_procedural) {
+            info.used_by_surface |= in_surface;
+            info.used_by_procedural |= in_procedural;
+            if (inst->isa<LoadInst>() &&
+                static_cast<LoadInst *>(inst)->variable() == pointer) {
+                continue;
             }
+            if (inst->isa<StoreInst>() &&
+                static_cast<StoreInst *>(inst)->variable() == pointer &&
+                static_cast<StoreInst *>(inst)->value() != pointer) {
+                continue;
+            }
+            if (inst->isa<CallInst>()) {
+                auto *call = static_cast<CallInst *>(inst);
+                auto *callee = call->callee();
+                auto argument_index = std::numeric_limits<size_t>::max();
+                for (auto i = 0u; i < call->argument_count(); ++i) {
+                    if (call->argument(i) == pointer) {
+                        argument_index = i;
+                        break;
+                    }
+                }
+                if (callee != nullptr && callee->definition() != nullptr &&
+                    argument_index < callee->arguments().count_size()) {
+                    Argument *argument = nullptr;
+                    auto index = 0u;
+                    for (auto *candidate : callee->arguments()) {
+                        if (index++ == argument_index) {
+                            argument = candidate;
+                            break;
+                        }
+                    }
+                    if (argument != nullptr && argument->is_reference()) {
+                        continue;
+                    }
+                }
+            }
+            info.valid = false;
+            return;
+        }
+        // A write outside the candidate supplies only the incoming value. The
+        // field-level proof below must show that no handler read can observe it.
+        if (inst->isa<StoreInst>() &&
+            static_cast<StoreInst *>(inst)->variable() == pointer &&
+            static_cast<StoreInst *>(inst)->value() != pointer) {
             continue;
         }
-        return finish(false);
+        info.valid = false;
+        return;
     }
-    return finish(true);
 }
 
-[[nodiscard]] static bool collect_handler_alloca_accesses(
-    AllocaInst *alloca,
-    RayQueryHandlerAllocaAccesses &accesses) noexcept {
-    luisa::unordered_set<Value *> active;
-    return collect_handler_alloca_accesses(
-        alloca, alloca, accesses, active);
+struct RayQueryHandlerPointerView {
+    luisa::vector<luisa::optional<size_t>> access_pattern;
+    // A runtime vector/array index identifies one stable field at execution
+    // time, but does not prove a compile-time must-definition of every field in
+    // its may-mask. Reads may use the union; writes generate no must bits.
+    bool precise{true};
+};
+
+using RayQueryHandlerPointerEnvironment =
+    luisa::unordered_map<const Value *, RayQueryHandlerPointerView>;
+
+struct RayQueryHandlerPointerResolveResult {
+    bool valid{true};
+    bool related{false};
+    RayQueryHandlerPointerView view;
+};
+
+struct RayQueryHandlerScratchEffect {
+    AggregateFieldBitmask need;
+    AggregateFieldBitmask define;
+    bool valid{true};
+
+    explicit RayQueryHandlerScratchEffect(const Type *type) noexcept
+        : need{type}, define{type} {}
+};
+
+// Candidate-local scratch is a path effect over primitive aggregate leaves.
+// For sequential effects A then B:
+//   need = A.need union (B.need - A.define)
+//   define = A.define union B.define.
+// At a CFG join, need is path union and define is path intersection. These are
+// the exact transfer/join operations for "may read before a must definition".
+[[nodiscard]] static RayQueryHandlerScratchEffect
+compose_handler_scratch_effects(
+    const RayQueryHandlerScratchEffect &first,
+    const RayQueryHandlerScratchEffect &second) noexcept {
+    RayQueryHandlerScratchEffect result{first.need.type()};
+    result.valid = first.valid && second.valid;
+    result.need = second.need & ~first.define;
+    result.need |= first.need;
+    result.define = first.define | second.define;
+    return result;
 }
 
-[[nodiscard]] static bool handler_local_alloca_is_definitely_initialized(
-    const RayQueryHandlerAllocaAccesses &accesses, BasicBlock *entry,
-    const RayQueryHandlerRegion &region) noexcept {
-    // A definition outside the callback merely supplies the killed incoming
-    // value. Every other pointer-derived operation must belong to this one
-    // handler, so moving the allocation cannot change identity or expose its
-    // callback-local post-state.
-    for (auto *inst : accesses.pointer_users) {
-        if (!region.blocks.contains(inst->parent_block()) &&
-            !accesses.full_definitions.contains(inst)) {
-            return false;
+struct RayQueryHandlerScratchBlockState {
+    bool reached{false};
+    RayQueryHandlerScratchEffect effect;
+
+    explicit RayQueryHandlerScratchBlockState(const Type *type) noexcept
+        : effect{type} {}
+};
+
+class RayQueryHandlerScratchAnalyzer {
+
+private:
+    const Type *_root_type;
+
+private:
+    [[nodiscard]] RayQueryHandlerPointerResolveResult resolve_pointer(
+        const Value *value,
+        const RayQueryHandlerPointerEnvironment &environment,
+        luisa::unordered_map<const Value *,
+                             RayQueryHandlerPointerResolveResult> &cache,
+        luisa::unordered_set<const Value *> &active) const noexcept {
+        if (value == nullptr || !value->is_lvalue()) { return {}; }
+        if (auto iter = cache.find(value); iter != cache.end()) {
+            return iter->second;
         }
+        if (auto iter = environment.find(value);
+            iter != environment.end()) {
+            RayQueryHandlerPointerResolveResult result;
+            result.related = true;
+            result.view = iter->second;
+            cache.emplace(value, result);
+            return result;
+        }
+        if (!active.emplace(value).second) {
+            RayQueryHandlerPointerResolveResult result;
+            result.valid = false;
+            return result;
+        }
+        RayQueryHandlerPointerResolveResult result;
+        if (value->isa<GEPInst>()) {
+            auto *gep = static_cast<const GEPInst *>(value);
+            result = resolve_pointer(
+                gep->base(), environment, cache, active);
+            if (result.valid && result.related) {
+                for (auto i = 0u; i < gep->index_count(); ++i) {
+                    auto *index = gep->index(i);
+                    if (index == nullptr || index->type() == nullptr) {
+                        result.valid = false;
+                        break;
+                    }
+                    if (index->isa<Constant>()) {
+                        uint64_t decoded = 0u;
+                        if (!try_decode_constant_nonnegative_integer(
+                                index, decoded) ||
+                            decoded > static_cast<uint64_t>(SIZE_MAX)) {
+                            result.valid = false;
+                            break;
+                        }
+                        result.view.access_pattern.emplace_back(
+                            static_cast<size_t>(decoded));
+                    } else {
+                        result.view.access_pattern.emplace_back(luisa::nullopt);
+                        result.view.precise = false;
+                    }
+                }
+            }
+        }
+        active.erase(value);
+        cache.emplace(value, result);
+        return result;
     }
 
-    // Definite initialization has an equivalent sparse formulation over the
-    // product {CFG block, no-full-definition-yet}. Delete every CFG suffix
-    // after its first whole-object store. A direct or sub-aggregate load is
-    // safe exactly when it is unreachable from entry in the remaining graph:
-    // such a path is precisely a counterexample with no preceding complete
-    // definition. Partial stores do not cut the path. Joins are handled by path
-    // union, cycles need no iteration beyond reachability, and instruction
-    // order is respected by scanning each reached block to its first full def.
-    luisa::unordered_set<BasicBlock *> reached_without_store;
-    luisa::vector<BasicBlock *> worklist{entry};
-    while (!worklist.empty()) {
-        auto *block = worklist.back();
-        worklist.pop_back();
-        if (!region.blocks.contains(block) ||
-            !reached_without_store.emplace(block).second) {
-            continue;
+    [[nodiscard]] RayQueryHandlerPointerResolveResult resolve_pointer(
+        const Value *value,
+        const RayQueryHandlerPointerEnvironment &environment,
+        luisa::unordered_map<const Value *,
+                             RayQueryHandlerPointerResolveResult> &cache)
+        const noexcept {
+        luisa::unordered_set<const Value *> active;
+        return resolve_pointer(value, environment, cache, active);
+    }
+
+    [[nodiscard]] RayQueryHandlerScratchEffect access_effect(
+        const RayQueryHandlerPointerView &view, bool read,
+        bool write) const noexcept {
+        RayQueryHandlerScratchEffect effect{_root_type};
+        AggregateFieldBitmask mask{_root_type};
+        if (!mask.mark_access_pattern(view.access_pattern)) {
+            effect.valid = false;
+            return effect;
         }
-        auto path_was_cut = false;
-        for (auto *inst : block->instructions()) {
-            if (accesses.full_definitions.contains(inst)) {
-                path_was_cut = true;
+        if (read) { effect.need = mask; }
+        if (write && view.precise) { effect.define = mask; }
+        return effect;
+    }
+
+    [[nodiscard]] RayQueryHandlerScratchEffect summarize_callable(
+        const Function *function,
+        RayQueryHandlerPointerEnvironment environment,
+        luisa::unordered_set<const Function *> &active_functions) const noexcept {
+        RayQueryHandlerScratchEffect invalid{_root_type};
+        invalid.valid = false;
+        if (function == nullptr || function->definition() == nullptr ||
+            function->definition()->body_block() == nullptr ||
+            !active_functions.emplace(function).second) {
+            return invalid;
+        }
+        auto *definition =
+            const_cast<Function *>(function)->definition();
+        luisa::unordered_set<BasicBlock *> blocks;
+        for (auto *block : definition->basic_blocks()) {
+            blocks.emplace(block);
+        }
+        auto result = summarize_region(
+            definition->body_block(), blocks,
+            std::move(environment), false, active_functions);
+        active_functions.erase(function);
+        return result;
+    }
+
+    [[nodiscard]] RayQueryHandlerScratchEffect instruction_effect(
+        const Instruction *instruction,
+        const RayQueryHandlerPointerEnvironment &environment,
+        luisa::unordered_map<const Value *,
+                             RayQueryHandlerPointerResolveResult> &cache,
+        luisa::unordered_set<const Function *> &active_functions) const noexcept {
+        RayQueryHandlerScratchEffect effect{_root_type};
+        if (instruction == nullptr) {
+            effect.valid = false;
+            return effect;
+        }
+        luisa::vector<bool> handled(instruction->operand_count(), false);
+        switch (instruction->derived_instruction_tag()) {
+            case DerivedInstructionTag::GEP: {
+                if (instruction->operand_count() == 0u) {
+                    effect.valid = false;
+                    break;
+                }
+                handled[0u] = true;
+                auto resolved = resolve_pointer(
+                    static_cast<const GEPInst *>(instruction)->base(),
+                    environment, cache);
+                effect.valid &= resolved.valid;
                 break;
             }
-            if (accesses.reads.contains(inst)) {
-                return false;
+            case DerivedInstructionTag::LOAD: {
+                if (instruction->operand_count() != 1u) {
+                    effect.valid = false;
+                    break;
+                }
+                handled[0u] = true;
+                auto resolved = resolve_pointer(
+                    static_cast<const LoadInst *>(instruction)->variable(),
+                    environment, cache);
+                effect.valid &= resolved.valid;
+                if (resolved.related) {
+                    effect = access_effect(resolved.view, true, false);
+                }
+                break;
+            }
+            case DerivedInstructionTag::STORE: {
+                if (instruction->operand_count() != 2u) {
+                    effect.valid = false;
+                    break;
+                }
+                handled[0u] = true;
+                auto resolved = resolve_pointer(
+                    static_cast<const StoreInst *>(instruction)->variable(),
+                    environment, cache);
+                effect.valid &= resolved.valid;
+                if (resolved.related) {
+                    effect = access_effect(resolved.view, false, true);
+                }
+                break;
+            }
+            case DerivedInstructionTag::CALL: {
+                auto *call = static_cast<const CallInst *>(instruction);
+                auto *callee = call->callee();
+                if (callee == nullptr || call->argument_count() !=
+                                             callee->arguments().count_size()) {
+                    effect.valid = false;
+                    break;
+                }
+                handled[CallInst::operand_index_callee] = true;
+                RayQueryHandlerPointerEnvironment callee_environment;
+                auto formal = callee->arguments().begin();
+                for (auto i = 0u; i < call->argument_count(); ++i, ++formal) {
+                    auto resolved = resolve_pointer(
+                        call->argument(i), environment, cache);
+                    effect.valid &= resolved.valid;
+                    if (!resolved.related) { continue; }
+                    handled[CallInst::operand_index_argument_offset + i] = true;
+                    if (!(*formal)->is_reference() ||
+                        !callee_environment.emplace(*formal,
+                                                    std::move(resolved.view))
+                             .second) {
+                        effect.valid = false;
+                        break;
+                    }
+                }
+                if (effect.valid && !callee_environment.empty()) {
+                    effect = summarize_callable(
+                        callee, std::move(callee_environment),
+                        active_functions);
+                }
+                break;
+            }
+            default: break;
+        }
+        if (!effect.valid) { return effect; }
+        for (auto i = 0u; i < instruction->operand_count(); ++i) {
+            if (handled[i]) { continue; }
+            auto resolved = resolve_pointer(
+                instruction->operand(i), environment, cache);
+            if (!resolved.valid || resolved.related) {
+                effect.valid = false;
+                break;
             }
         }
-        if (!path_was_cut) {
+        return effect;
+    }
+
+    static bool join_effect(
+        RayQueryHandlerScratchBlockState &target,
+        const RayQueryHandlerScratchEffect &incoming) noexcept {
+        if (!target.reached) {
+            target.reached = true;
+            target.effect = incoming;
+            return true;
+        }
+        auto previous_need = target.effect.need;
+        auto previous_define = target.effect.define;
+        auto previous_valid = target.effect.valid;
+        target.effect.need |= incoming.need;
+        target.effect.define &= incoming.define;
+        target.effect.valid &= incoming.valid;
+        return target.effect.need != previous_need ||
+               target.effect.define != previous_define ||
+               target.effect.valid != previous_valid;
+    }
+
+    [[nodiscard]] RayQueryHandlerScratchEffect summarize_region(
+        BasicBlock *entry,
+        const luisa::unordered_set<BasicBlock *> &blocks,
+        RayQueryHandlerPointerEnvironment environment,
+        bool allow_external_exit,
+        luisa::unordered_set<const Function *> &active_functions) const noexcept {
+        RayQueryHandlerScratchEffect invalid{_root_type};
+        invalid.valid = false;
+        if (entry == nullptr || !blocks.contains(entry)) { return invalid; }
+        luisa::unordered_map<BasicBlock *,
+                             luisa::unique_ptr<RayQueryHandlerScratchBlockState>>
+            states;
+        for (auto *block : blocks) {
+            if (block == nullptr) { return invalid; }
+            states.emplace(
+                block,
+                luisa::make_unique<RayQueryHandlerScratchBlockState>(
+                    _root_type));
+        }
+        RayQueryHandlerScratchEffect identity{_root_type};
+        states.at(entry)->reached = true;
+        states.at(entry)->effect = identity;
+        luisa::vector<BasicBlock *> worklist{entry};
+        luisa::unordered_set<BasicBlock *> queued{entry};
+        RayQueryHandlerScratchBlockState exits{_root_type};
+        while (!worklist.empty()) {
+            auto *block = worklist.back();
+            worklist.pop_back();
+            queued.erase(block);
+            auto current = states.at(block)->effect;
+            luisa::unordered_map<const Value *,
+                                 RayQueryHandlerPointerResolveResult>
+                pointer_cache;
+            for (auto *instruction : block->instructions()) {
+                auto next = instruction_effect(
+                    instruction, environment, pointer_cache,
+                    active_functions);
+                current = compose_handler_scratch_effects(current, next);
+                if (!current.valid) { return current; }
+            }
+            auto successor_count = 0u;
+            auto external_successor_count = 0u;
             block->traverse_successors(
                 false, [&](BasicBlock *successor) noexcept {
-                    if (region.blocks.contains(successor)) {
+                    ++successor_count;
+                    if (!blocks.contains(successor)) {
+                        ++external_successor_count;
+                        return;
+                    }
+                    auto &state = *states.at(successor);
+                    if (join_effect(state, current) &&
+                        queued.emplace(successor).second) {
                         worklist.emplace_back(successor);
                     }
                 });
+            if (external_successor_count != 0u) {
+                if (!allow_external_exit) { return invalid; }
+                join_effect(exits, current);
+            } else if (successor_count == 0u) {
+                auto *terminator = block->terminator();
+                if (terminator != nullptr &&
+                    terminator->isa<ReturnInst>()) {
+                    join_effect(exits, current);
+                } else if (terminator == nullptr ||
+                           !terminator->isa<UnreachableInst>()) {
+                    return invalid;
+                }
+            }
         }
+        return exits.reached ? exits.effect : invalid;
     }
-    return true;
-}
+
+public:
+    explicit RayQueryHandlerScratchAnalyzer(const Type *root_type) noexcept
+        : _root_type{root_type} {}
+
+    [[nodiscard]] RayQueryHandlerScratchEffect summarize(
+        AllocaInst *alloca, BasicBlock *entry,
+        const RayQueryHandlerRegion &region) const noexcept {
+        RayQueryHandlerScratchEffect invalid{_root_type};
+        invalid.valid = false;
+        if (alloca == nullptr || entry == nullptr ||
+            alloca->type() != _root_type ||
+            alloca->parent_function() == nullptr) {
+            return invalid;
+        }
+        RayQueryHandlerPointerEnvironment environment;
+        environment.emplace(alloca, RayQueryHandlerPointerView{});
+        luisa::unordered_set<const Function *> active_functions;
+        active_functions.emplace(alloca->parent_function());
+        return summarize_region(
+            entry, region.blocks, std::move(environment), true,
+            active_functions);
+    }
+};
 
 [[nodiscard]] static RayQueryHandlerLocalAllocas
 find_handler_local_allocas(
@@ -565,31 +919,37 @@ find_handler_local_allocas(
         auto *alloca = static_cast<AllocaInst *>(value);
         if (!alloca->is_local()) { continue; }
 
-        RayQueryHandlerAllocaAccesses accesses;
-        if (!collect_handler_alloca_accesses(alloca, accesses)) {
-            continue;
+        RayQueryHandlerRootUseInfo uses;
+        luisa::unordered_set<Value *> visited;
+        collect_handler_alloca_root_uses(
+            alloca, surface_region, procedural_region, uses, visited);
+        if (!uses.valid) { continue; }
+        // A root used by both candidate kinds has two independent callback
+        // lifetimes. It is safe to duplicate the storage into both outlined
+        // functions iff each handler separately kills every incoming field
+        // before observing it. Requiring a unique handler would retain false
+        // cross-candidate state for ordinary DSL temporaries shared by the
+        // two source lambdas.
+        if (!uses.used_by_surface && !uses.used_by_procedural) { continue; }
+        auto handler_is_invocation_local =
+            [&](BasicBlock *entry,
+                const RayQueryHandlerRegion &region) noexcept {
+                auto summary =
+                    RayQueryHandlerScratchAnalyzer{alloca->type()}
+                        .summarize(alloca, entry, region);
+                return summary.valid && summary.need.access().none();
+            };
+        auto surface_is_local =
+            !uses.used_by_surface ||
+            handler_is_invocation_local(surface_entry, surface_region);
+        auto procedural_is_local =
+            !uses.used_by_procedural ||
+            handler_is_invocation_local(procedural_entry, procedural_region);
+        if (!surface_is_local || !procedural_is_local) { continue; }
+        if (uses.used_by_surface) { result.surface.emplace_back(alloca); }
+        if (uses.used_by_procedural) {
+            result.procedural.emplace_back(alloca);
         }
-
-        auto used_by_surface = false;
-        auto used_by_procedural = false;
-        for (auto *inst : accesses.pointer_users) {
-            auto *block = inst->parent_block();
-            used_by_surface |= surface_region.blocks.contains(block);
-            used_by_procedural |= procedural_region.blocks.contains(block);
-        }
-        // Sharing an allocation between candidate kinds, or observing it
-        // from neither, gives no unique callback-local home. A cross-handler
-        // object remains an ordinary capture even if each individual access
-        // looks locally initialized.
-        if (used_by_surface == used_by_procedural) { continue; }
-        auto *entry = used_by_surface ? surface_entry : procedural_entry;
-        auto &region = used_by_surface ? surface_region : procedural_region;
-        if (!handler_local_alloca_is_definitely_initialized(
-                accesses, entry, region)) {
-            continue;
-        }
-        (used_by_surface ? result.surface : result.procedural)
-            .emplace_back(alloca);
         result.all.emplace(alloca);
     }
     return result;

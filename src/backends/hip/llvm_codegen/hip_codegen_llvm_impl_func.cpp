@@ -314,6 +314,17 @@ llvm::BasicBlock *HIPCodegenLLVMImpl::_translate_function_definition(FunctionCon
         for (auto inst : bb->instructions()) {
             _translate_instruction(b, func_ctx, inst);
         }
+        // Lowering an instruction is allowed to refine one XIR block into an
+        // LLVM sub-CFG, but every such refinement has one continuation block.
+        // Record that tail after the XIR terminator has been emitted: this is
+        // the actual predecessor associated with outgoing SSA edge values.
+        auto *llvm_exit_block = b.GetInsertBlock();
+        LUISA_ASSERT(llvm_exit_block != nullptr &&
+                         llvm_exit_block->getTerminator() != nullptr,
+                     "LLVM lowering of XIR block '{}' has no unique "
+                     "terminated exit block.",
+                     bb->name().value_or("<unnamed>"));
+        func_ctx.llvm_exit_blocks.try_emplace(bb, llvm_exit_block);
     });
     _finalize_pending_phi_nodes(func_ctx, translated_blocks);
     // Dominator traversal skips unreachable structured merge blocks, but LLVM still requires terminators.

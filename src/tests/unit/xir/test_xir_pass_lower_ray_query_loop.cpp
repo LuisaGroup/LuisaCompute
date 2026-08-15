@@ -9,6 +9,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
@@ -466,6 +467,101 @@ void register_tests() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "independently_initialized_cross_handler_scratch_is_duplicated"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(Type::of<float3>());
+        scratch->set_name("cross_handler_invocation_scratch");
+        b.store(scratch, m.create_constant_zero(Type::of<float3>()));
+
+        b.set_insertion_point(f.surface);
+        b.store(scratch, m.create_constant_one(Type::of<float3>()));
+        b.load(Type::of<float3>(), scratch);
+        b.br(f.dispatch);
+        b.set_insertion_point(f.procedural->terminator()->prev());
+        b.store(scratch, m.create_constant_zero(Type::of<float3>()));
+        b.load(Type::of<float3>(), scratch);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        // One source object is removed from the ABI and recreated once in
+        // each independently invoked candidate handler.
+        expect(info.localized_alloca_count == 1u);
+
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline == nullptr) { return; }
+        auto captures_scratch = false;
+        for (auto i = 0u; i < pipeline->captured_argument_count(); ++i) {
+            captures_scratch |= pipeline->captured_argument(i) == scratch;
+        }
+        expect(!captures_scratch);
+        for (auto *handler : {pipeline->on_surface_function(),
+                              pipeline->on_procedural_function()}) {
+            auto localized_count = 0u;
+            handler->definition()->traverse_instructions(
+                [&](Instruction *inst) noexcept {
+                    if (inst->isa<AllocaInst>() && inst->name() &&
+                        *inst->name() ==
+                            "cross_handler_invocation_scratch") {
+                        ++localized_count;
+                    }
+                });
+            expect(localized_count == 1u);
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "cross_handler_scratch_with_one_incoming_read_stays_captured"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(Type::of<float3>());
+        scratch->set_name("cross_handler_persistent_state");
+        b.store(scratch, m.create_constant_zero(Type::of<float3>()));
+
+        b.set_insertion_point(f.surface);
+        b.store(scratch, m.create_constant_one(Type::of<float3>()));
+        b.load(Type::of<float3>(), scratch);
+        b.br(f.dispatch);
+        b.set_insertion_point(f.procedural->terminator()->prev());
+        // This read can observe the surface handler's previous candidate and
+        // therefore forbids replacing the shared lifetime by two locals.
+        b.load(Type::of<float3>(), scratch);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(info.localized_alloca_count == 0u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline != nullptr) {
+            auto captures_scratch = false;
+            for (auto i = 0u; i < pipeline->captured_argument_count(); ++i) {
+                captures_scratch |=
+                    pipeline->captured_argument(i) == scratch;
+            }
+            expect(captures_scratch);
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "whole_aggregate_store_localizes_subfield_reads"_test = [] {
         Module m;
         auto f = make_fixture(m);
@@ -580,6 +676,131 @@ void register_tests() {
                     pipeline->captured_argument(i) == scratch;
             }
             expect(captures_scratch);
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "component_initialized_scratch_through_callable_is_localized"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *helper = m.create_callable(nullptr);
+        auto *argument =
+            helper->create_reference_argument(Type::of<float3>());
+        XIRBuilder b;
+        b.set_insertion_point(helper->create_body_block());
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        const uint two_value = 2u;
+        auto *two = m.create_constant(Type::of<uint>(), &two_value);
+        auto *x = b.gep(Type::of<float>(), argument, {zero});
+        auto *y = b.gep(Type::of<float>(), argument, {one});
+        auto *z = b.gep(Type::of<float>(), argument, {two});
+        b.store(x, m.create_constant_zero(Type::of<float>()));
+        b.store(y, m.create_constant_zero(Type::of<float>()));
+        b.store(z, m.create_constant_zero(Type::of<float>()));
+        b.load(Type::of<float>(), x);
+        b.load(Type::of<float>(), y);
+        b.load(Type::of<float>(), z);
+        b.return_void();
+
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(Type::of<float3>());
+        scratch->set_name("interprocedural_component_scratch");
+        // This incoming value is deliberately observable only if the helper
+        // can read a field before its own per-invocation definitions.
+        b.store(scratch, m.create_constant_zero(Type::of<float3>()));
+        b.set_insertion_point(f.surface);
+        b.call(nullptr, helper, {scratch});
+        b.br(f.dispatch);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(info.localized_alloca_count == 1u);
+
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline == nullptr) { return; }
+        auto captures_scratch = false;
+        for (auto i = 0u; i < pipeline->captured_argument_count(); ++i) {
+            captures_scratch |= pipeline->captured_argument(i) == scratch;
+        }
+        expect(!captures_scratch);
+
+        AllocaInst *localized = nullptr;
+        CallInst *localized_call = nullptr;
+        pipeline->on_surface_function()
+            ->definition()
+            ->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+                block->traverse_instructions(
+                    [&](Instruction *inst) noexcept {
+                        if (inst->isa<AllocaInst>() && inst->name() &&
+                            *inst->name() ==
+                                "interprocedural_component_scratch") {
+                            localized = static_cast<AllocaInst *>(inst);
+                        }
+                        if (inst->isa<CallInst>() &&
+                            static_cast<CallInst *>(inst)->callee() == helper) {
+                            localized_call = static_cast<CallInst *>(inst);
+                        }
+                    });
+            });
+        expect(localized != nullptr);
+        expect(localized_call != nullptr);
+        if (localized_call != nullptr) {
+            expect(localized_call->argument(0u) == localized);
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "callable_read_of_uninitialized_component_stays_captured"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *helper = m.create_callable(nullptr);
+        auto *argument =
+            helper->create_reference_argument(Type::of<float3>());
+        XIRBuilder b;
+        b.set_insertion_point(helper->create_body_block());
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        auto *x = b.gep(Type::of<float>(), argument, {zero});
+        auto *y = b.gep(Type::of<float>(), argument, {one});
+        b.store(x, m.create_constant_zero(Type::of<float>()));
+        // y still observes the value carried between candidate invocations.
+        b.load(Type::of<float>(), y);
+        b.return_void();
+
+        b.set_insertion_point(f.loop->prev());
+        auto *state = b.alloca_local(Type::of<float3>());
+        b.store(state, m.create_constant_zero(Type::of<float3>()));
+        b.set_insertion_point(f.surface);
+        b.call(nullptr, helper, {state});
+        b.br(f.dispatch);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(info.localized_alloca_count == 0u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline != nullptr) {
+            auto captures_state = false;
+            for (auto i = 0u; i < pipeline->captured_argument_count(); ++i) {
+                captures_state |= pipeline->captured_argument(i) == state;
+            }
+            expect(captures_state);
         }
         expect(xir_verify_module(&m).succeeded());
     };

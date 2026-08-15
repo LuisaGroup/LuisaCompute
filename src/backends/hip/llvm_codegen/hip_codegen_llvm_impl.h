@@ -72,6 +72,12 @@ public:
         llvm::Value *llvm_rt_stack_data{nullptr};
         llvm::Value *llvm_rq_state{nullptr};// Ray query per-thread state pointer (alloca)
         llvm::DenseMap<const xir::Value *, llvm::Value *> local_values;
+        // A logical XIR block may lower to a single-entry/single-exit LLVM
+        // region (for example, a floating-point atomic RMW expands to a CAS
+        // loop). Branch targets use the region entry stored in local_values;
+        // PHI incoming edges must use the region exit stored here.
+        llvm::DenseMap<const xir::BasicBlock *, llvm::BasicBlock *>
+            llvm_exit_blocks;
         std::vector<const xir::PhiInst *> pending_phi_nodes;
 
         explicit FunctionContext(llvm::Function *f) noexcept;

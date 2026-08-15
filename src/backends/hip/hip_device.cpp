@@ -33,7 +33,11 @@
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
 #include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/inline.h>
+#include <luisa/xir/passes/local_load_elimination.h>
+#include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 #include <llvm/Config/llvm-config.h>
@@ -52,7 +56,7 @@ static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
 static constexpr auto hip_shader_cache_artifact_version = 2u;
 // Increment whenever the HIP AST/XIR/LLVM lowering contract changes in a way
 // that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 63u;
+static constexpr auto hip_shader_cache_codegen_revision = 66u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -1216,6 +1220,49 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                 "XIR early-return elimination: removed {} "
                 "early return(s).",
                 early_return_info.removed_return_count);
+        }
+        // Normalize AST-local memory before classifying ray-query handler
+        // effects. This is the same semantics-preserving pre-CFG sequence
+        // used by the CUDA and fallback backends: forwarding and mem2reg
+        // remove value-copy scaffolding so the handler proof observes the
+        // program's actual state dependencies rather than translator-created
+        // alloca/load/store chains.
+        {
+            xir::PassPipeline pre_cfg;
+            pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::dce_pass_run_on_module(m, &r);
+                return i.changed();
+            });
+            pre_cfg.add(
+                "local-store-forward",
+                [](xir::Module *m, xir::PassReport &r) {
+                    auto i =
+                        xir::local_store_forward_pass_run_on_module(m, &r);
+                    return i.removed_load_count > 0u;
+                });
+            pre_cfg.add(
+                "local-load-elimination",
+                [](xir::Module *m, xir::PassReport &r) {
+                    auto i =
+                        xir::local_load_elimination_pass_run_on_module(m, &r);
+                    return i.removed_load_count > 0u;
+                });
+            pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::dce_pass_run_on_module(m, &r);
+                return i.changed();
+            });
+            pre_cfg.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::mem2reg_pass_run_on_module(m, &r);
+                return i.changed();
+            });
+            pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::dce_pass_run_on_module(m, &r);
+                return i.changed();
+            });
+            auto stats = pre_cfg.run(xir_module.get());
+            stats.log("HIP backend pre-CFG optimization");
+            verify_xir_or_error(
+                xir_module.get(), "pre-CFG optimization");
         }
         {
             xir::PassReport report;
