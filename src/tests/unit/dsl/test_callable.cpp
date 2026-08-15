@@ -155,10 +155,10 @@ void test_equivalent_callable_capture_environments(Device &device) {
     auto shader = device.compile(
         kernel, ShaderOption{.enable_cache = false});
     auto stream = device.create_stream();
-    stream << lhs.copy_from(lhs_values.data())
-           << rhs.copy_from(rhs_values.data())
+    stream << lhs.copy_from(luisa::span{lhs_values.data(), lhs_values.size()})
+           << rhs.copy_from(luisa::span{rhs_values.data(), rhs_values.size()})
            << shader(lhs, rhs, output).dispatch(element_count)
-           << output.copy_to(output_values.data())
+           << output.copy_to(luisa::span{output_values.data(), output_values.size()})
            << synchronize();
 
     for (auto i = 0u; i < element_count; ++i) {
