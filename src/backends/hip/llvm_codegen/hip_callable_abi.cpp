@@ -47,18 +47,22 @@ struct LargeReturnPlan {
 };
 
 struct ConstantArgumentCallGroup {
-    llvm::ConstantInt *value;
+    llvm::SmallVector<llvm::ConstantInt *, 2> values;
     llvm::SmallVector<llvm::CallInst *, 8> calls;
 };
 
 [[nodiscard]] llvm::AttributeList remove_parameter_attributes(
     llvm::LLVMContext &context, llvm::AttributeList attributes,
-    unsigned removed_parameter, unsigned old_parameter_count) noexcept {
+    llvm::ArrayRef<unsigned> removed_parameters,
+    unsigned old_parameter_count) noexcept {
     llvm::SmallVector<llvm::AttributeSet, 16> parameter_attributes;
-    parameter_attributes.reserve(old_parameter_count - 1u);
+    parameter_attributes.reserve(
+        old_parameter_count - removed_parameters.size());
     for (auto parameter_index = 0u;
          parameter_index < old_parameter_count; parameter_index++) {
-        if (parameter_index != removed_parameter) {
+        if (!std::binary_search(
+                removed_parameters.begin(), removed_parameters.end(),
+                parameter_index)) {
             parameter_attributes.emplace_back(
                 attributes.getParamAttrs(parameter_index));
         }
@@ -305,17 +309,21 @@ specialize_marked_constant_integer_arguments(
             function->removeParamAttr(
                 argument_index, argument_attribute);
         }
-        if (marked_arguments.size() != 1u) { continue; }
-        const auto argument_index = marked_arguments.front();
-        auto *argument = function->getArg(argument_index);
+        if (marked_arguments.empty()) { continue; }
+        const auto marked_arguments_are_supported = std::all_of(
+            marked_arguments.begin(), marked_arguments.end(),
+            [function](auto argument_index) noexcept {
+                auto *argument = function->getArg(argument_index);
+                return argument->getType()->isIntegerTy() &&
+                       argument->getType()->getIntegerBitWidth() <= 64u;
+            });
         if (function->isDeclaration() || function->isVarArg() ||
             !function->hasLocalLinkage() || function->hasAddressTaken() ||
             function->hasMetadata() || function->hasComdat() ||
             function->hasGC() || function->hasPersonalityFn() ||
             function->hasPrefixData() || function->hasPrologueData() ||
             function->hasFnAttribute(llvm::Attribute::AllocSize) ||
-            !argument->getType()->isIntegerTy() ||
-            argument->getType()->getIntegerBitWidth() > 64u) {
+            !marked_arguments_are_supported) {
             continue;
         }
 
@@ -329,29 +337,44 @@ specialize_marked_constant_integer_arguments(
                 call->getCallingConv() != function->getCallingConv() ||
                 call->isMustTailCall() ||
                 call->hasMetadataOtherThanDebugLoc() ||
-                call->hasFnAttr(llvm::Attribute::AllocSize) ||
-                !llvm::isa<llvm::ConstantInt>(
-                    call->getArgOperand(argument_index))) {
+                call->hasFnAttr(llvm::Attribute::AllocSize)) {
                 supported_uses = false;
                 break;
             }
+            for (auto argument_index : marked_arguments) {
+                if (!llvm::isa<llvm::ConstantInt>(
+                        call->getArgOperand(argument_index))) {
+                    supported_uses = false;
+                    break;
+                }
+            }
+            if (!supported_uses) { break; }
             calls.emplace_back(call);
         }
         if (!supported_uses || calls.empty()) { continue; }
 
         std::vector<ConstantArgumentCallGroup> groups;
         for (auto *call : calls) {
-            auto *value = llvm::cast<llvm::ConstantInt>(
-                call->getArgOperand(argument_index));
+            llvm::SmallVector<llvm::ConstantInt *, 2> values;
+            values.reserve(marked_arguments.size());
+            for (auto argument_index : marked_arguments) {
+                values.emplace_back(llvm::cast<llvm::ConstantInt>(
+                    call->getArgOperand(argument_index)));
+            }
             auto group = std::find_if(
                 groups.begin(), groups.end(),
-                [value](const auto &candidate) noexcept {
-                    return candidate.value->getValue() ==
-                           value->getValue();
+                [&values](const auto &candidate) noexcept {
+                    return std::equal(
+                        candidate.values.begin(),
+                        candidate.values.end(), values.begin(),
+                        values.end(),
+                        [](auto *lhs, auto *rhs) noexcept {
+                            return lhs->getValue() == rhs->getValue();
+                        });
                 });
             if (group == groups.end()) {
                 groups.emplace_back(ConstantArgumentCallGroup{
-                    .value = value});
+                    .values = std::move(values)});
                 group = std::prev(groups.end());
             }
             group->calls.emplace_back(call);
@@ -359,31 +382,44 @@ specialize_marked_constant_integer_arguments(
         std::sort(
             groups.begin(), groups.end(),
             [](const auto &lhs, const auto &rhs) noexcept {
-                return lhs.value->getValue().ult(
-                    rhs.value->getValue());
+                return std::lexicographical_compare(
+                    lhs.values.begin(), lhs.values.end(),
+                    rhs.values.begin(), rhs.values.end(),
+                    [](auto *lhs_value, auto *rhs_value) noexcept {
+                        return lhs_value->getValue().ult(
+                            rhs_value->getValue());
+                    });
             });
 
         auto original_name = function->getName().str();
         for (auto &group : groups) {
             llvm::ValueToValueMapTy value_map;
-            value_map[argument] = group.value;
+            for (auto i = 0u; i < marked_arguments.size(); i++) {
+                value_map[function->getArg(marked_arguments[i])] =
+                    group.values[i];
+            }
             auto *clone = llvm::CloneFunction(function, value_map);
-            llvm::SmallString<32> value_name;
-            group.value->getValue().toString(
-                value_name, 10u, false);
-            clone->setName(
-                llvm::Twine{original_name} + ".constant." +
-                value_name);
+            llvm::SmallString<64> clone_name{original_name};
+            clone_name.append(".constant");
+            for (auto *value : group.values) {
+                clone_name.push_back('.');
+                value->getValue().toString(
+                    clone_name, 10u, false);
+            }
+            clone->setName(clone_name);
             simplify_constant_argument_clone(*clone);
             specialized_functions.emplace_back(clone);
 
             for (auto *call : group.calls) {
                 llvm::IRBuilder<> builder{call};
                 llvm::SmallVector<llvm::Value *, 16> arguments;
-                arguments.reserve(call->arg_size() - 1u);
+                arguments.reserve(
+                    call->arg_size() - marked_arguments.size());
                 for (auto actual_index = 0u;
                      actual_index < call->arg_size(); actual_index++) {
-                    if (actual_index != argument_index) {
+                    if (!std::binary_search(
+                            marked_arguments.begin(),
+                            marked_arguments.end(), actual_index)) {
                         arguments.emplace_back(
                             call->getArgOperand(actual_index));
                     }
@@ -397,7 +433,7 @@ specialize_marked_constant_integer_arguments(
                 new_call->setTailCallKind(call->getTailCallKind());
                 new_call->setAttributes(remove_parameter_attributes(
                     module.getContext(), call->getAttributes(),
-                    argument_index, call->arg_size()));
+                    marked_arguments, call->arg_size()));
                 new_call->setDebugLoc(call->getDebugLoc());
                 new_call->copyMetadata(*call);
                 new_call->setFastMathFlags(

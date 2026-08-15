@@ -718,7 +718,7 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
                 _uses_synchronous_ray_query_pipeline;
             const auto hw_stack_max_entries =
                 native_pipeline_stack ? 16u :
-                (_rt_analysis.uses_ray_query ? 9u : 8u);
+                                        (_rt_analysis.uses_ray_query ? 9u : 8u);
             // The native pipeline implements GFX12's instance-aware protocol
             // in one physical stack. A static trace in the same kernel still
             // uses HIPRT's legacy disjoint TLAS/BLAS regions, so retain two
@@ -1281,12 +1281,13 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     _run_optimization_passes();
 
     // The synchronous native traversal remains one shared function, so IPO
-    // sees its callback dispatcher through a dynamic pipeline parameter even
-    // when every surviving call site supplies a constant. Specialize only the
-    // explicitly marked parameter after IPO: at most one outlined body per
-    // distinct identity removes the switch without cloning that body into
-    // every triangle/procedural candidate site; semantically equal bodies are
-    // merged again afterwards.
+    // sees its callback dispatcher through dynamic parameters even when every
+    // surviving call site supplies constants. Specialize only the explicitly
+    // marked tuple after IPO: at most one outlined body per distinct tuple
+    // removes the selected switches without cloning that body into every
+    // triangle/procedural candidate site; semantically equal bodies are merged
+    // again afterwards. Parameters are opted in individually because removing
+    // a branch can still worsen target register allocation and code layout.
     auto constant_dispatch_stats =
         specialize_marked_constant_integer_arguments(*_llvm_module);
     if (constant_dispatch_stats.rewritten_function_count != 0u) {

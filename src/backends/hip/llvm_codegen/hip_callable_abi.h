@@ -44,13 +44,14 @@ struct ConstantArgumentSpecializationStats {
     size_t rewritten_call_count{};
 };
 
-// Specializes an internal function on the unique integer parameter carrying
+// Specializes an internal function on every integer parameter carrying
 // `argument_attribute`, provided every use is a direct non-musttail call with
-// a constant integer at that position. One clone is made per distinct value;
-// the selected formal is replaced by that value and removed from the clone's
-// ABI. The transformation is the SSA beta-reduction
+// a constant integer at every selected position. One clone is made per
+// distinct tuple; all selected formals are replaced simultaneously and
+// removed from the clone's ABI. The transformation is the SSA beta-reduction
 //
-//   call F(..., c, ...)  ==  call F[p := c](..., ...)
+//   call F(..., c_0, ..., c_n, ...) ==
+//       call F[p_0 := c_0, ..., p_n := c_n](..., ...)
 //
 // and is applied atomically per function. Address-taken functions, dynamic
 // actuals, recursion, or ABI features whose parameter indices require a richer
