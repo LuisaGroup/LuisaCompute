@@ -1590,6 +1590,92 @@ void test_hip_ray_query_short_stack_backtracking(Device &device) {
     }
 }
 
+void test_hip_ray_query_large_mixed_dispatch(Device &device) {
+    if (device.backend_name() != "hip") {
+        LUISA_INFO(
+            "Skipping HIP-specific large mixed ray-query test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+    auto amdgpu_arch = device.query("amdgpu_arch");
+    if (amdgpu_arch != "gfx1200" && amdgpu_arch != "gfx1201") {
+        LUISA_INFO(
+            "Skipping gfx12 mixed ray-query dispatch test on architecture '{}'.",
+            amdgpu_arch);
+        return;
+    }
+
+    constexpr auto resolution = make_uint2(1024u, 1024u);
+    constexpr auto element_count =
+        static_cast<size_t>(resolution.x) * resolution.y;
+    const std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    const std::array triangles{Triangle{0u, 1u, 2u}};
+
+    auto stream = device.create_stream();
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    auto result = device.create_buffer<uint>(element_count);
+    Kernel2D trace = [](AccelVar accel, BufferUInt result) noexcept {
+        set_block_size(16u, 16u, 1u);
+        auto pixel = dispatch_id().xy();
+        auto index = pixel.x + pixel.y * dispatch_size().x;
+        auto origin_x = ite((pixel.x & 1u) == 0u, 0.0f, 4.0f);
+        auto ray = make_ray(
+            make_float3(origin_x, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f));
+        auto closest = accel.traverse(ray, {})
+                           .on_surface_candidate(
+                               [](SurfaceCandidate &candidate) noexcept {
+                                   candidate.commit();
+                               })
+                           .trace();
+        auto any = accel.traverse_any(ray, {})
+                       .on_surface_candidate(
+                           [](SurfaceCandidate &candidate) noexcept {
+                               candidate.commit();
+                           })
+                       .trace();
+        auto encoded = ite(closest->miss(), 0u, 1u) |
+                       ite(any->miss(), 0u, 2u);
+        result.write(index, encoded);
+    };
+    auto shader = device.compile(
+        trace, ShaderOption{.enable_cache = false});
+    std::vector<uint> host_result(element_count);
+    stream << shader(accel, result).dispatch(resolution)
+           << result.copy_to(host_result.data())
+           << synchronize();
+
+    auto mismatch_count = size_t{0u};
+    auto first_mismatch = size_t{0u};
+    for (auto i = size_t{0u}; i < host_result.size(); ++i) {
+        const auto x = i % resolution.x;
+        const auto expected = (x & 1u) == 0u ? 3u : 0u;
+        if (host_result[i] != expected) {
+            if (mismatch_count == 0u) { first_mismatch = i; }
+            ++mismatch_count;
+        }
+    }
+    expect(mismatch_count == 0u)
+        << luisa::format(
+               "large mixed ray-query dispatch produced {} mismatch(es); "
+               "first index = {}, value = {}",
+               mismatch_count, first_mismatch,
+               host_result[first_mismatch]);
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -1620,5 +1706,8 @@ int main(int argc, char *argv[]) {
     };
     "HIP ray-query short-stack backtracking is exact"_test = [&] {
         test_hip_ray_query_short_stack_backtracking(dc->device);
+    };
+    "HIP ray-query large mixed dispatch is exact"_test = [&] {
+        test_hip_ray_query_large_mixed_dispatch(dc->device);
     };
 }

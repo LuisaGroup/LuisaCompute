@@ -588,31 +588,43 @@ int main(int argc, char *argv[]) {
                    !pure_reduction_before_root.empty() &&
                    !terminating_reduction_before_root.empty())
                 << "failed to locate the generated RayQuery functions";
+            const auto uses_gfx12_hardware_stack =
+                module.find(
+                    "@llvm.amdgcn.ds.bvh.stack.push8.pop1.rtn") !=
+                std::string::npos;
             // Selection is a codegen property, while outlining is an LLVM
             // profitability decision. Inspect the generated root before the
             // ordinary inliner instead of requiring trace wrappers to survive
             // in final IR.
-            expect(before_root.find(
-                       "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
-                   std::string_view::npos)
-                << "pure RayQueryAll closest reduction did not select one "
-                   "native HIPRT closest traversal";
+            if (uses_gfx12_hardware_stack) {
+                expect(before_root.find(
+                           "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
+                               std::string_view::npos &&
+                       before_root.find(
+                           "@luisa_pipeline_ray_query_trace_all_native_closest") ==
+                               std::string_view::npos)
+                    << "gfx12 closest reduction did not select its native "
+                       "hardware-frontier traversal";
+            } else {
+                expect(before_root.find(
+                           "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
+                       std::string_view::npos)
+                    << "software closest reduction did not select one native "
+                       "HIPRT closest traversal";
+            }
             expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
                    std::string_view::npos)
                 << "RayQueryAny without device opacity writes did not select "
                    "its stable-opacity native traversal";
             expect(before_root.find(
-                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
-                       std::string_view::npos &&
-                   before_root.find(
                        "@luisa_pipeline_ray_query_trace_all(") ==
-                   std::string_view::npos &&
+                       std::string_view::npos &&
                    before_root.find(
                        "@luisa_pipeline_ray_query_trace_any(") ==
                        std::string_view::npos)
-                << "native closest reduction retained an iterative "
-                   "RayQueryAll traversal entry point";
+                << "stable-opacity RayQuery retained a mutable-opacity "
+                   "traversal entry point";
             expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace(") ==
                    std::string_view::npos)
@@ -630,15 +642,11 @@ int main(int argc, char *argv[]) {
                    std::string::npos)
                 << "empty RayQuery callback environment was "
                    "materialized in private memory";
-            const auto uses_native_gfx12_stack =
-                module.find("@llvm.amdgcn.ds.bvh.stack.push8.pop1.rtn") !=
-                std::string::npos;
-            if (uses_native_gfx12_stack) {
+            if (uses_gfx12_hardware_stack) {
                 // Neither the native closest reduction nor the compact
-                // RayQueryAny observes query-object identity. The direct
-                // HIPRT callback still requires an addressable 112-byte
-                // transaction state, but no extra pointer-to-integer identity
-                // may escape it.
+                // RayQueryAny observes query-object identity. The hardware
+                // traversal still requires an addressable 112-byte transaction
+                // state, but no extra pointer-to-integer identity may escape it.
                 expect(root.find("ray.query.state.address") ==
                            std::string_view::npos &&
                        root.find("ray.query.identity.address") ==
@@ -683,16 +691,19 @@ int main(int argc, char *argv[]) {
                        std::string_view::npos)
                 << "internal constant-specialization marker escaped HIP "
                    "codegen";
-            if (uses_native_gfx12_stack) {
-                // The RayQueryAny baseline retains the 16-entry gfx12
-                // hardware frontier, while native HIPRT closest uses a
-                // 32-entry dynamic shared-stack cache. A 256-thread block
-                // therefore reserves max(16, 32) * 256 = 8192 dwords, not
-                // the sum of two mutually exclusive traversal layouts.
-                expect(module.find("[8192 x i32]") !=
-                       std::string::npos)
-                    << "mixed gfx12 RayQuery traversal did not reserve the "
-                       "native closest shared-stack frontier";
+            if (uses_gfx12_hardware_stack) {
+                // Both closest and any-hit queries use the same synchronous
+                // gfx12 state machine. A 256-thread block therefore needs only
+                // one 16-entry frontier (4096 dwords), with no generic HIPRT
+                // shared stack or dynamic-lock pool in the generated module.
+                expect(module.find(
+                           "@luisa_hiprt_shared_stack_cache = internal "
+                           "addrspace(3) global [4096 x i32]") !=
+                           std::string::npos &&
+                       module.find("hiprtDynamicStack") ==
+                           std::string::npos)
+                    << "gfx12 closest reduction retained a generic HIPRT "
+                       "shared-stack traversal";
                 expect(module.find(", i32 16)") !=
                        std::string::npos)
                     << "gfx12 BVH-stack intrinsic did not receive the "
@@ -735,20 +746,24 @@ int main(int argc, char *argv[]) {
             // A large environment is not itself a semantic reason to expose
             // HIPRT's continuation frontier. Prove the candidate callbacks
             // are a pure closest-hit reduction and lower the complete query
-            // to one native closest traversal. The surface commit is
+            // to one backend-native closest traversal. The surface commit is
             // intentionally in a nested Callable to exercise active-query
             // provenance across a call edge; the procedural handler exercises
             // the formally equivalent active-ray frontier used by ribbons.
             // Explicit termination changes the observable candidate prefix and
             // must fail the same proof.
+            const auto expected_pure_reduction_trace =
+                uses_gfx12_hardware_stack ?
+                    "@luisa_pipeline_ray_query_trace_all_stable_opacity(" :
+                    "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(";
             expect(pure_reduction_before_root.find(
-                       "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
+                       expected_pure_reduction_trace) !=
                        std::string_view::npos &&
                    pure_reduction_before_module.find(
                        "@luisa_ray_query_proceed(") ==
                        std::string::npos)
-                << "large pure closest reduction did not lower to one native "
-                   "HIPRT closest traversal";
+                << "large pure closest reduction did not lower to one "
+                   "backend-native traversal";
             expect(count_occurrences(
                        pure_reduction_before_root,
                        "ray.query.context.projected.field") >= 8u)

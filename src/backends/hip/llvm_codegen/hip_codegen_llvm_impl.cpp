@@ -733,13 +733,27 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
         }
     }
 
-    // Step 2: Replace the extern __shared__ declaration of luisa_hiprt_shared_stack_cache
-    // with a sized definition based on the actual kernel block size.
+    // Step 2: Replace the extern __shared__ traversal-stack declaration with a
+    // sized definition based on the actual kernel block size. Size from linked
+    // traversal calls rather than conservative module capability flags: a
+    // native-only or private-stack kernel must not reserve an unused hardware
+    // frontier.
     {
         auto block_size = _config.block_size[0] * _config.block_size[1] * _config.block_size[2];
         LUISA_ASSERT(block_size > 0u, "Block size must be greater than zero.");
         uint32_t shared_array_size = 0u;
-        if (_uses_hardware_rt_stack) {
+        auto *hw_stack_dummy = _llvm_module->getFunction(
+            "luisa_amdgcn_ds_bvh_stack_push8_pop1_rtn");
+        auto has_hardware_stack_calls = false;
+        if (hw_stack_dummy != nullptr) {
+            for (auto *user : hw_stack_dummy->users()) {
+                if (llvm::isa<llvm::CallInst>(user)) {
+                    has_hardware_stack_calls = true;
+                    break;
+                }
+            }
+        }
+        if (_uses_hardware_rt_stack && has_hardware_stack_calls) {
             // Synchronous pipeline traversal uses GFX12's native single-stack
             // instance protocol. Resumable RayQuery keeps the proven disjoint
             // TLAS/BLAS regions and its exact parent-link continuation.
@@ -802,7 +816,7 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
             }
 
             // dummy: <2 x i32> (i32, i32, <8 x i32>)  →  real: {i32, i32} (i32, i32, <8 x i32>, i32 immarg)
-            if (auto *dummy_func = _llvm_module->getFunction("luisa_amdgcn_ds_bvh_stack_push8_pop1_rtn")) {
+            if (auto *dummy_func = hw_stack_dummy) {
                 auto *i32_ty = llvm::Type::getInt32Ty(_llvm_context);
                 auto *intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
                     _llvm_module.get(), llvm::Intrinsic::amdgcn_ds_bvh_stack_push8_pop1_rtn);
@@ -834,30 +848,32 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
                            calls_to_replace.size(), hw_stack_max_entries);
             }
         }
-        if (!_uses_hardware_rt_stack ||
-            _uses_native_closest_ray_query_pipeline) {
-            // Pre-gfx12 traversal and the native closest-callback reduction use
-            // HIPRT's LDS-fronted dynamic stack. Other synchronous gfx12
-            // pipelines use the explicit hardware frontier and do not reserve
-            // a second, overlapping shared-memory layout.
-            shared_array_size = std::max(
-                shared_array_size,
-                LUISA_HIPRT_SHARED_STACK_SIZE * block_size);
+        if (!_uses_hardware_rt_stack) {
+            // Pre-gfx12 and reentrant traversal use HIPRT's generic dynamic
+            // stack through the historical shared-cache symbol.
+            shared_array_size =
+                LUISA_HIPRT_SHARED_STACK_SIZE * block_size;
         }
-        if (auto old_gv = _llvm_module->getGlobalVariable("luisa_hiprt_shared_stack_cache")) {
+        if (auto old_gv = _llvm_module->getGlobalVariable(
+                "luisa_hiprt_shared_stack_cache")) {
+            LUISA_ASSERT(shared_array_size > 0u,
+                         "Shared traversal stack has zero size.");
             auto i32_ty = llvm::Type::getInt32Ty(_llvm_context);
-            auto array_ty = llvm::ArrayType::get(i32_ty, shared_array_size);
+            auto array_ty = llvm::ArrayType::get(
+                i32_ty, shared_array_size);
             auto new_gv = new llvm::GlobalVariable(
                 *_llvm_module, array_ty, false,
                 llvm::GlobalValue::InternalLinkage,
                 llvm::UndefValue::get(array_ty),
-                "luisa_hiprt_shared_stack_cache_tmp",
+                "luisa_hiprt_shared_stack_cache.tmp",
                 nullptr,
                 llvm::GlobalValue::NotThreadLocal,
                 3u);// addrspace(3) = shared/LDS
             new_gv->setAlignment(llvm::Align(4));
-            LUISA_INFO("Replacing shared stack cache: {} uses, old type = [0 x i32], new type = [{} x i32]",
-                       old_gv->getNumUses(), shared_array_size);
+            LUISA_INFO(
+                "Replacing shared traversal stack: {} uses, "
+                "old type = [0 x i32], new type = [{} x i32]",
+                old_gv->getNumUses(), shared_array_size);
             old_gv->replaceAllUsesWith(new_gv);
             old_gv->eraseFromParent();
             new_gv->setName("luisa_hiprt_shared_stack_cache");
@@ -865,10 +881,8 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
             // LinkOnlyNeeded plus global DCE removes the extern LDS symbol when
             // every reachable traversal wrapper uses a private stack (notably
             // direct motion closest/any tracing). That is a valid zero-LDS RT
-            // kernel, not a broken wrapper link. Dynamic and hardware stack
-            // paths retain a use and therefore still take the replacement path
-            // above.
-            LUISA_VERBOSE("HIPRT kernel uses no shared traversal stack cache.");
+            // kernel, not a broken wrapper link.
+            LUISA_VERBOSE("HIPRT kernel uses no shared traversal stacks.");
         }
     }
 

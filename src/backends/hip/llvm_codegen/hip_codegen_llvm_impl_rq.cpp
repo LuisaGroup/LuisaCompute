@@ -1267,10 +1267,19 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         // Keep the module feature bit equal to the disjunction of *lowered*
         // native calls, otherwise post-processing links a callback wrapper
         // whose dispatcher was never emitted.
+        // The reduction proof permits a compact candidate transaction; it
+        // does not require HIPRT's generic traversal implementation. GFX12's
+        // synchronous hardware-frontier traversal implements the same (and a
+        // strictly more general) query state machine without a dynamic stack,
+        // lock acquisition, or a second LDS layout. Reserve the generic native
+        // HIPRT closest traversal for architectures/modules where that hardware
+        // route is unavailable.
+        const auto use_native_hiprt_closest =
+            native_closest_reduction && !_uses_hardware_rt_stack;
         _uses_native_closest_ray_query_pipeline |=
-            native_closest_reduction;
+            use_native_hiprt_closest;
         _uses_iterative_synchronous_ray_query_pipeline |=
-            !native_closest_reduction;
+            !use_native_hiprt_closest;
         // Materialize the exact callback environment once. The native HIPRT
         // filter/intersection callbacks receive only an opaque context pointer;
         // this typed struct restores the ordinary Callable ABI without an
@@ -1650,7 +1659,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
              b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(),
              b.getPtrTy(0)},
             false);
-        auto llvm_trace_name = native_closest_reduction ?
+        auto llvm_trace_name = use_native_hiprt_closest ?
             (_rt_analysis.writes_instance_opacity ?
                  "luisa_pipeline_ray_query_trace_all_native_closest" :
                  "luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity") :
