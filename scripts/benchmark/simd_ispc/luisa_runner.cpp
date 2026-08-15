@@ -41,7 +41,7 @@ constexpr auto gemm_dispatch_count = uint32_t{128u};
 constexpr auto path_width = uint32_t{640u};
 constexpr auto path_height = uint32_t{360u};
 constexpr auto path_frame = uint32_t{17u};
-constexpr auto path_dispatch_count = uint32_t{8u};
+constexpr auto path_dispatch_count = uint32_t{256u};
 
 const ShaderOption precise_shader_option{
     .enable_fast_math = false,

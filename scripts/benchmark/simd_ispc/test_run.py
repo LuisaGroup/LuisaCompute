@@ -85,6 +85,26 @@ class OrderAndStatisticsTest(unittest.TestCase):
         for order in orders:
             self.assertEqual({variant.name for variant in order}, expected)
         self.assertNotEqual(orders[0], orders[1])
+        for variant in self.variants:
+            positions = [order.index(variant) for order in orders]
+            self.assertEqual(
+                [positions.count(index) for index in range(len(self.variants))],
+                [2] * len(self.variants),
+            )
+        for lhs_index, lhs in enumerate(self.variants):
+            for rhs in self.variants[lhs_index + 1 :]:
+                lhs_first = sum(
+                    order.index(lhs) < order.index(rhs) for order in orders
+                )
+                self.assertEqual(lhs_first, len(orders) // 2)
+
+    def test_two_variant_order_really_alternates(self):
+        variants = self.variants[:2]
+        orders = [RUN.balanced_order(variants, index) for index in range(6)]
+        self.assertEqual(
+            [[variant.name for variant in order] for order in orders],
+            [["w1", "w2"], ["w2", "w1"]] * 3,
+        )
 
     def test_paired_ratio_uses_log_space(self):
         summary = RUN.paired_ratio_summary([2.0, 8.0], [1.0, 2.0])

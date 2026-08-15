@@ -50,6 +50,7 @@ struct SIMDCompiledKernel {
     bool scalar_frame_metadata{false};
     size_t state_slot_count{0u};
     size_t coalesced_state_slot_count{0u};
+    size_t general_colored_state_slot_count{0u};
     size_t spilled_instruction_count{0u};
     size_t cold_state_slot_count{0u};
     size_t stack_pinned_state_slot_count{0u};

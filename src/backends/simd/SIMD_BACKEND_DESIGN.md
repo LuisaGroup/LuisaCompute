@@ -24,6 +24,10 @@ convergence arrival. The current scheduler stage additionally coalesces
 move-related PHI state slots under an exact per-lane liveness/interference
 proof. Logical Schedule values remain distinct, while nonoverlapping versions
 reuse one physical fixed-vector slot and their identity copies disappear.
+High-pressure W16 schedules then apply the same proof to compatible non-move
+state roots. A degree-ranked greedy coloring is retained only when it removes
+at least two more physical slots; narrower widths and one-slot opportunities
+keep the move-constrained layout.
 The latest W16 refinement stores dynamically indexed convergence-frame static
 IDs and parent tokens in scalar LLVM arrays. Narrower widths retain the vector
 representation because paired measurements found it faster there; the frame
@@ -697,15 +701,32 @@ complete group-interference check is the safety proof. Each destination also
 interferes with every other copy's source on that edge, preserving parallel
 copy semantics under the emitter's deterministic source order.
 
+After this move-constrained stage, an optional general coloring considers the
+remaining physical roots without requiring a common XIR name. It precomputes
+and ranks roots by interference degree, then greedily joins a root to the first
+noninterfering color whose values have the same value class, Luisa type,
+local-lvalue status, and allocated LLVM type. Those properties are storage
+compatibility checks; the already computed group-interference relation remains
+the safety proof. Production enables this second stage only at W16 with at
+least 32 logical state slots, and retains it only if it removes at least two
+additional physical slots. Otherwise it restores the complete
+move-constrained parent map. W1/W2/W4/W8 therefore keep byte-identical
+production storage.
+
 Divergent cohorts can be suspended at different Schedule blocks, but their
 physical masks are disjoint. Per-lane liveness therefore permits those cohorts
 to reuse different lanes of one fixed-vector alloca without conflating an
 active observation. A coalesced source/destination move is an identity and is
 not emitted. `LUISA_SIMD_DISABLE_STATE_PHI_COALESCING=1` restores the previous
-one-alloca-per-version path. The optimization report keeps `state_slots` as the
-logical count and reports eliminated physical allocas separately as
-`coalesced_state_slots`. W1 and statically coherent direct CFG bypass this
-refinement and remain byte-identical to the oracle.
+one-alloca-per-version path and disables both stages.
+`LUISA_SIMD_DISABLE_GENERAL_STATE_COLORING=1` retains only move-constrained
+coalescing, while `LUISA_SIMD_FORCE_GENERAL_STATE_COLORING=1` bypasses the
+width, pressure, and two-slot profitability gates for diagnostics. The
+optimization report keeps `state_slots` as the logical count, reports all
+eliminated physical allocas as `coalesced_state_slots`, and reports the subset
+removed by general coloring as `general_colored_state_slots`. W1 and
+statically coherent direct CFG bypass this refinement and remain
+byte-identical to the oracle.
 
 The O2 pipeline may otherwise promote every cross-block state slot through the
 global dispatcher and create more live vector PHIs than the physical register

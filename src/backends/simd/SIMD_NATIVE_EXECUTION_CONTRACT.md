@@ -223,14 +223,23 @@ cohort-uniform branches with packet-dependent outcomes, and the forced fallback.
 #### Scheduled PHI physical-slot coalescing
 
 The general scheduler retains every logical Schedule value and its parallel
-edge assignment, but LLVM storage may coalesce move-related PHI state versions.
-Codegen first solves exact backwards liveness over every verified Schedule
-edge. A source/destination pair is eligible only when both are state slots with
-the same nonempty XIR-derived name, uniformity class, and LLVM storage type,
-and no values in their proposed groups interfere. Names limit candidates; they
-are not a correctness proof. Each destination also interferes with all other
-parallel-copy sources on that edge, so deterministic assignment emission
-cannot overwrite an unread source.
+edge assignment, but LLVM storage may coalesce noninterfering PHI state
+versions. Codegen first solves exact backwards liveness over every verified
+Schedule edge. The first stage considers a source/destination pair only when
+both are state slots with the same nonempty XIR-derived name, uniformity class,
+and LLVM storage type, and no values in their proposed groups interfere. Names
+limit move candidates; they are not a correctness proof. Each destination also
+interferes with all other parallel-copy sources on that edge, so deterministic
+assignment emission cannot overwrite an unread source.
+
+For high-pressure W16 schedules, a second stage may color compatible non-move
+roots. Roots are ranked by a precomputed interference degree and greedily
+joined only when the complete groups do not interfere and their value class,
+Luisa type, local-lvalue status, and allocated LLVM type agree. Production
+requires at least 32 logical state slots and at least two additional eliminated
+physical slots. Failing the latter test restores the exact first-stage parent
+map, so a one-slot opportunity cannot perturb production code. W1/W2/W4/W8 do
+not run the second stage.
 
 Liveness is defined per logical lane. Suspended divergent cohorts may reside
 at different PCs, but Lane ownership gives them disjoint masks, so different
@@ -241,13 +250,20 @@ epoch, memory effect, or supported CFG changes. W1 and statically direct CFG
 do not run the transform.
 
 `LUISA_SIMD_DISABLE_STATE_PHI_COALESCING=1` restores distinct physical allocas
-and explicit masked moves. The optimization report exposes
-`coalesced_state_slots` while retaining `state_slots` as the logical count.
+and explicit masked moves for both stages.
+`LUISA_SIMD_DISABLE_GENERAL_STATE_COLORING=1` is the production same-binary
+oracle for the second stage; `LUISA_SIMD_FORCE_GENERAL_STATE_COLORING=1`
+bypasses only its width, state-count, and two-slot profitability gates. The
+optimization report exposes total eliminated storage as
+`coalesced_state_slots`, the general-coloring subset as
+`general_colored_state_slots`, and retains `state_slots` as the logical count.
 Permanent W1/W2/W4/W8/W16 coverage compares enabled/disabled execution for
-every active-tail length, includes a state-to-state passthrough and a
-two-value parallel-copy swap, requires inactive sentinels, verifies direct-W1
-assembly identity, and requires a real scheduled code-shape difference. Final
-object checks continue to reject varying scalar-libm calls.
+every active-tail length, includes a state-to-state passthrough, a two-value
+parallel-copy swap, two separate high-pressure live ranges, and a one-slot
+rollback case. It requires inactive sentinels, verifies direct-W1 and
+production W2/W4/W8 assembly identity, and requires the intended W16
+code-shape difference. Final object checks continue to reject varying
+scalar-libm calls.
 
 For a scheduled destination that can be a convergence target, scalar token
 zero proves that the current cohort has no dynamic frame. The target-arrival

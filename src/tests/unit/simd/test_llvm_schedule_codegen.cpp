@@ -474,6 +474,306 @@ make_state_phi_coalescing(uint32_t width) {
 }
 
 [[nodiscard]] std::optional<schedule::Function>
+make_general_state_coloring_pressure(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("general_state_coloring_pressure");
+    auto *entry = kernel->create_body_block();
+    auto *first_low = kernel->create_basic_block();
+    auto *first_high = kernel->create_basic_block();
+    auto *first_merge = kernel->create_basic_block();
+    auto *first_consume = kernel->create_basic_block();
+    auto *second_prepare = kernel->create_basic_block();
+    auto *second_low = kernel->create_basic_block();
+    auto *second_high = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    entry->set_name("entry");
+    first_low->set_name("first_low");
+    first_high->set_name("first_high");
+    first_merge->set_name("first_merge");
+    first_consume->set_name("first_consume");
+    second_prepare->set_name("second_prepare");
+    second_low->set_name("second_low");
+    second_high->set_name("second_high");
+    exit->set_name("exit");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t two_value = 2u;
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    xir::XIRBuilder builder;
+    auto make_sum = [&](const std::array<xir::Value *, 16u> &values) noexcept {
+        auto *sum = values.front();
+        for (auto i = size_t{1u}; i < values.size(); i++) {
+            sum = builder.call(
+                Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+                {sum, values[i]});
+        }
+        return sum;
+    };
+
+    builder.set_insertion_point(entry);
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one});
+    auto *first_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {parity, zero});
+    builder.cond_br(first_condition, first_low, first_high);
+
+    std::array<xir::Value *, 16u> first_low_values{};
+    builder.set_insertion_point(first_low);
+    for (auto i = size_t{0u}; i < first_low_values.size(); i++) {
+        auto constant_value = static_cast<uint32_t>(i + 1u);
+        auto *constant = module.create_constant(
+            Type::of<uint32_t>(), &constant_value);
+        first_low_values[i] = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {lane, constant});
+    }
+    builder.br(first_merge);
+
+    std::array<xir::Value *, 16u> first_high_values{};
+    builder.set_insertion_point(first_high);
+    for (auto i = size_t{0u}; i < first_high_values.size(); i++) {
+        auto constant_value = static_cast<uint32_t>(i + 101u);
+        auto *constant = module.create_constant(
+            Type::of<uint32_t>(), &constant_value);
+        first_high_values[i] = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {lane, constant});
+    }
+    builder.br(first_merge);
+
+    std::array<xir::Value *, 16u> first_states{};
+    builder.set_insertion_point(first_merge);
+    for (auto i = size_t{0u}; i < first_states.size(); i++) {
+        first_states[i] = builder.phi(
+            Type::of<uint32_t>(),
+            {{first_low_values[i], first_low},
+             {first_high_values[i], first_high}});
+        first_states[i]->set_name(
+            "first_state_" + std::to_string(i));
+    }
+    builder.br(first_consume);
+
+    builder.set_insertion_point(first_consume);
+    static_cast<void>(make_sum(first_states));
+    builder.br(second_prepare);
+
+    builder.set_insertion_point(second_prepare);
+    auto *second_bits = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, two});
+    auto *second_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {second_bits, zero});
+    builder.cond_br(second_condition, second_low, second_high);
+
+    std::array<xir::Value *, 16u> second_low_values{};
+    builder.set_insertion_point(second_low);
+    for (auto i = size_t{0u}; i < second_low_values.size(); i++) {
+        auto constant_value = static_cast<uint32_t>(i + 201u);
+        auto *constant = module.create_constant(
+            Type::of<uint32_t>(), &constant_value);
+        second_low_values[i] = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {lane, constant});
+    }
+    builder.br(exit);
+
+    std::array<xir::Value *, 16u> second_high_values{};
+    builder.set_insertion_point(second_high);
+    for (auto i = size_t{0u}; i < second_high_values.size(); i++) {
+        auto constant_value = static_cast<uint32_t>(i + 301u);
+        auto *constant = module.create_constant(
+            Type::of<uint32_t>(), &constant_value);
+        second_high_values[i] = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {lane, constant});
+    }
+    builder.br(exit);
+
+    std::array<xir::Value *, 16u> second_states{};
+    builder.set_insertion_point(exit);
+    for (auto i = size_t{0u}; i < second_states.size(); i++) {
+        second_states[i] = builder.phi(
+            Type::of<uint32_t>(),
+            {{second_low_values[i], second_low},
+             {second_high_values[i], second_high}});
+        second_states[i]->set_name(
+            "second_state_" + std::to_string(i));
+    }
+    auto *result = make_sum(second_states);
+    result->set_name("general_coloring_result");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name != "exit") { continue; }
+        for (auto &&value : lowered.function->values()) {
+            if (value.defining_block == block.id &&
+                value.name == "general_coloring_result") {
+                block.terminator =
+                    schedule::ReturnTerminator{value.id};
+                break;
+            }
+        }
+    }
+    if (!schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
+make_single_general_state_coloring_candidate(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("single_general_state_coloring_candidate");
+    auto *entry = kernel->create_body_block();
+    auto *first_low = kernel->create_basic_block();
+    auto *first_high = kernel->create_basic_block();
+    auto *middle = kernel->create_basic_block();
+    auto *first_consume = kernel->create_basic_block();
+    auto *second_prepare = kernel->create_basic_block();
+    auto *second_low = kernel->create_basic_block();
+    auto *second_high = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    entry->set_name("entry");
+    first_low->set_name("first_low");
+    first_high->set_name("first_high");
+    middle->set_name("middle");
+    first_consume->set_name("first_consume");
+    second_prepare->set_name("second_prepare");
+    second_low->set_name("second_low");
+    second_high->set_name("second_high");
+    exit->set_name("exit");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t two_value = 2u;
+    auto *two = module.create_constant(
+        Type::of<uint32_t>(), &two_value);
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one});
+    auto *first_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {parity, zero});
+    builder.cond_br(first_condition, first_low, first_high);
+
+    builder.set_insertion_point(first_low);
+    auto *first_low_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, one});
+    builder.br(middle);
+    builder.set_insertion_point(first_high);
+    auto *first_high_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, two});
+    builder.br(middle);
+
+    builder.set_insertion_point(middle);
+    auto *first_state = builder.phi(
+        Type::of<uint32_t>(),
+        {{first_low_value, first_low},
+         {first_high_value, first_high}});
+    first_state->set_name("single_first_state");
+    builder.br(first_consume);
+
+    builder.set_insertion_point(first_consume);
+    static_cast<void>(builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {first_state, one}));
+    builder.br(second_prepare);
+
+    builder.set_insertion_point(second_prepare);
+    auto *second_bits = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, two});
+    auto *second_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {second_bits, zero});
+    builder.cond_br(second_condition, second_low, second_high);
+
+    std::array<xir::Value *, 31u> second_low_values{};
+    builder.set_insertion_point(second_low);
+    for (auto i = size_t{0u}; i < second_low_values.size(); i++) {
+        auto constant_value = static_cast<uint32_t>(i + 101u);
+        auto *constant = module.create_constant(
+            Type::of<uint32_t>(), &constant_value);
+        second_low_values[i] = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {lane, constant});
+    }
+    builder.br(exit);
+
+    std::array<xir::Value *, 31u> second_high_values{};
+    builder.set_insertion_point(second_high);
+    for (auto i = size_t{0u}; i < second_high_values.size(); i++) {
+        auto constant_value = static_cast<uint32_t>(i + 201u);
+        auto *constant = module.create_constant(
+            Type::of<uint32_t>(), &constant_value);
+        second_high_values[i] = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {lane, constant});
+    }
+    builder.br(exit);
+
+    builder.set_insertion_point(exit);
+    std::array<xir::Value *, 31u> second_states{};
+    for (auto i = size_t{0u}; i < second_states.size(); i++) {
+        second_states[i] = builder.phi(
+            Type::of<uint32_t>(),
+            {{second_low_values[i], second_low},
+             {second_high_values[i], second_high}});
+        second_states[i]->set_name(
+            "single_second_state_" + std::to_string(i));
+    }
+    auto *result = second_states.front();
+    for (auto i = size_t{1u}; i < second_states.size(); i++) {
+        result = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {result, second_states[i]});
+    }
+    result->set_name("single_general_coloring_result");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name != "exit") { continue; }
+        for (auto &&value : lowered.function->values()) {
+            if (value.defining_block == block.id &&
+                value.name == "single_general_coloring_result") {
+                block.terminator =
+                    schedule::ReturnTerminator{value.id};
+                break;
+            }
+        }
+    }
+    if (!schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
 make_varying_loop(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -3120,6 +3420,227 @@ template<size_t Width>
            run_state_phi_coalescing_width<4u>() &&
            run_state_phi_coalescing_width<8u>() &&
            run_state_phi_coalescing_width<16u>();
+}
+
+template<size_t Width>
+[[nodiscard]] bool run_general_state_coloring_width() {
+    auto schedule_function =
+        make_general_state_coloring_pressure(Width);
+    CHECK(schedule_function.has_value());
+    enum class Mode : uint8_t { production,
+                                forced,
+                                disabled };
+    struct RunResult {
+        size_t state_slots{0u};
+        size_t coalesced_slots{0u};
+        size_t general_colored_slots{0u};
+        bool direct_control_flow{false};
+        std::string assembly{};
+        std::array<std::array<uint32_t, Width>, Width + 1u> outputs{};
+    };
+    auto run = [&](Mode mode) -> std::optional<RunResult> {
+        ScopedEnvironmentVariable master{
+            "LUISA_SIMD_DISABLE_STATE_PHI_COALESCING", "0"};
+        ScopedEnvironmentVariable force{
+            "LUISA_SIMD_FORCE_GENERAL_STATE_COLORING",
+            mode == Mode::forced ? "1" : "0"};
+        ScopedEnvironmentVariable disable{
+            "LUISA_SIMD_DISABLE_GENERAL_STATE_COLORING",
+            mode == Mode::disabled ? "1" : "0"};
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(
+            "general-state-coloring", *context);
+        auto name = std::string{"general_state_coloring_w"} +
+                    std::to_string(Width);
+        auto codegen = lower_schedule_to_llvm(
+            *module, *schedule_function, Width, name);
+        if (!codegen.succeeded() ||
+            ::llvm::verifyModule(*module, &::llvm::errs())) {
+            if (!codegen.error.empty()) {
+                std::cerr << codegen.error << '\n';
+            }
+            return std::nullopt;
+        }
+        LLVMJIT jit;
+        if (!jit.succeeded()) { return std::nullopt; }
+        auto assembly = jit.emit_assembly_copy(*module);
+        if (assembly.empty() ||
+            !jit.add_module(std::move(module), std::move(context))) {
+            return std::nullopt;
+        }
+        using Entry = void(
+            const void *, uint32_t *,
+            const SIMDPacketLaunchConfig *, uint32_t);
+        auto *entry = reinterpret_cast<Entry *>(jit.lookup(name));
+        if (entry == nullptr) { return std::nullopt; }
+        RunResult result{
+            .state_slots = codegen.state_slot_count,
+            .coalesced_slots = codegen.coalesced_state_slot_count,
+            .general_colored_slots =
+                codegen.general_colored_state_slot_count,
+            .direct_control_flow = codegen.direct_control_flow,
+            .assembly = std::move(assembly),
+        };
+        for (auto active_lanes = uint32_t{0u};
+             active_lanes <= Width; active_lanes++) {
+            auto &output = result.outputs[active_lanes];
+            output.fill(0xdeadbeefu);
+            auto config = launch_1d(active_lanes, Width);
+            entry(nullptr, output.data(), &config, active_lanes);
+        }
+        return result;
+    };
+
+    auto production = run(Mode::production);
+    auto forced = run(Mode::forced);
+    auto oracle = run(Mode::disabled);
+    CHECK(production.has_value());
+    CHECK(forced.has_value());
+    CHECK(oracle.has_value());
+    CHECK(production->state_slots == forced->state_slots);
+    CHECK(production->state_slots == oracle->state_slots);
+    CHECK(oracle->general_colored_slots == 0u);
+    CHECK(production->outputs == oracle->outputs);
+    CHECK(forced->outputs == oracle->outputs);
+    if constexpr (Width == 1u) {
+        CHECK(production->direct_control_flow);
+        CHECK(forced->general_colored_slots == 0u);
+        CHECK(production->assembly == oracle->assembly);
+        CHECK(forced->assembly == oracle->assembly);
+    } else {
+        CHECK(!production->direct_control_flow);
+        CHECK(production->state_slots >= 32u);
+        CHECK(forced->general_colored_slots != 0u);
+        CHECK(forced->coalesced_slots ==
+              oracle->coalesced_slots +
+                  forced->general_colored_slots);
+        CHECK(forced->assembly != oracle->assembly);
+        if constexpr (Width == 16u) {
+            CHECK(production->general_colored_slots != 0u);
+            CHECK(production->coalesced_slots ==
+                  forced->coalesced_slots);
+            CHECK(production->assembly == forced->assembly);
+        } else {
+            CHECK(production->general_colored_slots == 0u);
+            CHECK(production->coalesced_slots ==
+                  oracle->coalesced_slots);
+            CHECK(production->assembly == oracle->assembly);
+        }
+    }
+    for (auto active_lanes = uint32_t{0u};
+         active_lanes <= Width; active_lanes++) {
+        for (auto lane = uint32_t{0u}; lane < Width; lane++) {
+            auto expected = 16u * lane +
+                            ((lane & 2u) == 0u ? 3336u : 4936u);
+            CHECK(production->outputs[active_lanes][lane] ==
+                  (lane < active_lanes ? expected : 0xdeadbeefu));
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_single_general_state_coloring_candidate() {
+    static constexpr auto width = size_t{16u};
+    auto schedule_function =
+        make_single_general_state_coloring_candidate(width);
+    CHECK(schedule_function.has_value());
+    enum class Mode : uint8_t { production,
+                                forced,
+                                disabled };
+    struct RunResult {
+        size_t state_slots{0u};
+        size_t coalesced_slots{0u};
+        size_t general_colored_slots{0u};
+        std::string assembly{};
+        std::array<std::array<uint32_t, width>, width + 1u> outputs{};
+    };
+    auto run = [&](Mode mode) -> std::optional<RunResult> {
+        ScopedEnvironmentVariable master{
+            "LUISA_SIMD_DISABLE_STATE_PHI_COALESCING", "0"};
+        ScopedEnvironmentVariable force{
+            "LUISA_SIMD_FORCE_GENERAL_STATE_COLORING",
+            mode == Mode::forced ? "1" : "0"};
+        ScopedEnvironmentVariable disable{
+            "LUISA_SIMD_DISABLE_GENERAL_STATE_COLORING",
+            mode == Mode::disabled ? "1" : "0"};
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(
+            "single-general-state-coloring", *context);
+        auto name = std::string{"single_general_state_coloring"};
+        auto codegen = lower_schedule_to_llvm(
+            *module, *schedule_function, width, name);
+        if (!codegen.succeeded() ||
+            ::llvm::verifyModule(*module, &::llvm::errs())) {
+            if (!codegen.error.empty()) {
+                std::cerr << codegen.error << '\n';
+            }
+            return std::nullopt;
+        }
+        LLVMJIT jit;
+        if (!jit.succeeded()) { return std::nullopt; }
+        auto assembly = jit.emit_assembly_copy(*module);
+        if (assembly.empty() ||
+            !jit.add_module(std::move(module), std::move(context))) {
+            return std::nullopt;
+        }
+        using Entry = void(
+            const void *, uint32_t *,
+            const SIMDPacketLaunchConfig *, uint32_t);
+        auto *entry = reinterpret_cast<Entry *>(jit.lookup(name));
+        if (entry == nullptr) { return std::nullopt; }
+        RunResult result{
+            .state_slots = codegen.state_slot_count,
+            .coalesced_slots = codegen.coalesced_state_slot_count,
+            .general_colored_slots =
+                codegen.general_colored_state_slot_count,
+            .assembly = std::move(assembly),
+        };
+        for (auto active_lanes = uint32_t{0u};
+             active_lanes <= width; active_lanes++) {
+            auto &output = result.outputs[active_lanes];
+            output.fill(0xdeadbeefu);
+            auto config = launch_1d(active_lanes, width);
+            entry(nullptr, output.data(), &config, active_lanes);
+        }
+        return result;
+    };
+
+    auto production = run(Mode::production);
+    auto forced = run(Mode::forced);
+    auto oracle = run(Mode::disabled);
+    CHECK(production.has_value());
+    CHECK(forced.has_value());
+    CHECK(oracle.has_value());
+    CHECK(production->state_slots >= 32u);
+    CHECK(production->state_slots == forced->state_slots);
+    CHECK(production->state_slots == oracle->state_slots);
+    CHECK(forced->general_colored_slots == 1u);
+    CHECK(production->general_colored_slots == 0u);
+    CHECK(oracle->general_colored_slots == 0u);
+    CHECK(production->coalesced_slots == oracle->coalesced_slots);
+    CHECK(forced->coalesced_slots == oracle->coalesced_slots + 1u);
+    CHECK(production->assembly == oracle->assembly);
+    CHECK(production->outputs == forced->outputs);
+    CHECK(production->outputs == oracle->outputs);
+    for (auto active_lanes = uint32_t{0u};
+         active_lanes <= width; active_lanes++) {
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            auto expected = 31u * lane +
+                            ((lane & 2u) == 0u ? 3596u : 6696u);
+            CHECK(production->outputs[active_lanes][lane] ==
+                  (lane < active_lanes ? expected : 0xdeadbeefu));
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_general_state_coloring_codegen() {
+    return run_general_state_coloring_width<1u>() &&
+           run_general_state_coloring_width<2u>() &&
+           run_general_state_coloring_width<4u>() &&
+           run_general_state_coloring_width<8u>() &&
+           run_general_state_coloring_width<16u>() &&
+           run_single_general_state_coloring_candidate();
 }
 
 [[nodiscard]] bool run_uniform_value_codegen() {
@@ -9152,6 +9673,8 @@ int main() {
         {"scheduler state residency", &run_state_residency_codegen},
         {"scheduler state PHI coalescing",
          &run_state_phi_coalescing_codegen},
+        {"scheduler general state coloring",
+         &run_general_state_coloring_codegen},
         {"scalar uniform values", &run_uniform_value_codegen},
         {"scalar uniform switch", &run_uniform_switch_codegen},
         {"varying switch convergence", &run_varying_switch_codegen},

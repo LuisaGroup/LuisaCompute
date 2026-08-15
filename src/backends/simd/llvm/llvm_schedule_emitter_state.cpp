@@ -10,10 +10,11 @@ namespace luisa::compute::simd::detail {
 void ScheduleEmitter::_coalesce_state_slots() {
     // Direct control flow already exposes ordinary SSA to LLVM. The packet
     // scheduler instead materializes XIR PHIs as masked state copies. Reuse a
-    // physical slot only for move-related state values whose per-lane live
+    // physical slot first for move-related state values whose per-lane live
     // ranges do not interfere. Value names select profitable copies from the
-    // same destructured XIR register; liveness, not the name, is the safety
-    // proof.
+    // same destructured XIR register. A separate W16 high-pressure pass may
+    // then color compatible non-move live ranges into the same slot. Liveness,
+    // not either heuristic, is the safety proof.
     if (_direct_control_flow || _width < 2u ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_STATE_PHI_COALESCING")) {
@@ -272,6 +273,106 @@ void ScheduleEmitter::_coalesce_state_slots() {
                     parents[source_root] = destination_root;
                 }
             }
+        }
+    }
+
+    static constexpr auto kGeneralStateColoringMinStateSlots = size_t{32u};
+    static constexpr auto kGeneralStateColoringMinSavedSlots = size_t{2u};
+    auto force_general_state_coloring =
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_FORCE_GENERAL_STATE_COLORING");
+    auto enable_general_state_coloring =
+        (force_general_state_coloring ||
+         (_width == 16u &&
+          _result.state_slot_count >=
+              kGeneralStateColoringMinStateSlots)) &&
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_GENERAL_STATE_COLORING");
+    if (enable_general_state_coloring) {
+        auto parents_before_general_coloring = parents;
+        auto general_colored_state_slot_count = size_t{0u};
+        auto representative = [&](uint32_t root) noexcept {
+            for (auto index = uint32_t{0u}; index < state_count; index++) {
+                if (find_root(find_root, index) == root) {
+                    return index;
+                }
+            }
+            return static_cast<uint32_t>(state_count);
+        };
+        auto compatible = [&](uint32_t lhs_root,
+                              uint32_t rhs_root) noexcept {
+            auto lhs_index = representative(lhs_root);
+            auto rhs_index = representative(rhs_root);
+            if (lhs_index == state_count || rhs_index == state_count) {
+                return false;
+            }
+            auto lhs_id = state_values[lhs_index];
+            auto rhs_id = state_values[rhs_index];
+            auto *lhs = _source.value(lhs_id);
+            auto *rhs = _source.value(rhs_id);
+            auto *lhs_slot = _state_slots[lhs_id.value];
+            auto *rhs_slot = _state_slots[rhs_id.value];
+            return lhs != nullptr && rhs != nullptr &&
+                   lhs_slot != nullptr && rhs_slot != nullptr &&
+                   lhs->value_class == rhs->value_class &&
+                   lhs->type == rhs->type &&
+                   _is_local_lvalue(lhs_id) ==
+                       _is_local_lvalue(rhs_id) &&
+                   lhs_slot->getAllocatedType() ==
+                       rhs_slot->getAllocatedType();
+        };
+        std::vector<uint32_t> roots;
+        roots.reserve(state_count);
+        for (auto index = uint32_t{0u}; index < state_count; index++) {
+            auto root = find_root(find_root, index);
+            if (root == index) { roots.emplace_back(root); }
+        }
+        auto degree = [&](uint32_t root) noexcept {
+            auto result = size_t{0u};
+            for (auto other : roots) {
+                result += root != other &&
+                          groups_interfere(root, other);
+            }
+            return result;
+        };
+        std::vector<std::pair<uint32_t, size_t>> ranked_roots;
+        ranked_roots.reserve(roots.size());
+        for (auto root : roots) {
+            ranked_roots.emplace_back(root, degree(root));
+        }
+        std::stable_sort(
+            ranked_roots.begin(), ranked_roots.end(),
+            [](auto lhs, auto rhs) noexcept {
+                return lhs.second != rhs.second ?
+                           lhs.second > rhs.second :
+                           lhs.first < rhs.first;
+            });
+        for (auto i = size_t{0u}; i < roots.size(); i++) {
+            roots[i] = ranked_roots[i].first;
+        }
+        std::vector<uint32_t> colors;
+        colors.reserve(roots.size());
+        for (auto root : roots) {
+            auto merged = false;
+            for (auto &color : colors) {
+                color = find_root(find_root, color);
+                if (compatible(root, color) &&
+                    !groups_interfere(root, color)) {
+                    parents[root] = color;
+                    general_colored_state_slot_count++;
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) { colors.emplace_back(root); }
+        }
+        if (!force_general_state_coloring &&
+            general_colored_state_slot_count <
+                kGeneralStateColoringMinSavedSlots) {
+            parents = std::move(parents_before_general_coloring);
+        } else {
+            _result.general_colored_state_slot_count =
+                general_colored_state_slot_count;
         }
     }
 

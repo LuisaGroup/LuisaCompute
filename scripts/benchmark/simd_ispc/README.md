@@ -11,7 +11,9 @@ Mandelbrot and the masked-stream/AoS-to-SoA cases are based on the corresponding
 ISPC v1.31.0 examples and micro-benchmarks. GEMM matches the repository's
 row-major 256x256 DSL control. The analytic path tracer is a small asset-free
 compiler comparison; it does not replace the repository's real Embree
-path-tracing measurements.
+path-tracing measurements. Each timed path-tracing sample contains 256 complete
+dispatches so single-worker compiler comparisons are not dominated by timer or
+process-scheduling noise.
 
 ISPC v1.31.0 is BSD-3-Clause licensed. No ISPC source, generated object, compiler
 path, CPU target, or benchmark executable is part of the production build.

@@ -270,6 +270,7 @@ SIMDShader::SIMDShader(
             "schedule_blocks={}, convergence_points={}, "
             "scalar_frame_metadata={}, "
             "state_slots={}, coalesced_state_slots={}, "
+            "general_colored_state_slots={}, "
             "instruction_spills={}, cold_slots={}, "
             "stack_pinned_slots={}, "
             "ray_queries={}, ray_query_scratch_slots={}, "
@@ -328,6 +329,7 @@ SIMDShader::SIMDShader(
             _compiled.scalar_frame_metadata,
             _compiled.state_slot_count,
             _compiled.coalesced_state_slot_count,
+            _compiled.general_colored_state_slot_count,
             _compiled.spilled_instruction_count,
             _compiled.cold_state_slot_count,
             _compiled.stack_pinned_state_slot_count,

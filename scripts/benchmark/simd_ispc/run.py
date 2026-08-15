@@ -329,9 +329,14 @@ def parse_result(output: str) -> dict[str, Any]:
 def balanced_order(variants: Sequence[Variant], round_index: int) -> list[Variant]:
     if not variants:
         return []
-    shift = round_index % len(variants)
+    cycle, shift = divmod(round_index, len(variants))
+    if cycle % 2 == 1:
+        # Offset the reversed cycle once so the last rotation of the forward
+        # cycle cannot cancel the reversal. In particular, two variants must
+        # alternate A/B, B/A instead of repeating A/B every round.
+        shift = (shift + 1) % len(variants)
     order = list(variants[shift:]) + list(variants[:shift])
-    if round_index % 2 == 1:
+    if cycle % 2 == 1:
         order.reverse()
     return order
 

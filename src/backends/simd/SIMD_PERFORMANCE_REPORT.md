@@ -91,6 +91,12 @@ JIT boundary. W8 on the recorded wide-register host inlines one body into one
 loop; W16 unrolls only its sixteen-call shell for the common 256-thread block.
 W2/W4 retain a compact dynamic wrapper. The ordinary packet body is internal,
 so no object carries two exported implementations.
+The current state-layout stage then colors compatible non-move scheduler state
+roots under the existing exact per-lane interference proof. Production is
+limited to W16 schedules with at least 32 logical slots and retains the result
+only when at least two additional physical slots disappear. This reduces the
+analytic, Voxel, and cutout W16 frames while rolling the neutral one-slot
+ordinary-path opportunity back to byte-identical code.
 
 ## Test host and method
 
@@ -123,8 +129,8 @@ run supplies its gallery conformance gate. SDF uses its internal four-SPP
 throughput metric;
 high-SPP SDF image comparison remains a separate conformance gate.
 SDF/GEMM cells retain the earlier seven-process sweep. Image processing keeps
-the bounded-predicated-loop seven-round sweep. Voxel is refreshed after the
-two-sided local-region stage with 128 renders per process, seven alternating
+the bounded-predicated-loop seven-round sweep. Voxel is refreshed after
+general W16 state coloring with 128 renders per process, seven alternating
 rounds, and the same 30-logical-CPU affinity used by current ordinary path
 tracing; SIMD uses 30 workers. Ordinary path tracing is refreshed after
 terminal-bridge absorption with seven balanced-order fallback/W1/W2/W4/W8/W16
@@ -141,7 +147,7 @@ Speedup is always `fallback time / SIMD time`, or
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | non-coro SDF, samples/s | 8.705 | 8.197 (0.942x) | 9.476 (1.089x) | 15.112 (1.736x) | 22.568 (2.593x) | 32.959 (3.786x) |
 | image pipeline, ms/iteration | 10.908 | 18.328 (0.592x) | 9.799 (1.110x) | 6.906 (1.567x) | 5.311 (2.039x) | 4.504 (2.400x) |
-| voxel render, ms/iteration | 8.066 | 9.374 (0.863x) | 13.458 (0.602x) | 6.267 (1.294x) | 5.171 (1.566x) | 3.625 (2.233x) |
+| voxel render, ms/iteration | 6.938 | 8.924 (0.776x) | 13.363 (0.517x) | 5.913 (1.168x) | 4.977 (1.393x) | 3.375 (2.047x) |
 | Spacex, ms/frame | 162.421 | 125.778 (1.289x) | 64.295 (2.517x) | 34.030 (4.783x) | 18.655 (8.668x) | 11.684 (13.738x) |
 | ordinary path tracing, synchronized 32-spp dispatch, FPS | 83.868 | 79.252 (0.955x) | 62.834 (0.748x) | 81.722 (0.982x) | 93.845 (1.126x) | 93.961 (1.132x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 72.030 | 49.567 (0.692x) | 32.925 (0.465x) | 40.872 (0.575x) | 45.488 (0.642x) | 45.757 (0.642x) |
@@ -158,8 +164,8 @@ be treated as host observations, not cross-machine constants.
 The refreshed Voxel cells are the medians of the seven balanced rounds.
 Parenthesized values are the preferred geometric means of the within-round
 fallback/SIMD ratios. Their 95% paired log-space Student-t intervals at
-W1/W2/W4/W8/W16 are [0.8419, 0.8853], [0.5877, 0.6161],
-[1.2634, 1.3247], [1.5278, 1.6059], and [2.1745, 2.2929]. W4/W8/W16 win all
+W1/W2/W4/W8/W16 are [0.7656, 0.7857], [0.5095, 0.5254],
+[1.1535, 1.1825], [1.3658, 1.4202], and [2.0270, 2.0678]. W4/W8/W16 win all
 seven rounds, and W1/W2 lose all seven. Every fallback
 process retains SHA-256
 `27455a0e126ecfae23d592a58121751c5884a69d9d7388b20195e8b0a121829a`,
@@ -2056,6 +2062,78 @@ direct CFG, while SDF and Spacex have no eligible move chain; their final
 objects are unchanged. The refreshed fallback and ISPC tables above include
 this retained state layout.
 
+### General W16 state-slot graph coloring
+
+Move provenance is a useful profitability hint but is not required by the
+per-lane noninterference proof. The next stage therefore degree-ranks the
+physical roots left by move-constrained coalescing and greedily combines
+compatible noninterfering groups. Compatibility requires the same value class,
+Luisa type, local-lvalue status, and allocated LLVM type. Production restricts
+this general coloring to W16 schedules with at least 32 logical state slots and
+rolls the complete second stage back unless it removes at least two additional
+slots. `LUISA_SIMD_DISABLE_GENERAL_STATE_COLORING=1` retains only the move
+stage; `LUISA_SIMD_FORCE_GENERAL_STATE_COLORING=1` bypasses the performance
+gates for differential tests.
+
+The current analytic W16 entry removes three additional slots. Its exact
+optimized object changes as follows against the same-binary disabled oracle:
+
+| Analytic W16 entry | general coloring disabled | production coloring |
+| --- | ---: | ---: |
+| logical / all coalesced / generally colored slots | 51 / 31 / 0 | 51 / 34 / 3 |
+| object bytes | 22,200 | 21,624 |
+| static instructions | 2,655 | 2,571 |
+| vector instructions | 1,230 | 1,153 |
+| branches | 275 | 276 |
+| stack references | 509 | 448 |
+| stack allocation | 2,816 B | 2,304 B |
+| calls / scalar-math calls | 15 / 0 | 15 / 0 |
+
+The W8 production and disabled objects and assembly are byte-identical. The
+permanent W1/W2/W4/W8/W16 regression executes every tail size from zero
+through W, compares exact output bits and inactive sentinels, force-exercises
+the narrower widths, and includes parallel live ranges with many compatible
+colors. A separate W16 graph can remove exactly one slot when forced;
+production restores its parent map and emits byte-identical oracle assembly.
+
+Real-example W16 gates used alternating same-binary processes:
+
+| Workload | extra slots | candidate/oracle | 95% paired CI | wins | medians |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Voxel, 128 renders, 30 workers | 2 | 1.0207x | [1.0126, 1.0288] | 7/7 | 3.558 / 3.635 ms |
+| cutout path, 64 spp | 2 | 1.0092x | [0.9977, 1.0207] | 6/7 | 42.077 / 41.986 frame/s |
+| ordinary path, 128 spp, pre-gate | 1 | 0.9984x | [0.9927, 1.0041] | 2/7 | neutral |
+
+The ordinary-path result selected the two-slot retention threshold. Its final
+production object now rolls back to the disabled layout; no neutral one-slot
+change remains. Candidate/oracle images are byte-identical for Voxel, cutout,
+and ordinary path tracing. Voxel production retains 45 logical slots, 21 total
+coalesced slots, and two general-coloring slots; cutout reports 50/9/2.
+
+The standalone ISPC driver also fixed a two-variant ordering defect: rotating
+and reversing each individual round canceled for two entries and always ran
+the same implementation first. It now emits exact `A/B`, `B/A` alternation;
+over two complete cycles every implementation occupies every position twice
+and every pair precedes each other equally often. Unit tests enforce both
+properties. Each analytic path sample contains 256 complete dispatches.
+
+With official ISPC 1.31.0, one worker pinned to physical CPU 6, precise math,
+FMA contraction disabled, and thirty alternating W16 process rounds, the final
+production binary is slightly but statistically faster:
+
+| Analytic path W16 | median throughput | paired result |
+| --- | ---: | ---: |
+| Luisa SIMD W16 | 343.651 Mitems/s | 25/30 wins |
+| ISPC `avx512skx-x16` | 341.347 Mitems/s | Luisa/ISPC 1.0056x [1.0030, 1.0081] |
+
+The median-throughput ratio is 1.0067x; the paired geometric mean above is the
+primary statistic. This is a same-algorithm compiler control, not an ISPC
+implementation of the repository's full Embree renderer. It also is not a
+blanket Luisa win: a separate fifteen-round W8 run remains behind
+`avx512skx-x8`, 196.742 versus 218.066 Mitems/s, or ISPC/Luisa 1.1088x
+[1.1075, 1.1101]. The established coherent GEMM result remains in Luisa's
+favor.
+
 ### W16 scalar convergence-frame metadata
 
 The scheduler's dynamically indexed `frame.static.id` and
@@ -3129,3 +3207,23 @@ ordinary W8 1024-spp path trace passes at 39.219375 dB, reports native Embree
 fifteen-round analytic ISPC comparison and independent thirty-round W16 repeat
 are recorded in the two-sided section above. Outputs and raw benchmark JSON
 remain in `/tmp`; no checked-in gallery reference was regenerated or modified.
+
+The general W16 state-coloring stage completed both Release builds, the
+required native-math/fallback-math/runtime-width/Schedule-codegen gate (4/4),
+the SIMD-only suite (129/129), and the complete configured SIMD+fallback/XIR/
+runtime/graphics suite (140/140). The standalone ISPC-driver suite passes 8/8,
+clang-format 22.1.8 and per-translation-unit clangd syntax checks pass, and the
+final diff is whitespace-clean. The permanent regression covers W1/W2/W4/W8/
+W16, every tail length from zero through W, forced narrower-width coloring,
+complex interference, exact candidate/oracle outputs, narrower production
+assembly identity, and the one-slot production rollback.
+
+Fresh W1/W2/W4/W8/W16 Voxel and image-processing gallery comparisons pass at
+82.834519 and 89.251953 dB. Ordinary 1024-spp Embree path tracing passes at
+35.426795/42.781582/40.940376/39.219305/37.801771 dB from W1 through W16;
+W16 cutout and non-coroutine SDF pass at 39.476901 and 63.129346 dB. Both
+path tracers report native Embree 4.4.1 W4/W8/W16 packet support. The final
+thirty-round W16 official-ISPC comparison uses the corrected strictly
+alternating order and is recorded in the general-coloring section above.
+Outputs and raw benchmark records remain outside the repository; no checked-in
+gallery reference was regenerated or modified.

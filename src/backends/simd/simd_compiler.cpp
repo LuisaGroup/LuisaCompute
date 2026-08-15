@@ -145,6 +145,8 @@ SIMDCompiledKernel compile_simd_kernel(
     result.state_slot_count = llvm_result.state_slot_count;
     result.coalesced_state_slot_count =
         llvm_result.coalesced_state_slot_count;
+    result.general_colored_state_slot_count =
+        llvm_result.general_colored_state_slot_count;
     result.spilled_instruction_count =
         llvm_result.spilled_instruction_count;
     result.cold_state_slot_count =

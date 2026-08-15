@@ -330,12 +330,22 @@ live_e = S(e) union (live_in(target(e)) - D(e))
 live_in(b) = use(b) union union { live_e | e leaves b }
 ```
 
-to its least fixed point. Two move-related logical state values may share a
-physical LLVM slot only if no members of their proposed equivalence classes
-are simultaneously live. Because LLVM emits the edge copies in a deterministic
-order, each destination additionally interferes with every *other* assignment's
-source on the same edge. The destination may still coalesce with its own
-source; that copy is an identity.
+to its least fixed point. Two storage-compatible logical state values may
+share a physical LLVM slot only if no members of their proposed equivalence
+classes are simultaneously live. Because LLVM emits the edge copies in a
+deterministic order, each destination additionally interferes with every
+*other* assignment's source on the same edge. The destination may still
+coalesce with its own source; that copy is an identity. Storage compatibility
+requires equal value class, Luisa type, local-lvalue status, and allocated LLVM
+type.
+
+The implementation first applies a move-constrained heuristic that also
+requires one nonempty XIR-derived name. A W16-only high-pressure heuristic may
+then greedily color the remaining compatible roots without the name
+restriction. These candidate-selection and profitability rules choose a valid
+partition; they do not weaken the noninterference condition above. Production
+rolls the second partition back unless it eliminates at least two physical
+slots.
 
 This relation is per lane. Distinct divergent cohorts at different PCs own
 disjoint masks by Lane ownership, so they may occupy different components of
@@ -487,6 +497,10 @@ The bounded audit is complemented by permanent LLVM regressions for:
   W1/W2/W4/W8/W16, including a state-to-state passthrough, a two-value
   parallel-copy swap, every inactive-tail size, exact outputs, direct-CFG
   identity, and final-assembly differentiation;
+- compatible non-move state-slot coloring with forced W2/W4/W8 and production
+  W16 paths, including two disjoint high-pressure live ranges, every inactive-
+  tail size, exact disabled-oracle outputs, narrower-width production assembly
+  identity, and rollback of a graph that can eliminate only one slot;
 - W16 scalar-array convergence-frame metadata and its vector-storage oracle,
   including nested same-target gates, early return, every inactive-tail size,
   exact W1/W2/W4/W8 identity, and distinct verified W16 IR/assembly;
@@ -564,13 +578,16 @@ state, exact candidate/oracle results, and identical W2 IR.
 
 Cross-block Schedule values remain abstract lane state. LLVM first applies the
 Section 4.3.1 interference proof to reuse physical storage for nonoverlapping
-move-related PHI versions. `state_slots` remains the logical count and
-`coalesced_state_slots` reports the physical reduction. It may then keep a hot
-physical slot in SSA/registers or retain a cold slot as an explicit volatile
-stack load/store; neither choice changes the state transition. Cold pinning is
-considered only for an uncoalesced state set whose cold slots are at least
-half of its distinct physical slots. A compact coalesced set remains
-promotable because measured re-pinning increased copy/load traffic.
+move-related PHI versions, then may apply the same proof to compatible
+non-move roots under the bounded W16 production policy. `state_slots` remains
+the logical count, `coalesced_state_slots` reports the total physical
+reduction, and `general_colored_state_slots` reports its second-stage subset.
+It may then keep a hot physical slot in SSA/registers or retain a cold slot as
+an explicit volatile stack load/store; neither choice changes the state
+transition. Cold pinning is considered only for an uncoalesced state set whose
+cold slots are at least half of its distinct physical slots. A compact
+coalesced set remains promotable because measured re-pinning increased
+copy/load traffic.
 
 Use-site memory provenance is likewise an LLVM refinement rather than a new
 scheduler transition. If static block geometry and integer expression analysis
