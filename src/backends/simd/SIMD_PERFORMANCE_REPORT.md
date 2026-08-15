@@ -3921,3 +3921,120 @@ native-math/Schedule/runtime-width/acceleration gate 5/5, its full CTest
 inventory 140/140, and the separately repeated SIMD-labelled conformance gate
 35/35. Thus the audit leaves no callback ABI, environment switch, allocation,
 or code-generation change in production.
+
+## W16 full-packet coherent direct traversal
+
+The next ordinary-renderer profile used sixteen workers pinned to logical CPUs
+0--15. A 256-spp W8 `perf record` attributed 68.76% of sampled cycles to
+Embree; the remaining large component was generated JIT code, while the SIMD
+runtime was no longer the primary ceiling. Optimized W8/W16 objects also showed
+that closest-hit and any-hit calls own separate, non-overlapping packet stack
+regions. A function-scoped packet-scratch prototype reduced W8 stack size from
+6,464 to 6,080 bytes and W16 from 10,368 to 9,600 bytes without changing the
+instruction, vector-instruction, branch, call, or stack-reference counts. It
+did not improve throughput: eight alternating 256-spp, one-spp-per-dispatch
+pairs measured 1.00093x at W8 and 0.99831x at W16. The scratch reuse, metrics,
+test extension, and environment switch were removed.
+
+The productive boundary was instead Embree's traversal hint. Embree 4.4.1
+initializes `RTCIntersectArguments` and `RTCOccludedArguments` with
+`RTC_RAY_QUERY_FLAG_INCOHERENT`. An initial same-binary experiment selected
+`RTC_RAY_QUERY_FLAG_COHERENT` for a full direct packet at every native width.
+The ordinary path tracer proved that the policy must be width-specific:
+
+| full-packet coherent / incoherent oracle | paired geomean | 95% CI | wins |
+| --- | ---: | ---: | ---: |
+| W4, 256 spp, 1 spp/dispatch | 0.90620x | [0.87358, 0.94004] | 0/8 |
+| W8, 256 spp, 1 spp/dispatch | 0.98339x | [0.96945, 0.99753] | 2/8 |
+| W16, 256 spp, 1 spp/dispatch | **1.02299x** | [1.00578, 1.04049] | 7/8 |
+
+Production therefore changes only a direct W16 closest/any call for which all
+sixteen embedded validity entries are active. W1/W2/W4/W8, partial and sparse
+W16 packets, and stateful ray queries retain Embree's incoherent default.
+`LUISA_SIMD_DISABLE_COHERENT_W16_DIRECT_TRACE=1` restores the complete direct
+oracle. Running both modes without the rejected packet-scratch reuse measured
+1.02938x [1.02227, 1.03654] across eight W16 pairs with 8/8 wins, proving that
+the retained gain is traversal selection rather than stack-layout interaction.
+
+The final binary was then measured on three direct-trace renderers and the
+cutout control. Ordinary and HDR use SIMD's default 64 spp per dispatch; Camera
+uses its fixed one-spp dispatch loop. Values above one favor coherent W16:
+
+| renderer | workload | paired geomean | 95% CI | wins |
+| --- | --- | ---: | ---: | ---: |
+| ordinary | 256 spp | **1.04005x** | [1.03394, 1.04619] | 11/11 stable pairs |
+| HDR | 256 spp | **1.03234x** | [1.02226, 1.04251] | 8/8 |
+| Camera | 64 spp | **1.01714x** | [1.00863, 1.02573] | 8/8 |
+| cutout | 64 spp, 1 spp/dispatch | 0.99847x | [0.99183, 1.00515] | 4/10 |
+
+The ordinary run actually contained twelve alternating pairs and all twelve
+favored the candidate. One oracle process overlapped the start of an unrelated
+HIP renderer and fell to 67.22 from its neighboring 76.33--79.69 spp/s range.
+Keeping that externally disturbed pair yields 1.05458x [1.02239, 1.08778]; the
+table reports the conservative eleven-pair sensitivity result instead. Cutout
+is intentionally retained as neutral evidence, not counted as a gain; every
+candidate/oracle cutout PNG was byte-identical.
+
+Five further alternating `perf stat` pairs exposed a stable mechanism. Across
+all five candidate/oracle pairs, retired instructions were 0.89777x and retired
+branches 0.92085x. In the first four undisturbed pairs, cycles were 0.96351x,
+task-clock 0.96228x, and renderer throughput 1.03355x. Branch misses increased
+to 1.08270x, so the win is not a generic branch-prediction improvement; Embree's
+coherent W16 route executes materially less work despite somewhat less
+predictable branches. A fifth candidate process was interrupted by external
+load, but its instruction and branch counts remained at the same deterministic
+levels.
+
+A follow-up tried to replace the sixteen scalar early-exit validity checks with
+a portable bitwise reduction over the documented `-1/0` entries. GCC lowered
+the candidate to four unaligned SSE loads and an AND reduction. Two 64-spp
+hardware-counter pairs reduced whole-process instructions by about 0.245% and
+branches by 2.35%, but that static improvement did not produce a stable real
+gain. Fifteen alternating 256-spp pairs measured 0.99833x
+[0.98960, 1.00714] with 9/15 wins. The branchless helper, selector field, and
+environment oracle were removed; the retained full-packet test remains the
+simple early-exit form. The contaminated exploratory record and the clean
+rejection gate are `/tmp/luisa-simd-w16-full-check-ab.i36spJ` and
+`/tmp/luisa-simd-w16-full-check-clean.aitJsN`.
+
+An eight-pair current-default comparison measured final W16 against fallback
+at 256 spp. SIMD used sixteen workers and 64 spp per dispatch; fallback used
+its one-spp default. W16 won 8/8 at **1.14574x** [1.12636, 1.16545], with
+process medians of 81.397 and 70.878 spp/s. This is the current real Embree
+renderer speedup for that machine/load configuration, not an ISPC comparison.
+The official same-algorithm ISPC suite remains unchanged: Luisa retains its
+1.21552x W8 and 1.20581x W16 five-workload geometric means, but there is still
+no matched full-Embree ISPC renderer from which to claim an end-to-end ISPC
+win.
+
+A 1024-spp coherent-W16 correctness sweep passed the checked-in ordinary,
+HDR, and Camera gallery references at respectively 37.800295, 41.472728, and
+41.473939 dB RGB PSNR. The permanent acceleration test now runs once with
+the production policy and once with the incoherent oracle; each execution
+covers two full W16 packets plus a three-lane tail, in addition to every other
+width. Raw process artifacts are
+`/tmp/luisa-simd-direct-profile.xP23vW`,
+`/tmp/luisa-simd-direct-ab-w8.tPZ8Sa`,
+`/tmp/luisa-simd-direct-ab-w16.o6daDM`,
+`/tmp/luisa-simd-coherent-w4.ydAgPT`,
+`/tmp/luisa-simd-coherent-w8.UkYKII`,
+`/tmp/luisa-simd-coherent-w16.hJgrpC`,
+`/tmp/luisa-simd-coherent-w16-final.i2ZGIv`,
+`/tmp/luisa-simd-coherent-w16-perf-stat-fixed.6v2FOr`,
+`/tmp/luisa-simd-coherent-w16-camera.iyvz7W`,
+`/tmp/luisa-simd-coherent-w16-hdr.gyHeSU`,
+`/tmp/luisa-simd-coherent-w16-cutout.REJFA6`, and
+`/tmp/luisa-simd-final-w16-vs-fallback.3867Vc`; correctness outputs are in
+`/tmp/luisa-simd-coherent-w16-reference.*`,
+`/tmp/luisa-simd-coherent-w16-hdr-reference.*`, and
+`/tmp/luisa-simd-coherent-w16-camera-reference.*`.
+
+Final validation completed full Release builds of both `build-sdf-bench` and
+`build-sdf-tbb`. Each tree passes the focused native-math/Schedule/runtime-
+width/production-accel/oracle-accel gate 6/6, its complete CTest inventory
+141/141, and the separately repeated SIMD-labelled gate 36/36. The final
+backend object has exactly the expected unresolved packet entries
+`rtcIntersect{1,4,8,16}` and `rtcOccluded{1,4,8,16}` and no per-active-lane
+scalar fallback. Disassembly confines the coherent-flag construction and
+sixteen-entry validity scan to the W16 arms; the W4/W8 arms retain their prior
+incoherent call shape.

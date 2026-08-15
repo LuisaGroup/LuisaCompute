@@ -177,6 +177,13 @@ void compose_matrix_keyframe(
     return lane < lane_count && ((bits >> lane) & 1u) != 0u;
 }
 
+[[nodiscard]] bool direct_trace_w16_packet_is_full(
+    const int *valid) noexcept {
+    return std::all_of(
+        valid, valid + 16u,
+        [](int lane) noexcept { return lane != 0; });
+}
+
 template<size_t packet_width>
 [[nodiscard]] bool packet_fully_active(
     uint32_t lane_count, uint64_t active_mask_bits) noexcept {
@@ -1529,6 +1536,9 @@ SIMDAccel::SIMDAccel(
     uint32_t warp_width) noexcept
     : _scene{rtcNewScene(device)},
       _warp_width{warp_width},
+      _enable_coherent_w16_direct_trace{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_COHERENT_W16_DIRECT_TRACE")},
       _enable_triangle_only_ray_query{
           triangle_ray_query::triangle_only_ray_query_enabled()},
       _enable_procedural_dense_status{
@@ -1937,22 +1947,33 @@ void SIMDAccel::_trace_closest(
 #endif
                 });
             break;
-        case 16u:
+        case 16u: {
+            auto coherent =
+                self->_enable_coherent_w16_direct_trace &&
+                direct_trace_w16_packet_is_full(valid);
             trace_packet_in_place<RTCRayHit16>(
                 self->_scene, valid, ray_hit_packet,
-                [](const int *valid, RTCScene scene,
-                   RTCRayHit16 *packet) noexcept {
+                [coherent](const int *valid, RTCScene scene,
+                           RTCRayHit16 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
                     RTCIntersectContext context{};
                     rtcInitIntersectContext(&context);
+                    if (coherent) {
+                        context.flags =
+                            RTC_INTERSECT_CONTEXT_FLAG_COHERENT;
+                    }
                     rtcIntersect16(valid, scene, &context, packet);
 #else
                     RTCIntersectArguments arguments{};
                     rtcInitIntersectArguments(&arguments);
+                    if (coherent) {
+                        arguments.flags = RTC_RAY_QUERY_FLAG_COHERENT;
+                    }
                     rtcIntersect16(valid, scene, packet, &arguments);
 #endif
                 });
             break;
+        }
         default:
             LUISA_ERROR_WITH_LOCATION(
                 "Unsupported SIMD Embree packet width {}.", lane_count);
@@ -2040,22 +2061,33 @@ void SIMDAccel::_trace_any(
 #endif
                 });
             break;
-        case 16u:
+        case 16u: {
+            auto coherent =
+                self->_enable_coherent_w16_direct_trace &&
+                direct_trace_w16_packet_is_full(valid);
             trace_packet_in_place<RTCRay16>(
                 self->_scene, valid, ray_packet,
-                [](const int *valid, RTCScene scene,
-                   RTCRay16 *packet) noexcept {
+                [coherent](const int *valid, RTCScene scene,
+                           RTCRay16 *packet) noexcept {
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
                     RTCIntersectContext context{};
                     rtcInitIntersectContext(&context);
+                    if (coherent) {
+                        context.flags =
+                            RTC_INTERSECT_CONTEXT_FLAG_COHERENT;
+                    }
                     rtcOccluded16(valid, scene, &context, packet);
 #else
                     RTCOccludedArguments arguments{};
                     rtcInitOccludedArguments(&arguments);
+                    if (coherent) {
+                        arguments.flags = RTC_RAY_QUERY_FLAG_COHERENT;
+                    }
                     rtcOccluded16(valid, scene, packet, &arguments);
 #endif
                 });
             break;
+        }
         default:
             LUISA_ERROR_WITH_LOCATION(
                 "Unsupported SIMD Embree packet width {}.", lane_count);

@@ -1756,6 +1756,20 @@ scalar API. W2 alone copies its two-lane fields into a zero-padded W4 packet,
 copies validity into the padded Embree mask, and copies the public fields back;
 it may not read beyond the two-lane source scratch.
 
+Embree initializes direct-query arguments for incoherent rays. Production keeps
+that default for W1/W2/W4/W8, every sparse or partial W16 packet, and every
+stateful ray query. A direct W16 closest-hit or occlusion call whose sixteen
+valid entries are all active instead sets Embree's coherent-ray flag. This is a
+runtime packet-shape specialization, not a promise that arbitrary active rays
+have equal origins or directions; its correctness contract remains the same
+public closest/any result contract. Embree may choose a different valid
+traversal order, so numerically tied or near-tied hits are allowed the same
+floating-point variation already admitted across its traversal algorithms.
+`LUISA_SIMD_DISABLE_COHERENT_W16_DIRECT_TRACE=1` restores the complete
+incoherent direct-trace oracle. The default and oracle acceleration tests both
+cover two full W16 packets and a three-lane W16 tail; the tail must never receive
+the coherent flag.
+
 This reuse is restricted to direct trace/occlusion. Ray queries retain physical
 lane IDs in `ray.id`: candidate filters use them to recover lane-private query
 state. A permanent callback probe covers sparse tails at W1/W2/W4/W8/W16 and a

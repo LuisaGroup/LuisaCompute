@@ -2620,6 +2620,18 @@ recover persistent lane state. Embree scenes share one backend-owned
 the scheduler before the dynamically loaded backend releases its final
 dependency.
 
+Embree's initialized direct-query arguments select its incoherent traversal.
+A measured runtime specialization changes that hint only for a physical W16
+direct closest/any packet with all sixteen validity entries active. W1/W2/W4/W8,
+partial or sparse W16 packets, and stateful ray queries remain incoherent. The
+width restriction is empirical as well as structural: enabling the same hint
+for full W4 and W8 packets regressed the ordinary path tracer, while the W16
+form consistently reduced retired Embree instructions and branches. The
+same-binary oracle is
+`LUISA_SIMD_DISABLE_COHERENT_W16_DIRECT_TRACE=1`; both modes run through the
+acceleration conformance executable so packet tails and inactive-lane semantics
+remain covered.
+
 A real Cornell-box path tracer was measured at 1024x1024 and 16 spp. Every
 cell below is a median of nine forward/reverse interleaved processes while
 other host work remained active; parentheses are fallback-relative throughput
@@ -3463,7 +3475,9 @@ on 2026-08-11. The repository now contains:
   closest-hit and occlusion, extended to all four round-curve bases, curve
   control-point motion, and curve motion-instance children, where W1
   alone uses the scalar interface, W2 pads into W4, and W4/W8/W16 call the
-  matching packet interface once; the callback carries the exact cohort/tail
+  matching packet interface once; full direct W16 packets select Embree's
+  coherent traversal while every narrower, sparse, partial, or stateful-query
+  packet retains its incoherent default; the callback carries the exact cohort/tail
   mask and an optional sanitized motion-time vector, pre-sanitizes inactive
   operands, initializes inactive results, narrows uniform queries to the first
   active lane, and bulk-copies safe sparse native packets;

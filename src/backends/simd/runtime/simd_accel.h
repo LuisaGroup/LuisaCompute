@@ -72,6 +72,7 @@ private:
     // provider summary for the last committed Embree scene.
     bool _instance_summary_dirty{true};
     uint32_t _warp_width{8u};
+    bool _enable_coherent_w16_direct_trace{true};
     bool _enable_triangle_only_ray_query{true};
     bool _enable_procedural_dense_status{true};
     bool _enable_procedural_fused_status{true};
