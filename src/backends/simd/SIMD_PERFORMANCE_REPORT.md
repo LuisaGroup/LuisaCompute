@@ -2931,6 +2931,91 @@ of convergence metadata also regressed roughly 1.5--5.4%; none is retained.
 The last case is additionally outside the semantic contract because earlier
 exit epochs may still need the post-loop rendezvous.
 
+### Structured early-exit loop residency
+
+The next W8 stage keeps the complete eligible analytic loop in structured LLVM
+control instead of returning to the independent-PC dispatcher between its
+control-driving blocks. It retains one shrinking continuation mask, executes
+each pure linear early-exit tail under its exit mask, uses the existing local
+predication for internal diamonds, and reaches the declared common exit once
+under the original cohort. It clones no source block and preserves the
+canonical header convergence/token contract. The production oracle is
+`LUISA_SIMD_DISABLE_STRUCTURED_EARLY_EXIT_LOOP=1`.
+
+The accepted analytic site contains 47 loop blocks, 172 instructions, and
+three absorbed exit-tail blocks. Ten strictly alternating single-worker W8
+candidate/oracle processes were pinned to CPU 6; every process performed seven
+internal samples over 256 complete dispatches and retained checksum
+`a93089e651f98582`:
+
+| W8 analytic path | process median | paired result |
+| --- | ---: | ---: |
+| structured loop | 235.732 Mitems/s | 10/10 wins |
+| disabled general scheduler | 197.187 Mitems/s | structured/oracle 1.19487x [1.19323, 1.19652] |
+
+The exact final JIT objects identify the eliminated scheduler/state-machine
+work. Both have zero calls, zero scalar-math calls, and no unresolved symbol:
+
+| W8 analytic entry | structured loop | disabled oracle |
+| --- | ---: | ---: |
+| assembly bytes | 40,170 | 96,824 |
+| static instructions | 639 | 1,849 |
+| vector instructions | 577 | 1,109 |
+| branches | 30 | 165 |
+| stack references | 92 | 416 |
+| stack allocation | 960 B | 2,112 B |
+
+Fresh three-repeat `perf stat` runs over the same 256-dispatch process give the
+dynamic attribution:
+
+| W8 process | cycles | instructions | branches | branch misses |
+| --- | ---: | ---: | ---: | ---: |
+| structured loop | 9.716 B | 25.355 B | 1.282 B | 4.589 M |
+| disabled oracle | 11.836 B | 38.097 B | 2.413 B | 8.106 M |
+| ISPC AVX-512 x8 | 10.406 B | 17.952 B | 1.128 B | 2.657 M |
+
+Relative to the general scheduler, the retained path reduces cycles by about
+17.9%, retired instructions by 33.4%, branches by 46.9%, and branch misses by
+43.4%. It still retires more instructions and branches than ISPC, but executes
+about 6.6% fewer cycles on this host. This is consistent with register/SSA
+residency and removal of repeated dispatch/frame traffic, rather than a better
+LLVM vector math approximation or an ISA-specific intrinsic.
+
+The official ISPC 1.31.0 comparison was independently rebuilt through the
+standalone driver with an explicit executable path, `--cpu=znver5`, precise
+math, FMA contraction disabled, one worker on CPU 6, and validated output. W8
+uses ten balanced rotating process rounds. Two visibly interrupted W16 samples
+in the mixed-width run widened its interval across parity, so the final W16
+result uses a separate twenty-round alternating control and retains both slow
+samples:
+
+| matched analytic path | rounds | Luisa median | ISPC median | Luisa/ISPC paired geomean | 95% CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W8 / AVX-512 x8 | 10 | 235.561 | 218.267 Mitems/s | 1.07926x | [1.07785, 1.08067] |
+| W16 / AVX-512 x16 | 20 | 347.710 | 342.606 Mitems/s | 1.01209x | [1.00759, 1.01660] |
+
+The W8 structured site wins all ten corresponding process pairs. W16 does not
+select this W8-only transformation; its retained earlier optimizations win
+18/20 refreshed pairs and remain above parity even with the two interruptions.
+The raw official-driver records are
+`/tmp/luisa-simd-structured-final-audited-w8-w16-10r.json` and
+`/tmp/luisa-simd-structured-final-audited-w16-20r.json`. The compiler and
+generated ISPC objects remain outside CMake and the repository; no
+`LUISA_COMPUTE_ISPC_EXECUTABLE` variable exists.
+
+This is not an ISPC implementation of the repository's full renderer. Fresh
+W1/W2/W4/W8/W16 galleries pass image processing at 89.251953 dB, Voxel at
+82.834519 dB, and ordinary 1024-spp Embree path tracing at
+35.426795/42.781582/40.940376/39.219305/37.801771 dB. Every one of those real
+kernels reports zero structured-loop sites; the path processes report native
+Embree 4.4.1 W4/W8/W16 packets. A separate W8 candidate/oracle run produces
+byte-identical PNGs for all three workloads. Their hashes are respectively
+`73d7aa39c1d17b2f2be073f91e5c4615e9233e58fbf673a195b7e43cc43baa31`,
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`,
+and `6abef9a86fa07dfc11249d491953478e4d6b50ef0861ecb1781b09750902a5d1`.
+Those runs are applicability/correctness gates, not renderer speed claims for
+this analytic-only hit.
+
 ### Rejected cross-query early gather
 
 The ordinary W8 path tracer has one tempting memory/compute-overlap site. Its
@@ -3332,3 +3417,23 @@ mask/ZMM operations, while W16 is predominantly ZMM. The final ten-round
 official-ISPC comparison and three-repeat hardware counters are recorded in
 the specialization section above. All images, objects, logs, and raw JSON stay
 under `/tmp`; no reference image was regenerated or modified.
+
+The structured early-exit-loop stage completed fresh full Release builds of
+both configured trees. The native-math/fallback-math/runtime-width/Schedule-
+codegen gate passes 4/4, the scheduler plus runtime/graphics conformance gate
+passes 25/25 in both trees, the SIMD-only configuration passes 129/129, and
+the larger SIMD+fallback/XIR/runtime/graphics/tutorial configuration passes
+140/140. Clang-format 22.1.8, whitespace checks, all seven changed translation
+units under clangd, the syntax-check runner suite (13/13), and the standalone
+ISPC-driver suite (8/8) pass.
+
+The permanent forced W8 regression and its three fail-closed near misses pass,
+including the five-lane inactive tail and pre-sanitized NaN-to-integer cast.
+Fresh W1/W2/W4/W8/W16 image-processing, Voxel, and ordinary 1024-spp Embree
+path-tracing galleries all accept their references, every path process reports
+native Embree 4.4.1 W4/W8/W16 packet support, and a W8 enabled/disabled run is
+byte-identical for all three outputs. These real kernels report zero structured
+sites. The ten-round W8 and twenty-round W16 matched analytic comparisons,
+final-object audit, and three-repeat hardware counters are recorded in the
+structured-loop section above; all generated artifacts remain outside the
+repository.

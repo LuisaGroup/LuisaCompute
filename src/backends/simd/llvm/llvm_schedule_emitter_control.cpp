@@ -1775,6 +1775,28 @@ void ScheduleEmitter::_build() {
             context,
             "schedule." + std::to_string(block.id.value), _entry));
     }
+    std::optional<StructuredEarlyExitLoop> structured_early_exit_loop;
+    for (auto &&block : _source.blocks()) {
+        if (auto candidate =
+                _find_structured_early_exit_loop(block)) {
+            structured_early_exit_loop = std::move(*candidate);
+            break;
+        }
+    }
+    std::vector<uint8_t> structured_emitted_blocks(
+        _source.blocks().size(), uint8_t{0u});
+    std::vector<uint8_t> structured_absorbed_blocks(
+        _source.blocks().size(), uint8_t{0u});
+    if (structured_early_exit_loop) {
+        for (auto *block :
+             structured_early_exit_loop->emitted_blocks) {
+            structured_emitted_blocks[block->id.value] = 1u;
+        }
+        for (auto *block :
+             structured_early_exit_loop->absorbed_blocks) {
+            structured_absorbed_blocks[block->id.value] = 1u;
+        }
+    }
     _builder.CreateBr(_scheduler_loop);
 
     _builder.SetInsertPoint(_scheduler_loop);
@@ -1820,6 +1842,10 @@ void ScheduleEmitter::_build() {
         invalid,
         static_cast<unsigned>(_schedule_blocks.size()));
     for (auto &&block : _source.blocks()) {
+        if (structured_emitted_blocks[block.id.value] != 0u ||
+            structured_absorbed_blocks[block.id.value] != 0u) {
+            continue;
+        }
         dispatch_switch->addCase(
             _builder.getInt32(block.id.value),
             _schedule_blocks[block.id.value]);
@@ -1897,7 +1923,16 @@ void ScheduleEmitter::_build() {
             locally_inlined_blocks[region->other_block->id.value] = 1u;
         }
     }
+    if (structured_early_exit_loop) {
+        for (auto *block :
+             structured_early_exit_loop->absorbed_blocks) {
+            locally_inlined_blocks[block->id.value] = 1u;
+        }
+    }
     for (auto &&block : _source.blocks()) {
+        if (structured_emitted_blocks[block.id.value] != 0u) {
+            continue;
+        }
         _builder.SetInsertPoint(
             _schedule_blocks[block.id.value]);
         if (locally_inlined_blocks[block.id.value] != 0u) {
@@ -1922,6 +1957,13 @@ void ScheduleEmitter::_build() {
             _active_mask = flow;
         }
         _seed_lane = _safe_first_lane(_active_mask);
+        if (structured_early_exit_loop &&
+            structured_early_exit_loop->header->id == block.id) {
+            _emit_structured_early_exit_loop(
+                *structured_early_exit_loop);
+            if (_failed()) { return; }
+            continue;
+        }
         if (auto loop = _find_predicated_loop(block)) {
             _emit_predicated_loop(*loop);
             if (_failed()) { return; }

@@ -41,6 +41,10 @@ struct XIRToScheduleOptions {
     // a proven cohort-equal header predicate may route the whole active
     // continuation without constructing two successor masks.
     bool enable_cohort_uniform_induction{true};
+    // Small loops normally do not repay the additional proof and lowering
+    // machinery. Tests and diagnostic experiments may lower this threshold
+    // without coupling the schedule projection to emitter-specific controls.
+    uint32_t cohort_uniform_induction_min_loop_block_count{25u};
 };
 
 struct XIRToScheduleResult {

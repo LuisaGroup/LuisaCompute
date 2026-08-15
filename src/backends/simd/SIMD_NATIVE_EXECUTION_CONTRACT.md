@@ -960,6 +960,98 @@ collective, inactive NaN lanes before floating-to-integer conversion, exact
 candidate/oracle/scalar equality, W8 worker crossover selection, and rejection
 of writes and volatile reads.
 
+### 4.5.2 Structured early-exit innermost-loop refinement
+
+This refinement is distinct from the topological predicated batch. It retains
+the loop's structured backedge and one shrinking continuation mask, executes
+audited early-exit tails when their masks become nonempty, and reaches one
+common post-loop block after all lanes have left. It neither clones the loop
+nor changes the Schedule scheduler's abstract result.
+
+The production candidate is the first eligible W8 loop in Schedule order and
+must satisfy all of the following:
+
+- it is innermost, has no child loop, has 25--64 blocks and at most 256 loop
+  instructions, and carries a proven `max_trip_count` in `[1, 16]`;
+- its header is a split with the canonical
+  `cohort_uniform_condition`, one declared convergence, and that convergence's
+  target is a declared loop exit distinct from the header;
+- the header predicate is arithmetic with exactly one varying state-slot
+  operand and otherwise uniform operands. Only pure arithmetic/cast values
+  transitively derived from that induction and uniform inputs may drive an
+  internal split whose two targets both remain in the loop;
+- every instruction produces a result, has no participant mask, and is pure
+  arithmetic or a static/bitwise cast. Integer division, every remainder, and
+  shifts are rejected; all memory/resource operations, local-pointer access,
+  writes, atomics, calls, acceleration, collectives, barriers, and returns are
+  consequently excluded;
+- every nonheader loop block has at least one static predecessor and all of
+  those predecessors are in the loop. Its remaining control is an audited
+  branch/backedge, an inside/exit split, a cohort-equal inside/inside split, or
+  an existing proven local predicated region;
+- each declared exit reaches the header convergence's common target through a
+  disjoint linear tail of at most four blocks and 64 instructions. A nonempty
+  tail entry has exactly one predecessor from the loop, every later block has
+  exactly its preceding tail block as sole predecessor, and every inside/exit
+  split declares that same common target as its convergence.
+
+The diagnostic force knob may lower the block minimum to four and bypass the
+width gate; it bypasses none of the other clauses. Any failed clause leaves
+every block on the original independent-PC path before IR emission begins.
+
+Let `A0` be the nonempty mask that enters the header and `Ak` the continuation
+mask at one iteration. For an exit condition `C`, codegen first sanitizes its
+inactive lanes and forms the disjoint masks
+
+```text
+E   = Ak & C
+Ak' = Ak & !C
+```
+
+with `C` inverted when the exit is the false edge. `E` applies the source edge
+assignments and each tail assignment/instruction under `E`; `Ak'` applies the
+continue edge and becomes the mask stored at the next backedge. An empty `E`
+skips its tail. Because a lane leaves the loop exactly once, exit masks from
+different edges or epochs are disjoint. Masked PHI/state writes therefore
+preserve the value selected by that lane's actual exit and cannot overwrite a
+different live lane.
+
+The `max_trip_count` proof ensures that repeated backedges cannot leave a lane
+in the loop forever. Once `Ak'` is empty, every lane in `A0` has written the
+common-exit state. Codegen then enters that target once under `A0`, preserving
+the source convergence ID and the current parent token. The ordinary
+destination-side arrival cascade consequently observes the same complete
+cohort and outer-frame state as the general scheduler.
+
+Pure arithmetic may still be physically evaluated for inactive elements of an
+executing fixed vector. Integer division/remainder/shifts are excluded even
+though the general arithmetic emitter has its own sanitizer. A varying static
+float-to-integer cast is permitted only because the structured emitter passes
+the exact current mask to `_emit_instruction`; `_cast` selects zero into every
+inactive leaf before forming `fptosi`/`fptoui`. Floating division is
+nontrapping. Existing local predicated arms retain their own nonempty-mask
+guards and pre-sanitization rules. No result mask applied after a poison-
+forming operation is accepted as a substitute.
+
+The accepted control-driving loop blocks and pure exit tails have no remaining
+dispatcher entry. Their values can stay in LLVM SSA/registers, but this is not
+a semantic requirement: target register allocation may still spill them. The
+common exit, parent scheduler, resource ABI, packet width, and fallback backend
+are unchanged. The implementation emits only target-independent fixed-vector
+LLVM IR.
+
+`LUISA_SIMD_DISABLE_STRUCTURED_EARLY_EXIT_LOOP=1` restores the general
+scheduler in the same binary.
+`LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP=1` is diagnostic/test-only.
+`structured_early_exit_loops`, block/instruction counts, and absorbed-tail
+blocks expose selection. Permanent coverage executes a forced 14-block W8
+candidate and disabled oracle over a 13-thread dispatch, multiple exit epochs,
+a two-sided local diamond, and inactive NaNs before `fptoui`; every active bit
+and inactive sentinel must match the scalar reference. Separate resource-read
+and integer-division variants, plus an otherwise eligible Schedule graph whose
+inside/exit split names an in-loop convergence target, must report zero
+candidates.
+
 ### 4.6 Cohort-equal typed-buffer read refinement
 
 A nonvolatile typed `BUFFER_READ` may become one scalar load followed by a

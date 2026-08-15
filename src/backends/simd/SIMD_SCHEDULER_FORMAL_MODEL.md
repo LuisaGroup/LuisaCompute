@@ -180,6 +180,27 @@ or failure of any structural proof leaves the ordinary varying split intact.
 The current 25-block minimum is solely a measured profitability gate, not a
 semantic assumption.
 
+One LLVM refinement may use this header fact to collapse an entire audited
+innermost early-exit loop into structured control. Let `A_0` be the incoming
+cohort and let `A_k` be its continuation at iteration `k`. Every varying exit
+partitions `A_k` into disjoint `E_k` and `A_{k+1}` masks. The refinement
+executes the source exit edge/tail assignments under `E_k`, then advances only
+`A_{k+1}`; cohort-equal internal splits choose one edge for the complete
+current mask, while audited local diamonds execute both disjoint arm masks and
+rejoin before progress. Thus each lane follows exactly its scalar block/edge
+sequence and writes its exit state exactly once.
+
+This coarsening is permitted only when the loop and exit tails contain no
+memory, effects, calls, collectives, or unrecognized control, every removed
+exit-tail block has one owning predecessor and no external predecessor, every
+varying inside/exit partition declares the same convergence target, and a
+finite trip bound proves that the continuation becomes empty. Reordering
+independent pure lane arithmetic is therefore unobservable. The union of all
+exit masks is `A_0`; entering the declared common target once under `A_0`
+simulates the convergence gate after all corresponding small-step cohorts have
+arrived. The parent token is not changed. Failure of any proof retains the
+small-step transitions below.
+
 ## 3. Dynamic state
 
 A machine state is
@@ -523,6 +544,11 @@ The bounded audit is complemented by permanent LLVM regressions for:
   different epochs, with W1/W2/W4/W8/W16 inactive tails, a post-loop active
   sum, exact disabled-oracle equality, and fail-closed smaller-loop/nonuniform-
   bound cases for the header annotation;
+- a forced 14-block structured W8 loop with two early exits, a two-sided
+  internal diamond, 13 dispatched threads, and inactive NaNs before a
+  floating-to-unsigned cast; candidate, disabled oracle, and scalar reference
+  agree exactly, while otherwise matching resource-read, integer-division, and
+  foreign-convergence variants prove fail-closed rejection;
 - nested convergence, every reachable five-block forward topology (122
   graphs), 96 larger generated forward CFGs, and a 96-block JIT CFG;
 - the non-dominating shared-entry counterexample described in Section 4.3,
@@ -575,6 +601,13 @@ more static convergence plans enters one shared destination-side cascade
 before its Schedule instructions. Distinct loop iterations remain distinct
 dynamic records/tokens, which supplies the epoch separation required by the
 model without an explicit epoch vector.
+
+For the structured early-exit-loop refinement, `_current_mask` represents
+`A_k`, masked `_route_edge` calls implement the disjoint exit and continuation
+transfers, and `_continue_at(common_exit, A_0)` performs the single final
+arrival without changing the current parent token. The disabled-oracle path
+retains the ordinary bounded worklist/frame transitions for exact differential
+execution.
 
 `_cascade_at_convergence_target` additionally branches around the frame-state
 implementation when `current.token == 0`, and terminates a completed chain when

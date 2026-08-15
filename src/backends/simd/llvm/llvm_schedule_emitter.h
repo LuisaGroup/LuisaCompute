@@ -189,6 +189,22 @@ private:
         uint32_t batch_iteration_count{16u};
     };
 
+    struct StructuredEarlyExitLoop {
+        struct ExitTail {
+            schedule::BlockId entry{};
+            std::vector<const schedule::BasicBlock *> blocks{};
+        };
+        const schedule::Loop *loop{nullptr};
+        const schedule::BasicBlock *header{nullptr};
+        schedule::BlockId common_exit{};
+        schedule::ValueId induction{};
+        std::vector<schedule::ValueId> cohort_uniform_values{};
+        std::vector<ExitTail> exit_tails{};
+        std::vector<const schedule::BasicBlock *> emitted_blocks{};
+        std::vector<const schedule::BasicBlock *> absorbed_blocks{};
+        size_t instruction_count{0u};
+    };
+
     struct CoherentAllOnRegion {
         std::vector<const schedule::BasicBlock *> blocks{};
         size_t instruction_count{0u};
@@ -515,11 +531,17 @@ private:
         const schedule::BasicBlock &block) const noexcept;
     void _emit_chained_predicated_region(
         const schedule::SplitTerminator &control,
-        const ChainedPredicatedRegion &region);
+        const ChainedPredicatedRegion &region,
+        bool continue_at_merge = true);
     [[nodiscard]] std::optional<PredicatedLoop>
     _find_predicated_loop(
         const schedule::BasicBlock &header) const noexcept;
     void _emit_predicated_loop(const PredicatedLoop &loop);
+    [[nodiscard]] std::optional<StructuredEarlyExitLoop>
+    _find_structured_early_exit_loop(
+        const schedule::BasicBlock &header) const noexcept;
+    void _emit_structured_early_exit_loop(
+        const StructuredEarlyExitLoop &loop);
     [[nodiscard]] std::optional<CoherentAllOnRegion>
     _find_coherent_all_on_region(
         const schedule::SplitTerminator &control,

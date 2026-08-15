@@ -50,6 +50,15 @@ and may fuse a bounded sequence of adjacent diamonds into one LLVM emission
 region. This keeps their live values in SSA/registers and removes intermediate
 merge-to-dispatch round trips without cloning the loop or weakening the general
 independent-PC scheduler.
+The newest W8 refinement combines that local machinery with the canonical
+cohort-equal counted-loop header. One bounded, pure, innermost loop with
+lane-varying early exits may retain a single shrinking continuation mask,
+execute each pure exit tail immediately under its disjoint exit mask, and enter
+the shared post-loop block once after the original cohort has completely
+finished. It neither clones an all-on/mixed loop nor performs a topological
+whole-loop batch. The loop's control-driving blocks leave the dispatcher, so
+LLVM can keep hot values in SSA/registers while the general scheduler remains
+the fail-closed oracle for every other shape.
 The newest runtime/codegen refinement batches all packets of one block behind
 one exported JIT entry. W2/W4 use one small dynamic call loop. A measured W8
 target with a 512-bit fixed-vector register file may inline one packet body into
@@ -432,6 +441,82 @@ The exact structural and inactive-tail contract is specified in
 [`SIMD_NATIVE_EXECUTION_CONTRACT.md`](SIMD_NATIVE_EXECUTION_CONTRACT.md), and
 paired throughput plus final-object evidence is recorded in
 [`SIMD_PERFORMANCE_REPORT.md`](SIMD_PERFORMANCE_REPORT.md).
+
+### Structured early-exit innermost loops
+
+The complete predicated-loop batch deliberately rejects large graphs, while
+local diamonds alone still return to the dispatcher at each loop block. A
+third lowering is selected for one measured middle case: a bounded pure
+innermost loop with a canonical cohort-equal header, several lane-varying
+early exits, and one common post-loop rendezvous. It emits the original loop
+body once as structured LLVM control. It is not a new Schedule semantic and
+does not replace the arbitrary reducible-CFG scheduler.
+
+Production selection is W8-only and fail-closed. The loop must have a proven
+trip bound in `[1, 16]`, contain 25--64 Schedule blocks and at most 256
+instructions, have no child loop, and use the existing
+`cohort_uniform_condition` proof on its header comparison. The comparison has
+exactly one varying state-slot operand; its other operands are uniform. A
+small closure marks only arithmetic/cast values derived from that induction
+and uniform operands as cohort-equal for internal whole-cohort decisions.
+
+Every loop instruction and every absorbed exit-tail instruction is a result-
+producing pure arithmetic operation or static/bitwise cast with no participant
+mask. Integer division, remainder, and shifts are rejected. Resource access,
+local memory, writes, atomics, calls, acceleration, collectives, barriers, and
+returns therefore keep the complete scheduler path. Floating division remains
+nontrapping, and varying static casts receive the executing mask through the
+ordinary pre-sanitizing cast emitter before any `fptosi`/`fptoui` is formed.
+
+The Schedule CFG is re-audited rather than trusted implicitly. Every nonheader
+loop block must have at least one predecessor and no predecessor outside the
+loop. Every declared exit must reach the header's common convergence target
+through a disjoint linear tail of at most four blocks and 64 instructions.
+The first tail block has exactly one predecessor from this loop; each later
+tail block has exactly the previous block as its sole predecessor. Every
+inside/exit split converges at the same common target. Internal control is
+limited to audited branches, backedges, exit splits, cohort-equal internal
+splits, and already proven local predicated regions. A switch, join, external
+entry, shared tail, foreign convergence, side effect, or unrecognized fork
+rejects the whole candidate before LLVM mutation.
+
+Let `A0` be the incoming cohort and `Ak` the live continuation at one dynamic
+iteration. A varying exit split forms `E = Ak & exit_condition` and
+`Ak' = Ak & !exit_condition` (with the edges exchanged when required). The
+exit edge and its linear tail apply PHI/state assignments under `E`; these
+writes commute because every lane leaves the loop once. Only `Ak'` continues.
+Backedges store that mask and return to the one structured header. The proven
+trip bound guarantees that every lane eventually contributes to an exit, at
+which point the common target executes once under `A0`. The current parent
+token and declared post-loop convergence remain intact, so lanes parked by an
+outer dynamic region retain the ordinary arrival cascade.
+
+Existing one-/two-sided, nested, and chained local predication may remain
+inside this structured loop. Their emitter receives a private
+`continue_at_merge=false` mode so the structured loop, rather than the global
+scheduler, owns the next edge. Control-driving loop blocks and absorbed exit
+tails are removed from the dispatcher switch; local arms stay single-copy
+predicated regions. No source instruction is cloned, and no independent-PC
+state is simulated inside the accepted loop.
+
+`LUISA_SIMD_DISABLE_STRUCTURED_EARLY_EXIT_LOOP=1` is the production
+same-binary oracle. `LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP=1` bypasses
+only the W8 and 25-block profitability gates for bounded tests; every semantic
+and instruction-safety proof still applies. The latter also lowers the
+XIR-to-Schedule cohort-header discovery threshold through an explicit lowering
+option, rather than exposing an emitter environment variable inside Schedule
+IR. Runtime reporting exposes accepted loop, loop-block, instruction, and
+absorbed-tail-block counts.
+
+Permanent execution coverage uses a forced 14-block W8 loop with two early
+exit epochs, a two-sided internal diamond, a 13-thread dispatch, and inactive
+NaNs before a floating-to-unsigned cast. Candidate, disabled oracle, and scalar
+reference bits must match, including the five-lane final packet. Separate
+near-miss kernels prove that a varying buffer read and integer division retain
+the general scheduler; a Schedule mutation proves that an inside/exit split
+with a foreign convergence target is rejected before LLVM emission. The
+detailed mask proof and measurements are recorded in the native contract and
+performance report.
 
 A remaining varying conditional or switch has a dynamic coherent fast path:
 when all active lanes select one successor, it behaves like directly threaded

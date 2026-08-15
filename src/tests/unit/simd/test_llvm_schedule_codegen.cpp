@@ -9579,6 +9579,324 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] std::optional<schedule::Function>
+make_structured_early_exit_foreign_convergence_fixture() {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("structured_early_exit_foreign_convergence_fixture");
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *dispatch = kernel->create_basic_block();
+    auto *middle = kernel->create_basic_block();
+    auto *latch = kernel->create_basic_block();
+    auto *side_exit = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    header->set_name("structured_fixture_header");
+    dispatch->set_name("structured_fixture_dispatch");
+    middle->set_name("structured_fixture_middle");
+    latch->set_name("structured_fixture_latch");
+    side_exit->set_name("structured_fixture_side_exit");
+    merge->set_name("structured_fixture_merge");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t seven_value = 7u;
+    uint32_t eight_value = 8u;
+    auto *seven = module.create_constant(
+        Type::of<uint32_t>(), &seven_value);
+    auto *eight = module.create_constant(
+        Type::of<uint32_t>(), &eight_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.br(header);
+    builder.set_insertion_point(header);
+    auto *index = builder.phi(Type::of<uint32_t>());
+    auto *running = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {index, eight});
+    builder.cond_br(running, dispatch, merge);
+    builder.set_insertion_point(dispatch);
+    auto *lane_epoch = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, seven});
+    auto *leave_early = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {lane_epoch, index});
+    builder.cond_br(leave_early, side_exit, middle);
+    builder.set_insertion_point(middle);
+    builder.br(latch);
+    builder.set_insertion_point(latch);
+    auto *next = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one});
+    builder.br(header);
+    index->add_incoming(zero, entry);
+    index->add_incoming(next, latch);
+    builder.set_insertion_point(side_exit);
+    static_cast<void>(builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one}));
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel,
+        {.logical_warp_width = 8u,
+         .cohort_uniform_induction_min_loop_block_count = 4u});
+    if (!lowered.succeeded() ||
+        !schedule::verify(*lowered.function).succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] bool run_ast_structured_early_exit_loop() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferUInt output) noexcept {
+        set_block_size(32u, 1u, 1u);
+        auto index = dispatch_id().x;
+        Float cast_source = std::bit_cast<float>(0x7fc01234u);
+        $if (index < count) {
+            cast_source = cast<float>(index) + 0.75f;
+        };
+        UInt state = index * 747796405u + 2891336453u;
+        UInt value = index * 17u + 11u;
+        for (auto depth : dynamic_range(8u)) {
+            $if ((state & 7u) == 0u) {
+                value += depth * 13u + 3u;
+                $break;
+            };
+            $if ((state & 1u) == 0u) {
+                value = value * 3u + depth + 5u;
+            }
+            $else {
+                value = value * 5u + depth + 7u;
+            };
+            state = state * 1664525u + 1013904223u;
+            $if (depth >= 3u) {
+                $if ((state & 15u) == 1u) {
+                    value ^= depth * 19u + 0x51edu;
+                    $break;
+                };
+                $if ((index & 1u) == 0u) {
+                    value += cast<uint>(cast_source);
+                    value = value * 9u + depth;
+                }
+                $else {
+                    value += 0x9e3779b9u;
+                    value = value * 11u + depth;
+                };
+            };
+        }
+        output.write(index, value);
+    };
+
+    SIMDCompiledKernel candidate;
+    {
+        ScopedEnvironmentVariable force{
+            "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP", "1"};
+        candidate = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_structured_early_exit_loop");
+    }
+    if (!candidate.succeeded()) {
+        for (auto &&diagnostic : candidate.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(candidate.structured_early_exit_loop_count == 1u);
+    CHECK(candidate.structured_early_exit_loop_block_count >= 4u);
+    CHECK(candidate.structured_early_exit_loop_instruction_count != 0u);
+    CHECK(candidate.structured_early_exit_loop_absorbed_block_count != 0u);
+
+    SIMDCompiledKernel oracle;
+    {
+        ScopedEnvironmentVariable force{
+            "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP", "1"};
+        ScopedEnvironmentVariable disable{
+            "LUISA_SIMD_DISABLE_STRUCTURED_EARLY_EXIT_LOOP", "1"};
+        oracle = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_structured_early_exit_loop_oracle");
+    }
+    CHECK(oracle.succeeded());
+    CHECK(oracle.structured_early_exit_loop_count == 0u);
+    CHECK(oracle.structured_early_exit_loop_block_count == 0u);
+    CHECK(oracle.structured_early_exit_loop_instruction_count == 0u);
+    CHECK(oracle.structured_early_exit_loop_absorbed_block_count == 0u);
+
+    std::array<uint32_t, count> expected{};
+    std::array<uint32_t, count> candidate_output{};
+    std::array<uint32_t, count> oracle_output{};
+    for (auto index = uint32_t{0u}; index < count; index++) {
+        auto state = index * 747796405u + 2891336453u;
+        auto value = index * 17u + 11u;
+        for (auto depth = uint32_t{0u}; depth < 8u; depth++) {
+            if ((state & 7u) == 0u) {
+                value += depth * 13u + 3u;
+                break;
+            }
+            value = (state & 1u) == 0u ?
+                        value * 3u + depth + 5u :
+                        value * 5u + depth + 7u;
+            state = state * 1664525u + 1013904223u;
+            if (depth >= 3u) {
+                if ((state & 15u) == 1u) {
+                    value ^= depth * 19u + 0x51edu;
+                    break;
+                }
+                value = (index & 1u) == 0u ?
+                            (value + static_cast<uint32_t>(
+                                         static_cast<float>(index) + 0.75f)) *
+                                    9u +
+                                depth :
+                            (value + 0x9e3779b9u) * 11u + depth;
+            }
+        }
+        expected[index] = value;
+    }
+
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto run = [&](SIMDCompiledKernel &compiled,
+                   std::array<uint32_t, count> &output) noexcept {
+        output.fill(0xdeadbeefu);
+        alignas(16) SIMDHostBufferView argument{
+            output.data(), sizeof(output)};
+        auto *entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, 32u);
+        for (auto first = uint32_t{0u}; first < count; first += width) {
+            config.thread_index = first;
+            entry(&argument, nullptr, &config, width);
+        }
+        return true;
+    };
+    CHECK(run(candidate, candidate_output));
+    CHECK(run(oracle, oracle_output));
+    CHECK(candidate_output == expected);
+    CHECK(oracle_output == expected);
+    CHECK(candidate_output == oracle_output);
+    return true;
+}
+
+[[nodiscard]] bool run_ast_structured_early_exit_loop_rejections() {
+    static constexpr auto width = 8u;
+    auto compile_rejected = [](bool use_memory) noexcept {
+        Kernel1D kernel = [use_memory](BufferUInt input,
+                                       BufferUInt output) noexcept {
+            set_block_size(32u, 1u, 1u);
+            auto index = dispatch_id().x;
+            UInt state = index * 747796405u + 2891336453u;
+            UInt value = index * 17u + 11u;
+            for (auto depth : dynamic_range(8u)) {
+                $if ((state & 7u) == 0u) {
+                    value += depth * 13u + 3u;
+                    $break;
+                };
+                if (use_memory) {
+                    value += input.read((index + depth) & 15u);
+                } else {
+                    value /= (index & 3u) + 1u;
+                }
+                $if ((state & 1u) == 0u) {
+                    value = value * 3u + depth;
+                    value += 5u;
+                }
+                $else {
+                    value = value * 5u + depth;
+                    value += 7u;
+                };
+                state = state * 1664525u + 1013904223u;
+                $if (depth >= 3u) {
+                    $if ((state & 15u) == 1u) {
+                        value += depth * 19u + 0x51edu;
+                        $break;
+                    };
+                };
+            }
+            output.write(index, value);
+        };
+        ScopedEnvironmentVariable force{
+            "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP", "1"};
+        return compile_simd_kernel(
+            kernel.function()->function(), width,
+            use_memory ?
+                "simd_ast_structured_early_exit_loop_memory_rejection" :
+                "simd_ast_structured_early_exit_loop_integer_div_rejection");
+    };
+
+    auto memory = compile_rejected(true);
+    CHECK(memory.succeeded());
+    CHECK(memory.structured_early_exit_loop_count == 0u);
+    auto integer_division = compile_rejected(false);
+    CHECK(integer_division.succeeded());
+    CHECK(integer_division.structured_early_exit_loop_count == 0u);
+
+    auto foreign_convergence =
+        make_structured_early_exit_foreign_convergence_fixture();
+    CHECK(foreign_convergence.has_value());
+    auto lower_fixture = [&](std::string_view name,
+                             LLVMScheduleCodegenResult &result) {
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(name, *context);
+        {
+            ScopedEnvironmentVariable force{
+                "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP", "1"};
+            result = lower_schedule_to_llvm(
+                *module, *foreign_convergence, width, name);
+        }
+        return result.succeeded() &&
+               !::llvm::verifyModule(*module, &::llvm::errs());
+    };
+    LLVMScheduleCodegenResult eligible_result;
+    CHECK(lower_fixture(
+        "simd_structured_early_exit_eligible_fixture",
+        eligible_result));
+    CHECK(eligible_result.structured_early_exit_loop_count == 1u);
+
+    CHECK(foreign_convergence->loops().size() == 1u);
+    auto &source_loop = foreign_convergence->loops().front();
+    auto in_source_loop = [&](schedule::BlockId target) noexcept {
+        return std::find(source_loop.blocks.cbegin(),
+                         source_loop.blocks.cend(), target) !=
+               source_loop.blocks.cend();
+    };
+    schedule::SplitTerminator *exit_split = nullptr;
+    schedule::BlockId foreign_target{};
+    for (auto block_id : source_loop.blocks) {
+        if (block_id == source_loop.header) { continue; }
+        auto *block = foreign_convergence->block(block_id);
+        auto *split = block == nullptr ? nullptr :
+                                         std::get_if<schedule::SplitTerminator>(
+                                             &block->terminator);
+        if (split == nullptr) { continue; }
+        auto true_inside = in_source_loop(split->true_edge.target);
+        auto false_inside = in_source_loop(split->false_edge.target);
+        if (true_inside == false_inside) { continue; }
+        exit_split = split;
+        foreign_target = true_inside ? split->true_edge.target :
+                                       split->false_edge.target;
+        break;
+    }
+    CHECK(exit_split != nullptr);
+    exit_split->convergence =
+        foreign_convergence->add_convergence(foreign_target);
+    CHECK(schedule::verify(*foreign_convergence).succeeded());
+    LLVMScheduleCodegenResult foreign_result;
+    CHECK(lower_fixture(
+        "simd_structured_early_exit_foreign_convergence",
+        foreign_result));
+    CHECK(foreign_result.structured_early_exit_loop_count == 0u);
+    return true;
+}
+
 [[nodiscard]] bool run_ast_loop_unswitch() {
     static constexpr auto width = 8u;
     static constexpr auto count = 13u;
@@ -9943,6 +10261,10 @@ int main() {
          &run_ast_predicated_memory_diamond},
         {"AST bounded predicated loop batch",
          &run_ast_predicated_loop_batch},
+        {"AST structured early-exit loop",
+         &run_ast_structured_early_exit_loop},
+        {"AST structured early-exit loop rejections",
+         &run_ast_structured_early_exit_loop_rejections},
         {"AST invariant varying loop unswitch",
          &run_ast_loop_unswitch},
         {"AST shader execution reorder hint",

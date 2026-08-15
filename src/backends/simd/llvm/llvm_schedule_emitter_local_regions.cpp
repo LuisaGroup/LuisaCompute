@@ -399,7 +399,8 @@ ScheduleEmitter::_find_chained_predicated_region(
 
 void ScheduleEmitter::_emit_chained_predicated_region(
     const schedule::SplitTerminator &control,
-    const ChainedPredicatedRegion &region) {
+    const ChainedPredicatedRegion &region,
+    bool continue_at_merge) {
     auto *outer_mask = _active_mask;
     auto *outer_seed = _seed_lane;
     _emit_guarded_predicated_math_diamond(
@@ -475,7 +476,9 @@ void ScheduleEmitter::_emit_chained_predicated_region(
             if (_failed()) { return; }
         }
         if (i + 1u == region.terminal_blocks.size()) {
-            _emit_terminator(*block);
+            if (continue_at_merge) {
+                _emit_terminator(*block);
+            }
         } else {
             auto *branch = std::get_if<schedule::BranchTerminator>(
                 &block->terminator);
@@ -501,7 +504,7 @@ void ScheduleEmitter::_emit_chained_predicated_region(
         region.terminal_blocks.size();
     _result.chained_predicated_terminal_instruction_count +=
         region.terminal_instruction_count;
-    if (region.terminal_blocks.empty()) {
+    if (continue_at_merge && region.terminal_blocks.empty()) {
         _continue_at(region.merge, outer_mask);
     }
 }

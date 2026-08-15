@@ -327,7 +327,7 @@ private:
                 if (tag == xir::DerivedInstructionTag::CALL) {
                     message += "; run the XIR inline pass first";
                 } else if (tag ==
-                               xir::DerivedInstructionTag::THREAD_GROUP) {
+                           xir::DerivedInstructionTag::THREAD_GROUP) {
                     message +=
                         "; block barriers require cooperative-block scheduling";
                 } else if (is_structured_control(tag)) {
@@ -536,10 +536,12 @@ private:
         // the larger analytic path loop benefits from the reduced header
         // control. Eligible smaller loops may still use whole-loop
         // predication later in LLVM lowering.
-        static constexpr auto min_loop_block_count = size_t{25u};
         if (!_options.enable_cohort_uniform_induction) { return; }
         for (auto &&loop : _loops) {
-            if (loop.size < min_loop_block_count) { continue; }
+            if (loop.size <
+                _options.cohort_uniform_induction_min_loop_block_count) {
+                continue;
+            }
             auto *condition = loop.cohort_uniform_header_condition;
             if (condition != nullptr &&
                 !_uniformity.is_uniform(condition)) {
@@ -747,7 +749,7 @@ private:
                     ValueOrigin::constant,
                     std::nullopt,
                     value_name(value, "const" + std::to_string(
-                                                 _next_external_value_id++)),
+                                                    _next_external_value_id++)),
                     ConstantValueMetadata{.bytes = std::move(bytes)});
                 _value_ids.emplace(value, id);
                 return id;
@@ -940,10 +942,10 @@ private:
                 arithmetic->operand(i), use_block, visiting));
         }
         auto all_equal = !operand_steps.empty() && std::all_of(
-            operand_steps.begin(), operand_steps.end(),
-            [](LaneIndexStep step) noexcept {
-                return step == LaneIndexStep::equal;
-            });
+                                                       operand_steps.begin(), operand_steps.end(),
+                                                       [](LaneIndexStep step) noexcept {
+                                                           return step == LaneIndexStep::equal;
+                                                       });
         if (all_equal) {
             result = LaneIndexStep::equal;
         } else if (operand_steps.size() == 2u) {
@@ -1179,9 +1181,9 @@ private:
                     .default_edge = _edge(
                         branch->default_block(), source_block, terminator),
                     .convergence = _convergence_by_branch.contains(source_block) ?
-                        std::optional{
-                            _convergence_by_branch.at(source_block)} :
-                        std::nullopt,
+                                       std::optional{
+                                           _convergence_by_branch.at(source_block)} :
+                                       std::nullopt,
                 };
                 schedule_switch.cases.reserve(branch->case_count());
                 for (auto i = size_t{0u}; i < branch->case_count(); i++) {
