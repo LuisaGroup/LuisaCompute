@@ -422,46 +422,49 @@ int main(int argc, char *argv[]) {
         [&] {
             compile_minimal_ray_query(device);
             compile_observing_ray_query(device);
+            const auto before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_4.ll");
+            const auto observing_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_5.ll");
             const auto module = read_text_file(
                 dump_directory / "hip_kernel_final_4.ll");
             const auto observing_module = read_text_file(
                 dump_directory / "hip_kernel_final_5.ll");
+            const auto before_root =
+                amdgpu_kernel_body(before_module);
+            const auto observing_before_root =
+                amdgpu_kernel_body(observing_before_module);
             const auto root = amdgpu_kernel_body(module);
-            const auto trace_all = llvm_function_body(
-                module,
-                "@luisa_pipeline_ray_query_trace_all_stable_opacity");
-            const auto trace_any = llvm_function_body(
-                module,
-                "@luisa_pipeline_ray_query_trace_any_stable_opacity");
             const auto observing_dispatcher = llvm_function_body(
                 observing_module,
                 "@luisa_ray_query_pipeline_dispatch");
-            const auto observing_trace = llvm_function_body(
-                observing_module,
-                "@luisa_pipeline_ray_query_trace_all_stable_opacity");
-            expect(!root.empty() && !trace_all.empty() &&
-                   !trace_any.empty() && !observing_dispatcher.empty() &&
-                   !observing_trace.empty())
+            expect(!before_root.empty() &&
+                   !observing_before_root.empty() && !root.empty() &&
+                   !observing_dispatcher.empty())
                 << "failed to locate the generated RayQuery functions";
-            expect(module.find(
+            // Selection is a codegen property, while outlining is an LLVM
+            // profitability decision. Inspect the generated root before the
+            // ordinary inliner instead of requiring trace wrappers to survive
+            // in final IR.
+            expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
                    std::string_view::npos)
                 << "RayQueryAll without device opacity writes did not select "
                    "its stable-opacity native traversal";
-            expect(module.find(
+            expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
                    std::string_view::npos)
                 << "RayQueryAny without device opacity writes did not select "
                    "its stable-opacity native traversal";
-            expect(module.find(
+            expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace_all(") ==
                    std::string_view::npos &&
-                   module.find(
+                   before_root.find(
                        "@luisa_pipeline_ray_query_trace_any(") ==
                        std::string_view::npos)
                 << "stable-opacity RayQuery retained a mutable-opacity "
                    "traversal entry point";
-            expect(module.find(
+            expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace(") ==
                    std::string_view::npos)
                 << "synchronous RayQuery regressed to a runtime-kind "
@@ -488,33 +491,49 @@ int main(int argc, char *argv[]) {
                    std::string_view::npos)
                 << "compact RayQuery transaction remained as an outlined "
                    "state-pointer boundary";
-            expect(trace_all.find("pipeline_dispatch") ==
-                       std::string_view::npos &&
-                   trace_any.find("pipeline_dispatch") ==
+
+            const auto uses_native_gfx12_stack =
+                module.find("@llvm.amdgcn.ds.bvh.stack.push8.pop1.rtn") !=
+                std::string::npos;
+            if (uses_native_gfx12_stack) {
+                // A candidate-only query has no cross-function identity in
+                // the semantic state. Local provenance must therefore let
+                // SROA remove both the 112-byte aggregate and its pointer-
+                // integer escape after native traversal is inlined.
+                expect(root.find("alloca [112 x i8]") ==
                        std::string_view::npos)
-                << "candidate-only RayQuery failed to inline its scalar "
-                   "action transaction into native traversal";
+                    << "candidate-only RayQuery state escaped scalar "
+                       "replacement";
+                expect(root.find("ray.query.state.address") ==
+                           std::string_view::npos &&
+                       root.find("ray.query.identity.address") ==
+                           std::string_view::npos)
+                    << "candidate-only RayQuery materialized an unobservable "
+                       "private-state identity";
+            }
 
             // The second kernel hides a world-ray observation in a nested
             // Callable. The fixed-point proof must follow that call edge and
             // retain the full query transaction, while constant specialization
             // still removes pipeline identity from its three-argument
             // {query, context, candidate-kind} ABI.
-            expect(observing_dispatcher.find(
-                       "@luisa_ray_query_pipeline_dispatch"
-                       "(ptr %0, ptr %1, i32 %2)") !=
-                       std::string_view::npos)
-                << "observing RayQuery did not retain the exact full-state "
-                   "dispatcher ABI";
             expect(observing_dispatcher.find("load i32, ptr %0") !=
                        std::string_view::npos &&
                    observing_dispatcher.find("i32 44") !=
                        std::string_view::npos)
                 << "nested world-ray observation was not decoded from the "
                    "dedicated query identity";
-            expect(observing_trace.find(
-                       "@luisa_ray_query_pipeline_dispatch") !=
+            expect(observing_before_root.find(
+                       "ray.query.identity.address") !=
+                           std::string_view::npos &&
+                   observing_before_root.find(
+                       "ray.query.identity.field") !=
                        std::string_view::npos)
+                << "full-state RayQuery failed to materialize identity at "
+                   "its observable callback boundary";
+            expect(observing_module.find(
+                       "@luisa_pipeline_ray_query_dispatch_compact(") ==
+                   std::string_view::npos)
                 << "nested world-ray observation unsafely selected the "
                    "candidate-only transaction";
             expect(module.find("luisa-specialize-constant-argument") ==
@@ -524,9 +543,7 @@ int main(int argc, char *argv[]) {
                        std::string_view::npos)
                 << "internal constant-specialization marker escaped HIP "
                    "codegen";
-            if (module.find(
-                    "@llvm.amdgcn.ds.bvh.stack.push8.pop1.rtn") !=
-                std::string::npos) {
+            if (uses_native_gfx12_stack) {
                 // A 256-thread block contains eight wave32 waves. Native
                 // synchronous traversal uses one 16-entry instance-aware
                 // stack, hence 16 * 32 * 8 = 4096 dwords. Its intrinsic

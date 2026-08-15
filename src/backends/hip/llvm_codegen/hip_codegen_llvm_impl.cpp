@@ -1014,11 +1014,14 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
             } else if (is_ray_query_wrapper) {
                 auto is_pipeline_wrapper =
                     name.starts_with("luisa_pipeline_ray_query_");
+                auto is_pipeline_initialize =
+                    name == "luisa_pipeline_ray_query_initialize";
+                auto is_pipeline_trace =
+                    name.starts_with("luisa_pipeline_ray_query_trace_");
                 auto is_inline_wrapper =
                     is_pipeline_wrapper ?
-                        name != "luisa_pipeline_ray_query_initialize" &&
-                            !name.starts_with(
-                                "luisa_pipeline_ray_query_trace_") :
+                        !is_pipeline_initialize &&
+                            !is_pipeline_trace :
                         _uses_hardware_rt_stack &&
                             (name == "luisa_ray_query_state" ||
                              name == "luisa_ray_query_advance" ||
@@ -1031,6 +1034,15 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
                 if (is_inline_wrapper) {
                     func.removeFnAttr(llvm::Attribute::NoInline);
                     func.addFnAttr(llvm::Attribute::AlwaysInline);
+                } else if (is_pipeline_initialize || is_pipeline_trace) {
+                    // Synchronous query construction and traversal each have
+                    // one generated call site per query operation. Their size
+                    // and scalarized state vary with the handler, so a blanket
+                    // ABI barrier is not a valid profitability model. Preserve
+                    // neither directive and let the target-aware inliner decide
+                    // after handler projection and constant specialization.
+                    func.removeFnAttr(llvm::Attribute::AlwaysInline);
+                    func.removeFnAttr(llvm::Attribute::NoInline);
                 } else {
                     func.removeFnAttr(llvm::Attribute::AlwaysInline);
                     func.addFnAttr(llvm::Attribute::NoInline);

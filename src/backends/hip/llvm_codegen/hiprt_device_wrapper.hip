@@ -1366,7 +1366,6 @@ luisa_pipeline_ray_query_initialize(
     float tmin, float tmax,
     float time,
     uint32_t mask, uint32_t flags,
-    uint32_t query_state_address,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
     static_cast<void>(stack_size);
     static_cast<void>(stack_count);
@@ -1375,7 +1374,6 @@ luisa_pipeline_ray_query_initialize(
     state->scene_handle = scene_handle;
     state->instances =
         reinterpret_cast<const LuisaAccelInstance *>(instance_data);
-    state->query_state_address = query_state_address;
     state->ray.origin = hiprtFloat3{ox, oy, oz};
     state->ray.minT = tmin;
     state->ray.direction = hiprtFloat3{dx, dy, dz};

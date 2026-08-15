@@ -91,6 +91,103 @@ void accumulate_ray_query_handler_observations(
     return mask;
 }
 
+[[nodiscard]] bool ray_query_value_has_function_local_state(
+    const xir::Value *value,
+    llvm::DenseSet<const xir::Value *> &active) noexcept {
+    if (value == nullptr ||
+        (value->type() != Type::of<RayQueryAll>() &&
+         value->type() != Type::of<RayQueryAny>())) {
+        return false;
+    }
+    if (value->isa<xir::ResourceQueryInst>()) {
+        switch (static_cast<const xir::ResourceQueryInst *>(value)->op()) {
+            case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL:
+            case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY:
+            case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
+            case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR:
+                return true;
+            default: return false;
+        }
+    }
+    if (value->isa<xir::LoadInst>()) {
+        return ray_query_value_has_function_local_state(
+            static_cast<const xir::LoadInst *>(value)->variable(), active);
+    }
+    if (value->isa<xir::PhiInst>()) {
+        if (!active.insert(value).second) { return false; }
+        auto local = true;
+        for (auto operand_use :
+             static_cast<const xir::PhiInst *>(value)->operand_uses()) {
+            local &= ray_query_value_has_function_local_state(
+                operand_use->value(), active);
+        }
+        active.erase(value);
+        return local;
+    }
+    if (!value->isa<xir::AllocaInst>() ||
+        !static_cast<const xir::AllocaInst *>(value)->is_local() ||
+        !active.insert(value).second) {
+        return false;
+    }
+
+    // A local query variable denotes the function's singleton traversal state
+    // exactly when every possible whole-object definition is itself local and
+    // no other use can rebind or escape the variable. This is a closed use-def
+    // proof, independent of block traversal order. Multiple local definitions
+    // remain equivalent because all query construction in one function uses
+    // the same non-reentrant state allocation. Cycles or an unknown definition
+    // fail closed to the encoded query-object ABI.
+    auto has_definition = false;
+    auto local = true;
+    for (auto use : value->use_list()) {
+        auto user = use->user();
+        if (user == nullptr || !user->isa<xir::Instruction>()) {
+            local = false;
+            break;
+        }
+        auto instruction = static_cast<const xir::Instruction *>(user);
+        if (instruction->isa<xir::StoreInst>()) {
+            auto store = static_cast<const xir::StoreInst *>(instruction);
+            if (store->variable() != value) {
+                local = false;
+                break;
+            }
+            has_definition = true;
+            if (!ray_query_value_has_function_local_state(
+                    store->value(), active)) {
+                local = false;
+                break;
+            }
+            continue;
+        }
+        if (instruction->isa<xir::LoadInst>() &&
+            static_cast<const xir::LoadInst *>(instruction)->variable() ==
+                value) {
+            continue;
+        }
+        if (instruction->isa<xir::RayQueryPipelineInst>() &&
+            static_cast<const xir::RayQueryPipelineInst *>(instruction)
+                    ->query_object() == value) {
+            continue;
+        }
+        if (instruction->isa<xir::RayQueryDispatchInst>() ||
+            instruction->isa<xir::RayQueryObjectReadInst>() ||
+            instruction->isa<xir::RayQueryObjectWriteInst>()) {
+            continue;
+        }
+        local = false;
+        break;
+    }
+    active.erase(value);
+    return local && has_definition;
+}
+
+[[nodiscard]] bool ray_query_value_has_function_local_state(
+    const xir::Value *value) noexcept {
+    llvm::DenseSet<const xir::Value *> active;
+    return ray_query_value_has_function_local_state(value, active);
+}
+
 }// namespace
 
 size_t HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
@@ -1045,6 +1142,21 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
 
         auto llvm_state_pointer = _get_ray_query_state_pointer(
             b, func_ctx, query_object);
+        if (observation_mask != 0u) {
+            // Only the exact callback transaction exports query identity. The
+            // compact transaction constructs a private candidate state inside
+            // its dispatcher and never observes this outer identity.
+            auto llvm_query_address_field = b.CreateInBoundsGEP(
+                b.getInt8Ty(), llvm_state_pointer,
+                b.getInt32(compact_query_layout::query_address),
+                "ray.query.identity.field");
+            auto llvm_state_address = b.CreatePtrToInt(
+                llvm_state_pointer, b.getInt32Ty(),
+                "ray.query.identity.address");
+            auto llvm_identity_store = b.CreateStore(
+                llvm_state_address, llvm_query_address_field);
+            llvm_identity_store->setAlignment(llvm::Align{8u});
+        }
         if (llvm_state_pointer->getType()->getPointerAddressSpace() != 0u) {
             llvm_state_pointer = b.CreateAddrSpaceCast(
                 llvm_state_pointer, b.getPtrTy(0),
@@ -1179,6 +1291,11 @@ llvm::Value *HIPCodegenLLVMImpl::_get_ray_query_state_pointer(
             (query_object->type() == Type::of<RayQueryAll>() ||
              query_object->type() == Type::of<RayQueryAny>()),
         "Invalid HIP ray-query object operand.");
+    if (ray_query_value_has_function_local_state(query_object)) {
+        LUISA_ASSERT(func_ctx.llvm_rq_state != nullptr,
+                     "Missing HIP state for function-local RayQuery.");
+        return func_ctx.llvm_rq_state;
+    }
     auto llvm_query = _get_llvm_value(b, func_ctx, query_object);
     if (llvm_query->getType()->isPointerTy()) {
         llvm_query = _load_llvm_value(

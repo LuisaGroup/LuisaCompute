@@ -1239,13 +1239,6 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             }
             llvm_initialize_args.emplace_back(llvm_mask);
             llvm_initialize_args.emplace_back(llvm_flags);
-            if (_uses_synchronous_ray_query_pipeline) {
-                // Synchronous callbacks receive query identity independently
-                // from user captures. Store the exact private-state token in
-                // the state object's existing alignment hole so the generated
-                // dispatcher can expose a stable query-reference pointer.
-                llvm_initialize_args.emplace_back(llvm_state_address);
-            }
             llvm_initialize_args.emplace_back(func_ctx.llvm_rt_stack_size);
             llvm_initialize_args.emplace_back(func_ctx.llvm_rt_stack_count);
             llvm_initialize_args.emplace_back(func_ctx.llvm_rt_stack_data);
