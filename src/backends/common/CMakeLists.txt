@@ -122,6 +122,19 @@ function(luisa_compute_link_llvm_into_backend backend)
     target_include_directories(${LUISA_LINK_LLVM_TARGET} AFTER PRIVATE ${LLVM_INCLUDE_DIRS})
     llvm_map_components_to_libnames(LLVM_LIBS ${LUISA_LINK_LLVM_COMPONENTS})
 
+    # LLVM's C++ ABI includes its RTTI mode. In particular, polymorphic helper
+    # classes implemented partly in headers (for example CallbackVH, used by
+    # MergeFunctions) make a consumer compiled with RTTI emit references to
+    # typeinfo that an RTTI-disabled static LLVM deliberately does not define.
+    # Match the selected LLVM package instead of relying on which inline
+    # templates a backend happens to instantiate today. LLVM with RTTI enabled
+    # needs no override: LuisaCompute's normal compiler policy remains valid.
+    if (DEFINED LLVM_ENABLE_RTTI AND NOT LLVM_ENABLE_RTTI)
+        target_compile_options(${LUISA_LINK_LLVM_TARGET} PRIVATE
+                "$<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang,GNU>:-fno-rtti>"
+                "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/GR->")
+    endif ()
+
     # llvm_map_components_to_libnames() deliberately turns unknown component
     # names into LLVM<name> and leaves the error to a later link step. Validate
     # the result here so a typo cannot make us silently select a monolithic
