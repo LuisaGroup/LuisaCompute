@@ -701,20 +701,24 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
         LUISA_ASSERT(block_size > 0u, "Block size must be greater than zero.");
         uint32_t shared_array_size = 0u;
         if (_uses_hardware_rt_stack) {
-            // Both synchronous and resumable RayQuery use an exact disjoint
-            // parent-link continuation before a complete BVH8 expansion can
-            // overflow the hardware frontier. Nine entries are the minimum
-            // that leave one ordinary hardware entry plus the complete
-            // eight-child expansion reserve. This also avoids doubling LDS
-            // and halving resident workgroups compared with the former
-            // synchronous 16-entry policy. Ordinary static trace retains its
-            // proven 8-entry stack and one-shot overflow fallback.
+            // Synchronous pipeline traversal uses GFX12's native single-stack
+            // instance protocol. Resumable RayQuery keeps the proven disjoint
+            // TLAS/BLAS regions and its exact parent-link continuation.
+            const auto native_pipeline_stack =
+                _uses_synchronous_ray_query_pipeline;
             const auto hw_stack_max_entries =
-                _rt_analysis.uses_ray_query ? 9u : 8u;
-            // HwBvhStack: max_entries * 32 (stride) * 2 (TLAS+BLAS regions)
-            // Both flat trace and ray query use HwBvhStack on gfx12.
+                native_pipeline_stack ? 16u :
+                (_rt_analysis.uses_ray_query ? 9u : 8u);
+            // The native pipeline implements GFX12's instance-aware protocol
+            // in one physical stack. A static trace in the same kernel still
+            // uses HIPRT's legacy disjoint TLAS/BLAS regions, so retain two
+            // regions exactly when that path is reachable.
+            const auto hw_stack_region_count =
+                native_pipeline_stack && !_rt_analysis.uses_static_trace ?
+                    1u :
+                    2u;
             const auto hw_lds_dwords_per_wave32 =
-                hw_stack_max_entries * 32u * 2u;
+                hw_stack_max_entries * 32u * hw_stack_region_count;
             auto lds_dwords_per_wave32 = hw_lds_dwords_per_wave32;
             auto num_waves = (block_size + 31u) / 32u;
             shared_array_size = num_waves * lds_dwords_per_wave32;
@@ -733,6 +737,29 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
                 gv->replaceAllUsesWith(new_gv);
                 gv->eraseFromParent();
                 new_gv->setName("luisa_hiprt_hw_stack_max_entries");
+            }
+
+            if (auto *gv = _llvm_module->getGlobalVariable(
+                    "luisa_hiprt_hw_stack_region_count")) {
+                auto *i32_ty = llvm::Type::getInt32Ty(_llvm_context);
+                auto *const_val = llvm::ConstantInt::get(
+                    i32_ty, hw_stack_region_count);
+                auto *new_gv = new llvm::GlobalVariable(
+                    *_llvm_module, i32_ty, true,
+                    llvm::GlobalValue::InternalLinkage,
+                    const_val,
+                    "luisa_hiprt_hw_stack_region_count_tmp",
+                    nullptr,
+                    llvm::GlobalValue::NotThreadLocal,
+                    0u);
+                gv->replaceAllUsesWith(new_gv);
+                gv->eraseFromParent();
+                new_gv->setName(
+                    "luisa_hiprt_hw_stack_region_count");
+            } else if (native_pipeline_stack) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "HIPRT wrapper is missing the native pipeline-stack "
+                    "layout constant.");
             }
 
             // dummy: <2 x i32> (i32, i32, <8 x i32>)  →  real: {i32, i32} (i32, i32, <8 x i32>, i32 immarg)

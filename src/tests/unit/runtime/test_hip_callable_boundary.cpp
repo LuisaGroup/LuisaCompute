@@ -427,22 +427,22 @@ int main(int argc, char *argv[]) {
             if (module.find(
                     "@llvm.amdgcn.ds.bvh.stack.push8.pop1.rtn") !=
                 std::string::npos) {
-                // A 256-thread block contains eight wave32 waves. The exact
-                // nine-entry TLAS+BLAS frontier therefore occupies
-                // 9 * 32 * 2 * 8 = 4608 dwords. Its intrinsic immediate and
-                // LDS allocation must change together.
-                expect(module.find("[4608 x i32]") !=
+                // A 256-thread block contains eight wave32 waves. Native
+                // synchronous traversal uses one 16-entry instance-aware
+                // stack, hence 16 * 32 * 8 = 4096 dwords. Its intrinsic
+                // immediate and LDS allocation must change together.
+                expect(module.find("[4096 x i32]") !=
                        std::string::npos)
-                    << "synchronous gfx12 RayQuery did not use the compact "
-                       "nine-entry LDS frontier";
-                expect(module.find(", i32 9)") !=
+                    << "synchronous gfx12 RayQuery did not use the native "
+                       "single-region LDS frontier";
+                expect(module.find(", i32 16)") !=
                        std::string::npos)
                     << "gfx12 BVH-stack intrinsic did not receive the "
-                       "nine-entry frontier capacity";
-                expect(module.find(", i32 16)") ==
+                       "native 16-entry frontier capacity";
+                expect(module.find("[8192 x i32]") ==
                        std::string::npos)
-                    << "synchronous gfx12 RayQuery regressed to the "
-                       "double-LDS 16-entry frontier";
+                    << "synchronous gfx12 RayQuery retained an unreachable "
+                       "second stack region";
             }
         };
 

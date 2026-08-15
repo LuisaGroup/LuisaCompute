@@ -780,7 +780,10 @@ void test_ray_query_near_surface_resume(Device &device) {
             << luisa::format(
                    "near-surface case {} ({}) missed blocker at distance {}",
                    i, device.backend_name(), separations[i]);
-        expect(actual.y == 0u);
+        expect(actual.y == 0u)
+            << luisa::format(
+                   "near-surface case {} ({}) committed instance {}, expected 0",
+                   i, device.backend_name(), actual.y);
         expect(actual.z == expected_primitive)
             << luisa::format(
                    "near-surface case {} ({}) committed primitive {}, expected {}",
@@ -1291,10 +1294,10 @@ void test_hip_ray_query_short_stack_backtracking(Device &device) {
     }
 
     // GFX12's ds_bvh_stack instruction uses a deliberately bounded LDS stack
-    // in the HIP backend. Highly overlapping leaves would overflow it without
-    // the bounded-stack continuation. That continuation must climb parent
-    // links and pass the completed child as the next skip token: each candidate
-    // is then observed exactly once even though every callback rejects it.
+    // in the HIP backend. The effectful query below must use exact parent-link
+    // traversal and observe every candidate exactly once. A second query must
+    // still find a deliberately late accepted candidate in both a deep BLAS
+    // and a deep TLAS.
     constexpr auto blas_primitive_count = 1024u;
     constexpr auto tlas_instance_count = 256u;
     const std::array base_triangle{
@@ -1351,6 +1354,7 @@ void test_hip_ray_query_short_stack_backtracking(Device &device) {
     auto blas_visits = device.create_buffer<uint>(blas_primitive_count);
     auto tlas_visits = device.create_buffer<uint>(tlas_instance_count);
     auto metadata = device.create_buffer<uint2>(2u);
+    auto late_commit_result = device.create_buffer<uint4>(2u);
     std::vector<uint> blas_zeros(blas_primitive_count, 0u);
     std::vector<uint> tlas_zeros(tlas_instance_count, 0u);
 
@@ -1379,7 +1383,37 @@ void test_hip_ray_query_short_stack_backtracking(Device &device) {
     };
 
     auto shader = device.compile(trace_all);
+    Kernel1D trace_late_commit = [](
+                                     AccelVar accel,
+                                     BufferUInt4 result,
+                                     UInt key_by_instance,
+                                     UInt target,
+                                     UInt output_index) noexcept {
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f),
+                            0.0f, 2.0f);
+        auto committed = accel.traverse(ray, {})
+                             .on_surface_candidate(
+                                 [&](SurfaceCandidate &candidate) noexcept {
+                                     auto hit = candidate.hit();
+                                     auto key = ite(
+                                         key_by_instance != 0u,
+                                         hit->inst, hit->prim);
+                                     $if (key == target) {
+                                         candidate.commit();
+                                     };
+                                 })
+                             .on_procedural_candidate(
+                                 [](ProceduralCandidate &) noexcept {})
+                             .trace();
+        result.write(output_index,
+                     make_uint4(committed->hit_type,
+                                committed->inst,
+                                committed->prim, 0u));
+    };
+    auto late_commit_shader = device.compile(trace_late_commit);
     std::array<uint2, 2u> host_metadata{};
+    std::array<uint4, 2u> host_late_commit_result{};
     std::vector<uint> host_blas_visits(blas_primitive_count);
     std::vector<uint> host_tlas_visits(tlas_instance_count);
     stream << blas_visits.copy_from(luisa::span{blas_zeros})
@@ -1388,7 +1422,15 @@ void test_hip_ray_query_short_stack_backtracking(Device &device) {
                   .dispatch(1u)
            << shader(deep_tlas_accel, tlas_visits, metadata, 1u, 1u)
                   .dispatch(1u)
+           << late_commit_shader(deep_blas_accel, late_commit_result, 0u,
+                                 blas_primitive_count - 1u, 0u)
+                  .dispatch(1u)
+           << late_commit_shader(deep_tlas_accel, late_commit_result, 1u,
+                                 tlas_instance_count - 1u, 1u)
+                  .dispatch(1u)
            << metadata.copy_to(luisa::span{host_metadata})
+           << late_commit_result.copy_to(
+                  luisa::span{host_late_commit_result})
            << blas_visits.copy_to(luisa::span{host_blas_visits})
            << tlas_visits.copy_to(luisa::span{host_tlas_visits})
            << synchronize();
@@ -1398,6 +1440,13 @@ void test_hip_ray_query_short_stack_backtracking(Device &device) {
     expect(host_metadata[0].y == blas_primitive_count);
     expect(host_metadata[1].x == miss);
     expect(host_metadata[1].y == tlas_instance_count);
+    constexpr auto surface = static_cast<uint>(HitType::Surface);
+    expect(host_late_commit_result[0].x == surface);
+    expect(host_late_commit_result[0].y == 0u);
+    expect(host_late_commit_result[0].z == blas_primitive_count - 1u);
+    expect(host_late_commit_result[1].x == surface);
+    expect(host_late_commit_result[1].y == tlas_instance_count - 1u);
+    expect(host_late_commit_result[1].z == 0u);
     for (auto i = 0u; i < blas_primitive_count; i++) {
         expect(host_blas_visits[i] == 1u)
             << luisa::format(

@@ -1615,6 +1615,13 @@ luisa_pipeline_ray_query_terminate(void *state_ptr) {
 
 #if HIPRT_RTIP >= 31 && (defined(__gfx1200__) || defined(__gfx1201__))
 
+// Specialized with the intrinsic capacity by HIPCodegenLLVMImpl. Synchronous
+// pipeline traversal uses GFX12's native instance-stack protocol and needs one
+// region; a kernel that can also execute the legacy flat trace keeps its
+// second region so the two lane-local layouts cannot overlap across waves.
+extern "C" __device__ const uint32_t
+    luisa_hiprt_hw_stack_region_count;
+
 // HIPRT's hardware stack wrapper maps both the normal terminal sentinel and
 // the overflow sentinel to InvalidValue. They are observably different: a
 // terminal result completes the current BVH, whereas overflow requires
@@ -1677,6 +1684,69 @@ public:
 private:
     bool _overflowed{false};
     bool _last_operation_overflowed{false};
+};
+
+// GFX12 defines an instance-aware state machine on top of the same circular
+// LDS stack. Unlike HIPRT's two-region wrapper, the hardware preserves the
+// suspended TLAS frontier in place while traversing a BLAS. The returned
+// address carries HAS_BLAS/TLAS_POP/OVERFLOW state in bits 29..31. Candidate
+// callbacks remain outside this class; advance() only transforms the exact
+// frontier state (address, previous node, eight intersection results).
+class LuisaPipelineHwBvhStack {
+public:
+    static constexpr auto terminal_node = 0xfffffffeu;
+    static constexpr auto skip_children_0_to_7 = 0xfffffff9u;
+    static constexpr auto flag_has_blas = 1u << 29u;
+    static constexpr auto flag_overflow = 1u << 30u;
+    static constexpr auto flag_tlas_pop = 1u << 31u;
+
+    explicit __device__ LuisaPipelineHwBvhStack(uint32_t *lds_base) {
+        asm volatile("" : : "v"(lds_base) : "memory");
+        const auto thread_index =
+            threadIdx.x + threadIdx.y * blockDim.x +
+            threadIdx.z * blockDim.x * blockDim.y;
+        const auto lane_id = thread_index & 31u;
+        const auto wave_id = thread_index >> 5u;
+        const auto dwords_per_wave =
+            hiprt::luisa_hiprt_hw_stack_max_entries * 32u *
+            luisa_hiprt_hw_stack_region_count;
+        const auto base_dwords =
+            wave_id * dwords_per_wave + lane_id;
+        _address = base_dwords << 15u;
+    }
+
+    [[nodiscard]] __device__ uint32_t advance(
+        uint32_t previous_node, const uint32_t children[8]) {
+        hiprt::__luisa_uint8_v child_vector;
+        for (auto i = 0u; i < 8u; i++) {
+            child_vector[i] = children[i];
+        }
+        const auto raw =
+            hiprt::luisa_amdgcn_ds_bvh_stack_push8_pop1_rtn(
+                _address, previous_node, child_vector);
+        _address = raw[1];
+        return raw[0];
+    }
+
+    [[nodiscard]] __device__ uint32_t pop() {
+        const uint32_t children[8] = {
+            hiprt::InvalidValue, hiprt::InvalidValue,
+            hiprt::InvalidValue, hiprt::InvalidValue,
+            hiprt::InvalidValue, hiprt::InvalidValue,
+            hiprt::InvalidValue, hiprt::InvalidValue};
+        return advance(hiprt::InvalidValue, children);
+    }
+
+    [[nodiscard]] __device__ bool tlas_pop_pending() const {
+        return (_address & flag_tlas_pop) != 0u;
+    }
+
+    __device__ void request_tlas_pop() {
+        _address |= flag_tlas_pop;
+    }
+
+private:
+    uint32_t _address;
 };
 
 // HIPRT's public private stack has 64 entries. The overflow path is cold and
@@ -1868,6 +1938,48 @@ luisa_pipeline_process_procedural_candidate(
     return result;
 }
 
+[[nodiscard]] static __device__ bool
+luisa_pipeline_box_contains_instance(
+    const hiprt::BoxNode &box, uint32_t instance_node) {
+    const auto instance_address = hiprt::getNodeAddr(instance_node);
+    for (auto i = 0u; i < box.getChildCount(); i++) {
+        if (box.getChildType(i) != hiprt::InstanceType) { continue; }
+        const auto child_begin = box.getChildAddr(i);
+        const auto child_end = child_begin + box.getChildRange(i);
+        if (child_begin <= instance_address && instance_address < child_end) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] static __device__ uint32_t
+luisa_pipeline_resolve_instance_parent(
+    const hiprt::SceneHeader *scene, uint32_t instance_node,
+    uint32_t cached_parent) {
+    // The hot path remembers the box that produced the current instance. A
+    // short-stack overflow may instead pop a deferred instance from an older
+    // frontier, making that cache stale. HIPRT's HwInstanceNode has no parent
+    // link, so recover the unique parent from the immutable TLAS topology on
+    // this cold path. Test the cache first and compare address ranges rather
+    // than a single address because one compressed child can encode several
+    // consecutive instance references.
+    if (cached_parent != hiprt::InvalidValue &&
+        hiprt::getNodeType(cached_parent) == hiprt::BoxType &&
+        luisa_pipeline_box_contains_instance(
+            scene->m_boxNodes[hiprt::getNodeAddr(cached_parent)],
+            instance_node)) {
+        return cached_parent;
+    }
+    for (auto i = 0u; i < scene->m_boxNodeCount; i++) {
+        if (luisa_pipeline_box_contains_instance(
+                scene->m_boxNodes[i], instance_node)) {
+            return hiprt::encodeNodeIndex(i, hiprt::BoxType);
+        }
+    }
+    return hiprt::InvalidValue;
+}
+
 template<bool terminate_on_first>
 static __device__ void
 luisa_pipeline_ray_query_trace_hw(
@@ -1878,7 +1990,7 @@ luisa_pipeline_ray_query_trace_hw(
         terminate_on_first ?
             hiprtTraversalHintShadowRays :
             hiprtTraversalHintReflectionRays;
-    const uint4 descriptor = luisa_hiprt_pack_descriptor(
+    const auto descriptor = luisa_hiprt_pack_descriptor(
         static_cast<uint32_t>(traversal_hint) & 0x3u);
 
     auto scene_header = reinterpret_cast<SceneHeader *>(state->scene_handle);
@@ -1889,39 +2001,73 @@ luisa_pipeline_ray_query_trace_hw(
     auto instance_id = InvalidValue;
     auto ray = state->ray;
 
-    LuisaHwBvhStack stack{luisa_hiprt_shared_stack_cache};
+    LuisaPipelineHwBvhStack stack{
+        luisa_hiprt_shared_stack_cache};
     auto node_index = RootIndex;
-    auto skip_node = InvalidValue;
-    auto leaf_parent_node = InvalidValue;
-    auto stackless_root = InvalidValue;
+    auto previous_node = InvalidValue;
+    auto primitive_parent_node = InvalidValue;
     auto tlas_instance_node = InvalidValue;
-    auto tlas_leaf_parent_node = InvalidValue;
-    auto tlas_stackless_root = InvalidValue;
+    auto tlas_instance_parent_node = InvalidValue;
+    auto blas_root_node = InvalidValue;
+    auto inside_instance = false;
+    auto second_triangle_iteration = false;
 
     while (!state->terminated) {
-        if (node_index == InvalidValue) {
-            if (stack.last_operation_overflowed()) {
-                __builtin_trap();
-            } else if (stack.insideInstance()) {
-                stack.exitInstance();
-                instance_id = InvalidValue;
-                box_nodes = tlas_box_nodes;
-                primitive_nodes = nullptr;
-                ray = state->ray;
-                stackless_root = tlas_stackless_root;
-                leaf_parent_node = tlas_leaf_parent_node;
-                if (stackless_root != InvalidValue) {
-                    node_index = leaf_parent_node;
-                    skip_node = tlas_instance_node;
-                } else {
-                    node_index = stack.pop();
-                    skip_node = InvalidValue;
-                }
-                continue;
-            } else {
-                break;
-            }
+        if (node_index == LuisaPipelineHwBvhStack::terminal_node) {
+            break;
         }
+
+        // Normal BLAS completion is reported by TLAS_POP with the next TLAS
+        // node already selected. During overflow recovery the active node is
+        // invalid when backtracking reaches the BLAS root; issue the same
+        // transition explicitly before climbing from the instance leaf.
+        if (inside_instance &&
+            (stack.tlas_pop_pending() ||
+             (node_index == InvalidValue &&
+              previous_node == blas_root_node))) {
+            stack.request_tlas_pop();
+            inside_instance = false;
+            instance_id = InvalidValue;
+            box_nodes = tlas_box_nodes;
+            primitive_nodes = nullptr;
+            ray = state->ray;
+            previous_node = tlas_instance_node;
+            primitive_parent_node =
+                tlas_instance_parent_node;
+        }
+
+        auto completed_child = InvalidValue;
+        if (node_index == InvalidValue) {
+            // The native stack returns InvalidValue only on overflow. The
+            // already visited child remains in previous_node; climbing to its
+            // parent and passing that child back to the next stack operation
+            // is the exact stackless continuation used by RADV.
+            completed_child = previous_node;
+            const auto completed_type =
+                getNodeType(completed_child);
+            if (completed_type == BoxType) {
+                const auto parent_address =
+                    box_nodes[getNodeAddr(completed_child)]
+                        .getParentAddr();
+                node_index = parent_address == InvalidValue ?
+                                 InvalidValue :
+                                 encodeNodeIndex(
+                                     parent_address, BoxType);
+            } else if (completed_type == InstanceType) {
+                node_index = luisa_pipeline_resolve_instance_parent(
+                    scene_header, completed_child,
+                    tlas_instance_parent_node);
+            } else {
+                node_index = primitive_parent_node;
+            }
+            if (node_index == InvalidValue) { break; }
+        } else {
+            // A node selected by an ordinary hardware pop is not a stackless
+            // revisit and therefore has no completed child to exclude.
+            previous_node = InvalidValue;
+        }
+        completed_child = previous_node;
+        previous_node = node_index;
         const auto node_type = getNodeType(node_index);
 
         if (node_type == BoxType) {
@@ -1938,55 +2084,20 @@ luisa_pipeline_ray_query_trace_hw(
                 intersections[0], intersections[1], intersections[2],
                 intersections[3], intersections[4], intersections[5],
                 intersections[6], intersections[7]};
-
-            if (stackless_root == InvalidValue &&
-                stack.would_overflow()) {
-                stackless_root = current_box;
-            }
-            if (stackless_root != InvalidValue) {
-                auto next_child = InvalidValue;
-                if (skip_node == InvalidValue) {
-                    next_child = children[0];
-                } else {
-                    auto found_completed_child = false;
-                    for (auto i = 0u; i < 8u; i++) {
-                        const auto child = children[i];
-                        if (found_completed_child &&
-                            child != InvalidValue) {
-                            next_child = child;
-                            break;
-                        }
-                        found_completed_child |= child == skip_node;
-                    }
-                }
-                if (next_child != InvalidValue) {
-                    leaf_parent_node = current_box;
-                    node_index = next_child;
-                    skip_node = InvalidValue;
-                } else if (current_box == stackless_root) {
-                    stackless_root = InvalidValue;
-                    node_index = stack.pop();
-                    skip_node = InvalidValue;
-                } else {
-                    const auto parent_address =
-                        box_nodes[getNodeAddr(current_box)].getParentAddr();
-                    if (parent_address == InvalidValue) {
-                        __builtin_trap();
-                    }
-                    node_index = encodeNodeIndex(parent_address, BoxType);
-                    skip_node = current_box;
-                }
-            } else {
-                node_index = stack.pushChildrenAndPopClosest(
-                    InvalidValue, children);
-                skip_node = InvalidValue;
-            }
+            primitive_parent_node = current_box;
+            node_index = stack.advance(
+                completed_child, children);
             continue;
         }
 
         if (node_type == InstanceType) {
             const auto instance_address = getNodeAddr(node_index);
             const auto &instance = instance_nodes[instance_address];
+            uint32_t instance_children[8] = {
+                InvalidValue, InvalidValue, InvalidValue, InvalidValue,
+                InvalidValue, InvalidValue,
+                LuisaPipelineHwBvhStack::skip_children_0_to_7,
+                LuisaPipelineHwBvhStack::skip_children_0_to_7};
             if ((instance.m_mask & state->mask) != 0u) {
                 hip_float3 transformed_origin, transformed_direction;
                 auto transform_result =
@@ -1998,42 +2109,48 @@ luisa_pipeline_ray_query_trace_hw(
                         {descriptor.x, descriptor.y,
                          descriptor.z, descriptor.w},
                         &transformed_origin, &transformed_direction);
-                if (transform_result[7] != InvalidValue) {
-                    ray.origin = {transformed_origin.x,
-                                  transformed_origin.y,
-                                  transformed_origin.z};
-                    ray.direction = {transformed_direction.x,
-                                     transformed_direction.y,
-                                     transformed_direction.z};
-                    instance_id = instance.m_primIndex;
+                // HIPRT does not build rebraided instance leaves: the
+                // instance result indicates hit/miss, while every geometry
+                // starts at RootIndex. Decoding the result as a rebraided
+                // root would reinterpret hit payload bits as node pointers.
+                const auto instance_intersects =
+                    transform_result[7] != InvalidValue;
+                if (instance_intersects) {
+                    const auto transformed_root = RootIndex;
+                    auto transformed_ray = ray;
+                    transformed_ray.origin = {
+                        transformed_origin.x,
+                        transformed_origin.y,
+                        transformed_origin.z};
+                    transformed_ray.direction = {
+                        transformed_direction.x,
+                        transformed_direction.y,
+                        transformed_direction.z};
                     auto geometry =
                         instance.m_type == hiprtInstanceTypeScene ?
                             luisa_hiprt_resolve_static_motion_geometry(
-                                instance, ray) :
+                                instance, transformed_ray) :
                             instance.m_geometry;
                     if (geometry != nullptr) {
+                        for (auto i = 0u; i < 6u; i++) {
+                            instance_children[i] = transform_result[i];
+                        }
+                        instance_children[7] = transformed_root;
+                        ray = transformed_ray;
+                        instance_id = instance.m_primIndex;
                         box_nodes = geometry->m_boxNodes;
                         primitive_nodes = geometry->m_primNodes;
                         tlas_instance_node = node_index;
-                        tlas_leaf_parent_node = leaf_parent_node;
-                        tlas_stackless_root = stackless_root;
-                        stackless_root = InvalidValue;
-                        leaf_parent_node = InvalidValue;
-                        skip_node = InvalidValue;
-                        stack.enterInstance();
-                        node_index = RootIndex;
-                        continue;
+                        tlas_instance_parent_node =
+                            primitive_parent_node;
+                        blas_root_node = transformed_root;
+                        primitive_parent_node = InvalidValue;
+                        inside_instance = true;
                     }
                 }
             }
-            if (stackless_root != InvalidValue) {
-                const auto completed_instance = node_index;
-                node_index = leaf_parent_node;
-                skip_node = completed_instance;
-            } else {
-                node_index = stack.pop();
-                skip_node = InvalidValue;
-            }
+            node_index = stack.advance(
+                InvalidValue, instance_children);
             continue;
         }
 
@@ -2086,14 +2203,7 @@ luisa_pipeline_ray_query_trace_hw(
                  LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
                 return;
             }
-            if (stackless_root != InvalidValue) {
-                const auto completed_leaf = node_index;
-                node_index = leaf_parent_node;
-                skip_node = completed_leaf;
-            } else {
-                node_index = stack.pop();
-                skip_node = InvalidValue;
-            }
+            node_index = stack.pop();
             continue;
         }
 
@@ -2102,90 +2212,93 @@ luisa_pipeline_ray_query_trace_hw(
                 reinterpret_cast<TrianglePacketNode *>(primitive_nodes);
             auto leaf_address = getNodeAddr(node_index);
             auto triangle_pair_index = typeToTriPairIndex(node_type);
-            while (true) {
-                hip_float3 ignored_origin, ignored_direction;
-                auto intersections =
-                    __builtin_amdgcn_image_bvh8_intersect_ray(
-                        encodeBaseAddr(triangle_nodes), ray.maxT, 0xff,
-                        {ray.origin.x, ray.origin.y, ray.origin.z},
-                        {ray.direction.x, ray.direction.y, ray.direction.z},
-                        encodeNodeIndex(
-                            leaf_address,
-                            triPairIndexToType(triangle_pair_index)),
-                        {descriptor.x, descriptor.y,
-                         descriptor.z, descriptor.w},
-                        &ignored_origin, &ignored_direction);
+            hip_float3 ignored_origin, ignored_direction;
+            auto intersections =
+                __builtin_amdgcn_image_bvh8_intersect_ray(
+                    encodeBaseAddr(triangle_nodes), ray.maxT, 0xff,
+                    {ray.origin.x, ray.origin.y, ray.origin.z},
+                    {ray.direction.x, ray.direction.y, ray.direction.z},
+                    node_index,
+                    {descriptor.x, descriptor.y,
+                     descriptor.z, descriptor.w},
+                    &ignored_origin, &ignored_direction);
 
-                auto t0 = __int_as_float(intersections[0]);
-                auto t1 = __int_as_float(intersections[4]);
-                auto hit0 = ray.minT <= t0 && t0 <= ray.maxT;
-                auto hit1 = ray.minT <= t1 && t1 <= ray.maxT;
-
-                while (hit0 || hit1) {
-                    const auto select_hit0 =
-                        hit0 && (!hit1 || t0 <= t1);
-                    const auto primitive_id =
-                        (select_hit0 ?
-                             intersections[3] :
-                             intersections[7]) >>
-                        1u;
-                    const auto u = __int_as_float(
-                        select_hit0 ? intersections[1] : intersections[5]);
-                    const auto v = __int_as_float(
-                        select_hit0 ? intersections[2] : intersections[6]);
-                    const auto t = select_hit0 ? t0 : t1;
-                    const auto candidate_is_opaque =
-                        luisa_instance_is_opaque(
-                            state->instances, instance_id);
-                    auto candidate_result = candidate_is_opaque ?
-                                                luisa_pipeline_commit_opaque_surface<terminate_on_first>(
-                                                    state, instance_id,
-                                                    primitive_id, u, v, t) :
-                                                luisa_pipeline_process_nonopaque_surface_candidate(
-                                                    state, instance_id,
-                                                    primitive_id, u, v, t);
-                    if ((candidate_result &
-                         LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
-                        ray.maxT = state->ray.maxT;
-                    }
-                    if ((candidate_result &
-                         LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
-                        return;
-                    }
-                    if (candidate_is_opaque) {
-                        // Opaque pair handling matches the resumable flat
-                        // implementation: consume only the closest member.
-                        hit0 = false;
-                        hit1 = false;
-                        break;
-                    }
-                    if (select_hit0) {
-                        hit0 = false;
-                        hit1 = hit1 && t1 <= ray.maxT;
-                    } else {
-                        hit1 = false;
-                        hit0 = hit0 && t0 <= ray.maxT;
-                    }
+            const auto t0 = __int_as_float(intersections[0]);
+            const auto t1 = __int_as_float(intersections[4]);
+            const auto hit0 = ray.minT <= t0 && t0 <= ray.maxT;
+            const auto hit1 = ray.minT <= t1 && t1 <= ray.maxT;
+            const auto select_hit0 =
+                hit0 &&
+                (!hit1 ||
+                 ((t0 <= t1) != second_triangle_iteration));
+            if (hit0 || hit1) {
+                const auto primitive_id =
+                    (select_hit0 ?
+                         intersections[3] :
+                         intersections[7]) >>
+                    1u;
+                const auto u = __int_as_float(
+                    select_hit0 ? intersections[1] : intersections[5]);
+                const auto v = __int_as_float(
+                    select_hit0 ? intersections[2] : intersections[6]);
+                const auto t = select_hit0 ? t0 : t1;
+                const auto candidate_is_opaque =
+                    luisa_instance_is_opaque(
+                        state->instances, instance_id);
+                const auto candidate_result = candidate_is_opaque ?
+                                                  luisa_pipeline_commit_opaque_surface<terminate_on_first>(
+                                                      state, instance_id,
+                                                      primitive_id, u, v, t) :
+                                                  luisa_pipeline_process_nonopaque_surface_candidate(
+                                                      state, instance_id,
+                                                      primitive_id, u, v, t);
+                if ((candidate_result &
+                     LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                    ray.maxT = state->ray.maxT;
                 }
-
-                const auto status = intersections[8] & 3u;
-                if (status == 3u) { break; }
-                triangle_pair_index++;
-                if (status == 1u) {
-                    triangle_pair_index = 0u;
-                    leaf_address++;
+                if ((candidate_result &
+                     LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                    return;
                 }
             }
-        }
 
-        if (stackless_root != InvalidValue) {
-            const auto completed_leaf = node_index;
-            node_index = leaf_parent_node;
-            skip_node = completed_leaf;
-        } else {
-            node_index = stack.pop();
-            skip_node = InvalidValue;
+            // A pair is revisited only while its farther member can still
+            // improve the committed interval. This is the synchronous form
+            // of GPURT's candidate/reintersect protocol: rejection leaves
+            // maxT unchanged, while commitment prunes the farther member.
+            const auto farther_t = t0 < t1 ? t1 : t0;
+            const auto revisit_triangle =
+                !second_triangle_iteration && hit0 && hit1 &&
+                farther_t < ray.maxT;
+            auto next_leaf =
+                LuisaPipelineHwBvhStack::skip_children_0_to_7;
+            if (revisit_triangle) {
+                next_leaf = node_index;
+            } else {
+                const auto status = intersections[8] & 3u;
+                if (status != 3u) {
+                    triangle_pair_index++;
+                    if (status == 1u) {
+                        triangle_pair_index = 0u;
+                        leaf_address++;
+                    }
+                    next_leaf = encodeNodeIndex(
+                        leaf_address,
+                        triPairIndexToType(triangle_pair_index));
+                }
+            }
+            second_triangle_iteration = revisit_triangle;
+            const uint32_t leaf_stack_children[8] = {
+                intersections[0], intersections[1],
+                intersections[2], intersections[3],
+                intersections[4], intersections[5],
+                LuisaPipelineHwBvhStack::skip_children_0_to_7,
+                next_leaf};
+            node_index = stack.advance(
+                InvalidValue, leaf_stack_children);
+            continue;
         }
+        node_index = stack.pop();
     }
 }
 
