@@ -707,14 +707,37 @@ the preceding proof; W4 and W16 do not absorb that tail. No source instruction
 is duplicated: chaining only makes the previous merge, pure bridge, and next
 split one LLVM emission region and performs one final return to the scheduler.
 
+The last local diamond may additionally absorb a terminal merge tail. Its
+first block must be the exclusive target of that diamond's exact convergence,
+and every later block must have one predecessor, remain in the same innermost
+loop, and not be any convergence target. The region contains at most four such
+blocks and 96 instructions and stops before a separately recognizable local
+diamond, nested region, or predicated-memory diamond. Its final terminator is
+emitted by the ordinary complete scheduler lowering.
+
+This tail has a stronger execution identity than speculative if-conversion:
+both arms have already completed, so codegen restores the original outer mask,
+seed lane, and local SSA environment before executing the merge. Every tail
+instruction, memory operation, resource access, call, and effect therefore
+observes the same participant cohort and program order as the source; no
+inactive operand becomes newly evaluated. Inlined blocks have no other static
+predecessor and are removed from the dispatcher, so no instruction is cloned
+or executed twice. Failure of any predecessor/convergence/loop/bound proof
+leaves the merge on the original scheduler path.
+
 Width policy is empirical but semantics are width-independent. W2 retains
 individual diamonds because chaining regressed its paired benchmark. W4/W8/W16
 enable ordinary chaining. Only W8 enables chained nested-tail absorption after
-paired W4/W16 ablations measured small regressions. The complete disabled
+paired W4/W16 ablations measured small regressions. Terminal bridges are
+production-enabled at W8/W16; W4 additionally requires at least 32 terminal
+instructions, and W2 is available only through a diagnostic force override.
+The complete disabled
 oracle is `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS=1`; narrower oracles are
 `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_CHAINING=1`,
 `LUISA_SIMD_DISABLE_NESTED_PREDICATED_REGION=1`, and
-`LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL=1`.
+`LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL=1`. The terminal differential oracle
+is `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_TERMINAL_BRIDGE=1`; the diagnostic-only
+W2 override is `LUISA_SIMD_FORCE_LOCAL_PREDICATED_TERMINAL_BRIDGE=1`.
 
 Permanent codegen coverage executes candidate and every narrower oracle at
 W2/W4/W8/W16 with `W - 1` active lanes. It includes a guarded square-root arm,
@@ -723,7 +746,11 @@ nested tail, and an independently varying natural loop. Every output bit must
 match and every inactive output element must retain its sentinel. Runtime
 counters separately report local diamonds, assignment-only diamonds, blocks,
 instructions, nested regions, chained regions, transitions, blocks, and
-chained nested tails.
+chained nested tails. A separate terminal-bridge regression executes the
+forced W2 and production W4/W8/W16 paths with `W - 1` active lanes, a guarded
+square root, a 41-instruction merge-to-loop-back tail, LLVM verification,
+machine-code scalar-libm rejection, and exact disabled-oracle equality.
+Runtime counters additionally report terminal blocks and instructions.
 
 ### 4.5 Bounded loop-unswitch refinement
 

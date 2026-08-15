@@ -375,12 +375,34 @@ chaining regressed its paired benchmark. W8 alone may absorb one proven nested
 tail after the chain; W4/W16 retain a separate nested region after width-
 specific ablations found that fusion slightly slower.
 
+After the final local diamond, codegen may also retain a bounded terminal
+bridge in the same LLVM emission region. The first block must be the exclusive
+target of the diamond's expected convergence; each later block has one
+predecessor, is not another convergence target, and stays in the same
+innermost loop. At most four blocks and 96 Schedule instructions are absorbed.
+Unlike arm predication, this is not speculation: both arms have already
+arrived, the original outer cohort and seed lane are restored, and every
+terminal instruction executes once under the same mask and in the same order
+as the source. The collector stops before another recognized local region;
+the last block's ordinary terminator returns to the complete scheduler.
+
+This terminal bridge removes the otherwise mandatory merge-to-dispatch round
+trip and lets merge-local values remain LLVM SSA. It clones no block and may
+therefore carry the general emitter's local-memory, resource, call, or control
+operations without extending their execution domain. W2 is diagnostic-only.
+W4 accepts at least 32 terminal instructions, which rejects a stable short-tail
+regression while retaining the real renderer's profitable 81-instruction
+tail. W8/W16 accept bounded short tails as well. The same-binary oracle is
+`LUISA_SIMD_DISABLE_LOCAL_PREDICATED_TERMINAL_BRIDGE=1`; the W2 test-only
+override is `LUISA_SIMD_FORCE_LOCAL_PREDICATED_TERMINAL_BRIDGE=1`.
+
 `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS=1` restores the complete generic
 scheduler path. `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_CHAINING=1`,
 `LUISA_SIMD_DISABLE_NESTED_PREDICATED_REGION=1`, and
 `LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL=1` isolate the narrower stages. The
 optimization report exposes local diamond/assignment/block/instruction,
-nested-region, chained-region/transition/block, and chained-nested-tail counts.
+nested-region, chained-region/transition/block, chained-nested-tail, and
+terminal-block/instruction counts.
 The exact structural and inactive-tail contract is specified in
 [`SIMD_NATIVE_EXECUTION_CONTRACT.md`](SIMD_NATIVE_EXECUTION_CONTRACT.md), and
 paired throughput plus final-object evidence is recorded in

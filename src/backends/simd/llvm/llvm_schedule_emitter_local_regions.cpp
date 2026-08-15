@@ -11,9 +11,20 @@ ScheduleEmitter::_find_chained_predicated_region(
     static constexpr auto max_bridge_block_count = size_t{4u};
     static constexpr auto max_bridge_instruction_count = size_t{12u};
     static constexpr auto max_instruction_count = size_t{128u};
-    if (_width < 4u ||
+    static constexpr auto max_terminal_block_count = size_t{4u};
+    static constexpr auto max_terminal_instruction_count = size_t{96u};
+    auto enable_chaining =
+        _width >= 4u &&
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_CHAINING");
+    auto force_terminal_bridge =
         luisa::compute::detail::env_flag(
-            "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_CHAINING")) {
+            "LUISA_SIMD_FORCE_LOCAL_PREDICATED_TERMINAL_BRIDGE");
+    auto enable_terminal_bridge =
+        (_width >= 4u || force_terminal_bridge) &&
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_TERMINAL_BRIDGE");
+    if (!enable_chaining && !enable_terminal_bridge) {
         return std::nullopt;
     }
     auto first = _find_guarded_predicated_math_diamond(block);
@@ -166,7 +177,8 @@ ScheduleEmitter::_find_chained_predicated_region(
     append_diamond(region.first_diamond);
 
     auto current_convergence = *first_control->convergence;
-    while (region.continuations.size() + 1u < max_diamond_count) {
+    while (enable_chaining &&
+           region.continuations.size() + 1u < max_diamond_count) {
         auto target = region.merge;
         std::vector<const schedule::BasicBlock *> bridge;
         auto bridge_instruction_count = size_t{0u};
@@ -238,7 +250,7 @@ ScheduleEmitter::_find_chained_predicated_region(
         }
         if (!found) { break; }
     }
-    if (_width == 8u &&
+    if (enable_chaining && _width == 8u &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL")) {
         auto target = region.merge;
@@ -268,12 +280,17 @@ ScheduleEmitter::_find_chained_predicated_region(
             bridge.emplace_back(candidate);
             if (auto nested =
                     _find_nested_predicated_region(*candidate)) {
+                auto *outer_control = std::get_if<
+                    schedule::SplitTerminator>(
+                    &candidate->terminator);
                 auto next_instruction_count =
                     region.instruction_count + bridge_instruction_count +
                     nested->instruction_count;
                 if (next_instruction_count > max_instruction_count ||
                     _innermost_loop_containing(candidate->id) !=
-                        innermost_loop) {
+                        innermost_loop ||
+                    outer_control == nullptr ||
+                    !outer_control->convergence) {
                     break;
                 }
                 region.nested_continuation =
@@ -293,6 +310,7 @@ ScheduleEmitter::_find_chained_predicated_region(
                 append_block(continuation.region.other_block);
                 region.merge = continuation.region.merge;
                 region.instruction_count = next_instruction_count;
+                current_convergence = *outer_control->convergence;
                 break;
             }
             auto *branch = std::get_if<schedule::BranchTerminator>(
@@ -305,8 +323,76 @@ ScheduleEmitter::_find_chained_predicated_region(
             target = branch->edge.target;
         }
     }
+    if (enable_terminal_bridge) {
+        // Both predicated arms have arrived at this exclusive convergence, so
+        // the original outer cohort is restored before the merge block. A
+        // bounded single-entry tail can therefore remain in the same LLVM
+        // emission region without speculation or code cloning. Stop before a
+        // separately recognizable local region or another convergence target;
+        // the final terminator returns to the complete scheduler semantics.
+        auto target = region.merge;
+        auto terminal_instruction_count = size_t{0u};
+        for (auto i = size_t{0u}; i < max_terminal_block_count; i++) {
+            auto *candidate = _source.block(target);
+            if (!belongs_to_loop(candidate) || candidate->id == block.id ||
+                predecessor_count(candidate->id) != (i == 0u ? 2u : 1u) ||
+                (i == 0u ?
+                     !convergence_is_exclusive(
+                         candidate->id, current_convergence) :
+                     is_convergence_target(candidate->id))) {
+                break;
+            }
+            if (_find_guarded_predicated_math_diamond(*candidate) ||
+                _find_nested_predicated_region(*candidate) ||
+                _find_predicated_memory_diamond(*candidate)) {
+                break;
+            }
+            auto next_instruction_count = terminal_instruction_count +
+                                          candidate->instructions.size();
+            if (next_instruction_count > max_terminal_instruction_count) {
+                break;
+            }
+            region.terminal_blocks.emplace_back(candidate);
+            append_block(candidate);
+            terminal_instruction_count = next_instruction_count;
+
+            auto *branch = std::get_if<schedule::BranchTerminator>(
+                &candidate->terminator);
+            if (branch == nullptr || branch->edge.loop_back ||
+                !branch->edge.joins.empty() ||
+                branch->edge.target == candidate->id) {
+                break;
+            }
+            auto *next = _source.block(branch->edge.target);
+            if (!belongs_to_loop(next) ||
+                _find_guarded_predicated_math_diamond(*next) ||
+                _find_nested_predicated_region(*next) ||
+                _find_predicated_memory_diamond(*next)) {
+                break;
+            }
+            target = branch->edge.target;
+        }
+        region.terminal_instruction_count = terminal_instruction_count;
+        // Short W4 tails consistently lose to the established scheduler on
+        // the analytic path kernel, while its 81-instruction renderer tail is
+        // profitable. Wider vectors amortize the boundary even for short
+        // tails. Keep W2 diagnostic-only until it demonstrates a stable win.
+        static constexpr auto min_w4_terminal_instruction_count = size_t{32u};
+        auto profitable =
+            force_terminal_bridge || _width >= 8u ||
+            terminal_instruction_count >=
+                min_w4_terminal_instruction_count;
+        if (!profitable) {
+            for (auto *terminal : region.terminal_blocks) {
+                std::erase(region.inlined_blocks, terminal);
+            }
+            region.terminal_blocks.clear();
+            region.terminal_instruction_count = 0u;
+        }
+    }
     return region.continuations.empty() &&
-                   !region.nested_continuation ?
+                   !region.nested_continuation &&
+                   region.terminal_blocks.empty() ?
                std::nullopt :
                std::optional{std::move(region)};
 }
@@ -380,6 +466,27 @@ void ScheduleEmitter::_emit_chained_predicated_region(
             if (_failed()) { return; }
         }
     }
+    for (auto i = size_t{0u}; i < region.terminal_blocks.size(); i++) {
+        auto *block = region.terminal_blocks[i];
+        _active_mask = outer_mask;
+        _seed_lane = outer_seed;
+        for (auto &&instruction : block->instructions) {
+            _emit_instruction(instruction, nullptr, outer_mask);
+            if (_failed()) { return; }
+        }
+        if (i + 1u == region.terminal_blocks.size()) {
+            _emit_terminator(*block);
+        } else {
+            auto *branch = std::get_if<schedule::BranchTerminator>(
+                &block->terminator);
+            if (branch == nullptr) {
+                _fail("local predicated terminal bridge lost its branch terminator");
+                return;
+            }
+            _apply_assignments(branch->edge.assignments, outer_mask);
+        }
+        if (_failed()) { return; }
+    }
     _active_mask = outer_mask;
     _seed_lane = outer_seed;
     _result.chained_predicated_region_count++;
@@ -390,7 +497,13 @@ void ScheduleEmitter::_emit_chained_predicated_region(
         region.inlined_blocks.size();
     _result.chained_predicated_nested_tail_count +=
         region.nested_continuation.has_value();
-    _continue_at(region.merge, outer_mask);
+    _result.chained_predicated_terminal_block_count +=
+        region.terminal_blocks.size();
+    _result.chained_predicated_terminal_instruction_count +=
+        region.terminal_instruction_count;
+    if (region.terminal_blocks.empty()) {
+        _continue_at(region.merge, outer_mask);
+    }
 }
 
 }// namespace luisa::compute::simd::detail

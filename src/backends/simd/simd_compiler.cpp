@@ -192,6 +192,10 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.chained_predicated_block_count;
     result.chained_predicated_nested_tail_count =
         llvm_result.chained_predicated_nested_tail_count;
+    result.chained_predicated_terminal_block_count =
+        llvm_result.chained_predicated_terminal_block_count;
+    result.chained_predicated_terminal_instruction_count =
+        llvm_result.chained_predicated_terminal_instruction_count;
     result.predicated_loop_count =
         llvm_result.predicated_loop_count;
     result.predicated_loop_block_count =

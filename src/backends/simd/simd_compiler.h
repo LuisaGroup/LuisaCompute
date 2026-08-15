@@ -74,6 +74,8 @@ struct SIMDCompiledKernel {
     size_t chained_predicated_transition_count{0u};
     size_t chained_predicated_block_count{0u};
     size_t chained_predicated_nested_tail_count{0u};
+    size_t chained_predicated_terminal_block_count{0u};
+    size_t chained_predicated_terminal_instruction_count{0u};
     size_t predicated_loop_count{0u};
     size_t predicated_loop_block_count{0u};
     size_t predicated_loop_instruction_count{0u};

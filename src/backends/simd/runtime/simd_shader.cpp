@@ -244,6 +244,8 @@ SIMDShader::SIMDShader(
             "chained_predicated_transitions={}, "
             "chained_predicated_blocks={}, "
             "chained_predicated_nested_tails={}, "
+            "chained_predicated_terminal_blocks={}, "
+            "chained_predicated_terminal_instructions={}, "
             "dispatch_workers={}, native_predicated_loop={}, "
             "predicated_loops={}, predicated_loop_blocks={}, "
             "predicated_loop_instructions={}, "
@@ -292,6 +294,8 @@ SIMDShader::SIMDShader(
             _compiled.chained_predicated_transition_count,
             _compiled.chained_predicated_block_count,
             _compiled.chained_predicated_nested_tail_count,
+            _compiled.chained_predicated_terminal_block_count,
+            _compiled.chained_predicated_terminal_instruction_count,
             dispatch_worker_count,
             _compiled.native_predicated_loop,
             _compiled.predicated_loop_count,

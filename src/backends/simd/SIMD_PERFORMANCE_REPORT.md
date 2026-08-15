@@ -76,6 +76,12 @@ and keeps their assignments in one LLVM emission region. W4/W8/W16 may also
 fuse a bounded sequence of adjacent diamonds; W8 may absorb one exact nested
 assignment tail. This avoids repeated convergence/dispatcher round trips and
 Schedule spills without cloning an all-on/mixed loop body.
+The current extension keeps a bounded single-entry tail after the last local
+diamond in that same emission region. Because the diamond has already restored
+its complete incoming cohort, the tail is neither speculated nor cloned. The
+ordinary path tracer now avoids one additional merge-to-dispatch boundary and
+keeps two more cross-block values in SSA; a width/instruction cost gate rejects
+the measured short W4 regression.
 
 ## Test host and method
 
@@ -92,11 +98,14 @@ medians of seven independent processes. Image processing repeats its four-
 dispatch pipeline 32 times, the current voxel sweep repeats 64 renders, and
 the refreshed Spacex sweep renders eight frames after its upload/update
 synchronization.
-Cutout path tracing uses 64 spp and ordinary path tracing uses 128 spp; both
-force one spp per dispatch on both backends to remove a batching asymmetry.
-Ordinary path tracing uses seven adjacent fallback/SIMD pairs per width with
-reversed order on alternating pairs; the current cutout sweep also uses seven
-pairs per width.
+Cutout path tracing uses 64 spp and forces one spp per dispatch. Historical
+ordinary-path optimization ablations use 64 or 128 spp with that same fixed
+batching. The current fallback-relative ordinary row instead uses one fully
+synchronized 32-spp dispatch in seven rotated rounds; final FPS is read only
+after stream synchronization, so fallback's asynchronous submission is not
+mistaken for execution time. It confines both backends to 30 logical CPUs
+`0-12,14-28,30-31`; SIMD uses 30 workers and fallback's default pool remains
+inside that same affinity. The current cutout sweep uses seven pairs per width.
 The focused triangle-only-provider result uses twelve W8 pairs, while the
 other widths use four to six pairs. The refreshed ordinary and voxel processes
 keep stable per-backend hashes and use separate gallery conformance runs. The
@@ -104,14 +113,14 @@ refreshed 64-spp cutout processes are performance-only; a separate 1024-spp
 run supplies its gallery conformance gate. SDF uses its internal four-SPP
 throughput metric;
 high-SPP SDF image comparison remains a separate conformance gate.
-SDF/GEMM cells retain the earlier seven-process sweep. Image processing,
-Voxel, and ordinary path tracing are refreshed after the bounded predicated-
-loop stage with seven balanced-order fallback/W1/W2/W4/W8/W16 rounds. Each
-image process repeats its four-dispatch pipeline 32 times, each Voxel process
-uses 64 render iterations, and each path process uses 128 one-spp dispatches.
-Every variant uses 32 workers on logical CPUs 0--31. Spacex retains its prior
-seven-round, eight-frame sweep because none of its kernels reaches the new
-loop candidate.
+SDF/GEMM cells retain the earlier seven-process sweep. Image processing and
+Voxel retain the bounded-predicated-loop seven-round sweep. Ordinary path
+tracing is refreshed after terminal-bridge absorption with seven balanced-
+order fallback/W1/W2/W4/W8/W16 rounds under the synchronized method above.
+Each image process repeats its four-dispatch pipeline 32 times and each Voxel
+process uses 64 render iterations. Those older cells use 32 workers on logical
+CPUs 0--31. Spacex retains its prior seven-round, eight-frame sweep because
+none of its kernels reaches the new loop candidate.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -124,7 +133,7 @@ Speedup is always `fallback time / SIMD time`, or
 | image pipeline, ms/iteration | 10.908 | 18.328 (0.592x) | 9.799 (1.110x) | 6.906 (1.567x) | 5.311 (2.039x) | 4.504 (2.400x) |
 | voxel render, ms/iteration | 8.874 | 9.165 (0.951x) | 14.786 (0.588x) | 8.246 (1.050x) | 5.114 (1.692x) | 3.486 (2.482x) |
 | Spacex, ms/frame | 162.421 | 125.778 (1.289x) | 64.295 (2.517x) | 34.030 (4.783x) | 18.655 (8.668x) | 11.684 (13.738x) |
-| ordinary path tracing, fixed 1 spp/dispatch, spp/s | 66.550 | 59.591 (0.894x) | 50.560 (0.761x) | 65.354 (0.975x) | 75.699 (1.133x) | 78.775 (1.177x) |
+| ordinary path tracing, synchronized 32-spp dispatch, FPS | 83.868 | 79.252 (0.955x) | 62.834 (0.748x) | 81.722 (0.982x) | 93.845 (1.126x) | 93.961 (1.132x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 72.030 | 49.567 (0.692x) | 32.925 (0.465x) | 40.872 (0.575x) | 45.488 (0.642x) | 45.757 (0.642x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
@@ -2120,12 +2129,13 @@ identical.
 
 1. Generalize the accepted innermost-loop local regions through bounded branch
    splitting and pure code motion: hoist or sink total single-use operations to
-   expose a safe arithmetic or read subregion, then use a register-pressure-
-   aware cost model to choose straight-line masks or `any(mask)` empty-arm
-   skips. The current one-sided pure recognizer now gives a stable 2--3% gain
-   in ordinary path tracing but still has zero hits in Voxel and image
-   processing. The next gate is a new nonzero site, exact inactive-tail/oracle
-   equality, and a stable real-example gain beyond that existing site.
+   expose a safe two-sided arithmetic/read subregion, and fold compatible
+   `select(f(a), f(b), c)` shapes to `f(select(a, b, c))` only after proving
+   domain and floating-point equivalence. Local terminal-tail absorption now
+   removes one additional real path-tracing boundary, but Voxel and image
+   processing still have zero local hits. The next gate is a new nonzero site,
+   exact inactive-tail/oracle equality, a register-pressure-aware cost model,
+   and a stable real-example gain beyond the existing path site.
 2. Extend the completed within-read W8 leaf pairing to compatible nearby
    gathers only when they share base, dynamic offset, scale, and mask. Cap the
    scan window to control register pressure and stop at any possible write.
@@ -2528,37 +2538,99 @@ so the pre-synchronize per-dispatch timer is not a valid fallback measurement.
 
 | backend/width | median FPS | mean FPS | throughput / fallback | 95% paired CI |
 | --- | ---: | ---: | ---: | ---: |
-| fallback | 83.540 | 83.436 | 1.0000x | -- |
-| SIMD W1 | 80.772 | 80.548 | 0.9654x | [0.9428, 0.9885] |
-| SIMD W2 | 62.841 | 62.818 | 0.7529x | [0.7385, 0.7676] |
-| SIMD W4 | 80.086 | 80.236 | 0.9617x | [0.9498, 0.9738] |
-| SIMD W8 | 92.021 | 92.283 | 1.1061x | [1.0765, 1.1365] |
-| SIMD W16 | 93.154 | 93.635 | 1.1223x | [1.0973, 1.1478] |
+| fallback | 83.868 | 83.317 | 1.0000x | -- |
+| SIMD W1 | 79.252 | 79.542 | 0.9547x | [0.9421, 0.9674] |
+| SIMD W2 | 62.834 | 62.352 | 0.7480x | [0.7187, 0.7786] |
+| SIMD W4 | 81.722 | 81.846 | 0.9824x | [0.9706, 0.9943] |
+| SIMD W8 | 93.845 | 93.815 | 1.1261x | [1.1132, 1.1390] |
+| SIMD W16 | 93.961 | 94.348 | 1.1324x | [1.1158, 1.1493] |
 
 W1 is a separate JIT/runtime pipeline, not fallback with width set to one;
 fallback's scalar task loop may also be horizontally vectorized by LLVM. W2
 does not amortize scheduler and packet-call overhead for this workload. W8 and
-W16 combine the local scheduler reduction with native Embree packets and are
-currently 10.6% and 12.2% faster than fallback under this synchronized batch
-method.
+W16 combine the local scheduler reductions with native Embree packets and are
+currently 12.6% and 13.2% faster than fallback under this synchronized batch
+method. W4 is now within about 1.8% of fallback but its interval remains below
+parity.
 
 Finally, twelve balanced single-worker rounds compared the same analytic path
 algorithm with official ISPC 1.31.0 controls:
 
 | Luisa/ISPC pair | Luisa Mitems/s | ISPC Mitems/s | Luisa/ISPC | 95% paired CI |
 | --- | ---: | ---: | ---: | ---: |
-| W4 / AVX2 x4 | 100.484 | 123.389 | 0.8144x | [0.8094, 0.8194] |
-| W4 / AVX-512 x4 | 100.484 | 134.155 | 0.7490x | [0.7450, 0.7531] |
-| W8 / AVX2 x8 | 192.486 | 233.264 | 0.8252x | [0.8237, 0.8267] |
-| W8 / AVX-512 x8 | 192.486 | 219.341 | 0.8776x | [0.8756, 0.8795] |
-| W16 / AVX-512 x16 | 330.124 | 345.549 | 0.9554x | [0.9512, 0.9595] |
+| W4 / AVX2 x4 | 100.649 | 123.199 | 0.8185x | [0.8165, 0.8204] |
+| W4 / AVX-512 x4 | 100.694 | 134.058 | 0.7523x | [0.7500, 0.7547] |
+| W8 / AVX2 x8 | 192.367 | 233.409 | 0.8245x | [0.8231, 0.8260] |
+| W8 / AVX-512 x8 | 192.289 | 216.439 | 0.8885x | [0.8872, 0.8898] |
+| W16 / AVX-512 x16 | 339.596 | 340.800 | 0.9939x | [0.9891, 0.9986] |
 
-W16 is now about 4.7% behind the matched ISPC x16 control; W8 remains about
-12.2% behind AVX-512 x8 and 17.5% behind AVX2 x8. The residual gap is therefore
+W16 is now about 0.6% behind the matched ISPC x16 control; W8 remains about
+11.2% behind AVX-512 x8 and 17.6% behind AVX2 x8. The residual gap is therefore
 no longer an order-of-magnitude independent-PC penalty. The next profitable
 control work should generalize local regions through bounded branch splitting
 and pure code motion, with a register-pressure-aware cost model, instead of
 copying ISPC's whole-loop all-on/mixed versioning.
+
+### Local-region terminal bridge
+
+The follow-up extends the accepted local region past its final exclusive
+merge. Once both arms have executed, the original cohort is restored; up to
+four single-entry innermost-loop blocks and 96 instructions can therefore stay
+in the same LLVM emission region without speculation or cloning. The last
+ordinary terminator returns to the complete scheduler. This removes one
+merge-to-dispatch boundary and lets values defined in the tail remain SSA
+until the next real suspension point. The same-binary oracle is
+`LUISA_SIMD_DISABLE_LOCAL_PREDICATED_TERMINAL_BRIDGE=1`.
+
+The first broad width ablation demonstrated why this needs an instruction-
+and width-aware gate. Ten alternating analytic path-trace pairs measured W2
+at 1.0012x [0.9969, 1.0055], W4 at 0.9440x [0.9422, 0.9459], W8 at 1.0073x
+[1.0046, 1.0101], and W16 at 1.0404x [1.0259, 1.0552]. Production therefore
+leaves W2 disabled and requires at least 32 terminal instructions at W4;
+W8/W16 retain bounded short tails. After that gate, W2 and W4 analytic objects
+report zero terminal blocks, while eight fresh pairs measure W8 at 1.0030x
+[1.0004, 1.0057] and W16 at 1.0419x [1.0237, 1.0605]. Every checksum remains
+`a93089e651f98582`.
+
+The real ordinary path tracer supplies the complementary large-tail case. Its
+one accepted local hit-update diamond converges into an 81-instruction bounce-
+loop block. Candidate and oracle used 64 spp, one spp per dispatch, fifteen
+workers pinned to physical CPUs `0-12,14-15`, alternating process order, and
+identical output:
+
+| width | terminal candidate/oracle | 95% paired CI | wins |
+| ---: | ---: | ---: | ---: |
+| W4 | 1.0282x | [1.0169, 1.0397] | 10/10 |
+| W8 | 1.0184x | [1.0120, 1.0249] | 9/10 |
+| W16 | 1.0096x | [1.0016, 1.0177] | 17/25 |
+
+The W4 result validates the 32-instruction exception rather than a blanket
+width policy. W16 required 25 pairs because unrelated work made its shorter
+initial interval noisy. W2 remained diagnostic-only after six real pairs were
+inconclusive at 1.0081x [0.9806, 1.0363].
+
+Final machine code shows that the transform removes state rather than merely
+moving labels:
+
+| ordinary path main entry | W4 candidate/oracle | W8 candidate/oracle | W16 candidate/oracle |
+| --- | ---: | ---: | ---: |
+| state slots | 32 / 34 | 32 / 34 | 32 / 34 |
+| instruction spills | 18 / 20 | 18 / 20 | 18 / 20 |
+| static instructions | 3,179 / 3,347 | 3,276 / 3,424 | 3,971 / 4,189 |
+| vector instructions | 2,091 / 2,203 | 2,135 / 2,241 | 2,520 / 2,683 |
+| branches | 210 / 221 | 251 / 255 | 288 / 299 |
+| stack references | 773 / 838 | 834 / 894 | 980 / 1,059 |
+| stack frame | 3,192 / 3,256 B | 6,464 / 6,592 B | 10,368 / 10,624 B |
+| calls | 5 / 5 | 5 / 5 | 5 / 5 |
+| scalar-math calls | 0 / 0 | 0 / 0 | 0 / 0 |
+
+Three-repeat W8 `perf stat` over 128 spp records 170.359 B versus 172.722 B
+cycles (-1.37%), 454.422 B versus 459.871 B instructions (-1.18%), and 35.581
+B versus 35.994 B branches (-1.15%). Cache misses fall 1.30%; branch misses
+are neutral at 1.0005x of the oracle. This directly attributes the end-to-end
+gain to reduced scheduler/spill work. Voxel, all image-processing kernels,
+cutout path tracing, SDF, and the other audited graphics examples report zero
+terminal bridges, so their generated paths are unchanged.
 
 ### Rejected cross-query early gather
 
@@ -2870,3 +2942,18 @@ and exact bit equality including inactive sentinels. A fresh ordinary W8
 optimization report records exactly one local 19-instruction diamond, with no
 nested or chained region in that shader. Output remained in `/tmp`; the
 checked-in reference was not modified.
+
+The local terminal-bridge extension completed another fresh full Release
+build, the required native-math/fallback-math/runtime-width/Schedule-codegen
+gate (4/4), and the complete configured SIMD+fallback/XIR/runtime/graphics
+suite (140/140). Clang-format 22.1.8, diff checks, the syntax-check runner's
+Python suite (13/13), and clangd checks pass for all four changed translation
+units and their included headers. Its permanent differential JIT regression
+covers forced W2 and production W4/W8/W16, `W - 1` active lanes, inactive NaN
+sentinels, a guarded square root, a 41-instruction merge-to-loop-back tail,
+LLVM verification, scalar-libm-symbol rejection, and exact disabled-oracle
+equality. A fresh ordinary W8 1024-spp path trace accepts the checked-in gallery
+reference at 39.219375 dB and reports native Embree 4.4.1 W4/W8/W16 packet
+support. The optimization report records one 19-instruction local diamond and
+one 81-instruction terminal block, reducing state slots/spills from 34/20 to
+32/18. Output remained in `/tmp`; the checked-in reference was not modified.

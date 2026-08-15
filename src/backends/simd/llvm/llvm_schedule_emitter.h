@@ -172,9 +172,11 @@ private:
         GuardedPredicatedMathDiamond first_diamond{};
         std::vector<Continuation> continuations{};
         std::optional<NestedContinuation> nested_continuation{};
+        std::vector<const schedule::BasicBlock *> terminal_blocks{};
         std::vector<const schedule::BasicBlock *> inlined_blocks{};
         schedule::BlockId merge{};
         size_t instruction_count{0u};
+        size_t terminal_instruction_count{0u};
     };
 
     struct PredicatedLoop {
