@@ -1321,6 +1321,7 @@ luisa_pipeline_ray_query_next_hit(
     return traversal->getNextHit();
 }
 #else
+template<bool terminate_on_first>
 static __device__ void
 luisa_pipeline_ray_query_trace_hw(
     LuisaPipelineRayQueryState *state);
@@ -1365,8 +1366,9 @@ luisa_pipeline_ray_query_initialize(
     state->terminated = false;
 }
 
-extern "C" __device__ __attribute__((used, noinline)) void
-luisa_pipeline_ray_query_trace(
+template<bool terminate_on_first>
+static __device__ __forceinline__ void
+luisa_pipeline_ray_query_trace_impl(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
     auto state = reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr);
@@ -1377,7 +1379,7 @@ luisa_pipeline_ray_query_trace(
     static_cast<void>(stack_size);
     static_cast<void>(stack_count);
     static_cast<void>(stack_data);
-    luisa_pipeline_ray_query_trace_hw(state);
+    luisa_pipeline_ray_query_trace_hw<terminate_on_first>(state);
 #else
     hiprtGlobalStackBuffer global_stack_buffer{
         stack_size, stack_count, stack_data};
@@ -1390,7 +1392,7 @@ luisa_pipeline_ray_query_trace(
     LuisaPipelineRayQueryTraversal traversal{
         scene, state->ray, stack, instance_stack,
         static_cast<hiprtRayMask>(state->mask),
-        (state->flags & 1u) != 0u ?
+        terminate_on_first ?
             hiprtTraversalHintShadowRays :
             hiprtTraversalHintReflectionRays,
         state, nullptr,
@@ -1437,6 +1439,24 @@ luisa_pipeline_ray_query_trace(
     state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
     state->candidate_kind = LUISA_PIPELINE_RQ_STATE_TERMINATED;
     state->terminated = true;
+}
+
+extern "C" __device__ __attribute__((used, noinline)) void
+luisa_pipeline_ray_query_trace_all(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_impl<false>(
+        state_ptr, callback_context, pipeline_id,
+        stack_size, stack_count, stack_data);
+}
+
+extern "C" __device__ __attribute__((used, noinline)) void
+luisa_pipeline_ray_query_trace_any(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_impl<true>(
+        state_ptr, callback_context, pipeline_id,
+        stack_size, stack_count, stack_data);
 }
 
 #define LUISA_PIPELINE_RQ_STATE(state_ptr) \
@@ -1783,6 +1803,7 @@ enum : uint32_t {
 //   committed := h
 //
 // because the callback is skipped by RayQuery semantics on opaque instances.
+template<bool terminate_on_first>
 static __device__ __forceinline__ uint32_t
 luisa_pipeline_commit_opaque_surface(
     LuisaPipelineRayQueryState *state,
@@ -1794,7 +1815,7 @@ luisa_pipeline_commit_opaque_surface(
     state->ray.maxT = t;
     auto result = static_cast<uint32_t>(
         LUISA_PIPELINE_CANDIDATE_COMMITTED);
-    if ((state->flags & 1u) != 0u) {
+    if constexpr (terminate_on_first) {
         state->terminated = true;
         result |= LUISA_PIPELINE_CANDIDATE_TERMINATED;
     }
@@ -1847,13 +1868,14 @@ luisa_pipeline_process_procedural_candidate(
     return result;
 }
 
+template<bool terminate_on_first>
 static __device__ void
 luisa_pipeline_ray_query_trace_hw(
     LuisaPipelineRayQueryState *state) {
     using namespace hiprt;
 
     const auto traversal_hint =
-        (state->flags & 1u) != 0u ?
+        terminate_on_first ?
             hiprtTraversalHintShadowRays :
             hiprtTraversalHintReflectionRays;
     const uint4 descriptor = luisa_hiprt_pack_descriptor(
@@ -2040,7 +2062,7 @@ luisa_pipeline_ray_query_trace_hw(
                     surface_hit.t <= ray.maxT) {
                     candidate_result = luisa_instance_is_opaque(
                                            state->instances, instance_id) ?
-                                           luisa_pipeline_commit_opaque_surface(
+                                           luisa_pipeline_commit_opaque_surface<terminate_on_first>(
                                                state, instance_id, primitive_id,
                                                surface_hit.uv.x, surface_hit.uv.y,
                                                surface_hit.t) :
@@ -2116,7 +2138,7 @@ luisa_pipeline_ray_query_trace_hw(
                         luisa_instance_is_opaque(
                             state->instances, instance_id);
                     auto candidate_result = candidate_is_opaque ?
-                                                luisa_pipeline_commit_opaque_surface(
+                                                luisa_pipeline_commit_opaque_surface<terminate_on_first>(
                                                     state, instance_id,
                                                     primitive_id, u, v, t) :
                                                 luisa_pipeline_process_nonopaque_surface_candidate(

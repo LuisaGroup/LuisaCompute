@@ -712,12 +712,16 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             {b.getPtrTy(0), b.getPtrTy(0), b.getInt32Ty(),
              b.getInt32Ty(), b.getInt32Ty(), b.getPtrTy(0)},
             false);
+        auto llvm_trace_name =
+            query_object->type() == Type::of<RayQueryAny>() ?
+                "luisa_pipeline_ray_query_trace_any" :
+                "luisa_pipeline_ray_query_trace_all";
         auto llvm_trace = _llvm_module->getFunction(
-            "luisa_pipeline_ray_query_trace");
+            llvm_trace_name);
         if (llvm_trace == nullptr) {
             llvm_trace = llvm::Function::Create(
                 llvm_trace_type, llvm::Function::ExternalLinkage,
-                "luisa_pipeline_ray_query_trace", _llvm_module.get());
+                llvm_trace_name, _llvm_module.get());
         } else {
             LUISA_ASSERT(llvm_trace->getFunctionType() == llvm_trace_type,
                          "HIP synchronous ray-query trace ABI mismatch.");

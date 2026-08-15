@@ -248,13 +248,19 @@ void compile_minimal_ray_query(Device &device) noexcept {
         auto ray = make_ray(
             make_float3(0.0f, 0.0f, -1.0f),
             make_float3(0.0f, 0.0f, 1.0f));
-        auto hit = accel.traverse(ray, {})
-                       .on_surface_candidate(
-                           [](auto &candidate) noexcept {
-                               candidate.commit();
-                           })
-                       .trace();
-        output.write(dispatch_x(), hit->prim);
+        auto all_hit = accel.traverse(ray, {})
+                           .on_surface_candidate(
+                               [](auto &candidate) noexcept {
+                                   candidate.commit();
+                               })
+                           .trace();
+        auto any_hit = accel.traverse_any(ray, {})
+                           .on_surface_candidate(
+                               [](auto &candidate) noexcept {
+                                   candidate.commit();
+                               })
+                           .trace();
+        output.write(dispatch_x(), all_hit->prim ^ any_hit->prim);
     };
     static_cast<void>(device.compile(
         kernel, ShaderOption{.enable_cache = false}));
@@ -387,6 +393,21 @@ int main(int argc, char *argv[]) {
                 module, "@luisa_ray_query_pipeline_dispatch");
             expect(!root.empty() && !dispatcher.empty())
                 << "failed to locate the generated RayQuery functions";
+            expect(module.find(
+                       "@luisa_pipeline_ray_query_trace_all(") !=
+                   std::string_view::npos)
+                << "RayQueryAll did not select its compile-time-specialized "
+                   "native traversal";
+            expect(module.find(
+                       "@luisa_pipeline_ray_query_trace_any(") !=
+                   std::string_view::npos)
+                << "RayQueryAny did not select its compile-time-specialized "
+                   "native traversal";
+            expect(module.find(
+                       "@luisa_pipeline_ray_query_trace(") ==
+                   std::string_view::npos)
+                << "synchronous RayQuery regressed to a runtime-kind "
+                   "traversal entry point";
             expect(root.find(
                        "alloca { i64, i64, i64, i64, i64 }") ==
                    std::string_view::npos)

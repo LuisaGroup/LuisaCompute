@@ -980,7 +980,8 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
                 auto is_inline_wrapper =
                     is_pipeline_wrapper ?
                         name != "luisa_pipeline_ray_query_initialize" &&
-                            name != "luisa_pipeline_ray_query_trace" :
+                            !name.starts_with(
+                                "luisa_pipeline_ray_query_trace_") :
                         _uses_hardware_rt_stack &&
                             (name == "luisa_ray_query_state" ||
                              name == "luisa_ray_query_advance" ||
