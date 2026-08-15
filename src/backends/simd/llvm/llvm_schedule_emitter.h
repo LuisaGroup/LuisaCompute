@@ -147,6 +147,7 @@ private:
         std::vector<const schedule::BasicBlock *> true_blocks{};
         std::vector<const schedule::BasicBlock *> false_blocks{};
         schedule::BlockId merge{};
+        bool two_sided{false};
         size_t instruction_count{0u};
     };
 

@@ -912,6 +912,164 @@ make_local_predicated_terminal_bridge_loop(uint32_t width) {
 }
 
 [[nodiscard]] std::optional<schedule::Function>
+make_two_sided_local_predicated_loop(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("two_sided_local_predicated_loop");
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *body = kernel->create_basic_block();
+    auto *true_arm = kernel->create_basic_block();
+    auto *false_arm = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    entry->set_name("two_sided_entry");
+    header->set_name("two_sided_header");
+    body->set_name("two_sided_body");
+    true_arm->set_name("two_sided_true");
+    false_arm->set_name("two_sided_false");
+    merge->set_name("two_sided_merge");
+    exit->set_name("two_sided_exit");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero_u32 = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one_u32 = module.create_constant_one(Type::of<uint32_t>());
+    uint32_t two_u32_value = 2u;
+    auto *two_u32 = module.create_constant(
+        Type::of<uint32_t>(), &two_u32_value);
+    float zero_f32_value = 0.0f;
+    float half_f32_value = 0.5f;
+    float one_f32_value = 1.0f;
+    float nan_f32_value = std::bit_cast<float>(0x7fc01234u);
+    auto *zero_f32 = module.create_constant(
+        Type::of<float>(), &zero_f32_value);
+    auto *half_f32 = module.create_constant(
+        Type::of<float>(), &half_f32_value);
+    auto *one_f32 = module.create_constant(
+        Type::of<float>(), &one_f32_value);
+    auto *nan_f32 = module.create_constant(
+        Type::of<float>(), &nan_f32_value);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *lane_f32 = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST, lane);
+    auto *initial = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane_f32, one_f32});
+    builder.br(header);
+
+    builder.set_insertion_point(header);
+    auto *index = builder.phi(Type::of<uint32_t>());
+    auto *value = builder.phi(Type::of<float>());
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one_u32});
+    auto *bound = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {parity, two_u32});
+    auto *loop_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {index, bound});
+    builder.cond_br(loop_condition, body, exit);
+
+    builder.set_insertion_point(body);
+    auto *selector = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane, index});
+    auto *selector_bit = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {selector, one_u32});
+    auto *take_true = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL,
+        {selector_bit, zero_u32});
+    auto *true_cast_source = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::SELECT,
+        {nan_f32, value, take_true});
+    builder.cond_br(take_true, true_arm, false_arm);
+
+    builder.set_insertion_point(true_arm);
+    auto *integer_value = builder.cast_(
+        Type::of<uint32_t>(), xir::CastOp::STATIC_CAST,
+        true_cast_source);
+    auto *rounded_value = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST,
+        integer_value);
+    auto *true_offset = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {rounded_value, one_f32});
+    auto *true_value = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {true_offset, half_f32});
+    builder.br(merge);
+
+    builder.set_insertion_point(false_arm);
+    auto *negative = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::UNARY_MINUS,
+        {value});
+    auto *square = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {negative, negative});
+    auto *false_offset = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {square, one_f32});
+    auto *false_value = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MUL,
+        {false_offset, half_f32});
+    builder.br(merge);
+
+    builder.set_insertion_point(merge);
+    auto *selected_value = builder.phi(
+        Type::of<float>(),
+        {{true_value, true_arm}, {false_value, false_arm}});
+    auto *next_value = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {selected_value, half_f32});
+    auto *next_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {index, one_u32});
+    builder.br(header);
+
+    builder.set_insertion_point(exit);
+    auto *positive = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_GREATER,
+        {value, zero_f32});
+    auto *result = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::SELECT,
+        {one_f32, value, positive});
+    result->set_name("two_sided_return");
+    builder.return_void();
+    index->add_incoming(zero_u32, entry);
+    index->add_incoming(next_index, merge);
+    value->add_incoming(initial, entry);
+    value->add_incoming(next_value, merge);
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> result_id;
+    for (auto &&schedule_value : lowered.function->values()) {
+        if (schedule_value.name == "two_sided_return") {
+            result_id = schedule_value.id;
+        }
+    }
+    if (!result_id) { return std::nullopt; }
+    for (auto &schedule_block : lowered.function->blocks()) {
+        if (schedule_block.name == "two_sided_exit") {
+            schedule_block.terminator =
+                schedule::ReturnTerminator{result_id};
+        }
+    }
+    if (!schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
 make_nested_local_predicated_loop(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -2520,6 +2678,98 @@ template<size_t Width>
         for (auto lane = size_t{0u}; lane < candidate_output.size(); lane++) {
             CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
                   std::bit_cast<uint32_t>(oracle_output[lane]));
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_two_sided_local_predicated_codegen() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        auto schedule_function =
+            make_two_sided_local_predicated_loop(width);
+        CHECK(schedule_function.has_value());
+        auto run_variant = [&](bool disable,
+                               std::array<float, 16u> &output,
+                               LLVMScheduleCodegenResult &result) {
+            auto context = std::make_unique<::llvm::LLVMContext>();
+            auto module = std::make_unique<::llvm::Module>(
+                disable ? "simd-two-sided-local-oracle" :
+                          "simd-two-sided-local",
+                *context);
+            auto name = std::string{
+                            disable ?
+                                "schedule_two_sided_local_oracle_w" :
+                                "schedule_two_sided_local_w"} +
+                        std::to_string(width);
+            {
+                ScopedEnvironmentVariable force{
+                    "LUISA_SIMD_FORCE_TWO_SIDED_LOCAL_PREDICATION",
+                    width == 16u ? "1" : nullptr};
+                ScopedEnvironmentVariable policy{
+                    "LUISA_SIMD_DISABLE_TWO_SIDED_LOCAL_PREDICATION",
+                    disable ? "1" : nullptr};
+                result = lower_schedule_to_llvm(
+                    *module, *schedule_function, width, name);
+            }
+            if (!result.succeeded() ||
+                ::llvm::verifyModule(*module, &::llvm::errs())) {
+                return false;
+            }
+            LLVMJIT jit;
+            if (!jit.succeeded() ||
+                !jit.add_module(std::move(module), std::move(context))) {
+                return false;
+            }
+            using Entry = void(
+                const void *, float *,
+                const SIMDPacketLaunchConfig *, uint32_t);
+            auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
+            if (entry == nullptr) { return false; }
+            output.fill(std::bit_cast<float>(0x7fc01234u));
+            auto active_lanes = width - 1u;
+            auto config = launch_1d(active_lanes, 16u);
+            entry(nullptr, output.data(), &config, active_lanes);
+            return true;
+        };
+
+        std::array<float, 16u> candidate_output{};
+        std::array<float, 16u> oracle_output{};
+        LLVMScheduleCodegenResult candidate;
+        LLVMScheduleCodegenResult oracle;
+        CHECK(run_variant(false, candidate_output, candidate));
+        CHECK(run_variant(true, oracle_output, oracle));
+        CHECK(candidate.local_predicated_diamond_count == 1u);
+        CHECK(candidate.local_predicated_two_sided_diamond_count == 1u);
+        CHECK(candidate.local_predicated_assignment_diamond_count == 0u);
+        CHECK(candidate.local_predicated_block_count == 2u);
+        CHECK(candidate.local_predicated_instruction_count == 8u);
+        CHECK(candidate.chained_predicated_region_count ==
+              (width >= 8u ? 1u : 0u));
+        CHECK(candidate.chained_predicated_terminal_block_count ==
+              (width >= 8u ? 1u : 0u));
+        CHECK(candidate.chained_predicated_terminal_instruction_count ==
+              (width >= 8u ? 2u : 0u));
+        CHECK(oracle.local_predicated_diamond_count == 0u);
+        CHECK(oracle.local_predicated_two_sided_diamond_count == 0u);
+        CHECK(oracle.chained_predicated_region_count == 0u);
+        auto active_lanes = static_cast<size_t>(width - 1u);
+        for (auto lane = size_t{0u}; lane < candidate_output.size(); lane++) {
+            if (std::bit_cast<uint32_t>(candidate_output[lane]) !=
+                std::bit_cast<uint32_t>(oracle_output[lane])) {
+                std::cerr << "two-sided local mismatch: width=" << width
+                          << ", lane=" << lane
+                          << ", candidate=0x" << std::hex
+                          << std::bit_cast<uint32_t>(candidate_output[lane])
+                          << ", oracle=0x"
+                          << std::bit_cast<uint32_t>(oracle_output[lane])
+                          << std::dec << '\n';
+            }
+            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  std::bit_cast<uint32_t>(oracle_output[lane]));
+            if (lane >= active_lanes) {
+                CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
+                      0x7fc01234u);
+            }
         }
     }
     return true;
@@ -8849,6 +9099,8 @@ int main() {
          &run_local_predicated_region_codegen},
         {"innermost-loop local predicated terminal bridge",
          &run_local_predicated_terminal_bridge_codegen},
+        {"innermost-loop two-sided local predication",
+         &run_two_sided_local_predicated_codegen},
         {"nested innermost-loop local predicated regions",
          &run_nested_local_predicated_region_codegen},
         {"varying loop exit collective",

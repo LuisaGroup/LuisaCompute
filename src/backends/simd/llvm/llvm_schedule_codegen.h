@@ -511,6 +511,7 @@ struct LLVMScheduleCodegenResult {
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
     size_t local_predicated_diamond_count{0u};
+    size_t local_predicated_two_sided_diamond_count{0u};
     size_t local_predicated_assignment_diamond_count{0u};
     size_t local_predicated_block_count{0u};
     size_t local_predicated_instruction_count{0u};

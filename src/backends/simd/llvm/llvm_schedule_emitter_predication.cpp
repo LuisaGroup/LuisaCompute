@@ -457,8 +457,30 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
         }
         return true;
     };
-    auto safe_arithmetic = [&](const schedule::Instruction &instruction,
-                               bool &has_expensive_math) noexcept {
+    auto true_has_instructions = std::any_of(
+        true_blocks->cbegin(), true_blocks->cend(),
+        [](const auto *arm) noexcept {
+            return !arm->instructions.empty();
+        });
+    auto false_has_instructions = std::any_of(
+        false_blocks->cbegin(), false_blocks->cend(),
+        [](const auto *arm) noexcept {
+            return !arm->instructions.empty();
+        });
+    auto potentially_two_sided =
+        true_has_instructions && false_has_instructions;
+    auto safe_instruction = [&](const schedule::Instruction &instruction,
+                                bool &has_expensive_math) noexcept {
+        if (potentially_two_sided &&
+            instruction.opcode == schedule::Opcode::cast &&
+            instruction.source_op && instruction.result &&
+            instruction.operands.size() == 1u &&
+            !instruction.participant_mask) {
+            auto op = static_cast<xir::CastOp>(
+                *instruction.source_op);
+            return op == xir::CastOp::STATIC_CAST ||
+                   op == xir::CastOp::BITWISE_CAST;
+        }
         if (instruction.opcode != schedule::Opcode::arithmetic ||
             !instruction.source_op || !instruction.result ||
             instruction.participant_mask) {
@@ -510,7 +532,7 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
                 return false;
             }
             for (auto &&instruction : arm->instructions) {
-                if (!safe_arithmetic(
+                if (!safe_instruction(
                         instruction, has_expensive_math)) {
                     return false;
                 }
@@ -520,22 +542,35 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
         return true;
     };
     if (!validate_chain(*true_blocks, true_instruction_count) ||
-        !validate_chain(*false_blocks, false_instruction_count) ||
-        std::min(true_instruction_count, false_instruction_count) != 0u) {
+        !validate_chain(*false_blocks, false_instruction_count)) {
         return std::nullopt;
     }
     auto instruction_count =
         true_instruction_count + false_instruction_count;
+    auto two_sided =
+        std::min(true_instruction_count, false_instruction_count) != 0u;
     auto assignment_only = instruction_count == 0u;
-    auto guarded_math = has_expensive_math && instruction_count >= 4u &&
+    auto guarded_math = !two_sided && has_expensive_math &&
+                        instruction_count >= 4u &&
                         instruction_count <= 24u;
-    if (!assignment_only && !guarded_math) {
+    auto force_two_sided = luisa::compute::detail::env_flag(
+        "LUISA_SIMD_FORCE_TWO_SIDED_LOCAL_PREDICATION");
+    auto enable_two_sided =
+        (force_two_sided || _width == 2u || _width == 4u ||
+         _width == 8u) &&
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_TWO_SIDED_LOCAL_PREDICATION");
+    auto bounded_two_sided = two_sided && enable_two_sided &&
+                             instruction_count >= 4u &&
+                             instruction_count <= 24u;
+    if (!assignment_only && !guarded_math && !bounded_two_sided) {
         return std::nullopt;
     }
     return GuardedPredicatedMathDiamond{
         .true_blocks = std::move(*true_blocks),
         .false_blocks = std::move(*false_blocks),
         .merge = point->target,
+        .two_sided = two_sided,
         .instruction_count = instruction_count,
     };
 }
@@ -836,6 +871,8 @@ void ScheduleEmitter::_emit_guarded_predicated_math_diamond(
     _locals = std::move(outer_locals);
     if (_failed()) { return; }
     _result.local_predicated_diamond_count++;
+    _result.local_predicated_two_sided_diamond_count +=
+        diamond.two_sided;
     _result.local_predicated_assignment_diamond_count +=
         diamond.instruction_count == 0u;
     _result.local_predicated_block_count +=

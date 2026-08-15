@@ -234,6 +234,7 @@ SIMDShader::SIMDShader(
             "predicated_memory_diamonds={}, "
             "predicated_memory_instructions={}, "
             "local_predicated_diamonds={}, "
+            "local_predicated_two_sided_diamonds={}, "
             "local_predicated_assignment_diamonds={}, "
             "local_predicated_blocks={}, "
             "local_predicated_instructions={}, "
@@ -284,6 +285,7 @@ SIMDShader::SIMDShader(
             _compiled.predicated_memory_diamond_count,
             _compiled.predicated_memory_instruction_count,
             _compiled.local_predicated_diamond_count,
+            _compiled.local_predicated_two_sided_diamond_count,
             _compiled.local_predicated_assignment_diamond_count,
             _compiled.local_predicated_block_count,
             _compiled.local_predicated_instruction_count,

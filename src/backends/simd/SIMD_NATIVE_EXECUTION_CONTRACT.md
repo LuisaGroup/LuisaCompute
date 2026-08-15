@@ -668,17 +668,26 @@ A base local diamond is eligible only when all of the following hold:
   set. Calls, memory/resources, effects, participant masks, integer
   division/remainder, dynamic extraction, and structured control fail closed.
 
-The nonempty arm is emitted behind `any(T)` or `any(F)`. If that mask is empty,
-the arm is not evaluated. If it is nonempty, fixed-vector arithmetic may still
-evaluate inactive physical elements, but every accepted operation is total in
-LLVM's value semantics and only arm-mask assignments can make a result
-observable. Floating division by zero and square root of a negative off-arm
-operand may produce the ordinary IEEE Inf/NaN value; neither traps nor forms
-poison, and floating exception flags are not part of the device-language
-contract. Integer division, poison-forming conversion, memory, and effects are
-therefore not admitted. This permits no undefined domain extension. An
-assignment-only diamond emits masked assignments directly and needs no
-horizontal mask guard.
+A two-sided local diamond is a separately costed extension. At W2/W4/W8, both
+arms may contain instructions when the structural conditions above still hold
+except for the one-empty-arm and expensive-operation requirements. Both arm
+counts are nonzero, and their total is 4--24. Its whitelist adds static and
+bitwise casts to the same pure arithmetic set. W16 does not enable this form in
+production; the diagnostic force knob retains identical semantic checks. No
+arm, merge, or loop block is cloned.
+
+Every instruction-bearing arm is emitted behind `any(T)` or `any(F)`. If that
+mask is empty, the arm is not evaluated. If it is nonempty, fixed-vector
+arithmetic may still evaluate inactive physical elements. Floating division by
+zero and square root of a negative off-arm operand may produce the ordinary
+IEEE Inf/NaN value; neither traps nor forms poison, and floating exception flags
+are not part of the device-language contract. For a two-sided static
+floating-to-integer cast, codegen selects zero into every off-arm lane before
+forming `fptosi`/`fptoui`; masking the result afterwards is forbidden. Active
+lanes retain the source-language domain unchanged. Integer division, memory,
+effects, and every other poison/trap-capable operation remain excluded. This
+permits no undefined domain extension. An assignment-only diamond emits masked
+assignments directly and needs no horizontal mask guard.
 
 After both arms, codegen restores `A` and the enclosing cohort's seed lane and
 continues at the declared merge. Arm blocks are assigned to the split's LLVM
@@ -731,6 +740,8 @@ enable ordinary chaining. Only W8 enables chained nested-tail absorption after
 paired W4/W16 ablations measured small regressions. Terminal bridges are
 production-enabled at W8/W16; W4 additionally requires at least 32 terminal
 instructions, and W2 is available only through a diagnostic force override.
+Two-sided local diamonds are enabled at W2/W4/W8; W16 retains its independently
+profitable predicated-loop path after the forced local candidate was neutral.
 The complete disabled
 oracle is `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS=1`; narrower oracles are
 `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_CHAINING=1`,
@@ -738,6 +749,8 @@ oracle is `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS=1`; narrower oracles are
 `LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL=1`. The terminal differential oracle
 is `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_TERMINAL_BRIDGE=1`; the diagnostic-only
 W2 override is `LUISA_SIMD_FORCE_LOCAL_PREDICATED_TERMINAL_BRIDGE=1`.
+`LUISA_SIMD_DISABLE_TWO_SIDED_LOCAL_PREDICATION=1` isolates the two-sided form,
+while `LUISA_SIMD_FORCE_TWO_SIDED_LOCAL_PREDICATION=1` exercises W16.
 
 Permanent codegen coverage executes candidate and every narrower oracle at
 W2/W4/W8/W16 with `W - 1` active lanes. It includes a guarded square-root arm,
@@ -751,6 +764,12 @@ forced W2 and production W4/W8/W16 paths with `W - 1` active lanes, a guarded
 square root, a 41-instruction merge-to-loop-back tail, LLVM verification,
 machine-code scalar-libm rejection, and exact disabled-oracle equality.
 Runtime counters additionally report terminal blocks and instructions.
+A separate two-sided regression covers production W2/W4/W8 and forced W16,
+`W - 1` active lanes, independently varying natural-loop iterations, nonempty
+arms, an off-arm NaN before `fptoui`, operand pre-sanitization, terminal merge
+absorption where enabled, LLVM verification, and exact disabled-oracle bits.
+The optimization report exposes its count independently from the older
+one-sided and assignment-only families.
 
 ### 4.5 Bounded loop-unswitch refinement
 

@@ -82,6 +82,10 @@ its complete incoming cohort, the tail is neither speculated nor cloned. The
 ordinary path tracer now avoids one additional merge-to-dispatch boundary and
 keeps two more cross-block values in SSA; a width/instruction cost gate rejects
 the measured short W4 regression.
+Voxel now supplies the complementary two-sided case: both arithmetic arms stay
+behind their own nonempty-mask guard and reconverge without a scheduler frame.
+This removes 37% of the W8 kernel's dynamic instructions while retaining one
+source copy and exact candidate/oracle output.
 
 ## Test host and method
 
@@ -95,7 +99,7 @@ the measured short W4 regression.
 
 Unless a row states a newer paired sweep, graphics and SDF cells below are
 medians of seven independent processes. Image processing repeats its four-
-dispatch pipeline 32 times, the current voxel sweep repeats 64 renders, and
+dispatch pipeline 32 times, the current voxel sweep repeats 128 renders, and
 the refreshed Spacex sweep renders eight frames after its upload/update
 synchronization.
 Cutout path tracing uses 64 spp and forces one spp per dispatch. Historical
@@ -113,14 +117,15 @@ refreshed 64-spp cutout processes are performance-only; a separate 1024-spp
 run supplies its gallery conformance gate. SDF uses its internal four-SPP
 throughput metric;
 high-SPP SDF image comparison remains a separate conformance gate.
-SDF/GEMM cells retain the earlier seven-process sweep. Image processing and
-Voxel retain the bounded-predicated-loop seven-round sweep. Ordinary path
-tracing is refreshed after terminal-bridge absorption with seven balanced-
-order fallback/W1/W2/W4/W8/W16 rounds under the synchronized method above.
-Each image process repeats its four-dispatch pipeline 32 times and each Voxel
-process uses 64 render iterations. Those older cells use 32 workers on logical
-CPUs 0--31. Spacex retains its prior seven-round, eight-frame sweep because
-none of its kernels reaches the new loop candidate.
+SDF/GEMM cells retain the earlier seven-process sweep. Image processing keeps
+the bounded-predicated-loop seven-round sweep. Voxel is refreshed after the
+two-sided local-region stage with 128 renders per process, seven alternating
+rounds, and the same 30-logical-CPU affinity used by current ordinary path
+tracing; SIMD uses 30 workers. Ordinary path tracing is refreshed after
+terminal-bridge absorption with seven balanced-order fallback/W1/W2/W4/W8/W16
+rounds under the synchronized method above. Spacex retains its prior seven-
+round, eight-frame sweep because none of its kernels reaches the new local
+candidate.
 
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
@@ -131,7 +136,7 @@ Speedup is always `fallback time / SIMD time`, or
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | non-coro SDF, samples/s | 8.705 | 8.197 (0.942x) | 9.476 (1.089x) | 15.112 (1.736x) | 22.568 (2.593x) | 32.959 (3.786x) |
 | image pipeline, ms/iteration | 10.908 | 18.328 (0.592x) | 9.799 (1.110x) | 6.906 (1.567x) | 5.311 (2.039x) | 4.504 (2.400x) |
-| voxel render, ms/iteration | 8.874 | 9.165 (0.951x) | 14.786 (0.588x) | 8.246 (1.050x) | 5.114 (1.692x) | 3.486 (2.482x) |
+| voxel render, ms/iteration | 8.066 | 9.374 (0.863x) | 13.458 (0.602x) | 6.267 (1.294x) | 5.171 (1.566x) | 3.625 (2.233x) |
 | Spacex, ms/frame | 162.421 | 125.778 (1.289x) | 64.295 (2.517x) | 34.030 (4.783x) | 18.655 (8.668x) | 11.684 (13.738x) |
 | ordinary path tracing, synchronized 32-spp dispatch, FPS | 83.868 | 79.252 (0.955x) | 62.834 (0.748x) | 81.722 (0.982x) | 93.845 (1.126x) | 93.961 (1.132x) |
 | cutout path tracing, fixed 1 spp/dispatch, spp/s | 72.030 | 49.567 (0.692x) | 32.925 (0.465x) | 40.872 (0.575x) | 45.488 (0.642x) | 45.757 (0.642x) |
@@ -148,9 +153,9 @@ be treated as host observations, not cross-machine constants.
 The refreshed Voxel cells are the medians of the seven balanced rounds.
 Parenthesized values are the preferred geometric means of the within-round
 fallback/SIMD ratios. Their 95% paired log-space Student-t intervals at
-W1/W2/W4/W8/W16 are [0.9166, 0.9867], [0.5637, 0.6135],
-[1.0021, 1.1011], [1.6075, 1.7817], and [2.3514, 2.6191]. W8 and W16 win all
-seven rounds; W4 wins six, and W1/W2 lose all seven. Every fallback
+W1/W2/W4/W8/W16 are [0.8419, 0.8853], [0.5877, 0.6161],
+[1.2634, 1.3247], [1.5278, 1.6059], and [2.1745, 2.2929]. W4/W8/W16 win all
+seven rounds, and W1/W2 lose all seven. Every fallback
 process retains SHA-256
 `27455a0e126ecfae23d592a58121751c5884a69d9d7388b20195e8b0a121829a`,
 and every SIMD process at all five widths retains
@@ -2127,15 +2132,16 @@ identical.
 
 ## Next measured optimization targets
 
-1. Generalize the accepted innermost-loop local regions through bounded branch
-   splitting and pure code motion: hoist or sink total single-use operations to
-   expose a safe two-sided arithmetic/read subregion, and fold compatible
+1. Generalize the accepted innermost-loop local regions beyond the completed
+   two-sided arithmetic form through bounded branch splitting and pure code
+   motion: hoist or sink total single-use operations to expose a safe read
+   subregion, and fold compatible
    `select(f(a), f(b), c)` shapes to `f(select(a, b, c))` only after proving
-   domain and floating-point equivalence. Local terminal-tail absorption now
-   removes one additional real path-tracing boundary, but Voxel and image
-   processing still have zero local hits. The next gate is a new nonzero site,
-   exact inactive-tail/oracle equality, a register-pressure-aware cost model,
-   and a stable real-example gain beyond the existing path site.
+   domain and floating-point equivalence. Voxel now has one profitable two-
+   sided hit and path tracing has the earlier one-sided/terminal hit; image
+   processing is already branchless direct CFG. The next gate is another real
+   nonzero site, exact inactive-tail/oracle equality, a register-pressure-aware
+   cost model, and a stable real-example gain beyond those existing sites.
 2. Extend the completed within-read W8 leaf pairing to compatible nearby
    gathers only when they share base, dynamic offset, scale, and mask. Cap the
    scan window to control register pressure and stop at any possible write.
@@ -2632,6 +2638,76 @@ gain to reduced scheduler/spill work. Voxel, all image-processing kernels,
 cutout path tracing, SDF, and the other audited graphics examples report zero
 terminal bridges, so their generated paths are unchanged.
 
+### Two-sided innermost local predication
+
+Voxel's traversal loop contains a varying diamond whose two arms both do real
+work: the W8 Schedule form has three instructions on one side and eleven on
+the other, followed by a one-instruction merge/split block. The earlier local
+recognizer rejected it solely because neither arm was empty. The extension
+accepts two single-predecessor arm chains in the same innermost loop when their
+combined 4--24 instructions are limited to audited pure arithmetic and
+static/bitwise casts. Each arm is still guarded by `any(arm_mask)`, so this is
+bounded branch splitting rather than speculative evaluation or whole-loop
+all-on/mixed cloning. Off-arm inputs to `fptosi`/`fptoui` are selected to zero
+before conversion.
+
+Eight alternating candidate/oracle pairs used 256 renders, fifteen workers,
+and physical CPUs `0-12,14-15`. The oracle was
+`LUISA_SIMD_DISABLE_TWO_SIDED_LOCAL_PREDICATION=1`:
+
+| width | candidate/oracle | 95% paired CI | median candidate/oracle, ms | wins |
+| ---: | ---: | ---: | ---: | ---: |
+| W2 | 1.1520x | [1.1409, 1.1632] | 17.705 / 20.344 | 8/8 |
+| W4 | 1.3643x | [1.3480, 1.3808] | 8.587 / 11.678 | 8/8 |
+| W8 | 1.2730x | [1.2441, 1.3025] | 7.175 / 9.099 | 8/8 |
+| W16 | 1.0084x | [0.9944, 1.0224] | 6.114 / 6.161 | 6/8 |
+
+Production enables W2/W4/W8 and leaves W16 on its existing bounded
+predicated-loop path. `LUISA_SIMD_FORCE_TWO_SIDED_LOCAL_PREDICATION=1`
+retains W16 as a semantic/diagnostic path. That policy matters: recognizing
+the local region prevents W16 from selecting its already profitable whole-loop
+form, and the measured replacement is neutral.
+
+The W8 final object shrinks materially even though state-slot and instruction-
+spill counts remain 37 and 15:
+
+| Voxel W8 main entry | two-sided candidate | disabled oracle |
+| --- | ---: | ---: |
+| assembly bytes | 102,248 | 106,093 |
+| static instructions | 2,138 | 2,280 |
+| vector instructions | 1,092 | 1,162 |
+| branches | 224 | 244 |
+| stack references | 476 | 510 |
+| stack allocation | 3,328 B | 3,520 B |
+| calls / scalar-math calls | 3 / 2 | 3 / 2 |
+
+Both scalar-math calls are the same uniform `sincosf` camera calculations;
+neither object contains a varying scalar-libm lane loop. Five-repeat W8
+`perf stat` over 256 renders records 121.383 B versus 160.277 B cycles
+(-24.27%), 316.734 B versus 503.465 B instructions (-37.09%), and 45.982 B
+versus 78.442 B branches (-41.38%). Branch misses fall 8.68% and cache misses
+3.36%. This directly identifies independent-PC routing, rather than LLVM's
+fixed-vector arithmetic, as the removed bottleneck.
+
+The refreshed seven-round fallback table above measures W4/W8/W16 at
+1.294x/1.566x/2.233x. W2 improves substantially against its own oracle but
+still does not amortize the SIMD scheduler relative to fallback. Fresh
+W1/W2/W4/W8/W16 gallery runs all pass at 82.834519 dB and produce SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`;
+the W8 disabled oracle is byte-identical. Ordinary and cutout path tracing,
+SDF, blackhole, and all image-processing kernels report zero two-sided hits,
+so their generated paths are unchanged.
+
+The same-algorithm analytic path tracer also reports zero two-sided hits, so
+this checkpoint does not claim an ISPC gain for that workload. A fresh
+single-worker run pinned to CPU 6 used fifteen alternating process rounds and
+official ISPC 1.31.0. ISPC remains 1.223x [1.215, 1.231] faster than Luisa W8
+with AVX2 x8, 1.148x [1.141, 1.155] faster with AVX-512 x8, and 1.016x
+[1.013, 1.018] faster than Luisa W16 with AVX-512 x16. An independent
+thirty-round W16-only repeat measured 1.010x [1.008, 1.012]. W16 is therefore
+close but has not statistically crossed parity; GEMM remains the established
+same-algorithm workload where Luisa is already faster than matched-width ISPC.
+
 ### Rejected cross-query early gather
 
 The ordinary W8 path tracer has one tempting memory/compute-overlap site. Its
@@ -2957,3 +3033,21 @@ reference at 39.219375 dB and reports native Embree 4.4.1 W4/W8/W16 packet
 support. The optimization report records one 19-instruction local diamond and
 one 81-instruction terminal block, reducing state slots/spills from 34/20 to
 32/18. Output remained in `/tmp`; the checked-in reference was not modified.
+
+The two-sided innermost local-predication stage completed a fresh full Release
+build, the required native-math/fallback-math/runtime-width/Schedule-codegen
+gate (4/4), and the complete configured SIMD+fallback/XIR/runtime/graphics
+suite (140/140). Clang-format, diff checks, the syntax-check runner's Python
+suite (13/13), per-translation-unit clangd checks, and the standalone ISPC
+driver tests (7/7) pass. Its permanent differential JIT regression covers
+production W2/W4/W8 and forced W16, `W - 1` active lanes, independently
+varying loop iterations, two nonempty arithmetic/cast arms, an inactive NaN
+before `fptoui`, operand pre-sanitization, LLVM verification, terminal merge
+absorption where enabled, exact candidate/oracle bits, and inactive sentinels.
+Fresh W1/W2/W4/W8/W16 Voxel galleries pass at 82.834519 dB with one hit at
+W2/W4/W8 and none at W1/W16; the W8 disabled oracle is byte-identical. A fresh
+ordinary W8 1024-spp path trace passes at 39.219375 dB, reports native Embree
+4.4.1 W4/W8/W16 packet support, and records zero two-sided hits. The current
+fifteen-round analytic ISPC comparison and independent thirty-round W16 repeat
+are recorded in the two-sided section above. Outputs and raw benchmark JSON
+remain in `/tmp`; no checked-in gallery reference was regenerated or modified.

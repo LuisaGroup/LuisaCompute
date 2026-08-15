@@ -348,6 +348,19 @@ division/remainder, dynamic indexing, participant masks, and every structured
 terminator reject the candidate. Arm assignments may update only varying or
 mask destinations.
 
+A second bounded family accepts instruction-bearing arms on both sides at
+W2/W4/W8. The same exact convergence, one-to-three-block chains, innermost-loop
+membership, predecessor, and lane-masked-assignment proofs apply. The complete
+diamond contains 4--24 audited pure arithmetic or static/bitwise-cast
+instructions; it need not contain expensive math because both original mixed
+cohorts already execute. Each arm retains its own `any(arm_mask)` guard, so an
+arm with an empty dynamic mask is neither speculated nor evaluated. W16 keeps
+its existing predicated-loop path: forcing this local form was neutral at
+1.008x with a 95%
+interval crossing one. `LUISA_SIMD_FORCE_TWO_SIDED_LOCAL_PREDICATION=1`
+provides semantic/diagnostic coverage there, and
+`LUISA_SIMD_DISABLE_TWO_SIDED_LOCAL_PREDICATION=1` is the same-binary oracle.
+
 Codegen forms `T = A & C` and `F = A & !C`. An instruction-bearing arm first
 tests `any(arm_mask)`, so a completely untaken expensive arm performs neither
 its range-sensitive math nor its dependent work. An assignment-only arm needs
@@ -400,9 +413,9 @@ override is `LUISA_SIMD_FORCE_LOCAL_PREDICATED_TERMINAL_BRIDGE=1`.
 scheduler path. `LUISA_SIMD_DISABLE_LOCAL_PREDICATED_CHAINING=1`,
 `LUISA_SIMD_DISABLE_NESTED_PREDICATED_REGION=1`, and
 `LUISA_SIMD_DISABLE_CHAINED_NESTED_TAIL=1` isolate the narrower stages. The
-optimization report exposes local diamond/assignment/block/instruction,
-nested-region, chained-region/transition/block, chained-nested-tail, and
-terminal-block/instruction counts.
+optimization report exposes local diamond/two-sided/assignment/block/
+instruction, nested-region, chained-region/transition/block, chained-nested-
+tail, and terminal-block/instruction counts.
 The exact structural and inactive-tail contract is specified in
 [`SIMD_NATIVE_EXECUTION_CONTRACT.md`](SIMD_NATIVE_EXECUTION_CONTRACT.md), and
 paired throughput plus final-object evidence is recorded in

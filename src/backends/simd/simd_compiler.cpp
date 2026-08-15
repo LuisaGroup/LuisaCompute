@@ -172,6 +172,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.predicated_memory_instruction_count;
     result.local_predicated_diamond_count =
         llvm_result.local_predicated_diamond_count;
+    result.local_predicated_two_sided_diamond_count =
+        llvm_result.local_predicated_two_sided_diamond_count;
     result.local_predicated_assignment_diamond_count =
         llvm_result.local_predicated_assignment_diamond_count;
     result.local_predicated_block_count =
