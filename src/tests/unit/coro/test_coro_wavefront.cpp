@@ -1453,13 +1453,6 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             auto &device = dc.device;
             Stream stream = device.create_stream();
 
-            auto output = device.create_buffer<uint>(N);
-            auto visits = device.create_buffer<uint>(N);
-            luisa::vector<uint> zero(N);
-            stream << output.copy_from(luisa::span{zero})
-                   << visits.copy_from(luisa::span{zero})
-                   << synchronize();
-
             auto coro = Coroutine<void(Buffer<uint>, Buffer<uint>)>(
                 [](BufferUInt values, BufferUInt visit_count) {
                     auto tid = dispatch_x();
@@ -1486,6 +1479,13 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     values.write(tid, value);
                     visit_count.atomic(tid).fetch_add(1u);
                 });
+
+            auto output = device.create_buffer<uint>(N);
+            auto visits = device.create_buffer<uint>(N);
+            luisa::vector<uint> zero(N);
+            stream << output.copy_from(luisa::span{zero})
+                   << visits.copy_from(luisa::span{zero})
+                   << synchronize();
 
             WavefrontCoroSchedulerConfig cfg{
                 .thread_count = capacity,
@@ -1521,6 +1521,77 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             expect(correct)
                 << "incremental queue counts must preserve every sparse-token "
                    "branch and self-loop transition under refill/compaction";
+        };
+
+    "wavefront_incremental_counts_do_not_perturb_user_kernels"_test =
+        [options] {
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+                auto tid = dispatch_x();
+                auto value = def(tid * 7u + 3u);
+                $suspend("first");
+                $if ((tid & 1u) != 0u) {
+                    $suspend("odd");
+                    value += 11u;
+                };
+                output.write(tid, value);
+            });
+
+            auto config = WavefrontCoroSchedulerConfig{
+                .thread_count = 64u,
+                .global_memory_soa = true,
+                .gather_by_sorting = false,
+                .frame_buffer_compaction = true,
+                .execution_block_size = 32u,
+                .largest_continuation_first = true,
+            };
+            auto incremental_config = config;
+            incremental_config.incremental_continuation_counts = true;
+            WavefrontCoroScheduler<Buffer<uint>> materialized{
+                device, coro, config};
+            WavefrontCoroScheduler<Buffer<uint>> incremental{
+                device, coro, incremental_config};
+
+            auto materialized_infos = materialized.shader_infos();
+            auto incremental_infos = incremental.shader_infos();
+            auto user_kernel_count = 0u;
+            auto user_kernels_match = true;
+            for (auto &&expected : materialized_infos) {
+                auto is_user_kernel =
+                    expected.stage.starts_with("wavefront_generate/") ||
+                    expected.stage.starts_with("wavefront_resume_");
+                if (!is_user_kernel) { continue; }
+                user_kernel_count++;
+                auto actual = std::find_if(
+                    incremental_infos.begin(), incremental_infos.end(),
+                    [&](auto &&info) noexcept {
+                        return info.stage == expected.stage;
+                    });
+                user_kernels_match &=
+                    actual != incremental_infos.end() &&
+                    actual->structural_hash == expected.structural_hash;
+            }
+            auto has_generated_publisher = std::any_of(
+                incremental_infos.begin(), incremental_infos.end(),
+                [](auto &&info) noexcept {
+                    return info.stage ==
+                           "wavefront_publish_generated_count";
+                });
+            auto has_resumed_publisher = std::any_of(
+                incremental_infos.begin(), incremental_infos.end(),
+                [](auto &&info) noexcept {
+                    return info.stage ==
+                           "wavefront_publish_resumed_count";
+                });
+            expect(user_kernel_count == coro.subroutine_count());
+            expect(user_kernels_match)
+                << "incremental queue accounting must not alter a user "
+                   "continuation's AST, argument ABI, or cache identity";
+            expect(has_generated_publisher);
+            expect(has_resumed_publisher)
+                << "incremental accounting must be isolated in scheduler-"
+                   "owned publication kernels";
         };
 }
 

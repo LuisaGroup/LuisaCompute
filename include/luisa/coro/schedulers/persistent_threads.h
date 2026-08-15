@@ -57,7 +57,6 @@ private:
     CoroFrameStorageLayout _global_frame_layout;
     luisa::vector<luisa::vector<size_t>> _input_fields;
     luisa::vector<luisa::vector<size_t>> _output_fields;
-    luisa::vector<luisa::vector<size_t>> _relocation_fields;
     size_t _static_shared_memory_size_bytes{};
     uint64_t _main_shader_structure_hash{};
 
@@ -184,7 +183,7 @@ private:
             _input_fields[i] = coro_frame_collect_input_fields(coro.graph(), i);
             _output_fields[i] = coro_frame_collect_output_fields(coro.graph(), i);
         }
-        _relocation_fields = coro_frame_collect_relocation_fields(
+        auto relocation_partition = coro_frame_partition_relocation_fields(
             coro.graph(), coro.frame().frame_field_count());
         auto token_to_index = detail::make_coro_token_index_callable(coro);
 
@@ -196,38 +195,10 @@ private:
                                            0u;
             auto global_memory_frames =
                 _config.global_memory_frames;
-            luisa::vector<size_t> common_relocation_fields;
-            if (coro.subroutine_count() > 1u) {
-                common_relocation_fields = _relocation_fields[1u];
-                for (auto i = 2u; i < coro.subroutine_count(); ++i) {
-                    auto &fields = _relocation_fields[i];
-                    common_relocation_fields.erase(
-                        std::remove_if(
-                            common_relocation_fields.begin(),
-                            common_relocation_fields.end(),
-                            [&](auto field) noexcept {
-                                return std::find(
-                                           fields.begin(), fields.end(),
-                                           field) == fields.end();
-                            }),
-                        common_relocation_fields.end());
-                }
-            }
-            auto residual_relocation_fields = _relocation_fields;
-            for (auto i = 1u; i < coro.subroutine_count(); ++i) {
-                auto &fields = residual_relocation_fields[i];
-                fields.erase(
-                    std::remove_if(
-                        fields.begin(), fields.end(),
-                        [&](auto field) noexcept {
-                            return std::find(
-                                       common_relocation_fields.begin(),
-                                       common_relocation_fields.end(),
-                                       field) !=
-                                   common_relocation_fields.end();
-                        }),
-                    fields.end());
-            }
+            auto common_relocation_fields =
+                relocation_partition.common_fields;
+            auto residual_relocation_fields =
+                relocation_partition.residual_fields;
             return Kernel1D{[this, &coro, &token_to_index,
                              shared_queue_factor, global_queue_factor,
                              global_memory_frames,

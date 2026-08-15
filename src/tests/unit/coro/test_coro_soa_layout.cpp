@@ -133,6 +133,100 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
         }
     };
 
+    "selective_frame_copy_does_not_touch_inactive_fields"_test = [options] {
+        constexpr uint frame_capacity = 4u;
+        constexpr uint source_index = 3u;
+        constexpr uint destination_index = 1u;
+        constexpr uint output_count = 6u;
+
+        CoroFrameDesc desc;
+        desc.add_field("selected_uint", Type::of<uint>());
+        desc.add_field("inactive_float", Type::of<float>());
+        desc.add_field("selected_uint_2", Type::of<uint>());
+        desc.add_field("inactive_float3", Type::of<float3>());
+        auto selected_fields = luisa::vector<size_t>{0u, 2u};
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+
+        for (auto soa : {false, true}) {
+            auto layout = soa ?
+                              CoroFrameStorageLayout::make_runtime_soa(
+                                  desc, frame_capacity) :
+                              CoroFrameStorageLayout::make_aos(
+                                  desc, frame_capacity);
+            auto frames = device.create_byte_buffer(layout.size_bytes);
+            auto output = device.create_buffer<uint>(output_count);
+            Kernel1D copy = [&desc, layout, soa,
+                             selected_fields](ByteBufferVar frames,
+                                              BufferUInt output) noexcept {
+                auto frame_buf = Expr<ByteBuffer>{frames};
+                coro_frame_write_field(
+                    frame_buf, source_index, frame_capacity,
+                    layout, soa, 0u, 101u);
+                coro_frame_write_field(
+                    frame_buf, source_index, frame_capacity,
+                    layout, soa, 1u, 2.5f);
+                coro_frame_write_field(
+                    frame_buf, source_index, frame_capacity,
+                    layout, soa, 2u, 303u);
+                coro_frame_write_field(
+                    frame_buf, source_index, frame_capacity,
+                    layout, soa, 3u, make_float3(4.5f, 5.5f, 6.5f));
+
+                coro_frame_write_field(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 0u, 11u);
+                coro_frame_write_field(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 1u, -2.0f);
+                coro_frame_write_field(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 2u, 33u);
+                coro_frame_write_field(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 3u, make_float3(-4.0f, -5.0f, -6.0f));
+
+                coro_frame_copy_fields(
+                    frame_buf, source_index, destination_index,
+                    frame_capacity, &desc, layout, soa,
+                    luisa::span<const size_t>{selected_fields});
+
+                output.write(0u, coro_frame_read_field<uint>(
+                                     frame_buf, destination_index,
+                                     frame_capacity, layout, soa, 0u));
+                output.write(1u, coro_frame_read_field<float>(
+                                     frame_buf, destination_index,
+                                     frame_capacity, layout, soa, 1u)
+                                     .as<uint>());
+                output.write(2u, coro_frame_read_field<uint>(
+                                     frame_buf, destination_index,
+                                     frame_capacity, layout, soa, 2u));
+                auto inactive = coro_frame_read_field<float3>(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 3u);
+                output.write(3u, inactive.x.as<uint>());
+                output.write(4u, inactive.y.as<uint>());
+                output.write(5u, inactive.z.as<uint>());
+            };
+            auto shader = device.compile(copy);
+            luisa::vector<uint> host(output_count);
+            stream << shader(frames, output).dispatch(1u)
+                   << output.copy_to(luisa::span{host})
+                   << synchronize();
+
+            auto expected = luisa::vector<uint>{
+                101u, std::bit_cast<uint>(-2.0f), 303u,
+                std::bit_cast<uint>(-4.0f),
+                std::bit_cast<uint>(-5.0f),
+                std::bit_cast<uint>(-6.0f)};
+            expect(host == expected)
+                << "selective relocation must copy certified fields and "
+                   "leave every inactive destination field unchanged";
+        }
+    };
+
     "runtime_soa_large_mixed_frame_roundtrip"_test = [options] {
         constexpr uint active_count = 4096u;
         constexpr uint frame_capacity = 65536u;
