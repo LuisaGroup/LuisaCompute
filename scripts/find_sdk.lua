@@ -7,7 +7,7 @@ local _sdks = {
         name = 'dx_sdk_20260815.zip'
     },
     vk_sdk = {
-        name = 'linux_dx_sdk_20260815.zip'
+        name = 'linux_dxc_20260815.zip'
     }
 }
 
