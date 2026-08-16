@@ -794,6 +794,8 @@ private:
     // The association temp-pointer -> producer statement is recorded by the
     // TileFunctionBuilder (temp_output()), so no guessing is needed.
     luisa::unordered_map<const TensorExpr *, TempValue> _temps;
+    // shared staging tiles backing block-partitioned fragment producers
+    luisa::unordered_map<const TensorExpr *, const RefExpr *> _fragment_staging;
 
     // ---- expression helpers -------------------------------------------------
 
@@ -817,6 +819,85 @@ private:
 
     void _sync_block() const noexcept {
         _fb->call(CallOp::SYNCHRONIZE_BLOCK, {});
+    }
+
+    // ---- warp/wave helpers (lc_optimize: warp collectives) -------------------
+
+    [[nodiscard]] const Expression *_tid_x() const noexcept {
+        return _vec_comp(_fb->thread_id(), 0u);
+    }
+
+    [[nodiscard]] const Expression *_lane_count() const noexcept {
+        return _fb->warp_lane_count();
+    }
+
+    [[nodiscard]] const Expression *_lane() const noexcept {
+        return _fb->warp_lane_id();
+    }
+
+    [[nodiscard]] const Expression *_warp_id() const noexcept {
+        return _fb->binary(Type::of<uint>(), BinaryOp::DIV, _tid_x(), _lane_count());
+    }
+
+    [[nodiscard]] const Expression *_num_warps() const noexcept {
+        return _fb->binary(Type::of<uint>(), BinaryOp::DIV, _literal_u(_threads), _lane_count());
+    }
+
+    [[nodiscard]] const Expression *_ceildiv_expr(const Expression *a, const Expression *b) const noexcept {
+        auto t = _fb->binary(Type::of<uint>(), BinaryOp::ADD, a, b);
+        t = _fb->binary(Type::of<uint>(), BinaryOp::SUB, t, _literal_u(1u));
+        return _fb->binary(Type::of<uint>(), BinaryOp::DIV, t, b);
+    }
+
+    // all-lane warp reduction matching a TileReduceOp (lc_optimize 2.2/2.5:
+    // XOR butterfly via WARP_READ_LANE; every lane ends with the total).
+    // ABS_* must be pre-folded per element by the caller.
+    [[nodiscard]] const Expression *_warp_reduce(TileReduceOp op, const Type *elem_t,
+                                                 const Expression *v) {
+        auto lane = _lane();
+        auto lanes = _lane_count();
+        auto result = _fb->local(elem_t);
+        _fb->assign(result, v);
+        for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
+            // warp-uniform guard: skip the steps above the actual warp size
+            auto d_active = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                        _literal_u(d), lanes);
+            _if(d_active, [&] {
+                auto peer = _fb->binary(Type::of<uint>(), BinaryOp::BIT_XOR,
+                                        lane, _literal_u(d));
+                auto other = _fb->call(elem_t, CallOp::WARP_READ_LANE, {result, peer});
+                _fb->assign(result, _reduce_combine(op, elem_t, result, other));
+            });
+        }
+        return result;
+    }
+
+    // ---- fragment staging ------------------------------------------------------
+    // Fragment tiles are replicated per-thread.  Block-partitioned producers
+    // (GEMM / REDUCE / SCAN / global->fragment COPY) publish their owned
+    // elements through a small shared staging tile, then every thread
+    // refreshes its whole replica from it (one staging tile per fragment).
+    [[nodiscard]] const RefExpr *_staging_for(const TensorExpr *t, const Type *elem_t) {
+        if (auto it = _fragment_staging.find(t); it != _fragment_staging.end()) {
+            return it->second;
+        }
+        auto n = tile_element_count(t);
+        if (n == 0u) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Fragment staging with zero elements: {}", t->describe());
+        }
+        auto s = _fb->shared(Type::array(elem_t, n));
+        _fragment_staging.emplace(t, s);
+        return s;
+    }
+
+    // refresh every thread's fragment replica from the staging tile
+    void _replicate_from_staging(const TensorExpr *t, const Type *elem_t,
+                                 const RefExpr *staging) {
+        _sync_block();
+        _full_loop(t, [&](const Coord &c) {
+            auto idx = _local_index(t, c);
+            _write_to(t, c, _fb->access(elem_t, staging, idx));
+        });
     }
 
     // emit `if (cond) { body() }` (the AST-level equivalent of the DSL $if)
@@ -1418,7 +1499,21 @@ private:
             _write_to(dst, c, _value_at(src, c));
         };
         if (dst->scope() == TensorScope::Fragment) {
-            _full_loop(ext, body);
+            if (src->scope() == TensorScope::Global) {
+                // coalesced global->fragment staging (lc_optimize 4): the block
+                // cooperatively streams the tile through shared memory instead
+                // of every thread redundantly re-reading the whole tile
+                auto elem_t = tensor_element_type(dst->dtype());
+                auto staging = _staging_for(dst, elem_t);
+                _sync_block();// staging write-after-read hazard
+                _partition_loop(ext, [&](const Coord &c) {
+                    _fb->assign(_fb->access(elem_t, staging, _local_index(dst, c)),
+                                _maybe_cast(_value_at(src, c), elem_t));
+                });
+                _replicate_from_staging(dst, elem_t, staging);
+            } else {
+                _full_loop(ext, body);
+            }
         } else {
             _partition_loop(ext, body);
         }
@@ -1521,41 +1616,93 @@ private:
             }};
     }
 
-    void _emit_reduce_sum(const ReduceSumStmt *s) {
-        auto *x = s->x();
-        auto *y = s->y();
-        auto dim = s->dim();
+    // warp-collective tile reduction (lc_optimize 3.2): output elements are
+    // assigned to whole warps; lanes stride the reduce axis with an
+    // identity-padded guard, a built-in warp all-reduce combines the partials
+    // (no shared memory, no barrier), and lane 0 writes the result.
+    // Fragment outputs (replicated layout) are published through a shared
+    // staging tile and then re-replicated into every thread's local copy.
+    void _emit_tile_reduce(const TensorExpr *x, const TensorExpr *y,
+                           uint32_t dim, TileReduceOp op) {
         auto elem_t = tensor_element_type(x->dtype());
         auto saved = _current_extent;
         _current_extent = x;
-        auto out = [&](const Coord &c) {
-            // accumulate over the reduce axis into a per-thread local
-            auto acc = _fb->local(elem_t);
-            _fb->assign(acc, _maybe_cast(_zero_of(x->dtype()), elem_t));
-            auto reduce_len = static_cast<uint32_t>(axis_extent(x, dim));
-            _for_range(_literal_u(0u), _literal_u(reduce_len), _literal_u(1u),
-                       [&](const Expression *k) {
-                auto xc = _zero_coord();
-                for (auto i = 0u; i < x->rank(); ++i) {
-                    if (i == dim) {
-                        xc[i] = k;
-                    } else {
-                        auto j = i < dim ? i : i - 1u;
-                        xc[i] = c[j];
-                    }
-                }
-                auto v = _value_at(x, xc);
-                auto sum = _fb->binary(elem_t, BinaryOp::ADD, acc, v);
-                _fb->assign(acc, sum);
-            });
-            _write_to(y, c, acc);
-        };
-        if (y->scope() == TensorScope::Fragment) {
-            _full_loop(y, out);
-        } else {
-            _partition_loop(y, out);
+        auto reduce_len = static_cast<uint32_t>(axis_extent(x, dim));
+        // output space = x without the reduce axis
+        uint32_t out_count = 1u;
+        for (auto i = 0u; i < x->rank(); ++i) {
+            if (i != dim) { out_count *= static_cast<uint32_t>(axis_extent(x, i)); }
         }
+        auto lanes = _lane_count();
+        auto lane = _lane();
+        auto warp = _warp_id();
+        auto nw = _num_warps();
+        auto k_iters = _ceildiv_expr(_literal_u(reduce_len), lanes);
+        auto o_iters = _ceildiv_expr(_literal_u(out_count), nw);
+        const bool frag_out = y->scope() == TensorScope::Fragment;
+        auto out_t = tensor_element_type(y->dtype());
+        const RefExpr *staging = frag_out ? _staging_for(y, out_t) : nullptr;
+        if (frag_out) { _sync_block(); }// staging write-after-read hazard
+        _for_range(_literal_u(0u), o_iters, _literal_u(1u),
+                   [&](const Expression *oi) {
+            auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, oi, nw);
+            auto o = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, warp);
+            auto o_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                       o, _literal_u(out_count));
+            _if(o_valid, [&] {
+                // decompose o over x's shape minus the reduce axis
+                Coord xc = _zero_coord();
+                Coord yc = _zero_coord();
+                auto rem = o;
+                for (int32_t i = static_cast<int32_t>(x->rank()) - 1; i >= 0; --i) {
+                    auto ui = static_cast<uint32_t>(i);
+                    if (ui == dim) { continue; }
+                    auto e = _literal_u(static_cast<uint32_t>(axis_extent(x, ui)));
+                    auto ci = _fb->binary(Type::of<uint>(), BinaryOp::MOD, rem, e);
+                    rem = _fb->binary(Type::of<uint>(), BinaryOp::DIV, rem, e);
+                    xc[ui] = ci;
+                    yc[ui < dim ? ui : ui - 1u] = ci;
+                }
+                // per-lane partial over the strided reduce axis
+                auto acc = _fb->local(elem_t);
+                _fb->assign(acc, _reduce_identity(op, x->dtype()));
+                _for_range(_literal_u(0u), k_iters, _literal_u(1u),
+                           [&](const Expression *ki) {
+                    auto t2 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, ki, lanes);
+                    auto k = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t2, lane);
+                    auto v = _fb->local(elem_t);
+                    _fb->assign(v, _reduce_identity(op, x->dtype()));
+                    auto k_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                               k, _literal_u(reduce_len));
+                    _if(k_valid, [&] {
+                        xc[dim] = k;
+                        auto xv = _maybe_cast(_value_at(x, xc), elem_t);
+                        if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
+                            xv = _fb->call(elem_t, CallOp::ABS, {xv});
+                        }
+                        _fb->assign(v, xv);
+                    });
+                    _fb->assign(acc, _reduce_combine(op, elem_t, acc, v));
+                });
+                auto total = _warp_reduce(op, elem_t, acc);
+                auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                            lane, _literal_u(0u));
+                _if(is_lane0, [&] {
+                    if (frag_out) {
+                        _fb->assign(_fb->access(out_t, staging, _local_index(y, yc)),
+                                    _maybe_cast(total, out_t));
+                    } else {
+                        _write_to(y, yc, total);
+                    }
+                });
+            });
+        });
+        if (frag_out) { _replicate_from_staging(y, out_t, staging); }
         _current_extent = saved;
+    }
+
+    void _emit_reduce_sum(const ReduceSumStmt *s) {
+        _emit_tile_reduce(s->x(), s->y(), s->dim(), TileReduceOp::SUM);
     }
 
     void _emit_gemm(const GemmStmt *s) {
@@ -1566,14 +1713,15 @@ private:
         auto *a = s->a();
         auto *b = s->b();
         auto *c = s->c();
-        auto acc_t = tensor_element_type(c->dtype());
         auto wide_t = Type::of<float>();// f16 inputs accumulate in f32
         auto bk = static_cast<uint32_t>(axis_extent(a, 1u));// K extent
         auto saved = _current_extent;
         _current_extent = c;
-        // replicated fragment accumulator: every thread computes the whole C
-        // tile from shared A/B tiles (plan 2.4 SIMT fallback)
-        _full_loop(c, [&](const Coord &cc) {
+        // SIMT partition (lc_optimize): each thread owns a strided slice of the
+        // C tile and accumulates it in a register; the K-loop reads the
+        // (usually shared) A/B tiles.  Previously every thread redundantly
+        // computed the WHOLE C tile (_full_loop), i.e. threads x more work.
+        auto compute_acc = [&](const Coord &cc) -> const Expression * {
             auto r = cc[0];
             auto n = cc[1];
             auto acc = _fb->local(wide_t);
@@ -1604,8 +1752,25 @@ private:
                 auto bv = _maybe_cast(_value_at(b, bc), wide_t);
                 _fb->assign(acc, _fb->call(wide_t, CallOp::FMA, {av, bv, acc}));
             });
-            _write_to(c, cc, acc);
-        });
+            return acc;
+        };
+        if (c->scope() == TensorScope::Fragment) {
+            // fragment C is replicated: publish the partitioned results through
+            // a shared staging tile, then refresh every thread's replica
+            auto out_t = tensor_element_type(c->dtype());
+            auto staging = _staging_for(c, out_t);
+            _sync_block();// staging write-after-read hazard vs. previous use
+            _partition_loop(c, [&](const Coord &cc) {
+                auto acc = compute_acc(cc);
+                _fb->assign(_fb->access(out_t, staging, _local_index(c, cc)),
+                            _maybe_cast(acc, out_t));
+            });
+            _replicate_from_staging(c, out_t, staging);
+        } else {
+            _partition_loop(c, [&](const Coord &cc) {
+                _write_to(c, cc, compute_acc(cc));
+            });
+        }
         _current_extent = saved;
     }
 
@@ -1884,81 +2049,133 @@ private:
     // generic reduce family: T.reduce_max / reduce_min / reduce_abssum /
     // reduce_absmax / reduce_bitand / reduce_bitor / reduce_bitxor
     void _emit_reduce(const ReduceStmt *s) {
-        auto *x = s->buf();
-        auto *y = s->out();
-        auto dim = s->dim();
-        auto op = s->op();
-        auto elem_t = tensor_element_type(x->dtype());
-        auto saved = _current_extent;
-        _current_extent = x;
-        auto out = [&](const Coord &c) {
-            auto acc = _fb->local(elem_t);
-            _fb->assign(acc, _reduce_identity(op, x->dtype()));
-            auto reduce_len = static_cast<uint32_t>(axis_extent(x, dim));
-            _for_range(_literal_u(0u), _literal_u(reduce_len), _literal_u(1u),
-                       [&](const Expression *k) {
-                auto xc = _zero_coord();
-                for (auto i = 0u; i < x->rank(); ++i) {
-                    if (i == dim) {
-                        xc[i] = k;
-                    } else {
-                        auto j = i < dim ? i : i - 1u;
-                        xc[i] = c[j];
-                    }
-                }
-                auto v = _value_at(x, xc);
-                if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
-                    v = _fb->call(elem_t, CallOp::ABS, {v});
-                }
-                _fb->assign(acc, _reduce_combine(op, elem_t, acc, v));
-            });
-            _write_to(y, c, acc);
-        };
-        if (y->scope() == TensorScope::Fragment) {
-            _full_loop(y, out);
-        } else {
-            _partition_loop(y, out);
-        }
-        _current_extent = saved;
+        _emit_tile_reduce(s->buf(), s->out(), s->dim(), s->op());
     }
 
     // inclusive prefix scan along `dim`: T.cumsum / T.cummax (src, dst, dim, reverse)
+    // Warp-collective scan (lc_optimize 3.4): each warp owns whole scan lines;
+    // lanes load one element per chunk, WARP_PREFIX_SUM (or a WARP_READ_LANE
+    // butterfly for max) produces the in-chunk inclusive scan and a running
+    // carry stitches the chunks together.  Replaces the previous O(n^2)
+    // per-element re-accumulation.
     void _emit_scan(const TensorExpr *src, const TensorExpr *dst,
                     uint32_t dim, int32_t reverse, bool is_max) {
         auto elem_t = tensor_element_type(src->dtype());
         auto saved = _current_extent;
         _current_extent = src;
         auto scan_len = static_cast<uint32_t>(axis_extent(src, dim));
-        auto body = [&](const Coord &c) {
-            auto acc = _fb->local(elem_t);
-            _fb->assign(acc, _reduce_identity(is_max ? TileReduceOp::MAX : TileReduceOp::SUM,
-                                              src->dtype()));
-            _for_range(_literal_u(0u), _literal_u(scan_len), _literal_u(1u),
-                       [&](const Expression *k) {
-                // inclusive scan: accumulate k <= c[dim] (k >= c[dim] when reversed)
-                auto pred = _fb->binary(Type::of<bool>(),
-                                        reverse != 0 ? BinaryOp::GREATER_EQUAL : BinaryOp::LESS_EQUAL,
-                                        k, c[dim]);
-                _if(pred, [&] {
-                    auto xc = _zero_coord();
-                    for (auto i = 0u; i < src->rank(); ++i) { xc[i] = i == dim ? k : c[i]; }
-                    auto v = _value_at(src, xc);
-                    const Expression *combined = nullptr;
-                    if (is_max) {
-                        combined = _fb->call(elem_t, CallOp::MAX, {acc, v});
-                    } else {
-                        combined = _fb->binary(elem_t, BinaryOp::ADD, acc, v);
+        uint32_t line_count = 1u;
+        for (auto i = 0u; i < src->rank(); ++i) {
+            if (i != dim) { line_count *= static_cast<uint32_t>(axis_extent(src, i)); }
+        }
+        auto lanes = _lane_count();
+        auto lane = _lane();
+        auto warp = _warp_id();
+        auto nw = _num_warps();
+        auto chunks = _ceildiv_expr(_literal_u(scan_len), lanes);
+        auto line_iters = _ceildiv_expr(_literal_u(line_count), nw);
+        const bool frag_out = dst->scope() == TensorScope::Fragment;
+        auto out_t = tensor_element_type(dst->dtype());
+        const RefExpr *staging = frag_out ? _staging_for(dst, out_t) : nullptr;
+        if (frag_out) { _sync_block(); }// staging write-after-read hazard
+        auto identity = [&] {
+            return _reduce_identity(is_max ? TileReduceOp::MAX : TileReduceOp::SUM,
+                                    src->dtype());
+        };
+        _for_range(_literal_u(0u), line_iters, _literal_u(1u),
+                   [&](const Expression *li) {
+            auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, li, nw);
+            auto line = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, warp);
+            auto line_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                          line, _literal_u(line_count));
+            _if(line_valid, [&] {
+                // decompose the line index over src's shape minus the scan axis
+                Coord cc = _zero_coord();
+                auto rem = line;
+                for (int32_t i = static_cast<int32_t>(src->rank()) - 1; i >= 0; --i) {
+                    auto ui = static_cast<uint32_t>(i);
+                    if (ui == dim) { continue; }
+                    auto e = _literal_u(static_cast<uint32_t>(axis_extent(src, ui)));
+                    auto ci = _fb->binary(Type::of<uint>(), BinaryOp::MOD, rem, e);
+                    rem = _fb->binary(Type::of<uint>(), BinaryOp::DIV, rem, e);
+                    cc[ui] = ci;
+                }
+                auto carry = _fb->local(elem_t);
+                _fb->assign(carry, identity());
+                _for_range(_literal_u(0u), chunks, _literal_u(1u),
+                           [&](const Expression *ch) {
+                    auto t2 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, ch, lanes);
+                    auto off = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t2, lane);
+                    // element position along the scan axis (from the scan side)
+                    const Expression *pos = off;
+                    if (reverse != 0) {
+                        pos = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
+                                          _literal_u(scan_len - 1u), off);
                     }
-                    _fb->assign(acc, combined);
+                    auto valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                             off, _literal_u(scan_len));
+                    auto v = _fb->local(elem_t);
+                    _fb->assign(v, identity());
+                    _if(valid, [&] {
+                        cc[dim] = pos;
+                        _fb->assign(v, _maybe_cast(_value_at(src, cc), elem_t));
+                    });
+                    // in-chunk inclusive scan across the warp: butterfly
+                    // inclusive scan via WARP_READ_LANE (lc_optimize 2.2; the
+                    // lane read is unconditional/clamped so it is never
+                    // divergent — the built-in WARP_PREFIX_SUM miscompiles in
+                    // this nested control flow on some backends)
+                    auto incl = _fb->local(elem_t);
+                    _fb->assign(incl, v);
+                    for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
+                        auto d_active = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                                    _literal_u(d), lanes);
+                        _if(d_active, [&] {
+                            auto clamped = _fb->call(Type::of<uint>(), CallOp::MIN,
+                                                     {lane, _literal_u(d)});
+                            auto peer = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
+                                                    lane, clamped);
+                            // the wave read must stay UNCONDITIONAL (a
+                            // divergent wave intrinsic is UB): stage it in a
+                            // local and guard only the combine step
+                            auto other = _fb->local(elem_t);
+                            _fb->assign(other, _fb->call(elem_t, CallOp::WARP_READ_LANE,
+                                                         {incl, peer}));
+                            auto has_prev = _fb->binary(Type::of<bool>(),
+                                                        BinaryOp::GREATER_EQUAL,
+                                                        lane, _literal_u(d));
+                            _if(has_prev, [&] {
+                                auto combined = is_max
+                                                    ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {incl, other}))
+                                                    : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, incl, other));
+                                _fb->assign(incl, combined);
+                            });
+                        });
+                    }
+                    // chunk total = the last lane's inclusive value
+                    auto last = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
+                                            lanes, _literal_u(1u));
+                    auto total = _fb->call(elem_t, CallOp::WARP_READ_LANE, {incl, last});
+                    const Expression *res = is_max
+                                                ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {carry, incl}))
+                                                : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, carry, incl));
+                    _if(valid, [&] {
+                        cc[dim] = pos;
+                        if (frag_out) {
+                            _fb->assign(_fb->access(out_t, staging, _local_index(dst, cc)),
+                                        _maybe_cast(res, out_t));
+                        } else {
+                            _write_to(dst, cc, res);
+                        }
+                    });
+                    const Expression *new_carry = is_max
+                                                      ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {carry, total}))
+                                                      : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, carry, total));
+                    _fb->assign(carry, new_carry);
                 });
             });
-            _write_to(dst, c, acc);
-        };
-        if (dst->scope() == TensorScope::Fragment) {
-            _full_loop(dst, body);
-        } else {
-            _partition_loop(dst, body);
-        }
+        });
+        if (frag_out) { _replicate_from_staging(dst, out_t, staging); }
         _current_extent = saved;
     }
 
