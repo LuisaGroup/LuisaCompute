@@ -745,6 +745,11 @@ luisa_pipeline_observation_requires_distinct_rays(uint32_t mask) {
            (mask & LUISA_PIPELINE_OBSERVES_OBJECT_RAY) != 0u;
 }
 
+static __device__ __forceinline__ bool
+luisa_pipeline_observation_is_object_ray_quotient(uint32_t mask) {
+    return mask == LUISA_PIPELINE_OBSERVES_OBJECT_RAY;
+}
+
 struct LuisaPipelineRayQueryHit {
     uint32_t instance_id;
     uint32_t primitive_id;
@@ -795,6 +800,32 @@ luisa_pipeline_ray_query_dispatch_compact(
     void *context, uint32_t pipeline_id, uint32_t candidate_kind,
     uint32_t query_flags, uint32_t instance_id, uint32_t primitive_id,
     float u, float v, float t);
+
+// Candidate-plus-object-ray quotient. Keeping this as a distinct ABI from the
+// candidate-only dispatcher ensures ordinary surface filters do not carry
+// eight dead float arguments merely because a procedural handler observes its
+// active instance-space ray.
+extern "C" __device__ uint64_t
+luisa_pipeline_ray_query_dispatch_compact_object_ray(
+    void *context, uint32_t pipeline_id, uint32_t candidate_kind,
+    uint32_t query_flags, uint32_t instance_id, uint32_t primitive_id,
+    float u, float v, float t,
+    float ox, float oy, float oz, float tmin,
+    float dx, float dy, float dz, float tmax);
+
+static __device__ __forceinline__ uint64_t
+luisa_pipeline_dispatch_compact_object_ray(
+    void *context, uint32_t pipeline_id, uint32_t candidate_kind,
+    uint32_t query_flags, uint32_t instance_id, uint32_t primitive_id,
+    float u, float v, float t, const hiprtRay &object_ray) {
+    return luisa_pipeline_ray_query_dispatch_compact_object_ray(
+        context, pipeline_id, candidate_kind, query_flags,
+        instance_id, primitive_id, u, v, t,
+        object_ray.origin.x, object_ray.origin.y, object_ray.origin.z,
+        object_ray.minT,
+        object_ray.direction.x, object_ray.direction.y,
+        object_ray.direction.z, object_ray.maxT);
+}
 
 static __device__ __forceinline__ void *
 luisa_pipeline_query_object(LuisaPipelineRayQueryState *state) {
@@ -879,11 +910,30 @@ luisa_pipeline_native_closest_surface_candidate(
     const auto observation_mask =
         luisa_pipeline_surface_observation_mask(
             payload->handler_observation_masks);
-    if ((observation_mask &
-         LUISA_PIPELINE_OBSERVES_OBJECT_RAY) != 0u) {
-        auto transaction =
-            luisa_pipeline_begin_object_ray_transaction(
+    if (luisa_pipeline_observation_is_object_ray_quotient(
+            observation_mask)) {
+        const auto packed = luisa_pipeline_dispatch_compact_object_ray(
+            payload->callback_context, payload->pipeline_id,
+            LUISA_PIPELINE_RQ_STATE_SURFACE, state->flags,
+            hit.instanceIDs[0], hit.primID,
+            hit.uv.x, hit.uv.y, hit.t, active_ray);
+        const auto actions = static_cast<uint32_t>(packed);
+        if ((actions & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+            __builtin_trap();
+        }
+        return (actions & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u;
+    }
+    if (observation_mask != 0u) {
+        const auto observes_object_ray =
+            (observation_mask &
+             LUISA_PIPELINE_OBSERVES_OBJECT_RAY) != 0u;
+        auto transaction = LuisaPipelineObjectRayTransaction{};
+        if (observes_object_ray) {
+            transaction = luisa_pipeline_begin_object_ray_transaction(
                 state, active_ray);
+        } else {
+            state->ray.maxT = active_ray.maxT;
+        }
         state->candidate_hit = LuisaPipelineRayQueryHit{
             hit.instanceIDs[0], hit.primID,
             hit.uv.x, hit.uv.y, hit.t};
@@ -896,8 +946,10 @@ luisa_pipeline_native_closest_surface_candidate(
             LUISA_PIPELINE_RQ_STATE_SURFACE);
         if (state->terminated) { __builtin_trap(); }
         const auto committed = state->candidate_committed;
-        luisa_pipeline_end_object_ray_transaction(
-            state, transaction, committed);
+        if (observes_object_ray) {
+            luisa_pipeline_end_object_ray_transaction(
+                state, transaction, committed);
+        }
         return committed;
     }
     // The candidate-only transaction is the exact quotient of the public query
@@ -927,6 +979,29 @@ luisa_pipeline_native_closest_procedural_candidate(
     const auto observation_mask =
         luisa_pipeline_procedural_observation_mask(
             payload->handler_observation_masks);
+    if (luisa_pipeline_observation_is_object_ray_quotient(
+            observation_mask)) {
+        const auto packed = luisa_pipeline_dispatch_compact_object_ray(
+            payload->callback_context, payload->pipeline_id,
+            LUISA_PIPELINE_RQ_STATE_PROCEDURAL, state->flags,
+            hit.instanceIDs[0], hit.primID,
+            0.0f, 0.0f, active_ray.maxT, active_ray);
+        const auto actions = static_cast<uint32_t>(packed);
+        if ((actions & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+            __builtin_trap();
+        }
+        if ((actions & LUISA_PIPELINE_CANDIDATE_COMMITTED) == 0u) {
+            return false;
+        }
+        hit.t = __uint_as_float(
+            static_cast<uint32_t>(packed >> 32u));
+        hit.uv = hiprtFloat2{0.0f, 0.0f};
+        hit.normal = hiprtFloat3{
+            LUISA_PROCEDURAL_NAN,
+            LUISA_PROCEDURAL_NAN,
+            LUISA_PROCEDURAL_NAN};
+        return true;
+    }
     if (observation_mask != 0u) {
         // A procedural custom leaf is the one candidate class for which the
         // XIR proof permits world-ray observation. Closest and resumable HIPRT
@@ -1643,8 +1718,7 @@ luisa_pipeline_ray_query_initialize(
 // the header remains valid if HIPRT begins consulting the selected entry in a
 // future revision. Candidate-specific data travels in the traversal payload.
 static __device__ hiprtFuncDataSet
-    luisa_pipeline_native_closest_func_data_sets[
-        LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE + 1u] = {};
+    luisa_pipeline_native_closest_func_data_sets[LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE + 1u] = {};
 
 template<typename Stack, unsigned int shared_stack_size>
 static __device__ __forceinline__ void
@@ -1665,8 +1739,7 @@ luisa_pipeline_ray_query_trace_native_closest_impl(
             handler_observation_masks);
     const auto known_encoded_bits =
         LUISA_PIPELINE_HANDLER_OBSERVATION_MASK |
-        (LUISA_PIPELINE_HANDLER_OBSERVATION_MASK <<
-         LUISA_PIPELINE_PROCEDURAL_OBSERVATION_SHIFT);
+        (LUISA_PIPELINE_HANDLER_OBSERVATION_MASK << LUISA_PIPELINE_PROCEDURAL_OBSERVATION_SHIFT);
     if ((handler_observation_masks & ~known_encoded_bits) != 0u ||
         luisa_pipeline_observation_requires_distinct_rays(
             surface_observation_mask) ||
@@ -1814,20 +1887,49 @@ luisa_pipeline_ray_query_trace_impl(
             state->candidate_hit = LuisaPipelineRayQueryHit{
                 hit.instanceIDs[0], hit.primID,
                 0.0f, 0.0f, state->ray.maxT};
-            const auto observes_object_ray =
-                (procedural_observation_mask &
-                 LUISA_PIPELINE_OBSERVES_OBJECT_RAY) != 0u;
-            auto transaction = LuisaPipelineObjectRayTransaction{};
-            if (observes_object_ray) {
-                transaction = luisa_pipeline_begin_object_ray_transaction(
-                    state, candidate_object_ray);
-            }
-            luisa_pipeline_dispatch_candidate(
-                state, callback_context, pipeline_id,
-                LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
-            if (observes_object_ray) {
-                luisa_pipeline_end_object_ray_transaction(
-                    state, transaction, state->candidate_committed);
+            if (luisa_pipeline_observation_is_object_ray_quotient(
+                    procedural_observation_mask)) {
+                const auto packed =
+                    luisa_pipeline_dispatch_compact_object_ray(
+                        callback_context, pipeline_id,
+                        LUISA_PIPELINE_RQ_STATE_PROCEDURAL,
+                        state->flags, hit.instanceIDs[0], hit.primID,
+                        0.0f, 0.0f, state->ray.maxT,
+                        candidate_object_ray);
+                const auto actions = static_cast<uint32_t>(packed);
+                state->candidate_committed =
+                    (actions &
+                     LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u;
+                state->terminated =
+                    (actions &
+                     LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u;
+                if (state->candidate_committed) {
+                    const auto distance = __uint_as_float(
+                        static_cast<uint32_t>(packed >> 32u));
+                    state->committed_hit = state->candidate_hit;
+                    state->committed_hit.t = distance;
+                    state->committed_kind =
+                        LUISA_PIPELINE_HIT_PROCEDURAL;
+                    state->ray.maxT = distance;
+                }
+            } else {
+                const auto observes_object_ray =
+                    (procedural_observation_mask &
+                     LUISA_PIPELINE_OBSERVES_OBJECT_RAY) != 0u;
+                auto transaction = LuisaPipelineObjectRayTransaction{};
+                if (observes_object_ray) {
+                    transaction =
+                        luisa_pipeline_begin_object_ray_transaction(
+                            state, candidate_object_ray);
+                }
+                luisa_pipeline_dispatch_candidate(
+                    state, callback_context, pipeline_id,
+                    LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
+                if (observes_object_ray) {
+                    luisa_pipeline_end_object_ray_transaction(
+                        state, transaction,
+                        state->candidate_committed);
+                }
             }
         } else {
             luisa_pipeline_store_hit(state->candidate_hit, hit);
@@ -1836,6 +1938,28 @@ luisa_pipeline_ray_query_trace_impl(
             if (luisa_instance_is_opaque(
                     state->instances, state->candidate_hit.instance_id)) {
                 luisa_pipeline_commit_surface(state);
+            } else if (
+                luisa_pipeline_observation_is_object_ray_quotient(
+                    surface_observation_mask)) {
+                const auto packed =
+                    luisa_pipeline_dispatch_compact_object_ray(
+                        callback_context, pipeline_id,
+                        LUISA_PIPELINE_RQ_STATE_SURFACE,
+                        state->flags, hit.instanceIDs[0], hit.primID,
+                        hit.uv.x, hit.uv.y, hit.t,
+                        candidate_object_ray);
+                const auto actions = static_cast<uint32_t>(packed);
+                state->candidate_committed =
+                    (actions &
+                     LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u;
+                state->terminated =
+                    (actions &
+                     LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u;
+                if (state->candidate_committed) {
+                    state->committed_hit = state->candidate_hit;
+                    state->committed_kind = LUISA_PIPELINE_HIT_SURFACE;
+                    state->ray.maxT = hit.t;
+                }
             } else {
                 const auto observes_object_ray =
                     (surface_observation_mask &
@@ -2426,6 +2550,22 @@ luisa_pipeline_process_nonopaque_surface_candidate(
         }
         return result;
     }
+    if (luisa_pipeline_observation_is_object_ray_quotient(
+            observation_mask)) {
+        const auto packed = luisa_pipeline_dispatch_compact_object_ray(
+            callback_context, pipeline_id,
+            LUISA_PIPELINE_RQ_STATE_SURFACE,
+            terminate_on_first ? 1u : 0u,
+            instance_id, primitive_id, u, v, t, object_ray);
+        const auto result = static_cast<uint32_t>(packed);
+        if ((result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+            committed_hit = LuisaPipelineRayQueryHit{
+                instance_id, primitive_id, u, v, t};
+            committed_kind = LUISA_PIPELINE_HIT_SURFACE;
+            active_t_max = t;
+        }
+        return result;
+    }
     luisa_pipeline_export_committed_state(
         state, committed_hit, committed_kind,
         active_t_max);
@@ -2483,6 +2623,25 @@ luisa_pipeline_process_procedural_candidate(
                 terminate_on_first ? 1u : 0u,
                 instance_id, primitive_id,
                 0.0f, 0.0f, active_t_max);
+        const auto result = static_cast<uint32_t>(packed);
+        if ((result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+            const auto distance = __uint_as_float(
+                static_cast<uint32_t>(packed >> 32u));
+            committed_hit = LuisaPipelineRayQueryHit{
+                instance_id, primitive_id, 0.0f, 0.0f, distance};
+            committed_kind = LUISA_PIPELINE_HIT_PROCEDURAL;
+            active_t_max = distance;
+        }
+        return result;
+    }
+    if (luisa_pipeline_observation_is_object_ray_quotient(
+            observation_mask)) {
+        const auto packed = luisa_pipeline_dispatch_compact_object_ray(
+            callback_context, pipeline_id,
+            LUISA_PIPELINE_RQ_STATE_PROCEDURAL,
+            terminate_on_first ? 1u : 0u,
+            instance_id, primitive_id,
+            0.0f, 0.0f, active_t_max, object_ray);
         const auto result = static_cast<uint32_t>(packed);
         if ((result & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
             const auto distance = __uint_as_float(

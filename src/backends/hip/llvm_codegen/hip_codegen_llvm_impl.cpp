@@ -750,6 +750,8 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
         "luisa_ray_query_pipeline_dispatch");
     close_optional_pipeline_dispatch(
         "luisa_pipeline_ray_query_dispatch_compact");
+    close_optional_pipeline_dispatch(
+        "luisa_pipeline_ray_query_dispatch_compact_object_ray");
 
     // The embedded wrapper must retain support for every curve basis, but each
     // generated kernel only needs the bases declared by its trace operations.

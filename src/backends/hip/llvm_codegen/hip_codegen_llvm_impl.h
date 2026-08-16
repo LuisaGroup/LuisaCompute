@@ -142,10 +142,9 @@ public:
         // True exactly when the parent function can observe query state after
         // the synchronous pipeline.
         bool post_state_observed;
-        // True when either handler observes committed state or either public
-        // ray representation. Such a handler requires an observable query
-        // transaction instead of the candidate-only
-        // {candidate, commit, terminate} action product.
+        // True when either handler observes committed state or the immutable
+        // world ray. An object-ray-only handler uses a second compact quotient;
+        // these observations require the full public query transaction.
         bool full_candidate_state_observed;
         // True when the XIR handler pair and the query's only observable
         // post-state form a closest-hit reduction. This permits HIPRT to run
@@ -163,6 +162,10 @@ public:
         // environment but constructs query identity locally. Index zero is
         // therefore null; every other entry mirrors `loads`.
         luisa::vector<llvm::LoadInst *> compact_loads;
+        // The object-ray quotient has an independent dispatcher but decodes
+        // the same projected environment. Track both consumer sets so the
+        // projection rewrites every load to the identical product type.
+        luisa::vector<llvm::LoadInst *> compact_object_ray_loads;
     };
 
     struct RayQueryPipelineProjectionInfo {
@@ -343,6 +346,13 @@ private:
     llvm::SwitchInst *_llvm_ray_query_pipeline_compact_switch{nullptr};
     llvm::Value *_llvm_ray_query_pipeline_compact_query{nullptr};
     llvm::BasicBlock *_llvm_ray_query_pipeline_compact_finish{nullptr};
+    llvm::Function *_llvm_ray_query_pipeline_compact_object_ray_dispatch{
+        nullptr};
+    llvm::SwitchInst *_llvm_ray_query_pipeline_compact_object_ray_switch{
+        nullptr};
+    llvm::Value *_llvm_ray_query_pipeline_compact_object_ray_query{nullptr};
+    llvm::BasicBlock *_llvm_ray_query_pipeline_compact_object_ray_finish{
+        nullptr};
     luisa::vector<RayQueryPipelineContext>
         _llvm_ray_query_pipeline_contexts;
 

@@ -16,6 +16,7 @@
 #include <llvm/ADT/SmallPtrSet.h>
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <cstdlib>
 
@@ -30,6 +31,13 @@ namespace {
 // fields; named offsets keep the cross-bitcode ABI reviewable and are exercised
 // by the native callback regression rather than hidden behind numeric GEPs.
 namespace compact_query_layout {
+constexpr auto ray_origin_x = 16u;
+constexpr auto ray_origin_y = 20u;
+constexpr auto ray_origin_z = 24u;
+constexpr auto ray_t_min = 28u;
+constexpr auto ray_direction_x = 32u;
+constexpr auto ray_direction_y = 36u;
+constexpr auto ray_direction_z = 40u;
 constexpr auto ray_t_max = 44u;
 constexpr auto candidate_instance = 48u;
 constexpr auto candidate_primitive = 52u;
@@ -146,6 +154,17 @@ ray_query_observation_requires_distinct_ray_states(
             HIPCodegenLLVMImpl::llvm_ray_query_observes_world_ray) != 0u &&
            (mask &
             HIPCodegenLLVMImpl::llvm_ray_query_observes_object_ray) != 0u;
+}
+
+// The compact object-ray quotient represents candidate state plus exactly one
+// candidate-dependent ray. A committed-hit or immutable world-ray observation
+// therefore requires the ordinary public-state transaction; object-ray-only
+// observation does not.
+[[nodiscard]] constexpr bool
+ray_query_observation_requires_full_state(uint32_t mask) noexcept {
+    return (mask &
+            (HIPCodegenLLVMImpl::llvm_ray_query_observes_committed_hit |
+             HIPCodegenLLVMImpl::llvm_ray_query_observes_world_ray)) != 0u;
 }
 
 [[nodiscard]] bool ray_query_value_has_function_local_state(
@@ -670,7 +689,7 @@ struct NativeClosestHandlerAnalysisContext {
     bool allow_mutable_ray_state) noexcept {
     llvm::DenseSet<const xir::Function *> active_functions;
     auto argument_count = function == nullptr ? 0u :
-                                               function->arguments().count_size();
+                                                function->arguments().count_size();
     if (function == nullptr || argument_count == 0u) { return false; }
     auto query_argument = function->arguments().front();
     if (!query_argument->is_reference() ||
@@ -923,8 +942,7 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
                             mapped_all_leaves = false;
                             break;
                         }
-                        reverse_dependencies[
-                            callee_info.global_offset + callee_leaf]
+                        reverse_dependencies[callee_info.global_offset + callee_leaf]
                             .emplace_back(root.global_offset + caller_leaf);
                     }
                     if (!mapped_all_leaves) {
@@ -976,6 +994,7 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
             argument_count != 0u &&
                 context.loads.size() == argument_count &&
                 context.compact_loads.size() == argument_count &&
+                context.compact_object_ray_loads.size() == argument_count &&
                 context.on_surface->arg_size() == argument_count &&
                 context.on_procedural->arg_size() == argument_count,
             "Malformed HIP synchronous ray-query callback environment.");
@@ -1019,8 +1038,7 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
                 }
             }
             std::sort(surface_paths.begin(), surface_paths.end());
-            auto all_paths = argument_infos[
-                argument_info_indices.find(surface_arg)->second]
+            auto all_paths = argument_infos[argument_info_indices.find(surface_arg)->second]
                                  .paths;
             if (surface_paths.empty()) {
                 projected_argument_count++;
@@ -1069,6 +1087,10 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
             visitor(context.loads[i]);
             if (auto compact_load = context.compact_loads[i]) {
                 visitor(compact_load);
+            }
+            if (auto compact_object_ray_load =
+                    context.compact_object_ray_loads[i]) {
+                visitor(compact_object_ray_load);
             }
         };
         auto erase_original_field = [&](auto i) noexcept {
@@ -1748,51 +1770,60 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             dispatch_b.CreateUnreachable();
         }
 
-        // Candidate-only handlers form a smaller transaction than the public
-        // query object. If whole-handler call-graph analysis proves that no
-        // committed hit or world ray is observed, the native traversal calls
-        // this dispatcher with candidate values and receives only the action
-        // pair {commit, terminate} plus the committed distance. The temporary
-        // state preserves the ordinary RayQuery Callable contract while LLVM
-        // can scalar-replace it through this generated boundary; no traversal
-        // value is made loop-carried and no candidate is replayed.
-        if (_llvm_ray_query_pipeline_compact_dispatch == nullptr) {
-            auto llvm_compact_type = llvm::FunctionType::get(
-                b.getInt64Ty(),
-                {b.getPtrTy(0), b.getInt32Ty(), b.getInt32Ty(),
-                 b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(),
-                 b.getFloatTy(), b.getFloatTy(), b.getFloatTy()},
-                false);
-            _llvm_ray_query_pipeline_compact_dispatch =
-                llvm::Function::Create(
-                    llvm_compact_type, llvm::Function::ExternalLinkage,
-                    "luisa_pipeline_ray_query_dispatch_compact",
-                    _llvm_module.get());
-            _llvm_ray_query_pipeline_compact_dispatch->addFnAttr(
-                llvm::Attribute::NoUnwind);
-            _llvm_ray_query_pipeline_compact_dispatch->getArg(1u)->addAttr(
+        // Candidate handlers admit two useful quotients of public RayQuery
+        // state. Q0 carries only candidate identity/attributes. Qo additionally
+        // carries the active object-space ray, but deliberately not the world
+        // ray or committed hit. These are distinct dispatchers so the common
+        // Q0 surface callback never pays Qo's eight-float call ABI. Both
+        // reconstruct the ordinary query-reference contract in a temporary
+        // state that LLVM can scalar-replace and return only
+        // {commit, terminate, committed_t}.
+        auto create_compact_dispatch = [&]<bool carries_object_ray>(
+                                           llvm::Function *&dispatcher,
+                                           llvm::SwitchInst *&dispatcher_switch,
+                                           llvm::Value *&query,
+                                           llvm::BasicBlock *&finish) noexcept {
+            if (dispatcher != nullptr) { return; }
+            llvm::SmallVector<llvm::Type *, 17> argument_types{
+                b.getPtrTy(0), b.getInt32Ty(), b.getInt32Ty(),
+                b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(),
+                b.getFloatTy(), b.getFloatTy(), b.getFloatTy()};
+            if constexpr (carries_object_ray) {
+                argument_types.append(
+                    {b.getFloatTy(), b.getFloatTy(), b.getFloatTy(),
+                     b.getFloatTy(), b.getFloatTy(), b.getFloatTy(),
+                     b.getFloatTy(), b.getFloatTy()});
+            }
+            auto dispatcher_type = llvm::FunctionType::get(
+                b.getInt64Ty(), argument_types, false);
+            constexpr auto dispatcher_name = carries_object_ray ?
+                                                 "luisa_pipeline_ray_query_dispatch_compact_object_ray" :
+                                                 "luisa_pipeline_ray_query_dispatch_compact";
+            dispatcher = llvm::Function::Create(
+                dispatcher_type, llvm::Function::ExternalLinkage,
+                dispatcher_name, _llvm_module.get());
+            dispatcher->addFnAttr(llvm::Attribute::NoUnwind);
+            dispatcher->getArg(1u)->addAttr(
                 llvm::Attribute::get(
                     _llvm_context,
                     llvm_constant_argument_specialization_attribute));
 
-            auto llvm_compact_entry = llvm::BasicBlock::Create(
-                _llvm_context, "entry",
-                _llvm_ray_query_pipeline_compact_dispatch);
-            auto llvm_compact_invalid = llvm::BasicBlock::Create(
-                _llvm_context, "invalid",
-                _llvm_ray_query_pipeline_compact_dispatch);
-            _llvm_ray_query_pipeline_compact_finish =
-                llvm::BasicBlock::Create(
-                    _llvm_context, "finish",
-                    _llvm_ray_query_pipeline_compact_dispatch);
+            auto entry = llvm::BasicBlock::Create(
+                _llvm_context, "entry", dispatcher);
+            auto invalid = llvm::BasicBlock::Create(
+                _llvm_context, "invalid", dispatcher);
+            finish = llvm::BasicBlock::Create(
+                _llvm_context, "finish", dispatcher);
 
-            IB compact_b{llvm_compact_entry};
+            IB compact_b{entry};
             auto compact_state_type = llvm::ArrayType::get(
                 compact_b.getInt8Ty(),
                 hip_synchronous_ray_query_state_size);
             auto compact_state = compact_b.CreateAlloca(
                 compact_state_type, nullptr,
-                "ray.query.compact.state");
+                carries_object_ray ?
+                    "ray.query.compact.object.state" :
+                    "ray.query.compact.state");
             compact_state->setAlignment(llvm::Align{16u});
             auto compact_field = [&](uint32_t offset,
                                      const llvm::Twine &name) noexcept {
@@ -1809,11 +1840,30 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                 store->setAlignment(alignment);
             };
             auto compact_arg = [&](uint32_t index) noexcept -> llvm::Argument * {
-                return _llvm_ray_query_pipeline_compact_dispatch->getArg(index);
+                return dispatcher->getArg(index);
             };
-            compact_store(
-                compact_arg(8u), compact_query_layout::ray_t_max,
-                llvm::Align{4u}, "ray.query.compact.ray.tmax");
+            if constexpr (carries_object_ray) {
+                constexpr std::array ray_fields{
+                    compact_query_layout::ray_origin_x,
+                    compact_query_layout::ray_origin_y,
+                    compact_query_layout::ray_origin_z,
+                    compact_query_layout::ray_t_min,
+                    compact_query_layout::ray_direction_x,
+                    compact_query_layout::ray_direction_y,
+                    compact_query_layout::ray_direction_z,
+                    compact_query_layout::ray_t_max};
+                for (auto i = 0u; i < ray_fields.size(); ++i) {
+                    compact_store(
+                        compact_arg(9u + i), ray_fields[i],
+                        llvm::Align{4u},
+                        llvm::Twine{"ray.query.compact.object.ray."} +
+                            llvm::Twine{i});
+                }
+            } else {
+                compact_store(
+                    compact_arg(8u), compact_query_layout::ray_t_max,
+                    llvm::Align{4u}, "ray.query.compact.ray.tmax");
+            }
             compact_store(
                 compact_arg(4u), compact_query_layout::candidate_instance,
                 llvm::Align{16u}, "ray.query.compact.candidate.instance");
@@ -1853,24 +1903,21 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                 compact_query_layout::terminated,
                 llvm::Align{1u}, "ray.query.compact.terminated");
 
-            auto compact_query = compact_field(
+            query = compact_field(
                 compact_query_layout::query_address,
                 "ray.query.compact.query");
-            if (compact_query->getType()->getPointerAddressSpace() != 0u) {
-                compact_query = compact_b.CreateAddrSpaceCast(
-                    compact_query, compact_b.getPtrTy(0),
+            if (query->getType()->getPointerAddressSpace() != 0u) {
+                query = compact_b.CreateAddrSpaceCast(
+                    query, compact_b.getPtrTy(0),
                     "ray.query.compact.query.generic");
             }
-            _llvm_ray_query_pipeline_compact_query = compact_query;
-            _llvm_ray_query_pipeline_compact_switch =
-                compact_b.CreateSwitch(
-                    compact_arg(1u), llvm_compact_invalid, 0u);
+            dispatcher_switch = compact_b.CreateSwitch(
+                compact_arg(1u), invalid, 0u);
 
-            compact_b.SetInsertPoint(llvm_compact_invalid);
+            compact_b.SetInsertPoint(invalid);
             compact_b.CreateUnreachable();
 
-            compact_b.SetInsertPoint(
-                _llvm_ray_query_pipeline_compact_finish);
+            compact_b.SetInsertPoint(finish);
             auto compact_load = [&](llvm::Type *type, uint32_t offset,
                                     llvm::Align alignment,
                                     const llvm::Twine &name) noexcept {
@@ -1911,7 +1958,17 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                         compact_distance_bits, compact_b.getInt64Ty()),
                     compact_b.getInt64(32u)));
             compact_b.CreateRet(compact_result);
-        }
+        };
+        create_compact_dispatch.template operator()<false>(
+            _llvm_ray_query_pipeline_compact_dispatch,
+            _llvm_ray_query_pipeline_compact_switch,
+            _llvm_ray_query_pipeline_compact_query,
+            _llvm_ray_query_pipeline_compact_finish);
+        create_compact_dispatch.template operator()<true>(
+            _llvm_ray_query_pipeline_compact_object_ray_dispatch,
+            _llvm_ray_query_pipeline_compact_object_ray_switch,
+            _llvm_ray_query_pipeline_compact_object_ray_query,
+            _llvm_ray_query_pipeline_compact_object_ray_finish);
 
         auto llvm_pipeline_block = llvm::BasicBlock::Create(
             _llvm_context,
@@ -1969,80 +2026,93 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         dispatch_b.SetInsertPoint(llvm_invalid_kind_block);
         dispatch_b.CreateUnreachable();
 
-        auto llvm_compact_pipeline_block = llvm::BasicBlock::Create(
-            _llvm_context,
-            llvm::Twine{"pipeline."} + llvm::Twine{pipeline_index},
-            _llvm_ray_query_pipeline_compact_dispatch);
-        _llvm_ray_query_pipeline_compact_switch->addCase(
-            b.getInt32(pipeline_index), llvm_compact_pipeline_block);
-        IB compact_dispatch_b{llvm_compact_pipeline_block};
-        auto llvm_compact_context =
-            _llvm_ray_query_pipeline_compact_dispatch->getArg(0u);
-        llvm::SmallVector<llvm::Value *, 16> llvm_compact_decoded_args;
-        llvm_compact_decoded_args.reserve(llvm_callback_arg_types.size());
-        llvm_compact_decoded_args.emplace_back(
-            _llvm_ray_query_pipeline_compact_query);
-        luisa::vector<llvm::LoadInst *> llvm_compact_context_loads;
-        llvm_compact_context_loads.reserve(llvm_callback_arg_types.size());
-        llvm_compact_context_loads.emplace_back(nullptr);
-        for (auto i = 1u; i < llvm_callback_arg_types.size(); ++i) {
-            auto llvm_field = compact_dispatch_b.CreateStructGEP(
-                llvm_context_type, llvm_compact_context, i,
-                "ray.query.compact.context.field");
-            auto llvm_value = compact_dispatch_b.CreateLoad(
-                llvm_callback_arg_types[i], llvm_field,
-                "ray.query.compact.context.value");
-            llvm_compact_decoded_args.emplace_back(llvm_value);
-            llvm_compact_context_loads.emplace_back(llvm_value);
-        }
-        auto llvm_compact_surface_block = llvm::BasicBlock::Create(
-            _llvm_context, "surface",
-            _llvm_ray_query_pipeline_compact_dispatch);
-        auto llvm_compact_procedural_block = llvm::BasicBlock::Create(
-            _llvm_context, "procedural",
-            _llvm_ray_query_pipeline_compact_dispatch);
-        auto llvm_compact_invalid_kind_block = llvm::BasicBlock::Create(
-            _llvm_context, "invalid.kind",
-            _llvm_ray_query_pipeline_compact_dispatch);
-        auto llvm_compact_kind_switch = compact_dispatch_b.CreateSwitch(
-            _llvm_ray_query_pipeline_compact_dispatch->getArg(2u),
-            llvm_compact_invalid_kind_block, 2u);
-        llvm_compact_kind_switch->addCase(
-            compact_dispatch_b.getInt32(
-                llvm_ray_query_state_surface_candidate),
-            llvm_compact_surface_block);
-        llvm_compact_kind_switch->addCase(
-            compact_dispatch_b.getInt32(
-                llvm_ray_query_state_procedural_candidate),
-            llvm_compact_procedural_block);
+        auto append_compact_pipeline = [&](llvm::Function *dispatcher,
+                                           llvm::SwitchInst *dispatcher_switch,
+                                           llvm::Value *compact_query,
+                                           llvm::BasicBlock *finish,
+                                           const llvm::Twine &suffix) noexcept {
+            auto pipeline_block = llvm::BasicBlock::Create(
+                _llvm_context,
+                llvm::Twine{"pipeline."} + llvm::Twine{pipeline_index},
+                dispatcher);
+            dispatcher_switch->addCase(
+                b.getInt32(pipeline_index), pipeline_block);
+            IB compact_b{pipeline_block};
+            auto compact_context = dispatcher->getArg(0u);
+            llvm::SmallVector<llvm::Value *, 16> decoded_args;
+            decoded_args.reserve(llvm_callback_arg_types.size());
+            decoded_args.emplace_back(compact_query);
+            luisa::vector<llvm::LoadInst *> context_loads;
+            context_loads.reserve(llvm_callback_arg_types.size());
+            context_loads.emplace_back(nullptr);
+            for (auto i = 1u; i < llvm_callback_arg_types.size(); ++i) {
+                auto field = compact_b.CreateStructGEP(
+                    llvm_context_type, compact_context, i,
+                    llvm::Twine{"ray.query.compact.context.field"} + suffix);
+                auto value = compact_b.CreateLoad(
+                    llvm_callback_arg_types[i], field,
+                    llvm::Twine{"ray.query.compact.context.value"} + suffix);
+                decoded_args.emplace_back(value);
+                context_loads.emplace_back(value);
+            }
+            auto surface_block = llvm::BasicBlock::Create(
+                _llvm_context, "surface", dispatcher);
+            auto procedural_block = llvm::BasicBlock::Create(
+                _llvm_context, "procedural", dispatcher);
+            auto invalid_kind_block = llvm::BasicBlock::Create(
+                _llvm_context, "invalid.kind", dispatcher);
+            auto kind_switch = compact_b.CreateSwitch(
+                dispatcher->getArg(2u), invalid_kind_block, 2u);
+            kind_switch->addCase(
+                compact_b.getInt32(
+                    llvm_ray_query_state_surface_candidate),
+                surface_block);
+            kind_switch->addCase(
+                compact_b.getInt32(
+                    llvm_ray_query_state_procedural_candidate),
+                procedural_block);
 
-        compact_dispatch_b.SetInsertPoint(llvm_compact_surface_block);
-        auto llvm_compact_surface_call = compact_dispatch_b.CreateCall(
-            llvm_on_surface, llvm_compact_decoded_args);
-        llvm_compact_surface_call->setCallingConv(
-            llvm_on_surface->getCallingConv());
-        compact_dispatch_b.CreateBr(
-            _llvm_ray_query_pipeline_compact_finish);
+            compact_b.SetInsertPoint(surface_block);
+            auto surface_call = compact_b.CreateCall(
+                llvm_on_surface, decoded_args);
+            surface_call->setCallingConv(llvm_on_surface->getCallingConv());
+            compact_b.CreateBr(finish);
 
-        compact_dispatch_b.SetInsertPoint(llvm_compact_procedural_block);
-        auto llvm_compact_procedural_call = compact_dispatch_b.CreateCall(
-            llvm_on_procedural, llvm_compact_decoded_args);
-        llvm_compact_procedural_call->setCallingConv(
-            llvm_on_procedural->getCallingConv());
-        compact_dispatch_b.CreateBr(
-            _llvm_ray_query_pipeline_compact_finish);
+            compact_b.SetInsertPoint(procedural_block);
+            auto procedural_call = compact_b.CreateCall(
+                llvm_on_procedural, decoded_args);
+            procedural_call->setCallingConv(
+                llvm_on_procedural->getCallingConv());
+            compact_b.CreateBr(finish);
 
-        compact_dispatch_b.SetInsertPoint(
-            llvm_compact_invalid_kind_block);
-        compact_dispatch_b.CreateUnreachable();
+            compact_b.SetInsertPoint(invalid_kind_block);
+            compact_b.CreateUnreachable();
+            return context_loads;
+        };
+        auto llvm_compact_context_loads = append_compact_pipeline(
+            _llvm_ray_query_pipeline_compact_dispatch,
+            _llvm_ray_query_pipeline_compact_switch,
+            _llvm_ray_query_pipeline_compact_query,
+            _llvm_ray_query_pipeline_compact_finish, "");
+        auto llvm_compact_object_ray_context_loads = append_compact_pipeline(
+            _llvm_ray_query_pipeline_compact_object_ray_dispatch,
+            _llvm_ray_query_pipeline_compact_object_ray_switch,
+            _llvm_ray_query_pipeline_compact_object_ray_query,
+            _llvm_ray_query_pipeline_compact_object_ray_finish,
+            ".object.ray");
 
         auto llvm_state_pointer = _get_ray_query_state_pointer(
             b, func_ctx, query_object);
-        if (observation_masks.any() != 0u) {
+        const auto requires_full_candidate_state =
+            ray_query_observation_requires_full_state(
+                observation_masks.surface) ||
+            ray_query_observation_requires_full_state(
+                observation_masks.procedural);
+        if (requires_full_candidate_state) {
             // Only a full-dispatch callback transaction exports query
-            // identity. Candidate-only native closest reductions use the same
-            // compact quotient as the iterative synchronous route and recover
-            // every observable value from explicit callback arguments.
+            // identity. Candidate-only and object-ray-only native closest
+            // reductions use compact quotients and recover every observable
+            // value from explicit callback arguments.
             auto llvm_query_address_field = b.CreateInBoundsGEP(
                 b.getInt8Ty(), llvm_state_pointer,
                 b.getInt32(compact_query_layout::query_address),
@@ -2071,20 +2141,20 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
              b.getPtrTy(0)},
             false);
         auto llvm_trace_name = use_static_global_hiprt_closest ?
-            (_rt_analysis.writes_instance_opacity ?
-                 "luisa_pipeline_ray_query_trace_all_native_closest_global_stack" :
-                 "luisa_pipeline_ray_query_trace_all_native_closest_global_stack_stable_opacity") :
-            use_native_hiprt_closest ?
-            (_rt_analysis.writes_instance_opacity ?
-                 "luisa_pipeline_ray_query_trace_all_native_closest" :
-                 "luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity") :
-            (query_object->type() == Type::of<RayQueryAny>() ?
-                 (_rt_analysis.writes_instance_opacity ?
-                      "luisa_pipeline_ray_query_trace_any" :
-                      "luisa_pipeline_ray_query_trace_any_stable_opacity") :
-                 (_rt_analysis.writes_instance_opacity ?
-                      "luisa_pipeline_ray_query_trace_all" :
-                      "luisa_pipeline_ray_query_trace_all_stable_opacity"));
+                                   (_rt_analysis.writes_instance_opacity ?
+                                        "luisa_pipeline_ray_query_trace_all_native_closest_global_stack" :
+                                        "luisa_pipeline_ray_query_trace_all_native_closest_global_stack_stable_opacity") :
+                               use_native_hiprt_closest ?
+                                   (_rt_analysis.writes_instance_opacity ?
+                                        "luisa_pipeline_ray_query_trace_all_native_closest" :
+                                        "luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity") :
+                                   (query_object->type() == Type::of<RayQueryAny>() ?
+                                        (_rt_analysis.writes_instance_opacity ?
+                                             "luisa_pipeline_ray_query_trace_any" :
+                                             "luisa_pipeline_ray_query_trace_any_stable_opacity") :
+                                        (_rt_analysis.writes_instance_opacity ?
+                                             "luisa_pipeline_ray_query_trace_all" :
+                                             "luisa_pipeline_ray_query_trace_all_stable_opacity"));
         auto llvm_trace = _llvm_module->getFunction(
             llvm_trace_name);
         if (llvm_trace == nullptr) {
@@ -2112,7 +2182,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                 llvm_on_surface,
                 llvm_on_procedural,
                 post_state_observed,
-                observation_masks.any() != 0u,
+                requires_full_candidate_state,
                 native_closest_reduction,
                 ray_query_observation_requires_distinct_ray_states(
                     observation_masks.surface) ||
@@ -2120,7 +2190,8 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                         observation_masks.procedural),
                 std::move(llvm_context_stores),
                 std::move(llvm_context_loads),
-                std::move(llvm_compact_context_loads)});
+                std::move(llvm_compact_context_loads),
+                std::move(llvm_compact_object_ray_context_loads)});
         return;
     }
 

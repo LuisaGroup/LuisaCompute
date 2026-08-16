@@ -759,10 +759,10 @@ int main(int argc, char *argv[]) {
                 expect(uses_static_native_closest &&
                        before_root.find(
                            "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
-                               std::string_view::npos &&
+                           std::string_view::npos &&
                        before_root.find(
                            "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") ==
-                               std::string_view::npos)
+                           std::string_view::npos)
                     << "gfx12 closest reduction did not select one static-"
                        "global HIPRT closest transaction";
             } else {
@@ -828,7 +828,7 @@ int main(int argc, char *argv[]) {
                    "dedicated query identity";
             expect(observing_before_root.find(
                        "ray.query.identity.address") !=
-                           std::string_view::npos &&
+                       std::string_view::npos &&
                    observing_before_root.find(
                        "ray.query.identity.field") !=
                        std::string_view::npos)
@@ -860,7 +860,7 @@ int main(int argc, char *argv[]) {
                 expect(module.find(
                            "@luisa_hiprt_shared_stack_cache = internal "
                            "addrspace(3) global [6144 x i32]") !=
-                           std::string::npos)
+                       std::string::npos)
                     << "gfx12 mixed native/hardware query did not reserve "
                        "the maximum route-local LDS footprint";
                 expect(module.find(", i32 16)") !=
@@ -887,7 +887,7 @@ int main(int argc, char *argv[]) {
                    "an environment above the ordinary native budget";
             expect(observed_large_before_module.find(
                        "@luisa_ray_query_proceed(") !=
-                   std::string_view::npos &&
+                       std::string_view::npos &&
                    observed_large_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
                        std::string_view::npos)
@@ -955,10 +955,16 @@ int main(int argc, char *argv[]) {
                    object_ray_before_root.find("i32 1024") !=
                        std::string_view::npos &&
                    object_ray_before_module.find(
+                       "@luisa_pipeline_ray_query_dispatch_compact_object_ray(") !=
+                       std::string_view::npos &&
+                   object_ray_before_root.find(
+                       "ray.query.identity.address") ==
+                       std::string_view::npos &&
+                   object_ray_before_module.find(
                        "@luisa_ray_query_proceed(") ==
                        std::string_view::npos)
                 << "procedural object-ray reduction did not retain the "
-                   "split-mask native closest route";
+                   "split-mask native closest route and object-ray quotient";
             expect(joint_rays_before_module.find(
                        "@luisa_ray_query_proceed(") !=
                        std::string_view::npos &&
@@ -975,27 +981,27 @@ int main(int argc, char *argv[]) {
                 // representation ownership in the individual domains.
                 expect(mixed_before_module.find(
                            "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
-                               std::string::npos &&
+                           std::string::npos &&
                        mixed_before_module.find(
                            "@luisa_ray_query_proceed(") !=
-                               std::string::npos)
+                           std::string::npos)
                     << "function-domain retry did not retain synchronous and "
                        "resumable gfx12 RayQuery routes in one module";
                 expect(mixed_exact_state_domain.find(
                            "alloca [112 x i8]") !=
-                               std::string_view::npos &&
+                           std::string_view::npos &&
                        mixed_exact_state_domain.find(
                            "alloca [224 x i8]") ==
-                               std::string_view::npos &&
+                           std::string_view::npos &&
                        mixed_resumable_state_domain.find(
                            "alloca [224 x i8]") !=
-                               std::string_view::npos)
+                           std::string_view::npos)
                     << "mixed gfx12 RayQuery pipelines did not allocate one "
                        "ABI-consistent state representation per function";
                 expect(mixed_before_module.find(
                            "@luisa_hiprt_shared_stack_cache = internal "
                            "addrspace(3) global [4608 x i32]") !=
-                           std::string::npos)
+                       std::string::npos)
                     << "mixed gfx12 RayQuery did not overlay one-region "
                        "16-entry and two-region 9-entry frontiers at the "
                        "common 576-dword stride for eight waves";
