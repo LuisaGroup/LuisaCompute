@@ -155,25 +155,35 @@ private:
             cc.arguments().size() == cc.bound_arguments().size(),
             "Invalid continuation capture list size (expected {}, got {}).",
             cc.arguments().size(), cc.bound_arguments().size());
-        auto continuation_unbound_argument_count = size_t{0u};
-        for (auto &&binding : cc.bound_arguments()) {
-            continuation_unbound_argument_count +=
-                luisa::holds_alternative<luisa::monostate>(binding);
+        const auto is_explicit_call_argument = [](Function function,
+                                                  size_t index) noexcept {
+            auto argument = function.arguments()[index];
+            return !argument.is_builtin() &&
+                   luisa::holds_alternative<luisa::monostate>(
+                       function.bound_arguments()[index]) &&
+                   !function.builder()->has_internalizer_argument(argument);
+        };
+        luisa::vector<size_t> continuation_explicit_argument_indices;
+        continuation_explicit_argument_indices.reserve(
+            cc.arguments().size());
+        for (size_t index = 0u; index < cc.arguments().size(); ++index) {
+            if (is_explicit_call_argument(cc, index)) {
+                continuation_explicit_argument_indices.emplace_back(index);
+            }
         }
         LUISA_ASSERT(
-            continuation_unbound_argument_count ==
+            continuation_explicit_argument_indices.size() ==
                 1u + source_argument_indices.size(),
             "Invalid projected coroutine continuation signature "
-            "(expected {} unbound argument(s), got {}; total arguments {}).",
+            "(expected {} explicit argument(s), got {}; total arguments {}).",
             1u + source_argument_indices.size(),
-            continuation_unbound_argument_count,
+            continuation_explicit_argument_indices.size(),
             cc.arguments().size());
         LUISA_ASSERT(
-            !cc.arguments().empty() &&
-                luisa::holds_alternative<luisa::monostate>(
-                    cc.bound_arguments().front()),
-            "Coroutine continuation must retain an unbound leading frame "
-            "argument.");
+            !continuation_explicit_argument_indices.empty() &&
+                continuation_explicit_argument_indices.front() == 0u,
+            "Coroutine continuation must retain an explicit leading frame "
+            "argument before any implicit callable arguments.");
         LUISA_ASSERT(coroutine.arguments().size() ==
                          coroutine.bound_arguments().size(),
                      "Invalid capture list size (expected {}, got {}).",
@@ -184,8 +194,7 @@ private:
         size_t call_argument_count = 0u;
         for (size_t source_index = 0u;
              source_index < coroutine.arguments().size(); ++source_index) {
-            if (luisa::holds_alternative<luisa::monostate>(
-                    coroutine.bound_arguments()[source_index])) {
+            if (is_explicit_call_argument(coroutine, source_index)) {
                 source_to_call_argument[source_index] =
                     call_argument_count++;
             }
@@ -198,7 +207,7 @@ private:
         luisa::vector<size_t> projected_call_argument_indices;
         auto builder = FB::define_callable([&] {
             luisa::vector<const Expression *> args;
-            args.reserve(cc.arguments().size());
+            args.reserve(continuation_explicit_argument_indices.size());
             auto fb = FB::current();
             const auto materialize_argument =
                 [&]<typename T>(Variable argument, T binding) noexcept
@@ -233,7 +242,8 @@ private:
                     }
                 }
             };
-            auto frame_argument = cc.arguments().front();
+            auto frame_argument =
+                cc.arguments()[continuation_explicit_argument_indices.front()];
             auto frame = materialize_argument(
                 frame_argument, luisa::monostate{});
             args.emplace_back(frame);
@@ -241,29 +251,12 @@ private:
             if (frame_usage != Usage::NONE) { frame->mark(frame_usage); }
             size_t previous_source_index = 0u;
             bool first_source_index = true;
-            size_t projected_index = 0u;
-            for (size_t cc_index = 1u;
-                 cc_index < cc.arguments().size(); ++cc_index) {
+            for (size_t projected_index = 0u;
+                 projected_index < source_argument_indices.size();
+                 ++projected_index) {
+                auto cc_index =
+                    continuation_explicit_argument_indices[projected_index + 1u];
                 auto cc_arg = cc.arguments()[cc_index];
-                auto cc_binding = cc.bound_arguments()[cc_index];
-                if (!luisa::holds_alternative<luisa::monostate>(
-                        cc_binding)) {
-                    auto internal_arg = luisa::visit(
-                        [&](auto binding) noexcept {
-                            return materialize_argument(cc_arg, binding);
-                        },
-                        cc_binding);
-                    args.emplace_back(internal_arg);
-                    auto usage = cc.variable_usage(cc_arg.uid());
-                    if (usage != Usage::NONE) {
-                        internal_arg->mark(usage);
-                    }
-                    continue;
-                }
-                LUISA_ASSERT(
-                    projected_index < source_argument_indices.size(),
-                    "Coroutine continuation has more unbound arguments than "
-                    "its source projection.");
                 auto source_index =
                     source_argument_indices[projected_index];
                 LUISA_ASSERT(
@@ -295,13 +288,11 @@ private:
                 if (usage != Usage::NONE) {
                     internal_arg->mark(usage);
                 }
-                ++projected_index;
             }
-            LUISA_ASSERT(
-                projected_index == source_argument_indices.size(),
-                "Coroutine continuation consumed {} of {} projected source "
-                "arguments.",
-                projected_index, source_argument_indices.size());
+            // FunctionBuilder::call consumes only explicit arguments. Builtin,
+            // bound-resource, and internalizer arguments are reconstructed by
+            // the callee's implicit-argument rules and must not be duplicated
+            // in this span.
             fb->call(cc, args);
         });
         return WrappedSubroutine{

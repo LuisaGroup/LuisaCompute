@@ -346,6 +346,56 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             }
         };
 
+    "continuation_local_builtins_are_implicit"_test =
+        [options, expect_filled] {
+            constexpr uint N = 32u;
+            constexpr uint base = 401u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+            auto coroutine = Coroutine<void(Buffer<uint>, uint)>{
+                [](BufferUInt result, UInt value_base) noexcept {
+                    constexpr uint block_stride = 32u;
+                    $suspend("before-continuation-local-builtins");
+                    // block_id and thread_id are introduced only in the
+                    // continuation. XIR-to-AST represents callable builtins as
+                    // implicit arguments; neither belongs to the source
+                    // coroutine argument projection.
+                    const auto index = thread_x();
+                    result.write(index,
+                                 value_base + index +
+                                     block_x() * block_stride);
+                }};
+
+            auto check = [&](luisa::string_view label) noexcept {
+                luisa::vector<uint> host(N);
+                stream << output.copy_to(luisa::span{host}) << synchronize();
+                expect_filled(host, base, label);
+            };
+            {
+                StateMachineCoroScheduler<Buffer<uint>, uint> scheduler{
+                    device, coroutine};
+                scheduler(output, base).dispatch(N)(stream);
+                check("continuation_local_builtins_state_machine");
+            }
+            {
+                WavefrontCoroScheduler<Buffer<uint>, uint> scheduler{
+                    device, coroutine};
+                scheduler(output, base).dispatch(N)(stream);
+                check("continuation_local_builtins_wavefront");
+            }
+            {
+                PersistentThreadsCoroScheduler<Buffer<uint>, uint> scheduler{
+                    device, coroutine,
+                    PersistentThreadsCoroSchedulerConfig{
+                        .thread_count = N, .block_size = N}};
+                scheduler(output, base).dispatch(N)(stream);
+                check("continuation_local_builtins_persistent");
+            }
+        };
+
     // ══════════════════════════════════════════════════════════════════
     // 3-suspend coroutine — all 3 schedulers
     // ══════════════════════════════════════════════════════════════════
