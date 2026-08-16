@@ -1864,7 +1864,14 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         const auto native_effect_only_is_stable =
             native_effect_only_enumeration &&
             !_rt_analysis.writes_instance_opacity;
-        const auto use_static_global_hiprt_effect =
+        // On gfx12, specialize the existing single-frontier hardware traversal
+        // to the proven effect quotient. It preserves candidate order and
+        // arbitrary handler side effects, but does not materialize committed
+        // state that the proof makes unobservable. The wrapper validates the
+        // accel's non-opaque certificate before the first callback and otherwise
+        // enters the exact generic state machine. Older architectures retain
+        // HIPRT's native any-hit callback implementation of the same quotient.
+        const auto use_hardware_effect =
             native_effect_only_is_stable &&
             !native_closest_reduction &&
             _uses_hardware_rt_stack;
@@ -1876,7 +1883,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             "HIP native callback route: closest-reduction = {}, "
             "effect-only = {}, opacity-stable = {}, hardware-stack = {}, "
             "motion-blur = {}, closest-dynamic = {}, closest-static = {}, "
-            "effect-dynamic = {}, effect-static = {}.",
+            "effect-dynamic = {}, effect-hardware = {}.",
             native_closest_reduction,
             native_effect_only_enumeration,
             !_rt_analysis.writes_instance_opacity,
@@ -1884,21 +1891,20 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             use_native_hiprt_closest,
             use_static_global_hiprt_closest,
             use_native_hiprt_effect,
-            use_static_global_hiprt_effect);
+            use_hardware_effect);
         _uses_native_closest_ray_query_pipeline |=
             use_native_hiprt_closest ||
             use_static_global_hiprt_closest;
         _uses_native_effect_only_ray_query_pipeline |=
             use_native_hiprt_effect ||
-            use_static_global_hiprt_effect;
+            use_hardware_effect;
         _uses_static_global_rt_stack |=
-            use_static_global_hiprt_closest ||
-            use_static_global_hiprt_effect;
+            use_static_global_hiprt_closest;
         _uses_iterative_synchronous_ray_query_pipeline |=
             !(use_native_hiprt_closest ||
               use_static_global_hiprt_closest ||
               use_native_hiprt_effect ||
-              use_static_global_hiprt_effect);
+              use_hardware_effect);
         // Materialize the exact callback environment once. The native HIPRT
         // filter/intersection callbacks receive only an opaque context pointer;
         // this typed struct restores the ordinary Callable ABI without an
@@ -2332,8 +2338,8 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                                    (_rt_analysis.writes_instance_opacity ?
                                         "luisa_pipeline_ray_query_trace_all_native_closest" :
                                         "luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity") :
-                               use_static_global_hiprt_effect ?
-                                   "luisa_pipeline_ray_query_trace_all_native_effect_global_stack" :
+                               use_hardware_effect ?
+                                   "luisa_pipeline_ray_query_trace_all_hardware_effect" :
                                use_native_hiprt_effect ?
                                    "luisa_pipeline_ray_query_trace_all_native_effect" :
                                    (query_object->type() == Type::of<RayQueryAny>() ?

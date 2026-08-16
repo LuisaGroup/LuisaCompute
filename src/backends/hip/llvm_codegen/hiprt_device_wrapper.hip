@@ -1102,6 +1102,7 @@ luisa_pipeline_native_closest_procedural_candidate(
 //
 // HIPRT's any-hit filter implements that transition in one traversal while
 // preserving the candidate order and arbitrary handler side effects.
+template<bool publish_transition_state = true>
 static __device__ __forceinline__ bool
 luisa_pipeline_native_effect_candidate(
     LuisaPipelineNativeCallbackPayload *payload,
@@ -1172,9 +1173,23 @@ luisa_pipeline_native_effect_candidate(
     }
     const auto terminated =
         (actions & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u;
-    state->candidate_committed = false;
-    state->terminated = terminated;
+    // HIPRT's procedural intersect callback publishes termination through the
+    // query state for its later filter callback. The flat hardware frontier
+    // consumes this return value immediately, with no intervening observer;
+    // in that specialization the two stores are observationally dead.
+    if constexpr (publish_transition_state) {
+        state->candidate_committed = false;
+        state->terminated = terminated;
+    }
     return terminated;
+}
+
+static __device__ __forceinline__ void
+luisa_pipeline_mark_trace_terminated(
+    LuisaPipelineRayQueryState *state) {
+    state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
+    state->candidate_committed = false;
+    state->terminated = true;
 }
 
 // The generic ray-query callback is defined before its in-place state type.
@@ -1820,7 +1835,8 @@ luisa_pipeline_ray_query_next_hit(
     return traversal->getNextHit(*candidate_object_ray);
 }
 #else
-template<bool terminate_on_first, bool opacity_may_change>
+template<bool terminate_on_first, bool opacity_may_change,
+         bool effect_only = false>
 static __device__ void
 luisa_pipeline_ray_query_trace_hw(
     LuisaPipelineRayQueryState *state,
@@ -1931,9 +1947,7 @@ luisa_pipeline_ray_query_trace_native_closest_impl(
     } else {
         state->committed_kind = LUISA_PIPELINE_HIT_MISS;
     }
-    state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
-    state->candidate_committed = false;
-    state->terminated = true;
+    luisa_pipeline_mark_trace_terminated(state);
 }
 
 extern "C" __device__ __attribute__((used)) void
@@ -2055,9 +2069,7 @@ luisa_pipeline_ray_query_trace_native_effect_impl(
             LUISA_PIPELINE_NATIVE_EFFECT_RAY_TYPE, state->time};
     static_cast<void>(traversal.getNextHit());
 
-    state->state = LUISA_PIPELINE_RQ_STATE_TERMINATED;
-    state->candidate_committed = false;
-    state->terminated = true;
+    luisa_pipeline_mark_trace_terminated(state);
 }
 
 extern "C" __device__ __attribute__((used)) void
@@ -3043,13 +3055,16 @@ luisa_pipeline_resolve_instance_parent(
     return hiprt::InvalidValue;
 }
 
-template<bool terminate_on_first, bool opacity_may_change>
+template<bool terminate_on_first, bool opacity_may_change, bool effect_only>
 static __device__ void
 luisa_pipeline_ray_query_trace_hw(
     LuisaPipelineRayQueryState *state,
     void *callback_context, uint32_t pipeline_id,
     uint32_t handler_observation_masks) {
     using namespace hiprt;
+
+    static_assert(!effect_only ||
+                  (!terminate_on_first && !opacity_may_change));
 
     const auto surface_observation_mask =
         luisa_pipeline_surface_observation_mask(
@@ -3071,6 +3086,9 @@ luisa_pipeline_ray_query_trace_hw(
     auto world_ray = state->ray;
     auto committed_hit = state->committed_hit;
     auto committed_kind = state->committed_kind;
+    LuisaPipelineNativeCallbackPayload effect_payload{
+        state, callback_context, pipeline_id,
+        handler_observation_masks};
 
     auto scene_header = reinterpret_cast<SceneHeader *>(state->scene_handle);
     auto tlas_box_nodes = scene_header->m_boxNodes;
@@ -3216,7 +3234,7 @@ luisa_pipeline_ray_query_trace_hw(
                         instance_children[7] = transformed_root;
                         ray = transformed_ray;
                         instance_id = instance.m_primIndex;
-                        if constexpr (!opacity_may_change) {
+                        if constexpr (!opacity_may_change && !effect_only) {
                             // The bit is read from the instance node together
                             // with visibility and rides in the already-live ID
                             // register. It therefore adds neither a global
@@ -3259,7 +3277,8 @@ luisa_pipeline_ray_query_trace_hw(
                               instance.geometry_kind ==
                                   LUISA_GEOMETRY_KIND_MOTION_TRIANGLE);
             }
-            uint32_t candidate_result;
+            auto terminated = false;
+            auto candidate_result = 0u;
             if (is_surface) {
                 hiprtHit surface_hit;
                 surface_hit.instanceID = candidate_instance_id;
@@ -3268,39 +3287,61 @@ luisa_pipeline_ray_query_trace_hw(
                         instances, ray, time, surface_hit) &&
                     ray.minT <= surface_hit.t &&
                     surface_hit.t <= ray.maxT) {
-                    candidate_result =
-                        luisa_pipeline_process_surface_candidate<
-                            terminate_on_first, opacity_may_change>(
-                            state, committed_hit, committed_kind,
-                            world_ray.maxT, ray, instances,
-                            callback_context, pipeline_id,
-                            surface_observation_mask,
-                            instance_id, primitive_id,
-                            surface_hit.uv.x, surface_hit.uv.y,
-                            surface_hit.t);
-                } else {
-                    candidate_result = 0u;
+                    if constexpr (effect_only) {
+                        terminated =
+                            luisa_pipeline_native_effect_candidate<false>(
+                                &effect_payload, ray, surface_hit,
+                                LUISA_PIPELINE_RQ_STATE_SURFACE);
+                    } else {
+                        candidate_result =
+                            luisa_pipeline_process_surface_candidate<
+                                terminate_on_first, opacity_may_change>(
+                                state, committed_hit, committed_kind,
+                                world_ray.maxT, ray, instances,
+                                callback_context, pipeline_id,
+                                surface_observation_mask,
+                                instance_id, primitive_id,
+                                surface_hit.uv.x, surface_hit.uv.y,
+                                surface_hit.t);
+                    }
                 }
             } else {
-                candidate_result =
-                    luisa_pipeline_process_procedural_candidate<
-                        terminate_on_first>(
+                if constexpr (effect_only) {
+                    hiprtHit procedural_hit;
+                    procedural_hit.instanceID = candidate_instance_id;
+                    procedural_hit.primID = primitive_id;
+                    terminated =
+                        luisa_pipeline_native_effect_candidate<false>(
+                            &effect_payload, ray, procedural_hit,
+                            LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
+                } else {
+                    candidate_result =
+                        luisa_pipeline_process_procedural_candidate<
+                            terminate_on_first>(
+                            state, committed_hit, committed_kind,
+                            world_ray.maxT, ray,
+                            callback_context, pipeline_id,
+                            procedural_observation_mask,
+                            candidate_instance_id, primitive_id);
+                }
+            }
+            if constexpr (effect_only) {
+                if (terminated) {
+                    luisa_pipeline_mark_trace_terminated(state);
+                    return;
+                }
+            } else {
+                if ((candidate_result &
+                     LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                    ray.maxT = world_ray.maxT;
+                }
+                if ((candidate_result &
+                     LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                    luisa_pipeline_finish_trace(
                         state, committed_hit, committed_kind,
-                        world_ray.maxT, ray,
-                        callback_context, pipeline_id,
-                        procedural_observation_mask,
-                        candidate_instance_id, primitive_id);
-            }
-            if ((candidate_result &
-                 LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
-                ray.maxT = world_ray.maxT;
-            }
-            if ((candidate_result &
-                 LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
-                luisa_pipeline_finish_trace(
-                    state, committed_hit, committed_kind,
-                    world_ray.maxT);
-                return;
+                        world_ray.maxT);
+                    return;
+                }
             }
             node_index = stack.pop();
             continue;
@@ -3330,6 +3371,9 @@ luisa_pipeline_ray_query_trace_hw(
             const auto hit1 = ray.minT <= t1 && t1 <= ray.maxT;
             const auto first_is_hit0 =
                 hit0 && (!hit1 || t0 <= t1);
+            const auto candidate_instance_id =
+                luisa_pipeline_decode_instance_id<opacity_may_change>(
+                    instance_id);
             if (hit0 || hit1) {
                 const auto first_primitive_id =
                     (first_is_hit0 ?
@@ -3345,25 +3389,39 @@ luisa_pipeline_ray_query_trace_hw(
                         intersections[2] :
                         intersections[6]);
                 const auto first_t = first_is_hit0 ? t0 : t1;
-                const auto first_result =
-                    luisa_pipeline_process_surface_candidate<
-                        terminate_on_first, opacity_may_change>(
-                        state, committed_hit, committed_kind,
-                        world_ray.maxT, ray, instances,
-                        callback_context, pipeline_id,
-                        surface_observation_mask,
-                        instance_id, first_primitive_id,
-                        first_u, first_v, first_t);
-                if ((first_result &
-                     LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
-                    ray.maxT = world_ray.maxT;
-                }
-                if ((first_result &
-                     LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
-                    luisa_pipeline_finish_trace(
-                        state, committed_hit, committed_kind,
-                        world_ray.maxT);
-                    return;
+                if constexpr (effect_only) {
+                    hiprtHit first_hit;
+                    first_hit.instanceID = candidate_instance_id;
+                    first_hit.primID = first_primitive_id;
+                    first_hit.uv = hiprtFloat2{first_u, first_v};
+                    first_hit.t = first_t;
+                    if (luisa_pipeline_native_effect_candidate<false>(
+                            &effect_payload, ray, first_hit,
+                            LUISA_PIPELINE_RQ_STATE_SURFACE)) {
+                        luisa_pipeline_mark_trace_terminated(state);
+                        return;
+                    }
+                } else {
+                    const auto first_result =
+                        luisa_pipeline_process_surface_candidate<
+                            terminate_on_first, opacity_may_change>(
+                            state, committed_hit, committed_kind,
+                            world_ray.maxT, ray, instances,
+                            callback_context, pipeline_id,
+                            surface_observation_mask,
+                            instance_id, first_primitive_id,
+                            first_u, first_v, first_t);
+                    if ((first_result &
+                         LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                        ray.maxT = world_ray.maxT;
+                    }
+                    if ((first_result &
+                         LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                        luisa_pipeline_finish_trace(
+                            state, committed_hit, committed_kind,
+                            world_ray.maxT);
+                        return;
+                    }
                 }
             }
 
@@ -3391,25 +3449,39 @@ luisa_pipeline_ray_query_trace_hw(
                         second_is_hit0 ?
                             intersections[2] :
                             intersections[6]);
-                    const auto second_result =
-                        luisa_pipeline_process_surface_candidate<
-                            terminate_on_first, opacity_may_change>(
-                            state, committed_hit, committed_kind,
-                            world_ray.maxT, ray, instances,
-                            callback_context, pipeline_id,
-                            surface_observation_mask,
-                            instance_id, second_primitive_id,
-                            second_u, second_v, second_t);
-                    if ((second_result &
-                         LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
-                        ray.maxT = world_ray.maxT;
-                    }
-                    if ((second_result &
-                         LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
-                        luisa_pipeline_finish_trace(
-                            state, committed_hit, committed_kind,
-                            world_ray.maxT);
-                        return;
+                    if constexpr (effect_only) {
+                        hiprtHit second_hit;
+                        second_hit.instanceID = candidate_instance_id;
+                        second_hit.primID = second_primitive_id;
+                        second_hit.uv = hiprtFloat2{second_u, second_v};
+                        second_hit.t = second_t;
+                        if (luisa_pipeline_native_effect_candidate<false>(
+                                &effect_payload, ray, second_hit,
+                                LUISA_PIPELINE_RQ_STATE_SURFACE)) {
+                            luisa_pipeline_mark_trace_terminated(state);
+                            return;
+                        }
+                    } else {
+                        const auto second_result =
+                            luisa_pipeline_process_surface_candidate<
+                                terminate_on_first, opacity_may_change>(
+                                state, committed_hit, committed_kind,
+                                world_ray.maxT, ray, instances,
+                                callback_context, pipeline_id,
+                                surface_observation_mask,
+                                instance_id, second_primitive_id,
+                                second_u, second_v, second_t);
+                        if ((second_result &
+                             LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u) {
+                            ray.maxT = world_ray.maxT;
+                        }
+                        if ((second_result &
+                             LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u) {
+                            luisa_pipeline_finish_trace(
+                                state, committed_hit, committed_kind,
+                                world_ray.maxT);
+                            return;
+                        }
                     }
                 }
             }
@@ -3439,8 +3511,36 @@ luisa_pipeline_ray_query_trace_hw(
         }
         node_index = stack.pop();
     }
-    luisa_pipeline_finish_trace(
-        state, committed_hit, committed_kind, world_ray.maxT);
+    if constexpr (effect_only) {
+        luisa_pipeline_mark_trace_terminated(state);
+    } else {
+        luisa_pipeline_finish_trace(
+            state, committed_hit, committed_kind, world_ray.maxT);
+    }
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_all_hardware_effect(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t handler_observation_masks,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    static_cast<void>(stack_size);
+    static_cast<void>(stack_count);
+    static_cast<void>(stack_data);
+    auto state = reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr);
+
+    // Zero is a monotone runtime proof that implicit opaque commits cannot
+    // occur. Unknown/nonzero enters the exact state machine before any handler
+    // side effect, so the specialized quotient never needs rollback or replay.
+    if (luisa_accel_opacity_may_be_present(state->instances)) {
+        luisa_pipeline_ray_query_trace_hw<false, false>(
+            state, callback_context, pipeline_id,
+            handler_observation_masks);
+        return;
+    }
+    luisa_pipeline_ray_query_trace_hw<false, false, true>(
+        state, callback_context, pipeline_id,
+        handler_observation_masks);
 }
 
 static __device__ bool luisa_hiprt_hw_trace_closest(

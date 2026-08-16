@@ -1065,8 +1065,7 @@ int main(int argc, char *argv[]) {
             // certificate during the same traversal.
             const auto expected_effect_only_trace =
                 uses_gfx12_hardware_stack ?
-                    "@luisa_pipeline_ray_query_trace_all_native_effect_"
-                    "global_stack(" :
+                    "@luisa_pipeline_ray_query_trace_all_hardware_effect(" :
                     "@luisa_pipeline_ray_query_trace_all_native_effect(";
             expect(effect_only_before_root.find(
                        expected_effect_only_trace) !=
@@ -1075,9 +1074,11 @@ int main(int argc, char *argv[]) {
                        "@luisa_ray_query_proceed(") ==
                        std::string::npos)
                 << "proven effect-only RayQueryAll did not select one "
-                   "native HIPRT any-hit traversal";
+                   "specialized candidate-effect traversal";
             expect(effect_commit_before_root.find(
                        "native_effect") == std::string_view::npos &&
+                   effect_commit_before_root.find(
+                       "hardware_effect") == std::string_view::npos &&
                    effect_commit_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
                        std::string_view::npos)
@@ -1085,6 +1086,8 @@ int main(int argc, char *argv[]) {
                    "effect-only enumeration";
             expect(effect_opacity_before_root.find(
                        "native_effect") == std::string_view::npos &&
+                   effect_opacity_before_root.find(
+                       "hardware_effect") == std::string_view::npos &&
                    effect_opacity_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all(") !=
                        std::string_view::npos)
