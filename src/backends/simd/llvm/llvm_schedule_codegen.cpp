@@ -24,6 +24,9 @@ namespace detail {
     ::llvm::Module &module, ::llvm::Function *packet_entry,
     uint32_t specialization_width, uint32_t static_packet_count,
     size_t shared_memory_size, size_t block_barrier_count,
+    size_t block_barrier_loop_epoch_count,
+    const std::vector<std::vector<uint32_t>> &
+        block_barrier_loop_epochs,
     std::string &error);
 }// namespace detail
 
@@ -741,7 +744,10 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
                 module, result.entry, specialization_width,
                 static_cast<uint32_t>(packet_count),
                 result.shared_memory_size,
-                result.block_barrier_count, result.error);
+                result.block_barrier_count,
+                result.block_barrier_loop_epoch_count,
+                result.block_barrier_loop_epochs,
+                result.error);
     } else if (result.succeeded() && enable_packet_batch_entry) {
         constexpr auto max_specialized_packet_count = uint64_t{32u};
         auto block_thread_count = uint64_t{1u};

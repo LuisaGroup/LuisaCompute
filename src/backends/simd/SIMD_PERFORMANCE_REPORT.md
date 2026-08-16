@@ -4116,8 +4116,9 @@ the inner scheduler independently requires the complete live mask and no
 pending cohort before suspension. A 35-thread one-dimensional dispatch and a
 `{11, 5}` dispatch over `{8, 4}` blocks permanently cover mixed and non-prefix
 edge masks. The existing multi-barrier/shared-atomic programs run at
-W1/W2/W4/W8/W16. Barriers in natural loops remain rejected until a uniform
-dynamic-instance proof is available.
+W1/W2/W4/W8/W16. At this checkpoint barriers in natural loops were still
+rejected pending a uniform dynamic-instance proof; the exact loop-epoch
+implementation in the next checkpoint supersedes that restriction.
 
 The compiler-focused Release tree passes 143/143 tests. Both maintained
 fallback+SIMD Release trees pass 154/154, including the complete tutorial,
@@ -4155,3 +4156,68 @@ speedup, or supply the still-missing matched full-Embree ISPC renderer. Raw
 records are
 `/tmp/luisa-simd-ispc-cooperative-confirm-a-7r-20260816.json` and
 `/tmp/luisa-simd-ispc-cooperative-confirm-b-7r-20260816.json`.
+
+## Repeated cooperative-barrier completion
+
+The next cooperative checkpoint supports a block barrier inside one or more
+natural loops without weakening the fail-closed contract. Only loops that
+enclose a static barrier receive state. Each packet coroutine retains one
+64-bit epoch per lane for each such loop, increments participating lanes on an
+annotated back-edge, rejects overflow, and requires all live lanes to publish
+one common epoch before suspension. The outer block wrapper compares the exact
+`(static barrier ID, enclosing loop epoch tuple)` across live packets before it
+resumes any handle. It neither hashes the tuple nor uses an encounter ordinal,
+and it ignores epochs of unrelated loops. Thus a packet that skips a static
+site in one iteration cannot rendezvous with a packet reaching that site in a
+different iteration.
+
+Permanent regressions include the original minimal XIR failure, a negative
+runtime child process where packet zero and the remaining packets reach the
+same static site in different iterations, and nested two-level loops with two
+barriers at W1/W2/W4/W8/W16 over a 35-thread inactive tail. The AST/JIT shape
+test independently requires two tracked loop epochs for one nested static
+site. The existing batch-softmax integration now runs at all five widths. Its
+final partial block is explicitly padded to a complete 1024-thread reduction:
+the kernel already guards the logical element count and initializes padding,
+whereas dispatching only 3073 invocations left 1023 shared slots outside the
+dispatch extent and accidentally depended on fresh scratch storage.
+
+After complete builds, the compiler-focused tree passes 148/148 tests and both
+maintained fallback+SIMD trees pass 159/159. The required native-math and
+runtime-width gate passes 3/3. The syntax-check and standalone-ISPC driver
+Python suites pass 21/21, and clangd reports no diagnostic for all eleven
+changed C++ translation units. Dumped W8 softmax JIT objects contain no
+undefined symbol or scalar math call; only the cooperative wrapper is global,
+while the packet body, resume, and destroy functions retain local linkage.
+
+Fresh checked-in-reference comparisons pass image processing and Voxel at
+W1/W2/W4/W8/W16 with 89.251953 dB and 82.834519 dB RGB PSNR. The ordinary
+1024-spp Embree path tracer passes at 35.426795/42.781582/40.940376/39.219305/
+37.800295 dB and every process reports Embree 4.4.1 native W4/W8/W16 packet
+support. The non-coroutine 1024-spp SDF renderer passes at 63.129346 dB at
+every width. These are correctness executions, not performance samples.
+
+The ordinary-kernel ISPC control was rebuilt twice from official ISPC 1.31.0
+and measured in two independent seven-round runs. Each process used one worker
+pinned to logical CPU 6; orders rotated and reversed, the CPU target was
+`znver5`, arithmetic was precise with FMA contraction disabled, exact outputs
+were bit-identical, and analytic-path outputs passed the independent tolerance.
+Combining all fourteen pairs gives:
+
+| workload | Luisa W8 / ISPC x8 | 95% CI | Luisa W16 / ISPC x16 | 95% CI |
+| --- | ---: | ---: | ---: | ---: |
+| Mandelbrot | **1.40872x** | [1.40464, 1.41280] | **1.55741x** | [1.55438, 1.56044] |
+| masked stream | **1.45065x** | [1.39167, 1.51214] | **1.42450x** | [1.38677, 1.46326] |
+| AoS-to-SoA | 0.99406x | [0.98101, 1.00728] | 0.97195x | [0.95997, 0.98408] |
+| GEMM | **1.34184x** | [1.33756, 1.34614] | **1.37884x** | [1.37741, 1.38027] |
+| analytic path | **1.09687x** | [1.09375, 1.10001] | **1.02321x** | [1.02154, 1.02487] |
+
+The unweighted five-workload geometric means are **1.24489x at W8** and
+**1.24922x at W16**. Four workloads win at both widths; W8 AoS-to-SoA is a
+statistical tie and W16 AoS-to-SoA remains 2.80% behind. This establishes a
+lead over matched-width ISPC for this five-workload compiler suite, including
+its asset-free analytic path tracer. It still does not establish a win for the
+repository's complete Embree renderer because no matched full-renderer ISPC
+implementation exists. Raw records are
+`/tmp/luisa-simd-ispc-loop-barrier-a-7r-20260816.json` and
+`/tmp/luisa-simd-ispc-loop-barrier-b-7r-20260816.json`.

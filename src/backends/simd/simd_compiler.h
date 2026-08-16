@@ -110,6 +110,7 @@ struct SIMDCompiledKernel {
     size_t linear_1d_block_coalescing_count{0u};
     size_t shared_memory_size{0u};
     size_t block_barrier_count{0u};
+    size_t block_barrier_loop_epoch_count{0u};
     bool cooperative_block{false};
     bool direct_control_flow{false};
     uint32_t warp_width{0u};

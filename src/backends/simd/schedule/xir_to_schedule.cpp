@@ -382,12 +382,14 @@ private:
             for (auto &&loop : natural_loops) {
                 if (loop.contains(
                         const_cast<xir::BasicBlock *>(barrier))) {
-                    _diagnose(
-                        XIRToScheduleDiagnosticCode::
-                            non_uniform_block_barrier,
-                        "a repeated block barrier requires a uniform-trip "
-                        "loop proof that is not yet available",
-                        barrier);
+                    // Acyclic barrier phases retain the stronger static
+                    // proof below. Repeated barriers instead carry the exact
+                    // enclosing natural-loop epochs through the packet
+                    // coroutine; the block wrapper compares that dynamic
+                    // tuple together with the static site and traps before
+                    // resuming any mismatched packet. This also covers every
+                    // acyclic site in a mixed cyclic function, where a purely
+                    // graph-based phase walk cannot represent loop epochs.
                     return;
                 }
             }

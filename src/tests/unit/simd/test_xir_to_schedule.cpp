@@ -150,7 +150,7 @@ void register_diamond_tests() {
             expect(metadata != nullptr);
             expect(metadata != nullptr &&
                    metadata->tag == static_cast<uint32_t>(
-                       DerivedSpecialRegisterTag::WARP_LANE_ID));
+                                        DerivedSpecialRegisterTag::WARP_LANE_ID));
         }
         expect(active_mask != nullptr &&
                std::holds_alternative<SchedulerBuiltinValueMetadata>(
@@ -399,6 +399,63 @@ void register_block_barrier_tests() {
             }
         }
         expect(barrier_count == 1u);
+        expect(verify(*result.function).succeeded());
+    };
+
+    "simd_xir_lowers_repeated_block_barrier_instances"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *entry = kernel->create_body_block();
+        auto *header = kernel->create_basic_block();
+        auto *body = kernel->create_basic_block();
+        auto *exit = kernel->create_basic_block();
+        entry->set_name("entry");
+        header->set_name("header");
+        body->set_name("body");
+        exit->set_name("exit");
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        auto *one = module.create_constant_one(Type::of<uint>());
+        auto trip_count_value = uint32_t{3u};
+        auto *trip_count = module.create_constant(
+            Type::of<uint>(), &trip_count_value);
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.br(header);
+        builder.set_insertion_point(header);
+        auto *iteration = builder.phi(Type::of<uint>());
+        auto *condition = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {iteration, trip_count});
+        builder.cond_br(condition, body, exit);
+        builder.set_insertion_point(body);
+        auto *next = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {iteration, one});
+        builder.call(
+            nullptr, ThreadGroupOp::SYNCHRONIZE_BLOCK, {});
+        builder.br(header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+        iteration->add_incoming(zero, entry);
+        iteration->add_incoming(next, body);
+
+        auto canonical = canonicalize_block_barriers(kernel);
+        expect(canonical.succeeded());
+        expect(canonical.barrier_count == 1u);
+        auto result = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 8u});
+        expect(result.succeeded()) << diagnostics_text(result);
+        if (!result.succeeded()) { return; }
+        expect(result.function->loops().size() == 1u);
+        auto *schedule_body = find_block(*result.function, "body");
+        expect(schedule_body != nullptr);
+        if (schedule_body == nullptr) { return; }
+        auto *barrier = std::get_if<BlockBarrierTerminator>(
+            &schedule_body->terminator);
+        expect(barrier != nullptr);
+        expect(barrier != nullptr &&
+               barrier->resume_edge.loop_back == LoopId{0u});
         expect(verify(*result.function).succeeded());
     };
 

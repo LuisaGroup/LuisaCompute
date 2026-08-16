@@ -1,5 +1,6 @@
 #include "llvm_schedule_codegen.h"
 
+#include <algorithm>
 #include <limits>
 #include <vector>
 
@@ -17,6 +18,9 @@ namespace luisa::compute::simd::detail {
     ::llvm::Module &module, ::llvm::Function *packet_entry,
     uint32_t specialization_width, uint32_t static_packet_count,
     size_t shared_memory_size, size_t block_barrier_count,
+    size_t block_barrier_loop_epoch_count,
+    const std::vector<std::vector<uint32_t>> &
+        block_barrier_loop_epochs,
     std::string &error) {
     auto &context = module.getContext();
     auto *pointer_type = ::llvm::PointerType::getUnqual(context);
@@ -28,6 +32,20 @@ namespace luisa::compute::simd::detail {
         std::numeric_limits<uint32_t>::max()) {
         error = "cooperative SIMD wrapper has too many static barriers";
         return nullptr;
+    }
+    if (block_barrier_loop_epoch_count >
+            std::numeric_limits<uint32_t>::max() ||
+        block_barrier_loop_epochs.size() != block_barrier_count) {
+        error = "cooperative SIMD wrapper has an invalid loop-epoch map";
+        return nullptr;
+    }
+    for (auto &&epochs : block_barrier_loop_epochs) {
+        for (auto epoch : epochs) {
+            if (epoch >= block_barrier_loop_epoch_count) {
+                error = "cooperative SIMD wrapper references an invalid loop epoch";
+                return nullptr;
+            }
+        }
     }
     if (packet_entry == nullptr || static_packet_count == 0u ||
         !packet_entry->getReturnType()->isPointerTy() ||
@@ -122,6 +140,22 @@ namespace luisa::compute::simd::detail {
         handle_array_type, nullptr, "cooperative.handles");
     auto *barrier_ids = builder.CreateAlloca(
         barrier_array_type, nullptr, "cooperative.barrier.ids");
+    ::llvm::ArrayType *packet_loop_epoch_type = nullptr;
+    ::llvm::ArrayType *loop_epoch_matrix_type = nullptr;
+    ::llvm::AllocaInst *loop_epochs = nullptr;
+    ::llvm::AllocaInst *expected_loop_epochs = nullptr;
+    if (block_barrier_loop_epoch_count != 0u) {
+        packet_loop_epoch_type = ::llvm::ArrayType::get(
+            i64_type, block_barrier_loop_epoch_count);
+        loop_epoch_matrix_type = ::llvm::ArrayType::get(
+            packet_loop_epoch_type, static_packet_count);
+        loop_epochs = builder.CreateAlloca(
+            loop_epoch_matrix_type, nullptr,
+            "cooperative.loop.epochs");
+        expected_loop_epochs = builder.CreateAlloca(
+            packet_loop_epoch_type, nullptr,
+            "cooperative.expected.loop.epochs");
+    }
     auto *any_alive = builder.CreateAlloca(
         i1_type, nullptr, "cooperative.any.alive");
     auto *any_complete = builder.CreateAlloca(
@@ -138,6 +172,14 @@ namespace luisa::compute::simd::detail {
     builder.CreateStore(
         ::llvm::ConstantArray::get(barrier_array_type, initial_ids),
         barrier_ids);
+    if (loop_epochs != nullptr) {
+        builder.CreateStore(
+            ::llvm::Constant::getNullValue(loop_epoch_matrix_type),
+            loop_epochs);
+        builder.CreateStore(
+            ::llvm::Constant::getNullValue(packet_loop_epoch_type),
+            expected_loop_epochs);
+    }
     auto *expected_packet_count = builder.getInt32(
         static_packet_count);
     builder.CreateCondBr(
@@ -181,6 +223,19 @@ namespace luisa::compute::simd::detail {
         barrier_base,
         byte_pointer(offsetof(
             SIMDPacketLaunchConfig, barrier_ids)));
+    auto *loop_epoch_address = byte_pointer(
+        offsetof(SIMDPacketLaunchConfig, barrier_loop_epochs));
+    if (loop_epochs == nullptr) {
+        builder.CreateStore(
+            ::llvm::ConstantPointerNull::get(pointer_type),
+            loop_epoch_address);
+    } else {
+        auto *loop_epoch_base = builder.CreateInBoundsGEP(
+            loop_epoch_matrix_type, loop_epochs,
+            {builder.getInt32(0u), builder.getInt32(0u),
+             builder.getInt32(0u)});
+        builder.CreateStore(loop_epoch_base, loop_epoch_address);
+    }
     auto *thread_index_address = byte_pointer(
         offsetof(SIMDPacketLaunchConfig, thread_index));
     builder.CreateBr(init_head);
@@ -286,6 +341,55 @@ namespace luisa::compute::simd::detail {
     auto *mismatch = builder.CreateAnd(
         seen,
         builder.CreateICmpNE(alive_status, expected_barrier));
+    if (loop_epochs != nullptr) {
+        for (auto epoch_index = size_t{0u};
+             epoch_index < block_barrier_loop_epoch_count;
+             epoch_index++) {
+            auto *current_epoch_slot = builder.CreateInBoundsGEP(
+                loop_epoch_matrix_type, loop_epochs,
+                {builder.getInt32(0u), scan_index,
+                 builder.getInt32(epoch_index)});
+            auto *current_epoch = builder.CreateLoad(
+                i64_type, current_epoch_slot,
+                "cooperative.loop.epoch");
+            auto *expected_epoch_slot = builder.CreateInBoundsGEP(
+                packet_loop_epoch_type, expected_loop_epochs,
+                {builder.getInt32(0u),
+                 builder.getInt32(epoch_index)});
+            auto *expected_epoch = builder.CreateLoad(
+                i64_type, expected_epoch_slot,
+                "cooperative.expected.loop.epoch");
+            ::llvm::Value *relevant = builder.getFalse();
+            for (auto barrier_id = size_t{0u};
+                 barrier_id < block_barrier_loop_epochs.size();
+                 barrier_id++) {
+                auto &&epochs =
+                    block_barrier_loop_epochs[barrier_id];
+                if (std::find(
+                        epochs.cbegin(), epochs.cend(),
+                        epoch_index) == epochs.cend()) {
+                    continue;
+                }
+                relevant = builder.CreateOr(
+                    relevant,
+                    builder.CreateICmpEQ(
+                        alive_status,
+                        builder.getInt32(barrier_id)));
+            }
+            mismatch = builder.CreateOr(
+                mismatch,
+                builder.CreateAnd(
+                    seen,
+                    builder.CreateAnd(
+                        relevant,
+                        builder.CreateICmpNE(
+                            current_epoch, expected_epoch))));
+            builder.CreateStore(
+                builder.CreateSelect(
+                    seen, expected_epoch, current_epoch),
+                expected_epoch_slot);
+        }
+    }
     builder.CreateCondBr(mismatch, trap, scan_record);
 
     builder.SetInsertPoint(scan_record);

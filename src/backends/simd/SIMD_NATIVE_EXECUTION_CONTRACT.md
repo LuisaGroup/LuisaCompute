@@ -413,10 +413,11 @@ coroutine handle. There is one handle per packet and never one handle per
 scalar lane. The packet body, resume function, and destroy function have local
 linkage; only the cooperative wrapper is externally discoverable.
 
-The launch record appends a per-block shared base, a wrapper-owned array of
-packet status/barrier IDs, and indirect begin/allocate/free callbacks. This
-preserves the existing ABI prefix for ordinary kernels and leaves the portable
-object with no unresolved backend-private allocator symbol. The runtime owns
+The launch record appends a per-block shared base, wrapper-owned arrays of
+packet status/barrier IDs and tracked loop epochs, and indirect
+begin/allocate/free callbacks. This preserves the existing ABI prefix for
+ordinary kernels and leaves the portable object with no unresolved
+backend-private allocator symbol. The runtime owns
 lazy, 64-byte-aligned thread-local arenas of at most 1 MiB for block shared
 memory and 4 MiB for packet coroutine frames. A block begins by resetting the
 frame arena and obtaining one shared base; reset cannot occur while a handle
@@ -428,9 +429,10 @@ barrier is block-wide. Packets with no live dispatch lane finish as inactive
 and are destroyed without joining. Every other packet may suspend only after
 its active mask equals its complete live mask and the inner scheduler has no
 ready or runnable cohort. At a phase boundary all live handles must name the
-same barrier; a mixture of live and complete packets, mismatched IDs, or an
-invalid status traps. Resume establishes acquire ordering after the packet's
-release fence, and final handles are destroyed before wrapper return.
+same static barrier and the same exact dynamic instance; a mixture of live and
+complete packets, mismatched IDs/epochs, or an invalid status traps. Resume
+establishes acquire ordering after the packet's release fence, and final
+handles are destroyed before wrapper return.
 
 Cooperative wrappers do not satisfy the ordinary linear-1D tail-narrowing
 precondition: they pass the static width while constructing every packet.
@@ -442,12 +444,20 @@ over `{8, 4}` blocks, multiple barriers, shared atomics, and inactive-tail
 sentinels.
 
 Each static barrier must be the unique final non-terminator before an
-unconditional resume edge. For every non-final phase, all terminating paths
-must reach the same static site. A barrier within a natural loop is currently
-rejected because the compiler has not yet proved a uniform dynamic trip count;
-this prevents distinct loop iterations from being mistaken for one barrier
-instance. Shared/local pointer provenance is tracked through GEPs and PHIs,
-and any merge between the two address spaces is rejected.
+unconditional resume edge. A function with no repeated site retains the static
+requirement that every non-final phase reach the same barrier. If a barrier is
+inside a natural loop, every enclosing loop receives one per-lane 64-bit epoch
+slot in the coroutine frame. An annotated back-edge increments only its active
+lanes; overflow traps. Suspension first requires every live lane to carry the
+same epoch for every loop enclosing that site, then publishes those scalars.
+The wrapper compares the full tuple `(static barrier ID, enclosing loop
+epochs)` across packets. It deliberately ignores loops that do not enclose the
+selected barrier. No hash or encounter ordinal is used: both could collide when
+a packet skips an iteration. Therefore legal uniform and dynamically
+converged loop barriers execute, while a lane or packet that reaches the same
+static site in a different iteration traps before any resume. Shared/local
+pointer provenance is tracked through GEPs and PHIs, and any merge between the
+two address spaces is rejected.
 
 For W2/W4/W8/W16 blocks with more than one packet, the production compiler may
 replace the repeated host-to-JIT calls by one exclusive block-local packet-batch

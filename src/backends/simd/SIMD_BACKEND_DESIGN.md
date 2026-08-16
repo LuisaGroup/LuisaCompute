@@ -72,9 +72,10 @@ shared allocas or block barriers. One fixed-vector LLVM coroutine represents one
 packet, and one exclusive block wrapper drives all packet handles through
 statically identified barrier phases. It preserves exact sparse edge masks,
 shared pointer provenance, shared atomics, release/acquire visibility, and
-W1/W2/W4/W8/W16 inactive-tail behavior. A barrier in a natural loop remains a
-fail-closed diagnostic until the compiler can prove a uniform dynamic barrier
-instance count.
+W1/W2/W4/W8/W16 inactive-tail behavior. Repeated barriers carry the exact
+per-lane epoch of every enclosing natural loop. The packet requires those
+epochs to agree before suspension, and the block wrapper compares the complete
+`(static site, enclosing epochs)` identity before resuming any packet.
 
 Original SIMD baseline: `LuisaGroup/LuisaCompute@codex/simd-cpu-backend`,
 commit `d3d7919955ef7f835b8ad26775285748b7862d08` (2026-08-11), tree
@@ -1034,10 +1035,18 @@ The inner cohort scheduler also checks a barrier dynamically: the current
 active mask must equal the packet's live mask, and no runnable or pending
 cohort may remain. The outer wrapper traps if complete and live packets are
 mixed in one phase, if live packets name different static barriers, or if a
-status is invalid. XIR phase validation independently requires every
-non-final path to reach one static barrier and rejects a barrier inside a
-natural loop until a uniform-trip proof is implemented. Thus a source-level
-divergent or repeated barrier fails closed rather than deadlocking a worker.
+status is invalid. For every natural loop enclosing a barrier, the coroutine
+retains one 64-bit epoch per lane and increments only the lanes traversing that
+loop's annotated back-edge. Before suspension, all participating lane epochs
+for that static site must agree. The wrapper compares the published epoch tuple
+exactly, not through a hash or a barrier-occurrence count, so packets that skip
+a site and first reach it in a later iteration cannot rendezvous accidentally.
+Only epochs of loops enclosing the selected static site participate, which
+allows unrelated loops to reconverge before a later barrier. Overflow and any
+packet- or lane-level mismatch trap before resume. The stronger acyclic XIR
+phase proof remains enabled for functions without a repeated site; cyclic and
+mixed functions use the exact dynamic proof. Thus divergent and repeated
+barriers fail closed rather than deadlocking a worker or merging iterations.
 
 Shared allocas are laid out once per block with at least 16-byte alignment and
 one common base. Loads, stores, GEPs, PHIs, and shared atomics retain shared
@@ -3662,8 +3671,7 @@ experiment guarded by stable measurement. Candidate chains beyond
 the fixed batch remain a measured continuation case rather than an unbounded
 state allocation. Cooperative shared memory and block barriers now use the
 packet-coroutine phase model in Section 7, including partial edge blocks and
-shared atomics at every supported width. Barriers in loops remain deliberately
-unsupported until a uniform dynamic-instance proof is available. Broader
-callable conformance and the remaining device-library surface follow. The
-current compiler returns precise diagnostics for unsupported features rather
-than silently accepting them.
+shared atomics, nested/repeated barriers, and exact dynamic loop-instance
+validation at every supported width. Broader callable conformance and the
+remaining device-library surface follow. The current compiler returns precise
+diagnostics for unsupported features rather than silently accepting them.

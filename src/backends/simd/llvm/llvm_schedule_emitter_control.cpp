@@ -560,6 +560,10 @@ void ScheduleEmitter::_resume(
     const schedule::ControlEdge &edge, ::llvm::Value *mask) {
     _apply_assignments(edge.assignments, mask);
     if (_failed()) { return nullptr; }
+    if (edge.loop_back) {
+        _advance_cooperative_loop_epoch(*edge.loop_back, mask);
+        if (_failed()) { return nullptr; }
+    }
     // Convergence arrival is emitted once at the target block's entry rather
     // than duplicated on every incoming edge. Edge assignments still happen
     // before the arrival, so parked lanes retain their per-lane PHI state.
@@ -1410,6 +1414,20 @@ void ScheduleEmitter::_allocate_state() {
         _builder.CreateStore(
             ::llvm::Constant::getNullValue(frame_masks),
             _frame_arrived);
+
+        auto *loop_epoch_type = ::llvm::FixedVectorType::get(
+            _builder.getInt64Ty(), _width);
+        _cooperative_loop_epochs.reserve(
+            _result.block_barrier_loop_epoch_count);
+        for (auto index = size_t{0u};
+             index < _result.block_barrier_loop_epoch_count; index++) {
+            auto *epoch = _builder.CreateAlloca(
+                loop_epoch_type, nullptr,
+                "cooperative.loop.epoch." + std::to_string(index));
+            _builder.CreateStore(
+                ::llvm::Constant::getNullValue(loop_epoch_type), epoch);
+            _cooperative_loop_epochs.emplace_back(epoch);
+        }
 
         std::vector<::llvm::Constant *> convergence_targets;
         convergence_targets.reserve(

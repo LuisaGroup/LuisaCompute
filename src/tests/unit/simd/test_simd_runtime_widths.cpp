@@ -122,6 +122,49 @@ struct ScopedEnvironmentVariable {
 #endif
 }
 
+[[nodiscard]] bool mismatched_loop_barrier_fails_closed(
+    const char *program) noexcept {
+#if defined(__unix__) || defined(__APPLE__)
+    auto child = fork();
+    if (child < 0) { return false; }
+    if (child == 0) {
+        const rlimit no_core{0u, 0u};
+        static_cast<void>(setrlimit(RLIMIT_CORE, &no_core));
+        Context context{program};
+        DeviceConfig config{};
+        config.extension =
+            luisa::make_unique<SIMDDeviceConfigExt>(8u, 1u);
+        auto device = context.create_device("simd", &config);
+        Kernel1D kernel = []() noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(8u);
+            UInt iteration = 0u;
+            $while (iteration < 2u) {
+                // Packet zero reaches this site in iteration zero; the other
+                // packets first reach the same static site in iteration one.
+                // A static-ID-only wrapper would incorrectly rendezvous them.
+                $if ((thread_x() < 8u) == (iteration == 0u)) {
+                    sync_block();
+                };
+                iteration += 1u;
+            };
+        };
+        auto shader = device.compile(kernel);
+        auto stream = device.create_stream();
+        stream << shader().dispatch(32u) << synchronize();
+        _exit(EXIT_SUCCESS);
+    }
+    auto child_status = 0;
+    while (waitpid(child, &child_status, 0) < 0) {
+        if (errno != EINTR) { return false; }
+    }
+    return WIFSIGNALED(child_status);
+#else
+    static_cast<void>(program);
+    return true;
+#endif
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -133,6 +176,9 @@ int main(int argc, char *argv[]) {
     expect(active_assertion_fails_closed(
         argc > 0 ? argv[0] : ""))
         << "an active false SIMD device assertion must fail closed";
+    expect(mismatched_loop_barrier_fails_closed(
+        argc > 0 ? argv[0] : ""))
+        << "mismatched dynamic block-barrier instances must fail closed";
     Context context{argc > 0 ? argv[0] : ""};
     ScopedEnvironmentVariable width_override{
         "LUISA_SIMD_WARP_WIDTH", "2"};
@@ -240,6 +286,64 @@ int main(int argc, char *argv[]) {
              thread < shared_tail_threads; thread++) {
             expect(shared_tail_host[thread] == thread + 17u)
                 << "SIMD cooperative inactive-tail mismatch";
+        }
+
+        // Repeated static sites are distinct dynamic barrier instances. A
+        // uniform runtime trip count must execute at every width, including
+        // the wholly inactive packets in the final three-thread block.
+        auto loop_barrier_output = device.create_buffer<uint>(
+            shared_tail_threads);
+        Kernel1D loop_barrier_kernel = [width](
+                                           BufferUInt result,
+                                           UInt outer_trip_count,
+                                           UInt inner_trip_count) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            Shared<uint> values{32u};
+            UInt value = dispatch_x() + 1u;
+            UInt outer = 0u;
+            $while (outer < outer_trip_count) {
+                UInt inner = 0u;
+                $while (inner < inner_trip_count) {
+                    auto phase = outer * inner_trip_count + inner;
+                    values.write(thread_x(), value + phase);
+                    sync_block();
+                    value = values.read(thread_x()) * 3u + 1u;
+                    sync_block();
+                    inner += 1u;
+                };
+                outer += 1u;
+            };
+            result.write(dispatch_x(), value);
+        };
+        auto loop_barrier_shader = device.compile(
+            loop_barrier_kernel);
+        luisa::vector<uint> loop_barrier_host(
+            shared_tail_threads, 0u);
+        constexpr auto loop_barrier_outer_trip_count = 2u;
+        constexpr auto loop_barrier_inner_trip_count = 2u;
+        stream << loop_barrier_shader(
+                      loop_barrier_output,
+                      loop_barrier_outer_trip_count,
+                      loop_barrier_inner_trip_count)
+                      .dispatch(shared_tail_threads)
+               << loop_barrier_output.copy_to(
+                      luisa::span{loop_barrier_host})
+               << synchronize();
+        for (auto thread = 0u;
+             thread < shared_tail_threads; thread++) {
+            auto expected = thread + 1u;
+            for (auto outer = 0u;
+                 outer < loop_barrier_outer_trip_count; outer++) {
+                for (auto inner = 0u;
+                     inner < loop_barrier_inner_trip_count; inner++) {
+                    auto phase =
+                        outer * loop_barrier_inner_trip_count + inner;
+                    expected = (expected + phase) * 3u + 1u;
+                }
+            }
+            expect(loop_barrier_host[thread] == expected)
+                << "SIMD repeated block-barrier instance mismatch";
         }
 
         // A partial 2D edge block is not generally a lane-prefix tail. For

@@ -8916,6 +8916,37 @@ void bindless_uniform_gradient_probe(
               "cooperative_frame_alloc") == std::string::npos);
     CHECK(compiled.jit->object().find(
               "cooperative_block_begin") == std::string::npos);
+
+    Kernel1D repeated = [](BufferUInt output, UInt outer_count,
+                           UInt inner_count) noexcept {
+        set_block_size(32u, 1u, 1u);
+        Shared<uint> tile{32u};
+        UInt outer = 0u;
+        $while (outer < outer_count) {
+            UInt inner = 0u;
+            $while (inner < inner_count) {
+                tile.write(thread_x(), dispatch_x() + outer + inner);
+                sync_block();
+                inner += 1u;
+            };
+            outer += 1u;
+        };
+        output.write(dispatch_x(), tile.read(thread_x()));
+    };
+    auto repeated_compiled = compile_simd_kernel(
+        repeated.function()->function(), width,
+        "simd_ast_repeated_cooperative_block", false, true,
+        1u, true);
+    if (!repeated_compiled.succeeded()) {
+        for (auto &&diagnostic : repeated_compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(repeated_compiled.cooperative_block);
+    CHECK(repeated_compiled.block_barrier_count == 1u);
+    CHECK(repeated_compiled.block_barrier_loop_epoch_count == 2u);
+    CHECK(repeated_compiled.packet_batch_entry != nullptr);
     return true;
 }
 

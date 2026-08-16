@@ -99,6 +99,11 @@ private:
     std::vector<::llvm::AllocaInst *> _ray_query_status_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_callback_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_state_handle_storage{};
+    // Dense indices exist only for natural loops enclosing at least one
+    // static block barrier. Each slot is a per-lane epoch vector retained in
+    // the packet coroutine frame across suspensions.
+    std::vector<int32_t> _cooperative_loop_epoch_indices{};
+    std::vector<::llvm::AllocaInst *> _cooperative_loop_epochs{};
     std::vector<::llvm::Value *> _external_values{};
     std::vector<size_t> _parameter_offsets{};
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
@@ -533,12 +538,17 @@ private:
     void _resume(schedule::BlockId target, ::llvm::Value *mask);
     [[nodiscard]] ::llvm::Value *_route_edge(
         const schedule::ControlEdge &edge, ::llvm::Value *mask);
+    void _advance_cooperative_loop_epoch(
+        schedule::LoopId loop, ::llvm::Value *mask);
     void _continue_at(
         schedule::BlockId target, ::llvm::Value *mask);
     void _emit_arrival(const schedule::ControlEdge &edge,
                        ::llvm::Value *mask);
     void _begin_cooperative_coroutine();
     [[nodiscard]] ::llvm::Value *_cooperative_barrier_slot();
+    [[nodiscard]] ::llvm::Value *_cooperative_loop_epoch_slot(
+        uint32_t loop_epoch_index);
+    void _publish_cooperative_loop_epochs(uint32_t barrier_id);
     void _initialize_cooperative_packet(::llvm::Value *initial_mask);
     void _emit_block_barrier(
         const schedule::BlockBarrierTerminator &barrier);

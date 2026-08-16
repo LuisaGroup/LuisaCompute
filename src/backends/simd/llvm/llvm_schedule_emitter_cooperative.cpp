@@ -1,5 +1,7 @@
 #include "llvm_schedule_emitter.h"
 
+#include <limits>
+
 namespace luisa::compute::simd::detail {
 
 void ScheduleEmitter::_begin_cooperative_coroutine() {
@@ -129,6 +131,97 @@ ScheduleEmitter::_cooperative_barrier_slot() {
         "cooperative.barrier.slot");
 }
 
+[[nodiscard]] ::llvm::Value *
+ScheduleEmitter::_cooperative_loop_epoch_slot(
+    uint32_t loop_epoch_index) {
+    auto *pointer_type = ::llvm::PointerType::getUnqual(
+        _module.getContext());
+    auto *epochs_address = _byte_pointer(
+        _launch_config,
+        offsetof(SIMDPacketLaunchConfig, barrier_loop_epochs));
+    auto *epochs = _builder.CreateLoad(
+        pointer_type, epochs_address,
+        "cooperative.loop.epochs");
+    _trap_if(
+        _builder.CreateIsNull(epochs),
+        "cooperative.loop.epochs.missing");
+    auto *linear_index = _builder.CreateAdd(
+        _builder.CreateMul(
+            _builder.CreateZExt(
+                _packet_index, _builder.getInt64Ty()),
+            _builder.getInt64(
+                _result.block_barrier_loop_epoch_count)),
+        _builder.getInt64(loop_epoch_index),
+        "cooperative.loop.epoch.index");
+    return _builder.CreateInBoundsGEP(
+        _builder.getInt64Ty(), epochs, linear_index,
+        "cooperative.loop.epoch.slot");
+}
+
+void ScheduleEmitter::_advance_cooperative_loop_epoch(
+    schedule::LoopId loop, ::llvm::Value *mask) {
+    if (!_cooperative_block ||
+        loop.value >= _cooperative_loop_epoch_indices.size()) {
+        return;
+    }
+    auto epoch_index =
+        _cooperative_loop_epoch_indices[loop.value];
+    if (epoch_index < 0) { return; }
+    auto *epoch = _cooperative_loop_epochs[static_cast<size_t>(epoch_index)];
+    auto *old_value = _builder.CreateLoad(
+        epoch->getAllocatedType(), epoch,
+        "cooperative.loop.epoch");
+    auto *maximum = _builder.CreateVectorSplat(
+        _width, _builder.getInt64(
+                    std::numeric_limits<uint64_t>::max()));
+    auto *active_overflow = _builder.CreateAnd(
+        mask, _builder.CreateICmpEQ(old_value, maximum));
+    _trap_if(
+        _builder.CreateOrReduce(active_overflow),
+        "cooperative.loop.epoch.overflow");
+    auto *next_value = _builder.CreateAdd(
+        old_value,
+        _builder.CreateVectorSplat(
+            _width, _builder.getInt64(1u)),
+        "cooperative.loop.epoch.next");
+    _builder.CreateStore(
+        _builder.CreateSelect(mask, next_value, old_value), epoch);
+}
+
+void ScheduleEmitter::_publish_cooperative_loop_epochs(
+    uint32_t barrier_id) {
+    if (barrier_id >=
+        _result.block_barrier_loop_epochs.size()) {
+        _fail("block barrier ID exceeds the cooperative epoch map");
+        return;
+    }
+    for (auto epoch_index :
+         _result.block_barrier_loop_epochs[barrier_id]) {
+        if (epoch_index >= _cooperative_loop_epochs.size()) {
+            _fail("block barrier references an invalid loop epoch");
+            return;
+        }
+        auto *epoch = _cooperative_loop_epochs[epoch_index];
+        auto *values = _builder.CreateLoad(
+            epoch->getAllocatedType(), epoch,
+            "barrier.loop.epochs");
+        auto *value = _builder.CreateExtractElement(
+            values, _seed_lane,
+            "barrier.loop.epoch");
+        auto *different = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                values, _builder.CreateVectorSplat(
+                            _width, value)));
+        _trap_if(
+            _builder.CreateOrReduce(different),
+            "nonuniform.block.barrier.loop.epoch");
+        _builder.CreateStore(
+            value,
+            _cooperative_loop_epoch_slot(epoch_index));
+    }
+}
+
 void ScheduleEmitter::_initialize_cooperative_packet(
     ::llvm::Value *initial_mask) {
     auto *thread_index = _load_launch_u32(
@@ -167,6 +260,9 @@ void ScheduleEmitter::_emit_block_barrier(
                 ready_count, _builder.getInt32(0u)),
             _builder.CreateOrReduce(runnable)));
     _trap_if(invalid, "nonuniform.block.barrier");
+
+    _publish_cooperative_loop_epochs(barrier.barrier_id);
+    if (_failed()) { return; }
 
     auto *flow = _route_edge(barrier.resume_edge, _active_mask);
     if (flow == nullptr) { return; }

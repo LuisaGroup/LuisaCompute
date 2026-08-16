@@ -261,6 +261,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.linear_1d_block_coalescing_count;
     result.shared_memory_size = llvm_result.shared_memory_size;
     result.block_barrier_count = llvm_result.block_barrier_count;
+    result.block_barrier_loop_epoch_count =
+        llvm_result.block_barrier_loop_epoch_count;
     result.cooperative_block = llvm_result.cooperative_block;
     result.direct_control_flow = llvm_result.direct_control_flow;
     auto llvm_entry_name = llvm_result.entry->getName().str();

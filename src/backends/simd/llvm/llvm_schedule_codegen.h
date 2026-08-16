@@ -530,6 +530,10 @@ struct SIMDPacketLaunchConfig {
     // prefix unchanged.
     void *shared_memory{nullptr};
     uint32_t *barrier_ids{nullptr};
+    // One scalar epoch per packet and per tracked natural loop. The packet
+    // coroutine publishes exact enclosing-loop instances before suspension;
+    // the block wrapper compares them together with the static barrier ID.
+    uint64_t *barrier_loop_epochs{nullptr};
     void *(*cooperative_block_begin)(
         size_t shared_memory_size) noexcept {nullptr};
     void *(*cooperative_frame_alloc)(size_t size) noexcept {nullptr};
@@ -627,6 +631,8 @@ struct LLVMScheduleCodegenResult {
     size_t linear_1d_block_coalescing_count{0u};
     size_t shared_memory_size{0u};
     size_t block_barrier_count{0u};
+    size_t block_barrier_loop_epoch_count{0u};
+    std::vector<std::vector<uint32_t>> block_barrier_loop_epochs{};
     bool cooperative_block{false};
     bool direct_control_flow{false};
     std::string error{};

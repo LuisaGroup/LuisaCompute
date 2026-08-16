@@ -1,5 +1,6 @@
 #include "llvm_schedule_emitter.h"
 
+#include <algorithm>
 #include <unordered_set>
 
 #include "../../common/env_flag.h"
@@ -524,6 +525,48 @@ void ScheduleEmitter::_preflight() {
                     xir::AllocaOp::SHARED) {
                 _has_shared_memory = true;
             }
+        }
+    }
+    _result.block_barrier_loop_epochs.resize(
+        _result.block_barrier_count);
+    _cooperative_loop_epoch_indices.assign(
+        _source.loops().size(), -1);
+    for (auto &&block : _source.blocks()) {
+        auto *barrier = std::get_if<
+            schedule::BlockBarrierTerminator>(&block.terminator);
+        if (barrier == nullptr) { continue; }
+        if (barrier->barrier_id >=
+            _result.block_barrier_loop_epochs.size()) {
+            _fail("block barrier ID exceeds the cooperative epoch table");
+            return;
+        }
+        auto &barrier_epochs =
+            _result.block_barrier_loop_epochs[barrier->barrier_id];
+        for (auto &&loop : _source.loops()) {
+            if (std::find(
+                    loop.blocks.cbegin(), loop.blocks.cend(),
+                    block.id) == loop.blocks.cend()) {
+                continue;
+            }
+            if (loop.id.value >=
+                _cooperative_loop_epoch_indices.size()) {
+                _fail("natural-loop ID exceeds the cooperative epoch map");
+                return;
+            }
+            auto &epoch_index =
+                _cooperative_loop_epoch_indices[loop.id.value];
+            if (epoch_index < 0) {
+                if (_result.block_barrier_loop_epoch_count >=
+                    static_cast<size_t>(
+                        std::numeric_limits<int32_t>::max())) {
+                    _fail("cooperative SIMD kernel has too many barrier loops");
+                    return;
+                }
+                epoch_index = static_cast<int32_t>(
+                    _result.block_barrier_loop_epoch_count++);
+            }
+            barrier_epochs.emplace_back(
+                static_cast<uint32_t>(epoch_index));
         }
     }
     _cooperative_block = _has_block_barrier || _has_shared_memory;

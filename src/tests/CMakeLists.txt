@@ -704,6 +704,7 @@ if (TARGET luisa-compute-backend-simd)
             test_printer_custom_callback
             test_shared_mem
             test_shared_memory
+            test_softmax
             test_warp
             test_warp_prefix_scan
             test_warp_sparse_collectives)
@@ -717,7 +718,8 @@ if (TARGET luisa-compute-backend-simd)
     foreach (_simd_shared_width IN ITEMS 1 2 4 16)
         foreach (_simd_shared_test IN ITEMS
                 test_shared_mem
-                test_shared_memory)
+                test_shared_memory
+                test_softmax)
             add_test(
                     NAME simd_${_simd_shared_test}_w${_simd_shared_width}
                     COMMAND $<TARGET_FILE:${_simd_shared_test}> simd)
