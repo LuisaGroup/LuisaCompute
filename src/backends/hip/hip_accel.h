@@ -43,6 +43,18 @@ public:
         uint64_t motion_data;
     };
 
+    // Device-visible proof certificate stored immediately before the instance
+    // array. `opacity_may_be_present` is monotone over an accel's lifetime:
+    // every host/device transition to opaque sets it and no transition clears
+    // it. Therefore zero proves that every current instance is non-opaque,
+    // while nonzero deliberately means "unknown". Native effect-only any-hit
+    // traversal consumes exactly that one-way implication and otherwise keeps
+    // the ordinary resumable path.
+    struct alignas(16) CodegenMetadata {
+        uint32_t opacity_may_be_present;
+        uint32_t reserved[3];
+    };
+
     static_assert(sizeof(CodegenInstance) == 80u);
     static_assert(alignof(CodegenInstance) == 16u);
     static_assert(offsetof(CodegenInstance, affine) == 0u);
@@ -52,6 +64,9 @@ public:
     static_assert(offsetof(CodegenInstance, flags) == 60u);
     static_assert(offsetof(CodegenInstance, mesh_handle) == 64u);
     static_assert(offsetof(CodegenInstance, motion_data) == 72u);
+    static_assert(sizeof(CodegenMetadata) == 16u);
+    static_assert(alignof(CodegenMetadata) == 16u);
+    static_assert(offsetof(CodegenMetadata, opacity_may_be_present) == 0u);
     static_assert(offsetof(hiprtFrameMatrix, matrix) == 0u);
     static_assert(sizeof(hiprtFrameMatrix::matrix) == sizeof(CodegenInstance::affine));
     static_assert(offsetof(hiprtFrameMatrix, time) == sizeof(CodegenInstance::affine));
@@ -64,6 +79,11 @@ private:
     bool _hiprt_instances_dirty{true};
     mutable spin_mutex _mutex;
 
+    // `_instance_allocation` owns [CodegenMetadata, CodegenInstance...]; the
+    // public shader binding remains `_instance_buffer`, i.e. the first
+    // CodegenInstance, so the existing accel ABI and instance indexing do not
+    // change.
+    hipDeviceptr_t _instance_allocation{};
     hipDeviceptr_t _instance_buffer{};
     size_t _instance_buffer_size{};
     hipDeviceptr_t _scene_build_buffer{};

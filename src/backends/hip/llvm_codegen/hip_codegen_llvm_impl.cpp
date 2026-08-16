@@ -1359,6 +1359,7 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     _uses_iterative_synchronous_ray_query_pipeline = false;
     _uses_resumable_hardware_ray_query_pipeline = false;
     _uses_native_closest_ray_query_pipeline = false;
+    _uses_native_effect_only_ray_query_pipeline = false;
     _uses_static_global_rt_stack = false;
     _analyze_ray_tracing_usage(xir_module);
     // AST-derived flags are conservative: optimization may have removed the
@@ -1397,7 +1398,8 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     }
     auto ray_query_projection =
         _finalize_ray_query_pipeline_contexts();
-    if (_uses_native_closest_ray_query_pipeline &&
+    if ((_uses_native_closest_ray_query_pipeline ||
+         _uses_native_effect_only_ray_query_pipeline) &&
         _config.max_register_count == 0u) {
         // The ordinary synchronous frontier is latency-bound and benefits from
         // a high occupancy target. A native closest callback instead contains
@@ -1408,7 +1410,7 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             llvm::StringRef{_config.entry_point.data(),
                             _config.entry_point.size()});
         LUISA_ASSERT(llvm_kernel != nullptr,
-                     "Missing HIP kernel while selecting native closest "
+                     "Missing HIP kernel while selecting native callback "
                      "RayQuery resources.");
         llvm_kernel->removeFnAttr("amdgpu-waves-per-eu");
     }

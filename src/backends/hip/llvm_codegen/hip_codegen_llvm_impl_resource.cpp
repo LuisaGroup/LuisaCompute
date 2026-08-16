@@ -1924,16 +1924,49 @@ void HIPCodegenLLVMImpl::_store_accel_affine_matrix(IB &b, llvm::Value *affine_p
 void HIPCodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel, llvm::Value *instance_index, llvm::Value *is_opaque) noexcept {
     LUISA_DEBUG_ASSERT(is_opaque->getType()->isIntegerTy(1));
     auto instance_ptr = _get_accel_instance_pointer(b, accel, instance_index);
+    auto instances = b.CreateExtractValue(
+        accel, llvm_accel_type_instances_index);
+    auto metadata_ptr = b.CreateInBoundsGEP(
+        b.getInt8Ty(), instances,
+        b.getInt64(-static_cast<int64_t>(llvm_accel_metadata_size)),
+        "accel.metadata");
     using namespace std::string_view_literals;
     auto name = "luisa.accel.set.instance.opacity"sv;
     auto f = _llvm_module->getFunction(name);
     if (f == nullptr) {
         auto void_type = llvm::Type::getVoidTy(_llvm_context);
-        auto f_type = llvm::FunctionType::get(void_type, {instance_ptr->getType(), is_opaque->getType()}, false);
+        auto f_type = llvm::FunctionType::get(
+            void_type,
+            {instance_ptr->getType(), metadata_ptr->getType(),
+             is_opaque->getType()}, false);
         f = llvm::Function::Create(f_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
         f->addFnAttr(llvm::Attribute::AlwaysInline);
         auto entry = llvm::BasicBlock::Create(_llvm_context, "entry", f);
         IB fb{entry};
+        // The certificate is monotone. An atomic OR linearizes concurrent
+        // transitions to opaque; transitions to non-opaque deliberately leave
+        // it set. Codegen rejects the native effect-only route for any module
+        // that writes opacity, while later kernels still observe this durable
+        // proof invalidation.
+        auto mark_opaque = llvm::BasicBlock::Create(
+            _llvm_context, "mark.opaque", f);
+        auto update_instance = llvm::BasicBlock::Create(
+            _llvm_context, "update.instance", f);
+        fb.CreateCondBr(f->getArg(2), mark_opaque, update_instance);
+        fb.SetInsertPoint(mark_opaque);
+        auto certificate_ptr = fb.CreateInBoundsGEP(
+            fb.getInt8Ty(), f->getArg(1),
+            fb.getInt64(
+                llvm_accel_metadata_opacity_may_be_present_offset));
+        auto certificate = fb.CreateAtomicRMW(
+            llvm::AtomicRMWInst::Or, certificate_ptr,
+            fb.getInt32(1u), llvm::MaybeAlign{alignof(uint32_t)},
+            llvm::AtomicOrdering::Monotonic);
+        certificate->setSyncScopeID(
+            _llvm_context.getOrInsertSyncScopeID("agent"));
+        fb.CreateBr(update_instance);
+
+        fb.SetInsertPoint(update_instance);
         auto flags_ptr = fb.CreateStructGEP(_get_llvm_accel_instance_type(), f->getArg(0), llvm_accel_instance_type_flags_index);
         auto flags = fb.CreateLoad(fb.getInt32Ty(), flags_ptr);
         // HIP's codegen-visible instance ABI reserves bit 0 for opacity for
@@ -1941,7 +1974,7 @@ void HIPCodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel, 
         // HIP ray-query traversal reads this compact flag word directly.
         constexpr auto instance_flag_opaque = 1u << 0u;
         auto cleared_flags = fb.CreateAnd(flags, ~instance_flag_opaque);
-        auto new_flag_bit = fb.CreateSelect(f->getArg(1),
+        auto new_flag_bit = fb.CreateSelect(f->getArg(2),
                                             fb.getInt32(instance_flag_opaque),
                                             fb.getInt32(0u));
         fb.CreateStore(fb.CreateOr(cleared_flags, new_flag_bit), flags_ptr);
@@ -1955,7 +1988,7 @@ void HIPCodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel, 
         auto cleared_mask = fb.CreateAnd(
             mask, ~llvm_accel_instance_packed_opacity_bit);
         auto new_packed_opacity = fb.CreateSelect(
-            f->getArg(1),
+            f->getArg(2),
             fb.getInt32(llvm_accel_instance_packed_opacity_bit),
             fb.getInt32(0u));
         fb.CreateStore(
@@ -1963,7 +1996,7 @@ void HIPCodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel, 
             mask_ptr);
         fb.CreateRetVoid();
     }
-    b.CreateCall(f, {instance_ptr, is_opaque});
+    b.CreateCall(f, {instance_ptr, metadata_ptr, is_opaque});
 }
 
 llvm::Value *HIPCodegenLLVMImpl::_accel_trace_closest(

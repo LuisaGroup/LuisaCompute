@@ -210,6 +210,11 @@ public:
     static constexpr auto llvm_accel_instance_type_motion_data_index = 6;
     static constexpr auto llvm_accel_instance_visibility_mask_bits = 0xffu;
     static constexpr auto llvm_accel_instance_packed_opacity_bit = 1u << 31u;
+    // HIPAccel::CodegenMetadata is a 16-byte prefix immediately before the
+    // bound CodegenInstance array. Keep this backend-private layout constant
+    // explicit on both sides of the generated-code ABI.
+    static constexpr auto llvm_accel_metadata_size = 16u;
+    static constexpr auto llvm_accel_metadata_opacity_may_be_present_offset = 0u;
 
     static constexpr auto llvm_ray_type_origin_index = 0;
     static constexpr auto llvm_ray_type_t_min_index = 1;
@@ -315,6 +320,7 @@ private:
     bool _uses_iterative_synchronous_ray_query_pipeline{false};
     bool _uses_resumable_hardware_ray_query_pipeline{false};
     bool _uses_native_closest_ray_query_pipeline{false};
+    bool _uses_native_effect_only_ray_query_pipeline{false};
     bool _uses_static_global_rt_stack{false};
     bool _requires_global_rt_stack{false};
     luisa::vector<const xir::Function *>

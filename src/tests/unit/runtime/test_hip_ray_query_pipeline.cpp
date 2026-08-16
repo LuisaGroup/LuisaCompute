@@ -202,6 +202,193 @@ void test_hip_ray_query_pipeline(Device &device) {
     expect(std::abs(host_result2[2] - 3.0f) < 1.0e-5f);
 }
 
+void test_hip_effect_only_native_enumeration(Device &device) {
+    if (device.backend_name() != "hip") {
+        LUISA_INFO(
+            "Skipping HIP native effect-only RayQuery test on backend '{}'.",
+            device.backend_name());
+        return;
+    }
+
+    // Five overlapping candidates exercise both callback domains. The first
+    // four callbacks form the observable prefix; terminate() must stop before
+    // the fifth without committing any query candidate.
+    const std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.75f),
+        make_float3(1.0f, -1.0f, 0.75f),
+        make_float3(0.0f, 1.0f, 0.75f),
+        make_float3(-1.0f, -1.0f, 0.50f),
+        make_float3(1.0f, -1.0f, 0.50f),
+        make_float3(0.0f, 1.0f, 0.50f),
+        make_float3(-1.0f, -1.0f, 0.25f),
+        make_float3(1.0f, -1.0f, 0.25f),
+        make_float3(0.0f, 1.0f, 0.25f)};
+    const std::array triangles{
+        Triangle{0u, 1u, 2u},
+        Triangle{3u, 4u, 5u},
+        Triangle{6u, 7u, 8u}};
+    const std::array aabbs{
+        AABB{.packed_min = {-0.5f, -0.5f, 0.60f},
+             .packed_max = {0.5f, 0.5f, 0.65f}},
+        AABB{.packed_min = {-0.5f, -0.5f, 0.10f},
+             .packed_max = {0.5f, 0.5f, 0.15f}}};
+
+    auto stream = device.create_stream();
+    auto vertex_buffer =
+        device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer =
+        device.create_buffer<Triangle>(triangles.size());
+    auto aabb_buffer = device.create_buffer<AABB>(aabbs.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto procedural = device.create_procedural_primitive(aabb_buffer);
+    auto nonopaque_accel = device.create_accel();
+    nonopaque_accel.emplace_back(
+        mesh, make_float4x4(1.0f), 0xffu, false);
+    nonopaque_accel.emplace_back(procedural);
+    auto opaque_accel = device.create_accel();
+    opaque_accel.emplace_back(
+        mesh, make_float4x4(1.0f), 0xffu, true);
+    opaque_accel.emplace_back(procedural);
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << aabb_buffer.copy_from(luisa::span{aabbs})
+           << mesh.build()
+           << procedural.build()
+           << nonopaque_accel.build()
+           << opaque_accel.build()
+           << synchronize();
+
+    auto make_trace = [](bool observe_post_state) noexcept {
+        return Kernel1D{[observe_post_state](
+                            AccelVar accel,
+                            BufferUInt4 metadata,
+                            BufferUInt sequence,
+                            BufferUInt post_state) noexcept {
+            UInt callback_count = 0u;
+            UInt surface_count = 0u;
+            UInt procedural_count = 0u;
+            UInt checksum = 0u;
+            const auto ray = make_ray(
+                make_float3(0.0f, 0.0f, 1.0f),
+                make_float3(0.0f, 0.0f, -1.0f),
+                0.0f, 2.0f);
+            const auto committed =
+                accel.traverse(ray, {})
+                    .on_surface_candidate(
+                        [&](SurfaceCandidate &candidate) noexcept {
+                            const auto hit = candidate.hit();
+                            const auto code =
+                                0x10000000u |
+                                (hit->inst << 16u) |
+                                hit->prim;
+                            sequence.write(callback_count, code);
+                            checksum = checksum * 16777619u ^ code;
+                            callback_count += 1u;
+                            surface_count += 1u;
+                            $if (callback_count == 4u) {
+                                candidate.terminate();
+                            };
+                        })
+                    .on_procedural_candidate(
+                        [&](ProceduralCandidate &candidate) noexcept {
+                            const auto hit = candidate.hit();
+                            const auto code =
+                                0x20000000u |
+                                (hit->inst << 16u) |
+                                hit->prim;
+                            sequence.write(callback_count, code);
+                            checksum = checksum * 16777619u ^ code;
+                            callback_count += 1u;
+                            procedural_count += 1u;
+                            $if (callback_count == 4u) {
+                                candidate.terminate();
+                            };
+                        })
+                    .trace();
+            metadata.write(
+                0u, make_uint4(
+                        callback_count, surface_count,
+                        procedural_count, checksum));
+            if (observe_post_state) {
+                // This read deliberately makes the otherwise identical query
+                // ineligible for effect-only lowering, providing the exact
+                // iterative oracle for candidate effects and ordering.
+                post_state.write(0u, committed->hit_type);
+            } else {
+                static_cast<void>(committed);
+            }
+        }};
+    };
+
+    auto native_shader = device.compile(
+        make_trace(false), ShaderOption{.enable_cache = false});
+    auto exact_shader = device.compile(
+        make_trace(true), ShaderOption{.enable_cache = false});
+    auto native_metadata = device.create_buffer<uint4>(1u);
+    auto exact_metadata = device.create_buffer<uint4>(1u);
+    auto native_sequence = device.create_buffer<uint>(8u);
+    auto exact_sequence = device.create_buffer<uint>(8u);
+    auto post_state = device.create_buffer<uint>(1u);
+
+    auto compare = [&](Accel &accel, bool expect_four_callbacks) noexcept {
+        constexpr std::array<uint, 8u> sentinel{
+            ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u};
+        std::array<uint4, 1u> host_native_metadata{};
+        std::array<uint4, 1u> host_exact_metadata{};
+        std::array<uint, 8u> host_native_sequence{};
+        std::array<uint, 8u> host_exact_sequence{};
+        stream << native_sequence.copy_from(luisa::span{sentinel})
+               << exact_sequence.copy_from(luisa::span{sentinel})
+               << native_shader(
+                      accel, native_metadata, native_sequence,
+                      post_state)
+                      .dispatch(1u)
+               << exact_shader(
+                      accel, exact_metadata, exact_sequence,
+                      post_state)
+                      .dispatch(1u)
+               << native_metadata.copy_to(
+                      luisa::span{host_native_metadata})
+               << exact_metadata.copy_to(
+                      luisa::span{host_exact_metadata})
+               << native_sequence.copy_to(
+                      luisa::span{host_native_sequence})
+               << exact_sequence.copy_to(
+                      luisa::span{host_exact_sequence})
+               << synchronize();
+        const auto native_summary = host_native_metadata[0];
+        const auto exact_summary = host_exact_metadata[0];
+        expect(native_summary.x == exact_summary.x &&
+               native_summary.y == exact_summary.y &&
+               native_summary.z == exact_summary.z &&
+               native_summary.w == exact_summary.w)
+            << "native effect-only callback summary differs from exact "
+               "RayQueryAll";
+        for (auto i = 0u; i < host_native_sequence.size(); ++i) {
+            expect(host_native_sequence[i] == host_exact_sequence[i])
+                << luisa::format(
+                       "effect-only callback {} differs: native=0x{:08x}, "
+                       "exact=0x{:08x}",
+                       i, host_native_sequence[i],
+                       host_exact_sequence[i]);
+        }
+        if (expect_four_callbacks) {
+            expect(host_native_metadata[0].x == 4u)
+                << "effect-only terminate boundary did not retain exactly "
+                   "four callbacks";
+        } else {
+            // The opaque mesh bypasses the surface handler. This case also
+            // proves that a nonzero accel certificate enters the exact path
+            // before any callback side effect is executed.
+            expect(host_native_metadata[0].y == 0u)
+                << "opaque instance unexpectedly reached the surface "
+                   "candidate handler";
+        }
+    };
+    compare(nonopaque_accel, true);
+    compare(opaque_accel, false);
+}
+
 void test_hip_ray_query_paired_triangle_resume(Device &device) {
     if (device.backend_name() != "hip") {
         LUISA_INFO(
@@ -1724,6 +1911,9 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     "HIP ray-query pipeline captures and commits"_test = [&] {
         test_hip_ray_query_pipeline(dc->device);
+    };
+    "HIP ray-query effect-only native enumeration"_test = [&] {
+        test_hip_effect_only_native_enumeration(dc->device);
     };
     "HIP ray-query paired-triangle resume state"_test = [&] {
         test_hip_ray_query_paired_triangle_resume(dc->device);

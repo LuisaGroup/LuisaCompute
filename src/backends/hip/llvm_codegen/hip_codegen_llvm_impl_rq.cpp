@@ -745,6 +745,159 @@ struct NativeClosestHandlerAnalysisContext {
            procedural_is_reduction && !observes_both_ray_spaces;
 }
 
+// Prove the one property needed by effect-only any-hit enumeration: no
+// reachable operation can commit the active query. The active query is a
+// reference-provenance fact propagated through direct Callable arguments.
+// Reads and TERMINATE preserve the quotient; COMMIT/PROCEED, aliasing, escape,
+// unknown callees, and recursion fail closed. All operations unrelated to the
+// active query are deliberately admitted, including arbitrary resource and
+// atomic side effects, because preserving those effects is the purpose of this
+// route rather than a restriction of it.
+[[nodiscard]] bool native_effect_handler_never_commits(
+    const xir::Function *function,
+    luisa::vector<bool> active_query_reference_arguments,
+    llvm::DenseSet<const xir::Function *> &active_functions) noexcept {
+    if (function == nullptr || function->definition() == nullptr ||
+        !active_functions.insert(function).second) {
+        return false;
+    }
+    NativeClosestHandlerAnalysisContext context{
+        function,
+        luisa::vector<bool>(
+            active_query_reference_arguments.size(), false),
+        std::move(active_query_reference_arguments)};
+    auto valid = true;
+    function->definition()->traverse_instructions(
+        [&](const xir::Instruction *instruction) noexcept {
+            if (!valid) { return; }
+            auto has_active_query_operand = false;
+            for (auto i = 0u; i < instruction->operand_count(); ++i) {
+                has_active_query_operand |=
+                    native_closest_pointer_is_active_query(
+                        instruction->operand(i), context);
+            }
+            if (!has_active_query_operand) { return; }
+
+            switch (instruction->derived_instruction_tag()) {
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ: {
+                    auto read = static_cast<
+                        const xir::RayQueryObjectReadInst *>(instruction);
+                    valid = read->operand_count() != 0u &&
+                            native_closest_pointer_is_active_query(
+                                read->operand(0u), context);
+                    break;
+                }
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
+                    auto write = static_cast<
+                        const xir::RayQueryObjectWriteInst *>(instruction);
+                    valid = write->operand_count() != 0u &&
+                            native_closest_pointer_is_active_query(
+                                write->operand(0u), context) &&
+                            write->op() ==
+                                xir::RayQueryObjectWriteOp::
+                                    RAY_QUERY_OBJECT_TERMINATE;
+                    break;
+                }
+                case xir::DerivedInstructionTag::CALL: {
+                    auto call =
+                        static_cast<const xir::CallInst *>(instruction);
+                    auto callee = call->callee();
+                    if (callee == nullptr || callee->definition() == nullptr ||
+                        call->argument_count() !=
+                            callee->arguments().count_size()) {
+                        valid = false;
+                        break;
+                    }
+                    luisa::vector<bool> callee_active_arguments(
+                        call->argument_count(), false);
+                    auto i = 0u;
+                    for (auto argument : callee->arguments()) {
+                        const auto active =
+                            native_closest_pointer_is_active_query(
+                                call->argument(i), context);
+                        if (active &&
+                            (!argument->is_reference() ||
+                             argument->type() != Type::of<RayQueryAll>())) {
+                            valid = false;
+                            break;
+                        }
+                        callee_active_arguments[i] = active;
+                        ++i;
+                    }
+                    if (valid) {
+                        valid = native_effect_handler_never_commits(
+                            callee, std::move(callee_active_arguments),
+                            active_functions);
+                    }
+                    break;
+                }
+                default: valid = false; break;
+            }
+            if (!valid) {
+                LUISA_VERBOSE(
+                    "HIP native effect-only enumeration rejected active "
+                    "query use '{}' ('{}') in function '{}'.",
+                    xir::to_string(
+                        instruction->derived_instruction_tag()),
+                    instruction->name().value_or("<unnamed>"),
+                    function->name().value_or("<unnamed>"));
+            }
+        });
+    active_functions.erase(function);
+    return valid;
+}
+
+[[nodiscard]] bool native_effect_handler_never_commits(
+    const xir::Function *function) noexcept {
+    const auto argument_count = function == nullptr ?
+                                    0u :
+                                    function->arguments().count_size();
+    if (function == nullptr || argument_count == 0u) { return false; }
+    auto query_argument = function->arguments().front();
+    if (!query_argument->is_reference() ||
+        query_argument->type() != Type::of<RayQueryAll>()) {
+        return false;
+    }
+    luisa::vector<bool> active_query_arguments(
+        argument_count, false);
+    active_query_arguments.front() = true;
+    llvm::DenseSet<const xir::Function *> active_functions;
+    return native_effect_handler_never_commits(
+        function, std::move(active_query_arguments), active_functions);
+}
+
+[[nodiscard]] bool
+ray_query_pipeline_admits_native_effect_only_enumeration(
+    const xir::RayQueryPipelineInst *pipeline) noexcept {
+    if (pipeline == nullptr || pipeline->query_object() == nullptr ||
+        pipeline->query_object()->type() != Type::of<RayQueryAll>()) {
+        return false;
+    }
+    const auto post_state_dead =
+        !ray_query_pipeline_post_state_is_observed(pipeline);
+    const auto surface_never_commits =
+        native_effect_handler_never_commits(
+            pipeline->on_surface_function());
+    const auto procedural_never_commits =
+        native_effect_handler_never_commits(
+            pipeline->on_procedural_function());
+    const auto observation_masks =
+        ray_query_handler_observation_masks(pipeline);
+    const auto observes_both_ray_spaces =
+        ray_query_observation_requires_distinct_ray_states(
+            observation_masks.surface) ||
+        ray_query_observation_requires_distinct_ray_states(
+            observation_masks.procedural);
+    LUISA_VERBOSE(
+        "HIP native effect-only enumeration proof: post-state-dead = {}, "
+        "surface-never-commits = {}, procedural-never-commits = {}, "
+        "joint-ray-handler = {}.",
+        post_state_dead, surface_never_commits,
+        procedural_never_commits, observes_both_ray_spaces);
+    return post_state_dead && surface_never_commits &&
+           procedural_never_commits && !observes_both_ray_spaces;
+}
+
 }// namespace
 
 HIPCodegenLLVMImpl::RayQueryPipelineProjectionInfo
@@ -1587,6 +1740,8 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         ray_query_pipeline_post_state_is_observed(inst);
     const auto native_closest_reduction =
         ray_query_pipeline_admits_native_closest_reduction(inst);
+    const auto native_effect_only_enumeration =
+        ray_query_pipeline_admits_native_effect_only_enumeration(inst);
     LUISA_ASSERT(
         _ray_query_pipeline_count <=
             std::numeric_limits<uint32_t>::max(),
@@ -1700,21 +1855,50 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             native_closest_reduction && _uses_hardware_rt_stack;
         const auto use_native_hiprt_closest =
             native_closest_reduction && !_uses_hardware_rt_stack;
+        // Effect-only enumeration permits arbitrary externally visible
+        // handler writes, but the active query itself can only be read or
+        // terminated. A kernel-reachable opacity write would invalidate the
+        // accel's non-opaque proof during traversal, so it must keep the exact
+        // iterative route. Existing opaque accels are handled by the monotone
+        // runtime certificate before any callback executes.
+        const auto native_effect_only_is_stable =
+            native_effect_only_enumeration &&
+            !_rt_analysis.writes_instance_opacity;
+        const auto use_static_global_hiprt_effect =
+            native_effect_only_is_stable &&
+            !native_closest_reduction &&
+            _uses_hardware_rt_stack;
+        const auto use_native_hiprt_effect =
+            native_effect_only_is_stable &&
+            !native_closest_reduction &&
+            !_uses_hardware_rt_stack;
         LUISA_VERBOSE(
-            "HIP native closest route: reduction = {}, hardware-stack = {}, "
-            "motion-blur = {}, dynamic-global = {}, static-global = {}.",
-            native_closest_reduction, _uses_hardware_rt_stack,
-            _rt_analysis.uses_motion_blur,
+            "HIP native callback route: closest-reduction = {}, "
+            "effect-only = {}, opacity-stable = {}, hardware-stack = {}, "
+            "motion-blur = {}, closest-dynamic = {}, closest-static = {}, "
+            "effect-dynamic = {}, effect-static = {}.",
+            native_closest_reduction,
+            native_effect_only_enumeration,
+            !_rt_analysis.writes_instance_opacity,
+            _uses_hardware_rt_stack, _rt_analysis.uses_motion_blur,
             use_native_hiprt_closest,
-            use_static_global_hiprt_closest);
+            use_static_global_hiprt_closest,
+            use_native_hiprt_effect,
+            use_static_global_hiprt_effect);
         _uses_native_closest_ray_query_pipeline |=
             use_native_hiprt_closest ||
             use_static_global_hiprt_closest;
+        _uses_native_effect_only_ray_query_pipeline |=
+            use_native_hiprt_effect ||
+            use_static_global_hiprt_effect;
         _uses_static_global_rt_stack |=
-            use_static_global_hiprt_closest;
+            use_static_global_hiprt_closest ||
+            use_static_global_hiprt_effect;
         _uses_iterative_synchronous_ray_query_pipeline |=
             !(use_native_hiprt_closest ||
-              use_static_global_hiprt_closest);
+              use_static_global_hiprt_closest ||
+              use_native_hiprt_effect ||
+              use_static_global_hiprt_effect);
         // Materialize the exact callback environment once. The native HIPRT
         // filter/intersection callbacks receive only an opaque context pointer;
         // this typed struct restores the ordinary Callable ABI without an
@@ -2148,6 +2332,10 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                                    (_rt_analysis.writes_instance_opacity ?
                                         "luisa_pipeline_ray_query_trace_all_native_closest" :
                                         "luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity") :
+                               use_static_global_hiprt_effect ?
+                                   "luisa_pipeline_ray_query_trace_all_native_effect_global_stack" :
+                               use_native_hiprt_effect ?
+                                   "luisa_pipeline_ray_query_trace_all_native_effect" :
                                    (query_object->type() == Type::of<RayQueryAny>() ?
                                         (_rt_analysis.writes_instance_opacity ?
                                              "luisa_pipeline_ray_query_trace_any" :

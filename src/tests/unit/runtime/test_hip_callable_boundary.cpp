@@ -543,6 +543,67 @@ void compile_object_ray_reduction(
         kernel, ShaderOption{.enable_cache = false}));
 }
 
+enum class EffectOnlyRayQueryCase {
+    proven,
+    nested_commit,
+    opacity_write,
+};
+
+void compile_effect_only_ray_query(
+    Device &device, EffectOnlyRayQueryCase test_case) noexcept {
+    Kernel1D kernel = [test_case](
+                          BufferUInt output,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        UInt callback_count = 0u;
+        const auto ignored =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        const auto hit = candidate.hit();
+                        output.write(
+                            dispatch_x(),
+                            hit->prim ^ callback_count);
+                        if (test_case ==
+                            EffectOnlyRayQueryCase::proven) {
+                            // Active-query provenance must cross this direct
+                            // Callable edge. TERMINATE preserves the effect-
+                            // only quotient and arbitrary buffer writes remain
+                            // observable in their original candidate order.
+                            Callable terminate_after_two =
+                                [&candidate](UInt count) noexcept {
+                                    $if (count == 2u) {
+                                        candidate.terminate();
+                                    };
+                                };
+                            callback_count += 1u;
+                            terminate_after_two(callback_count);
+                        } else if (
+                            test_case ==
+                            EffectOnlyRayQueryCase::nested_commit) {
+                            // A commit hidden behind the same call boundary
+                            // must invalidate the proof.
+                            Callable commit =
+                                [&candidate]() noexcept {
+                                    candidate.commit();
+                                };
+                            commit();
+                        } else {
+                            // Even without a query commit, mutation of the
+                            // accel opacity domain can invalidate the monotone
+                            // non-opaque certificate during traversal.
+                            accel.set_instance_opaque(hit->inst, false);
+                        }
+                    })
+                .trace();
+        static_cast<void>(ignored);
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -672,6 +733,12 @@ int main(int argc, char *argv[]) {
             compile_mixed_ray_query_pipelines(device);
             compile_object_ray_reduction(device, false);
             compile_object_ray_reduction(device, true);
+            compile_effect_only_ray_query(
+                device, EffectOnlyRayQueryCase::proven);
+            compile_effect_only_ray_query(
+                device, EffectOnlyRayQueryCase::nested_commit);
+            compile_effect_only_ray_query(
+                device, EffectOnlyRayQueryCase::opacity_write);
             const auto before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_4.ll");
             const auto observing_before_module = read_text_file(
@@ -714,12 +781,24 @@ int main(int argc, char *argv[]) {
                 dump_directory / "hip_kernel_before_opt_12.ll");
             const auto joint_rays_before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_13.ll");
+            const auto effect_only_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_14.ll");
+            const auto effect_commit_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_15.ll");
+            const auto effect_opacity_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_16.ll");
             const auto mixed_before_root =
                 amdgpu_kernel_body(mixed_before_module);
             const auto object_ray_before_root =
                 amdgpu_kernel_body(object_ray_before_module);
             const auto joint_rays_before_root =
                 amdgpu_kernel_body(joint_rays_before_module);
+            const auto effect_only_before_root =
+                amdgpu_kernel_body(effect_only_before_module);
+            const auto effect_commit_before_root =
+                amdgpu_kernel_body(effect_commit_before_module);
+            const auto effect_opacity_before_root =
+                amdgpu_kernel_body(effect_opacity_before_module);
             const auto mixed_exact_state_domain =
                 llvm_function_body(
                     mixed_before_module,
@@ -739,6 +818,9 @@ int main(int argc, char *argv[]) {
                    !mixed_before_root.empty() &&
                    !object_ray_before_root.empty() &&
                    !joint_rays_before_root.empty() &&
+                   !effect_only_before_root.empty() &&
+                   !effect_commit_before_root.empty() &&
+                   !effect_opacity_before_root.empty() &&
                    !mixed_exact_state_domain.empty() &&
                    !mixed_resumable_state_domain.empty())
                 << "failed to locate the generated RayQuery functions";
@@ -974,6 +1056,41 @@ int main(int argc, char *argv[]) {
                 << "one handler observing both ray spaces did not select "
                    "the exact resumable state domain";
 
+            // Effect-only RayQueryAll is a separate formal quotient from a
+            // closest-hit reduction: query post-state is dead, handlers may
+            // perform arbitrary ordered side effects, and the active query is
+            // proven to admit only reads/terminate. A nested commit must fail
+            // that interprocedural proof. A device opacity write must also
+            // keep the exact route because it can invalidate the accel proof
+            // certificate during the same traversal.
+            const auto expected_effect_only_trace =
+                uses_gfx12_hardware_stack ?
+                    "@luisa_pipeline_ray_query_trace_all_native_effect_"
+                    "global_stack(" :
+                    "@luisa_pipeline_ray_query_trace_all_native_effect(";
+            expect(effect_only_before_root.find(
+                       expected_effect_only_trace) !=
+                       std::string_view::npos &&
+                   effect_only_before_module.find(
+                       "@luisa_ray_query_proceed(") ==
+                       std::string::npos)
+                << "proven effect-only RayQueryAll did not select one "
+                   "native HIPRT any-hit traversal";
+            expect(effect_commit_before_root.find(
+                       "native_effect") == std::string_view::npos &&
+                   effect_commit_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
+                       std::string_view::npos)
+                << "nested active-query commit did not reject native "
+                   "effect-only enumeration";
+            expect(effect_opacity_before_root.find(
+                       "native_effect") == std::string_view::npos &&
+                   effect_opacity_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all(") !=
+                       std::string_view::npos)
+                << "kernel-reachable opacity mutation did not retain the "
+                   "exact mutable-opacity traversal";
+
             if (uses_gfx12_hardware_stack) {
                 // Traversal control is outlined from the owning Callables,
                 // while their state allocations remain in the named function
@@ -1027,7 +1144,7 @@ int main(int argc, char *argv[]) {
                     std::string::npos;
             }
             constexpr auto callable_and_fp_shader_count = 4u;
-            constexpr auto ray_query_shader_count = 10u;
+            constexpr auto ray_query_shader_count = 13u;
             expect(dumped_module_count ==
                    callable_and_fp_shader_count + ray_query_shader_count)
                 << "expected one final HIP LLVM module per compiled shader";
