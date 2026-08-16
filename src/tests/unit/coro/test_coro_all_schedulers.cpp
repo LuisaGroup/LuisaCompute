@@ -300,6 +300,52 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             }
         };
 
+    "continuation_local_callable_resources_are_closed"_test =
+        [options, expect_filled] {
+            constexpr uint N = 64u;
+            constexpr uint base = 307u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+            auto *output_capture = &output;
+            Callable write_output = [output_capture](
+                                        UInt index, UInt value) noexcept {
+                Expr<Buffer<uint>>{*output_capture}.write(index, value);
+            };
+            auto coroutine = Coroutine<void(uint)>{
+                [write_output](UInt value_base) noexcept {
+                    const auto tid = dispatch_x();
+                    $suspend("before-continuation-local-resource");
+                    write_output(tid, value_base + tid);
+                }};
+
+            auto check = [&](luisa::string_view label) noexcept {
+                luisa::vector<uint> host(N);
+                stream << output.copy_to(luisa::span{host}) << synchronize();
+                expect_filled(host, base, label);
+            };
+            {
+                StateMachineCoroScheduler<uint> scheduler{device, coroutine};
+                scheduler(base).dispatch(N)(stream);
+                check("continuation_local_resource_state_machine");
+            }
+            {
+                WavefrontCoroScheduler<uint> scheduler{device, coroutine};
+                scheduler(base).dispatch(N)(stream);
+                check("continuation_local_resource_wavefront");
+            }
+            {
+                PersistentThreadsCoroScheduler<uint> scheduler{
+                    device, coroutine,
+                    PersistentThreadsCoroSchedulerConfig{
+                        .thread_count = N, .block_size = N}};
+                scheduler(base).dispatch(N)(stream);
+                check("continuation_local_resource_persistent");
+            }
+        };
+
     // ══════════════════════════════════════════════════════════════════
     // 3-suspend coroutine — all 3 schedulers
     // ══════════════════════════════════════════════════════════════════

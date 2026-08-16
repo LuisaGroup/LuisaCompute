@@ -152,12 +152,28 @@ private:
         luisa::span<const size_t> source_argument_indices) noexcept {
         using FB = luisa::compute::detail::FunctionBuilder;
         LUISA_ASSERT(
-            cc.arguments().size() ==
+            cc.arguments().size() == cc.bound_arguments().size(),
+            "Invalid continuation capture list size (expected {}, got {}).",
+            cc.arguments().size(), cc.bound_arguments().size());
+        auto continuation_unbound_argument_count = size_t{0u};
+        for (auto &&binding : cc.bound_arguments()) {
+            continuation_unbound_argument_count +=
+                luisa::holds_alternative<luisa::monostate>(binding);
+        }
+        LUISA_ASSERT(
+            continuation_unbound_argument_count ==
                 1u + source_argument_indices.size(),
             "Invalid projected coroutine continuation signature "
-            "(expected {}, got {}).",
+            "(expected {} unbound argument(s), got {}; total arguments {}).",
             1u + source_argument_indices.size(),
+            continuation_unbound_argument_count,
             cc.arguments().size());
+        LUISA_ASSERT(
+            !cc.arguments().empty() &&
+                luisa::holds_alternative<luisa::monostate>(
+                    cc.bound_arguments().front()),
+            "Coroutine continuation must retain an unbound leading frame "
+            "argument.");
         LUISA_ASSERT(coroutine.arguments().size() ==
                          coroutine.bound_arguments().size(),
                      "Invalid capture list size (expected {}, got {}).",
@@ -182,14 +198,72 @@ private:
         luisa::vector<size_t> projected_call_argument_indices;
         auto builder = FB::define_callable([&] {
             luisa::vector<const Expression *> args;
-            args.reserve(1u + source_argument_indices.size());
+            args.reserve(cc.arguments().size());
             auto fb = FB::current();
-            args.emplace_back(fb->reference(cc.arguments().front().type()));
+            const auto materialize_argument =
+                [&]<typename T>(Variable argument, T binding) noexcept
+                -> const Expression * {
+                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                    return fb->buffer_binding(argument.type(), binding.handle,
+                                              binding.offset, binding.size);
+                } else if constexpr (std::is_same_v<
+                                         T, Function::TextureBinding>) {
+                    return fb->texture_binding(argument.type(), binding.handle,
+                                               binding.level);
+                } else if constexpr (std::is_same_v<
+                                         T, Function::BindlessArrayBinding>) {
+                    return fb->bindless_array_binding(binding.handle);
+                } else if constexpr (std::is_same_v<
+                                         T, Function::AccelBinding>) {
+                    return fb->accel_binding(binding.handle);
+                } else {
+                    static_assert(std::is_same_v<T, luisa::monostate>);
+                    switch (argument.tag()) {
+                        case Variable::Tag::REFERENCE:
+                            return fb->reference(argument.type());
+                        case Variable::Tag::BUFFER:
+                            return fb->buffer(argument.type());
+                        case Variable::Tag::TEXTURE:
+                            return fb->texture(argument.type());
+                        case Variable::Tag::BINDLESS_ARRAY:
+                            return fb->bindless_array();
+                        case Variable::Tag::ACCEL:
+                            return fb->accel();
+                        default: return fb->argument(argument.type());
+                    }
+                }
+            };
+            auto frame_argument = cc.arguments().front();
+            auto frame = materialize_argument(
+                frame_argument, luisa::monostate{});
+            args.emplace_back(frame);
+            auto frame_usage = cc.variable_usage(frame_argument.uid());
+            if (frame_usage != Usage::NONE) { frame->mark(frame_usage); }
             size_t previous_source_index = 0u;
             bool first_source_index = true;
-            for (size_t projected_index = 0u;
-                 projected_index < source_argument_indices.size();
-                 ++projected_index) {
+            size_t projected_index = 0u;
+            for (size_t cc_index = 1u;
+                 cc_index < cc.arguments().size(); ++cc_index) {
+                auto cc_arg = cc.arguments()[cc_index];
+                auto cc_binding = cc.bound_arguments()[cc_index];
+                if (!luisa::holds_alternative<luisa::monostate>(
+                        cc_binding)) {
+                    auto internal_arg = luisa::visit(
+                        [&](auto binding) noexcept {
+                            return materialize_argument(cc_arg, binding);
+                        },
+                        cc_binding);
+                    args.emplace_back(internal_arg);
+                    auto usage = cc.variable_usage(cc_arg.uid());
+                    if (usage != Usage::NONE) {
+                        internal_arg->mark(usage);
+                    }
+                    continue;
+                }
+                LUISA_ASSERT(
+                    projected_index < source_argument_indices.size(),
+                    "Coroutine continuation has more unbound arguments than "
+                    "its source projection.");
                 auto source_index =
                     source_argument_indices[projected_index];
                 LUISA_ASSERT(
@@ -200,29 +274,10 @@ private:
                     "strictly increasing in-range sequence.");
                 first_source_index = false;
                 previous_source_index = source_index;
-                auto cc_arg = cc.arguments()[projected_index + 1u];
                 auto b = coroutine.bound_arguments()[source_index];
                 auto internal_arg = luisa::visit(
-                    [&]<typename T>(T b) noexcept -> const Expression * {
-                        if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                            return fb->buffer_binding(cc_arg.type(), b.handle, b.offset, b.size);
-                        } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                            return fb->texture_binding(cc_arg.type(), b.handle, b.level);
-                        } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                            return fb->bindless_array_binding(b.handle);
-                        } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                            return fb->accel_binding(b.handle);
-                        } else {
-                            static_assert(std::is_same_v<T, luisa::monostate>);
-                            switch (cc_arg.tag()) {
-                                case Variable::Tag::REFERENCE: return fb->reference(cc_arg.type());
-                                case Variable::Tag::BUFFER: return fb->buffer(cc_arg.type());
-                                case Variable::Tag::TEXTURE: return fb->texture(cc_arg.type());
-                                case Variable::Tag::BINDLESS_ARRAY: return fb->bindless_array();
-                                case Variable::Tag::ACCEL: return fb->accel();
-                                default: return fb->argument(cc_arg.type());
-                            }
-                        }
+                    [&](auto binding) noexcept {
+                        return materialize_argument(cc_arg, binding);
                     },
                     b);
                 args.emplace_back(internal_arg);
@@ -240,7 +295,13 @@ private:
                 if (usage != Usage::NONE) {
                     internal_arg->mark(usage);
                 }
+                ++projected_index;
             }
+            LUISA_ASSERT(
+                projected_index == source_argument_indices.size(),
+                "Coroutine continuation consumed {} of {} projected source "
+                "arguments.",
+                projected_index, source_argument_indices.size());
             fb->call(cc, args);
         });
         return WrappedSubroutine{
