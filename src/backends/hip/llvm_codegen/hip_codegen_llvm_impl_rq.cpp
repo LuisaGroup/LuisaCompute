@@ -4,6 +4,7 @@
 
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/argument.h>
+#include <luisa/xir/constant.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/call.h>
@@ -381,6 +382,95 @@ ray_query_pipeline_post_state_is_committed_hit_only(
         return false;
     }
     return observes_committed_hit;
+}
+
+// RayQueryAny has a stronger terminal-state quotient than RayQueryAll. Before
+// the first commit its committed state is necessarily MISS, and the first
+// commit terminates traversal. If the parent observes only
+// CommittedHit::hit_type, the final query state is therefore exactly the
+// three-element domain {MISS, SURFACE, PROCEDURAL}; candidate identity,
+// barycentrics, distance, and contracted ray t_max are unobservable after the
+// pipeline. This use-graph proof admits precisely that projection. It follows
+// transparent loads of the local query object, but fails closed on aggregate
+// copies, dynamic extracts, or any field other than hit_type.
+[[nodiscard]] bool
+ray_query_pipeline_post_state_is_hit_kind_only(
+    const xir::RayQueryPipelineInst *pipeline) noexcept {
+    auto query_object = pipeline->query_object();
+    if (query_object == nullptr ||
+        query_object->type() != Type::of<RayQueryAny>() ||
+        !query_object->isa<xir::AllocaInst>() ||
+        !static_cast<const xir::AllocaInst *>(query_object)->is_local()) {
+        return false;
+    }
+
+    auto observes_hit_kind = false;
+    auto is_hit_kind_read = [&](const xir::User *user,
+                                const xir::Use *use) noexcept {
+        if (user == nullptr ||
+            !user->isa<xir::RayQueryObjectReadInst>()) {
+            return false;
+        }
+        auto read = static_cast<
+            const xir::RayQueryObjectReadInst *>(user);
+        if (read->op() != xir::RayQueryObjectReadOp::
+                              RAY_QUERY_OBJECT_COMMITTED_HIT ||
+            use != read->operand_use(0u)) {
+            return false;
+        }
+        for (auto read_use : read->use_list()) {
+            auto read_user = read_use->user();
+            if (read_user == nullptr ||
+                !read_user->isa<xir::ArithmeticInst>()) {
+                return false;
+            }
+            auto extract = static_cast<
+                const xir::ArithmeticInst *>(read_user);
+            if (extract->op() != xir::ArithmeticOp::EXTRACT ||
+                extract->operand_count() != 2u ||
+                read_use != extract->operand_use(0u)) {
+                return false;
+            }
+            uint64_t index = 0u;
+            if (!xir::try_decode_constant_nonnegative_integer(
+                    extract->operand(1u), index) ||
+                index != HIPCodegenLLVMImpl::
+                             llvm_committed_hit_type_hit_kind_index) {
+                return false;
+            }
+            observes_hit_kind = true;
+        }
+        return true;
+    };
+
+    for (auto use : query_object->use_list()) {
+        auto user = use->user();
+        if (user == pipeline &&
+            use == pipeline->operand_use(
+                       xir::RayQueryPipelineInst::
+                           operand_index_query_object)) {
+            continue;
+        }
+        if (user != nullptr && user->isa<xir::StoreInst>() &&
+            static_cast<const xir::StoreInst *>(user)->variable() ==
+                query_object) {
+            continue;
+        }
+        if (is_hit_kind_read(user, use)) { continue; }
+        if (user != nullptr && user->isa<xir::LoadInst>() &&
+            static_cast<const xir::LoadInst *>(user)->variable() ==
+                query_object) {
+            auto load = static_cast<const xir::LoadInst *>(user);
+            auto only_hit_kind_reads = true;
+            for (auto load_use : load->use_list()) {
+                only_hit_kind_reads &=
+                    is_hit_kind_read(load_use->user(), load_use);
+            }
+            if (only_hit_kind_reads) { continue; }
+        }
+        return false;
+    }
+    return observes_hit_kind;
 }
 
 struct NativeClosestHandlerAnalysisContext {
@@ -1742,6 +1832,8 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         ray_query_pipeline_admits_native_closest_reduction(inst);
     const auto native_effect_only_enumeration =
         ray_query_pipeline_admits_native_effect_only_enumeration(inst);
+    const auto terminal_hit_kind_projection =
+        ray_query_pipeline_post_state_is_hit_kind_only(inst);
     LUISA_ASSERT(
         _ray_query_pipeline_count <=
             std::numeric_limits<uint32_t>::max(),
@@ -1879,32 +1971,53 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             native_effect_only_is_stable &&
             !native_closest_reduction &&
             !_uses_hardware_rt_stack;
+        // RayQueryAny's first commit is terminal. When the parent observes
+        // only CommittedHit::hit_type, the complete post-state is
+        // {MISS, SURFACE, PROCEDURAL}. HIPRT's native any-hit traversal is the
+        // exact implementation of that transition system: reject continues,
+        // while commit or explicit terminate stops without replaying a
+        // callback. Gfx12 uses a statically indexed global spill stack, matching
+        // the native closest route and Cycles' HIPRT traversal construction.
+        const auto use_static_global_hiprt_terminal =
+            terminal_hit_kind_projection && _uses_hardware_rt_stack;
+        const auto use_native_hiprt_terminal =
+            terminal_hit_kind_projection && !_uses_hardware_rt_stack;
         LUISA_VERBOSE(
             "HIP native callback route: closest-reduction = {}, "
-            "effect-only = {}, opacity-stable = {}, hardware-stack = {}, "
+            "effect-only = {}, terminal-predicate = {}, opacity-stable = {}, "
+            "hardware-stack = {}, "
             "motion-blur = {}, closest-dynamic = {}, closest-static = {}, "
-            "effect-dynamic = {}, effect-hardware = {}.",
+            "effect-dynamic = {}, effect-hardware = {}, "
+            "predicate-dynamic = {}, predicate-static = {}.",
             native_closest_reduction,
             native_effect_only_enumeration,
+            terminal_hit_kind_projection,
             !_rt_analysis.writes_instance_opacity,
             _uses_hardware_rt_stack, _rt_analysis.uses_motion_blur,
             use_native_hiprt_closest,
             use_static_global_hiprt_closest,
             use_native_hiprt_effect,
-            use_hardware_effect);
+            use_hardware_effect,
+            use_native_hiprt_terminal,
+            use_static_global_hiprt_terminal);
         _uses_native_closest_ray_query_pipeline |=
             use_native_hiprt_closest ||
             use_static_global_hiprt_closest;
         _uses_native_effect_only_ray_query_pipeline |=
             use_native_hiprt_effect ||
-            use_hardware_effect;
+            use_hardware_effect ||
+            use_native_hiprt_terminal ||
+            use_static_global_hiprt_terminal;
         _uses_static_global_rt_stack |=
-            use_static_global_hiprt_closest;
+            use_static_global_hiprt_closest ||
+            use_static_global_hiprt_terminal;
         _uses_iterative_synchronous_ray_query_pipeline |=
             !(use_native_hiprt_closest ||
               use_static_global_hiprt_closest ||
               use_native_hiprt_effect ||
-              use_hardware_effect);
+              use_hardware_effect ||
+              use_native_hiprt_terminal ||
+              use_static_global_hiprt_terminal);
         // Materialize the exact callback environment once. The native HIPRT
         // filter/intersection callbacks receive only an opaque context pointer;
         // this typed struct restores the ordinary Callable ABI without an
@@ -2342,6 +2455,10 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                                    "luisa_pipeline_ray_query_trace_all_hardware_effect" :
                                use_native_hiprt_effect ?
                                    "luisa_pipeline_ray_query_trace_all_native_effect" :
+                               use_static_global_hiprt_terminal ?
+                                   "luisa_pipeline_ray_query_trace_any_native_terminal_global_stack" :
+                               use_native_hiprt_terminal ?
+                                   "luisa_pipeline_ray_query_trace_any_native_terminal" :
                                    (query_object->type() == Type::of<RayQueryAny>() ?
                                         (_rt_analysis.writes_instance_opacity ?
                                              "luisa_pipeline_ray_query_trace_any" :

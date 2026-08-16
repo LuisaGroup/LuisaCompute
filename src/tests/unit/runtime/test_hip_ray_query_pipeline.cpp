@@ -387,6 +387,104 @@ void test_hip_effect_only_native_enumeration(Device &device) {
     };
     compare(nonopaque_accel, true);
     compare(opaque_accel, false);
+
+    // RayQueryAny has a distinct, formally smaller post-state when only the
+    // final hit kind is read. Exercise all three terminal transitions on the
+    // same mixed surface/procedural scene: commit -> hit, exhaust -> miss, and
+    // explicit terminate without commit -> miss. Callback counters remain
+    // externally observable and prove that the quotient neither skips nor
+    // replays candidate effects.
+    Kernel1D terminal_predicate = [](
+                                        AccelVar accel,
+                                        BufferUInt4 result) noexcept {
+        const auto mode = dispatch_x();
+        UInt callback_count = 0u;
+        UInt surface_count = 0u;
+        UInt procedural_count = 0u;
+        const auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f, 2.0f);
+        const auto hit =
+            accel.traverse_any(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        callback_count += 1u;
+                        surface_count += 1u;
+                        $if (mode == 0u) {
+                            candidate.commit();
+                        }
+                        $elif (mode == 2u) {
+                            candidate.terminate();
+                        };
+                    })
+                .on_procedural_candidate(
+                    [&](ProceduralCandidate &candidate) noexcept {
+                        callback_count += 1u;
+                        procedural_count += 1u;
+                        $if (mode == 0u) {
+                            candidate.commit(0.5f);
+                        }
+                        $elif (mode == 2u) {
+                            candidate.terminate();
+                        };
+                    })
+                .trace();
+        result.write(
+            mode, make_uint4(
+                      hit->hit_type, callback_count,
+                      surface_count, procedural_count));
+    };
+    Kernel1D opaque_terminal_predicate = [](
+                                               AccelVar accel,
+                                               BufferUInt result) noexcept {
+        const auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f, 2.0f);
+        const auto hit = accel.traverse_any(ray, {}).trace();
+        result.write(0u, hit->hit_type);
+    };
+    auto terminal_shader = device.compile(
+        terminal_predicate, ShaderOption{.enable_cache = false});
+    auto opaque_terminal_shader = device.compile(
+        opaque_terminal_predicate,
+        ShaderOption{.enable_cache = false});
+    auto terminal_result = device.create_buffer<uint4>(3u);
+    auto opaque_terminal_result = device.create_buffer<uint>(1u);
+    std::array<uint4, 3u> host_terminal_result{};
+    std::array<uint, 1u> host_opaque_terminal_result{};
+    stream << terminal_shader(nonopaque_accel, terminal_result)
+                  .dispatch(3u)
+           << opaque_terminal_shader(
+                  opaque_accel, opaque_terminal_result)
+                  .dispatch(1u)
+           << terminal_result.copy_to(
+                  luisa::span{host_terminal_result})
+           << opaque_terminal_result.copy_to(
+                  luisa::span{host_opaque_terminal_result})
+           << synchronize();
+
+    constexpr auto miss = static_cast<uint>(HitType::Miss);
+    constexpr auto surface = static_cast<uint>(HitType::Surface);
+    constexpr auto procedural_kind =
+        static_cast<uint>(HitType::Procedural);
+    expect((host_terminal_result[0].x == surface ||
+            host_terminal_result[0].x == procedural_kind) &&
+           host_terminal_result[0].y == 1u)
+        << "RayQueryAny terminal commit did not publish exactly one hit";
+    expect(host_terminal_result[1].x == miss &&
+           host_terminal_result[1].y ==
+               triangles.size() + aabbs.size())
+        << "RayQueryAny terminal predicate did not exhaust every rejected "
+           "candidate exactly once";
+    expect(host_terminal_result[2].x == miss &&
+           host_terminal_result[2].y == 1u)
+        << "RayQueryAny explicit terminate did not retain a miss after one "
+           "candidate";
+    expect(host_opaque_terminal_result[0] == surface)
+        << "opaque surface did not auto-commit in the terminal predicate "
+           "quotient";
 }
 
 void test_hip_ray_query_paired_triangle_resume(Device &device) {
@@ -779,8 +877,66 @@ void test_hip_ray_query_paired_triangle_resume(Device &device) {
     check_float(transformed_case, "world_tmax_after_commit",
                 host_committed_detail[transformed_case].w, 3.0f);
 
-    // Opacity is mutable device state, not immutable TLAS metadata. The near
-    // member of the hardware triangle pair is initially non-opaque and reaches
+    // Opacity is mutable device state, not immutable TLAS metadata. First
+    // exercise the terminal AnyHit quotient itself: the near member changes
+    // its instance to opaque and rejects. The buffered far member must observe
+    // that store, bypass its callback, and auto-commit. Only the final hit kind
+    // is read, which also proves that this scenario takes the native terminal
+    // route instead of passing accidentally through the exact frontier.
+    auto terminal_opacity_result = device.create_buffer<uint4>(1u);
+    Kernel1D mutate_opacity_during_terminal_trace = [](
+                                                        AccelVar accel,
+                                                        BufferUInt4 result) noexcept {
+        UInt callback_count = 0u;
+        UInt first_primitive = ~0u;
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f, 2.0f);
+        auto committed =
+            accel.traverse_any(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        auto hit = candidate.hit();
+                        $if (callback_count == 0u) {
+                            first_primitive = hit->prim;
+                        };
+                        callback_count += 1u;
+                        accel.set_instance_opaque(hit->inst, true);
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
+        result.write(
+            0u,
+            make_uint4(
+                committed->hit_type, callback_count,
+                first_primitive, 0u));
+    };
+    auto mutate_terminal_opacity_shader = device.compile(
+        mutate_opacity_during_terminal_trace,
+        ShaderOption{.enable_cache = false});
+    std::array<uint4, 1u> host_terminal_opacity_result{};
+    stream << mutate_terminal_opacity_shader(
+                  accel, terminal_opacity_result)
+                  .dispatch(1u)
+           << terminal_opacity_result.copy_to(
+                  luisa::span{host_terminal_opacity_result})
+           << synchronize();
+    expect(host_terminal_opacity_result[0].x == surface);
+    expect(host_terminal_opacity_result[0].y == 1u);
+    expect(host_terminal_opacity_result[0].z == 1u);
+
+    // Restore the initial non-opaque state before checking the exact query
+    // below. This host update is intentionally synchronized: the two tests
+    // prove distinct state transitions and must not rely on queue ordering to
+    // hide a stale opacity flag.
+    accel.set_opaque_on_update(0u, false);
+    stream << accel.build(AccelBuildRequest::PREFER_UPDATE)
+           << synchronize();
+
+    // The near member of the hardware triangle pair is initially non-opaque
+    // and reaches
     // the callback, which changes the same instance to opaque without
     // committing. The farther member must then observe that store, bypass its
     // callback, and auto-commit. This guards the exact boundary of the native

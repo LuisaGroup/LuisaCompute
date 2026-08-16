@@ -732,6 +732,7 @@ static constexpr float LUISA_PROCEDURAL_NAN = __builtin_nanf("");
 static constexpr uint32_t LUISA_PIPELINE_RAY_TYPE = 2u;
 static constexpr uint32_t LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE = 3u;
 static constexpr uint32_t LUISA_PIPELINE_NATIVE_EFFECT_RAY_TYPE = 4u;
+static constexpr uint32_t LUISA_PIPELINE_NATIVE_TERMINAL_RAY_TYPE = 5u;
 static constexpr uint8_t LUISA_PIPELINE_RQ_STATE_TERMINATED = 0u;
 static constexpr uint8_t LUISA_PIPELINE_RQ_STATE_SURFACE = 1u;
 static constexpr uint8_t LUISA_PIPELINE_RQ_STATE_PROCEDURAL = 2u;
@@ -1184,6 +1185,103 @@ luisa_pipeline_native_effect_candidate(
     return terminated;
 }
 
+struct LuisaPipelineNativeTerminalResult {
+    uint32_t actions;
+    float committed_t;
+};
+
+// Exact RayQueryAny transition evaluated at a native HIPRT candidate
+// boundary. The first commit is terminal, so the traversal needs only the
+// three-element action quotient {continue, terminate-miss, terminate-hit}.
+// The full public query state is nevertheless restored while a handler runs;
+// this preserves every handler-local read and write. Only the parent-visible
+// state after the complete pipeline is projected to committed_kind.
+static __device__ __forceinline__ LuisaPipelineNativeTerminalResult
+luisa_pipeline_native_terminal_candidate(
+    LuisaPipelineNativeCallbackPayload *payload,
+    const hiprtRay &active_ray, const hiprtHit &hit,
+    uint8_t candidate_kind) {
+    auto state = payload->state;
+    const auto observation_mask =
+        candidate_kind == LUISA_PIPELINE_RQ_STATE_SURFACE ?
+            luisa_pipeline_surface_observation_mask(
+                payload->handler_observation_masks) :
+            luisa_pipeline_procedural_observation_mask(
+                payload->handler_observation_masks);
+    const auto procedural =
+        candidate_kind == LUISA_PIPELINE_RQ_STATE_PROCEDURAL;
+    const auto u = procedural ? 0.0f : hit.uv.x;
+    const auto v = procedural ? 0.0f : hit.uv.y;
+    const auto candidate_t = procedural ? active_ray.maxT : hit.t;
+
+    auto result = LuisaPipelineNativeTerminalResult{0u, candidate_t};
+    if (luisa_pipeline_observation_is_object_ray_quotient(
+            observation_mask)) {
+        const auto packed = luisa_pipeline_dispatch_compact_object_ray(
+            payload->callback_context, payload->pipeline_id,
+            candidate_kind, state->flags,
+            hit.instanceIDs[0], hit.primID,
+            u, v, candidate_t, active_ray);
+        result.actions = static_cast<uint32_t>(packed);
+        result.committed_t = __uint_as_float(
+            static_cast<uint32_t>(packed >> 32u));
+    } else if (observation_mask == 0u) {
+        const auto packed = luisa_pipeline_ray_query_dispatch_compact(
+            payload->callback_context, payload->pipeline_id,
+            candidate_kind, state->flags,
+            hit.instanceIDs[0], hit.primID,
+            u, v, candidate_t);
+        result.actions = static_cast<uint32_t>(packed);
+        result.committed_t = __uint_as_float(
+            static_cast<uint32_t>(packed >> 32u));
+    } else {
+        state->candidate_hit = LuisaPipelineRayQueryHit{
+            hit.instanceIDs[0], hit.primID, u, v, candidate_t};
+        state->state = candidate_kind;
+        state->candidate_committed = false;
+        state->terminated = false;
+        const auto observes_object_ray =
+            (observation_mask &
+             LUISA_PIPELINE_OBSERVES_OBJECT_RAY) != 0u;
+        auto transaction = LuisaPipelineObjectRayTransaction{};
+        if (observes_object_ray) {
+            transaction = luisa_pipeline_begin_object_ray_transaction(
+                state, active_ray);
+        }
+        luisa_ray_query_pipeline_dispatch(
+            luisa_pipeline_query_object(state),
+            payload->callback_context, payload->pipeline_id,
+            candidate_kind);
+        if (state->candidate_committed) {
+            result.actions |= LUISA_PIPELINE_CANDIDATE_COMMITTED;
+            result.committed_t = state->ray.maxT;
+        }
+        if (state->terminated) {
+            result.actions |= LUISA_PIPELINE_CANDIDATE_TERMINATED;
+        }
+        if (observes_object_ray) {
+            luisa_pipeline_end_object_ray_transaction(
+                state, transaction, state->candidate_committed);
+        }
+    }
+
+    const auto committed =
+        (result.actions & LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u;
+    const auto terminal = committed ||
+        (result.actions & LUISA_PIPELINE_CANDIDATE_TERMINATED) != 0u;
+    state->candidate_committed = committed;
+    state->terminated = terminal;
+    if (committed) {
+        state->committed_kind =
+            candidate_kind == LUISA_PIPELINE_RQ_STATE_SURFACE ?
+                LUISA_PIPELINE_HIT_SURFACE :
+                LUISA_PIPELINE_HIT_PROCEDURAL;
+    } else if (terminal) {
+        state->committed_kind = LUISA_PIPELINE_HIT_MISS;
+    }
+    return result;
+}
+
 static __device__ __forceinline__ void
 luisa_pipeline_mark_trace_terminated(
     LuisaPipelineRayQueryState *state) {
@@ -1285,6 +1383,29 @@ HIPRT_DEVICE bool intersectFunc(
         state->terminated = terminated;
         return true;
     }
+    if (ray_type == LUISA_PIPELINE_NATIVE_TERMINAL_RAY_TYPE &&
+        payload != nullptr) {
+        auto direct = reinterpret_cast<
+            LuisaPipelineNativeCallbackPayload *>(payload);
+        auto state = direct->state;
+        if (luisa_hit_is_curve(state->instances, hit) ||
+            luisa_hit_is_motion_triangle(state->instances, hit)) {
+            return luisa_intersect_surface(
+                state->instances, ray, state->time, hit);
+        }
+        const auto result = luisa_pipeline_native_terminal_candidate(
+            direct, ray, hit,
+            LUISA_PIPELINE_RQ_STATE_PROCEDURAL);
+        hit.t = (result.actions &
+                 LUISA_PIPELINE_CANDIDATE_COMMITTED) != 0u ?
+                    result.committed_t : ray.maxT;
+        hit.uv = hiprtFloat2{0.0f, 0.0f};
+        hit.normal = hiprtFloat3{
+            LUISA_PROCEDURAL_NAN,
+            LUISA_PROCEDURAL_NAN,
+            LUISA_PROCEDURAL_NAN};
+        return true;
+    }
     return false;
 }
 
@@ -1325,6 +1446,30 @@ HIPRT_DEVICE bool filterFunc(
         // HIPRT filter true means reject/continue; false accepts this
         // candidate and ends the any-hit traversal.
         return !terminated;
+    }
+    if (ray_type == LUISA_PIPELINE_NATIVE_TERMINAL_RAY_TYPE &&
+        payload != nullptr) {
+        auto direct = reinterpret_cast<
+            LuisaPipelineNativeCallbackPayload *>(payload);
+        auto state = direct->state;
+        if (luisa_is_procedural_sentinel(hit.normal)) {
+            // The procedural handler ran in intersectFunc. Accepting either a
+            // commit or an explicit terminate stops HIPRT's any-hit traversal;
+            // committed_kind distinguishes the two after getNextHit().
+            return !state->terminated;
+        }
+        if (luisa_instance_is_opaque(
+                state->instances, hit.instanceIDs[0])) {
+            state->candidate_committed = true;
+            state->terminated = true;
+            state->committed_kind = LUISA_PIPELINE_HIT_SURFACE;
+            return false;
+        }
+        const auto result = luisa_pipeline_native_terminal_candidate(
+            direct, ray, hit, LUISA_PIPELINE_RQ_STATE_SURFACE);
+        return (result.actions &
+                (LUISA_PIPELINE_CANDIDATE_COMMITTED |
+                 LUISA_PIPELINE_CANDIDATE_TERMINATED)) == 0u;
     }
     static_cast<void>(ray);
     static_cast<void>(payload);
@@ -2009,6 +2154,10 @@ static __device__ hiprtFuncDataSet
     luisa_pipeline_native_effect_func_data_sets[
         LUISA_PIPELINE_NATIVE_EFFECT_RAY_TYPE + 1u] = {};
 
+static __device__ hiprtFuncDataSet
+    luisa_pipeline_native_terminal_func_data_sets[
+        LUISA_PIPELINE_NATIVE_TERMINAL_RAY_TYPE + 1u] = {};
+
 template<typename Stack, unsigned int shared_stack_size>
 static __device__ __forceinline__ void
 luisa_pipeline_ray_query_trace_native_effect_impl(
@@ -2090,6 +2239,87 @@ luisa_pipeline_ray_query_trace_all_native_effect_global_stack(
     uint32_t observation_mask,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
     luisa_pipeline_ray_query_trace_native_effect_impl<
+        hiprtGlobalStack,
+        LUISA_HIPRT_GLOBAL_SHARED_STACK_SIZE>(
+        state_ptr, callback_context, pipeline_id, observation_mask,
+        stack_size, stack_count, stack_data);
+}
+
+template<typename Stack, unsigned int shared_stack_size>
+static __device__ __forceinline__ void
+luisa_pipeline_ray_query_trace_native_terminal_impl(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t handler_observation_masks,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    auto state = reinterpret_cast<LuisaPipelineRayQueryState *>(state_ptr);
+    const auto surface_observation_mask =
+        luisa_pipeline_surface_observation_mask(
+            handler_observation_masks);
+    const auto procedural_observation_mask =
+        luisa_pipeline_procedural_observation_mask(
+            handler_observation_masks);
+    const auto known_encoded_bits =
+        LUISA_PIPELINE_HANDLER_OBSERVATION_MASK |
+        (LUISA_PIPELINE_HANDLER_OBSERVATION_MASK <<
+         LUISA_PIPELINE_PROCEDURAL_OBSERVATION_SHIFT);
+    if ((handler_observation_masks & ~known_encoded_bits) != 0u ||
+        luisa_pipeline_observation_requires_distinct_rays(
+            surface_observation_mask) ||
+        luisa_pipeline_observation_requires_distinct_rays(
+            procedural_observation_mask)) {
+        __builtin_trap();
+    }
+
+    // RayQueryAny has no pre-existing committed hit. A commit or an explicit
+    // terminate ends traversal; callbacks communicate that terminal action to
+    // HIPRT through the payload while committed_kind retains the exact
+    // parent-visible quotient.
+    state->candidate_committed = false;
+    state->terminated = false;
+    state->committed_kind = LUISA_PIPELINE_HIT_MISS;
+    LuisaPipelineNativeCallbackPayload payload{
+        state, callback_context, pipeline_id,
+        handler_observation_masks};
+    hiprtFuncTableHeader function_table{
+        1u, LUISA_PIPELINE_NATIVE_TERMINAL_RAY_TYPE + 1u,
+        luisa_pipeline_native_terminal_func_data_sets};
+    hiprtGlobalStackBuffer global_stack_buffer{
+        stack_size, stack_count, stack_data};
+    hiprtSharedStackBuffer shared_stack_buffer{
+        shared_stack_size, luisa_hiprt_shared_stack_cache};
+    Stack stack{global_stack_buffer, shared_stack_buffer};
+    hiprtEmptyInstanceStack instance_stack;
+    auto scene = reinterpret_cast<hiprtScene>(state->scene_handle);
+    hiprtSceneTraversalAnyHitCustomStack<
+        Stack, hiprtEmptyInstanceStack>
+        traversal{
+            scene, state->ray, stack, instance_stack,
+            static_cast<hiprtRayMask>(state->mask),
+            hiprtTraversalHintShadowRays,
+            &payload, reinterpret_cast<hiprtFuncTable>(&function_table),
+            LUISA_PIPELINE_NATIVE_TERMINAL_RAY_TYPE, state->time};
+    static_cast<void>(traversal.getNextHit());
+    luisa_pipeline_mark_trace_terminated(state);
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_any_native_terminal(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_native_terminal_impl<
+        hiprtDynamicStack,
+        LUISA_HIPRT_DYNAMIC_SHARED_STACK_SIZE>(
+        state_ptr, callback_context, pipeline_id, observation_mask,
+        stack_size, stack_count, stack_data);
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_any_native_terminal_global_stack(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_native_terminal_impl<
         hiprtGlobalStack,
         LUISA_HIPRT_GLOBAL_SHARED_STACK_SIZE>(
         state_ptr, callback_context, pipeline_id, observation_mask,
@@ -3065,7 +3295,6 @@ luisa_pipeline_ray_query_trace_hw(
 
     static_assert(!effect_only ||
                   (!terminate_on_first && !opacity_may_change));
-
     const auto surface_observation_mask =
         luisa_pipeline_surface_observation_mask(
             handler_observation_masks);

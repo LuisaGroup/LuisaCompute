@@ -604,6 +604,45 @@ void compile_effect_only_ray_query(
         kernel, ShaderOption{.enable_cache = false}));
 }
 
+void compile_terminal_predicate_ray_query(
+    Device &device, bool observe_full_hit,
+    bool write_opacity = false) noexcept {
+    Kernel1D kernel = [observe_full_hit, write_opacity](
+                          BufferUInt output,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        auto hit =
+            accel.traverse_any(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        const auto candidate_hit = candidate.hit();
+                        if (write_opacity) {
+                            // Opacity is part of the traversal state, not the
+                            // parent-visible hit-kind quotient. A write from
+                            // this callback must therefore keep the native
+                            // terminal route while forcing live opacity reads
+                            // for all later candidates.
+                            accel.set_instance_opaque(
+                                candidate_hit->inst, true);
+                        }
+                        $if ((candidate_hit->prim & 1u) == 0u) {
+                            candidate.commit();
+                        };
+                    })
+                .trace();
+        if (observe_full_hit) {
+            // One identity field invalidates the terminal predicate quotient.
+            output.write(dispatch_x(), hit->prim);
+        } else {
+            output.write(dispatch_x(), cast<uint>(hit->miss()));
+        }
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -739,6 +778,10 @@ int main(int argc, char *argv[]) {
                 device, EffectOnlyRayQueryCase::nested_commit);
             compile_effect_only_ray_query(
                 device, EffectOnlyRayQueryCase::opacity_write);
+            compile_terminal_predicate_ray_query(device, false);
+            compile_terminal_predicate_ray_query(device, true);
+            compile_terminal_predicate_ray_query(
+                device, false, true);
             const auto before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_4.ll");
             const auto observing_before_module = read_text_file(
@@ -787,6 +830,12 @@ int main(int argc, char *argv[]) {
                 dump_directory / "hip_kernel_before_opt_15.ll");
             const auto effect_opacity_before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_16.ll");
+            const auto terminal_predicate_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_17.ll");
+            const auto terminal_full_hit_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_18.ll");
+            const auto terminal_mutable_opacity_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_19.ll");
             const auto mixed_before_root =
                 amdgpu_kernel_body(mixed_before_module);
             const auto object_ray_before_root =
@@ -799,6 +848,13 @@ int main(int argc, char *argv[]) {
                 amdgpu_kernel_body(effect_commit_before_module);
             const auto effect_opacity_before_root =
                 amdgpu_kernel_body(effect_opacity_before_module);
+            const auto terminal_predicate_before_root =
+                amdgpu_kernel_body(terminal_predicate_before_module);
+            const auto terminal_full_hit_before_root =
+                amdgpu_kernel_body(terminal_full_hit_before_module);
+            const auto terminal_mutable_opacity_before_root =
+                amdgpu_kernel_body(
+                    terminal_mutable_opacity_before_module);
             const auto mixed_exact_state_domain =
                 llvm_function_body(
                     mixed_before_module,
@@ -821,6 +877,9 @@ int main(int argc, char *argv[]) {
                    !effect_only_before_root.empty() &&
                    !effect_commit_before_root.empty() &&
                    !effect_opacity_before_root.empty() &&
+                   !terminal_predicate_before_root.empty() &&
+                   !terminal_full_hit_before_root.empty() &&
+                   !terminal_mutable_opacity_before_root.empty() &&
                    !mixed_exact_state_domain.empty() &&
                    !mixed_resumable_state_domain.empty())
                 << "failed to locate the generated RayQuery functions";
@@ -1094,6 +1153,30 @@ int main(int argc, char *argv[]) {
                 << "kernel-reachable opacity mutation did not retain the "
                    "exact mutable-opacity traversal";
 
+            const auto expected_terminal_trace =
+                uses_gfx12_hardware_stack ?
+                    "@luisa_pipeline_ray_query_trace_any_native_terminal_"
+                    "global_stack(" :
+                    "@luisa_pipeline_ray_query_trace_any_native_terminal(";
+            expect(terminal_predicate_before_root.find(
+                       expected_terminal_trace) != std::string_view::npos &&
+                   terminal_predicate_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_any_stable_opacity(") ==
+                       std::string_view::npos)
+                << "hit-kind-only RayQueryAny did not select native terminal "
+                   "AnyHit traversal";
+            expect(terminal_full_hit_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
+                       std::string_view::npos &&
+                   terminal_full_hit_before_root.find(
+                       "native_terminal") == std::string_view::npos)
+                << "RayQueryAny identity observation did not fail closed to "
+                   "the complete committed-hit transaction";
+            expect(terminal_mutable_opacity_before_root.find(
+                       expected_terminal_trace) != std::string_view::npos)
+                << "kernel-reachable opacity write rejected the live-opacity "
+                   "native terminal traversal";
+
             if (uses_gfx12_hardware_stack) {
                 // Traversal control is outlined from the owning Callables,
                 // while their state allocations remain in the named function
@@ -1147,7 +1230,7 @@ int main(int argc, char *argv[]) {
                     std::string::npos;
             }
             constexpr auto callable_and_fp_shader_count = 4u;
-            constexpr auto ray_query_shader_count = 13u;
+            constexpr auto ray_query_shader_count = 16u;
             expect(dumped_module_count ==
                    callable_and_fp_shader_count + ray_query_shader_count)
                 << "expected one final HIP LLVM module per compiled shader";
