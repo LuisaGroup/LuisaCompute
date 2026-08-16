@@ -34,6 +34,7 @@
 #include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
 #include "hip_callable_inline_graph.h"
+#include "hip_private_memory.h"
 #include "hip_llvm_pipeline.h"
 #include "../../common/env_flag.h"
 #include "hiprt_device_wrapper.hip"
@@ -1491,6 +1492,20 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     }
 
     _run_optimization_passes();
+
+    // IPO can prove every use of a private aggregate while still retaining a
+    // dead self-address store that blocks generic capture tracking. Remove
+    // only self-references whose complete constant-offset access relation has
+    // no overlapping read, then expose the non-escaping aggregate to SROA.
+    const auto private_memory_stats =
+        optimize_hip_private_memory(*_llvm_module, _target_machine);
+    if (private_memory_stats.eliminated_self_reference_stores != 0u) {
+        LUISA_VERBOSE(
+            "Eliminated {} dead HIP private self-reference store(s) across "
+            "{} analyzed alloca(s), then reran scalar cleanup.",
+            private_memory_stats.eliminated_self_reference_stores,
+            private_memory_stats.analyzed_allocas);
+    }
 
     // The synchronous native traversal remains one shared function, so IPO
     // sees its callback dispatcher through dynamic parameters even when every

@@ -1,4 +1,5 @@
 #include "hip_callable_abi.h"
+#include "hip_private_memory.h"
 #include "ut/ut.hpp"
 
 #include <memory>
@@ -26,6 +27,103 @@ namespace {
 }
 
 static auto suite = [] {
+    "HIP private memory removes only unread stored self-addresses"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define i32 @dead_identity(i32 %candidate) {
+            entry:
+              %state = alloca [112 x i8], align 16, addrspace(5)
+              %candidate.field = getelementptr [112 x i8], ptr addrspace(5) %state, i32 0, i32 48
+              %identity.field = getelementptr [112 x i8], ptr addrspace(5) %state, i32 0, i32 88
+              %identity = ptrtoint ptr addrspace(5) %state to i32
+              store i32 %candidate, ptr addrspace(5) %candidate.field, align 16
+              store i32 %identity, ptr addrspace(5) %identity.field, align 8
+              %result = load i32, ptr addrspace(5) %candidate.field, align 16
+              ret i32 %result
+            }
+        )");
+        expect(module != nullptr);
+        auto stats = optimize_hip_private_memory(*module, nullptr);
+        expect(stats.analyzed_allocas == 1u);
+        expect(stats.eliminated_self_reference_stores == 1u);
+        expect(!llvm::verifyModule(*module));
+        auto *function = module->getFunction("dead_identity");
+        expect(function != nullptr);
+        auto alloca_count = 0u;
+        auto ptr_to_int_count = 0u;
+        for (auto &block : *function) {
+            for (auto &instruction : block) {
+                alloca_count += llvm::isa<llvm::AllocaInst>(instruction);
+                ptr_to_int_count += llvm::isa<llvm::PtrToIntInst>(instruction);
+            }
+        }
+        expect(alloca_count == 0u);
+        expect(ptr_to_int_count == 0u);
+    };
+
+    "HIP private memory preserves an observed self-address"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define i32 @observed_identity() {
+            entry:
+              %state = alloca [112 x i8], align 16, addrspace(5)
+              %identity.field = getelementptr [112 x i8], ptr addrspace(5) %state, i32 0, i32 88
+              %identity = ptrtoint ptr addrspace(5) %state to i32
+              store i32 %identity, ptr addrspace(5) %identity.field, align 8
+              %result = load i32, ptr addrspace(5) %identity.field, align 8
+              ret i32 %result
+            }
+        )");
+        expect(module != nullptr);
+        auto stats = optimize_hip_private_memory(*module, nullptr);
+        expect(stats.eliminated_self_reference_stores == 0u);
+        expect(!llvm::verifyModule(*module));
+    };
+
+    "HIP private memory rejects an escaped aggregate"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            declare void @observe(ptr addrspace(5))
+            define void @escaped_identity() {
+            entry:
+              %state = alloca [112 x i8], align 16, addrspace(5)
+              %identity.field = getelementptr [112 x i8], ptr addrspace(5) %state, i32 0, i32 88
+              %identity = ptrtoint ptr addrspace(5) %state to i32
+              store i32 %identity, ptr addrspace(5) %identity.field, align 8
+              call void @observe(ptr addrspace(5) %state)
+              ret void
+            }
+        )");
+        expect(module != nullptr);
+        auto stats = optimize_hip_private_memory(*module, nullptr);
+        expect(stats.eliminated_self_reference_stores == 0u);
+        expect(!llvm::verifyModule(*module));
+    };
+
+    "HIP private memory rejects a dynamic subaggregate access"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define i8 @dynamic_identity(i32 %index) {
+            entry:
+              %state = alloca [112 x i8], align 16, addrspace(5)
+              %identity.field = getelementptr [112 x i8], ptr addrspace(5) %state, i32 0, i32 88
+              %dynamic.field = getelementptr [112 x i8], ptr addrspace(5) %state, i32 0, i32 %index
+              %identity = ptrtoint ptr addrspace(5) %state to i32
+              store i32 %identity, ptr addrspace(5) %identity.field, align 8
+              %result = load i8, ptr addrspace(5) %dynamic.field
+              ret i8 %result
+            }
+        )");
+        expect(module != nullptr);
+        auto stats = optimize_hip_private_memory(*module, nullptr);
+        expect(stats.eliminated_self_reference_stores == 0u);
+        expect(!llvm::verifyModule(*module));
+    };
+
     "HIP callable ABI projects exactly the observed aggregate leaves"_test = [] {
         llvm::LLVMContext context;
         auto module = parse_module(context, R"(

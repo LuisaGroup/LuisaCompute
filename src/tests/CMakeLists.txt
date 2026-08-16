@@ -87,7 +87,9 @@ if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
                 ${_hip_callable_inline_graph_llvm_libs})
     endif ()
     luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
-    target_sources(test_hip_callable_abi PRIVATE ../backends/hip/llvm_codegen/hip_callable_abi.cpp)
+    target_sources(test_hip_callable_abi PRIVATE
+        ../backends/hip/llvm_codegen/hip_callable_abi.cpp
+        ../backends/hip/llvm_codegen/hip_private_memory.cpp)
     target_include_directories(test_hip_callable_abi PRIVATE
             ../backends/hip/llvm_codegen ${LLVM_INCLUDE_DIRS})
     if (TARGET LLVM)
