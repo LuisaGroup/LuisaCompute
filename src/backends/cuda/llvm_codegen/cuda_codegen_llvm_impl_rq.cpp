@@ -40,6 +40,7 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_ray_query_object_read_inst(IB &b, F
     auto intrinsic = [op = inst->op()] {
         switch (op) {
             case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: return llvm_ray_query_intrinsic_name_world_space_ray;
+            case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: return llvm_ray_query_intrinsic_name_object_space_ray;
             case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: return llvm_ray_query_intrinsic_name_procedural_candidate_hit;
             case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: return llvm_ray_query_intrinsic_name_surface_candidate_hit;
             case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: return llvm_ray_query_intrinsic_name_committed_hit;

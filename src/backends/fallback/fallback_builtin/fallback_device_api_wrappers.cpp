@@ -479,6 +479,7 @@ struct alignas(16) LC_RayQueryObject {
     RayQueryCandidate candidate;
     EmbreeRayHit ray_hit;
     Ray world_ray;
+    Ray object_ray;
 };
 
 LUISA_FALLBACK_INTERNAL void luisa_fallback_create_embree_ray(EmbreeRay *embree_ray, const Ray *ray, float time, uint mask) noexcept {
@@ -514,6 +515,7 @@ LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_committed_hit(CommittedHit *c
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_traverse_motion(const AccelView *handle, const Ray *ray, float time, uint mask, LC_RayQueryObject *out) noexcept {
     out->accel = *handle;
     out->world_ray = *ray;
+    out->object_ray = *ray;
     out->candidate.committed_hit_type = HitType::Miss;
     luisa_fallback_create_embree_ray(&out->ray_hit.ray, ray, time, mask);
     luisa_fallback_create_embree_hit(&out->ray_hit.hit);
@@ -525,6 +527,10 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_traverse(const AccelVie
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_world_space_ray(const LC_RayQueryObject *q, Ray *out) noexcept {
     *out = q->world_ray;
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_candidate_object_space_ray(const LC_RayQueryObject *q, Ray *out) noexcept {
+    *out = q->object_ray;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_procedural_candidate_hit(const LC_RayQueryObject *q, AABBHit *out) noexcept {
@@ -546,6 +552,7 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_committed_hi
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_surface_hit(LC_RayQueryObject *q) noexcept {
     q->candidate.committed = true;
     q->world_ray.t_max = q->candidate.t;
+    q->object_ray.t_max = q->candidate.t;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_procedural_hit(LC_RayQueryObject *q, float t) noexcept {
@@ -554,6 +561,7 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_proce
         t <= q->world_ray.t_max) {
         q->candidate.committed = true;
         q->world_ray.t_max = t;
+        q->object_ray.t_max = t;
     }
 }
 

@@ -1042,6 +1042,17 @@ void ray_query_init(thread LCRayQuery &q,
                  .m3 = t_max};
 }
 
+[[nodiscard]] inline auto ray_query_object_ray(LCRayQuery q) {
+    auto o = q.i->get_candidate_ray_origin();
+    auto d = q.i->get_candidate_ray_direction();
+    auto t_min = q.i->get_ray_min_distance();
+    auto t_max = q.i->get_committed_distance();
+    return LCRay{.m0 = {o.x, o.y, o.z},
+                 .m1 = t_min,
+                 .m2 = {d.x, d.y, d.z},
+                 .m3 = t_max};
+}
+
 [[nodiscard]] inline auto ray_query_procedural_candidate(LCRayQuery q) {
     auto inst = q.i->get_candidate_instance_id();
     auto prim = q.i->get_candidate_primitive_id();

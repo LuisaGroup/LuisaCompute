@@ -2536,6 +2536,7 @@ SpirvXIRDialectOpSupport
 spirv_xir_dialect_support(xir::RayQueryObjectReadOp op) noexcept {
     switch (op) {
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY:
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT:
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT:
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT:

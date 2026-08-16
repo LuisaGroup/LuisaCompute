@@ -504,6 +504,45 @@ void compile_mixed_ray_query_pipelines(Device &device) noexcept {
         kernel, ShaderOption{.enable_cache = false}));
 }
 
+void compile_object_ray_reduction(
+    Device &device, bool observe_world_ray) noexcept {
+    Kernel1D kernel = [observe_world_ray](
+                          BufferUInt output,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [](SurfaceCandidate &candidate) noexcept {
+                               candidate.commit();
+                           })
+                       .on_procedural_candidate(
+                           [&](ProceduralCandidate &candidate) noexcept {
+                               const auto object_ray = candidate.object_ray();
+                               auto distance = object_ray->t_max() * 0.5f;
+                               if (observe_world_ray) {
+                                   // Both values are demanded by this one
+                                   // handler invocation. They cannot alias one
+                                   // compact ray field even though surface and
+                                   // procedural handler domains may otherwise
+                                   // use distinct representations independently.
+                                   const auto world_ray = candidate.ray();
+                                   distance = min(
+                                       distance,
+                                       world_ray->t_max() * 0.5f);
+                               }
+                               $if (distance > 0.0f) {
+                                   candidate.commit(distance);
+                               };
+                           })
+                       .trace();
+        output.write(dispatch_x(), hit->prim);
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -631,6 +670,8 @@ int main(int argc, char *argv[]) {
             compile_large_pure_closest_reduction(device, false);
             compile_large_pure_closest_reduction(device, true);
             compile_mixed_ray_query_pipelines(device);
+            compile_object_ray_reduction(device, false);
+            compile_object_ray_reduction(device, true);
             const auto before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_4.ll");
             const auto observing_before_module = read_text_file(
@@ -669,8 +710,16 @@ int main(int argc, char *argv[]) {
                 amdgpu_kernel_body(terminating_reduction_before_module);
             const auto mixed_before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_11.ll");
+            const auto object_ray_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_12.ll");
+            const auto joint_rays_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_13.ll");
             const auto mixed_before_root =
                 amdgpu_kernel_body(mixed_before_module);
+            const auto object_ray_before_root =
+                amdgpu_kernel_body(object_ray_before_module);
+            const auto joint_rays_before_root =
+                amdgpu_kernel_body(joint_rays_before_module);
             const auto mixed_exact_state_domain =
                 llvm_function_body(
                     mixed_before_module,
@@ -688,6 +737,8 @@ int main(int argc, char *argv[]) {
                    !pure_reduction_before_root.empty() &&
                    !terminating_reduction_before_root.empty() &&
                    !mixed_before_root.empty() &&
+                   !object_ray_before_root.empty() &&
+                   !joint_rays_before_root.empty() &&
                    !mixed_exact_state_domain.empty() &&
                    !mixed_resumable_state_domain.empty())
                 << "failed to locate the generated RayQuery functions";
@@ -891,6 +942,32 @@ int main(int argc, char *argv[]) {
                 << "explicitly terminating RayQuery did not fail closed to "
                    "the resumable traversal ABI";
 
+            // Handler observations are a tagged product
+            //   SurfaceObservation x ProceduralObservation,
+            // not one union. The object-only procedural handler therefore
+            // retains native closest traversal with encoded mask 4 << 8,
+            // while its surface handler remains candidate-only. Demanding
+            // world and object rays in the same procedural invocation needs
+            // two simultaneous representations and selects exact state.
+            expect(object_ray_before_root.find(
+                       expected_pure_reduction_trace) !=
+                       std::string_view::npos &&
+                   object_ray_before_root.find("i32 1024") !=
+                       std::string_view::npos &&
+                   object_ray_before_module.find(
+                       "@luisa_ray_query_proceed(") ==
+                       std::string_view::npos)
+                << "procedural object-ray reduction did not retain the "
+                   "split-mask native closest route";
+            expect(joint_rays_before_module.find(
+                       "@luisa_ray_query_proceed(") !=
+                       std::string_view::npos &&
+                   joint_rays_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_native_closest") ==
+                       std::string_view::npos)
+                << "one handler observing both ray spaces did not select "
+                   "the exact resumable state domain";
+
             if (uses_gfx12_hardware_stack) {
                 // Traversal control is outlined from the owning Callables,
                 // while their state allocations remain in the named function
@@ -943,7 +1020,10 @@ int main(int argc, char *argv[]) {
                     module.find("llvm.vector.reduce.fadd") !=
                     std::string::npos;
             }
-            expect(dumped_module_count == 12u)
+            constexpr auto callable_and_fp_shader_count = 4u;
+            constexpr auto ray_query_shader_count = 10u;
+            expect(dumped_module_count ==
+                   callable_and_fp_shader_count + ray_query_shader_count)
                 << "expected one final HIP LLVM module per compiled shader";
             expect(!retained_vector_reduction)
                 << "fixed-vector dot product retained the target-unstable "

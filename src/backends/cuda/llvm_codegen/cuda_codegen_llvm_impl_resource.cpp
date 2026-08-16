@@ -1011,6 +1011,41 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcep
     return result;
 }
 
+llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_object_space_ray(IB &b) noexcept {
+    auto f = [&](std::string_view component) {
+        auto asm_str = fmt::format("call ($0), _optix_get_{}, ();", component);
+        auto llvm_asm = _get_inline_asm(asm_str, "=f", false);
+        return b.CreateCall(llvm_asm, {});
+    };
+    auto ox = f("object_ray_origin_x");
+    auto oy = f("object_ray_origin_y");
+    auto oz = f("object_ray_origin_z");
+    auto dx = f("object_ray_direction_x");
+    auto dy = f("object_ray_direction_y");
+    auto dz = f("object_ray_direction_z");
+    auto tmin = f("ray_tmin");
+    auto tmax = f("ray_tmax");
+    auto result = static_cast<llvm::Value *>(
+        llvm::PoisonValue::get(_get_llvm_ray_type()));
+    result = b.CreateInsertValue(
+        result, ox, {llvm_ray_type_origin_index, 0});
+    result = b.CreateInsertValue(
+        result, oy, {llvm_ray_type_origin_index, 1});
+    result = b.CreateInsertValue(
+        result, oz, {llvm_ray_type_origin_index, 2});
+    result = b.CreateInsertValue(
+        result, dx, {llvm_ray_type_direction_index, 0});
+    result = b.CreateInsertValue(
+        result, dy, {llvm_ray_type_direction_index, 1});
+    result = b.CreateInsertValue(
+        result, dz, {llvm_ray_type_direction_index, 2});
+    result = b.CreateInsertValue(
+        result, tmin, llvm_ray_type_t_min_index);
+    result = b.CreateInsertValue(
+        result, tmax, llvm_ray_type_t_max_index);
+    return result;
+}
+
 void CUDACodegenLLVMImpl::_call_optix_report_intersection(IB &b, llvm::Value *hit_kind, llvm::Value *t) noexcept {
     auto llvm_asm = _get_inline_asm("call ($0), _optix_report_intersection_0, ($1, $2);", "=r,f,r", true);
     b.CreateCall(llvm_asm, {t, hit_kind});

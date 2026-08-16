@@ -1225,6 +1225,7 @@ constexpr std::array cast_wire_ops{
 
 constexpr std::array ray_query_object_read_wire_ops{
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY, "ray_query_object_world_space_ray"sv),
+    wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY, "ray_query_object_candidate_object_space_ray"sv),
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT, "ray_query_object_procedural_candidate_hit"sv),
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT, "ray_query_object_triangle_candidate_hit"sv),
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT, "ray_query_object_committed_hit"sv),
@@ -4036,6 +4037,7 @@ template<typename OperandSpan>
             if (!ray_query_object_valid(operands[0]) || type == nullptr) { return false; }
             switch (static_cast<RayQueryObjectReadOp>(op)) {
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: return type == ray_type();
+                case RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: return type == ray_type();
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: return type == procedural_hit_type();
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: return type == surface_hit_type();
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: return type == committed_hit_type();

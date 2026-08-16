@@ -5616,6 +5616,77 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             id = _builder.createCompositeConstruct(type, {origin_arr, t_min, dir_arr, t_max});
             break;
         }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: {
+            auto &state = _ray_query_state(rq_obj);
+            auto candidate = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
+            auto origin = _builder.createOp(
+                spv::Op::OpRayQueryGetIntersectionObjectRayOriginKHR,
+                vec3_type,
+                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            auto dir = _builder.createOp(
+                spv::Op::OpRayQueryGetIntersectionObjectRayDirectionKHR,
+                vec3_type,
+                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            auto t_min = _builder.createOp(
+                spv::Op::OpRayQueryGetRayTMinKHR, float_type,
+                std::vector<spv::Id>{rq_obj});
+            auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
+            auto committed_type = _builder.createOp(
+                spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
+                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+            auto has_committed = _builder.createBinOp(
+                spv::Op::OpINotEqual, bool_type, committed_type,
+                _builder.makeUintConstant(0u));
+            auto initial_t_max = _builder.createCompositeExtract(
+                state.initial_ray, float_type, 3u);
+            auto t_max_var = _builder.createVariable(
+                spv::NoPrecision, spv::StorageClass::Function,
+                float_type, "rq_object_ray_tmax");
+            _builder.createStore(initial_t_max, t_max_var);
+
+            // IntersectionT is undefined while the committed type is None.
+            // Branch before reading it; OpSelect would evaluate both arms.
+            auto *committed_block = _create_physical_block();
+            auto *merge_block = _create_physical_block();
+            auto selection_merge = std::make_unique<spv::Instruction>(
+                spv::Op::OpSelectionMerge);
+            selection_merge->reserveOperands(2u);
+            selection_merge->addIdOperand(merge_block->getId());
+            selection_merge->addImmediateOperand(
+                spv::SelectionControlMask::MaskNone);
+            _builder.getBuildPoint()->addInstruction(
+                std::move(selection_merge));
+            _builder.createConditionalBranch(
+                has_committed, committed_block, merge_block);
+
+            _set_current_tail(committed_block);
+            auto committed_t_max = _builder.createOp(
+                spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+            _builder.createStore(committed_t_max, t_max_var);
+            _builder.createBranch(false, merge_block);
+
+            _set_current_tail(merge_block);
+            auto t_max = _builder.createLoad(t_max_var, spv::NoPrecision);
+            auto ray_type = inst->type();
+            auto origin_array_type = _convert_type(
+                ray_type->members()[0], Usage::READ);
+            auto dir_array_type = _convert_type(
+                ray_type->members()[2], Usage::READ);
+            auto origin_arr = _builder.createCompositeConstruct(
+                origin_array_type,
+                {_builder.createCompositeExtract(origin, float_type, 0),
+                 _builder.createCompositeExtract(origin, float_type, 1),
+                 _builder.createCompositeExtract(origin, float_type, 2)});
+            auto dir_arr = _builder.createCompositeConstruct(
+                dir_array_type,
+                {_builder.createCompositeExtract(dir, float_type, 0),
+                 _builder.createCompositeExtract(dir, float_type, 1),
+                 _builder.createCompositeExtract(dir, float_type, 2)});
+            id = _builder.createCompositeConstruct(
+                type, {origin_arr, t_min, dir_arr, t_max});
+            break;
+        }
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: {
             auto candidate = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
             auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,

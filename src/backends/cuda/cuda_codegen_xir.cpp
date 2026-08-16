@@ -1715,6 +1715,9 @@ void CUDACodegenXIR::_emit_ray_query_object_read_inst(const xir::RayQueryObjectR
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
             _emit_intrinsic_call("LC_RAY_QUERY_WORLD_RAY", inst);
             break;
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY:
+            _emit_intrinsic_call("LC_RAY_QUERY_OBJECT_RAY", inst);
+            break;
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT:
             _emit_intrinsic_call("LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", inst);
             break;

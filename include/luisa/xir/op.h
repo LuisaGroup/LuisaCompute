@@ -204,10 +204,11 @@ enum class CastOp {
 };
 
 enum class RayQueryObjectReadOp {
-    RAY_QUERY_OBJECT_WORLD_SPACE_RAY,         // (RayQuery): Ray
-    RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): ProceduralHit
-    RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): TriangleHit
-    RAY_QUERY_OBJECT_COMMITTED_HIT,           // (RayQuery): CommittedHit
+    RAY_QUERY_OBJECT_WORLD_SPACE_RAY,           // (RayQuery): Ray
+    RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY,// (RayQuery): Ray
+    RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT,  // (RayQuery): ProceduralHit
+    RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT,    // (RayQuery): TriangleHit
+    RAY_QUERY_OBJECT_COMMITTED_HIT,             // (RayQuery): CommittedHit
 
     // Maxwell's extensions
     RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE,  // (RayQuery): bool

@@ -1411,20 +1411,33 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
         llvm_kernel->removeFnAttr("amdgpu-waves-per-eu");
     }
     if (_uses_synchronous_ray_query_pipeline &&
-        !ray_query_projection
-             .oversized_budget_constrained_state_functions.empty()) {
+        (!ray_query_projection.exact_state_required_functions.empty() ||
+         !ray_query_projection
+              .oversized_budget_constrained_state_functions.empty())) {
         _retry_with_resumable_ray_query_state_functions =
-            ray_query_projection
-                .oversized_budget_constrained_state_functions;
+            ray_query_projection.exact_state_required_functions;
+        for (auto function : ray_query_projection
+                                 .oversized_budget_constrained_state_functions) {
+            if (std::find(
+                    _retry_with_resumable_ray_query_state_functions.begin(),
+                    _retry_with_resumable_ray_query_state_functions.end(),
+                    function) ==
+                _retry_with_resumable_ray_query_state_functions.end()) {
+                _retry_with_resumable_ray_query_state_functions.emplace_back(
+                    function);
+            }
+        }
         LUISA_VERBOSE(
             "HIP synchronous RayQuery plan rejected: maximum projected "
             "callback environment requiring an exact candidate or observable "
             "post-state transaction is {} bytes (budget={} bytes; overall "
-            "maximum={} bytes).",
+            "maximum={} bytes); {} function domain(s) require simultaneous "
+            "world/object ray states.",
             ray_query_projection
                 .maximum_budget_constrained_context_bytes,
             hip_synchronous_ray_query_environment_budget,
-            ray_query_projection.maximum_context_bytes);
+            ray_query_projection.maximum_context_bytes,
+            ray_query_projection.exact_state_required_functions.size());
         return {};
     }
     if (_uses_synchronous_ray_query_pipeline &&

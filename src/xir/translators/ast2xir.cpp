@@ -832,6 +832,7 @@ private:
             case CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR: return curve_bases_marked(resource_call(ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR));
             case CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR: return curve_bases_marked(resource_call(ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR));
             case CallOp::RAY_QUERY_WORLD_SPACE_RAY: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY);
+            case CallOp::RAY_QUERY_OBJECT_SPACE_RAY: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY);
             case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT);
             case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT);
             case CallOp::RAY_QUERY_COMMITTED_HIT: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT);

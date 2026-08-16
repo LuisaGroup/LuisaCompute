@@ -539,9 +539,15 @@ enum struct CallOp : uint32_t {
     // Unlike ROUND (half away from zero), RINT follows the target's
     // round-to-integral mode (round-to-nearest-even on supported GPU targets).
     RINT,// (floatN)
+
+    // Candidate instance-space ray. This operation is only valid inside a
+    // ray-query candidate handler. Its direction is not normalized, so the
+    // ray parameter and [t_min, t_max] remain invariant under instancing.
+    RAY_QUERY_OBJECT_SPACE_RAY,// (RayQuery): Ray
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::RINT) + 1u;
+static constexpr size_t call_op_count =
+    to_underlying(CallOp::RAY_QUERY_OBJECT_SPACE_RAY) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;

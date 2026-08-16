@@ -142,15 +142,21 @@ public:
         // True exactly when the parent function can observe query state after
         // the synchronous pipeline.
         bool post_state_observed;
-        // True when either handler observes committed state or the world ray.
-        // Such a handler requires the exact query-object transaction instead
-        // of the compact {candidate, commit, terminate} action product.
+        // True when either handler observes committed state or either public
+        // ray representation. Such a handler requires an observable query
+        // transaction instead of the candidate-only
+        // {candidate, commit, terminate} action product.
         bool full_candidate_state_observed;
         // True when the XIR handler pair and the query's only observable
         // post-state form a closest-hit reduction. This permits HIPRT to run
         // the handlers as native intersection/filter callbacks and return one
         // final hit, instead of exposing a resumable candidate frontier.
         bool native_closest_reduction;
+        // True when one handler domain observes both the immutable world ray
+        // and the candidate-dependent object ray. The compact synchronous ABI
+        // has one ray field, so this observation product requires the exact
+        // resumable representation with two simultaneously live rays.
+        bool distinct_ray_states_required;
         luisa::vector<llvm::StoreInst *> stores;
         luisa::vector<llvm::LoadInst *> loads;
         // The compact candidate transaction decodes the same projected user
@@ -163,6 +169,8 @@ public:
         size_t maximum_context_bytes{0u};
         size_t maximum_budget_constrained_context_bytes{0u};
         size_t oversized_compact_handler_only_pipeline_count{0u};
+        luisa::vector<const xir::Function *>
+            exact_state_required_functions;
         luisa::vector<const xir::Function *>
             oversized_budget_constrained_state_functions;
     };
@@ -234,6 +242,16 @@ public:
     // handler call graphs. These bits match the native wrapper ABI.
     static constexpr auto llvm_ray_query_observes_committed_hit = 1u << 0u;
     static constexpr auto llvm_ray_query_observes_world_ray = 1u << 1u;
+    static constexpr auto llvm_ray_query_observes_object_ray = 1u << 2u;
+    static constexpr auto llvm_ray_query_handler_observation_mask =
+        llvm_ray_query_observes_committed_hit |
+        llvm_ray_query_observes_world_ray |
+        llvm_ray_query_observes_object_ray;
+    // One trace argument carries two independent handler observations. The
+    // separation is semantic, not merely an optimization: a procedural object
+    // ray must not make an unrelated surface callback project that ray into
+    // the public query state.
+    static constexpr auto llvm_ray_query_procedural_observation_shift = 8u;
 
     static constexpr std::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa_ray_query_world_space_ray";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa_ray_query_procedural_candidate_hit";
@@ -272,6 +290,14 @@ public:
     static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_direction_y = "luisa_ray_query_ray_direction_y";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_direction_z = "luisa_ray_query_ray_direction_z";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_tmax = "luisa_ray_query_ray_tmax";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_origin_x = "luisa_ray_query_object_ray_origin_x";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_origin_y = "luisa_ray_query_object_ray_origin_y";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_origin_z = "luisa_ray_query_object_ray_origin_z";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_tmin = "luisa_ray_query_object_ray_tmin";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_direction_x = "luisa_ray_query_object_ray_direction_x";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_direction_y = "luisa_ray_query_object_ray_direction_y";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_direction_z = "luisa_ray_query_object_ray_direction_z";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_tmax = "luisa_ray_query_object_ray_tmax";
 
 private:
     HIPCodegenLLVMConfig _config;

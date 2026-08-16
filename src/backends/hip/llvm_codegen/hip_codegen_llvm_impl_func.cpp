@@ -15,7 +15,7 @@ namespace luisa::compute::hip {
 namespace {
 
 constexpr auto hip_hardware_ray_query_state_size = 224u;
-constexpr auto hip_software_ray_query_state_size = 576u;
+constexpr auto hip_software_ray_query_state_size = 608u;
 // The synchronous gfx12 traversal is latency-bound and its unconstrained
 // allocation falls immediately below the next useful occupancy tier. Express
 // that tier to LLVM instead of encoding a VGPR count: waves-per-EU lets the
@@ -202,7 +202,7 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_kernel_function(const xir::Kernel
         // allocation exact: it is address-taken across the out-of-line
         // traversal calls, so every unused byte becomes per-thread scratch.
         // Generic HIPRT traversal with a private instance stack uses the
-        // exact 576-byte state checked in hiprt_device_wrapper.hip.
+        // exact 608-byte state checked in hiprt_device_wrapper.hip.
         auto llvm_rq_state_size =
             !func_ctx.llvm_rq_state_uses_resumable_abi ?
                 hip_synchronous_ray_query_state_size :

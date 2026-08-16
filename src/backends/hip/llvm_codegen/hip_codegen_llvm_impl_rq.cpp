@@ -58,7 +58,8 @@ void accumulate_ray_query_handler_observations(
         // eligibility must fail closed instead of treating absence of XIR as
         // absence of observation.
         mask |= HIPCodegenLLVMImpl::llvm_ray_query_observes_committed_hit |
-                HIPCodegenLLVMImpl::llvm_ray_query_observes_world_ray;
+                HIPCodegenLLVMImpl::llvm_ray_query_observes_world_ray |
+                HIPCodegenLLVMImpl::llvm_ray_query_observes_object_ray;
         return;
     }
     definition->traverse_instructions(
@@ -76,6 +77,11 @@ void accumulate_ray_query_handler_observations(
                         RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
                         mask |= HIPCodegenLLVMImpl::
                             llvm_ray_query_observes_world_ray;
+                        break;
+                    case xir::RayQueryObjectReadOp::
+                        RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY:
+                        mask |= HIPCodegenLLVMImpl::
+                            llvm_ray_query_observes_object_ray;
                         break;
                     default: break;
                 }
@@ -95,15 +101,51 @@ void accumulate_ray_query_handler_observations(
         });
 }
 
+struct RayQueryHandlerObservationMasks {
+    uint32_t surface;
+    uint32_t procedural;
+
+    [[nodiscard]] constexpr uint32_t any() const noexcept {
+        return surface | procedural;
+    }
+
+    [[nodiscard]] constexpr uint32_t encoded() const noexcept {
+        return surface |
+               (procedural << HIPCodegenLLVMImpl::
+                    llvm_ray_query_procedural_observation_shift);
+    }
+};
+
+static_assert(
+    ((HIPCodegenLLVMImpl::llvm_ray_query_handler_observation_mask << HIPCodegenLLVMImpl::llvm_ray_query_procedural_observation_shift) &
+     HIPCodegenLLVMImpl::llvm_ray_query_handler_observation_mask) ==
+    0u);
+
 [[nodiscard]] uint32_t ray_query_handler_observation_mask(
-    const xir::RayQueryPipelineInst *pipeline) noexcept {
+    const xir::Function *handler) noexcept {
     llvm::DenseSet<const xir::Function *> visited;
     auto mask = 0u;
-    accumulate_ray_query_handler_observations(
-        pipeline->on_surface_function(), visited, mask);
-    accumulate_ray_query_handler_observations(
-        pipeline->on_procedural_function(), visited, mask);
+    accumulate_ray_query_handler_observations(handler, visited, mask);
     return mask;
+}
+
+[[nodiscard]] RayQueryHandlerObservationMasks
+ray_query_handler_observation_masks(
+    const xir::RayQueryPipelineInst *pipeline) noexcept {
+    return {
+        .surface = ray_query_handler_observation_mask(
+            pipeline->on_surface_function()),
+        .procedural = ray_query_handler_observation_mask(
+            pipeline->on_procedural_function())};
+}
+
+[[nodiscard]] constexpr bool
+ray_query_observation_requires_distinct_ray_states(
+    uint32_t mask) noexcept {
+    return (mask &
+            HIPCodegenLLVMImpl::llvm_ray_query_observes_world_ray) != 0u &&
+           (mask &
+            HIPCodegenLLVMImpl::llvm_ray_query_observes_object_ray) != 0u;
 }
 
 [[nodiscard]] bool ray_query_value_has_function_local_state(
@@ -472,7 +514,9 @@ struct NativeClosestHandlerAnalysisContext {
 // transaction externally effectful.
 //
 // HIPRT's closest traversal may batch/reorder the two members of a triangle
-// packet, so a surface handler may not observe the mutable world-ray t_max.
+// packet, so a surface handler may not observe either Ray value: both contain
+// the mutable t_max frontier even though their origins/directions use different
+// coordinate spaces.
 // A procedural leaf has one custom candidate. For those leaves, the closest
 // and resumable-any-hit templates execute the same SceneTraversal frontier:
 // rejection advances the same leaf state, while acceptance changes the next
@@ -485,7 +529,7 @@ struct NativeClosestHandlerAnalysisContext {
     const xir::Function *function,
     luisa::vector<bool> local_reference_arguments,
     luisa::vector<bool> active_query_reference_arguments,
-    bool allow_world_ray,
+    bool allow_mutable_ray_state,
     llvm::DenseSet<const xir::Function *> &active_functions) noexcept {
     if (function == nullptr || function->definition() == nullptr ||
         !active_functions.insert(function).second) {
@@ -544,18 +588,21 @@ struct NativeClosestHandlerAnalysisContext {
                     auto read = static_cast<
                         const xir::RayQueryObjectReadInst *>(instruction);
                     // COMMITTED_HIT observes reduction state before the
-                    // reduction is complete. WORLD_SPACE_RAY contains the
-                    // mutable t_max frontier and can make the acceptance
-                    // predicate enumeration-order dependent. Both therefore
-                    // require the exact resumable transaction.
+                    // reduction is complete. Both ray representations contain
+                    // the mutable t_max frontier and can make the acceptance
+                    // predicate enumeration-order dependent. These reads
+                    // therefore require the exact resumable transaction unless
+                    // the procedural-frontier proof applies.
                     valid = read->operand_count() != 0u &&
                             native_closest_pointer_is_active_query(
                                 read->operand(0u), context) &&
                             read->op() != xir::RayQueryObjectReadOp::
                                               RAY_QUERY_OBJECT_COMMITTED_HIT &&
-                            (allow_world_ray ||
-                             read->op() != xir::RayQueryObjectReadOp::
-                                               RAY_QUERY_OBJECT_WORLD_SPACE_RAY);
+                            (allow_mutable_ray_state ||
+                             (read->op() != xir::RayQueryObjectReadOp::
+                                                RAY_QUERY_OBJECT_WORLD_SPACE_RAY &&
+                              read->op() != xir::RayQueryObjectReadOp::
+                                                RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY));
                     break;
                 }
                 case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
@@ -598,7 +645,7 @@ struct NativeClosestHandlerAnalysisContext {
                     valid = native_closest_handler_is_reduction(
                         callee, std::move(callee_local_arguments),
                         std::move(callee_active_query_arguments),
-                        allow_world_ray,
+                        allow_mutable_ray_state,
                         active_functions);
                     break;
                 }
@@ -619,7 +666,8 @@ struct NativeClosestHandlerAnalysisContext {
 }
 
 [[nodiscard]] bool native_closest_handler_is_reduction(
-    const xir::Function *function, bool allow_world_ray) noexcept {
+    const xir::Function *function,
+    bool allow_mutable_ray_state) noexcept {
     llvm::DenseSet<const xir::Function *> active_functions;
     auto argument_count = function == nullptr ? 0u :
                                                function->arguments().count_size();
@@ -634,7 +682,7 @@ struct NativeClosestHandlerAnalysisContext {
     return native_closest_handler_is_reduction(
         function, luisa::vector<bool>(argument_count, false),
         std::move(active_query_arguments),
-        allow_world_ray,
+        allow_mutable_ray_state,
         active_functions);
 }
 
@@ -650,14 +698,23 @@ struct NativeClosestHandlerAnalysisContext {
         pipeline->on_surface_function(), false);
     const auto procedural_is_reduction = native_closest_handler_is_reduction(
         pipeline->on_procedural_function(), true);
+    const auto observation_masks =
+        ray_query_handler_observation_masks(pipeline);
+    const auto observes_both_ray_spaces =
+        ray_query_observation_requires_distinct_ray_states(
+            observation_masks.surface) ||
+        ray_query_observation_requires_distinct_ray_states(
+            observation_masks.procedural);
     LUISA_VERBOSE(
         "HIP native closest reduction proof: committed-post-state-only = "
-        "{}, surface = {}, procedural = {}.",
+        "{}, surface = {} (observations=0x{:x}), procedural = {} "
+        "(observations=0x{:x}), joint-ray-handler = {}.",
         committed_post_state_only, surface_is_reduction,
-        procedural_is_reduction);
+        observation_masks.surface, procedural_is_reduction,
+        observation_masks.procedural, observes_both_ray_spaces);
     if (std::getenv("LUISA_HIP_DUMP_NATIVE_CLOSEST_PROOF") != nullptr &&
         !(committed_post_state_only && surface_is_reduction &&
-          procedural_is_reduction)) {
+          procedural_is_reduction && !observes_both_ray_spaces)) {
         luisa::string dump;
         auto &printer = xir::XIRDebugPrinter::global();
         printer.emit_function(dump, pipeline->parent_function());
@@ -666,7 +723,7 @@ struct NativeClosestHandlerAnalysisContext {
         LUISA_INFO("HIP native closest rejected XIR:\n{}", dump);
     }
     return committed_post_state_only && surface_is_reduction &&
-           procedural_is_reduction;
+           procedural_is_reduction && !observes_both_ray_spaces;
 }
 
 }// namespace
@@ -907,6 +964,13 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
     };
 
     for (auto &context : _llvm_ray_query_pipeline_contexts) {
+        if (context.distinct_ray_states_required) {
+            auto &domains = projection.exact_state_required_functions;
+            if (std::find(domains.begin(), domains.end(),
+                          context.parent_function) == domains.end()) {
+                domains.emplace_back(context.parent_function);
+            }
+        }
         auto argument_count = context.stores.size();
         LUISA_ASSERT(
             argument_count != 0u &&
@@ -1366,6 +1430,32 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_ray_query_object_read_inst(IB &b, Fu
             result = b.CreateInsertValue(result, tmax, llvm_ray_type_t_max_index);
             return result;
         }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: {
+            auto ox = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_object_ray_origin_x, b.getFloatTy(), {});
+            auto oy = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_object_ray_origin_y, b.getFloatTy(), {});
+            auto oz = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_object_ray_origin_z, b.getFloatTy(), {});
+            auto tmin = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_object_ray_tmin, b.getFloatTy(), {});
+            auto dx = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_object_ray_direction_x, b.getFloatTy(), {});
+            auto dy = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_object_ray_direction_y, b.getFloatTy(), {});
+            auto dz = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_object_ray_direction_z, b.getFloatTy(), {});
+            auto tmax = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_object_ray_tmax, b.getFloatTy(), {});
+            auto llvm_f32x3_array_type = llvm::ArrayType::get(b.getFloatTy(), 3);
+            auto origin = static_cast<llvm::Value *>(llvm::PoisonValue::get(llvm_f32x3_array_type));
+            origin = b.CreateInsertValue(origin, ox, 0);
+            origin = b.CreateInsertValue(origin, oy, 1);
+            origin = b.CreateInsertValue(origin, oz, 2);
+            auto direction = static_cast<llvm::Value *>(llvm::PoisonValue::get(llvm_f32x3_array_type));
+            direction = b.CreateInsertValue(direction, dx, 0);
+            direction = b.CreateInsertValue(direction, dy, 1);
+            direction = b.CreateInsertValue(direction, dz, 2);
+            auto result_type = _get_llvm_ray_type();
+            auto result = static_cast<llvm::Value *>(llvm::PoisonValue::get(result_type));
+            result = b.CreateInsertValue(result, origin, llvm_ray_type_origin_index);
+            result = b.CreateInsertValue(result, tmin, llvm_ray_type_t_min_index);
+            result = b.CreateInsertValue(result, direction, llvm_ray_type_direction_index);
+            result = b.CreateInsertValue(result, tmax, llvm_ray_type_t_max_index);
+            return result;
+        }
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: {
             auto inst_id = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_candidate_inst_id, b.getInt32Ty(), {});
             auto prim_id = _call_ray_query_intrinsic(b, llvm_state_ptr, llvm_ray_query_intrinsic_name_candidate_prim_id, b.getInt32Ty(), {});
@@ -1469,8 +1559,8 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         inst->on_surface_function());
     auto llvm_on_procedural = _get_or_declare_llvm_function(
         inst->on_procedural_function());
-    const auto observation_mask =
-        ray_query_handler_observation_mask(inst);
+    const auto observation_masks =
+        ray_query_handler_observation_masks(inst);
     const auto post_state_observed =
         ray_query_pipeline_post_state_is_observed(inst);
     const auto native_closest_reduction =
@@ -1948,7 +2038,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
 
         auto llvm_state_pointer = _get_ray_query_state_pointer(
             b, func_ctx, query_object);
-        if (observation_mask != 0u) {
+        if (observation_masks.any() != 0u) {
             // Only a full-dispatch callback transaction exports query
             // identity. Candidate-only native closest reductions use the same
             // compact quotient as the iterative synchronous route and recover
@@ -2008,7 +2098,8 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         auto llvm_trace_call = b.CreateCall(
             llvm_trace,
             {llvm_state_pointer, llvm_generic_context,
-             b.getInt32(pipeline_index), b.getInt32(observation_mask),
+             b.getInt32(pipeline_index),
+             b.getInt32(observation_masks.encoded()),
              func_ctx.llvm_rt_stack_size,
              func_ctx.llvm_rt_stack_count, func_ctx.llvm_rt_stack_data});
         _llvm_ray_query_pipeline_contexts.emplace_back(
@@ -2021,8 +2112,12 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
                 llvm_on_surface,
                 llvm_on_procedural,
                 post_state_observed,
-                observation_mask != 0u,
+                observation_masks.any() != 0u,
                 native_closest_reduction,
+                ray_query_observation_requires_distinct_ray_states(
+                    observation_masks.surface) ||
+                    ray_query_observation_requires_distinct_ray_states(
+                        observation_masks.procedural),
                 std::move(llvm_context_stores),
                 std::move(llvm_context_loads),
                 std::move(llvm_compact_context_loads)});

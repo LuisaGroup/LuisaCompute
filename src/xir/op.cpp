@@ -319,6 +319,7 @@ luisa::string_view to_string(RayQueryObjectReadOp op) noexcept {
     using namespace std::string_view_literals;
     switch (op) {
         case RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: return "ray_query_object_world_space_ray"sv;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: return "ray_query_object_candidate_object_space_ray"sv;
         case RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: return "ray_query_object_procedural_candidate_hit"sv;
         case RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: return "ray_query_object_triangle_candidate_hit"sv;
         case RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: return "ray_query_object_committed_hit"sv;
@@ -333,6 +334,7 @@ RayQueryObjectReadOp ray_query_object_read_op_from_string(luisa::string_view nam
     using namespace std::string_view_literals;
     static const luisa::unordered_map<luisa::string_view, RayQueryObjectReadOp> m{
         {"ray_query_object_world_space_ray"sv, RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY},
+        {"ray_query_object_candidate_object_space_ray"sv, RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY},
         {"ray_query_object_procedural_candidate_hit"sv, RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT},
         {"ray_query_object_triangle_candidate_hit"sv, RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT},
         {"ray_query_object_committed_hit"sv, RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT},
