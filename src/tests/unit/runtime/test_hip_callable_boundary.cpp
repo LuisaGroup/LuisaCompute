@@ -325,6 +325,7 @@ void compile_large_ray_query_environment(
                           BufferUInt input_5,
                           BufferUInt input_6,
                           BufferUInt input_7,
+                          BufferUInt input_8,
                           AccelVar accel) noexcept {
         auto ray = make_ray(
             make_float3(0.0f, 0.0f, -1.0f),
@@ -335,13 +336,16 @@ void compile_large_ray_query_environment(
                                // Every buffer is consumed by the handler, so
                                // argument-demand projection cannot shrink this
                                // environment below the ordinary 64-byte native
-                               // budget. The output write is the semantic result
-                               // when the query post-state is discarded.
+                               // budget even after each buffer descriptor is
+                               // projected to its demanded device-pointer leaf.
+                               // The output write is the semantic result when
+                               // the query post-state is discarded.
                                auto checksum =
                                    input_0.read(0u) ^ input_1.read(0u) ^
                                    input_2.read(0u) ^ input_3.read(0u) ^
                                    input_4.read(0u) ^ input_5.read(0u) ^
-                                   input_6.read(0u) ^ input_7.read(0u);
+                                   input_6.read(0u) ^ input_7.read(0u) ^
+                                   input_8.read(0u);
                                if (observe_world_ray) {
                                    checksum ^= cast<uint>(
                                        candidate.ray()->t_max() > 0.0f);
@@ -370,6 +374,7 @@ void compile_large_pure_closest_reduction(
                           BufferUInt input_5,
                           BufferUInt input_6,
                           BufferUInt input_7,
+                          BufferUInt input_8,
                           AccelVar accel) noexcept {
         auto ray = make_ray(
             make_float3(0.0f, 0.0f, -1.0f),
@@ -377,9 +382,10 @@ void compile_large_pure_closest_reduction(
         auto hit = accel.traverse(ray, {})
                        .on_surface_candidate(
                            [&](SurfaceCandidate &candidate) noexcept {
-                               // These eight live resource handles keep the
+                               // These nine live resource handles keep the
                                // projected callback environment above 64
-                               // bytes. Resource reads are pure and the only
+                               // bytes even when unused descriptor-size leaves
+                               // are removed. Resource reads are pure and the only
                                // state transition is a conditional closest-hit
                                // commit, so enumeration order is unobservable
                                // unless terminate() is present.
@@ -387,7 +393,8 @@ void compile_large_pure_closest_reduction(
                                    input_0.read(0u) ^ input_1.read(0u) ^
                                    input_2.read(0u) ^ input_3.read(0u) ^
                                    input_4.read(0u) ^ input_5.read(0u) ^
-                                   input_6.read(0u) ^ input_7.read(0u);
+                                   input_6.read(0u) ^ input_7.read(0u) ^
+                                   input_8.read(0u);
                                Callable commit_if_even =
                                    [&candidate](UInt value) noexcept {
                                        $if ((value & 1u) == 0u) {
@@ -412,6 +419,86 @@ void compile_large_pure_closest_reduction(
                            })
                        .trace();
         output.write(dispatch_x(), hit->prim);
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
+void compile_mixed_ray_query_pipelines(Device &device) noexcept {
+    Callable compact_trace = [](
+                                 AccelVar accel,
+                                 Var<Ray> ray) noexcept {
+        auto compact_hit =
+            accel.traverse_any(ray, {})
+                .on_surface_candidate(
+                    [](SurfaceCandidate &candidate) noexcept {
+                        candidate.commit();
+                    })
+                .trace();
+        return compact_hit->prim;
+    };
+    compact_trace.function_builder()->set_name(
+        "hip_mixed_exact_query_state_domain");
+
+    Callable observed_trace = [](
+                                  AccelVar accel,
+                                  Var<Ray> ray,
+                                  BufferUInt input_0,
+                                  BufferUInt input_1,
+                                  BufferUInt input_2,
+                                  BufferUInt input_3,
+                                  BufferUInt input_4,
+                                  BufferUInt input_5,
+                                  BufferUInt input_6,
+                                  BufferUInt input_7,
+                                  BufferUInt input_8) noexcept {
+        auto observed_hit =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        auto checksum =
+                            input_0.read(0u) ^ input_1.read(0u) ^
+                            input_2.read(0u) ^ input_3.read(0u) ^
+                            input_4.read(0u) ^ input_5.read(0u) ^
+                            input_6.read(0u) ^ input_7.read(0u) ^
+                            input_8.read(0u);
+                        checksum ^= cast<uint>(
+                            candidate.ray()->t_max() > 0.0f);
+                        $if ((checksum & 1u) == 0u) {
+                            candidate.commit();
+                        };
+                    })
+                .trace();
+        return observed_hit->prim;
+    };
+    observed_trace.function_builder()->set_name(
+        "hip_mixed_resumable_query_state_domain");
+
+    Kernel1D kernel = [&compact_trace, &observed_trace](
+                          BufferUInt output,
+                          BufferUInt input_0,
+                          BufferUInt input_1,
+                          BufferUInt input_2,
+                          BufferUInt input_3,
+                          BufferUInt input_4,
+                          BufferUInt input_5,
+                          BufferUInt input_6,
+                          BufferUInt input_7,
+                          BufferUInt input_8,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        output.write(0u, compact_trace(accel, ray));
+        // This post-state observation and the nine independently demanded
+        // pointer leaves make only this Callable's function-owned state domain
+        // budget-constrained. The compact Callable owns a distinct state and
+        // must remain synchronous in the same generated module.
+        output.write(
+            1u,
+            observed_trace(
+                accel, ray, input_0, input_1, input_2, input_3,
+                input_4, input_5, input_6, input_7, input_8));
     };
     static_cast<void>(device.compile(
         kernel, ShaderOption{.enable_cache = false}));
@@ -543,6 +630,7 @@ int main(int argc, char *argv[]) {
             compile_large_ray_query_environment(device, false, true);
             compile_large_pure_closest_reduction(device, false);
             compile_large_pure_closest_reduction(device, true);
+            compile_mixed_ray_query_pipelines(device);
             const auto before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_4.ll");
             const auto observing_before_module = read_text_file(
@@ -579,6 +667,18 @@ int main(int argc, char *argv[]) {
                 dump_directory / "hip_kernel_before_opt_10.ll");
             const auto terminating_reduction_before_root =
                 amdgpu_kernel_body(terminating_reduction_before_module);
+            const auto mixed_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_11.ll");
+            const auto mixed_before_root =
+                amdgpu_kernel_body(mixed_before_module);
+            const auto mixed_exact_state_domain =
+                llvm_function_body(
+                    mixed_before_module,
+                    "hip_mixed_exact_query_state_domain");
+            const auto mixed_resumable_state_domain =
+                llvm_function_body(
+                    mixed_before_module,
+                    "hip_mixed_resumable_query_state_domain");
             expect(!before_root.empty() &&
                    !observing_before_root.empty() && !root.empty() &&
                    !observing_dispatcher.empty() &&
@@ -586,25 +686,34 @@ int main(int argc, char *argv[]) {
                    !observed_large_before_root.empty() &&
                    !full_candidate_large_before_root.empty() &&
                    !pure_reduction_before_root.empty() &&
-                   !terminating_reduction_before_root.empty())
+                   !terminating_reduction_before_root.empty() &&
+                   !mixed_before_root.empty() &&
+                   !mixed_exact_state_domain.empty() &&
+                   !mixed_resumable_state_domain.empty())
                 << "failed to locate the generated RayQuery functions";
             const auto uses_gfx12_hardware_stack =
                 module.find(
                     "@llvm.amdgcn.ds.bvh.stack.push8.pop1.rtn") !=
                 std::string::npos;
+            const auto uses_static_native_closest =
+                before_root.find(
+                    "@luisa_pipeline_ray_query_trace_all_native_closest_"
+                    "global_stack_stable_opacity(") !=
+                std::string_view::npos;
             // Selection is a codegen property, while outlining is an LLVM
             // profitability decision. Inspect the generated root before the
             // ordinary inliner instead of requiring trace wrappers to survive
             // in final IR.
             if (uses_gfx12_hardware_stack) {
-                expect(before_root.find(
-                           "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
+                expect(uses_static_native_closest &&
+                       before_root.find(
+                           "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
                                std::string_view::npos &&
                        before_root.find(
-                           "@luisa_pipeline_ray_query_trace_all_native_closest") ==
+                           "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") ==
                                std::string_view::npos)
-                    << "gfx12 closest reduction did not select its native "
-                       "hardware-frontier traversal";
+                    << "gfx12 closest reduction did not select one static-"
+                       "global HIPRT closest transaction";
             } else {
                 expect(before_root.find(
                            "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
@@ -643,10 +752,10 @@ int main(int argc, char *argv[]) {
                 << "empty RayQuery callback environment was "
                    "materialized in private memory";
             if (uses_gfx12_hardware_stack) {
-                // Neither the native closest reduction nor the compact
-                // RayQueryAny observes query-object identity. The hardware
-                // traversal still requires an addressable 112-byte transaction
-                // state, but no extra pointer-to-integer identity may escape it.
+                // Neither compact RayQueryAll nor RayQueryAny observes
+                // query-object identity. The hardware traversal still requires
+                // an addressable 112-byte transaction state, but no extra
+                // pointer-to-integer identity may escape it.
                 expect(root.find("ray.query.state.address") ==
                            std::string_view::npos &&
                        root.find("ray.query.identity.address") ==
@@ -692,18 +801,17 @@ int main(int argc, char *argv[]) {
                 << "internal constant-specialization marker escaped HIP "
                    "codegen";
             if (uses_gfx12_hardware_stack) {
-                // Both closest and any-hit queries use the same synchronous
-                // gfx12 state machine. A 256-thread block therefore needs only
-                // one 16-entry frontier (4096 dwords), with no generic HIPRT
-                // shared stack or dynamic-lock pool in the generated module.
+                // RayQueryAny retains the exact single-region hardware
+                // frontier, while the proven closest reduction uses HIPRT's
+                // 24-entry-per-lane static global spill stack. The two routes
+                // are non-reentrant and overlay one arena; for a 256-thread
+                // block the latter dominates at 24 * 256 dwords.
                 expect(module.find(
                            "@luisa_hiprt_shared_stack_cache = internal "
-                           "addrspace(3) global [4096 x i32]") !=
-                           std::string::npos &&
-                       module.find("hiprtDynamicStack") ==
+                           "addrspace(3) global [6144 x i32]") !=
                            std::string::npos)
-                    << "gfx12 closest reduction retained a generic HIPRT "
-                       "shared-stack traversal";
+                    << "gfx12 mixed native/hardware query did not reserve "
+                       "the maximum route-local LDS footprint";
                 expect(module.find(", i32 16)") !=
                        std::string::npos)
                     << "gfx12 BVH-stack intrinsic did not receive the "
@@ -723,7 +831,7 @@ int main(int argc, char *argv[]) {
                    "synchronous traversal";
             expect(count_occurrences(
                        handler_only_before_root,
-                       "ray.query.context.projected.field") >= 8u)
+                       "ray.query.context.projected.field") >= 9u)
                 << "large handler-only RayQuery regression did not exercise "
                    "an environment above the ordinary native budget";
             expect(observed_large_before_module.find(
@@ -746,7 +854,7 @@ int main(int argc, char *argv[]) {
             // A large environment is not itself a semantic reason to expose
             // HIPRT's continuation frontier. Prove the candidate callbacks
             // are a pure closest-hit reduction and lower the complete query
-            // to one backend-native closest traversal. The surface commit is
+            // to one target-native closest transaction. The surface commit is
             // intentionally in a nested Callable to exercise active-query
             // provenance across a call edge; the procedural handler exercises
             // the formally equivalent active-ray frontier used by ribbons.
@@ -754,7 +862,8 @@ int main(int argc, char *argv[]) {
             // must fail the same proof.
             const auto expected_pure_reduction_trace =
                 uses_gfx12_hardware_stack ?
-                    "@luisa_pipeline_ray_query_trace_all_stable_opacity(" :
+                    "@luisa_pipeline_ray_query_trace_all_native_closest_"
+                    "global_stack_stable_opacity(" :
                     "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(";
             expect(pure_reduction_before_root.find(
                        expected_pure_reduction_trace) !=
@@ -763,20 +872,57 @@ int main(int argc, char *argv[]) {
                        "@luisa_ray_query_proceed(") ==
                        std::string::npos)
                 << "large pure closest reduction did not lower to one "
-                   "backend-native traversal";
+                   "target-native transaction";
             expect(count_occurrences(
                        pure_reduction_before_root,
-                       "ray.query.context.projected.field") >= 8u)
+                       "ray.query.context.projected.field") >= 9u)
                 << "pure closest regression did not retain the intended "
                    "large callback environment";
             expect(terminating_reduction_before_module.find(
                        "@luisa_ray_query_proceed(") !=
                        std::string::npos &&
                    terminating_reduction_before_root.find(
-                       "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") ==
-                       std::string_view::npos)
+                       "@luisa_pipeline_ray_query_trace_all_native_closest") ==
+                       std::string_view::npos &&
+                   (!uses_gfx12_hardware_stack ||
+                    terminating_reduction_before_root.find(
+                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
+                        std::string_view::npos))
                 << "explicitly terminating RayQuery did not fail closed to "
                    "the resumable traversal ABI";
+
+            if (uses_gfx12_hardware_stack) {
+                // Traversal control is outlined from the owning Callables,
+                // while their state allocations remain in the named function
+                // bodies. Check route coexistence module-wide and state
+                // representation ownership in the individual domains.
+                expect(mixed_before_module.find(
+                           "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
+                               std::string::npos &&
+                       mixed_before_module.find(
+                           "@luisa_ray_query_proceed(") !=
+                               std::string::npos)
+                    << "function-domain retry did not retain synchronous and "
+                       "resumable gfx12 RayQuery routes in one module";
+                expect(mixed_exact_state_domain.find(
+                           "alloca [112 x i8]") !=
+                               std::string_view::npos &&
+                       mixed_exact_state_domain.find(
+                           "alloca [224 x i8]") ==
+                               std::string_view::npos &&
+                       mixed_resumable_state_domain.find(
+                           "alloca [224 x i8]") !=
+                               std::string_view::npos)
+                    << "mixed gfx12 RayQuery pipelines did not allocate one "
+                       "ABI-consistent state representation per function";
+                expect(mixed_before_module.find(
+                           "@luisa_hiprt_shared_stack_cache = internal "
+                           "addrspace(3) global [4608 x i32]") !=
+                           std::string::npos)
+                    << "mixed gfx12 RayQuery did not overlay one-region "
+                       "16-entry and two-region 9-entry frontiers at the "
+                       "common 576-dword stride for eight waves";
+            }
         };
 
     "HIP lowers fixed-vector dot products and preserves FP mode"_test =
@@ -797,7 +943,7 @@ int main(int argc, char *argv[]) {
                     module.find("llvm.vector.reduce.fadd") !=
                     std::string::npos;
             }
-            expect(dumped_module_count == 11u)
+            expect(dumped_module_count == 12u)
                 << "expected one final HIP LLVM module per compiled shader";
             expect(!retained_vector_reduction)
                 << "fixed-vector dot product retained the target-unstable "

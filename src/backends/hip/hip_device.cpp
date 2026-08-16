@@ -51,12 +51,12 @@ namespace luisa::compute::hip {
 namespace {
 
 static constexpr char hip_shader_package_magic[] = "LCHIPAOT";
-static constexpr auto hip_shader_package_version = 2u;
+static constexpr auto hip_shader_package_version = 3u;
 static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
 static constexpr auto hip_shader_cache_artifact_version = 2u;
 // Increment whenever the HIP AST/XIR/LLVM lowering contract changes in a way
 // that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 66u;
+static constexpr auto hip_shader_cache_codegen_revision = 73u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -185,7 +185,8 @@ enum struct HIPShaderCacheCodeKind : uint8_t {
                  static_cast<uint32_t>(metadata.requires_ray_query) << 3u |
                  static_cast<uint32_t>(metadata.requires_printing) << 4u |
                  static_cast<uint32_t>(metadata.requires_motion_blur) << 5u |
-                 static_cast<uint32_t>(metadata.requires_global_rt_stack) << 6u;
+                 static_cast<uint32_t>(metadata.requires_global_rt_stack) << 6u |
+                 static_cast<uint32_t>(metadata.uses_static_global_rt_stack) << 7u;
     writer.write_u32(flags);
     writer.write_u32(metadata.max_register_count);
     writer.write_u32(metadata.block_size.x);
@@ -216,7 +217,7 @@ enum struct HIPShaderCacheCodeKind : uint8_t {
     if (!reader.read_bytes(magic, sizeof(magic)) ||
         std::memcmp(magic, hip_shader_package_magic, sizeof(magic)) != 0 ||
         !reader.read_u32(version) ||
-        (version != 1u && version != hip_shader_package_version)) {
+        version < 1u || version > hip_shader_package_version) {
         return luisa::nullopt;
     }
     HIPShaderPackage package{};
@@ -247,7 +248,13 @@ enum struct HIPShaderCacheCodeKind : uint8_t {
     package.metadata.requires_motion_blur = (flags & (1u << 5u)) != 0u;
     package.metadata.requires_global_rt_stack =
         version >= 2u && (flags & (1u << 6u)) != 0u;
-    if ((flags & ~(version >= 2u ? 0x7fu : 0x3fu)) != 0u) {
+    package.metadata.uses_static_global_rt_stack =
+        version >= 3u && (flags & (1u << 7u)) != 0u;
+    const auto valid_flags =
+        version >= 3u ? 0xffu :
+        version >= 2u ? 0x7fu :
+                         0x3fu;
+    if ((flags & ~valid_flags) != 0u) {
         return luisa::nullopt;
     }
     auto read_count = [&reader](uint32_t &count) noexcept {
@@ -512,6 +519,7 @@ namespace {
             kernel.requires_motion_blur(),
         .requires_global_rt_stack =
             requires_global_rt_stack,
+        .uses_static_global_rt_stack = false,
         .max_register_count = option.max_registers,
         .block_size = kernel.block_size(),
         .argument_types = std::move(argument_types),
@@ -534,6 +542,11 @@ namespace {
     // metadata is independently derived from the current kernel and options.
     auto expected = expected_metadata;
     expected.format_types = package.metadata.format_types;
+    // Stack assignment is selected only after XIR proves whether candidate
+    // history is observable. It does not change the AST cache identity, but
+    // is authenticated as part of the serialized package payload.
+    expected.uses_static_global_rt_stack =
+        package.metadata.uses_static_global_rt_stack;
     return package.metadata == expected;
 }
 
@@ -1373,6 +1386,12 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
             "codegen (expected={}, generated={}).",
             metadata.requires_global_rt_stack,
             codegen_result.requires_global_rt_stack);
+        metadata.uses_static_global_rt_stack =
+            codegen_result.uses_static_global_rt_stack;
+        LUISA_ASSERT(
+            !metadata.uses_static_global_rt_stack ||
+                metadata.requires_global_rt_stack,
+            "Static HIPRT stack assignment requires the RT-stack kernarg.");
         luisa::string packaged_code;
         if (uses_shader_cache) {
             auto code_object = with_device([&] {

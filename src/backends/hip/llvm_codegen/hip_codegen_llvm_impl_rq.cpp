@@ -4,6 +4,7 @@
 
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/argument.h>
+#include <luisa/xir/debug_printer.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/gep.h>
@@ -12,7 +13,11 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/store.h>
 
+#include <llvm/ADT/SmallPtrSet.h>
+
+#include <algorithm>
 #include <limits>
+#include <cstdlib>
 
 #include "hip_codegen_llvm_impl.h"
 
@@ -246,6 +251,16 @@ ray_query_pipeline_post_state_is_committed_hit_only(
     auto query_object = pipeline->query_object();
     if (query_object == nullptr || !query_object->isa<xir::AllocaInst>() ||
         !static_cast<const xir::AllocaInst *>(query_object)->is_local()) {
+        if (query_object != nullptr && query_object->isa<xir::Instruction>()) {
+            auto instruction =
+                static_cast<const xir::Instruction *>(query_object);
+            LUISA_VERBOSE(
+                "HIP native closest reduction requires local alloca query "
+                "post-state, got '{}' ('{}') in function '{}'.",
+                xir::to_string(instruction->derived_instruction_tag()),
+                instruction->name().value_or("<unnamed>"),
+                instruction->parent_function()->name().value_or("<unnamed>"));
+        }
         return false;
     }
     auto observes_committed_hit = false;
@@ -287,6 +302,20 @@ ray_query_pipeline_post_state_is_committed_hit_only(
                     is_committed_hit_read(load_use->user(), load_use);
             }
             if (only_committed_reads) { continue; }
+        }
+        if (user != nullptr && user->isa<xir::Instruction>()) {
+            auto instruction = static_cast<const xir::Instruction *>(user);
+            LUISA_VERBOSE(
+                "HIP native closest reduction rejected post-state use '{}' "
+                "('{}') in function '{}'.",
+                xir::to_string(instruction->derived_instruction_tag()),
+                instruction->name().value_or("<unnamed>"),
+                instruction->parent_function()->name().value_or("<unnamed>"));
+        } else {
+            LUISA_VERBOSE(
+                "HIP native closest reduction rejected a non-instruction "
+                "post-state use of query '{}'.",
+                query_object->name().value_or("<unnamed>"));
         }
         return false;
     }
@@ -578,9 +607,11 @@ struct NativeClosestHandlerAnalysisContext {
             if (was_valid && !valid) {
                 LUISA_VERBOSE(
                     "HIP native closest reduction rejected handler "
-                    "instruction '{}'.",
+                    "instruction '{}' ('{}') in function '{}'.",
                     xir::to_string(
-                        instruction->derived_instruction_tag()));
+                        instruction->derived_instruction_tag()),
+                    instruction->name().value_or("<unnamed>"),
+                    function->name().value_or("<unnamed>"));
             }
         });
     active_functions.erase(function);
@@ -624,6 +655,16 @@ struct NativeClosestHandlerAnalysisContext {
         "{}, surface = {}, procedural = {}.",
         committed_post_state_only, surface_is_reduction,
         procedural_is_reduction);
+    if (std::getenv("LUISA_HIP_DUMP_NATIVE_CLOSEST_PROOF") != nullptr &&
+        !(committed_post_state_only && surface_is_reduction &&
+          procedural_is_reduction)) {
+        luisa::string dump;
+        auto &printer = xir::XIRDebugPrinter::global();
+        printer.emit_function(dump, pipeline->parent_function());
+        printer.emit_function(dump, pipeline->on_surface_function());
+        printer.emit_function(dump, pipeline->on_procedural_function());
+        LUISA_INFO("HIP native closest rejected XIR:\n{}", dump);
+    }
     return committed_post_state_only && surface_is_reduction &&
            procedural_is_reduction;
 }
@@ -634,86 +675,235 @@ HIPCodegenLLVMImpl::RayQueryPipelineProjectionInfo
 HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
     RayQueryPipelineProjectionInfo projection;
     size_t projected_argument_count = 0u;
+    size_t projected_aggregate_leaf_count = 0u;
     size_t separated_query_argument_count = 0u;
     size_t scalarized_context_count = 0u;
     size_t original_context_bytes = 0u;
     size_t projected_context_bytes = 0u;
 
-    // Compute the least fixed point of interprocedural argument demand over
-    // the local generated-Callable graph. A use that only forwards argument
-    // (f, i) to local callee argument (g, j) contributes the equation
-    // live(f, i) |= live(g, j); every other use is an observation and seeds
-    // liveness. Starting from those seeds makes forwarding-only SCCs dead,
-    // while a single consuming use propagates backwards through every caller.
-    // Calls to declarations or interposable definitions are observations by
-    // construction, so the analysis cannot erase an externally visible use.
-    llvm::DenseMap<const llvm::Argument *, size_t> argument_indices;
-    luisa::vector<const llvm::Argument *> arguments;
+    // Compute the least fixed point of interprocedural primitive-leaf demand
+    // over the local generated-Callable graph. For every formal aggregate A,
+    // flatten(A) is the finite set of paths to non-aggregate leaves. A pure
+    // extractvalue projects that set, while forwarding a projected value from
+    // caller leaf (f, i, p) to local callee leaf (g, j, q) contributes
+    //
+    //   live(f, i, p.q) |= live(g, j, q).
+    //
+    // Every other use observes the complete currently projected subtree and
+    // seeds its leaves. The resulting monotone Boolean equations are solved
+    // from BOTTOM, so forwarding-only SCCs remain dead and one observation
+    // propagates through the complete call cycle. Unknown, external, typed-
+    // attribute, or structurally mismatched uses fail closed to the whole
+    // subtree. This is the aggregate analogue of the former whole-argument
+    // analysis; it removes descriptor sizes only when their absence is proved
+    // over the complete direct-call graph.
+    using AggregateLeafPath = llvm::SmallVector<unsigned, 4>;
+    struct ArgumentLeafInfo {
+        const llvm::Argument *argument;
+        luisa::vector<AggregateLeafPath> paths;
+        size_t global_offset;
+    };
+    luisa::vector<ArgumentLeafInfo> argument_infos;
+    llvm::DenseMap<const llvm::Argument *, size_t> argument_info_indices;
+    auto flatten_type = [&](auto &&self, llvm::Type *type,
+                            AggregateLeafPath &path,
+                            luisa::vector<AggregateLeafPath> &paths) noexcept
+        -> void {
+        if (auto structure = llvm::dyn_cast<llvm::StructType>(type);
+            structure != nullptr && !structure->isOpaque()) {
+            for (auto i = 0u; i < structure->getNumElements(); ++i) {
+                path.emplace_back(i);
+                self(self, structure->getElementType(i), path, paths);
+                path.pop_back();
+            }
+            return;
+        }
+        if (auto array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+            for (auto i = 0u; i < array->getNumElements(); ++i) {
+                path.emplace_back(i);
+                self(self, array->getElementType(), path, paths);
+                path.pop_back();
+            }
+            return;
+        }
+        // Fixed vectors are one target register value in this analysis. LLVM
+        // extractelement is not an aggregate projection and therefore makes
+        // the complete vector leaf observable below.
+        paths.emplace_back(path);
+    };
+    size_t argument_leaf_count = 0u;
     for (auto &function : *_llvm_module) {
         if (function.isDeclaration()) { continue; }
         for (auto &argument : function.args()) {
-            auto index = arguments.size();
-            arguments.emplace_back(&argument);
-            argument_indices.try_emplace(&argument, index);
+            auto index = argument_infos.size();
+            auto &info = argument_infos.emplace_back(
+                ArgumentLeafInfo{.argument = &argument,
+                                 .global_offset = argument_leaf_count});
+            auto path = AggregateLeafPath{};
+            flatten_type(flatten_type, argument.getType(), path, info.paths);
+            argument_leaf_count += info.paths.size();
+            argument_info_indices.try_emplace(&argument, index);
         }
     }
     luisa::vector<luisa::vector<size_t>> reverse_dependencies(
-        arguments.size());
-    luisa::vector<bool> live_arguments(arguments.size(), false);
+        argument_leaf_count);
+    luisa::vector<bool> live_leaves(argument_leaf_count, false);
     luisa::vector<size_t> live_worklist;
-    live_worklist.reserve(arguments.size());
-    for (auto argument_index = 0u;
-         argument_index < arguments.size(); ++argument_index) {
-        auto argument = arguments[argument_index];
-        auto directly_live = argument->getParent()
-                                 ->getAttributes()
-                                 .hasParamAttrs(argument->getArgNo());
-        for (auto &use : argument->uses()) {
-            auto call = llvm::dyn_cast<llvm::CallBase>(use.getUser());
-            if (call != nullptr && call->isArgOperand(&use)) {
-                auto callee = call->getCalledFunction();
-                auto callee_argument_index = call->getArgOperandNo(&use);
-                if (call->getAttributes().hasParamAttrs(
-                        callee_argument_index)) {
-                    directly_live = true;
-                    break;
+    live_worklist.reserve(argument_leaf_count);
+    auto path_has_prefix = [](const AggregateLeafPath &path,
+                              const AggregateLeafPath &prefix) noexcept {
+        return prefix.size() <= path.size() &&
+               std::equal(prefix.begin(), prefix.end(), path.begin());
+    };
+    auto find_leaf = [](const ArgumentLeafInfo &info,
+                        const AggregateLeafPath &path) noexcept {
+        for (auto i = 0u; i < info.paths.size(); ++i) {
+            if (info.paths[i] == path) {
+                return static_cast<size_t>(i);
+            }
+        }
+        return std::numeric_limits<size_t>::max();
+    };
+    auto seed_subtree = [&](const ArgumentLeafInfo &root,
+                            const AggregateLeafPath &prefix) noexcept {
+        for (auto i = 0u; i < root.paths.size(); ++i) {
+            if (!path_has_prefix(root.paths[i], prefix)) { continue; }
+            auto global_index = root.global_offset + i;
+            if (!live_leaves[global_index]) {
+                live_leaves[global_index] = true;
+                live_worklist.emplace_back(global_index);
+            }
+        }
+    };
+    for (auto root_index = 0u;
+         root_index < argument_infos.size(); ++root_index) {
+        auto &root = argument_infos[root_index];
+        if (root.argument->getParent()->getAttributes().hasParamAttrs(
+                root.argument->getArgNo())) {
+            seed_subtree(root, {});
+            continue;
+        }
+        llvm::SmallPtrSet<llvm::Value *, 16> active_values;
+        auto collect_uses = [&](auto &&self, llvm::Value *value,
+                                AggregateLeafPath prefix) noexcept -> void {
+            if (value->use_empty()) { return; }
+            if (!active_values.insert(value).second) {
+                // A cyclic derived-value graph requires a richer value-PHI
+                // equation. Such graphs are not descriptor projections; fail
+                // closed instead of assuming the cycle is dead.
+                seed_subtree(root, prefix);
+                return;
+            }
+            for (auto &use : value->uses()) {
+                auto user = use.getUser();
+                if (auto extract = llvm::dyn_cast<llvm::ExtractValueInst>(user)) {
+                    if (extract->getAggregateOperand() != value) {
+                        seed_subtree(root, prefix);
+                        continue;
+                    }
+                    if (extract->use_empty()) {
+                        // extractvalue is pure. A dead descriptor-size extract
+                        // is not an observation even before ordinary DCE.
+                        continue;
+                    }
+                    auto nested = prefix;
+                    nested.insert(nested.end(), extract->idx_begin(),
+                                  extract->idx_end());
+                    self(self, extract, std::move(nested));
+                    continue;
                 }
-                if (callee != nullptr && !callee->isDeclaration() &&
-                    callee->hasLocalLinkage() &&
-                    callee_argument_index < callee->arg_size()) {
-                    auto callee_argument =
-                        callee->getArg(callee_argument_index);
-                    if (auto iter = argument_indices.find(callee_argument);
-                        iter != argument_indices.end()) {
-                        reverse_dependencies[iter->second]
-                            .emplace_back(argument_index);
+                if (auto freeze = llvm::dyn_cast<llvm::FreezeInst>(user)) {
+                    self(self, freeze, prefix);
+                    continue;
+                }
+                if (auto phi = llvm::dyn_cast<llvm::PHINode>(user)) {
+                    self(self, phi, prefix);
+                    continue;
+                }
+                if (auto select = llvm::dyn_cast<llvm::SelectInst>(user)) {
+                    if (select->getTrueValue() == value ||
+                        select->getFalseValue() == value) {
+                        self(self, select, prefix);
                         continue;
                     }
                 }
+                auto call = llvm::dyn_cast<llvm::CallBase>(user);
+                if (call != nullptr && call->isArgOperand(&use)) {
+                    auto callee = call->getCalledFunction();
+                    auto callee_argument_index =
+                        call->getArgOperandNo(&use);
+                    if (call->getAttributes().hasParamAttrs(
+                            callee_argument_index) ||
+                        callee == nullptr || callee->isDeclaration() ||
+                        !callee->hasLocalLinkage() ||
+                        callee_argument_index >= callee->arg_size()) {
+                        seed_subtree(root, prefix);
+                        continue;
+                    }
+                    auto callee_argument =
+                        callee->getArg(callee_argument_index);
+                    auto callee_info_iter =
+                        argument_info_indices.find(callee_argument);
+                    if (callee_info_iter == argument_info_indices.end() ||
+                        callee_argument->getType() != value->getType()) {
+                        seed_subtree(root, prefix);
+                        continue;
+                    }
+                    auto &callee_info =
+                        argument_infos[callee_info_iter->second];
+                    auto mapped_all_leaves = true;
+                    for (auto callee_leaf = 0u;
+                         callee_leaf < callee_info.paths.size();
+                         ++callee_leaf) {
+                        auto caller_path = prefix;
+                        caller_path.insert(
+                            caller_path.end(),
+                            callee_info.paths[callee_leaf].begin(),
+                            callee_info.paths[callee_leaf].end());
+                        auto caller_leaf = find_leaf(root, caller_path);
+                        if (caller_leaf ==
+                            std::numeric_limits<size_t>::max()) {
+                            mapped_all_leaves = false;
+                            break;
+                        }
+                        reverse_dependencies[
+                            callee_info.global_offset + callee_leaf]
+                            .emplace_back(root.global_offset + caller_leaf);
+                    }
+                    if (!mapped_all_leaves) {
+                        seed_subtree(root, prefix);
+                    }
+                    continue;
+                }
+                seed_subtree(root, prefix);
             }
-            directly_live = true;
-            break;
-        }
-        if (directly_live) {
-            live_arguments[argument_index] = true;
-            live_worklist.emplace_back(argument_index);
-        }
+            active_values.erase(value);
+        };
+        collect_uses(collect_uses,
+                     const_cast<llvm::Argument *>(root.argument), {});
     }
     for (auto cursor = 0u; cursor < live_worklist.size(); ++cursor) {
         auto live_index = live_worklist[cursor];
         for (auto dependent : reverse_dependencies[live_index]) {
-            if (!live_arguments[dependent]) {
-                live_arguments[dependent] = true;
+            if (!live_leaves[dependent]) {
+                live_leaves[dependent] = true;
                 live_worklist.emplace_back(dependent);
             }
         }
     }
-    auto argument_is_live = [&](const llvm::Argument *argument) noexcept {
-        auto iter = argument_indices.find(argument);
+    auto argument_live_leaf_paths = [&](const llvm::Argument *argument) noexcept {
+        auto iter = argument_info_indices.find(argument);
         LUISA_ASSERT(
-            iter != argument_indices.end(),
+            iter != argument_info_indices.end(),
             "Missing HIP generated-Callable argument demand state.");
-        return live_arguments[iter->second];
+        auto &info = argument_infos[iter->second];
+        auto paths = luisa::vector<AggregateLeafPath>{};
+        for (auto i = 0u; i < info.paths.size(); ++i) {
+            if (live_leaves[info.global_offset + i]) {
+                paths.emplace_back(info.paths[i]);
+            }
+        }
+        return paths;
     };
 
     for (auto &context : _llvm_ray_query_pipeline_contexts) {
@@ -739,14 +929,69 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
         // replacing both call operands with poison is semantics-preserving
         // under the fixed-point equations above. Taking the union is necessary
         // because candidate kind is selected dynamically inside traversal.
-        llvm::SmallVector<uint32_t, 16> retained_indices;
-        retained_indices.reserve(argument_count);
+        struct RetainedComponent {
+            uint32_t argument_index;
+            bool whole_argument;
+            AggregateLeafPath path;
+            llvm::Type *type;
+        };
+        llvm::SmallVector<RetainedComponent, 16> retained_components;
+        luisa::vector<luisa::vector<uint32_t>> component_indices(
+            argument_count);
         for (auto i = 1u; i < argument_count; ++i) {
             auto surface_arg = context.on_surface->getArg(i);
             auto procedural_arg = context.on_procedural->getArg(i);
-            if (argument_is_live(surface_arg) ||
-                argument_is_live(procedural_arg)) {
-                retained_indices.emplace_back(i);
+            LUISA_ASSERT(
+                surface_arg->getType() == procedural_arg->getType(),
+                "HIP RayQuery handler argument type mismatch.");
+            auto surface_paths =
+                argument_live_leaf_paths(surface_arg);
+            auto procedural_paths =
+                argument_live_leaf_paths(procedural_arg);
+            for (auto &path : procedural_paths) {
+                if (std::find(surface_paths.begin(), surface_paths.end(),
+                              path) == surface_paths.end()) {
+                    surface_paths.emplace_back(path);
+                }
+            }
+            std::sort(surface_paths.begin(), surface_paths.end());
+            auto all_paths = argument_infos[
+                argument_info_indices.find(surface_arg)->second]
+                                 .paths;
+            if (surface_paths.empty()) {
+                projected_argument_count++;
+                projected_aggregate_leaf_count += all_paths.size();
+                continue;
+            }
+            auto *argument_type = surface_arg->getType();
+            if (!argument_type->isAggregateType() ||
+                surface_paths.size() == all_paths.size()) {
+                auto component_index = static_cast<uint32_t>(
+                    retained_components.size());
+                retained_components.emplace_back(RetainedComponent{
+                    .argument_index = static_cast<uint32_t>(i),
+                    .whole_argument = true,
+                    .type = argument_type});
+                component_indices[i].emplace_back(component_index);
+                continue;
+            }
+            projected_aggregate_leaf_count +=
+                all_paths.size() - surface_paths.size();
+            for (auto &path : surface_paths) {
+                auto *leaf_type = llvm::ExtractValueInst::getIndexedType(
+                    argument_type, path);
+                LUISA_ASSERT(
+                    leaf_type != nullptr && !leaf_type->isAggregateType(),
+                    "HIP RayQuery callback leaf projection produced an "
+                    "invalid aggregate path.");
+                auto component_index = static_cast<uint32_t>(
+                    retained_components.size());
+                retained_components.emplace_back(RetainedComponent{
+                    .argument_index = static_cast<uint32_t>(i),
+                    .whole_argument = false,
+                    .path = path,
+                    .type = leaf_type});
+                component_indices[i].emplace_back(component_index);
             }
         }
 
@@ -811,7 +1056,7 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
         // An empty user environment is represented by null. The traversal
         // transports this value opaquely and the dispatcher has no remaining
         // load from it, so no zero-sized object or dummy capture is required.
-        if (retained_indices.empty()) {
+        if (retained_components.empty()) {
             context.trace_call->setArgOperand(
                 1u, llvm::ConstantPointerNull::get(
                         llvm::cast<llvm::PointerType>(
@@ -826,7 +1071,6 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
                 erase_original_field(i);
             }
             erase_original_storage();
-            projected_argument_count += argument_count - 1u;
             continue;
         }
 
@@ -839,26 +1083,44 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
         // lifetime of p with any other captured object. A non-pointer scalar is
         // deliberately not encoded into a pointer: that would invent address
         // semantics and would not be representation-preserving.
-        if (retained_indices.size() == 1u) {
-            auto retained_index = retained_indices.front();
+        if (retained_components.size() == 1u) {
+            auto &component = retained_components.front();
+            auto retained_index = component.argument_index;
             auto retained_value =
                 context.stores[retained_index]->getValueOperand();
+            if (!component.whole_argument) {
+                IB extract_b{context.stores[retained_index]};
+                retained_value = extract_b.CreateExtractValue(
+                    retained_value, component.path,
+                    "ray.query.context.scalar.leaf");
+            }
             if (retained_value->getType()->isPointerTy() &&
                 retained_value->getType()->getPointerAddressSpace() == 0u) {
                 LUISA_ASSERT(
                     dispatch_context->getType() == retained_value->getType() &&
                         context.loads[retained_index]->getType() ==
-                            retained_value->getType(),
+                            context.stores[retained_index]
+                                ->getValueOperand()
+                                ->getType(),
                     "HIP scalar callback context pointer type mismatch.");
                 context.trace_call->setArgOperand(1u, retained_value);
                 for (auto i = 0u; i < argument_count; ++i) {
                     if (i == retained_index) {
-                        for_each_context_load(i, [](auto old_load) noexcept {
+                        for_each_context_load(i, [&](auto old_load) noexcept {
                             auto old_load_gep = llvm::cast<
                                 llvm::GetElementPtrInst>(
                                 old_load->getPointerOperand());
-                            old_load->replaceAllUsesWith(
+                            auto replacement = static_cast<llvm::Value *>(
                                 old_load_gep->getPointerOperand());
+                            if (!component.whole_argument) {
+                                IB rebuild_b{old_load};
+                                replacement = rebuild_b.CreateInsertValue(
+                                    llvm::PoisonValue::get(
+                                        old_load->getType()),
+                                    replacement, component.path,
+                                    "ray.query.context.scalar.rebuild");
+                            }
+                            old_load->replaceAllUsesWith(replacement);
                         });
                     } else if (i != 0u) {
                         for_each_context_load(i, [](auto old_load) noexcept {
@@ -869,31 +1131,24 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
                     erase_original_field(i);
                 }
                 erase_original_storage();
-                projected_argument_count += argument_count - 2u;
                 scalarized_context_count++;
                 continue;
             }
         }
 
         llvm::SmallVector<llvm::Type *, 16> retained_types;
-        retained_types.reserve(retained_indices.size());
-        llvm::SmallVector<int32_t, 16> projected_indices(
-            argument_count, -1);
-        for (auto projected_index = 0u;
-             projected_index < retained_indices.size();
-             ++projected_index) {
-            auto original_index = retained_indices[projected_index];
-            auto type = context.stores[original_index]
-                            ->getValueOperand()
-                            ->getType();
+        retained_types.reserve(retained_components.size());
+        for (auto &component : retained_components) {
+            auto original_index = component.argument_index;
+            auto original_type = context.stores[original_index]
+                                     ->getValueOperand()
+                                     ->getType();
             LUISA_ASSERT(
-                type == context.loads[original_index]->getType() &&
-                    type == context.on_surface->getArg(original_index)->getType() &&
-                    type == context.on_procedural->getArg(original_index)->getType(),
+                original_type == context.loads[original_index]->getType() &&
+                    original_type == context.on_surface->getArg(original_index)->getType() &&
+                    original_type == context.on_procedural->getArg(original_index)->getType(),
                 "HIP ray-query callback environment argument type mismatch.");
-            retained_types.emplace_back(type);
-            projected_indices[original_index] =
-                static_cast<int32_t>(projected_index);
+            retained_types.emplace_back(component.type);
         }
 
         auto projected_type = llvm::StructType::get(
@@ -920,13 +1175,20 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
             projection.maximum_budget_constrained_context_bytes = std::max(
                 projection.maximum_budget_constrained_context_bytes,
                 current_projected_context_bytes);
+            if (!hip_synchronous_ray_query_environment_is_profitable(
+                    current_projected_context_bytes)) {
+                auto &domains = projection
+                                    .oversized_budget_constrained_state_functions;
+                if (std::find(
+                        domains.begin(), domains.end(),
+                        context.parent_function) == domains.end()) {
+                    domains.emplace_back(context.parent_function);
+                }
+            }
         } else if (current_projected_context_bytes >
                    hip_synchronous_ray_query_environment_budget) {
             projection.oversized_compact_handler_only_pipeline_count++;
         }
-        projected_argument_count +=
-            argument_count - 1u - retained_indices.size();
-
         IB alloca_b{context.storage};
         auto projected_storage = alloca_b.CreateAlloca(
             projected_type, nullptr,
@@ -946,39 +1208,64 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
 
         for (auto i = 0u; i < argument_count; ++i) {
             auto old_store = context.stores[i];
-            auto projected_index = projected_indices[i];
             if (i == 0u) {
                 // The query-reference load was replaced by dispatch_query
                 // above; only its obsolete environment field remains.
-            } else if (projected_index >= 0) {
-                auto type = old_store->getValueOperand()->getType();
-                auto alignment = _data_layout->getABITypeAlign(type);
-
-                IB store_b{old_store};
-                auto projected_store_gep = store_b.CreateStructGEP(
-                    projected_type, projected_storage,
-                    static_cast<uint32_t>(projected_index),
-                    "ray.query.context.projected.field");
-                auto projected_store = store_b.CreateStore(
-                    old_store->getValueOperand(), projected_store_gep);
-                projected_store->setAlignment(alignment);
-
+            } else if (!component_indices[i].empty()) {
+                for (auto component_index : component_indices[i]) {
+                    auto &component =
+                        retained_components[component_index];
+                    auto value = old_store->getValueOperand();
+                    IB store_b{old_store};
+                    if (!component.whole_argument) {
+                        value = store_b.CreateExtractValue(
+                            value, component.path,
+                            "ray.query.context.projected.leaf");
+                    }
+                    LUISA_ASSERT(
+                        value->getType() == component.type,
+                        "HIP RayQuery projected producer leaf type "
+                        "mismatch.");
+                    auto projected_store_gep = store_b.CreateStructGEP(
+                        projected_type, projected_storage,
+                        component_index,
+                        "ray.query.context.projected.field");
+                    auto projected_store = store_b.CreateStore(
+                        value, projected_store_gep);
+                    projected_store->setAlignment(
+                        _data_layout->getABITypeAlign(component.type));
+                }
                 for_each_context_load(i, [&](auto old_load) noexcept {
                     auto old_load_gep = llvm::cast<
                         llvm::GetElementPtrInst>(
                         old_load->getPointerOperand());
                     auto old_context = old_load_gep->getPointerOperand();
                     IB load_b{old_load};
-                    auto projected_load_gep = load_b.CreateStructGEP(
-                        projected_type,
-                        old_context,
-                        static_cast<uint32_t>(projected_index),
-                        "ray.query.context.projected.field");
-                    auto projected_load = load_b.CreateLoad(
-                        type, projected_load_gep,
-                        "ray.query.context.projected.value");
-                    projected_load->setAlignment(alignment);
-                    old_load->replaceAllUsesWith(projected_load);
+                    llvm::Value *reconstructed =
+                        llvm::PoisonValue::get(old_load->getType());
+                    for (auto component_index : component_indices[i]) {
+                        auto &component =
+                            retained_components[component_index];
+                        auto projected_load_gep =
+                            load_b.CreateStructGEP(
+                                projected_type, old_context,
+                                component_index,
+                                "ray.query.context.projected.field");
+                        auto projected_load = load_b.CreateLoad(
+                            component.type, projected_load_gep,
+                            "ray.query.context.projected.value");
+                        projected_load->setAlignment(
+                            _data_layout->getABITypeAlign(component.type));
+                        reconstructed = component.whole_argument ?
+                                            static_cast<llvm::Value *>(
+                                                projected_load) :
+                                            load_b.CreateInsertValue(
+                                                reconstructed,
+                                                projected_load,
+                                                component.path,
+                                                "ray.query.context.rebuild");
+                    }
+                    old_load->replaceAllUsesWith(reconstructed);
                 });
             } else {
                 for_each_context_load(i, [](auto old_load) noexcept {
@@ -992,15 +1279,18 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
     }
 
     if (projected_argument_count != 0u ||
+        projected_aggregate_leaf_count != 0u ||
         separated_query_argument_count != 0u ||
         scalarized_context_count != 0u) {
         LUISA_VERBOSE(
             "Separated {} HIP RayQuery identity argument(s), projected {} "
-            "unused callback ABI argument(s), and scalarized {} "
+            "unused callback ABI argument(s) and {} unused aggregate "
+            "leaf/leaves, and scalarized {} "
             "one-pointer environment(s), "
             "shrinking static environments from {} to {} bytes.",
             separated_query_argument_count,
             projected_argument_count,
+            projected_aggregate_leaf_count,
             scalarized_context_count,
             original_context_bytes,
             projected_context_bytes);
@@ -1186,6 +1476,23 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
     const auto native_closest_reduction =
         ray_query_pipeline_admits_native_closest_reduction(inst);
     LUISA_ASSERT(
+        _ray_query_pipeline_count <=
+            std::numeric_limits<uint32_t>::max(),
+        "HIP RayQuery pipeline index overflow.");
+    const auto pipeline_index = static_cast<uint32_t>(
+        _ray_query_pipeline_count++);
+    const auto pipeline_is_resumable =
+        _function_uses_resumable_ray_query_state(
+            inst->parent_function());
+    const auto pipeline_is_synchronous =
+        _uses_synchronous_ray_query_pipeline ||
+        (_uses_mixed_ray_query_pipeline && !pipeline_is_resumable);
+    LUISA_VERBOSE(
+        "HIP ray-query pipeline codegen {}: synchronous = {}, pipeline = {}.",
+        static_cast<const void *>(this),
+        pipeline_is_synchronous,
+        pipeline_index);
+    LUISA_ASSERT(
         llvm_on_surface->getReturnType()->isVoidTy() &&
             llvm_on_procedural->getReturnType()->isVoidTy(),
         "HIP ray-query candidate handlers must return void.");
@@ -1259,7 +1566,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             llvm_on_procedural->getFunctionType() == llvm_pipeline_type,
         "HIP ray-query pipeline callback ABI mismatch.");
 
-    if (_uses_synchronous_ray_query_pipeline) {
+    if (pipeline_is_synchronous) {
         // The reduction proof describes the handler semantics, not the
         // selected execution route. A module that requires reentrant ray
         // queries lowers every pipeline to the ordinary in-kernel loop; in
@@ -1267,19 +1574,35 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         // Keep the module feature bit equal to the disjunction of *lowered*
         // native calls, otherwise post-processing links a callback wrapper
         // whose dispatcher was never emitted.
-        // The reduction proof permits a compact candidate transaction; it
-        // does not require HIPRT's generic traversal implementation. GFX12's
-        // synchronous hardware-frontier traversal implements the same (and a
-        // strictly more general) query state machine without a dynamic stack,
-        // lock acquisition, or a second LDS layout. Reserve the generic native
-        // HIPRT closest traversal for architectures/modules where that hardware
-        // route is unavailable.
+        // A proven reduction is semantically one closest traversal: each
+        // candidate contributes only reject, commit(t), or terminate, and the
+        // final observable state is the minimum committed t. Keep that
+        // transaction inside HIPRT's one-shot closest traversal on every
+        // architecture. Pre-gfx12 uses HIPRT's dynamically assigned spill
+        // stack. Gfx12 uses the same traversal with a statically indexed global
+        // spill stack: the host sizes it from the physical launch domain, so
+        // it needs neither the dynamic stack lock nor a resumable per-candidate
+        // frontier. This is a semantic lowering selected from the handler
+        // proof, not a renderer- or scene-specific policy.
+        const auto use_static_global_hiprt_closest =
+            native_closest_reduction && _uses_hardware_rt_stack;
         const auto use_native_hiprt_closest =
             native_closest_reduction && !_uses_hardware_rt_stack;
+        LUISA_VERBOSE(
+            "HIP native closest route: reduction = {}, hardware-stack = {}, "
+            "motion-blur = {}, dynamic-global = {}, static-global = {}.",
+            native_closest_reduction, _uses_hardware_rt_stack,
+            _rt_analysis.uses_motion_blur,
+            use_native_hiprt_closest,
+            use_static_global_hiprt_closest);
         _uses_native_closest_ray_query_pipeline |=
-            use_native_hiprt_closest;
+            use_native_hiprt_closest ||
+            use_static_global_hiprt_closest;
+        _uses_static_global_rt_stack |=
+            use_static_global_hiprt_closest;
         _uses_iterative_synchronous_ray_query_pipeline |=
-            !use_native_hiprt_closest;
+            !(use_native_hiprt_closest ||
+              use_static_global_hiprt_closest);
         // Materialize the exact callback environment once. The native HIPRT
         // filter/intersection callbacks receive only an opaque context pointer;
         // this typed struct restores the ordinary Callable ABI without an
@@ -1500,8 +1823,6 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             compact_b.CreateRet(compact_result);
         }
 
-        auto pipeline_index = static_cast<uint32_t>(
-            _ray_query_pipeline_count++);
         auto llvm_pipeline_block = llvm::BasicBlock::Create(
             _llvm_context,
             llvm::Twine{"pipeline."} + llvm::Twine{pipeline_index},
@@ -1652,14 +1973,18 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             func_ctx.llvm_rt_stack_size != nullptr &&
                 func_ctx.llvm_rt_stack_count != nullptr &&
                 func_ctx.llvm_rt_stack_data != nullptr,
-            "Synchronous HIP ray query requires a dynamic stack buffer.");
+            "Synchronous HIP ray query requires an RT stack buffer.");
         auto llvm_trace_type = llvm::FunctionType::get(
             b.getVoidTy(),
             {b.getPtrTy(0), b.getPtrTy(0), b.getInt32Ty(),
              b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(),
              b.getPtrTy(0)},
             false);
-        auto llvm_trace_name = use_native_hiprt_closest ?
+        auto llvm_trace_name = use_static_global_hiprt_closest ?
+            (_rt_analysis.writes_instance_opacity ?
+                 "luisa_pipeline_ray_query_trace_all_native_closest_global_stack" :
+                 "luisa_pipeline_ray_query_trace_all_native_closest_global_stack_stable_opacity") :
+            use_native_hiprt_closest ?
             (_rt_analysis.writes_instance_opacity ?
                  "luisa_pipeline_ray_query_trace_all_native_closest" :
                  "luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity") :
@@ -1688,6 +2013,8 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
              func_ctx.llvm_rt_stack_count, func_ctx.llvm_rt_stack_data});
         _llvm_ray_query_pipeline_contexts.emplace_back(
             RayQueryPipelineContext{
+                pipeline_index,
+                inst->parent_function(),
                 llvm::cast<llvm::AllocaInst>(llvm_context_pointer),
                 llvm_generic_context,
                 llvm_trace_call,
@@ -1708,7 +2035,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
     auto llvm_pipeline = llvm::Function::Create(
         llvm_pipeline_type, llvm::Function::PrivateLinkage,
         llvm::Twine{"luisa.ray.query.pipeline."} +
-            llvm::Twine{_ray_query_pipeline_count++},
+            llvm::Twine{pipeline_index},
         _llvm_module.get());
     llvm_pipeline->addFnAttr(llvm::Attribute::AlwaysInline);
     llvm_pipeline->addFnAttr(llvm::Attribute::NoUnwind);
@@ -1822,13 +2149,13 @@ llvm::Value *HIPCodegenLLVMImpl::_advance_ray_query(
 
 llvm::Value *HIPCodegenLLVMImpl::_call_ray_query_intrinsic(
     IB &b, llvm::Value *llvm_state_ptr, llvm::StringRef name,
-    llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept {
+    llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args,
+    bool use_pipeline_abi) noexcept {
     LUISA_ASSERT(
         llvm_state_ptr != nullptr &&
             llvm_state_ptr->getType()->isPointerTy(),
         "Invalid HIP ray-query state pointer.");
-    if (!_uses_hardware_rt_stack ||
-        _uses_synchronous_ray_query_pipeline) {
+    if (!_uses_hardware_rt_stack || use_pipeline_abi) {
         if (llvm_state_ptr->getType()->getPointerAddressSpace() != 0u) {
             llvm_state_ptr = b.CreateAddrSpaceCast(
                 llvm_state_ptr, b.getPtrTy(0),
@@ -1840,7 +2167,7 @@ llvm::Value *HIPCodegenLLVMImpl::_call_ray_query_intrinsic(
     augmented_args.append(args.begin(), args.end());
     std::string motion_name;
     auto wrapper_name = name;
-    if (_uses_synchronous_ray_query_pipeline) {
+    if (use_pipeline_abi) {
         static constexpr std::string_view prefix{"luisa_ray_query_"};
         LUISA_ASSERT(name.starts_with(prefix),
                      "Invalid HIP ray-query wrapper name '{}'.", name.str());
@@ -1873,10 +2200,24 @@ llvm::Value *HIPCodegenLLVMImpl::_call_ray_query_intrinsic(
 }
 
 llvm::Value *HIPCodegenLLVMImpl::_call_ray_query_intrinsic(
+    IB &b, llvm::Value *llvm_state_ptr, llvm::StringRef name,
+    llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept {
+    // Pointer-based operations may execute in an outlined candidate handler.
+    // In an all-synchronous module the pointer necessarily names the compact
+    // pipeline state. In a mixed module the same handler body can be shared by
+    // either function-level ABI, so its generic wrapper accesses only the
+    // representation-identical common prefix.
+    return _call_ray_query_intrinsic(
+        b, llvm_state_ptr, name, ret, args,
+        _uses_synchronous_ray_query_pipeline);
+}
+
+llvm::Value *HIPCodegenLLVMImpl::_call_ray_query_intrinsic(
     IB &b, FunctionContext &func_ctx, llvm::StringRef name,
     llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept {
     return _call_ray_query_intrinsic(
-        b, func_ctx.llvm_rq_state, name, ret, args);
+        b, func_ctx.llvm_rq_state, name, ret, args,
+        !func_ctx.llvm_rq_state_uses_resumable_abi);
 }
 
 llvm::Value *HIPCodegenLLVMImpl::_create_opaque_float_barrier(IB &b, llvm::Value *val, const llvm::Twine &name) noexcept {

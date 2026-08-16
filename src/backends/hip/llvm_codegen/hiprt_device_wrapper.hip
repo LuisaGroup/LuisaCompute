@@ -6,7 +6,13 @@
 // at runtime. Per-arch compilation enables arch-specific features like the
 // hardware BVH stack instruction on RDNA 4 (gfx1200/gfx1201).
 
-static constexpr unsigned int LUISA_HIPRT_SHARED_STACK_SIZE = 32u;
+static constexpr unsigned int
+    LUISA_HIPRT_DYNAMIC_SHARED_STACK_SIZE = 32u;
+// Match Cycles' empirically selected closest-traversal balance: a static
+// global spill stack does not need dynamic-lock headroom, and 24 entries keep
+// a 256-thread intersection group at 24 KiB LDS.
+static constexpr unsigned int
+    LUISA_HIPRT_GLOBAL_SHARED_STACK_SIZE = 24u;
 
 #if defined(__HIPCC_RTC__) || defined(__HIPCC__)
 
@@ -534,7 +540,7 @@ extern "C" __device__ void luisa_hiprt_trace_closest(
     // assigns stack storage to active waves with locks. This is safe for dispatches
     // of any size without a dispatch-sized global allocation.
     hiprtGlobalStackBuffer globalStackBuffer{stack_size, stack_count, stack_data};
-    hiprtSharedStackBuffer sharedStackBuffer{LUISA_HIPRT_SHARED_STACK_SIZE, luisa_hiprt_shared_stack_cache};
+    hiprtSharedStackBuffer sharedStackBuffer{LUISA_HIPRT_DYNAMIC_SHARED_STACK_SIZE, luisa_hiprt_shared_stack_cache};
 
     hiprtDynamicStack stack(globalStackBuffer, sharedStackBuffer);
     hiprtPrivateInstanceStack instanceStack;
@@ -582,7 +588,7 @@ extern "C" __device__ bool luisa_hiprt_trace_any(
         reinterpret_cast<const LuisaAccelInstance *>(instance_data), 0.0f};
 
     hiprtGlobalStackBuffer globalStackBuffer{stack_size, stack_count, stack_data};
-    hiprtSharedStackBuffer sharedStackBuffer{LUISA_HIPRT_SHARED_STACK_SIZE, luisa_hiprt_shared_stack_cache};
+    hiprtSharedStackBuffer sharedStackBuffer{LUISA_HIPRT_DYNAMIC_SHARED_STACK_SIZE, luisa_hiprt_shared_stack_cache};
 
     hiprtDynamicStack stack(globalStackBuffer, sharedStackBuffer);
     hiprtPrivateInstanceStack instanceStack;
@@ -1147,7 +1153,7 @@ LUISA_GENERIC_RAY_QUERY_WRAPPER(initialize)(
 
     // Construct stacks in-place inside the state
     hiprtGlobalStackBuffer globalStackBuffer{stack_size, stack_count, stack_data};
-    hiprtSharedStackBuffer sharedStackBuffer{LUISA_HIPRT_SHARED_STACK_SIZE, luisa_hiprt_shared_stack_cache};
+    hiprtSharedStackBuffer sharedStackBuffer{LUISA_HIPRT_DYNAMIC_SHARED_STACK_SIZE, luisa_hiprt_shared_stack_cache};
 
     auto *stack = new (s->global_stack_storage)
         LuisaRayQueryState::Stack(globalStackBuffer, sharedStackBuffer);
@@ -1519,6 +1525,7 @@ static __device__ hiprtFuncDataSet
     luisa_pipeline_native_closest_func_data_sets[
         LUISA_PIPELINE_NATIVE_CLOSEST_RAY_TYPE + 1u] = {};
 
+template<typename Stack, unsigned int shared_stack_size>
 static __device__ __forceinline__ void
 luisa_pipeline_ray_query_trace_native_closest_impl(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
@@ -1542,13 +1549,13 @@ luisa_pipeline_ray_query_trace_native_closest_impl(
     hiprtGlobalStackBuffer global_stack_buffer{
         stack_size, stack_count, stack_data};
     hiprtSharedStackBuffer shared_stack_buffer{
-        LUISA_HIPRT_SHARED_STACK_SIZE,
+        shared_stack_size,
         luisa_hiprt_shared_stack_cache};
-    hiprtDynamicStack stack{global_stack_buffer, shared_stack_buffer};
-    hiprtPrivateInstanceStack instance_stack;
+    Stack stack{global_stack_buffer, shared_stack_buffer};
+    hiprtEmptyInstanceStack instance_stack;
     auto scene = reinterpret_cast<hiprtScene>(state->scene_handle);
     hiprtSceneTraversalClosestCustomStack<
-        hiprtDynamicStack, hiprtPrivateInstanceStack>
+        Stack, hiprtEmptyInstanceStack>
         traversal{
             scene, state->ray, stack, instance_stack,
             static_cast<hiprtRayMask>(state->mask),
@@ -1576,7 +1583,9 @@ luisa_pipeline_ray_query_trace_all_native_closest(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t observation_mask,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
-    luisa_pipeline_ray_query_trace_native_closest_impl(
+    luisa_pipeline_ray_query_trace_native_closest_impl<
+        hiprtDynamicStack,
+        LUISA_HIPRT_DYNAMIC_SHARED_STACK_SIZE>(
         state_ptr, callback_context, pipeline_id, observation_mask,
         stack_size, stack_count, stack_data);
 }
@@ -1586,7 +1595,33 @@ luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(
     void *state_ptr, void *callback_context, uint32_t pipeline_id,
     uint32_t observation_mask,
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
-    luisa_pipeline_ray_query_trace_native_closest_impl(
+    luisa_pipeline_ray_query_trace_native_closest_impl<
+        hiprtDynamicStack,
+        LUISA_HIPRT_DYNAMIC_SHARED_STACK_SIZE>(
+        state_ptr, callback_context, pipeline_id, observation_mask,
+        stack_size, stack_count, stack_data);
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_all_native_closest_global_stack(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_native_closest_impl<
+        hiprtGlobalStack,
+        LUISA_HIPRT_GLOBAL_SHARED_STACK_SIZE>(
+        state_ptr, callback_context, pipeline_id, observation_mask,
+        stack_size, stack_count, stack_data);
+}
+
+extern "C" __device__ __attribute__((used)) void
+luisa_pipeline_ray_query_trace_all_native_closest_global_stack_stable_opacity(
+    void *state_ptr, void *callback_context, uint32_t pipeline_id,
+    uint32_t observation_mask,
+    uint32_t stack_size, uint32_t stack_count, void *stack_data) {
+    luisa_pipeline_ray_query_trace_native_closest_impl<
+        hiprtGlobalStack,
+        LUISA_HIPRT_GLOBAL_SHARED_STACK_SIZE>(
         state_ptr, callback_context, pipeline_id, observation_mask,
         stack_size, stack_count, stack_data);
 }
@@ -1611,7 +1646,7 @@ luisa_pipeline_ray_query_trace_impl(
     hiprtGlobalStackBuffer global_stack_buffer{
         stack_size, stack_count, stack_data};
     hiprtSharedStackBuffer shared_stack_buffer{
-        LUISA_HIPRT_SHARED_STACK_SIZE,
+        LUISA_HIPRT_DYNAMIC_SHARED_STACK_SIZE,
         luisa_hiprt_shared_stack_cache};
     LuisaPipelineRayQueryStack stack{global_stack_buffer, shared_stack_buffer};
     hiprtPrivateInstanceStack instance_stack;
@@ -1862,12 +1897,16 @@ luisa_pipeline_ray_query_terminate(void *state_ptr) {
 
 #if HIPRT_RTIP >= 31 && (defined(__gfx1200__) || defined(__gfx1201__))
 
-// Specialized with the intrinsic capacity by HIPCodegenLLVMImpl. Synchronous
-// pipeline traversal uses GFX12's native instance-stack protocol and needs one
-// region; a kernel that can also execute the legacy flat trace keeps its
-// second region so the two lane-local layouts cannot overlap across waves.
-extern "C" __device__ const uint32_t
-    luisa_hiprt_hw_stack_region_count;
+// The synchronous instance-protocol stack and HIPRT's resumable two-region
+// stack use different intrinsic capacities but share one non-reentrant LDS
+// arena. Give the synchronous calls a distinct placeholder so codegen can
+// specialize their immarg without inflating resumable calls in the same
+// module. Both layouts use HIPRT's common per-wave stride; codegen sets it to
+// max(footprint(route)) so different waves cannot overlap.
+extern "C" __device__ hiprt::__luisa_uint2_v
+luisa_pipeline_amdgcn_ds_bvh_stack_push8_pop1_rtn(
+    uint32_t address, uint32_t previous_node,
+    hiprt::__luisa_uint8_v children);
 
 // HIPRT's hardware stack wrapper maps both the normal terminal sentinel and
 // the overflow sentinel to InvalidValue. They are observably different: a
@@ -1955,8 +1994,7 @@ public:
         const auto lane_id = thread_index & 31u;
         const auto wave_id = thread_index >> 5u;
         const auto dwords_per_wave =
-            hiprt::luisa_hiprt_hw_stack_max_entries * 32u *
-            luisa_hiprt_hw_stack_region_count;
+            hiprt::luisa_hiprt_hw_stack_dwords_per_wave32;
         const auto base_dwords =
             wave_id * dwords_per_wave + lane_id;
         _address = base_dwords << 15u;
@@ -1969,7 +2007,7 @@ public:
             child_vector[i] = children[i];
         }
         const auto raw =
-            hiprt::luisa_amdgcn_ds_bvh_stack_push8_pop1_rtn(
+            luisa_pipeline_amdgcn_ds_bvh_stack_push8_pop1_rtn(
                 _address, previous_node, child_vector);
         _address = raw[1];
         return raw[0];
@@ -3244,67 +3282,43 @@ struct PendingTriHit {
 
 static_assert(sizeof(PendingTriHit) == 16);
 
-// The public ray-query ABI only exposes these five hit fields. Keeping the
-// private traversal's full hiprtHit (48 bytes) in persistent per-thread state
-// needlessly doubles the scratch traffic for candidate/committed hits.
-struct LuisaRayQueryHit {
-    uint32_t instanceID;
-    uint32_t primID;
-    float u;
-    float v;
-    float t;
-};
-
-static_assert(sizeof(LuisaRayQueryHit) == 20,
-              "Compact HIP ray-query hit ABI changed");
-
 template<typename Dst>
 static __device__ __forceinline__ void
 luisa_store_ray_query_hit(Dst &dst, const hiprtHit &src) {
-    dst.instanceID = src.instanceID;
-    dst.primID = src.primID;
+    dst.instance_id = src.instanceID;
+    dst.primitive_id = src.primID;
     dst.u = src.uv.x;
     dst.v = src.uv.y;
     dst.t = src.t;
 }
 
 struct LuisaRayQueryStateHw {
+    // The first 112 bytes are the complete state observable through the public
+    // RayQuery interface. This exact prefix is shared with synchronous
+    // RayQueryPipeline traversal. A mixed module can therefore choose the
+    // traversal plan independently for each pipeline while every outlined
+    // handler uses one representation-independent query ABI.
+    LuisaPipelineRayQueryState common;
+
     // Encoded traversal node before the first proceed(), and a raw leaf
     // address while in_leaf is true. The latter avoids encode/decode work on
     // every filtered triangle callback.
     uint32_t node_or_leaf_addr;
     uint32_t hw_stack_address;
     uint32_t hw_instance_stack_address;
-    uint32_t flags;// bit 0: any-hit mode (terminate on first commit)
+    uint32_t instance_id;
 
-    // Persist the active traversal pointers directly. Reloading SceneHeader
-    // and GeomHeader on every proceed() made the smaller reconstructed state
-    // materially slower on filtered traversal workloads.
-    hiprt::BoxNode *tlas_box_nodes;
-    hiprt::InstanceNode *instance_nodes;
-    const LuisaAccelInstance *instances;
+    // Persist the active BLAS pointers. TLAS pointers are recovered from the
+    // immutable scene handle in the common prefix only at instance crossings;
+    // duplicating both TLAS pointers would enlarge every lane's spill state.
     hiprt::BoxNode *box_nodes;
     void *prim_nodes;
 
-    uint32_t instance_id;
-    uint32_t mask;
-    uint8_t tri_pair_index;
-    uint8_t leaf_status;
-    bool in_leaf;
-    uint8_t state;
-    uint8_t committed_kind;
-    bool terminated;
-    bool pending_valid;
-
-    LuisaRayQueryHit candidate_hit;
-    LuisaRayQueryHit committed_hit;
     PendingTriHit pending;
 
-    // Keep both rays persistent. Instance transforms only change origin and
-    // direction, while commits update maxT in both active and world rays.
-    // Avoiding reconstruction reduces proceed() code size and scratch spills.
+    // The common prefix owns the world-space ray; this is the active ray after
+    // any instance transform.
     hiprtRay ray;
-    hiprtRay original_ray;
 
     // The bounded hardware frontier H is disjoint from the one active
     // parent-link continuation S. S is entered before a complete BVH8
@@ -3317,6 +3331,11 @@ struct LuisaRayQueryStateHw {
     uint32_t tlas_instance_node;
     uint32_t tlas_leaf_parent_node;
     uint32_t tlas_stackless_root;
+
+    uint8_t tri_pair_index;
+    uint8_t leaf_status;
+    bool in_leaf;
+    bool pending_valid;
 };
 
 // gfx12 codegen reserves exactly this amount in private memory. An exact check
@@ -3326,65 +3345,79 @@ struct LuisaRayQueryStateHw {
 static_assert(sizeof(LuisaRayQueryStateHw) == 224,
               "LuisaRayQueryStateHw size no longer matches the codegen alloca");
 static_assert(alignof(LuisaRayQueryStateHw) == 16);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, node_or_leaf_addr) == 0);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, hw_stack_address) == 4);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, hw_instance_stack_address) == 8);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, flags) == 12);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tlas_box_nodes) == 16);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, instance_nodes) == 24);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, instances) == 32);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, box_nodes) == 40);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, prim_nodes) == 48);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, instance_id) == 56);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, mask) == 60);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tri_pair_index) == 64);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, leaf_status) == 65);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, in_leaf) == 66);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, state) == 67);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, committed_kind) == 68);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, terminated) == 69);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, pending_valid) == 70);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, candidate_hit) == 72);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, committed_hit) == 92);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, pending) == 112);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, ray) == 128);
-static_assert(__builtin_offsetof(LuisaRayQueryStateHw, original_ray) == 160);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, common) == 0);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, node_or_leaf_addr) == 112);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, hw_stack_address) == 116);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, hw_instance_stack_address) == 120);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, instance_id) == 124);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, box_nodes) == 128);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, prim_nodes) == 136);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, pending) == 144);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, ray) == 160);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, stackless_root) == 192);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, leaf_parent_node) == 196);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, leaf_node_index) == 200);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tlas_instance_node) == 204);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tlas_leaf_parent_node) == 208);
 static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tlas_stackless_root) == 212);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, tri_pair_index) == 216);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, leaf_status) == 217);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, in_leaf) == 218);
+static_assert(__builtin_offsetof(LuisaRayQueryStateHw, pending_valid) == 219);
 
 using LuisaRayQueryPrivatePtr = void __attribute__((address_space(5))) *;
 using LuisaRayQueryStateHwPrivatePtr = LuisaRayQueryStateHw __attribute__((address_space(5))) *;
+using LuisaPipelineRayQueryStatePrivatePtr =
+    LuisaPipelineRayQueryState __attribute__((address_space(5))) *;
 
 static __device__ __forceinline__ LuisaRayQueryStateHwPrivatePtr
 luisa_ray_query_hw_state(LuisaRayQueryPrivatePtr state_ptr) {
     return reinterpret_cast<LuisaRayQueryStateHwPrivatePtr>(state_ptr);
 }
 
-static __device__ __forceinline__ LuisaRayQueryHit
-luisa_make_ray_query_hit(uint32_t instance_id, uint32_t primitive_id,
-                         float u, float v, float t) {
-    return LuisaRayQueryHit{instance_id, primitive_id, u, v, t};
+static __device__ __forceinline__ LuisaPipelineRayQueryStatePrivatePtr
+luisa_ray_query_common_state(LuisaRayQueryPrivatePtr state_ptr) {
+    return &luisa_ray_query_hw_state(state_ptr)->common;
 }
 
-// Returns true when an ANY query was terminated by the commit. For ALL
-// queries, active_ray.maxT is tightened and traversal must continue because
-// BVH leaf visitation order is not a closest-hit guarantee.
+static __device__ __forceinline__ LuisaPipelineRayQueryHit
+luisa_make_ray_query_hit(uint32_t instance_id, uint32_t primitive_id,
+                         float u, float v, float t) {
+    return LuisaPipelineRayQueryHit{
+        instance_id, primitive_id, u, v, t};
+}
+
+template<typename Hit>
+static __device__ __forceinline__ bool
+luisa_ray_query_commit_surface_common(
+    LuisaPipelineRayQueryStatePrivatePtr query,
+    const Hit &hit) {
+    query->committed_hit = hit;
+    query->committed_kind = HIT_TYPE_SURFACE;
+    query->ray.maxT = hit.t;
+    query->candidate_committed = true;
+    if (query->flags & 1u) {
+        query->terminated = true;
+        return true;
+    }
+    return false;
+}
+
+// Returns true when an ANY query was terminated by the commit. Opaque hits
+// discovered inside proceed() do not cross a callback boundary, so consume
+// the common-prefix commit immediately and keep no deferred contraction bit.
 template<typename Hit, typename Ray>
 static __device__ __forceinline__ bool
-_commit_ray_query_surface_hit(LuisaRayQueryStateHwPrivatePtr s,
-                              const Hit &hit,
-                              Ray &active_ray) {
-    s->committed_hit = hit;
-    s->committed_kind = HIT_TYPE_SURFACE;
+luisa_ray_query_commit_surface_internal(
+    LuisaRayQueryStateHwPrivatePtr state,
+    const Hit &hit, Ray &active_ray) {
+    auto query = &state->common;
+    const auto terminated =
+        luisa_ray_query_commit_surface_common(query, hit);
     active_ray.maxT = hit.t;
-    s->original_ray.maxT = hit.t;
-    if (s->flags & 1u) {
-        s->terminated = true;
-        s->pending_valid = false;
+    query->candidate_committed = false;
+    if (terminated) {
+        state->pending_valid = false;
         return true;
     }
     return false;
@@ -3432,18 +3465,31 @@ luisa_ray_query_initialize(
     uint32_t stack_size, uint32_t stack_count, void *stack_data) {
 
     auto *s = luisa_ray_query_hw_state(state_ptr);
+    auto *query = &s->common;
 
-    s->ray.origin = hiprtFloat3{ox, oy, oz};
-    s->ray.minT = tmin;
-    s->ray.direction = hiprtFloat3{dx, dy, dz};
-    s->ray.maxT = tmax;
-    s->original_ray = s->ray;
+    query->scene_handle = scene_handle;
+    query->instances =
+        reinterpret_cast<const LuisaAccelInstance *>(instance_data);
+    query->ray.origin = hiprtFloat3{ox, oy, oz};
+    query->ray.minT = tmin;
+    query->ray.direction = hiprtFloat3{dx, dy, dz};
+    query->ray.maxT = tmax;
+    query->candidate_hit = LuisaPipelineRayQueryHit{
+        ~0u, ~0u, 0.0f, 0.0f, tmax};
+    query->committed_hit = query->candidate_hit;
+    query->query_state_address = 0u;
+    query->mask = mask & LUISA_INSTANCE_VISIBILITY_MASK_BITS;
+    query->flags = flags;
+    query->time = 0.0f;
+    query->state = RQ_STATE_TERMINATED;
+    query->committed_kind = HIT_TYPE_MISS;
+    query->candidate_committed = false;
+    query->terminated = false;
+
+    s->ray = query->ray;
 
     auto *scene = reinterpret_cast<hiprt::SceneHeader *>(scene_handle);
-    s->tlas_box_nodes = scene->m_boxNodes;
-    s->instance_nodes = scene->m_primNodes;
-    s->instances = reinterpret_cast<const LuisaAccelInstance *>(instance_data);
-    s->box_nodes = s->tlas_box_nodes;
+    s->box_nodes = scene->m_boxNodes;
     s->prim_nodes = nullptr;
     s->instance_id = hiprt::InvalidValue;
     s->node_or_leaf_addr = hiprt::RootIndex;
@@ -3460,22 +3506,9 @@ luisa_ray_query_initialize(
     s->tlas_leaf_parent_node = hiprt::InvalidValue;
     s->tlas_stackless_root = hiprt::InvalidValue;
 
-    // Committed-hit miss sentinel. Candidate fields are fully overwritten
-    // before every candidate callback and need no eager initialization.
-    s->committed_hit.instanceID = ~0u;
-    s->committed_hit.primID = ~0u;
-    s->committed_hit.u = 0.0f;
-    s->committed_hit.v = 0.0f;
-    s->committed_hit.t = tmax;
-
-    s->mask = mask;
-    s->flags = flags;
     s->tri_pair_index = 0u;
     s->leaf_status = 0u;
     s->in_leaf = false;
-    s->state = RQ_STATE_TERMINATED;
-    s->committed_kind = HIT_TYPE_MISS;
-    s->terminated = false;
     s->pending_valid = false;
 }
 
@@ -3484,8 +3517,14 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
     using namespace hiprt;
 
     auto *s = luisa_ray_query_hw_state(state_ptr);
-    if (s->terminated) {
-        s->state = RQ_STATE_TERMINATED;
+    auto *query = &s->common;
+    if (query->candidate_committed) {
+        s->ray.maxT = query->ray.maxT;
+        query->candidate_committed = false;
+    }
+    if (query->terminated) {
+        query->state = RQ_STATE_TERMINATED;
+        s->pending_valid = false;
         return;
     }
 
@@ -3500,14 +3539,16 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
             // Opacity can be changed from device code between proceed calls.
             // Re-read the instance flag rather than assuming the buffered hit
             // still has the callback behavior of the preceding candidate.
-            if (luisa_instance_is_opaque(s->instances, s->instance_id)) {
-                if (_commit_ray_query_surface_hit(s, hit, s->ray)) {
-                    s->state = RQ_STATE_TERMINATED;
+            if (luisa_instance_is_opaque(
+                    query->instances, s->instance_id)) {
+                if (luisa_ray_query_commit_surface_internal(
+                        s, hit, s->ray)) {
+                    query->state = RQ_STATE_TERMINATED;
                     return;
                 }
             } else {
-                s->candidate_hit = hit;
-                s->state = RQ_STATE_SURFACE_CANDIDATE;
+                query->candidate_hit = hit;
+                query->state = RQ_STATE_SURFACE_CANDIDATE;
                 return;
             }
         }
@@ -3521,7 +3562,7 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
     // Match the traversal ordering used by the direct closest/any paths.
     // Reflection ordering prioritizes the closest candidate for ALL queries,
     // while shadow ordering favors finding any acceptable occluder quickly.
-    const auto traversalHint = (s->flags & 1u) != 0u ? hiprtTraversalHintShadowRays : hiprtTraversalHintReflectionRays;
+    const auto traversalHint = (query->flags & 1u) != 0u ? hiprtTraversalHintShadowRays : hiprtTraversalHintReflectionRays;
     const uint4 descriptor = luisa_hiprt_pack_descriptor(
         static_cast<uint32_t>(traversalHint) & 0x3);
     BoxNode *boxNodes = s->box_nodes;
@@ -3570,10 +3611,12 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
 
             stack.exitInstance();
             instanceId = InvalidValue;
-            boxNodes = s->tlas_box_nodes;
+            auto *scene = reinterpret_cast<SceneHeader *>(
+                query->scene_handle);
+            boxNodes = scene->m_boxNodes;
             primNodes = nullptr;
-            ray.origin = s->original_ray.origin;
-            ray.direction = s->original_ray.direction;
+            ray.origin = query->ray.origin;
+            ray.direction = query->ray.direction;
             stacklessRoot = tlasStacklessRoot;
             leafParentNode = tlasLeafParentNode;
             if (stacklessRoot != InvalidValue) {
@@ -3648,12 +3691,15 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
 
         if (nodeType == InstanceType) {
             const uint32_t instanceAddr = getNodeAddr(nodeIndex);
-            const InstanceNode &inst = s->instance_nodes[instanceAddr];
+            auto *scene = reinterpret_cast<SceneHeader *>(
+                query->scene_handle);
+            auto *instanceNodes = scene->m_primNodes;
+            const InstanceNode &inst = instanceNodes[instanceAddr];
 
-            if (inst.m_mask & s->mask) {
+            if (inst.m_mask & query->mask) {
                 hip_float3 origin, direction;
                 auto xformResult = __builtin_amdgcn_image_bvh8_intersect_ray(
-                    encodeBaseAddr(s->instance_nodes),
+                    encodeBaseAddr(instanceNodes),
                     ray.maxT,
                     0xff,
                     {ray.origin.x, ray.origin.y, ray.origin.z},
@@ -3705,7 +3751,7 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
             leafNodeIndex = nodeIndex;
             auto customNodes = reinterpret_cast<CustomNode *>(primNodes);
             auto primitive_id = customNodes[getNodeAddr(nodeIndex)].m_primIndex;
-            s->candidate_hit = luisa_make_ray_query_hit(
+            query->candidate_hit = luisa_make_ray_query_hit(
                 instanceId, primitive_id, 0.0f, 0.0f, ray.maxT);
             // Resolve curve and motion-triangle intersections only after this
             // traversal call has returned. A nested call here forces the AMDGPU
@@ -3717,7 +3763,7 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                 tlasInstanceNode, tlasLeafParentNode, tlasStacklessRoot);
             s->leaf_status = 3u;
             s->in_leaf = true;
-            s->state = RQ_STATE_CUSTOM_CANDIDATE;
+            query->state = RQ_STATE_CUSTOM_CANDIDATE;
             return;
         }
 
@@ -3752,7 +3798,8 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                 bool hit1 = (ray.minT <= t1 && t1 <= ray.maxT);
 
                 if ((hit0 || hit1) &&
-                    luisa_instance_is_opaque(s->instances, instanceId)) {
+                    luisa_instance_is_opaque(
+                        query->instances, instanceId)) {
                     auto use_hit0 = hit0 && (!hit1 || t0 <= t1);
                     auto hit = luisa_make_ray_query_hit(
                         instanceId,
@@ -3761,8 +3808,9 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                         use_hit0 ? __int_as_float(triResult[2]) : __int_as_float(triResult[6]),
                         use_hit0 ? t0 : t1);
                     s->pending_valid = false;
-                    if (_commit_ray_query_surface_hit(s, hit, ray)) {
-                        s->state = RQ_STATE_TERMINATED;
+                    if (luisa_ray_query_commit_surface_internal(
+                            s, hit, ray)) {
+                        query->state = RQ_STATE_TERMINATED;
                         return;
                     }
                     // The closest hit in this pair is now committed and maxT
@@ -3777,11 +3825,11 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                     // it, commit_surface_hit tightens maxT and the buffered
                     // farther hit is discarded without another shader callback.
                     auto first_is_0 = t0 <= t1;
-                    s->candidate_hit.t = first_is_0 ? t0 : t1;
-                    s->candidate_hit.u = first_is_0 ? __int_as_float(triResult[1]) : __int_as_float(triResult[5]);
-                    s->candidate_hit.v = first_is_0 ? __int_as_float(triResult[2]) : __int_as_float(triResult[6]);
-                    s->candidate_hit.primID = (first_is_0 ? triResult[3] : triResult[7]) >> 1;
-                    s->candidate_hit.instanceID = instanceId;
+                    query->candidate_hit.t = first_is_0 ? t0 : t1;
+                    query->candidate_hit.u = first_is_0 ? __int_as_float(triResult[1]) : __int_as_float(triResult[5]);
+                    query->candidate_hit.v = first_is_0 ? __int_as_float(triResult[2]) : __int_as_float(triResult[6]);
+                    query->candidate_hit.primitive_id = (first_is_0 ? triResult[3] : triResult[7]) >> 1;
+                    query->candidate_hit.instance_id = instanceId;
 
                     s->pending_valid = true;
                     s->pending.t = first_is_0 ? t1 : t0;
@@ -3801,15 +3849,15 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                         leafParentNode, tlasInstanceNode,
                         tlasLeafParentNode, tlasStacklessRoot);
 
-                    s->state = RQ_STATE_SURFACE_CANDIDATE;
+                    query->state = RQ_STATE_SURFACE_CANDIDATE;
                     return;
                 } else if (hit0) {
                     // Only tri0 hit
-                    s->candidate_hit.t = t0;
-                    s->candidate_hit.u = __int_as_float(triResult[1]);
-                    s->candidate_hit.v = __int_as_float(triResult[2]);
-                    s->candidate_hit.primID = triResult[3] >> 1;
-                    s->candidate_hit.instanceID = instanceId;
+                    query->candidate_hit.t = t0;
+                    query->candidate_hit.u = __int_as_float(triResult[1]);
+                    query->candidate_hit.v = __int_as_float(triResult[2]);
+                    query->candidate_hit.primitive_id = triResult[3] >> 1;
+                    query->candidate_hit.instance_id = instanceId;
 
                     // Save leaf resume state
                     s->node_or_leaf_addr = leafAddr;
@@ -3823,15 +3871,15 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                         leafParentNode, tlasInstanceNode,
                         tlasLeafParentNode, tlasStacklessRoot);
 
-                    s->state = RQ_STATE_SURFACE_CANDIDATE;
+                    query->state = RQ_STATE_SURFACE_CANDIDATE;
                     return;
                 } else if (hit1) {
                     // Only tri1 hit
-                    s->candidate_hit.t = t1;
-                    s->candidate_hit.u = __int_as_float(triResult[5]);
-                    s->candidate_hit.v = __int_as_float(triResult[6]);
-                    s->candidate_hit.primID = triResult[7] >> 1;
-                    s->candidate_hit.instanceID = instanceId;
+                    query->candidate_hit.t = t1;
+                    query->candidate_hit.u = __int_as_float(triResult[5]);
+                    query->candidate_hit.v = __int_as_float(triResult[6]);
+                    query->candidate_hit.primitive_id = triResult[7] >> 1;
+                    query->candidate_hit.instance_id = instanceId;
 
                     // Save leaf resume state
                     s->node_or_leaf_addr = leafAddr;
@@ -3845,7 +3893,7 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
                         leafParentNode, tlasInstanceNode,
                         tlasLeafParentNode, tlasStacklessRoot);
 
-                    s->state = RQ_STATE_SURFACE_CANDIDATE;
+                    query->state = RQ_STATE_SURFACE_CANDIDATE;
                     return;
                 }
 
@@ -3870,8 +3918,8 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
     }
 
     // Traversal complete
-    s->state = RQ_STATE_TERMINATED;
-    s->terminated = true;
+    query->state = RQ_STATE_TERMINATED;
+    query->terminated = true;
 }
 
 // Resolve a custom leaf after the hardware traversal has returned and released
@@ -3880,18 +3928,19 @@ luisa_ray_query_proceed(LuisaRayQueryPrivatePtr state_ptr) {
 extern "C" __device__ __attribute__((used, noinline)) bool
 luisa_ray_query_resolve_custom(LuisaRayQueryPrivatePtr state_ptr) {
     auto *s = luisa_ray_query_hw_state(state_ptr);
-    auto instance_id = s->candidate_hit.instanceID;
-    auto primitive_id = s->candidate_hit.primID;
+    auto *query = &s->common;
+    auto instance_id = query->candidate_hit.instance_id;
+    auto primitive_id = query->candidate_hit.primitive_id;
     auto is_surface = false;
-    if (s->instances != nullptr && instance_id != hiprt::InvalidValue) {
-        const auto &instance = s->instances[instance_id];
+    if (query->instances != nullptr && instance_id != hiprt::InvalidValue) {
+        const auto &instance = query->instances[instance_id];
         is_surface = instance.geometry_data != 0u &&
                      (instance.geometry_kind == LUISA_GEOMETRY_KIND_CURVE ||
                       instance.geometry_kind ==
                           LUISA_GEOMETRY_KIND_MOTION_TRIANGLE);
     }
     if (!is_surface) {
-        s->state = RQ_STATE_PROCEDURAL_CANDIDATE;
+        query->state = RQ_STATE_PROCEDURAL_CANDIDATE;
         return false;
     }
 
@@ -3899,7 +3948,7 @@ luisa_ray_query_resolve_custom(LuisaRayQueryPrivatePtr state_ptr) {
     surface_hit.instanceID = instance_id;
     surface_hit.primID = primitive_id;
     if (!luisa_intersect_surface(
-            s->instances, s->ray, 0.0f, surface_hit) ||
+            query->instances, s->ray, 0.0f, surface_hit) ||
         surface_hit.t < s->ray.minT || surface_hit.t > s->ray.maxT) {
         return true;
     }
@@ -3907,15 +3956,16 @@ luisa_ray_query_resolve_custom(LuisaRayQueryPrivatePtr state_ptr) {
     auto candidate = luisa_make_ray_query_hit(
         instance_id, primitive_id,
         surface_hit.uv.x, surface_hit.uv.y, surface_hit.t);
-    if (luisa_instance_is_opaque(s->instances, instance_id)) {
-        if (_commit_ray_query_surface_hit(s, candidate, s->ray)) {
-            s->state = RQ_STATE_TERMINATED;
+    if (luisa_instance_is_opaque(query->instances, instance_id)) {
+        if (luisa_ray_query_commit_surface_internal(
+                s, candidate, s->ray)) {
+            query->state = RQ_STATE_TERMINATED;
             return false;
         }
         return true;
     }
-    s->candidate_hit = candidate;
-    s->state = RQ_STATE_SURFACE_CANDIDATE;
+    query->candidate_hit = candidate;
+    query->state = RQ_STATE_SURFACE_CANDIDATE;
     return false;
 }
 
@@ -3925,16 +3975,21 @@ luisa_ray_query_resolve_custom(LuisaRayQueryPrivatePtr state_ptr) {
 extern "C" __device__ __attribute__((used, noinline)) uint8_t
 luisa_ray_query_advance(LuisaRayQueryPrivatePtr state_ptr) {
     auto *s = luisa_ray_query_hw_state(state_ptr);
+    auto *query = &s->common;
     while (true) {
         luisa_ray_query_proceed(state_ptr);
-        if (s->state != RQ_STATE_CUSTOM_CANDIDATE) { return s->state; }
-        if (!luisa_ray_query_resolve_custom(state_ptr)) { return s->state; }
+        if (query->state != RQ_STATE_CUSTOM_CANDIDATE) {
+            return query->state;
+        }
+        if (!luisa_ray_query_resolve_custom(state_ptr)) {
+            return query->state;
+        }
     }
 }
 
 extern "C" __device__ __attribute__((used, noinline)) uint8_t
 luisa_ray_query_state(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->state;
+    return luisa_ray_query_common_state(state_ptr)->state;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) void
@@ -3942,15 +3997,15 @@ luisa_ray_query_world_space_ray(
     LuisaRayQueryPrivatePtr state_ptr,
     float *out_ox, float *out_oy, float *out_oz, float *out_tmin,
     float *out_dx, float *out_dy, float *out_dz, float *out_tmax) {
-    auto *s = luisa_ray_query_hw_state(state_ptr);
-    *out_ox = s->original_ray.origin.x;
-    *out_oy = s->original_ray.origin.y;
-    *out_oz = s->original_ray.origin.z;
-    *out_tmin = s->original_ray.minT;
-    *out_dx = s->original_ray.direction.x;
-    *out_dy = s->original_ray.direction.y;
-    *out_dz = s->original_ray.direction.z;
-    *out_tmax = s->original_ray.maxT;
+    auto *query = luisa_ray_query_common_state(state_ptr);
+    *out_ox = query->ray.origin.x;
+    *out_oy = query->ray.origin.y;
+    *out_oz = query->ray.origin.z;
+    *out_tmin = query->ray.minT;
+    *out_dx = query->ray.direction.x;
+    *out_dy = query->ray.direction.y;
+    *out_dz = query->ray.direction.z;
+    *out_tmax = query->ray.maxT;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) void
@@ -3958,21 +4013,21 @@ luisa_ray_query_surface_candidate_hit(
     LuisaRayQueryPrivatePtr state_ptr,
     int32_t *out_inst_id, int32_t *out_prim_id,
     float *out_u, float *out_v, float *out_t) {
-    auto *s = luisa_ray_query_hw_state(state_ptr);
-    *out_inst_id = static_cast<int32_t>(s->candidate_hit.instanceID);
-    *out_prim_id = static_cast<int32_t>(s->candidate_hit.primID);
-    *out_u = s->candidate_hit.u;
-    *out_v = s->candidate_hit.v;
-    *out_t = s->candidate_hit.t;
+    auto *query = luisa_ray_query_common_state(state_ptr);
+    *out_inst_id = static_cast<int32_t>(query->candidate_hit.instance_id);
+    *out_prim_id = static_cast<int32_t>(query->candidate_hit.primitive_id);
+    *out_u = query->candidate_hit.u;
+    *out_v = query->candidate_hit.v;
+    *out_t = query->candidate_hit.t;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) void
 luisa_ray_query_procedural_candidate_hit(
     LuisaRayQueryPrivatePtr state_ptr,
     int32_t *out_inst_id, int32_t *out_prim_id) {
-    auto *s = luisa_ray_query_hw_state(state_ptr);
-    *out_inst_id = static_cast<int32_t>(s->candidate_hit.instanceID);
-    *out_prim_id = static_cast<int32_t>(s->candidate_hit.primID);
+    auto *query = luisa_ray_query_common_state(state_ptr);
+    *out_inst_id = static_cast<int32_t>(query->candidate_hit.instance_id);
+    *out_prim_id = static_cast<int32_t>(query->candidate_hit.primitive_id);
 }
 
 extern "C" __device__ __attribute__((used, noinline)) void
@@ -3981,135 +4036,133 @@ luisa_ray_query_committed_hit(
     int32_t *out_inst_id, int32_t *out_prim_id,
     float *out_u, float *out_v,
     int32_t *out_hit_kind, float *out_t) {
-    auto *s = luisa_ray_query_hw_state(state_ptr);
-    *out_inst_id = static_cast<int32_t>(s->committed_hit.instanceID);
-    *out_prim_id = static_cast<int32_t>(s->committed_hit.primID);
-    *out_u = s->committed_hit.u;
-    *out_v = s->committed_hit.v;
-    *out_hit_kind = static_cast<int32_t>(s->committed_kind);
-    *out_t = s->committed_hit.t;
+    auto *query = luisa_ray_query_common_state(state_ptr);
+    *out_inst_id = static_cast<int32_t>(query->committed_hit.instance_id);
+    *out_prim_id = static_cast<int32_t>(query->committed_hit.primitive_id);
+    *out_u = query->committed_hit.u;
+    *out_v = query->committed_hit.v;
+    *out_hit_kind = static_cast<int32_t>(query->committed_kind);
+    *out_t = query->committed_hit.t;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) bool
 luisa_ray_query_is_surface_candidate(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->state == RQ_STATE_SURFACE_CANDIDATE;
+    return luisa_ray_query_common_state(state_ptr)->state == RQ_STATE_SURFACE_CANDIDATE;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) bool
 luisa_ray_query_is_procedural_candidate(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->state == RQ_STATE_PROCEDURAL_CANDIDATE;
+    return luisa_ray_query_common_state(state_ptr)->state == RQ_STATE_PROCEDURAL_CANDIDATE;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) bool
 luisa_ray_query_is_terminated(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->state == RQ_STATE_TERMINATED;
+    return luisa_ray_query_common_state(state_ptr)->state == RQ_STATE_TERMINATED;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) int32_t
 luisa_ray_query_candidate_inst_id(LuisaRayQueryPrivatePtr state_ptr) {
-    return static_cast<int32_t>(luisa_ray_query_hw_state(state_ptr)->candidate_hit.instanceID);
+    return static_cast<int32_t>(luisa_ray_query_common_state(state_ptr)->candidate_hit.instance_id);
 }
 extern "C" __device__ __attribute__((used, noinline)) int32_t
 luisa_ray_query_candidate_prim_id(LuisaRayQueryPrivatePtr state_ptr) {
-    return static_cast<int32_t>(luisa_ray_query_hw_state(state_ptr)->candidate_hit.primID);
+    return static_cast<int32_t>(luisa_ray_query_common_state(state_ptr)->candidate_hit.primitive_id);
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_candidate_bary_u(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->candidate_hit.u;
+    return luisa_ray_query_common_state(state_ptr)->candidate_hit.u;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_candidate_bary_v(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->candidate_hit.v;
+    return luisa_ray_query_common_state(state_ptr)->candidate_hit.v;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_candidate_hit_t(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->candidate_hit.t;
+    return luisa_ray_query_common_state(state_ptr)->candidate_hit.t;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) int32_t
 luisa_ray_query_committed_inst_id(LuisaRayQueryPrivatePtr state_ptr) {
-    return static_cast<int32_t>(luisa_ray_query_hw_state(state_ptr)->committed_hit.instanceID);
+    return static_cast<int32_t>(luisa_ray_query_common_state(state_ptr)->committed_hit.instance_id);
 }
 extern "C" __device__ __attribute__((used, noinline)) int32_t
 luisa_ray_query_committed_prim_id(LuisaRayQueryPrivatePtr state_ptr) {
-    return static_cast<int32_t>(luisa_ray_query_hw_state(state_ptr)->committed_hit.primID);
+    return static_cast<int32_t>(luisa_ray_query_common_state(state_ptr)->committed_hit.primitive_id);
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_committed_bary_u(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->committed_hit.u;
+    return luisa_ray_query_common_state(state_ptr)->committed_hit.u;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_committed_bary_v(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->committed_hit.v;
+    return luisa_ray_query_common_state(state_ptr)->committed_hit.v;
 }
 extern "C" __device__ __attribute__((used, noinline)) int32_t
 luisa_ray_query_committed_hit_kind(LuisaRayQueryPrivatePtr state_ptr) {
-    return static_cast<int32_t>(luisa_ray_query_hw_state(state_ptr)->committed_kind);
+    return static_cast<int32_t>(luisa_ray_query_common_state(state_ptr)->committed_kind);
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_committed_hit_t(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->committed_hit.t;
+    return luisa_ray_query_common_state(state_ptr)->committed_hit.t;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_ray_origin_x(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->original_ray.origin.x;
+    return luisa_ray_query_common_state(state_ptr)->ray.origin.x;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_ray_origin_y(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->original_ray.origin.y;
+    return luisa_ray_query_common_state(state_ptr)->ray.origin.y;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_ray_origin_z(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->original_ray.origin.z;
+    return luisa_ray_query_common_state(state_ptr)->ray.origin.z;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_ray_tmin(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->original_ray.minT;
+    return luisa_ray_query_common_state(state_ptr)->ray.minT;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_ray_direction_x(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->original_ray.direction.x;
+    return luisa_ray_query_common_state(state_ptr)->ray.direction.x;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_ray_direction_y(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->original_ray.direction.y;
+    return luisa_ray_query_common_state(state_ptr)->ray.direction.y;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_ray_direction_z(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->original_ray.direction.z;
+    return luisa_ray_query_common_state(state_ptr)->ray.direction.z;
 }
 extern "C" __device__ __attribute__((used, noinline)) float
 luisa_ray_query_ray_tmax(LuisaRayQueryPrivatePtr state_ptr) {
-    return luisa_ray_query_hw_state(state_ptr)->original_ray.maxT;
+    return luisa_ray_query_common_state(state_ptr)->ray.maxT;
 }
 
 extern "C" __device__ __attribute__((used, noinline)) void
 luisa_ray_query_commit_surface_hit(LuisaRayQueryPrivatePtr state_ptr) {
-    auto *s = luisa_ray_query_hw_state(state_ptr);
-    _commit_ray_query_surface_hit(s, s->candidate_hit, s->ray);
+    auto *query = luisa_ray_query_common_state(state_ptr);
+    static_cast<void>(
+        luisa_ray_query_commit_surface_common(
+            query, query->candidate_hit));
 }
 
 extern "C" __device__ __attribute__((used, noinline)) void
 luisa_ray_query_commit_procedural_hit(LuisaRayQueryPrivatePtr state_ptr, float t) {
-    auto *s = luisa_ray_query_hw_state(state_ptr);
-    s->committed_hit = s->candidate_hit;
-    s->committed_hit.t = t;
-    s->committed_kind = HIT_TYPE_PROCEDURAL;
-    s->ray.maxT = t;
-    s->original_ray.maxT = t;
-
-    if (s->flags & 1u) {
-        s->terminated = true;
-        s->pending_valid = false;
+    auto *query = luisa_ray_query_common_state(state_ptr);
+    query->committed_hit = query->candidate_hit;
+    query->committed_hit.t = t;
+    query->committed_kind = HIT_TYPE_PROCEDURAL;
+    query->ray.maxT = t;
+    query->candidate_committed = true;
+    if (query->flags & 1u) {
+        query->terminated = true;
     }
 }
 
 extern "C" __device__ __attribute__((used, noinline)) void
 luisa_ray_query_terminate(LuisaRayQueryPrivatePtr state_ptr) {
-    auto *s = luisa_ray_query_hw_state(state_ptr);
-    s->terminated = true;
-    s->pending_valid = false;
+    luisa_ray_query_common_state(state_ptr)->terminated = true;
 }
 
 #endif// HIPRT_RTIP >= 31 && gfx12

@@ -12,6 +12,7 @@
 #include <luisa/runtime/rhi/curve_basis.h>
 
 namespace luisa::compute::xir {
+class Function;
 class Module;
 }// namespace luisa::compute::xir
 
@@ -48,8 +49,17 @@ struct HIPCodegenLLVMConfig {
     bool requires_printing{false};
     // Internal retry control. The first translation may prove that a
     // synchronous query's callback environment is too large to materialize
-    // profitably; the second translation then keeps the resumable gfx12 ABI.
+    // profitably. A whole-module incompatibility uses the force flag; an
+    // otherwise eligible module records the function-local state domains whose
+    // callback products require the resumable gfx12 ABI. Every ray query in one
+    // XIR function shares one `rq.state` allocation, so a function is the
+    // smallest representation-safe retry unit; selecting individual pipelines
+    // in that domain would make one allocation serve two incompatible ABIs.
+    // These pointers are internal to one synchronous two-pass translation of
+    // the same immutable XIR module and never enter shader cache identity.
     bool force_resumable_ray_query_pipeline{false};
+    luisa::vector<const xir::Function *>
+        resumable_ray_query_state_functions{};
     CurveBasisSet curve_bases{CurveBasisSet::make_all()};
 };
 
@@ -78,6 +88,7 @@ struct HIPCodegenLLVMResult {
     luisa::string code;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
     bool requires_global_rt_stack{false};
+    bool uses_static_global_rt_stack{false};
 };
 
 [[nodiscard]] HIPCodegenLLVMResult hip_codegen_llvm(

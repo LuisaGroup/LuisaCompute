@@ -155,6 +155,8 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_kernel_function(const xir::Kernel
     auto llvm_kernel = _get_or_declare_llvm_function(func);
     LUISA_DEBUG_ASSERT(llvm_kernel->isDeclaration(), "Kernel function already defined.");
     FunctionContext func_ctx{llvm_kernel};
+    func_ctx.llvm_rq_state_uses_resumable_abi =
+        _function_uses_resumable_ray_query_state(func);
     IB b{func_ctx.llvm_entry_block};
     auto llvm_arg_struct = llvm_kernel->getArg(0);
     auto arg_index = 0u;
@@ -202,7 +204,7 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_kernel_function(const xir::Kernel
         // Generic HIPRT traversal with a private instance stack uses the
         // exact 576-byte state checked in hiprt_device_wrapper.hip.
         auto llvm_rq_state_size =
-            _uses_synchronous_ray_query_pipeline ?
+            !func_ctx.llvm_rq_state_uses_resumable_abi ?
                 hip_synchronous_ray_query_state_size :
             _uses_hardware_rt_stack ?
                 hip_hardware_ray_query_state_size :
@@ -233,6 +235,8 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_callable_function(const xir::Call
     auto llvm_func = _get_or_declare_llvm_function(func);
     LUISA_DEBUG_ASSERT(llvm_func->isDeclaration(), "Callable function already defined.");
     FunctionContext func_ctx{llvm_func};
+    func_ctx.llvm_rq_state_uses_resumable_abi =
+        _function_uses_resumable_ray_query_state(func);
     auto llvm_arg_iter = llvm_func->arg_begin();
     for (auto arg : func->arguments()) {
         func_ctx.local_values.try_emplace(arg, llvm_arg_iter++);
@@ -260,7 +264,7 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_callable_function(const xir::Call
     }
     if (_rt_analysis.uses_ray_query) {
         auto llvm_rq_state_size =
-            _uses_synchronous_ray_query_pipeline ?
+            !func_ctx.llvm_rq_state_uses_resumable_abi ?
                 hip_synchronous_ray_query_state_size :
             _uses_hardware_rt_stack ?
                 hip_hardware_ray_query_state_size :

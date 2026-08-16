@@ -1620,14 +1620,39 @@ void test_hip_ray_query_large_mixed_dispatch(Device &device) {
     auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     auto accel = device.create_accel();
     accel.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    auto input_0 = device.create_buffer<uint>(1u);
+    auto input_1 = device.create_buffer<uint>(1u);
+    auto input_2 = device.create_buffer<uint>(1u);
+    auto input_3 = device.create_buffer<uint>(1u);
+    auto input_4 = device.create_buffer<uint>(1u);
+    auto input_5 = device.create_buffer<uint>(1u);
+    auto input_6 = device.create_buffer<uint>(1u);
+    auto input_7 = device.create_buffer<uint>(1u);
+    auto input_8 = device.create_buffer<uint>(1u);
+    const std::array<uint, 9u> input_values{
+        1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u};
     stream << vertex_buffer.copy_from(luisa::span{vertices})
            << triangle_buffer.copy_from(luisa::span{triangles})
+           << input_0.copy_from(input_values.data() + 0u)
+           << input_1.copy_from(input_values.data() + 1u)
+           << input_2.copy_from(input_values.data() + 2u)
+           << input_3.copy_from(input_values.data() + 3u)
+           << input_4.copy_from(input_values.data() + 4u)
+           << input_5.copy_from(input_values.data() + 5u)
+           << input_6.copy_from(input_values.data() + 6u)
+           << input_7.copy_from(input_values.data() + 7u)
+           << input_8.copy_from(input_values.data() + 8u)
            << mesh.build()
            << accel.build()
            << synchronize();
 
     auto result = device.create_buffer<uint>(element_count);
-    Kernel2D trace = [](AccelVar accel, BufferUInt result) noexcept {
+    Kernel2D trace = [](AccelVar accel, BufferUInt result,
+                        BufferUInt input_0, BufferUInt input_1,
+                        BufferUInt input_2, BufferUInt input_3,
+                        BufferUInt input_4, BufferUInt input_5,
+                        BufferUInt input_6, BufferUInt input_7,
+                        BufferUInt input_8) noexcept {
         set_block_size(16u, 16u, 1u);
         auto pixel = dispatch_id().xy();
         auto index = pixel.x + pixel.y * dispatch_size().x;
@@ -1635,12 +1660,21 @@ void test_hip_ray_query_large_mixed_dispatch(Device &device) {
         auto ray = make_ray(
             make_float3(origin_x, 0.0f, 1.0f),
             make_float3(0.0f, 0.0f, -1.0f));
-        auto closest = accel.traverse(ray, {})
-                           .on_surface_candidate(
-                               [](SurfaceCandidate &candidate) noexcept {
-                                   candidate.commit();
-                               })
-                           .trace();
+        UInt callback_checksum = 0u;
+        auto closest =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        callback_checksum =
+                            input_0.read(0u) ^ input_1.read(0u) ^
+                            input_2.read(0u) ^ input_3.read(0u) ^
+                            input_4.read(0u) ^ input_5.read(0u) ^
+                            input_6.read(0u) ^ input_7.read(0u) ^
+                            input_8.read(0u) ^
+                            cast<uint>(candidate.ray()->t_max() > 0.0f);
+                        candidate.commit();
+                    })
+                .trace();
         auto any = accel.traverse_any(ray, {})
                        .on_surface_candidate(
                            [](SurfaceCandidate &candidate) noexcept {
@@ -1648,13 +1682,18 @@ void test_hip_ray_query_large_mixed_dispatch(Device &device) {
                            })
                        .trace();
         auto encoded = ite(closest->miss(), 0u, 1u) |
-                       ite(any->miss(), 0u, 2u);
+                       ite(any->miss(), 0u, 2u) |
+                       (callback_checksum << 2u);
         result.write(index, encoded);
     };
     auto shader = device.compile(
         trace, ShaderOption{.enable_cache = false});
     std::vector<uint> host_result(element_count);
-    stream << shader(accel, result).dispatch(resolution)
+    stream << shader(accel, result,
+                     input_0, input_1, input_2,
+                     input_3, input_4, input_5,
+                     input_6, input_7, input_8)
+                  .dispatch(resolution)
            << result.copy_to(host_result.data())
            << synchronize();
 

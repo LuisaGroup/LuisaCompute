@@ -71,6 +71,10 @@ public:
         llvm::Value *llvm_rt_stack_count{nullptr};
         llvm::Value *llvm_rt_stack_data{nullptr};
         llvm::Value *llvm_rq_state{nullptr};// Ray query per-thread state pointer (alloca)
+        // All function-local query objects share llvm_rq_state. This bit is
+        // therefore a property of the complete FunctionContext, never of an
+        // individual RayQueryPipelineInst lowered within it.
+        bool llvm_rq_state_uses_resumable_abi{false};
         llvm::DenseMap<const xir::Value *, llvm::Value *> local_values;
         // A logical XIR block may lower to a single-entry/single-exit LLVM
         // region (for example, a floating-point atomic RMW expands to a CAS
@@ -128,6 +132,8 @@ public:
     // proof is available; the finalizer rewrites both producer stores and
     // consumer loads to the same compact product type.
     struct RayQueryPipelineContext {
+        uint32_t pipeline_index;
+        const xir::Function *parent_function;
         llvm::AllocaInst *storage;
         llvm::Value *generic_storage;
         llvm::CallInst *trace_call;
@@ -157,6 +163,8 @@ public:
         size_t maximum_context_bytes{0u};
         size_t maximum_budget_constrained_context_bytes{0u};
         size_t oversized_compact_handler_only_pipeline_count{0u};
+        luisa::vector<const xir::Function *>
+            oversized_budget_constrained_state_functions;
     };
 
     static constexpr auto llvm_buffer_type_ptr_index = 0;
@@ -274,10 +282,14 @@ private:
     bool _supports_hardware_rt_stack{false};
     bool _uses_hardware_rt_stack{false};
     bool _uses_synchronous_ray_query_pipeline{false};
+    bool _uses_mixed_ray_query_pipeline{false};
     bool _uses_iterative_synchronous_ray_query_pipeline{false};
+    bool _uses_resumable_hardware_ray_query_pipeline{false};
     bool _uses_native_closest_ray_query_pipeline{false};
+    bool _uses_static_global_rt_stack{false};
     bool _requires_global_rt_stack{false};
-    bool _retry_with_resumable_ray_query_pipeline{false};
+    luisa::vector<const xir::Function *>
+        _retry_with_resumable_ray_query_state_functions;
 
     RayTracingAnalysis _rt_analysis;
 
@@ -347,6 +359,8 @@ private:
     void _analyze_ray_tracing_in_function(
         const xir::Function *function,
         llvm::DenseSet<const xir::Function *> &visited) noexcept;
+    [[nodiscard]] bool _function_uses_resumable_ray_query_state(
+        const xir::Function *function) const noexcept;
     void _link_native_include() noexcept;
     void _specialize_oclc_options() noexcept;
     void _link_ockl_if_needed() noexcept;
@@ -509,6 +523,7 @@ private:
     void _translate_ray_query_pipeline_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryPipelineInst *inst) noexcept;
     [[nodiscard]] llvm::Value *_get_ray_query_state_pointer(IB &b, const FunctionContext &func_ctx, const xir::Value *query_object) noexcept;
     [[nodiscard]] llvm::Value *_advance_ray_query(IB &b, llvm::Value *llvm_state_ptr) noexcept;
+    [[nodiscard]] llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::Value *llvm_state_ptr, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args, bool use_pipeline_abi) noexcept;
     [[nodiscard]] llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::Value *llvm_state_ptr, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
     [[nodiscard]] llvm::Value *_call_ray_query_intrinsic(IB &b, FunctionContext &func_ctx, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
     [[nodiscard]] static llvm::Value *_create_opaque_float_barrier(IB &b, llvm::Value *val, const llvm::Twine &name) noexcept;
@@ -531,8 +546,12 @@ public:
     [[nodiscard]] bool requires_global_rt_stack() const noexcept {
         return _requires_global_rt_stack;
     }
-    [[nodiscard]] bool retry_with_resumable_ray_query_pipeline() const noexcept {
-        return _retry_with_resumable_ray_query_pipeline;
+    [[nodiscard]] bool uses_static_global_rt_stack() const noexcept {
+        return _uses_static_global_rt_stack;
+    }
+    [[nodiscard]] const luisa::vector<const xir::Function *> &
+    retry_with_resumable_ray_query_state_functions() const noexcept {
+        return _retry_with_resumable_ray_query_state_functions;
     }
     [[nodiscard]] luisa::vector<std::pair<luisa::string, luisa::string>>
     take_print_formats() && noexcept;

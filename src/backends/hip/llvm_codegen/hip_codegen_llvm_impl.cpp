@@ -289,6 +289,25 @@ void HIPCodegenLLVMImpl::_analyze_ray_tracing_in_function(
     });
 }
 
+bool HIPCodegenLLVMImpl::_function_uses_resumable_ray_query_state(
+    const xir::Function *function) const noexcept {
+    LUISA_ASSERT(function != nullptr,
+                 "Cannot classify a null HIP RayQuery state domain.");
+    // Every function owns exactly one private rq.state allocation. Thus the
+    // selected representation is constant over all pipelines in a function:
+    // individual pipeline selection would make the same allocation serve two
+    // incompatible state machines. Mixed codegen varies only across disjoint
+    // function-owned storage domains.
+    return _rt_analysis.uses_ray_query &&
+           !_uses_synchronous_ray_query_pipeline &&
+           (!_uses_mixed_ray_query_pipeline ||
+            std::find(
+                _config.resumable_ray_query_state_functions.begin(),
+                _config.resumable_ray_query_state_functions.end(),
+                function) !=
+                _config.resumable_ray_query_state_functions.end());
+}
+
 void HIPCodegenLLVMImpl::_initialize() noexcept {
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
@@ -342,13 +361,37 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
     // requires the reentrant software state instead.
     // HIPRT's dynamic stack currently linearizes x/y lanes only, so retain the
     // resumable path for a true 3-D workgroup until that upstream ABI is extended.
-    _uses_synchronous_ray_query_pipeline =
+    const auto ray_query_pipeline_is_synchronously_eligible =
         !_config.force_resumable_ray_query_pipeline &&
         _rt_analysis.uses_ray_query_pipeline &&
         !_rt_analysis.uses_resumable_ray_query_control &&
         !_rt_analysis.uses_motion_ray_query &&
         !_rt_analysis.ray_query_pipeline_handler_uses_ray_tracing &&
         _config.block_size[2] == 1u;
+    const auto resumable_state_functions_are_valid = [&]() noexcept {
+        llvm::DenseSet<const xir::Function *> unique_functions;
+        for (auto function :
+             _config.resumable_ray_query_state_functions) {
+            if (function == nullptr ||
+                !unique_functions.insert(function).second) {
+                return false;
+            }
+        }
+        return true;
+    }();
+    LUISA_ASSERT(
+        resumable_state_functions_are_valid,
+        "HIP resumable RayQuery state functions must be non-null and unique.");
+    _uses_mixed_ray_query_pipeline =
+        ray_query_pipeline_is_synchronously_eligible &&
+        !_config.resumable_ray_query_state_functions.empty();
+    _uses_synchronous_ray_query_pipeline =
+        ray_query_pipeline_is_synchronously_eligible &&
+        !_uses_mixed_ray_query_pipeline;
+    _uses_resumable_hardware_ray_query_pipeline =
+        _uses_hardware_rt_stack &&
+        (!_uses_synchronous_ray_query_pipeline ||
+         _uses_mixed_ray_query_pipeline);
     // Dynamic global-stack storage is part of the HIP ray-query kernel ABI on
     // every architecture. The resumable gfx12 path does not consume it, but
     // keeping the host metadata conservative lets XIR select the compact
@@ -742,117 +785,159 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
         auto block_size = _config.block_size[0] * _config.block_size[1] * _config.block_size[2];
         LUISA_ASSERT(block_size > 0u, "Block size must be greater than zero.");
         uint32_t shared_array_size = 0u;
-        auto *hw_stack_dummy = _llvm_module->getFunction(
+        auto *generic_hw_stack_dummy = _llvm_module->getFunction(
             "luisa_amdgcn_ds_bvh_stack_push8_pop1_rtn");
-        auto has_hardware_stack_calls = false;
-        if (hw_stack_dummy != nullptr) {
-            for (auto *user : hw_stack_dummy->users()) {
-                if (llvm::isa<llvm::CallInst>(user)) {
-                    has_hardware_stack_calls = true;
-                    break;
-                }
-            }
-        }
+        auto *pipeline_hw_stack_dummy = _llvm_module->getFunction(
+            "luisa_pipeline_amdgcn_ds_bvh_stack_push8_pop1_rtn");
+        auto has_calls = [](llvm::Function *function) noexcept {
+            return function != nullptr &&
+                   std::any_of(
+                       function->user_begin(), function->user_end(),
+                       [](auto user) noexcept {
+                           return llvm::isa<llvm::CallInst>(user);
+                       });
+        };
+        const auto has_generic_hardware_stack_calls =
+            has_calls(generic_hw_stack_dummy);
+        const auto has_pipeline_hardware_stack_calls =
+            has_calls(pipeline_hw_stack_dummy);
+        const auto has_hardware_stack_calls =
+            has_generic_hardware_stack_calls ||
+            has_pipeline_hardware_stack_calls;
         if (_uses_hardware_rt_stack && has_hardware_stack_calls) {
-            // Synchronous pipeline traversal uses GFX12's native single-stack
-            // instance protocol. Resumable RayQuery keeps the proven disjoint
-            // TLAS/BLAS regions and its exact parent-link continuation.
-            const auto native_pipeline_stack =
-                _uses_iterative_synchronous_ray_query_pipeline;
-            const auto hw_stack_max_entries =
-                native_pipeline_stack ? 16u :
-                                        (_rt_analysis.uses_ray_query ? 9u : 8u);
-            // The native pipeline implements GFX12's instance-aware protocol
-            // in one physical stack. A static trace in the same kernel still
-            // uses HIPRT's legacy disjoint TLAS/BLAS regions, so retain two
-            // regions exactly when that path is reachable.
-            const auto hw_stack_region_count =
-                native_pipeline_stack && !_rt_analysis.uses_static_trace ?
-                    1u :
-                    2u;
-            const auto hw_lds_dwords_per_wave32 =
-                hw_stack_max_entries * 32u * hw_stack_region_count;
-            auto lds_dwords_per_wave32 = hw_lds_dwords_per_wave32;
-            auto num_waves = (block_size + 31u) / 32u;
-            shared_array_size = num_waves * lds_dwords_per_wave32;
+            // A generic HIPRT stack owns disjoint TLAS/BLAS regions. A
+            // resumable query needs nine entries per region; an ordinary
+            // one-shot trace needs eight. The synchronous instance protocol
+            // owns one 16-entry region and uses a separate intrinsic symbol.
+            constexpr auto hardware_stack_lane_count = 32u;
+            constexpr auto generic_hardware_stack_region_count = 2u;
+            constexpr auto pipeline_hardware_stack_region_count = 1u;
+            const auto generic_hardware_stack_max_entries =
+                _uses_resumable_hardware_ray_query_pipeline ? 9u : 8u;
+            constexpr auto pipeline_hardware_stack_max_entries = 16u;
+            const auto generic_dwords_per_wave32 =
+                has_generic_hardware_stack_calls ?
+                    generic_hardware_stack_max_entries *
+                        hardware_stack_lane_count *
+                        generic_hardware_stack_region_count :
+                    0u;
+            const auto pipeline_dwords_per_wave32 =
+                has_pipeline_hardware_stack_calls ?
+                    pipeline_hardware_stack_max_entries *
+                        hardware_stack_lane_count *
+                        pipeline_hardware_stack_region_count :
+                    0u;
 
-            if (auto *gv = _llvm_module->getGlobalVariable("luisa_hiprt_hw_stack_max_entries")) {
-                auto *i32_ty = llvm::Type::getInt32Ty(_llvm_context);
-                auto *const_val = llvm::ConstantInt::get(i32_ty, hw_stack_max_entries);
-                auto *new_gv = new llvm::GlobalVariable(
-                    *_llvm_module, i32_ty, true,
+            // Let F_r be the per-wave LDS footprint of route r and
+            // S=max_r(F_r). Wave w owns [w*S,(w+1)*S), while every route uses
+            // only its prefix [w*S,w*S+F_r). Hence routes may overlay within a
+            // non-reentrant lane, but distinct waves remain disjoint even when
+            // they execute different routes concurrently. Nested traversal is
+            // already excluded from the hardware plan by RT analysis.
+            const auto common_dwords_per_wave32 = std::max(
+                generic_dwords_per_wave32,
+                pipeline_dwords_per_wave32);
+            LUISA_ASSERT(common_dwords_per_wave32 != 0u,
+                         "HIP hardware stack has no reachable layout.");
+            const auto num_waves = (block_size + 31u) / 32u;
+            shared_array_size = num_waves * common_dwords_per_wave32;
+
+            auto specialize_u32_global = [&](llvm::StringRef name,
+                                             uint32_t value,
+                                             bool required) noexcept {
+                auto *global = _llvm_module->getGlobalVariable(name);
+                if (global == nullptr) {
+                    LUISA_ASSERT(!required,
+                                 "HIPRT wrapper is missing required hardware "
+                                 "stack layout constant '{}'.",
+                                 name.str());
+                    return;
+                }
+                auto *i32_type = llvm::Type::getInt32Ty(_llvm_context);
+                LUISA_ASSERT(global->getValueType() == i32_type,
+                             "Invalid HIPRT hardware stack layout constant "
+                             "type for '{}'.",
+                             name.str());
+                auto *replacement = new llvm::GlobalVariable(
+                    *_llvm_module, i32_type, true,
                     llvm::GlobalValue::InternalLinkage,
-                    const_val,
-                    "luisa_hiprt_hw_stack_max_entries_tmp",
-                    nullptr,
-                    llvm::GlobalValue::NotThreadLocal,
-                    0u);
-                gv->replaceAllUsesWith(new_gv);
-                gv->eraseFromParent();
-                new_gv->setName("luisa_hiprt_hw_stack_max_entries");
-            }
+                    llvm::ConstantInt::get(i32_type, value),
+                    llvm::Twine{name} + ".specialized",
+                    nullptr, llvm::GlobalValue::NotThreadLocal, 0u);
+                global->replaceAllUsesWith(replacement);
+                global->eraseFromParent();
+                replacement->setName(name);
+            };
+            specialize_u32_global(
+                "luisa_hiprt_hw_stack_dwords_per_wave32",
+                common_dwords_per_wave32, true);
+            specialize_u32_global(
+                "luisa_hiprt_hw_stack_max_entries",
+                generic_hardware_stack_max_entries,
+                has_generic_hardware_stack_calls);
 
-            if (auto *gv = _llvm_module->getGlobalVariable(
-                    "luisa_hiprt_hw_stack_region_count")) {
-                auto *i32_ty = llvm::Type::getInt32Ty(_llvm_context);
-                auto *const_val = llvm::ConstantInt::get(
-                    i32_ty, hw_stack_region_count);
-                auto *new_gv = new llvm::GlobalVariable(
-                    *_llvm_module, i32_ty, true,
-                    llvm::GlobalValue::InternalLinkage,
-                    const_val,
-                    "luisa_hiprt_hw_stack_region_count_tmp",
-                    nullptr,
-                    llvm::GlobalValue::NotThreadLocal,
-                    0u);
-                gv->replaceAllUsesWith(new_gv);
-                gv->eraseFromParent();
-                new_gv->setName(
-                    "luisa_hiprt_hw_stack_region_count");
-            } else if (native_pipeline_stack) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "HIPRT wrapper is missing the native pipeline-stack "
-                    "layout constant.");
-            }
-
-            // dummy: <2 x i32> (i32, i32, <8 x i32>)  →  real: {i32, i32} (i32, i32, <8 x i32>, i32 immarg)
-            if (auto *dummy_func = hw_stack_dummy) {
-                auto *i32_ty = llvm::Type::getInt32Ty(_llvm_context);
+            // dummy: <2 x i32> (i32, i32, <8 x i32>) ->
+            // real: {i32, i32} (i32, i32, <8 x i32>, i32 immarg)
+            auto replace_dummy_calls = [&](llvm::Function *dummy,
+                                           uint32_t max_entries,
+                                           llvm::StringRef route) noexcept {
+                if (dummy == nullptr) { return 0u; }
+                auto *i32_type = llvm::Type::getInt32Ty(_llvm_context);
                 auto *intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-                    _llvm_module.get(), llvm::Intrinsic::amdgcn_ds_bvh_stack_push8_pop1_rtn);
-                auto *immarg = llvm::ConstantInt::get(i32_ty, hw_stack_max_entries);
-
-                llvm::SmallVector<llvm::CallInst *, 16> calls_to_replace;
-                for (auto *user : dummy_func->users()) {
+                    _llvm_module.get(),
+                    llvm::Intrinsic::amdgcn_ds_bvh_stack_push8_pop1_rtn);
+                auto *immarg = llvm::ConstantInt::get(
+                    i32_type, max_entries);
+                llvm::SmallVector<llvm::CallInst *, 16> calls;
+                for (auto *user : dummy->users()) {
                     if (auto *call = llvm::dyn_cast<llvm::CallInst>(user)) {
-                        calls_to_replace.push_back(call);
+                        calls.emplace_back(call);
                     }
                 }
-                for (auto *call : calls_to_replace) {
-                    IB builder(call);
-                    auto *real_call = builder.CreateCall(
-                        intrinsic, {call->getArgOperand(0), call->getArgOperand(1),
-                                    call->getArgOperand(2), immarg});
-                    auto *elem0 = builder.CreateExtractValue(real_call, {0});
-                    auto *elem1 = builder.CreateExtractValue(real_call, {1});
-                    auto *vec = llvm::UndefValue::get(llvm::FixedVectorType::get(i32_ty, 2));
-                    auto *vec0 = builder.CreateInsertElement(vec, elem0, builder.getInt32(0));
-                    auto *vec1 = builder.CreateInsertElement(vec0, elem1, builder.getInt32(1));
-                    call->replaceAllUsesWith(vec1);
+                for (auto *call : calls) {
+                    IB builder{call};
+                    auto *result = builder.CreateCall(
+                        intrinsic,
+                        {call->getArgOperand(0), call->getArgOperand(1),
+                         call->getArgOperand(2), immarg});
+                    auto *first = builder.CreateExtractValue(result, {0});
+                    auto *second = builder.CreateExtractValue(result, {1});
+                    llvm::Value *vector = llvm::UndefValue::get(
+                        llvm::FixedVectorType::get(i32_type, 2));
+                    vector = builder.CreateInsertElement(
+                        vector, first, builder.getInt32(0));
+                    vector = builder.CreateInsertElement(
+                        vector, second, builder.getInt32(1));
+                    call->replaceAllUsesWith(vector);
                     call->eraseFromParent();
                 }
-                if (dummy_func->use_empty()) {
-                    dummy_func->eraseFromParent();
-                }
-                LUISA_INFO("Replaced {} ds_bvh_stack dummy calls with intrinsic (MaxStackEntries={})",
-                           calls_to_replace.size(), hw_stack_max_entries);
-            }
+                if (dummy->use_empty()) { dummy->eraseFromParent(); }
+                LUISA_INFO(
+                    "Replaced {} {} ds_bvh_stack dummy call(s) with "
+                    "intrinsic (MaxStackEntries={}).",
+                    calls.size(), route.str(), max_entries);
+                return static_cast<uint32_t>(calls.size());
+            };
+            static_cast<void>(replace_dummy_calls(
+                generic_hw_stack_dummy,
+                generic_hardware_stack_max_entries, "generic"));
+            static_cast<void>(replace_dummy_calls(
+                pipeline_hw_stack_dummy,
+                pipeline_hardware_stack_max_entries, "pipeline"));
         }
         if (!_uses_hardware_rt_stack) {
             // Pre-gfx12 and reentrant traversal use HIPRT's generic dynamic
             // stack through the historical shared-cache symbol.
             shared_array_size =
-                LUISA_HIPRT_SHARED_STACK_SIZE * block_size;
+                LUISA_HIPRT_DYNAMIC_SHARED_STACK_SIZE * block_size;
+        }
+        if (_uses_static_global_rt_stack) {
+            // The native closest path and an exact gfx12 query may coexist in
+            // one kernel but execute sequentially. Reserve the larger LDS
+            // requirement rather than adding two mutually exclusive stacks.
+            shared_array_size = std::max(
+                shared_array_size,
+                LUISA_HIPRT_GLOBAL_SHARED_STACK_SIZE * block_size);
         }
         if (auto old_gv = _llvm_module->getGlobalVariable(
                 "luisa_hiprt_shared_stack_cache")) {
@@ -1270,7 +1355,9 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     Clock clk;
     _rt_analysis = {};
     _uses_iterative_synchronous_ray_query_pipeline = false;
+    _uses_resumable_hardware_ray_query_pipeline = false;
     _uses_native_closest_ray_query_pipeline = false;
+    _uses_static_global_rt_stack = false;
     _analyze_ray_tracing_usage(xir_module);
     // AST-derived flags are conservative: optimization may have removed the
     // last reachable operation, but the serialized shader metadata still uses
@@ -1282,6 +1369,21 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     _rt_analysis.uses_static_trace |= _config.requires_static_trace;
     _rt_analysis.uses_motion_ray_query |= _config.requires_motion_ray_query;
     _rt_analysis.uses_ray_tracing |= _rt_analysis.uses_motion_blur;
+    if (!_config.resumable_ray_query_state_functions.empty()) {
+        llvm::DenseSet<const xir::Function *> module_functions;
+        for (auto function : xir_module.function_list()) {
+            module_functions.insert(function);
+        }
+        LUISA_ASSERT(
+            std::all_of(
+                _config.resumable_ray_query_state_functions.begin(),
+                _config.resumable_ray_query_state_functions.end(),
+                [&](auto function) noexcept {
+                    return module_functions.contains(function);
+                }),
+            "HIP mixed RayQuery retry referenced a function outside the "
+            "immutable XIR module used by the first translation.");
+    }
     _initialize();
 
     _collect_print_info(xir_module);
@@ -1309,10 +1411,11 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
         llvm_kernel->removeFnAttr("amdgpu-waves-per-eu");
     }
     if (_uses_synchronous_ray_query_pipeline &&
-        !hip_synchronous_ray_query_environment_is_profitable(
+        !ray_query_projection
+             .oversized_budget_constrained_state_functions.empty()) {
+        _retry_with_resumable_ray_query_state_functions =
             ray_query_projection
-                .maximum_budget_constrained_context_bytes)) {
-        _retry_with_resumable_ray_query_pipeline = true;
+                .oversized_budget_constrained_state_functions;
         LUISA_VERBOSE(
             "HIP synchronous RayQuery plan rejected: maximum projected "
             "callback environment requiring an exact candidate or observable "
