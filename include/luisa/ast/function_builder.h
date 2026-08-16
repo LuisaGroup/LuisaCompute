@@ -115,7 +115,10 @@ private:
     CallOpSet _direct_builtin_callables;
     CallOpSet _propagated_builtin_callables;
     uint64_t _hash;
-    uint3 _block_size;
+    // Launch dimensions belong exclusively to kernels. Keep the metadata
+    // defined for non-kernel functions so reflection and hashing never read
+    // indeterminate storage; DSL access is rejected at the API boundary.
+    uint3 _block_size{};
     CurveBasisSet _required_curve_bases;
     Tag _tag;
     uint8_t _allowed_warp_size{255u};

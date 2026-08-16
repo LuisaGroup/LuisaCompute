@@ -323,7 +323,13 @@ inline void device_assert(Expr<bool> pred, luisa::string_view msg) noexcept {
  * @see set_block_size() for configuring block dimensions at compile time
  */
 [[nodiscard]] inline const auto block_size() noexcept {
-    return detail::FunctionBuilder::current()->block_size();
+    auto builder = detail::FunctionBuilder::current();
+    LUISA_ASSERT(builder->tag() == detail::FunctionBuilder::Tag::KERNEL,
+                 "block_size() is a kernel launch property and cannot be "
+                 "queried while recording a Callable. Pass the enclosing "
+                 "kernel's block size explicitly when callable logic needs "
+                 "that invocation context.");
+    return builder->block_size();
 }
 
 /// Get block_size.x

@@ -169,6 +169,18 @@ void test_equivalent_callable_capture_environments(Device &device) {
     }
 }
 
+void test_callable_has_no_launch_block_size() {
+    Callable identity = [](UInt value) noexcept { return value; };
+    const auto callable_block_size = identity.function().block_size();
+    expect(all(callable_block_size == make_uint3(0u)))
+        << "callable metadata must have a defined empty launch block size";
+
+    Kernel1D kernel = [](BufferUInt) noexcept {};
+    const auto kernel_block_size = kernel.function()->function().block_size();
+    expect(all(kernel_block_size == make_uint3(256u, 1u, 1u)))
+        << "one-dimensional kernels must retain their default launch block size";
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -179,4 +191,5 @@ int main(int argc, char *argv[]) {
     auto &device = dc->device;
     test_callable(device);
     test_equivalent_callable_capture_environments(device);
+    test_callable_has_no_launch_block_size();
 }
