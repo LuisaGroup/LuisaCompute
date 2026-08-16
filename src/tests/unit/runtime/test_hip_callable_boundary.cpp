@@ -606,13 +606,30 @@ void compile_effect_only_ray_query(
 
 void compile_terminal_predicate_ray_query(
     Device &device, bool observe_full_hit,
-    bool write_opacity = false) noexcept {
-    Kernel1D kernel = [observe_full_hit, write_opacity](
+    bool write_opacity = false,
+    bool with_native_closest = false) noexcept {
+    Kernel1D kernel = [observe_full_hit, write_opacity,
+                       with_native_closest](
                           BufferUInt output,
                           AccelVar accel) noexcept {
         auto ray = make_ray(
             make_float3(0.0f, 0.0f, -1.0f),
             make_float3(0.0f, 0.0f, 1.0f));
+        UInt closest_kind = 0u;
+        if (with_native_closest) {
+            auto closest =
+                accel.traverse(ray, {})
+                    .on_surface_candidate(
+                        [](SurfaceCandidate &candidate) noexcept {
+                            candidate.commit();
+                        })
+                    .on_procedural_candidate(
+                        [](ProceduralCandidate &candidate) noexcept {
+                            candidate.commit(0.5f);
+                        })
+                    .trace();
+            closest_kind = closest->hit_type;
+        }
         auto hit =
             accel.traverse_any(ray, {})
                 .on_surface_candidate(
@@ -634,9 +651,11 @@ void compile_terminal_predicate_ray_query(
                 .trace();
         if (observe_full_hit) {
             // One identity field invalidates the terminal predicate quotient.
-            output.write(dispatch_x(), hit->prim);
+            output.write(dispatch_x(), hit->prim ^ closest_kind);
         } else {
-            output.write(dispatch_x(), cast<uint>(hit->miss()));
+            output.write(
+                dispatch_x(),
+                cast<uint>(hit->miss()) | (closest_kind << 1u));
         }
     };
     static_cast<void>(device.compile(
@@ -779,9 +798,12 @@ int main(int argc, char *argv[]) {
             compile_effect_only_ray_query(
                 device, EffectOnlyRayQueryCase::opacity_write);
             compile_terminal_predicate_ray_query(device, false);
-            compile_terminal_predicate_ray_query(device, true);
             compile_terminal_predicate_ray_query(
-                device, false, true);
+                device, false, false, true);
+            compile_terminal_predicate_ray_query(
+                device, true, false, true);
+            compile_terminal_predicate_ray_query(
+                device, false, true, true);
             const auto before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_4.ll");
             const auto observing_before_module = read_text_file(
@@ -830,12 +852,14 @@ int main(int argc, char *argv[]) {
                 dump_directory / "hip_kernel_before_opt_15.ll");
             const auto effect_opacity_before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_16.ll");
-            const auto terminal_predicate_before_module = read_text_file(
+            const auto terminal_only_before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_17.ll");
-            const auto terminal_full_hit_before_module = read_text_file(
+            const auto terminal_predicate_before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_18.ll");
-            const auto terminal_mutable_opacity_before_module = read_text_file(
+            const auto terminal_full_hit_before_module = read_text_file(
                 dump_directory / "hip_kernel_before_opt_19.ll");
+            const auto terminal_mutable_opacity_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_20.ll");
             const auto mixed_before_root =
                 amdgpu_kernel_body(mixed_before_module);
             const auto object_ray_before_root =
@@ -848,6 +872,8 @@ int main(int argc, char *argv[]) {
                 amdgpu_kernel_body(effect_commit_before_module);
             const auto effect_opacity_before_root =
                 amdgpu_kernel_body(effect_opacity_before_module);
+            const auto terminal_only_before_root =
+                amdgpu_kernel_body(terminal_only_before_module);
             const auto terminal_predicate_before_root =
                 amdgpu_kernel_body(terminal_predicate_before_module);
             const auto terminal_full_hit_before_root =
@@ -877,6 +903,7 @@ int main(int argc, char *argv[]) {
                    !effect_only_before_root.empty() &&
                    !effect_commit_before_root.empty() &&
                    !effect_opacity_before_root.empty() &&
+                   !terminal_only_before_root.empty() &&
                    !terminal_predicate_before_root.empty() &&
                    !terminal_full_hit_before_root.empty() &&
                    !terminal_mutable_opacity_before_root.empty() &&
@@ -1158,6 +1185,21 @@ int main(int argc, char *argv[]) {
                     "@luisa_pipeline_ray_query_trace_any_native_terminal_"
                     "global_stack(" :
                     "@luisa_pipeline_ray_query_trace_any_native_terminal(";
+            if (uses_gfx12_hardware_stack) {
+                expect(terminal_only_before_root.find(
+                           "@luisa_pipeline_ray_query_trace_any_"
+                           "stable_opacity(") != std::string_view::npos &&
+                       terminal_only_before_root.find(
+                           "native_terminal") == std::string_view::npos)
+                    << "isolated gfx12 terminal query abandoned its faster "
+                       "single-frontier route";
+            } else {
+                expect(terminal_only_before_root.find(
+                           expected_terminal_trace) !=
+                       std::string_view::npos)
+                    << "pre-gfx12 terminal query did not select native "
+                       "AnyHit traversal";
+            }
             expect(terminal_predicate_before_root.find(
                        expected_terminal_trace) != std::string_view::npos &&
                    terminal_predicate_before_root.find(
@@ -1230,7 +1272,7 @@ int main(int argc, char *argv[]) {
                     std::string::npos;
             }
             constexpr auto callable_and_fp_shader_count = 4u;
-            constexpr auto ray_query_shader_count = 16u;
+            constexpr auto ray_query_shader_count = 17u;
             expect(dumped_module_count ==
                    callable_and_fp_shader_count + ray_query_shader_count)
                 << "expected one final HIP LLVM module per compiled shader";

@@ -395,8 +395,8 @@ void test_hip_effect_only_native_enumeration(Device &device) {
     // externally observable and prove that the quotient neither skips nor
     // replays candidate effects.
     Kernel1D terminal_predicate = [](
-                                        AccelVar accel,
-                                        BufferUInt4 result) noexcept {
+                                      AccelVar accel,
+                                      BufferUInt4 result) noexcept {
         const auto mode = dispatch_x();
         UInt callback_count = 0u;
         UInt surface_count = 0u;
@@ -405,6 +405,21 @@ void test_hip_effect_only_native_enumeration(Device &device) {
             make_float3(0.0f, 0.0f, 1.0f),
             make_float3(0.0f, 0.0f, -1.0f),
             0.0f, 2.0f);
+        // A co-resident, semantically proven closest reduction is the static
+        // whole-kernel workload feature used by the measured gfx12 cost
+        // policy. Consume its hit kind so DCE cannot turn this into a
+        // terminal-only module.
+        const auto closest =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [](SurfaceCandidate &candidate) noexcept {
+                        candidate.commit();
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &candidate) noexcept {
+                        candidate.commit(0.5f);
+                    })
+                .trace();
         const auto hit =
             accel.traverse_any(ray, {})
                 .on_surface_candidate(
@@ -433,17 +448,22 @@ void test_hip_effect_only_native_enumeration(Device &device) {
         result.write(
             mode, make_uint4(
                       hit->hit_type, callback_count,
-                      surface_count, procedural_count));
+                      surface_count,
+                      procedural_count |
+                          (cast<uint>(closest->miss()) << 31u)));
     };
     Kernel1D opaque_terminal_predicate = [](
-                                               AccelVar accel,
-                                               BufferUInt result) noexcept {
+                                             AccelVar accel,
+                                             BufferUInt result) noexcept {
         const auto ray = make_ray(
             make_float3(0.0f, 0.0f, 1.0f),
             make_float3(0.0f, 0.0f, -1.0f),
             0.0f, 2.0f);
+        const auto closest = accel.traverse(ray, {}).trace();
         const auto hit = accel.traverse_any(ray, {}).trace();
-        result.write(0u, hit->hit_type);
+        result.write(
+            0u, hit->hit_type |
+                    (cast<uint>(closest->miss()) << 31u));
     };
     auto terminal_shader = device.compile(
         terminal_predicate, ShaderOption{.enable_cache = false});
@@ -893,6 +913,15 @@ void test_hip_ray_query_paired_triangle_resume(Device &device) {
             make_float3(0.0f, 0.0f, 1.0f),
             make_float3(0.0f, 0.0f, -1.0f),
             0.0f, 2.0f);
+        auto closest =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [](SurfaceCandidate &candidate) noexcept {
+                        candidate.commit();
+                    })
+                .on_procedural_candidate(
+                    [](ProceduralCandidate &) noexcept {})
+                .trace();
         auto committed =
             accel.traverse_any(ray, {})
                 .on_surface_candidate(
@@ -911,7 +940,7 @@ void test_hip_ray_query_paired_triangle_resume(Device &device) {
             0u,
             make_uint4(
                 committed->hit_type, callback_count,
-                first_primitive, 0u));
+                first_primitive, closest->hit_type));
     };
     auto mutate_terminal_opacity_shader = device.compile(
         mutate_opacity_during_terminal_trace,
@@ -926,6 +955,7 @@ void test_hip_ray_query_paired_triangle_resume(Device &device) {
     expect(host_terminal_opacity_result[0].x == surface);
     expect(host_terminal_opacity_result[0].y == 1u);
     expect(host_terminal_opacity_result[0].z == 1u);
+    expect(host_terminal_opacity_result[0].w == surface);
 
     // Restore the initial non-opaque state before checking the exact query
     // below. This host update is intentionally synchronized: the two tests

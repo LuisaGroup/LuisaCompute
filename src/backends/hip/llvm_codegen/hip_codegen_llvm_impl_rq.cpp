@@ -990,6 +990,12 @@ ray_query_pipeline_admits_native_effect_only_enumeration(
 
 }// namespace
 
+bool HIPCodegenLLVMImpl::
+    _ray_query_pipeline_admits_native_closest_reduction(
+        const xir::RayQueryPipelineInst *pipeline) noexcept {
+    return ray_query_pipeline_admits_native_closest_reduction(pipeline);
+}
+
 HIPCodegenLLVMImpl::RayQueryPipelineProjectionInfo
 HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
     RayQueryPipelineProjectionInfo projection;
@@ -1829,7 +1835,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
     const auto post_state_observed =
         ray_query_pipeline_post_state_is_observed(inst);
     const auto native_closest_reduction =
-        ray_query_pipeline_admits_native_closest_reduction(inst);
+        _native_closest_reduction_pipelines.contains(inst);
     const auto native_effect_only_enumeration =
         ray_query_pipeline_admits_native_effect_only_enumeration(inst);
     const auto terminal_hit_kind_projection =
@@ -1978,17 +1984,40 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         // while commit or explicit terminate stops without replaying a
         // callback. Gfx12 uses a statically indexed global spill stack, matching
         // the native closest route and Cycles' HIPRT traversal construction.
+        // Gfx12 already has a low-overhead single-frontier implementation for
+        // an isolated terminal query. Native HIPRT AnyHit is profitable when
+        // the same reachable kernel also owns a native closest reduction: the
+        // two callbacks share the HIPRT transaction shape and replacing the
+        // second exact query state contracts the combined live set. Without
+        // that co-resident route, the hardware frontier is both smaller and
+        // faster. Pre-gfx12 has no hardware frontier and always uses native
+        // AnyHit. This is a whole-kernel JIT decision over proven semantics,
+        // independent of scene names, resolution, or launch dimensions.
+        const auto has_synchronous_native_closest_reduction =
+            std::any_of(
+                _native_closest_reduction_pipelines.begin(),
+                _native_closest_reduction_pipelines.end(),
+                [this](auto pipeline) noexcept {
+                    return !_function_uses_resumable_ray_query_state(
+                        pipeline->parent_function());
+                });
+        const auto terminal_native_is_profitable =
+            !_uses_hardware_rt_stack ||
+            has_synchronous_native_closest_reduction;
         const auto use_static_global_hiprt_terminal =
-            terminal_hit_kind_projection && _uses_hardware_rt_stack;
+            terminal_hit_kind_projection && _uses_hardware_rt_stack &&
+            terminal_native_is_profitable;
         const auto use_native_hiprt_terminal =
-            terminal_hit_kind_projection && !_uses_hardware_rt_stack;
+            terminal_hit_kind_projection && !_uses_hardware_rt_stack &&
+            terminal_native_is_profitable;
         LUISA_VERBOSE(
             "HIP native callback route: closest-reduction = {}, "
             "effect-only = {}, terminal-predicate = {}, opacity-stable = {}, "
             "hardware-stack = {}, "
             "motion-blur = {}, closest-dynamic = {}, closest-static = {}, "
             "effect-dynamic = {}, effect-hardware = {}, "
-            "predicate-dynamic = {}, predicate-static = {}.",
+            "predicate-profitable = {}, predicate-dynamic = {}, "
+            "predicate-static = {}.",
             native_closest_reduction,
             native_effect_only_enumeration,
             terminal_hit_kind_projection,
@@ -1998,6 +2027,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             use_static_global_hiprt_closest,
             use_native_hiprt_effect,
             use_hardware_effect,
+            terminal_native_is_profitable,
             use_native_hiprt_terminal,
             use_static_global_hiprt_terminal);
         _uses_native_closest_ray_query_pipeline |=
@@ -2005,9 +2035,7 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
             use_static_global_hiprt_closest;
         _uses_native_effect_only_ray_query_pipeline |=
             use_native_hiprt_effect ||
-            use_hardware_effect ||
-            use_native_hiprt_terminal ||
-            use_static_global_hiprt_terminal;
+            use_hardware_effect;
         _uses_static_global_rt_stack |=
             use_static_global_hiprt_closest ||
             use_static_global_hiprt_terminal;

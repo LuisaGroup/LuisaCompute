@@ -223,6 +223,10 @@ void HIPCodegenLLVMImpl::_analyze_ray_tracing_in_function(
             _rt_analysis.uses_ray_query_pipeline = true;
             auto pipeline =
                 static_cast<const xir::RayQueryPipelineInst *>(instruction);
+            if (_ray_query_pipeline_admits_native_closest_reduction(
+                    pipeline)) {
+                _native_closest_reduction_pipelines.insert(pipeline);
+            }
             llvm::DenseSet<const xir::Function *> handler_visited;
             _rt_analysis.ray_query_pipeline_handler_uses_ray_tracing |=
                 function_uses_ray_tracing_recursively(
@@ -1362,6 +1366,7 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     _uses_native_closest_ray_query_pipeline = false;
     _uses_native_effect_only_ray_query_pipeline = false;
     _uses_static_global_rt_stack = false;
+    _native_closest_reduction_pipelines.clear();
     _analyze_ray_tracing_usage(xir_module);
     // AST-derived flags are conservative: optimization may have removed the
     // last reachable operation, but the serialized shader metadata still uses

@@ -323,6 +323,8 @@ private:
     bool _uses_native_effect_only_ray_query_pipeline{false};
     bool _uses_static_global_rt_stack{false};
     bool _requires_global_rt_stack{false};
+    llvm::DenseSet<const xir::RayQueryPipelineInst *>
+        _native_closest_reduction_pipelines;
     luisa::vector<const xir::Function *>
         _retry_with_resumable_ray_query_state_functions;
 
@@ -401,6 +403,9 @@ private:
     void _analyze_ray_tracing_in_function(
         const xir::Function *function,
         llvm::DenseSet<const xir::Function *> &visited) noexcept;
+    [[nodiscard]] static bool
+    _ray_query_pipeline_admits_native_closest_reduction(
+        const xir::RayQueryPipelineInst *pipeline) noexcept;
     [[nodiscard]] bool _function_uses_resumable_ray_query_state(
         const xir::Function *function) const noexcept;
     void _link_native_include() noexcept;
