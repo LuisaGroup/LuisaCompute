@@ -90,6 +90,7 @@ endif ()
 luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
 luisa_compute_add_example(example_coro_sdf_renderer rendering/coro_sdf_renderer.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_gdeflate compute/compact/main.cpp compute/compact/gdeflate.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_tensor_stub tensor/main.cpp)
 # collect all tensor kernel source files
 file(GLOB _tensor_kernels CONFIGURE_DEPENDS tensor/kernel_*.cpp)

@@ -82,6 +82,7 @@ example_proj("example_tile_bench", "compute/tile_bench.cpp", false)
         add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp")
     end)
     includes("compute/tokenize")
+    includes("compute/compact")
 
 -- extension
 if has_config("lc_dx_backend") then
