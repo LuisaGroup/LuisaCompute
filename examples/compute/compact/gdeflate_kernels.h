@@ -2,13 +2,15 @@
 //
 // This is a self-contained port of the Microsoft DirectStorage GDeflate GPU
 // decompression shader (D:/DirectStorage/GDeflate/shaders/GDeflate.hlsl) with
-// the cross-lane primitives implemented via shared memory so it works on any
-// backend that can launch 32-thread blocks.
+// the cross-lane primitives implemented via native warp/subgroup intrinsics
+// (see luisa/dsl/builtin.h).  Each tile is decoded cooperatively by one 32-lane
+// warp, so no shared memory scratch arrays are needed.
 //
 // For clarity and reliability this first version focuses on uncompressed
 // DEFLATE blocks (BTYPE=00).  Compressed DEFLATE blocks (fixed/dynamic
 // Huffman) can be added by porting the DecoderPair/SymbolTable code from the
-// HLSL on top of the same BitReader and Shared<T> infrastructure provided here.
+// HLSL on top of the same BitReader and warp-primitive infrastructure provided
+// here.
 
 #pragma once
 
@@ -46,56 +48,26 @@ inline Callable<uint(uint)> c_firstbithigh = [](Var<uint> m) noexcept {
 };
 
 // ============================================================================
-// Cross-lane communication using shared memory (portable fallback)
+// Cross-lane communication using warp intrinsics (native subgroup ops)
+//
+// The decompressor runs one 32-lane warp per tile (see make_decompress_kernel,
+// which pins set_warp_size(32u)).  Every Shared<uint> scratch array used by the
+// old portable fallback is replaced by the equivalent warp intrinsic:
+//   lane_vote      -> warp_active_bit_mask(p).x   (WaveActiveBallot)
+//   lane_broadcast -> warp_read_lane(value, src)  (WaveReadLaneAt)
+//   lane_scan      -> warp_prefix_sum(value)      (WavePrefixSum, if needed)
+// Warp collectives need no sync_block(): they are guaranteed to complete within
+// the warp without barriers.
 // ============================================================================
 
 // Return a 32-bit ballot mask: bit i set iff predicate is true in lane i.
-inline auto lane_vote(Shared<uint> &tmp1, Var<uint> tid, Bool p) noexcept -> UInt {
-    tmp1[tid] = select(0u, 1u << tid, p);
-    sync_block();
-    $if (tid < 16u) { tmp1[tid] = tmp1[tid] | tmp1[tid + 16u]; };
-    sync_block();
-    $if (tid < 8u) { tmp1[tid] = tmp1[tid] | tmp1[tid + 8u]; };
-    sync_block();
-    $if (tid < 4u) { tmp1[tid] = tmp1[tid] | tmp1[tid + 4u]; };
-    sync_block();
-    $if (tid < 2u) { tmp1[tid] = tmp1[tid] | tmp1[tid + 2u]; };
-    sync_block();
-    $if (tid < 1u) { tmp1[tid] = tmp1[tid] | tmp1[tid + 1u]; };
-    sync_block();
-    UInt ballot = tmp1[0];
-    sync_block();
-    return ballot;
-}
-
-// Shuffle value from lane src_idx to all lanes.
-inline auto lane_shuffle(Shared<uint> &tmp1, Var<uint> value, Var<uint> src_idx) noexcept -> UInt {
-    tmp1[src_idx] = value;
-    sync_block();
-    UInt res = tmp1[thread_x()];
-    sync_block();
-    return res;
+inline auto lane_vote(Bool p) noexcept -> UInt {
+    return warp_active_bit_mask(p).x;
 }
 
 // Broadcast value from lane src_idx to all lanes.
-inline auto lane_broadcast(Shared<uint> &tmp1, Var<uint> value, Var<uint> src_idx) noexcept -> UInt {
-    $if (thread_x() == src_idx) { tmp1[0] = value; };
-    sync_block();
-    UInt res = tmp1[0];
-    sync_block();
-    return res;
-}
-
-// Exclusive prefix sum across the 32 lanes.
-// Lane i gets sum of values from lanes 0..i-1.
-inline auto lane_scan(Shared<uint> &tmp1, Var<uint> value) noexcept -> UInt {
-    UInt sum = value;
-    sum = sum + select(0u, lane_shuffle(tmp1, sum, thread_x() - 1u), thread_x() >= 1u);
-    sum = sum + select(0u, lane_shuffle(tmp1, sum, thread_x() - 2u), thread_x() >= 2u);
-    sum = sum + select(0u, lane_shuffle(tmp1, sum, thread_x() - 4u), thread_x() >= 4u);
-    sum = sum + select(0u, lane_shuffle(tmp1, sum, thread_x() - 8u), thread_x() >= 8u);
-    sum = sum + select(0u, lane_shuffle(tmp1, sum, thread_x() - 16u), thread_x() >= 16u);
-    return sum - value;
+inline auto lane_broadcast(Var<uint> value, Var<uint> src_idx) noexcept -> UInt {
+    return warp_read_lane(value, src_idx);
 }
 
 // ============================================================================
@@ -143,7 +115,7 @@ struct BitReader {
     ULong buf;
 };
 
-inline void bitreader_init(BitReader &br, const ByteBufferVar &input, Shared<uint> &tmp1,
+inline void bitreader_init(BitReader &br, const ByteBufferVar &input,
                            UInt tile_in_pos, UInt tid) noexcept {
     br.cnt = BitReader::k_width;
     UInt word = input.read<uint>(tile_in_pos + tid * 4u);
@@ -151,10 +123,10 @@ inline void bitreader_init(BitReader &br, const ByteBufferVar &input, Shared<uin
     br.base = tile_in_pos + BitReader::k_width * 4u;
 }
 
-inline void bitreader_refill(BitReader &br, const ByteBufferVar &input, Shared<uint> &tmp1,
+inline void bitreader_refill(BitReader &br, const ByteBufferVar &input,
                              UInt tid, Bool p) noexcept {
     p = p & (br.cnt < BitReader::k_width);
-    UInt ballot = lane_vote(tmp1, tid, p);
+    UInt ballot = lane_vote(p);
     UInt offset = popcount(ballot & c_mask(tid)) * 4u;
     $if (p) {
         br.buf = br.buf | (static_cast<ULong>(input.read<uint>(br.base + offset)) << br.cnt);
@@ -163,19 +135,19 @@ inline void bitreader_refill(BitReader &br, const ByteBufferVar &input, Shared<u
     br.base = br.base + popcount(ballot) * 4u;
 }
 
-inline void bitreader_eat(BitReader &br, const ByteBufferVar &input, Shared<uint> &tmp1,
+inline void bitreader_eat(BitReader &br, const ByteBufferVar &input,
                           UInt tid, UInt n, Bool p) noexcept {
     $if (p) {
         br.buf = br.buf >> n;
         br.cnt = br.cnt - n;
     };
-    bitreader_refill(br, input, tmp1, tid, p);
+    bitreader_refill(br, input, tid, p);
 }
 
-inline UInt bitreader_read(BitReader &br, const ByteBufferVar &input, Shared<uint> &tmp1,
+inline UInt bitreader_read(BitReader &br, const ByteBufferVar &input,
                            UInt tid, UInt n, Bool p) noexcept {
     UInt bits = select(0u, static_cast<UInt>(br.buf) & c_mask(n), p);
-    bitreader_eat(br, input, tmp1, tid, n, p);
+    bitreader_eat(br, input, tid, n, p);
     return bits;
 }
 
@@ -193,17 +165,20 @@ inline UInt bitreader_peek(BitReader &br) noexcept {
 
 // Uncompressed DEFLATE block: copy LEN raw bytes from the bitstream.
 inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, ByteBufferVar &output,
-                               Shared<uint> &tmp1, Shared<uint> &tmp2,
                                UInt tid, UInt dst, UInt size) noexcept {
     UInt nrounds = size / 32u;
 
     $while (nrounds != 0u) {
-        UInt byte = bitreader_read(br, input, tmp1, tid, 8u, true);
-        tmp2[tid] = byte;
-        sync_block();
-        // Each group of 4 lanes writes one 32-bit word.
+        UInt byte = bitreader_read(br, input, tid, 8u, true);
+        // Each group of 4 lanes writes one 32-bit word.  All lanes participate in
+        // the shuffles so the source lanes are active; the index is clamped so the
+        // boundary lanes 29..31 never read an out-of-range lane.
+        UInt b0 = byte;
+        UInt b1 = warp_read_lane(byte, min(tid + 1u, 31u));
+        UInt b2 = warp_read_lane(byte, min(tid + 2u, 31u));
+        UInt b3 = warp_read_lane(byte, min(tid + 3u, 31u));
         $if ((tid & 3u) == 0u) {
-            UInt word = tmp2[tid] | (tmp2[tid + 1u] << 8u) | (tmp2[tid + 2u] << 16u) | (tmp2[tid + 3u] << 24u);
+            UInt word = b0 | (b1 << 8u) | (b2 << 16u) | (b3 << 24u);
             output.write(dst + (tid / 4u) * 4u, word);
         };
         dst = dst + 32u;
@@ -212,25 +187,28 @@ inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, ByteBu
 
     UInt rem = size % 32u;
     $if (rem != 0u) {
-        UInt byte = bitreader_read(br, input, tmp1, tid, 8u, tid < rem);
-        tmp2[tid] = 0u;
-        $if (tid < rem) { tmp2[tid] = byte; };
-        sync_block();
+        // bitreader_read returns 0 for lanes >= rem, so byte is already zeroed.
+        UInt byte = bitreader_read(br, input, tid, 8u, tid < rem);
 
         UInt full_words = rem / 4u;
         UInt partial = rem % 4u;
 
+        UInt b0 = byte;
+        UInt b1 = warp_read_lane(byte, min(tid + 1u, 31u));
+        UInt b2 = warp_read_lane(byte, min(tid + 2u, 31u));
+        UInt b3 = warp_read_lane(byte, min(tid + 3u, 31u));
+
         $if ((tid & 3u) == 0u & (tid / 4u) < full_words) {
-            UInt word = tmp2[tid] | (tmp2[tid + 1u] << 8u) | (tmp2[tid + 2u] << 16u) | (tmp2[tid + 3u] << 24u);
+            UInt word = b0 | (b1 << 8u) | (b2 << 16u) | (b3 << 24u);
             output.write(dst + (tid / 4u) * 4u, word);
         };
 
         // Last partial word (if any) is written by the first lane after the full words.
         $if (partial != 0u & tid == full_words * 4u) {
-            UInt word = 0u;
-            $for (j, partial) {
-                word = word | (tmp2[tid + j] << (j * 8u));
-            };
+            UInt word = b0;
+            $if (partial > 1u) { word = word | (b1 << 8u); };
+            $if (partial > 2u) { word = word | (b2 << 16u); };
+            $if (partial > 3u) { word = word | (b3 << 24u); };
             output.write(dst + full_words * 4u, word);
         };
 
@@ -245,10 +223,9 @@ inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, ByteBu
 // ============================================================================
 
 inline void decompress_tile(const ByteBufferVar &input, ByteBufferVar &output,
-                            Shared<uint> &tmp1, Shared<uint> &tmp2,
                             UInt tid, UInt in_pos, UInt out_pos, UInt out_size) noexcept {
     BitReader br;
-    bitreader_init(br, input, tmp1, in_pos, tid);
+    bitreader_init(br, input, in_pos, tid);
 
     UInt dst = out_pos;
     // Clear output tile to avoid garbage around unaligned tail.
@@ -260,24 +237,21 @@ inline void decompress_tile(const ByteBufferVar &input, ByteBufferVar &output,
             output.write(out_pos + idx * 4u, 0u);
         };
     };
-    sync_block();
 
     Bool done = false;
     $while (!done) {
         // Read block header from lane 0 and broadcast.
-        UInt header = lane_broadcast(tmp1, bitreader_peek(br), 0u);
-        sync_block();
+        UInt header = lane_broadcast(bitreader_peek(br), 0u);
 
         done = c_extract(header, 0u, 1u, 0u) != 0u;
         UInt btype = c_extract(header, 1u, 2u, 0u);
 
-        bitreader_eat(br, input, tmp1, tid, 3u, tid == 0u);
+        bitreader_eat(br, input, tid, 3u, tid == 0u);
 
         $switch (btype) {
             $case (0u) { // Uncompressed block (GDeflate omits the NLEN field)
-                UInt len = lane_broadcast(tmp1, bitreader_read(br, input, tmp1, tid, 16u, tid == 0u), 0u);
-                sync_block();
-                dst = uncompressed_block(br, input, output, tmp1, tmp2, tid, dst, len);
+                UInt len = lane_broadcast(bitreader_read(br, input, tid, 16u, tid == 0u), 0u);
+                dst = uncompressed_block(br, input, output, tid, dst, len);
             };
             $case (1u) { // Fixed Huffman (not implemented in this first version)
             };
@@ -296,17 +270,23 @@ inline void decompress_tile(const ByteBufferVar &input, ByteBufferVar &output,
 inline auto make_decompress_kernel() noexcept {
         return [](ByteBufferVar input, ByteBufferVar output,
                   UInt stream_in_pos, UInt stream_out_pos, UInt num_tiles) noexcept {
-        set_block_size(32u, 1u, 1u);
+        // One 32-lane warp decompresses one tile.  128 threads = 4 warps, so each
+        // block handles 4 tiles.  Pin the warp size to 32 so this mapping is exact
+        // on every backend (GDeflate's bit-stream layout assumes 32 lanes/tile).
+        constexpr uint kBlockThreads = 128u;
+        constexpr uint kWarpThreads = 32u;
+        constexpr uint kWarpsPerBlock = kBlockThreads / kWarpThreads; // 4
+        set_block_size(kBlockThreads, 1u, 1u);
+        set_warp_size(static_cast<uint8_t>(kWarpThreads));
 
-        Shared<uint> tmp1{32};
-        Shared<uint> tmp2{32};
-        UInt tid = thread_x();
-        UInt tile_idx = block_id().x;
+        UInt tid = warp_lane_id();                 // lane within the warp: 0..31
+        UInt warp_in_block = thread_x() / warp_lane_count(); // 0..kWarpsPerBlock-1
+        UInt tile_idx = block_id().x * kWarpsPerBlock + warp_in_block;
 
         $if (tile_idx < num_tiles) {
             Var<TileStream> ts = c_tilestream_construct(input, stream_in_pos);
             Var<TileParams> params = c_tilestream_get_params(input, stream_in_pos, stream_out_pos, tile_idx, ts);
-            decompress_tile(input, output, tmp1, tmp2, tid, params.in_pos, params.out_pos, params.out_size);
+            decompress_tile(input, output, tid, params.in_pos, params.out_pos, params.out_size);
         };
     };
 }
@@ -469,9 +449,11 @@ inline auto make_compress_kernel() noexcept {
     return [](ByteBufferVar input, ByteBufferVar output,
               UInt stream_in_pos, UInt stream_out_pos,
               UInt num_tiles, UInt last_tile_size) noexcept {
-        set_block_size(32u, 1u, 1u);
+        // Dispatch num_tiles threads; each thread compresses one tile.  A larger
+        // block size packs more independent tiles per block and reduces launch
+        // overhead (total thread count is unchanged).
+        set_block_size(128u, 1u, 1u);
 
-        // Dispatch num_tiles threads; each thread compresses one tile.
         UInt tile_idx = dispatch_id().x;
         UInt full_tile_data_size = compressed_tile_data_size(kDefaultTileSize);
 

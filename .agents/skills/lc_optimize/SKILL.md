@@ -351,11 +351,64 @@ UInt first_true = ctz(flag_mask);
 UInt num_true = popcount(flag_mask);
 ```
 
+### 3.7 Shared-Memory Cross-Lane Communication → Warp Intrinsics (Generic Recipe)
+
+`Shared<T>` used *only* to exchange values between lanes of one warp can be replaced by warp intrinsics: no barrier, no shared capacity, and usually a single hardware instruction. This is valid whenever cooperation is fully intra-warp — either the block is exactly one warp, or each warp processes an independent work item and uses `warp_lane_id()` as its lane index.
+
+**Step 1 — Audit every `Shared<T>` access.** Classify each use:
+- Slot indexed by lane id (`shared[lane]`, `shared[lane + k]`) → shuffle / broadcast.
+- Ballot, reduction, or scan over lanes → warp collective.
+- Any access indexed by something other than the lane (arbitrary thread id, work-item id, dynamic offsets), or any value that another warp must see → keep shared (section 4).
+
+Only when **every** access is lane-local is the refactor sound.
+
+**Step 2 — Map each shared-memory idiom to a warp intrinsic.**
+
+| Shared-memory idiom | Warp replacement |
+|---|---|
+| Ballot: `shared[tid] = pred;` tree-OR with barriers; read `shared[0]` | `warp_active_bit_mask(pred).x` |
+| Broadcast: `$if (tid == src) { shared[0] = v; };` barrier; read `shared[0]` | `warp_read_lane(v, src)` (or `warp_read_first_active_lane(v)`) |
+| Shuffle: `shared[src] = v;` barrier; read `shared[tid]` | `warp_read_lane(v, src)` |
+| Exclusive scan: Hillis–Steele `shared` loop + barriers | `warp_prefix_sum(v)` |
+| All-reduce: shared tree + barriers | `warp_active_sum` / `warp_active_min` / `warp_active_max` / ... |
+| Neighbor gather: lane `tid` reads `shared[tid + k]` | `warp_read_lane(v, tid + k)` |
+| Vote then count: `shared` ballot + `popcount` | `warp_active_bit_mask(pred).x` + `popcount`, or `warp_active_count_bits(pred)` |
+
+**Step 3 — Apply the correctness rules.**
+
+1. **All lanes must participate in every shuffle.** `warp_read_lane` reads the *active* source lane; if a source lane skipped the call inside a divergent `$if`, the read is undefined. Compute shuffled values unconditionally into locals, then guard only the consumer `$if`.
+2. **Clamp out-of-range lane indices.** `warp_read_lane(v, min(tid + k, warp_lane_count() - 1u))` keeps boundary lanes in range; their unused results are discarded, so clamping is safe.
+3. **Delete now-redundant `sync_block()` calls.** They existed to publish shared writes across lanes; warp intrinsics are complete for the calling lane immediately. Leaving them adds a block-wide stall.
+4. **Use `warp_lane_id()` as the lane index** once the block has more than one warp; `thread_x()` then only computes the warp index (section 3.8).
+5. **Never mix warp and block scope.** Values that must cross warps, or non-lane indexing, stay in shared memory (section 4).
+
+### 3.8 Block-Size Scaling: One Warp per Independent Work Item
+
+Kernels often start with `set_block_size(32, 1, 1)` and one warp per item because the item's cooperative step needs exactly 32 lanes. Once the cross-lane logic is warp-only (section 3.7), enlarge the block to 64/128 threads — several warps per block, each still owning one item — which usually improves occupancy and reduces per-block overhead:
+
+```cpp
+constexpr uint kBlockThreads = 128u;
+constexpr uint kWarpThreads = 32u;
+constexpr uint kWarpsPerBlock = kBlockThreads / kWarpThreads;
+set_block_size(kBlockThreads, 1u, 1u);
+set_warp_size(static_cast<uint8_t>(kWarpThreads)); // pin so the mapping is exact
+
+UInt lane = warp_lane_id();                         // 0..warp_lane_count()-1
+UInt warp_in_block = thread_x() / warp_lane_count();// which warp inside this block
+UInt item_idx = block_id().x * kWarpsPerBlock + warp_in_block;
+$if (item_idx < num_items) { /* ... work on item_idx with lanes `lane` ... */ };
+```
+
+- **Pin the warp size.** If the algorithm assumes 32 lanes per item, call `set_warp_size(32)` (host: `device.compute_warp_size()`). Without pinning, a backend may choose a wider wave/subgroup (e.g. 64), which shrinks `warp_in_block` and silently skips items.
+- **Keep the tail guard.** `$if (item_idx < num_items)` makes idle warps in the last block harmless, so the host dispatch needs no change: `dispatch(num_items * warp_size)` still covers every item.
+- **When each thread owns an item** (no cross-lane cooperation), the same block-size increase is simpler: keep `dispatch_id().x` indexing and just raise `set_block_size`; the total thread count is unchanged.
+- **Verify on multiple backends.** Warp intrinsics lower to different hardware ops (WaveIntrinsics on DX, subgroup ops on Vulkan/SPIR-V, `__shfl*` on CUDA). Re-run the same correctness cases — including tail/partial-item sizes that exercise idle warps and boundary lanes — on at least two backends after the change.
+
 ---
 
 ## 4. Shared Array (Workgroup Memory) Optimization
 
-Warp collectives (section 3) only communicate *within one warp*. When cooperation must span the **whole thread block** (multiple warps), or you need persistent per-block scratch, arbitrary cross-thread indexing, or block-local privatization of a global atomic, use a **shared array** (`Shared<T>` / `$shared<T>`). Shared memory is on-chip and orders of magnitude faster than global memory, so staging data there once and reusing it, or aggregating locally before touching global memory, is a core optimization.
+Warp collectives (section 3) only communicate *within one warp*. When cooperation must span the **whole thread block** (multiple warps), or you need persistent per-block scratch, arbitrary cross-thread indexing, or block-local privatization of a global atomic, use a **shared array** (`Shared<T>` / `$shared<T>`). Shared memory is on-chip and orders of magnitude faster than global memory, so staging data there once and reusing it, or aggregating locally before touching global memory, is a core optimization. (For the reverse direction — replacing *lane-local* shared memory with warp intrinsics — see section 3.7.)
 
 ### 4.1 API (`include/luisa/dsl/shared.h`, `include/luisa/dsl/sugar.h:105`)
 
@@ -518,6 +571,12 @@ Always query `device.compute_warp_size()` on the host and `warp_lane_count()` on
 10. **Privatize global atomics into shared memory** (section 4.3). Aggregate per-thread contributions with cheap shared atomics, then issue **one** global atomic per block. This is the key stream-compaction / queue-append win.
 
 11. **Shared memory needs `sync_block()`; warp collectives do not.** Barrier after filling shared and between the read/write-back phases of a tree reduction (section 4.4). Reduce into a register first, then write back after the barrier to avoid RAW/WAR hazards.
+
+12. **Replace lane-local shared memory with warp intrinsics (section 3.7).** Ballot → `warp_active_bit_mask(p).x`, broadcast/shuffle → `warp_read_lane`, scan → `warp_prefix_sum`. Only valid when every shared access is intra-warp and lane-indexed; cross-warp or arbitrary indexing must stay in `Shared<T>`.
+
+13. **All lanes must execute a shuffle; clamp the lane index.** Put `warp_read_lane` outside the divergent `$if` that consumes it, and clamp with `min(lane + k, warp_lane_count() - 1u)` at the boundary.
+
+14. **Scale block size by packing one warp per item (section 3.8).** After warp-only refactors, enlarge `set_block_size` to 64/128 and map `item_idx = block_id().x * warps_per_block + thread_x() / warp_lane_count()`; pin the warp size so the mapping is exact.
 
 ---
 
