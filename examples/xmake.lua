@@ -58,7 +58,9 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
-    example_proj("example_tensor_stub", "compute/tensor_stub.cpp", false)
+    example_proj("example_tensor_stub", "tensor/main.cpp", false, function()
+        add_files("tensor/kernel_*.cpp")
+    end)
 example_proj("example_tile_bench", "compute/tile_bench.cpp", false)
     example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
     example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)

@@ -627,7 +627,6 @@ barriers/atomics where TileLang's passes would inject them).
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/ast/expression.h>
-#include <luisa/ast/external_function.h>
 #include <luisa/ast/op.h>
 #include <luisa/ast/type.h>
 
@@ -1630,23 +1629,63 @@ private:
             }};
     }
 
+    // Software erf. There is no CallOp::ERF and no portable backend support
+    // for an "erf" external function, so build the Abramowitz & Stegun 7.1.26
+    // approximation from ops every backend lowers:
+    //
+    //   erf(x) = sign(x) * (1 - exp(-x^2) * P(t)),  t = 1 / (1 + p*|x|)
+    //   P(t) = a1*t + a2*t^2 + a3*t^3 + a4*t^4 + a5*t^5
+    //
+    // (p = 0.3275911, a1..a5 below; max absolute error < 1.5e-7).  The math
+    // is evaluated in f32 and cast back to the requested element type so the
+    // approximation is not degraded by half-precision arithmetic.
+    [[nodiscard]] const Expression *_erf(const Expression *x, const Type *result_t) const {
+        auto f32 = Type::of<float>();
+        auto xf = _maybe_cast(x, f32);
+        auto zero = _fb->literal(f32, 0.f);
+        auto one = _fb->literal(f32, 1.f);
+        // t = 1 / (1 + p*|x|)
+        auto absx = _fb->call(f32, CallOp::ABS, {xf});
+        auto p = _fb->literal(f32, 0.3275911f);
+        auto denom = _fb->binary(f32, BinaryOp::ADD, one,
+                                 _fb->binary(f32, BinaryOp::MUL, p, absx));
+        auto t = _fb->binary(f32, BinaryOp::DIV, one, denom);
+        // Horner form of a1*t + a2*t^2 + a3*t^3 + a4*t^4 + a5*t^5
+        auto a5 = _fb->literal(f32, 1.061405429f);
+        auto a4 = _fb->literal(f32, -1.453152027f);
+        auto a3 = _fb->literal(f32, 1.421413741f);
+        auto a2 = _fb->literal(f32, -0.284496736f);
+        auto a1 = _fb->literal(f32, 0.254829592f);
+        const Expression *poly = a5;
+        poly = _fb->binary(f32, BinaryOp::ADD,
+                           _fb->binary(f32, BinaryOp::MUL, poly, t), a4);
+        poly = _fb->binary(f32, BinaryOp::ADD,
+                           _fb->binary(f32, BinaryOp::MUL, poly, t), a3);
+        poly = _fb->binary(f32, BinaryOp::ADD,
+                           _fb->binary(f32, BinaryOp::MUL, poly, t), a2);
+        poly = _fb->binary(f32, BinaryOp::ADD,
+                           _fb->binary(f32, BinaryOp::MUL, poly, t), a1);
+        poly = _fb->binary(f32, BinaryOp::MUL, poly, t);
+        // exp(-x^2)
+        auto x2 = _fb->binary(f32, BinaryOp::MUL, absx, absx);
+        auto neg_x2 = _fb->unary(f32, UnaryOp::MINUS, x2);
+        auto e = _fb->call(f32, CallOp::EXP, {neg_x2});
+        auto erf_abs = _fb->binary(f32, BinaryOp::SUB, one,
+                                   _fb->binary(f32, BinaryOp::MUL, poly, e));
+        // sign(x) * erf(|x|): (x < 0) ? -erf_abs : erf_abs
+        auto is_neg = _fb->binary(Type::of<bool>(), BinaryOp::LESS, xf, zero);
+        auto neg_erf_abs = _fb->unary(f32, UnaryOp::MINUS, erf_abs);
+        auto result = _fb->call(f32, CallOp::SELECT,
+                                {erf_abs, neg_erf_abs, is_neg});
+        return _maybe_cast(result, result_t);
+    }
+
     void _emit_fast_math(const FastMathStmt *s) {
         auto *a = s->a();
         auto elem_t = tensor_element_type(a->dtype());
-        // No native CallOp::ERF; use an external function call. The external
-        // function "erf" is expected to be resolved by the backend (e.g.
-        // libdevice, OpenCL std, or GLSL). Built once per statement (not per
-        // element) so all coordinates share the same ExternalFunction node.
-        shared_ptr<ExternalFunction> erf_fn;
-        if (s->op() == TileFastMathOp::ERF) {
-            erf_fn = luisa::make_shared<ExternalFunction>(
-                luisa::string{"erf"}, elem_t,
-                luisa::vector<const Type *>{elem_t},
-                luisa::vector<Usage>{Usage::READ});
-        }
         _temps[_tile->temp_output(s)] = TempValue{
             a->dtype(),
-            [this, s, a, elem_t, erf_fn = std::move(erf_fn)](const Coord &c) -> const Expression * {
+            [this, s, a, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
                 switch (s->op()) {
                     case TileFastMathOp::EXP: return _fb->call(elem_t, CallOp::EXP, {av});
@@ -1658,10 +1697,7 @@ private:
                     case TileFastMathOp::COS: return _fb->call(elem_t, CallOp::COS, {av});
                     case TileFastMathOp::TAN: return _fb->call(elem_t, CallOp::TAN, {av});
                     case TileFastMathOp::TANH: return _fb->call(elem_t, CallOp::TANH, {av});
-                    case TileFastMathOp::ERF: {
-                        luisa::vector<const Expression *> erf_args = {av};
-                        return _fb->call(elem_t, erf_fn, luisa::span{erf_args});
-                    }
+                    case TileFastMathOp::ERF: return _erf(av, elem_t);
                     default:
                         LUISA_ERROR_WITH_LOCATION(
                             "tile_to_kernel: unsupported fast math op {}.",

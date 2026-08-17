@@ -114,6 +114,24 @@ Tensor<tile::fp8, 1> fp8_clear_kernel() {
     }
     return C;
 }
+
+// erf has no CallOp::ERF and no portable external-function backend support,
+// so the lowerer must emit a software (A&S 7.1.26) approximation built from
+// ABS / EXP / SELECT / arithmetic instead of an "erf" external callable.
+Tensor<tile_f32, 2> erf_kernel(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 block_M = 8, block_N = 8;
+    constexpr tile_i32 threads = 32;
+    Tensor<tile_f32, 2> C = T.empty(T.shape(M, N), tile_f32{});
+    for (auto [bx, by] : T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads)) {
+        auto A_local = T.alloc_fragment(T.shape(block_M, block_N), tile_f32{});
+        auto E_local = T.alloc_fragment(T.shape(block_M, block_N), tile_f32{});
+        T.copy(A(by * block_M, bx * block_N), A_local);
+        E_local(block_M, block_N) = T.erf(A_local(block_M, block_N));
+        T.copy(E_local, C(by * block_M, bx * block_N));
+    }
+    return C;
+}
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -215,5 +233,28 @@ int main(int argc, char *argv[]) {
         expect(result.function->tag() == Function::Tag::KERNEL);
         expect(!result.function->body()->statements().empty());
         expect(static_cast<bool>(result.function->function()));
+    };
+
+    "erf_fast_math_lowers_in_software"_test = [] {
+        tile::Kernel kernel{erf_kernel};
+        auto result = tile_to_kernel(kernel.function());
+        expect(result.function != nullptr);
+        expect(result.dispatch_size.x == 4u * 32u && result.dispatch_size.y == 4u && result.dispatch_size.z == 1u);
+        auto block = result.function->block_size();
+        expect(block.x == 32u && block.y == 1u && block.z == 1u);
+        // A, C -> two buffer arguments
+        auto args = result.function->arguments();
+        expect(args.size() == 2u);
+        for (auto v : args) { expect(v.tag() == Variable::Tag::BUFFER); }
+        expect(result.function->tag() == Function::Tag::KERNEL);
+        expect(!result.function->body()->statements().empty());
+        expect(static_cast<bool>(result.function->function()));
+        // The software erf must not rely on an "erf" external callable.
+        expect(result.function->external_callables().empty());
+        // ... and must be composed of backend-supported ops.
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::EXP)) << "software erf uses exp(-x^2)";
+        expect(calls.test(CallOp::ABS)) << "software erf uses |x|";
+        expect(calls.test(CallOp::SELECT)) << "software erf applies sign(x)";
     };
 }
