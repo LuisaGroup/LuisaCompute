@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
 
     "spirv_target_feature_mask_has_stable_named_values"_test = [] {
-        constexpr std::array<uint64_t, 41u> expected_bits{
+        constexpr std::array<uint64_t, 42u> expected_bits{
             0x0000000000000001ull,
             0x0000000000000002ull,
             0x0000000000000004ull,
@@ -63,8 +63,9 @@ int main(int argc, char *argv[]) {
             0x0000002000000000ull,
             0x0000004000000000ull,
             0x0000008000000000ull,
-            0x0000010000000000ull};
-        constexpr std::array<std::string_view, 41u> expected_names{
+            0x0000010000000000ull,
+            0x0000020000000000ull};
+        constexpr std::array<std::string_view, 42u> expected_names{
             "shaderSampledImageArrayDynamicIndexing",
             "shaderSampledImageArrayNonUniformIndexing",
             "shaderResourceMinLod",
@@ -105,7 +106,8 @@ int main(int argc, char *argv[]) {
             "shaderStorageBufferArrayDynamicIndexing",
             "shaderDeviceClock",
             "bufferDeviceAddress",
-            "shaderUntypedPointers"};
+            "shaderUntypedPointers",
+            "cooperativeVector"};
 
         constexpr auto &features =
             lc::spirv::spirv_target_feature_descriptions;
@@ -119,7 +121,7 @@ int main(int argc, char *argv[]) {
                    expected_names[i]);
         }
         expect(eq(lc::spirv::target_feature::known_mask,
-                  0x000001ffffffffffull));
+                  0x000003ffffffffffull));
         expect(lc::spirv::spirv_target_feature_name(0u).empty());
         expect(lc::spirv::spirv_target_feature_name(
                    expected_bits[0] | expected_bits[1])

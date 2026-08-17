@@ -2006,15 +2006,15 @@ void test_hip_ray_query_large_mixed_dispatch(Device &device) {
         1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u};
     stream << vertex_buffer.copy_from(luisa::span{vertices})
            << triangle_buffer.copy_from(luisa::span{triangles})
-           << input_0.copy_from(input_values.data() + 0u)
-           << input_1.copy_from(input_values.data() + 1u)
-           << input_2.copy_from(input_values.data() + 2u)
-           << input_3.copy_from(input_values.data() + 3u)
-           << input_4.copy_from(input_values.data() + 4u)
-           << input_5.copy_from(input_values.data() + 5u)
-           << input_6.copy_from(input_values.data() + 6u)
-           << input_7.copy_from(input_values.data() + 7u)
-           << input_8.copy_from(input_values.data() + 8u)
+           << input_0.copy_from(luisa::span{input_values.data() + 0u, 1u})
+           << input_1.copy_from(luisa::span{input_values.data() + 1u, 1u})
+           << input_2.copy_from(luisa::span{input_values.data() + 2u, 1u})
+           << input_3.copy_from(luisa::span{input_values.data() + 3u, 1u})
+           << input_4.copy_from(luisa::span{input_values.data() + 4u, 1u})
+           << input_5.copy_from(luisa::span{input_values.data() + 5u, 1u})
+           << input_6.copy_from(luisa::span{input_values.data() + 6u, 1u})
+           << input_7.copy_from(luisa::span{input_values.data() + 7u, 1u})
+           << input_8.copy_from(luisa::span{input_values.data() + 8u, 1u})
            << mesh.build()
            << accel.build()
            << synchronize();
@@ -2067,7 +2067,7 @@ void test_hip_ray_query_large_mixed_dispatch(Device &device) {
                      input_3, input_4, input_5,
                      input_6, input_7, input_8)
                   .dispatch(resolution)
-           << result.copy_to(host_result.data())
+           << result.copy_to(luisa::span{host_result})
            << synchronize();
 
     auto mismatch_count = size_t{0u};
