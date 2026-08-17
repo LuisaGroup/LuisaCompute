@@ -301,8 +301,10 @@ enum struct TileSyncThreadsVoteOp : uint32_t {
 };
 
 /// T.ieee_* discriminator; rounding modes are R1 ids 0=rn, 1=rz, 2=ru, 3=rd.
+/// CAST carries a target element dtype in the `cast_dtype` field of IeeeMathStmt.
 enum struct TileIeeeOp : uint32_t {
-    ADD = 0, SUB = 1, MUL = 2, FMAF = 3, FRCP = 4, FSQRT = 5, FRSQRT = 6, FDIV = 7
+    ADD = 0, SUB = 1, MUL = 2, FMAF = 3, FRCP = 4, FSQRT = 5, FRSQRT = 6, FDIV = 7,
+    SQRT = 8, POW = 9, CEIL = 10, FLOOR = 11, ROUND = 12, ISINF = 13, ISNAN = 14, CAST = 15
 };
 
 /// packed x2 math discriminator (T.add2 / sub2 / mul2 / fma2 / max2 / min2 / abs2).
@@ -311,9 +313,10 @@ enum struct TilePackedOp : uint32_t {
 };
 
 /// fast-math intrinsic discriminator (T.__exp / __exp10 / __log / __log2 /
-/// __log10 / __sin / __cos / __tan).
+/// __log10 / __sin / __cos / __tan / __tanh / __erf).
 enum struct TileFastMathOp : uint32_t {
-    EXP = 0, EXP10 = 1, LOG = 2, LOG2 = 3, LOG10 = 4, SIN = 5, COS = 6, TAN = 7
+    EXP = 0, EXP10 = 1, LOG = 2, LOG2 = 3, LOG10 = 4, SIN = 5, COS = 6, TAN = 7,
+    TANH = 8, ERF = 9
 };
 
 /// T.alloc_var / alloc_local / alloc_global / alloc_barrier / alloc_reducer /
@@ -1482,18 +1485,21 @@ public:
 class LUISA_AST_API IeeeMathStmt final : public TensorStmt {
     TileIeeeOp _op{TileIeeeOp::ADD};// R1
     int32_t _rounding_mode{0};      // R1
+    TensorElementType _cast_dtype{TensorElementType::F32}; // R1: target dtype for CAST
 
 public:
     IeeeMathStmt() noexcept : TensorStmt{TileOpKind::IEEE_MATH} {}
     IeeeMathStmt(TileIeeeOp op, TensorExpr *a, TensorExpr *b = nullptr,
-                 TensorExpr *c = nullptr, int32_t rounding_mode = 0) noexcept
+                 TensorExpr *c = nullptr, int32_t rounding_mode = 0,
+                 TensorElementType cast_dtype = TensorElementType::F32) noexcept
         : TensorStmt{TileOpKind::IEEE_MATH, nullptr,
                      c != nullptr ? luisa::vector<TensorExpr *>{a, b, c}
                      : b != nullptr ? luisa::vector<TensorExpr *>{a, b}
                                     : luisa::vector<TensorExpr *>{a}},
-          _op{op}, _rounding_mode{rounding_mode} {}
+          _op{op}, _rounding_mode{rounding_mode}, _cast_dtype{cast_dtype} {}
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto rounding_mode() const noexcept { return _rounding_mode; }
+    [[nodiscard]] auto cast_dtype() const noexcept { return _cast_dtype; }
     [[nodiscard]] auto a() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
     [[nodiscard]] auto b() const noexcept { return inputs().size() > 1 ? inputs()[1] : nullptr; }
     [[nodiscard]] auto c() const noexcept { return inputs().size() > 2 ? inputs()[2] : nullptr; }
@@ -1523,7 +1529,7 @@ public:
 };
 
 // --- FastMath: T.__exp / __exp10 / __log / __log2 / __log10 / __sin / __cos /
-// __tan (all unary) ------------------------------------------------------------
+// __tan / __tanh / __erf (all unary) -------------------------------------------
 class LUISA_AST_API FastMathStmt final : public TensorStmt {
     TileFastMathOp _op{TileFastMathOp::EXP};// R1
 

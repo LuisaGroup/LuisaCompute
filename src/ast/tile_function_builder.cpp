@@ -245,6 +245,28 @@ luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuild
     return temp;
 }
 
+luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_fast_math(TileFastMathOp op, TensorExpr *a) noexcept {
+    auto *stmt = _create_and_append_statement<FastMathStmt>(op, a);
+    auto temp = TensorExprPtr{new TensorExpr{
+        a->rank(), a->dtype(), TensorScope::Fragment,
+        luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()}}};
+    _temp_outputs[stmt] = temp.get();
+    return temp;
+}
+
+luisa::unique_ptr<TensorExpr, std::default_delete<TensorExpr>> TileFunctionBuilder::tile_ieee_math(
+    TileIeeeOp op, TensorExpr *a, TensorExpr *b, TensorExpr *c,
+    int32_t rounding_mode, TensorElementType cast_dtype) noexcept {
+    auto *stmt = _create_and_append_statement<IeeeMathStmt>(op, a, b, c, rounding_mode, cast_dtype);
+    // The result dtype is the input dtype for most ops, but for CAST it is the target dtype.
+    auto result_dtype = (op == TileIeeeOp::CAST) ? cast_dtype : a->dtype();
+    auto temp = TensorExprPtr{new TensorExpr{
+        a->rank(), result_dtype, TensorScope::Fragment,
+        luisa::fixed_vector<int32_t, 4>{a->dims().begin(), a->dims().end()}}};
+    _temp_outputs[stmt] = temp.get();
+    return temp;
+}
+
 void TileFunctionBuilder::tile_loop_break() noexcept {
     _create_and_append_statement<LoopBreakStmt>();
 }

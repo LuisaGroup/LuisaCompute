@@ -1178,15 +1178,20 @@ size_t IeeeMathStmt::serialize(luisa::vector<char> &output_buffer) {
     TensorStmt::serialize(output_buffer);
     write_u32(output_buffer, static_cast<uint32_t>(_op));
     write_i32(output_buffer, _rounding_mode);
+    write_u32(output_buffer, static_cast<uint32_t>(_cast_dtype));
     return output_buffer.size() - start;
 }
 bool IeeeMathStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!TensorStmt::deserialize(input_ptr, end_ptr)) [[unlikely]] { return false; }
     uint32_t op;
     if (!read_u32(input_ptr, end_ptr, op)) [[unlikely]] { return false; }
-    if (op > static_cast<uint32_t>(TileIeeeOp::FDIV)) [[unlikely]] { return false; }
+    if (op > static_cast<uint32_t>(TileIeeeOp::CAST)) [[unlikely]] { return false; }
     _op = static_cast<TileIeeeOp>(op);
-    return read_i32(input_ptr, end_ptr, _rounding_mode);
+    if (!read_i32(input_ptr, end_ptr, _rounding_mode)) [[unlikely]] { return false; }
+    uint32_t cd;
+    if (!read_u32(input_ptr, end_ptr, cd)) [[unlikely]] { return false; }
+    _cast_dtype = static_cast<TensorElementType>(cd);
+    return true;
 }
 
 // --- PackedMath ---
@@ -1216,7 +1221,7 @@ bool FastMathStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!TensorStmt::deserialize(input_ptr, end_ptr)) [[unlikely]] { return false; }
     uint32_t op;
     if (!read_u32(input_ptr, end_ptr, op)) [[unlikely]] { return false; }
-    if (op > static_cast<uint32_t>(TileFastMathOp::TAN)) [[unlikely]] { return false; }
+    if (op > static_cast<uint32_t>(TileFastMathOp::ERF)) [[unlikely]] { return false; }
     _op = static_cast<TileFastMathOp>(op);
     return true;
 }

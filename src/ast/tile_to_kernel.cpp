@@ -627,6 +627,7 @@ barriers/atomics where TileLang's passes would inject them).
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/ast/expression.h>
+#include <luisa/ast/external_function.h>
 #include <luisa/ast/op.h>
 #include <luisa/ast/type.h>
 
@@ -1351,6 +1352,17 @@ private:
                 auto *a = static_cast<const AbsStmt *>(s);
                 return shared_scope(a->a());
             }
+            case TileOpKind::FAST_MATH: {
+                auto *f = static_cast<const FastMathStmt *>(s);
+                return shared_scope(f->a());
+            }
+            case TileOpKind::IEEE_MATH: {
+                auto *ie = static_cast<const IeeeMathStmt *>(s);
+                if (shared_scope(ie->a())) { return true; }
+                if (ie->b() != nullptr && shared_scope(ie->b())) { return true; }
+                if (ie->c() != nullptr && shared_scope(ie->c())) { return true; }
+                return false;
+            }
             default: return false;
         }
     }
@@ -1390,6 +1402,8 @@ private:
             case TileOpKind::SHUFFLE: _emit_shuffle(static_cast<const ShuffleStmt *>(stmt)); break;
             case TileOpKind::MIN: _emit_min(static_cast<const MinStmt *>(stmt)); break;
             case TileOpKind::ABS: _emit_abs(static_cast<const AbsStmt *>(stmt)); break;
+            case TileOpKind::FAST_MATH: _emit_fast_math(static_cast<const FastMathStmt *>(stmt)); break;
+            case TileOpKind::IEEE_MATH: _emit_ieee_math(static_cast<const IeeeMathStmt *>(stmt)); break;
             // host-side / metadata statements: no kernel code
             case TileOpKind::CEILDIV:
             case TileOpKind::KERNEL_1D:
@@ -1613,6 +1627,98 @@ private:
             [this, s, a, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
                 return _fb->call(elem_t, CallOp::RSQRT, {av});
+            }};
+    }
+
+    void _emit_fast_math(const FastMathStmt *s) {
+        auto *a = s->a();
+        auto elem_t = tensor_element_type(a->dtype());
+        // No native CallOp::ERF; use an external function call. The external
+        // function "erf" is expected to be resolved by the backend (e.g.
+        // libdevice, OpenCL std, or GLSL). Built once per statement (not per
+        // element) so all coordinates share the same ExternalFunction node.
+        shared_ptr<ExternalFunction> erf_fn;
+        if (s->op() == TileFastMathOp::ERF) {
+            erf_fn = luisa::make_shared<ExternalFunction>(
+                luisa::string{"erf"}, elem_t,
+                luisa::vector<const Type *>{elem_t},
+                luisa::vector<Usage>{Usage::READ});
+        }
+        _temps[_tile->temp_output(s)] = TempValue{
+            a->dtype(),
+            [this, s, a, elem_t, erf_fn = std::move(erf_fn)](const Coord &c) -> const Expression * {
+                auto av = _value_at(a, c);
+                switch (s->op()) {
+                    case TileFastMathOp::EXP: return _fb->call(elem_t, CallOp::EXP, {av});
+                    case TileFastMathOp::EXP10: return _fb->call(elem_t, CallOp::EXP10, {av});
+                    case TileFastMathOp::LOG: return _fb->call(elem_t, CallOp::LOG, {av});
+                    case TileFastMathOp::LOG2: return _fb->call(elem_t, CallOp::LOG2, {av});
+                    case TileFastMathOp::LOG10: return _fb->call(elem_t, CallOp::LOG10, {av});
+                    case TileFastMathOp::SIN: return _fb->call(elem_t, CallOp::SIN, {av});
+                    case TileFastMathOp::COS: return _fb->call(elem_t, CallOp::COS, {av});
+                    case TileFastMathOp::TAN: return _fb->call(elem_t, CallOp::TAN, {av});
+                    case TileFastMathOp::TANH: return _fb->call(elem_t, CallOp::TANH, {av});
+                    case TileFastMathOp::ERF: {
+                        luisa::vector<const Expression *> erf_args = {av};
+                        return _fb->call(elem_t, erf_fn, luisa::span{erf_args});
+                    }
+                    default:
+                        LUISA_ERROR_WITH_LOCATION(
+                            "tile_to_kernel: unsupported fast math op {}.",
+                            static_cast<uint32_t>(s->op()));
+                }
+            }};
+    }
+
+    void _emit_ieee_math(const IeeeMathStmt *s) {
+        auto *a = s->a();
+        auto *b = s->b();
+        auto elem_t = tensor_element_type(a->dtype());
+        // For CAST, the result type is the cast target dtype.
+        auto result_dtype = (s->op() == TileIeeeOp::CAST) ? s->cast_dtype() : a->dtype();
+        auto result_elem_t = tensor_element_type(result_dtype);
+        _temps[_tile->temp_output(s)] = TempValue{
+            result_dtype,
+            [this, s, a, b, elem_t, result_elem_t](const Coord &c) -> const Expression * {
+                auto av = _value_at(a, c);
+                switch (s->op()) {
+                    case TileIeeeOp::SQRT:
+                    case TileIeeeOp::FSQRT:
+                        return _fb->call(elem_t, CallOp::SQRT, {av});
+                    case TileIeeeOp::POW: {
+                        LUISA_ASSERT(b != nullptr,
+                                     "tile_to_kernel: ieee POW requires a second "
+                                     "input tensor (b).");
+                        auto bv = _value_at(b, c);
+                        return _fb->call(elem_t, CallOp::POW, {av, bv});
+                    }
+                    case TileIeeeOp::CEIL:
+                        return _fb->call(elem_t, CallOp::CEIL, {av});
+                    case TileIeeeOp::FLOOR:
+                        return _fb->call(elem_t, CallOp::FLOOR, {av});
+                    case TileIeeeOp::ROUND:
+                        return _fb->call(elem_t, CallOp::ROUND, {av});
+                    case TileIeeeOp::ISINF:
+                    case TileIeeeOp::ISNAN: {
+                        // ISINF/ISNAN produce a *boolean* predicate in the core
+                        // IR (the XIR verifier rejects a float-typed result),
+                        // so emit the call typed bool and cast back to the
+                        // fragment's element type; downstream copies then cast
+                        // to the destination dtype (e.g. int32) via _maybe_cast.
+                        auto pred = _fb->call(
+                            Type::of<bool>(),
+                            s->op() == TileIeeeOp::ISINF ? CallOp::ISINF : CallOp::ISNAN,
+                            {av});
+                        return _fb->cast(elem_t, CastOp::STATIC, pred);
+                    }
+                    case TileIeeeOp::CAST:
+                        // Use a CastExpr to convert the value to the target type.
+                        return _fb->cast(result_elem_t, CastOp::STATIC, av);
+                    default:
+                        LUISA_ERROR_WITH_LOCATION(
+                            "tile_to_kernel: unsupported ieee math op {}.",
+                            static_cast<uint32_t>(s->op()));
+                }
             }};
     }
 

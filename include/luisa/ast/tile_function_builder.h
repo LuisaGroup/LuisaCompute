@@ -321,6 +321,20 @@ public:
     /// kernel break; only valid inside a Pipelined / loop body).
     void tile_loop_break() noexcept;
 
+    /// Tile fast math: T.__exp / __log / __sin / __cos / __tan / __tanh / __erf
+    /// (all unary). Returns a fresh fragment temporary tensor owned by the caller.
+    [[nodiscard]] TensorExprPtr tile_fast_math(TileFastMathOp op, TensorExpr *a) noexcept;
+
+    /// Tile IEEE math: T.sqrt / T.pow / T.ceil / T.floor / T.round / T.isinf /
+    /// T.isnan / T.cast (plus the existing ADD/SUB/MUL/FMAF/FRCP/FSQRT/FRSQRT/FDIV).
+    /// Returns a fresh fragment temporary tensor owned by the caller.
+    /// `cast_dtype` is the target element type for CAST (ignored for other ops).
+    [[nodiscard]] TensorExprPtr tile_ieee_math(TileIeeeOp op, TensorExpr *a,
+                                                TensorExpr *b = nullptr,
+                                                TensorExpr *c = nullptr,
+                                                int32_t rounding_mode = 0,
+                                                TensorElementType cast_dtype = TensorElementType::F32) noexcept;
+
     // stack operations
     /// Push a tile function builder in the stack.
     static void push(TileFunctionBuilder *) noexcept;

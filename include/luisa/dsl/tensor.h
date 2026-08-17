@@ -951,6 +951,147 @@ inline TileExpr<R> rsqrt(const TileExpr<R> &a) {
     return e;
 }
 
+// ---- tile fast math helpers (unary: exp, log, sin, cos, tan, tanh, erf) ------
+
+template<size_t R>
+inline TileExpr<R> _fast_math_op(const char *name, TileFastMathOp op, const TileExpr<R> &a) {
+    LUISA_INFO("[tensor-dsl] tile-op: {}({})", name, detail::describe(a));
+    TileExpr<R> e;
+    e.name = luisa::format("expr({})", name);
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto tmp = builder->tile_fast_math(op, a.take());
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
+    return e;
+}
+
+template<size_t R>
+inline TileExpr<R> exp(const TileExpr<R> &a) {
+    return _fast_math_op("exp", TileFastMathOp::EXP, a);
+}
+
+template<size_t R>
+inline TileExpr<R> log(const TileExpr<R> &a) {
+    return _fast_math_op("log", TileFastMathOp::LOG, a);
+}
+
+template<size_t R>
+inline TileExpr<R> sin(const TileExpr<R> &a) {
+    return _fast_math_op("sin", TileFastMathOp::SIN, a);
+}
+
+template<size_t R>
+inline TileExpr<R> cos(const TileExpr<R> &a) {
+    return _fast_math_op("cos", TileFastMathOp::COS, a);
+}
+
+template<size_t R>
+inline TileExpr<R> tan(const TileExpr<R> &a) {
+    return _fast_math_op("tan", TileFastMathOp::TAN, a);
+}
+
+template<size_t R>
+inline TileExpr<R> tanh(const TileExpr<R> &a) {
+    return _fast_math_op("tanh", TileFastMathOp::TANH, a);
+}
+
+template<size_t R>
+inline TileExpr<R> erf(const TileExpr<R> &a) {
+    return _fast_math_op("erf", TileFastMathOp::ERF, a);
+}
+
+// ---- tile ieee math helpers (unary: sqrt, ceil, floor, round, isinf, isnan) ---
+
+template<size_t R>
+inline TileExpr<R> _ieee_math_op(const char *name, TileIeeeOp op, const TileExpr<R> &a) {
+    LUISA_INFO("[tensor-dsl] tile-op: {}({})", name, detail::describe(a));
+    TileExpr<R> e;
+    e.name = luisa::format("expr({})", name);
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto tmp = builder->tile_ieee_math(op, a.take());
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
+    return e;
+}
+
+template<size_t R>
+inline TileExpr<R> sqrt(const TileExpr<R> &a) {
+    return _ieee_math_op("sqrt", TileIeeeOp::SQRT, a);
+}
+
+template<size_t R>
+inline TileExpr<R> ceil(const TileExpr<R> &a) {
+    return _ieee_math_op("ceil", TileIeeeOp::CEIL, a);
+}
+
+template<size_t R>
+inline TileExpr<R> floor(const TileExpr<R> &a) {
+    return _ieee_math_op("floor", TileIeeeOp::FLOOR, a);
+}
+
+template<size_t R>
+inline TileExpr<R> round(const TileExpr<R> &a) {
+    return _ieee_math_op("round", TileIeeeOp::ROUND, a);
+}
+
+template<size_t R>
+inline TileExpr<R> isinf(const TileExpr<R> &a) {
+    return _ieee_math_op("isinf", TileIeeeOp::ISINF, a);
+}
+
+template<size_t R>
+inline TileExpr<R> isnan(const TileExpr<R> &a) {
+    return _ieee_math_op("isnan", TileIeeeOp::ISNAN, a);
+}
+
+// ---- pow (binary ieee math) ---------------------------------------------------
+
+template<size_t R>
+inline TileExpr<R> pow(const TileExpr<R> &a, const TileExpr<R> &b) {
+    LUISA_INFO("[tensor-dsl] tile-op: pow({}, {})", detail::describe(a), detail::describe(b));
+    TileExpr<R> e;
+    e.name = "expr(pow)";
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto tmp = builder->tile_ieee_math(TileIeeeOp::POW, a.take(), b.take());
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
+    return e;
+}
+
+// ---- cast (type conversion) ---------------------------------------------------
+// Cast a tile expression to a different element type, e.g. cast<f32>(a).
+// The target dtype is a template parameter (f32, f16, i32, ...).
+
+template<typename DstDType, size_t R>
+inline TileExpr<R> cast(const TileExpr<R> &a) {
+    LUISA_INFO("[tensor-dsl] tile-op: cast<{}>({})", detail::dtype_name<DstDType>(), detail::describe(a));
+    TileExpr<R> e;
+    e.name = luisa::format("expr(cast<{}>)", detail::dtype_name<DstDType>());
+    e.scope = a.scope;
+    e.offset = a.offset;
+    e.extent = a.extent;
+    if (auto *builder = TileFunctionBuilder::current_or_null()) {
+        auto dst_dtype = detail::tensor_element_type_v<DstDType>;
+        auto tmp = builder->tile_ieee_math(TileIeeeOp::CAST, a.take(),
+                                           nullptr, nullptr, 0, dst_dtype);
+        e.ast = tmp.get();
+        e.owned = std::move(tmp);
+    }
+    return e;
+}
+
 inline int ceildiv(int a, int b) noexcept {
     if (auto *builder = TileFunctionBuilder::current_or_null()) {
         return builder->tile_ceildiv(a, b);
@@ -1536,6 +1677,74 @@ struct dsl_t {
     template<size_t R>
     auto abs(const TileExpr<R> &a) const {
         return luisa::compute::tile::language::abs(a);
+    }
+
+    // ---- math functions (fast math) ----------------------------------------
+    template<size_t R>
+    auto exp(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::exp(a);
+    }
+    template<size_t R>
+    auto log(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::log(a);
+    }
+    template<size_t R>
+    auto sin(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::sin(a);
+    }
+    template<size_t R>
+    auto cos(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::cos(a);
+    }
+    template<size_t R>
+    auto tan(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::tan(a);
+    }
+    template<size_t R>
+    auto tanh(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::tanh(a);
+    }
+    template<size_t R>
+    auto erf(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::erf(a);
+    }
+
+    // ---- math functions (ieee math) ----------------------------------------
+    template<size_t R>
+    auto sqrt(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::sqrt(a);
+    }
+    template<size_t R>
+    auto ceil(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::ceil(a);
+    }
+    template<size_t R>
+    auto floor(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::floor(a);
+    }
+    template<size_t R>
+    auto round(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::round(a);
+    }
+    template<size_t R>
+    auto isinf(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::isinf(a);
+    }
+    template<size_t R>
+    auto isnan(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::isnan(a);
+    }
+
+    // ---- pow (binary ieee math) --------------------------------------------
+    template<size_t R>
+    auto pow(const TileExpr<R> &a, const TileExpr<R> &b) const {
+        return luisa::compute::tile::language::pow(a, b);
+    }
+
+    // ---- cast --------------------------------------------------------------
+    template<typename DstDType, size_t R>
+    auto cast(const TileExpr<R> &a) const {
+        return luisa::compute::tile::language::cast<DstDType>(a);
     }
 
     int ceildiv(int a, int b) const noexcept {
