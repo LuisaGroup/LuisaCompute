@@ -349,6 +349,142 @@ std::vector<uint32_t> build_dynamic_tile() noexcept {
 
 }// namespace
 
+// Build a GDeflate tile-stream header on the host (matches the GPU writer).
+inline void write_stream_header(std::vector<std::byte> &out, uint32_t num_tiles,
+                                uint32_t last_tile_size) noexcept {
+    out.resize(kStreamHeaderSize + num_tiles * sizeof(uint32_t), std::byte{0});
+    uint32_t word1 = 4u | (0xFBu << 8u) | (num_tiles << 16u);
+    uint32_t word2 = last_tile_size << 2u;
+    std::memcpy(out.data(), &word1, sizeof(word1));
+    std::memcpy(out.data() + 4u, &word2, sizeof(word2));
+}
+
+// Exercise wrong-size / wrong-format corner cases.  The important property is
+// that every call either produces the expected result or is rejected cleanly -
+// no GPU hang, device loss, or out-of-bounds memory corruption.
+bool run_corner_case_tests(GDeflateCodec &codec, Stream &stream, Device &device) noexcept {
+    bool ok = true;
+
+    // 1. Empty input: compress(0) must emit a valid 8-byte empty stream and
+    //    decompress(0) must be a clean no-op.
+    {
+        ByteBuffer empty_in = device.create_byte_buffer(1u);
+        ByteBuffer empty_comp = codec.allocate_compressed(0u);
+        ByteBuffer empty_dec = codec.allocate_uncompressed(0u);
+        uint32_t n = codec.compress(empty_in, empty_comp, 0u);
+        std::array<std::byte, 8> hdr{};
+        stream << empty_comp.view(0u, 8u).copy_to(hdr.data()) << synchronize();
+        uint32_t w1{};
+        std::memcpy(&w1, hdr.data(), sizeof(w1));
+        bool pass = (n == 8u) && ((w1 & 0xffffu) == (4u | (0xFBu << 8u))) &&
+                    (((w1 >> 16u) & 0xffffu) == 0u);
+        codec.decompress(empty_comp, empty_dec, 0u); // no-op
+        ok &= pass;
+        LUISA_INFO("corner: empty stream {}", pass ? "PASS" : "FAIL");
+    }
+
+    // 2. Wrong output_size: the stream has 1 tile but the caller asks for 2
+    //    tiles (too large) and 0 tiles (too small).  The dispatch must clamp to
+    //    the stream's tile count; the output beyond the real tile stays intact.
+    {
+        constexpr uint32_t sz = 100u;
+        std::vector<std::byte> data(sz, std::byte{0xAB});
+        ByteBuffer in = device.create_byte_buffer(sz);
+        stream << in.copy_from(data.data()) << synchronize();
+        ByteBuffer comp = codec.allocate_compressed(sz);
+        codec.compress(in, comp, sz);
+
+        // Too large: expects 2 tiles (sz + 32768), stream has 1 -> clamp to 1.
+        ByteBuffer out_big = codec.allocate_uncompressed(sz + kDefaultTileSize);
+        std::vector<std::byte> fill(out_big.size_bytes(), std::byte{0xAA});
+        stream << out_big.copy_from(fill.data()) << synchronize();
+        codec.decompress(comp, out_big, sz + kDefaultTileSize);
+        std::vector<std::byte> got(out_big.size_bytes());
+        stream << out_big.copy_to(got.data()) << synchronize();
+        bool pass = got[0] == data[0] && got[sz - 1u] == data[sz - 1u] &&
+                    got[sz] == std::byte{0xAA}; // clamped: only the first tile decoded
+        ok &= pass;
+        LUISA_INFO("corner: wrong output_size (too large) {}", pass ? "PASS" : "FAIL");
+
+        // Too small: expects 0 tiles -> clean no-op.
+        ByteBuffer out_small = codec.allocate_uncompressed(sz - 1u);
+        codec.decompress(comp, out_small, sz - 1u);
+        LUISA_INFO("corner: wrong output_size (too small) PASS");
+    }
+
+    // 3. Malformed header (bad magic/id): must be rejected before dispatch and
+    //    leave the output buffer untouched.
+    {
+        std::vector<std::byte> bad(64u, std::byte{0});
+        bad[0] = std::byte{0x99}; // not id=4
+        ByteBuffer in = device.create_byte_buffer(bad.size());
+        stream << in.copy_from(bad.data()) << synchronize();
+        ByteBuffer out = codec.allocate_uncompressed(64u);
+        std::vector<std::byte> fill(64u, std::byte{0x5A});
+        stream << out.copy_from(fill.data()) << synchronize();
+        codec.decompress(in, out, 64u); // rejected
+        std::vector<std::byte> got(64u);
+        stream << out.copy_to(got.data()) << synchronize();
+        bool pass = got[0] == std::byte{0x5A}; // untouched
+        ok &= pass;
+        LUISA_INFO("corner: bad header magic {}", pass ? "PASS" : "FAIL");
+    }
+
+    // 4. Tiny input buffer (< 8 bytes): rejected cleanly.
+    {
+        ByteBuffer in = device.create_byte_buffer(4u);
+        ByteBuffer out = codec.allocate_uncompressed(4u);
+        codec.decompress(in, out, 4u); // rejected
+        LUISA_INFO("corner: tiny input buffer PASS");
+    }
+
+    // 5. Valid header but garbage/truncated tile data: must terminate without
+    //    hanging the GPU (output is allowed to be garbage).
+    {
+        std::vector<std::byte> g;
+        write_stream_header(g, 1u, 100u);
+        // Pointer table entry says 128 bytes of tile data; supply only 8.
+        uint32_t table0 = 128u;
+        std::memcpy(g.data() + 8u, &table0, sizeof(table0));
+        g.insert(g.end(), 8u, std::byte{0xFF});
+        ByteBuffer in = device.create_byte_buffer(g.size());
+        stream << in.copy_from(g.data()) << synchronize();
+        ByteBuffer out = codec.allocate_uncompressed(100u);
+        codec.decompress(in, out, 100u); // must complete (truncated reads are clamped)
+        LUISA_INFO("corner: truncated stream PASS");
+    }
+
+    // 6. BTYPE=3 (reserved) first block: the general path must stop immediately
+    //    instead of spinning on a stream that never reaches BFINAL.
+    {
+        std::vector<std::byte> g;
+        write_stream_header(g, 1u, 100u);
+        uint32_t table0 = 128u;
+        std::memcpy(g.data() + 8u, &table0, sizeof(table0));
+        // Tile stream 0 packet 0: BFINAL=1, BTYPE=3, rest zero.
+        g.insert(g.end(), 128u, std::byte{0});
+        uint32_t word0 = 1u | (3u << 1u);
+        std::memcpy(g.data() + 12u, &word0, sizeof(word0));
+        ByteBuffer in = device.create_byte_buffer(g.size());
+        stream << in.copy_from(g.data()) << synchronize();
+        ByteBuffer out = codec.allocate_uncompressed(100u);
+        codec.decompress(in, out, 100u); // must complete
+        LUISA_INFO("corner: BTYPE=3 reserved block PASS");
+    }
+
+    // 7. Compress validation: input_size larger than the buffer is rejected.
+    {
+        ByteBuffer in = device.create_byte_buffer(16u);
+        ByteBuffer out = codec.allocate_compressed(64u);
+        uint32_t n = codec.compress(in, out, 64u); // 64 > buffer 16 -> rejected
+        bool pass = (n == 0u);
+        ok &= pass;
+        LUISA_INFO("corner: compress input_size > buffer {}", pass ? "PASS" : "FAIL");
+    }
+
+    return ok;
+}
+
 bool run_huffman_tile_tests(GDeflateCodec &codec, Stream &stream, Device &device) noexcept {
     bool ok = true;
 
@@ -458,6 +594,12 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         LUISA_INFO("GDeflate fixed/dynamic Huffman tile tests: PASSED");
+
+        if (!run_corner_case_tests(codec, stream, device)) {
+            LUISA_WARNING("GDeflate corner-case tests: FAILED");
+            return 1;
+        }
+        LUISA_INFO("GDeflate corner-case tests: PASSED");
         return 0;
     }
 

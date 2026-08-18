@@ -25,12 +25,12 @@ GDeflateCodec::GDeflateCodec(Device &device, Stream &stream)
 uint32_t GDeflateCodec::compress(const ByteBuffer &input, ByteBuffer &output, uint32_t input_size) {
     uint32_t num_tiles = compute_num_tiles(input_size);
     if (num_tiles > kMaxTiles) {
-        LUISA_ERROR("GDeflate compress: {} bytes needs {} tiles, exceeding the 16-bit limit of {}",
+        LUISA_WARNING("GDeflate compress: {} bytes needs {} tiles, exceeding the 16-bit limit of {}",
                     input_size, num_tiles, kMaxTiles);
         return 0u;
     }
     if (input_size > input.size_bytes()) {
-        LUISA_ERROR("GDeflate compress: input_size {} exceeds buffer size {}",
+        LUISA_WARNING("GDeflate compress: input_size {} exceeds buffer size {}",
                     input_size, input.size_bytes());
         return 0u;
     }
@@ -51,12 +51,12 @@ uint32_t GDeflateCodec::compress(const ByteBuffer &input, ByteBuffer &output, ui
 void GDeflateCodec::decompress(const ByteBuffer &input, ByteBuffer &output, uint32_t output_size) {
     uint32_t expected_tiles = compute_num_tiles(output_size);
     if (expected_tiles > kMaxTiles) {
-        LUISA_ERROR("GDeflate decompress: output_size {} implies {} tiles, exceeding the 16-bit limit of {}",
+        LUISA_WARNING("GDeflate decompress: output_size {} implies {} tiles, exceeding the 16-bit limit of {}",
                     output_size, expected_tiles, kMaxTiles);
         return;
     }
     if (input.size_bytes() < kStreamHeaderSize) {
-        LUISA_ERROR("GDeflate decompress: input buffer too small ({} bytes < {})",
+        LUISA_WARNING("GDeflate decompress: input buffer too small ({} bytes < {})",
                     input.size_bytes(), kStreamHeaderSize);
         return;
     }
@@ -71,7 +71,7 @@ void GDeflateCodec::decompress(const ByteBuffer &input, ByteBuffer &output, uint
       uint32_t word1 = static_cast<uint32_t>(hdr);
       uint32_t word2 = static_cast<uint32_t>(hdr >> 32u);
       if ((word1 & 0xffu) != kGDeflateHeaderId || ((word1 >> 8u) & 0xffu) != kGDeflateHeaderMagic) {
-          LUISA_ERROR("GDeflate decompress: invalid stream header (word1 = 0x{:08x})", word1);
+          LUISA_WARNING("GDeflate decompress: invalid stream header (word1 = 0x{:08x})", word1);
           return;
       }
       uint32_t stream_tiles = (word1 >> 16u) & 0xffffu;
