@@ -323,14 +323,15 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
     UInt qgroups = (nrounds + 3u) / 4u;
     // Software-pipeline the input reads: load packet q+1 before processing
     // packet q so the global-memory latency overlaps with the shuffle/write work.
-    UInt word = input.read<uint>(in_pos + tid * 4u);
-    $if (in_pos + tid * 4u + 4u > in_end) { word = 0u; }; // TEMP: read-then-mask
+    UInt word = 0u;
+    $if (in_pos + tid * 4u + 4u <= in_end) { word = input.read<uint>(in_pos + tid * 4u); };
     $for (q, qgroups) {
         UInt cur = word;
         UInt nq = q + 1u;
         $if (nq < qgroups) {
-            word = input.read<uint>(in_pos + (nq * 32u + tid) * 4u);
-            $if (in_pos + (nq * 32u + tid) * 4u + 4u > in_end) { word = 0u; }; // TEMP
+            UInt wq = 0u;
+            $if (in_pos + (nq * 32u + tid) * 4u + 4u <= in_end) { wq = input.read<uint>(in_pos + (nq * 32u + tid) * 4u); };
+            word = wq;
         };
         $for (j, 4u) {
             UInt round = q * 4u + j;
@@ -344,12 +345,12 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
                     UInt bit = 19u + round * 8u;
                     UInt p = bit >> 5u;
                     UInt shift = bit & 31u;
-                    UInt w0 = input.read<uint>(in_pos + (p * 32u) * 4u);
-                    $if (in_pos + (p * 32u) * 4u + 4u > in_end) { w0 = 0u; }; // TEMP
+                    UInt w0 = 0u;
+                    $if (in_pos + (p * 32u) * 4u + 4u <= in_end) { w0 = input.read<uint>(in_pos + (p * 32u) * 4u); };
                     byte = (w0 >> shift) & 0xffu;
                     $if (shift > 24u) {
-                        UInt w1 = input.read<uint>(in_pos + ((p + 1u) * 32u) * 4u);
-                        $if (in_pos + ((p + 1u) * 32u) * 4u + 4u > in_end) { w1 = 0u; }; // TEMP
+                        UInt w1 = 0u;
+                        $if (in_pos + ((p + 1u) * 32u) * 4u + 4u <= in_end) { w1 = input.read<uint>(in_pos + ((p + 1u) * 32u) * 4u); };
                         byte = byte | ((w1 << (32u - shift)) & 0xffu);
                     };
                 } $else {
@@ -379,20 +380,20 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
                 bit = 19u + (b / 32u) * 8u;
                 UInt p = bit >> 5u;
                 UInt shift = bit & 31u;
-                w = input.read<uint>(in_pos + (p * 32u) * 4u);
-                $if (in_pos + (p * 32u) * 4u + 4u > in_end) { w = 0u; }; // TEMP
+                w = 0u;
+                $if (in_pos + (p * 32u) * 4u + 4u <= in_end) { w = input.read<uint>(in_pos + (p * 32u) * 4u); };
                 UInt byte0 = (w >> shift) & 0xffu;
                 $if (shift > 24u) {
-                    UInt w1 = input.read<uint>(in_pos + ((p + 1u) * 32u) * 4u);
-                    $if (in_pos + ((p + 1u) * 32u) * 4u + 4u > in_end) { w1 = 0u; }; // TEMP
+                    UInt w1 = 0u;
+                    $if (in_pos + ((p + 1u) * 32u) * 4u + 4u <= in_end) { w1 = input.read<uint>(in_pos + ((p + 1u) * 32u) * 4u); };
                     byte0 = byte0 | ((w1 << (32u - shift)) & 0xffu);
                 };
                 w = byte0;
             } $else {
                 bit = (b / 32u) * 8u;
                 UInt p = bit >> 5u;
-                w = input.read<uint>(in_pos + (p * 32u + tid) * 4u);
-                $if (in_pos + (p * 32u + tid) * 4u + 4u > in_end) { w = 0u; }; // TEMP
+                w = 0u;
+                $if (in_pos + (p * 32u + tid) * 4u + 4u <= in_end) { w = input.read<uint>(in_pos + (p * 32u + tid) * 4u); };
                 w = (w >> (bit & 31u)) & 0xffu;
             };
             store_byte(output, out_pos + b, w);
@@ -768,8 +769,8 @@ inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
     // BitReader entirely (direct p*32+s packet addressing, 4x fewer input reads
     // and no per-round warp refill scans).  Stream 0 packet 0 holds the block
     // header, so BFINAL/BTYPE/LEN are read straight from the first word.
-    UInt word0 = input.read<uint>(in_pos);
-    $if (in_pos + 4u > in_end) { word0 = 0u; }; // truncation guard
+    UInt word0 = 0u;
+    $if (in_pos + 4u <= in_end) { word0 = input.read<uint>(in_pos); };
     $if (((word0 & 1u) != 0u) & ((word0 >> 1u) & 3u) == 0u) {
         UInt len = min((word0 >> 3u) & 0xffffu, out_size);
         // The round loop overwrites whole words, but the tail bytes are written
