@@ -19,8 +19,8 @@ uint32_t GDeflateCodec::compress(const ByteBuffer &input, ByteBuffer &output, ui
     uint32_t output_size = compress_bound(input_size);
 
     // The compressed stream is written at the start of the output buffer.
-    // 32 threads per tile: one warp compresses each tile, one lane per stream.
-    _stream << _compress_shader(input, output, 0u, 0u, num_tiles, last_tile_size).dispatch(num_tiles * 32u)
+    // 256 threads per tile: each thread emits one output-word slot.
+    _stream << _compress_shader(input, output, 0u, 0u, num_tiles, last_tile_size).dispatch(num_tiles * 256u)
             << synchronize();
 
     return output_size;

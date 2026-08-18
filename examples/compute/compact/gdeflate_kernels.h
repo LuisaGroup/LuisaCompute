@@ -1023,20 +1023,82 @@ inline void compress_tile_warp(const ByteBufferVar &input, ByteBufferVar &output
     };
 }
 
+// Compute output word p of stream 0 (the bit-packed stream with the 19-bit
+// header) directly from the input bytes.  Every packet is independent: packet
+// 0 is the header plus bytes 0..1; packet p>=1 covers bits 32p..32p+31, which
+// start at byte (4p-3), bit offset 5, and span five bytes.
+inline UInt compress_stream0_word(const ByteBufferVar &input, UInt in_pos, UInt p,
+                                  UInt tile_size, UInt nbytes0) noexcept {
+    UInt w = 0u;
+    $if (p == 0u) {
+        w = 1u | (tile_size << 3u); // BFINAL=1, BTYPE=00, LEN
+        w = w | (read_input_byte(input, in_pos, 0u) << 19u);
+        $if (nbytes0 > 1u) {
+            w = w | ((read_input_byte(input, in_pos, 32u) & 0x1fu) << 27u);
+        };
+    } $else {
+        UInt k = p * 4u - 3u;
+        $if (k < nbytes0) { w = w | (read_input_byte(input, in_pos, k * 32u) >> 5u); };
+        $if (k + 1u < nbytes0) { w = w | (read_input_byte(input, in_pos, (k + 1u) * 32u) << 3u); };
+        $if (k + 2u < nbytes0) { w = w | (read_input_byte(input, in_pos, (k + 2u) * 32u) << 11u); };
+        $if (k + 3u < nbytes0) { w = w | (read_input_byte(input, in_pos, (k + 3u) * 32u) << 19u); };
+        $if (k + 4u < nbytes0) { w = w | (read_input_byte(input, in_pos, (k + 4u) * 32u) << 27u); };
+    };
+    return w;
+}
+
+// Fully parallel compressor for a single uncompressed-block tile: 256 threads
+// per tile, one thread per output-word slot.  Thread t handles stream s = t%32
+// and word-block p0 = t/32, writing words p = p0 + 8*i for i = 0..32.  Stream 0
+// (257 packets for a full tile) is computed independently per packet with
+// compress_stream0_word, so there is no serial bit-packing chain at all.
+inline void compress_tile_parallel(const ByteBufferVar &input, ByteBufferVar &output,
+                                   UInt in_pos, UInt out_pos, UInt tile_size,
+                                   UInt s, UInt p0) noexcept {
+    UInt nbytes = (tile_size + 31u) / 32u;          // bytes per stream (ceil)
+    UInt nwords = (nbytes + 3u) / 4u;               // packets per byte-aligned stream
+    UInt nwords0 = (19u + nbytes * 8u + 31u) / 32u; // packets for stream 0
+    $for (i, 33u) {
+        UInt p = p0 + 8u * i;
+        $if (s == 0u) {
+            $if (p < nwords0) {
+                output.write(out_pos + p * 128u, compress_stream0_word(input, in_pos, p, tile_size, nbytes));
+            };
+        } $else {
+            $if (p < nwords) {
+                UInt w = 0u;
+                $for (j, 4u) {
+                    UInt k = p * 4u + j;
+                    $if (k < nbytes) {
+                        UInt byte_idx = k * 32u + s;
+                        $if (byte_idx < tile_size) {
+                            UInt b = read_input_byte(input, in_pos, byte_idx);
+                            w = w | (b << (j * 8u));
+                        };
+                    };
+                };
+                output.write(out_pos + (p * 32u + s) * 4u, w);
+            };
+        };
+    };
+}
+
 inline auto make_compress_kernel() noexcept {
     return [](ByteBufferVar input, ByteBufferVar output,
               UInt stream_in_pos, UInt stream_out_pos,
               UInt num_tiles, UInt last_tile_size) noexcept {
-        // Dispatch 32 threads per tile; each warp compresses one tile, one lane
-        // per GDeflate bit-stream.  A larger block size packs more tiles per
-        // block and reduces launch overhead (total thread count is unchanged).
+        // Dispatch 256 threads per tile: each thread emits one output-word slot
+        // (stream s = t%32, word block p0 = t/32).  A larger block size packs
+        // more tiles per block and reduces launch overhead.
         set_block_size(kGDeflateBlockThreads, 1u, 1u);
 
-        UInt tile_idx = dispatch_id().x / 32u;
-        UInt tid = dispatch_id().x % 32u;
+        UInt tile_idx = dispatch_id().x / 256u;
+        UInt t = dispatch_id().x % 256u;
+        UInt s = t % 32u;
+        UInt p0 = t / 32u;
         UInt full_tile_data_size = compressed_tile_data_size(kDefaultTileSize);
 
-        $if (tile_idx == 0u & tid == 0u) {
+        $if (tile_idx == 0u & t == 0u) {
             write_tilestream_header(output, stream_out_pos, num_tiles, last_tile_size, full_tile_data_size);
         };
 
@@ -1046,11 +1108,11 @@ inline auto make_compress_kernel() noexcept {
             UInt data_start = stream_out_pos + kStreamHeaderSize + num_tiles * 4u;
             UInt out_pos = data_start + tile_idx * full_tile_data_size;
             $if (tile_size <= 65535u) {
-                compress_tile_warp(input, output, in_pos, out_pos, tile_size, tid);
+                compress_tile_parallel(input, output, in_pos, out_pos, tile_size, s, p0);
             } $else {
                 // Tiles larger than one DEFLATE uncompressed block need the
                 // multi-block single-thread writer.
-                $if (tid == 0u) {
+                $if (t == 0u) {
                     compress_tile_single_thread(input, output, in_pos, out_pos, tile_size);
                 };
             };
