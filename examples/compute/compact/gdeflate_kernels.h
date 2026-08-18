@@ -109,6 +109,11 @@ inline void c_lane_match_info(UInt value, UInt tid, UInt &below, UInt &first, UI
 inline constexpr uint32_t kMaxSymbols = 320u;       // 288 litlen + 32 distance
 inline constexpr uint32_t kDistanceCodesBase = 288u;
 
+// Thread-block size for both kernels (must be a multiple of the 32-lane warp
+// size).  Tune per backend: larger blocks pack more warps per block.
+inline constexpr uint32_t kGDeflateBlockThreads = 256u;
+inline constexpr uint32_t kGDeflateWarpsPerBlock = kGDeflateBlockThreads / 32u;
+
 // Order in which the 19 precode code lengths are stored in the dynamic header.
 inline Constant<uint> k_lane4id{3u, 17u, 15u, 13u, 11u, 9u, 7u, 5u, 4u, 6u, 8u, 10u, 12u, 14u, 16u, 18u,
                                 0u, 1u, 2u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
@@ -373,10 +378,14 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
 // ============================================================================
 // Shared-memory scratch helpers (per-warp slices of one Shared<uint> array)
 //
-// Layout inside a 416-word slice:
+// Layout inside a 400-word slice:
 //   g_tmp = slice + [0, 32)     histogram / running-offset scratch
-//   g_buf = slice + [32, 96)    4-bit code lengths (64 words = 512 nibbles)
-//   g_lut = slice + [96, 416)   symbol table (320 words)
+//   g_buf = slice + [32, 80)    4-bit code lengths (48 words = 384 nibbles)
+//   g_lut = slice + [80, 400)   symbol table (320 words)
+//
+// 384 nibbles leave headroom for c_set4b's run writes (a repeat symbol can
+// extend up to 18 nibbles past the last symbol index, and HLSL's set4b writes
+// the whole run unconditionally).
 //
 // These are plain C++ helpers (NOT DSL Callables), so they receive the
 // Shared<uint> by reference and the caller's per-warp `slice` base.
@@ -384,7 +393,9 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
 
 inline void c_scratch_clear(Shared<uint> &g_buf, UInt slice, UInt tid) noexcept {
     g_buf[slice + 32u + tid] = 0u;
-    g_buf[slice + 32u + 32u + tid] = 0u;
+    $if (tid < 16u) {
+        g_buf[slice + 64u + tid] = 0u;
+    };
 }
 
 inline UInt c_get4b(Shared<uint> &g_buf, UInt slice, UInt i) noexcept {
@@ -491,7 +502,7 @@ struct DecoderPair {
         UInt code = reverse(bits);
         UInt base = select(0u, 16u, isdist);
         len_out = len4code(code, base);
-        return g_lut[slice + 96u + id4code(code, len_out, base) + select(0u, kDistanceCodesBase, isdist)];
+        return g_lut[slice + 80u + id4code(code, len_out, base) + select(0u, kDistanceCodesBase, isdist)];
     }
 };
 
@@ -509,7 +520,7 @@ inline void c_symbol_table_init(Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared
         UInt below, first, cnt;
         c_lane_match_info(len, tid, below, first, cnt);
         $if (len != 0u) {
-            g_lut[slice + 96u + g_tmp[slice + len] + below] = sym;
+            g_lut[slice + 80u + g_tmp[slice + len] + below] = sym;
         };
         // First lane of each equal-length group advances the running offset.
         $if (tid == first) {
@@ -523,7 +534,7 @@ inline void c_symbol_table_init(Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared
         UInt below, first, cnt;
         c_lane_match_info(len, tid, below, first, cnt);
         $if (len != 0u) {
-            g_lut[slice + 96u + g_tmp[slice + len] + below] = sym;
+            g_lut[slice + 80u + g_tmp[slice + len] + below] = sym;
         };
     }
     // Distance codes (symbols 288..319 in the LUT).
@@ -532,7 +543,7 @@ inline void c_symbol_table_init(Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared
         UInt below, first, cnt;
         c_lane_match_info(len, tid, below, first, cnt);
         $if (len != 0u) {
-            g_lut[slice + 96u + kDistanceCodesBase + g_tmp[slice + 16u + len] + below] = tid;
+            g_lut[slice + 80u + kDistanceCodesBase + g_tmp[slice + 16u + len] + below] = tid;
         };
     }
 }
@@ -564,7 +575,7 @@ inline UInt c_unpack_code_lengths(BitReader &br, const ByteBufferVar &input,
         UInt below, first, cnt;
         c_lane_match_info(len, tid, below, first, cnt);
         $if (len != 0u) {
-            g_lut[slice + 96u + dec.offset(len - 1u) + below] = tid;
+            g_lut[slice + 80u + dec.offset(len - 1u) + below] = tid;
         };
     }
     c_scratch_clear(g_buf, slice, tid);
@@ -700,10 +711,10 @@ inline UInt c_compressed_block(BitReader &br, const ByteBufferVar &input, Buffer
 inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
                             UInt tid, UInt warp_in_block, UInt in_pos, UInt out_pos, UInt out_size) noexcept {
     // One 32-lane warp decodes one tile.  Each warp owns a private slice of the
-    // shared scratch array (416 words = 32 g_tmp + 64 g_buf + 320 g_lut).  The
+    // shared scratch array (400 words = 32 g_tmp + 48 g_buf + 320 g_lut).  The
     // warps are independent and may diverge, so no sync_block() may be used.
-    Shared<uint> scratch{4u * (32u + 64u + 320u)};
-    UInt slice = warp_in_block * (32u + 64u + 320u);
+    Shared<uint> scratch{kGDeflateWarpsPerBlock * (32u + 48u + 320u)};
+    UInt slice = warp_in_block * (32u + 48u + 320u);
 
     // Fast path: the tile is a single uncompressed DEFLATE block.  Random and
     // otherwise incompressible tiles hit this branch every time; it bypasses the
@@ -787,18 +798,17 @@ inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
 inline auto make_decompress_kernel() noexcept {
         return [](ByteBufferVar input, BufferVar<uint> output,
                   UInt stream_in_pos, UInt stream_out_pos, UInt num_tiles) noexcept {
-        // One 32-lane warp decompresses one tile.  128 threads = 4 warps, so each
-        // block handles 4 tiles.  Pin the warp size to 32 so this mapping is exact
-        // on every backend (GDeflate's bit-stream layout assumes 32 lanes/tile).
-        constexpr uint kBlockThreads = 128u;
+        // One 32-lane warp decompresses one tile.  kGDeflateBlockThreads / 32
+        // warps per block, so each block handles that many tiles.  Pin the warp
+        // size to 32 so this mapping is exact on every backend (GDeflate's
+        // bit-stream layout assumes 32 lanes/tile).
         constexpr uint kWarpThreads = 32u;
-        constexpr uint kWarpsPerBlock = kBlockThreads / kWarpThreads; // 4
-        set_block_size(kBlockThreads, 1u, 1u);
+        set_block_size(kGDeflateBlockThreads, 1u, 1u);
         set_warp_size(static_cast<uint8_t>(kWarpThreads));
 
         UInt tid = warp_lane_id();                 // lane within the warp: 0..31
         UInt warp_in_block = thread_x() / warp_lane_count(); // 0..kWarpsPerBlock-1
-        UInt tile_idx = block_id().x * kWarpsPerBlock + warp_in_block;
+        UInt tile_idx = block_id().x * kGDeflateWarpsPerBlock + warp_in_block;
 
         $if (tile_idx < num_tiles) {
             Var<TileStream> ts = c_tilestream_construct(input, stream_in_pos);
@@ -1020,7 +1030,7 @@ inline auto make_compress_kernel() noexcept {
         // Dispatch 32 threads per tile; each warp compresses one tile, one lane
         // per GDeflate bit-stream.  A larger block size packs more tiles per
         // block and reduces launch overhead (total thread count is unchanged).
-        set_block_size(128u, 1u, 1u);
+        set_block_size(kGDeflateBlockThreads, 1u, 1u);
 
         UInt tile_idx = dispatch_id().x / 32u;
         UInt tid = dispatch_id().x % 32u;
