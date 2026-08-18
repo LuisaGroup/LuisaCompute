@@ -21,6 +21,7 @@
 #include <luisa/dsl/struct.h>
 #include <luisa/runtime/byte_buffer.h>
 
+#include <algorithm>
 #include <cstdint>
 
 // DSL-visible structs must be registered at global scope.
@@ -68,10 +69,14 @@ inline uint32_t compress_bound(uint64_t uncompressed_size) noexcept {
     return static_cast<uint32_t>(data_bound + meta_bound);
 }
 
-// Compressed data size for a single tile of `tile_size` bytes.
+// Compressed data size for a single tile of `tile_size` bytes (matches the GPU
+// writer's exact packet layout; see compressed_tile_data_size in the kernels).
 inline uint32_t compressed_tile_size(uint32_t tile_size) noexcept {
-    uint64_t bits = 40u + static_cast<uint64_t>(tile_size) * 8u;
-    return static_cast<uint32_t>(((bits + 1023u) / 1024u) * 128u);
+    uint32_t nbytes = (tile_size + 31u) / 32u;          // bytes per stream (ceil)
+    uint32_t stream0_words = (19u + nbytes * 8u + 31u) / 32u;
+    uint32_t stream_words = (nbytes + 3u) / 4u;         // packets for streams 1..31
+    uint32_t total_words = stream0_words + 31u * stream_words;
+    return std::max<uint32_t>(128u, total_words * 4u);
 }
 
 // Standalone runtime class that owns the compiled kernels and scratch buffers.
@@ -98,7 +103,7 @@ private:
 
     // Compiled DSL shaders.
     Shader1D<ByteBuffer, ByteBuffer, uint, uint, uint, uint> _compress_shader;
-    Shader1D<ByteBuffer, Buffer<uint>, uint, uint, uint> _decompress_shader;
+    Shader1D<ByteBuffer, Buffer<uint>, uint, uint, uint, uint> _decompress_shader;
 };
 
 }// namespace luisa::example::gdeflate

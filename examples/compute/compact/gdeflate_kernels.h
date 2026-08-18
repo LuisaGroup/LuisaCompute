@@ -173,7 +173,9 @@ inline Callable<TileParams(ByteBuffer, uint, uint, uint, TileStream)> c_tilestre
     params.in_pos = select(0u, input.read<uint>(tile_table_pos + tile_idx * 4u), tile_idx > 0u);
 
     UInt next_pos = select(0u, input.read<uint>(tile_table_pos + (tile_idx + 1u) * 4u), tile_idx < ts.num_tiles - 1u);
-    params.in_size = select(next_pos - params.in_pos, input.read<uint>(tile_table_pos), tile_idx < ts.num_tiles - 1u);
+    // select(a, b, c) returns c ? b : a.  Non-last tiles span [in_pos, next_pos);
+    // the last tile's size is stored in table[0] (the stream's final entry).
+    params.in_size = select(input.read<uint>(tile_table_pos), next_pos - params.in_pos, tile_idx < ts.num_tiles - 1u);
 
     params.out_pos = stream_out_pos + tile_idx * kDefaultTileSize;
     // Non-last tiles are full-size; the last tile uses the header's size.
@@ -193,12 +195,18 @@ struct BitReader {
     UInt base;
     UInt cnt;
     ULong buf;
+    UInt in_end; // exclusive byte limit for input reads (truncation guard)
 };
 
 inline void bitreader_init(BitReader &br, const ByteBufferVar &input,
-                           UInt tile_in_pos, UInt tid) noexcept {
+                           UInt tile_in_pos, UInt in_end, UInt tid) noexcept {
     br.cnt = BitReader::k_width;
-    UInt word = input.read<uint>(tile_in_pos + tid * 4u);
+    br.in_end = in_end;
+    UInt addr = tile_in_pos + tid * 4u;
+    UInt word = 0u;
+    $if (addr + 4u <= in_end) {
+        word = input.read<uint>(addr);
+    };
     br.buf = static_cast<ULong>(word);
     br.base = tile_in_pos + BitReader::k_width * 4u;
 }
@@ -210,7 +218,12 @@ inline void bitreader_refill(BitReader &br, const ByteBufferVar &input,
     // replaces the ballot + popcount(ballot & mask(tid)) pair.
     UInt offset = warp_prefix_count_bits(p) * 4u;
     $if (p) {
-        br.buf = br.buf | (static_cast<ULong>(input.read<uint>(br.base + offset)) << br.cnt);
+        UInt addr = br.base + offset;
+        UInt w = 0u;
+        $if (addr + 4u <= br.in_end) {
+            w = input.read<uint>(addr);
+        };
+        br.buf = br.buf | (static_cast<ULong>(w) << br.cnt);
         br.cnt = br.cnt + BitReader::k_width;
     };
     br.base = br.base + warp_active_count_bits(p) * 4u;
@@ -305,17 +318,19 @@ inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, Buffer
 // uncompressed_block, so input traffic drops 4x while output stays coalesced.
 // ============================================================================
 inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &output,
-                                   UInt in_pos, UInt out_pos, UInt len, UInt tid) noexcept {
+                                   UInt in_pos, UInt out_pos, UInt len, UInt in_end, UInt tid) noexcept {
     UInt nrounds = len / 32u;
     UInt qgroups = (nrounds + 3u) / 4u;
     // Software-pipeline the input reads: load packet q+1 before processing
     // packet q so the global-memory latency overlaps with the shuffle/write work.
     UInt word = input.read<uint>(in_pos + tid * 4u);
+    $if (in_pos + tid * 4u + 4u > in_end) { word = 0u; }; // TEMP: read-then-mask
     $for (q, qgroups) {
         UInt cur = word;
         UInt nq = q + 1u;
         $if (nq < qgroups) {
             word = input.read<uint>(in_pos + (nq * 32u + tid) * 4u);
+            $if (in_pos + (nq * 32u + tid) * 4u + 4u > in_end) { word = 0u; }; // TEMP
         };
         $for (j, 4u) {
             UInt round = q * 4u + j;
@@ -330,9 +345,11 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
                     UInt p = bit >> 5u;
                     UInt shift = bit & 31u;
                     UInt w0 = input.read<uint>(in_pos + (p * 32u) * 4u);
+                    $if (in_pos + (p * 32u) * 4u + 4u > in_end) { w0 = 0u; }; // TEMP
                     byte = (w0 >> shift) & 0xffu;
                     $if (shift > 24u) {
                         UInt w1 = input.read<uint>(in_pos + ((p + 1u) * 32u) * 4u);
+                        $if (in_pos + ((p + 1u) * 32u) * 4u + 4u > in_end) { w1 = 0u; }; // TEMP
                         byte = byte | ((w1 << (32u - shift)) & 0xffu);
                     };
                 } $else {
@@ -363,9 +380,11 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
                 UInt p = bit >> 5u;
                 UInt shift = bit & 31u;
                 w = input.read<uint>(in_pos + (p * 32u) * 4u);
+                $if (in_pos + (p * 32u) * 4u + 4u > in_end) { w = 0u; }; // TEMP
                 UInt byte0 = (w >> shift) & 0xffu;
                 $if (shift > 24u) {
                     UInt w1 = input.read<uint>(in_pos + ((p + 1u) * 32u) * 4u);
+                    $if (in_pos + ((p + 1u) * 32u) * 4u + 4u > in_end) { w1 = 0u; }; // TEMP
                     byte0 = byte0 | ((w1 << (32u - shift)) & 0xffu);
                 };
                 w = byte0;
@@ -373,6 +392,7 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
                 bit = (b / 32u) * 8u;
                 UInt p = bit >> 5u;
                 w = input.read<uint>(in_pos + (p * 32u + tid) * 4u);
+                $if (in_pos + (p * 32u + tid) * 4u + 4u > in_end) { w = 0u; }; // TEMP
                 w = (w >> (bit & 31u)) & 0xffu;
             };
             store_byte(output, out_pos + b, w);
@@ -503,11 +523,18 @@ struct DecoderPair {
     }
 
     // Decode one Huffman symbol from the left-aligned reversed code bits.
+    // The LUT index is clamped to kMaxSymbols so a malformed code-length table
+    // cannot read outside the shared scratch slice.
     UInt decode(Shared<uint> &g_lut, UInt slice, UInt bits, UInt &len_out, Bool isdist) const noexcept {
         UInt code = reverse(bits);
         UInt base = select(0u, 16u, isdist);
         len_out = len4code(code, base);
-        return g_lut[slice + 80u + id4code(code, len_out, base) + select(0u, kDistanceCodesBase, isdist)];
+        UInt idx = id4code(code, len_out, base) + select(0u, kDistanceCodesBase, isdist);
+        UInt lut_val = 0u;
+        $if (idx < kMaxSymbols) {
+            lut_val = g_lut[slice + 80u + idx];
+        };
+        return lut_val;
     }
 };
 
@@ -524,7 +551,7 @@ inline void c_symbol_table_init(Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared
         UInt len = c_get4b(g_buf, slice, sym);
         UInt below, first, cnt;
         c_lane_match_info(len, tid, below, first, cnt);
-        $if (len != 0u) {
+        $if (len != 0u & g_tmp[slice + len] + below < kMaxSymbols) {
             g_lut[slice + 80u + g_tmp[slice + len] + below] = sym;
         };
         // First lane of each equal-length group advances the running offset.
@@ -538,7 +565,7 @@ inline void c_symbol_table_init(Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared
     {
         UInt below, first, cnt;
         c_lane_match_info(len, tid, below, first, cnt);
-        $if (len != 0u) {
+        $if (len != 0u & g_tmp[slice + len] + below < kMaxSymbols) {
             g_lut[slice + 80u + g_tmp[slice + len] + below] = sym;
         };
     }
@@ -547,7 +574,7 @@ inline void c_symbol_table_init(Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared
     {
         UInt below, first, cnt;
         c_lane_match_info(len, tid, below, first, cnt);
-        $if (len != 0u) {
+        $if (len != 0u & kDistanceCodesBase + g_tmp[slice + 16u + len] + below < kMaxSymbols) {
             g_lut[slice + 80u + kDistanceCodesBase + g_tmp[slice + 16u + len] + below] = tid;
         };
     }
@@ -579,7 +606,7 @@ inline UInt c_unpack_code_lengths(BitReader &br, const ByteBufferVar &input,
     {
         UInt below, first, cnt;
         c_lane_match_info(len, tid, below, first, cnt);
-        $if (len != 0u) {
+        $if (len != 0u & dec.offset(len - 1u) + below < kMaxSymbols) {
             g_lut[slice + 80u + dec.offset(len - 1u) + below] = tid;
         };
     }
@@ -645,12 +672,14 @@ inline UInt c_translate_symbol(BitReader &br, const ByteBufferVar &input,
 }
 
 // Write the current round's outputs (HLSL WriteOutput): one byte per literal
-// lane and the full copy run for every copy lane, using all 32 lanes.
+// lane and the full copy run for every copy lane, using all 32 lanes.  All
+// writes are clamped to [out_lo, out_hi) so a malformed stream (huge length,
+// distance before the tile start) cannot corrupt memory outside the tile.
 inline void c_write_output(BufferVar<uint> &output, UInt dst, UInt offset, UInt dist, UInt length,
-                           UInt byte, Bool iscopy, UInt tid) noexcept {
+                           UInt byte, Bool iscopy, UInt out_lo, UInt out_hi, UInt tid) noexcept {
     dst = dst + offset;
     // Output literals.
-    $if (!iscopy & length != 0u) {
+    $if (!iscopy & length != 0u & dst < out_hi) {
         store_byte(output, dst, byte);
     };
     // Fill in copy destinations, one copy (lane) at a time, all lanes together.
@@ -660,6 +689,12 @@ inline void c_write_output(BufferVar<uint> &output, UInt dst, UInt offset, UInt 
         UInt off = max(lane_broadcast(dist, lane), 1u); // dist 0 is invalid; avoid % 0
         UInt len = lane_broadcast(length, lane);
         UInt out = lane_broadcast(dst, lane);
+        // Clamp the run to the tile end.
+        UInt space = 0u;
+        $if (out < out_hi) { space = out_hi - out; };
+        $if (len > space) { len = space; };
+        // Skip copies whose source would start before the tile (out >= out_lo).
+        $if (out < out_lo | off > out - out_lo + 1u) { len = 0u; };
         $for (i, tid, len, 32u) {
             UInt data = read_output_byte(output, out + (i % off) - off);
             store_byte(output, i + out, data);
@@ -669,10 +704,13 @@ inline void c_write_output(BufferVar<uint> &output, UInt dst, UInt offset, UInt 
 }
 
 // Decode one compressed (fixed or dynamic Huffman) block; returns the updated
-// destination byte offset (HLSL CompressedBlock).
+// destination byte offset (HLSL CompressedBlock).  `out_lo`/`out_hi` bound the
+// tile's output range and `budget` caps the number of symbol rounds so that a
+// malformed stream (no EOB symbol ever decoded) cannot hang the GPU.
 inline UInt c_compressed_block(BitReader &br, const ByteBufferVar &input, BufferVar<uint> &output,
                                Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared<uint> &g_lut,
-                               UInt slice, UInt hlit, UInt counts, UInt dst, UInt tid) noexcept {
+                               UInt slice, UInt hlit, UInt counts, UInt dst,
+                               UInt out_lo, UInt out_hi, UInt budget, UInt tid) noexcept {
     DecoderPair dec;
     dec.init(counts, 15u, tid);
     c_symbol_table_init(g_tmp, g_buf, g_lut, slice, hlit, dec.offsets, tid);
@@ -687,25 +725,27 @@ inline UInt c_compressed_block(BitReader &br, const ByteBufferVar &input, Buffer
     Bool iscopy = sym > 256u;
     UInt byte = sym;
     UInt offset = lane_scan(length);
+    UInt iter = 0u;
 
-    $while (eob == 0u) {
+    $while (eob == 0u & iter < budget) {
         sym = dec.decode(g_lut, slice, bitreader_peek(br, 31u), sym_len, iscopy);
         eob = lane_vote(sym == 256u);
         oob = (eob & c_mask(tid)) != 0u;
         value = c_translate_symbol(br, input, sym, sym_len, bitreader_peek(br), iscopy, tid, !oob);
-        c_write_output(output, dst, offset, value, length, byte, iscopy, tid);
+        c_write_output(output, dst, offset, value, length, byte, iscopy, out_lo, out_hi, tid);
         dst = dst + lane_broadcast(offset + length, 31u);
         length = select(0u, value, !(iscopy | oob));
         offset = lane_scan(length);
         iscopy = sym > 256u;
         byte = sym;
+        iter = iter + 1u;
     };
 
     // One last round of copy processing.
     sym = dec.decode(g_lut, slice, bitreader_peek(br, 31u), sym_len, true);
     iscopy = iscopy & !oob;
     UInt dist = c_translate_symbol(br, input, sym, sym_len, bitreader_peek(br), iscopy, tid, false);
-    c_write_output(output, dst, offset, dist, length, byte, iscopy, tid);
+    c_write_output(output, dst, offset, dist, length, byte, iscopy, out_lo, out_hi, tid);
     return dst + lane_broadcast(offset + length, 31u);
 }
 
@@ -714,12 +754,14 @@ inline UInt c_compressed_block(BitReader &br, const ByteBufferVar &input, Buffer
 // ============================================================================
 
 inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
-                            UInt tid, UInt warp_in_block, UInt in_pos, UInt out_pos, UInt out_size) noexcept {
+                            UInt tid, UInt warp_in_block, UInt in_pos, UInt in_end,
+                            UInt out_pos, UInt out_size) noexcept {
     // One 32-lane warp decodes one tile.  Each warp owns a private slice of the
     // shared scratch array (400 words = 32 g_tmp + 48 g_buf + 320 g_lut).  The
     // warps are independent and may diverge, so no sync_block() may be used.
     Shared<uint> scratch{kGDeflateWarpsPerBlock * (32u + 48u + 320u)};
     UInt slice = warp_in_block * (32u + 48u + 320u);
+    UInt out_hi = out_pos + out_size;
 
     // Fast path: the tile is a single uncompressed DEFLATE block.  Random and
     // otherwise incompressible tiles hit this branch every time; it bypasses the
@@ -727,6 +769,7 @@ inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
     // and no per-round warp refill scans).  Stream 0 packet 0 holds the block
     // header, so BFINAL/BTYPE/LEN are read straight from the first word.
     UInt word0 = input.read<uint>(in_pos);
+    $if (in_pos + 4u > in_end) { word0 = 0u; }; // truncation guard
     $if (((word0 & 1u) != 0u) & ((word0 >> 1u) & 3u) == 0u) {
         UInt len = min((word0 >> 3u) & 0xffffu, out_size);
         // The round loop overwrites whole words, but the tail bytes are written
@@ -745,7 +788,7 @@ inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
                 };
             };
         };
-        fast_uncompressed_tile(input, output, in_pos, out_pos, len, tid);
+        fast_uncompressed_tile(input, output, in_pos, out_pos, len, in_end, tid);
     } $else {
         // General path (multi-block tiles, Huffman blocks): clear the whole
         // output tile first to avoid garbage around unaligned tails.
@@ -759,13 +802,17 @@ inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
         };
 
         BitReader br;
-        bitreader_init(br, input, in_pos, tid);
+        bitreader_init(br, input, in_pos, in_end, tid);
         UInt dst = out_pos;
 
         Bool done = false;
         $while (!done) {
-            // Read block header from lane 0 and broadcast.
-            UInt header = lane_broadcast(bitreader_peek(br), 0u);
+            // Stop decoding once the output tile is full (malformed streams must
+            // not be allowed to run past the tile into neighboring memory).
+              $if (dst >= out_hi) { done = true; } $else {
+              UInt dst_before = dst;
+              // Read block header from lane 0 and broadcast.
+              UInt header = lane_broadcast(bitreader_peek(br), 0u);
 
             done = c_extract(header, 0u, 1u, 0u) != 0u;
             UInt btype = c_extract(header, 1u, 2u, 0u);
@@ -775,11 +822,13 @@ inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
             $switch (btype) {
                 $case (0u) { // Uncompressed block (GDeflate omits the NLEN field)
                     UInt len = lane_broadcast(bitreader_read(br, input, tid, 16u, tid == 0u), 0u);
+                    $if (len > out_hi - dst) { len = out_hi - dst; };
                     dst = uncompressed_block(br, input, output, tid, dst, len);
                 };
                 $case (1u) { // Fixed Huffman
                     UInt counts = c_fixed_code_lengths(scratch, slice, tid);
-                    dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, 288u, counts, dst, tid);
+                    dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, 288u, counts, dst,
+                                             out_pos, out_hi, out_size, tid);
                 };
                 $case (2u) { // Dynamic Huffman
                     UInt hlit = c_extract(header, 3u, 5u, 257u);
@@ -787,13 +836,20 @@ inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
                     bitreader_eat(br, input, tid, 14u, tid == 0u);
                     UInt counts = c_unpack_code_lengths(br, input, scratch, scratch, scratch, slice, hlit, hdist,
                                                         c_extract(header, 13u, 4u, 4u), tid, dst);
-                    dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, hlit, counts, dst, tid);
+                    dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, hlit, counts, dst,
+                                             out_pos, out_hi, out_size, tid);
                 };
-                $default { // Invalid block type
-                };
-            };
-        };
-    };
+              $default { // Invalid block type (BTYPE=3 is reserved): stop.
+                  done = true;
+          };
+          };
+          // A block that produced no output and did not end the stream is
+          // malformed (e.g. a zero-length uncompressed block); stop instead of
+          // looping forever.
+          $if (dst == dst_before) { done = true; };
+      };
+  };
+  };
 }
 
 // ============================================================================
@@ -802,7 +858,7 @@ inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
 
 inline auto make_decompress_kernel() noexcept {
         return [](ByteBufferVar input, BufferVar<uint> output,
-                  UInt stream_in_pos, UInt stream_out_pos, UInt num_tiles) noexcept {
+                  UInt stream_in_pos, UInt stream_out_pos, UInt num_tiles, UInt input_size) noexcept {
         // One 32-lane warp decompresses one tile.  kGDeflateBlockThreads / 32
         // warps per block, so each block handles that many tiles.  Pin the warp
         // size to 32 so this mapping is exact on every backend (GDeflate's
@@ -811,14 +867,27 @@ inline auto make_decompress_kernel() noexcept {
         set_block_size(kGDeflateBlockThreads, 1u, 1u);
         set_warp_size(static_cast<uint8_t>(kWarpThreads));
 
-        UInt tid = warp_lane_id();                 // lane within the warp: 0..31
+        UInt tid = warp_lane_id(); // lane within the warp: 0..31
         UInt warp_in_block = thread_x() / warp_lane_count(); // 0..kWarpsPerBlock-1
         UInt tile_idx = block_id().x * kGDeflateWarpsPerBlock + warp_in_block;
 
+        // `num_tiles` is the caller's expectation (from output_size); the stream
+        // header carries the authoritative tile count.  Clamp to the stream's
+        // count so a wrong output_size or a malformed header cannot make the
+        // pointer-table reads go out of bounds.
         $if (tile_idx < num_tiles) {
             Var<TileStream> ts = c_tilestream_construct(input, stream_in_pos);
-            Var<TileParams> params = c_tilestream_get_params(input, stream_in_pos, stream_out_pos, tile_idx, ts);
-            decompress_tile(input, output, tid, warp_in_block, params.in_pos, params.out_pos, params.out_size);
+            $if (tile_idx < ts.num_tiles) {
+                Var<TileParams> params = c_tilestream_get_params(input, stream_in_pos, stream_out_pos, tile_idx, ts);
+                // Truncation-safe end of this tile's input data.  (Manual clamp:
+                // the DSL `min()` on the struct-field sum miscompiles on DX/VK.)
+                UInt in_end = input_size;
+                $if (params.in_pos + params.in_size < in_end) {
+                    in_end = params.in_pos + params.in_size;
+                };
+                decompress_tile(input, output, tid, warp_in_block, params.in_pos, in_end,
+                                params.out_pos, params.out_size);
+            };
         };
     };
 }
@@ -847,12 +916,17 @@ inline UInt read_input_byte(const ByteBufferVar &input, UInt in_pos, UInt byte_i
     return (input.read<uint>(in_pos + word_off) >> shift) & 0xffu;
 }
 
-// Worst-case compressed data size for a tile of `tile_size` bytes.
+// Exact compressed data size for a tile of `tile_size` bytes (the pointer-table
+// stride).  Stream 0 carries the 19-bit block header, so it can need one more
+// packet than the byte-aligned streams 1..31; the old ceil(total_bits/32)
+// estimate under-counted small tiles (e.g. a 100-byte tile needs 132 bytes, not
+// 128), which made the decompressor's truncation guard clip valid stream-0 data.
 inline UInt compressed_tile_data_size(UInt tile_size) noexcept {
-    // 32 initial packets (one per stream) + ceil(total_bits / 32) - 32 refill packets.
-    UInt total_bits = 40u + tile_size * 8u;
-    UInt num_words = (total_bits + 31u) / 32u;
-    return max(128u, num_words * 4u);
+    UInt nbytes = (tile_size + 31u) / 32u;            // bytes per stream (ceil)
+    UInt stream0_words = (19u + nbytes * 8u + 31u) / 32u;
+    UInt stream_words = (nbytes + 3u) / 4u;           // packets for streams 1..31
+    UInt total_words = stream0_words + 31u * stream_words;
+    return max(128u, total_words * 4u);
 }
 
 // Write the 8-byte TileStream header and tile pointer table on thread 0.
@@ -866,11 +940,15 @@ inline void write_tilestream_header(ByteBufferVar &output, UInt out_pos,
     output.write(out_pos, word1);
     output.write(out_pos + 4u, word2);
 
-    UInt table_pos = out_pos + kStreamHeaderSize;
-    UInt last_tile_data_size = compressed_tile_data_size(last_tile_size);
-    output.write(table_pos, last_tile_data_size);
-    $for (i, 1u, num_tiles) {
-        output.write(table_pos + i * 4u, i * full_tile_data_size);
+    // Pointer table: for num_tiles == 0 (empty stream) there is no entry and no
+    // data; only the 8-byte header is written.
+    $if (num_tiles != 0u) {
+        UInt table_pos = out_pos + kStreamHeaderSize;
+        UInt last_tile_data_size = compressed_tile_data_size(last_tile_size);
+        output.write(table_pos, last_tile_data_size);
+        $for (i, 1u, num_tiles) {
+            output.write(table_pos + i * 4u, i * full_tile_data_size);
+        };
     };
 }
 
