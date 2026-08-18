@@ -4,13 +4,13 @@
 // decompression shader (D:/DirectStorage/GDeflate/shaders/GDeflate.hlsl) with
 // the cross-lane primitives implemented via native warp/subgroup intrinsics
 // (see luisa/dsl/builtin.h).  Each tile is decoded cooperatively by one 32-lane
-// warp, so no shared memory scratch arrays are needed.
+// warp, using per-warp slices of a shared scratch array for the code-length
+// array (g_buf), the symbol table (g_lut) and the histogram scratch (g_tmp).
 //
-// For clarity and reliability this first version focuses on uncompressed
-// DEFLATE blocks (BTYPE=00).  Compressed DEFLATE blocks (fixed/dynamic
-// Huffman) can be added by porting the DecoderPair/SymbolTable code from the
-// HLSL on top of the same BitReader and warp-primitive infrastructure provided
-// here.
+// All three DEFLATE block types are supported: uncompressed (BTYPE=00),
+// fixed-Huffman (BTYPE=01) and dynamic-Huffman (BTYPE=10).  The fixed/dynamic
+// paths are direct ports of the DecoderPair/SymbolTable code from the HLSL on
+// top of the same BitReader and warp-primitive infrastructure provided here.
 
 #pragma once
 
@@ -70,6 +70,69 @@ inline auto lane_broadcast(Var<uint> value, Var<uint> src_idx) noexcept -> UInt 
     return warp_read_lane(value, src_idx);
 }
 
+// Exclusive prefix sum over the warp (HLSL WavePrefixSum).
+inline auto lane_scan(UInt value) noexcept -> UInt {
+    return warp_prefix_sum(value);
+}
+
+// Inclusive prefix sum within each 16-lane segment (HLSL scan16).
+inline UInt scan16_inclusive(UInt value, UInt tid) noexcept {
+    UInt incl = warp_prefix_sum(value) + value; // inclusive over all 32 lanes
+    UInt base = warp_read_lane(incl, 15u);      // sum of lanes 0..15
+    return select(incl, incl - base, tid >= 16u);
+}
+
+// Lane-match mask: bit i set iff lane i holds the same value (HLSL match()).
+inline UInt lane_match(UInt value) noexcept {
+    UInt mask = 0u;
+    $for (i, 32u) {
+        mask = mask | select(0u, 1u << i, warp_read_lane(value, i) == value);
+    };
+    return mask;
+}
+
+// ============================================================================
+// GDeflate / DEFLATE64 constants (must match GDeflate.hlsl TranslateSymbol)
+// ============================================================================
+
+inline constexpr uint32_t kMaxSymbols = 320u;       // 288 litlen + 32 distance
+inline constexpr uint32_t kDistanceCodesBase = 288u;
+
+// Order in which the 19 precode code lengths are stored in the dynamic header.
+inline Constant<uint> k_lane4id{3u, 17u, 15u, 13u, 11u, 9u, 7u, 5u, 4u, 6u, 8u, 10u, 12u, 14u, 16u, 18u,
+                                0u, 1u, 2u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+
+// base/xlen for code-length repeat symbols 0..3 (HLSL base[4]/xlen[4]).
+inline Constant<uint> k_base4{1u, 3u, 3u, 11u};
+inline Constant<uint> k_xlen4{0u, 2u, 3u, 7u};
+
+// DEFLATE64 length/distance tables (EXACTLY as in GDeflate.hlsl
+// TranslateSymbol; do NOT replace with classic-DEFLATE tables).
+inline Constant<uint> k_base_dist{1u, 2u, 3u, 4u, 5u, 7u, 9u, 13u, 17u, 25u, 33u, 49u, 65u, 97u, 129u, 193u,
+                                  257u, 385u, 513u, 769u, 1025u, 1537u, 2049u, 3073u, 4097u, 6145u, 8193u, 12289u, 16385u, 24577u, 32769u, 49153u};
+inline Constant<uint> k_extra_dist{0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 3u, 3u, 4u, 4u, 5u, 5u, 6u, 6u,
+                                   7u, 7u, 8u, 8u, 9u, 9u, 10u, 10u, 11u, 11u, 12u, 12u, 13u, 13u, 14u, 14u};
+inline Constant<uint> k_base_length{0u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 13u, 15u, 17u, 19u, 23u, 27u,
+                                    31u, 35u, 43u, 51u, 59u, 67u, 83u, 99u, 115u, 131u, 163u, 195u, 227u, 3u, 0u};
+inline Constant<uint> k_extra_length{0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 1u, 1u, 1u, 1u, 2u, 2u, 2u,
+                                     2u, 3u, 3u, 3u, 3u, 4u, 4u, 4u, 4u, 5u, 5u, 5u, 5u, 16u, 0u};
+
+// ============================================================================
+// Output byte helpers
+//
+// Expr<ByteBuffer> has no atomic operations, so the decompressor writes the
+// output through a BufferVar<uint> and performs byte accesses with
+// InterlockedOr-style word atomics, exactly like the HLSL StoreByte/ReadByte.
+// ============================================================================
+
+inline void store_byte(BufferVar<uint> &output, UInt offset, UInt data) noexcept {
+    output.atomic(offset >> 2u).fetch_or((data & 0xffu) << ((offset & 3u) << 3u));
+}
+
+inline UInt read_output_byte(BufferVar<uint> &output, UInt offset) noexcept {
+    return (output.read(offset >> 2u) >> ((offset & 3u) << 3u)) & 0xffu;
+}
+
 // ============================================================================
 // Tile stream parser (matches tilestream.hlsl)
 // ============================================================================
@@ -97,7 +160,8 @@ inline Callable<TileParams(ByteBuffer, uint, uint, uint, TileStream)> c_tilestre
     params.in_size = select(next_pos - params.in_pos, input.read<uint>(tile_table_pos), tile_idx < ts.num_tiles - 1u);
 
     params.out_pos = stream_out_pos + tile_idx * kDefaultTileSize;
-    params.out_size = select(kDefaultTileSize, c_tilestream_last_tile_size(ts), tile_idx < ts.num_tiles - 1u);
+    // Non-last tiles are full-size; the last tile uses the header's size.
+    params.out_size = select(c_tilestream_last_tile_size(ts), kDefaultTileSize, tile_idx < ts.num_tiles - 1u);
 
     UInt data_start = tile_table_pos + ts.num_tiles * 4u;
     params.in_pos = params.in_pos + data_start;
@@ -164,23 +228,13 @@ inline UInt bitreader_peek(BitReader &br) noexcept {
 // ============================================================================
 
 // Uncompressed DEFLATE block: copy LEN raw bytes from the bitstream.
-inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, ByteBufferVar &output,
+inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, BufferVar<uint> &output,
                                UInt tid, UInt dst, UInt size) noexcept {
     UInt nrounds = size / 32u;
 
     $while (nrounds != 0u) {
         UInt byte = bitreader_read(br, input, tid, 8u, true);
-        // Each group of 4 lanes writes one 32-bit word.  All lanes participate in
-        // the shuffles so the source lanes are active; the index is clamped so the
-        // boundary lanes 29..31 never read an out-of-range lane.
-        UInt b0 = byte;
-        UInt b1 = warp_read_lane(byte, min(tid + 1u, 31u));
-        UInt b2 = warp_read_lane(byte, min(tid + 2u, 31u));
-        UInt b3 = warp_read_lane(byte, min(tid + 3u, 31u));
-        $if ((tid & 3u) == 0u) {
-            UInt word = b0 | (b1 << 8u) | (b2 << 16u) | (b3 << 24u);
-            output.write(dst + (tid / 4u) * 4u, word);
-        };
+        store_byte(output, dst + tid, byte);
         dst = dst + 32u;
         nrounds = nrounds - 1u;
     };
@@ -189,29 +243,9 @@ inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, ByteBu
     $if (rem != 0u) {
         // bitreader_read returns 0 for lanes >= rem, so byte is already zeroed.
         UInt byte = bitreader_read(br, input, tid, 8u, tid < rem);
-
-        UInt full_words = rem / 4u;
-        UInt partial = rem % 4u;
-
-        UInt b0 = byte;
-        UInt b1 = warp_read_lane(byte, min(tid + 1u, 31u));
-        UInt b2 = warp_read_lane(byte, min(tid + 2u, 31u));
-        UInt b3 = warp_read_lane(byte, min(tid + 3u, 31u));
-
-        $if ((tid & 3u) == 0u & (tid / 4u) < full_words) {
-            UInt word = b0 | (b1 << 8u) | (b2 << 16u) | (b3 << 24u);
-            output.write(dst + (tid / 4u) * 4u, word);
+        $if (tid < rem) {
+            store_byte(output, dst + tid, byte);
         };
-
-        // Last partial word (if any) is written by the first lane after the full words.
-        $if (partial != 0u & tid == full_words * 4u) {
-            UInt word = b0;
-            $if (partial > 1u) { word = word | (b1 << 8u); };
-            $if (partial > 2u) { word = word | (b2 << 16u); };
-            $if (partial > 3u) { word = word | (b3 << 24u); };
-            output.write(dst + full_words * 4u, word);
-        };
-
         dst = dst + rem;
     };
 
@@ -219,13 +253,336 @@ inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, ByteBu
 }
 
 // ============================================================================
+// Shared-memory scratch helpers (per-warp slices of one Shared<uint> array)
+//
+// Layout inside a 416-word slice:
+//   g_tmp = slice + [0, 32)     histogram / running-offset scratch
+//   g_buf = slice + [32, 96)    4-bit code lengths (64 words = 512 nibbles)
+//   g_lut = slice + [96, 416)   symbol table (320 words)
+//
+// These are plain C++ helpers (NOT DSL Callables), so they receive the
+// Shared<uint> by reference and the caller's per-warp `slice` base.
+// ============================================================================
+
+inline void c_scratch_clear(Shared<uint> &g_buf, UInt slice, UInt tid) noexcept {
+    g_buf[slice + 32u + tid] = 0u;
+    g_buf[slice + 32u + 32u + tid] = 0u;
+}
+
+inline UInt c_get4b(Shared<uint> &g_buf, UInt slice, UInt i) noexcept {
+    return (g_buf[slice + 32u + (i / 8u)] >> ((i % 8u) * 4u)) & 15u;
+}
+
+inline void c_set4b(Shared<uint> &g_buf, UInt slice, UInt nibbles, UInt n, UInt i) noexcept {
+    // Expand the nibble into 8 copies, keep the low n*4 bits (HLSL set4b).
+    nibbles = nibbles | (nibbles << 4u);
+    nibbles = nibbles | (nibbles << 8u);
+    nibbles = nibbles | (nibbles << 16u);
+    UInt nm = n * 4u;
+    nibbles = nibbles & select(0xffffffffu, c_mask(nm), nm < 32u);
+    UInt base = i / 8u;
+    UInt shift = i % 8u;
+    g_buf.atomic(slice + 32u + base).fetch_or(nibbles << (shift * 4u));
+    $if (shift + n > 8u) {
+        UInt rshift = (8u - shift) * 4u;
+        g_buf.atomic(slice + 32u + base + 1u).fetch_or(select(0u, nibbles >> rshift, rshift < 32u));
+    };
+}
+
+// Build a histogram of in-register code lengths.  Returns the count of length
+// (tid & 15) in the low 16 lanes (HLSL GetHistogram).
+inline UInt c_get_histogram(Shared<uint> &g_tmp, UInt slice, UInt cnt, UInt len, UInt tid) noexcept {
+    g_tmp[slice + tid] = 0u;
+    $if (len != 0u & tid < cnt) {
+        g_tmp.atomic(slice + len).fetch_add(1u);
+    };
+    return g_tmp[slice + (tid & 15u)];
+}
+
+// Read the 19 precode code lengths (HLSL ReadLenCodes).
+inline UInt c_read_len_codes(BitReader &br, const ByteBufferVar &input, UInt hclen, UInt tid) noexcept {
+    UInt len = bitreader_read(br, input, tid, 3u, tid < hclen);
+    len = warp_read_lane(len, k_lane4id[tid]);
+    return select(0u, len & 15u, tid < 19u);
+}
+
+// Update the literal/length and distance histograms for a run of `n` code
+// lengths starting at position `i` (HLSL UpdateHistograms; signed arithmetic).
+inline void c_update_histograms(Shared<uint> &g_tmp, UInt slice, UInt len, UInt i, UInt n, UInt hlit) noexcept {
+    Int cnt = max(min(static_cast<Int>(hlit) - static_cast<Int>(i), static_cast<Int>(n)), Int(0));
+    $if (cnt != 0) {
+        g_tmp.atomic(slice + len).fetch_add(static_cast<UInt>(cnt));
+    };
+    cnt = max(min(static_cast<Int>(i) + static_cast<Int>(n) - static_cast<Int>(hlit), static_cast<Int>(n)), Int(0));
+    $if (cnt != 0) {
+        g_tmp.atomic(slice + 16u + len).fetch_add(static_cast<UInt>(cnt));
+    };
+}
+
+// In-register pair of canonical Huffman decoders (HLSL DecoderPair).  Each
+// 32-lane register holds both the literal/length decoder (lanes 0..15) and the
+// distance decoder (lanes 16..31).
+struct DecoderPair {
+    UInt base_codes;
+    UInt offsets;
+
+    UInt offset(UInt i) const noexcept {
+        return warp_read_lane(offsets, i);
+    }
+
+    // Build both decoders in parallel from a histogram of code lengths.
+    void init(UInt counts, UInt maxlen, UInt tid) noexcept {
+        offsets = scan16_inclusive(counts, tid);
+        UInt lane = tid & 15u;
+        UInt base_code = 0u;
+        $for (i, 1u, maxlen) {
+            UInt count = warp_read_lane(counts, (tid & 16u) + i);
+            $if (lane >= i) {
+                base_code = base_code + (count << (lane - i));
+            };
+        };
+        // Left-align and fill in sentinel values (avoid shift-by-32 for lane 0).
+        UInt tmp = select(0u, base_code << (32u - lane), lane != 0u);
+        base_codes = select(0xffffffffu, tmp, !(tmp < base_code | lane >= maxlen));
+    }
+
+    // Maps a code to its length (base selects the decoder: 0 or 16).  The
+    // warp_read_lane calls are kept outside the per-lane $if branches so every
+    // lane executes them uniformly (only the lane index varies per lane).
+    UInt len4code(UInt code, UInt base) const noexcept {
+        UInt len = 1u;
+        UInt b7 = warp_read_lane(base_codes, 7u + base);
+        $if (code >= b7) { len = 8u; };
+        UInt b3 = warp_read_lane(base_codes, len + 3u + base);
+        $if (code >= b3) { len = len + 4u; };
+        UInt b1 = warp_read_lane(base_codes, len + 1u + base);
+        $if (code >= b1) { len = len + 2u; };
+        UInt b0 = warp_read_lane(base_codes, len + base);
+        $if (code >= b0) { len = len + 1u; };
+        return len;
+    }
+
+    // Maps a code and its length to a symbol-table offset (base 0 or 16).
+    UInt id4code(UInt code, UInt len, UInt base) const noexcept {
+        UInt i = len + base - 1u;
+        return warp_read_lane(offsets, i) + ((code - warp_read_lane(base_codes, i)) >> (32u - len));
+    }
+
+    // Decode one Huffman symbol from the left-aligned reversed code bits.
+    UInt decode(Shared<uint> &g_lut, UInt slice, UInt bits, UInt &len_out, Bool isdist) const noexcept {
+        UInt code = reverse(bits);
+        UInt base = select(0u, 16u, isdist);
+        len_out = len4code(code, base);
+        return g_lut[slice + 96u + id4code(code, len_out, base) + select(0u, kDistanceCodesBase, isdist)];
+    }
+};
+
+// Build the symbol table from the code-length array (HLSL SymbolTable::init).
+inline void c_symbol_table_init(Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared<uint> &g_lut,
+                                UInt slice, UInt hlit, UInt offsets, UInt tid) noexcept {
+    // g_tmp[tid + 1] = offsets (leaves g_tmp[0] and g_tmp[32] untouched).
+    $if (tid != 15u & tid != 31u) {
+        g_tmp[slice + tid + 1u] = offsets;
+    };
+    // 8 unconditional iterations scatter literals 0..255.
+    $for (i, 8u) {
+        UInt sym = i * 32u + tid;
+        UInt len = c_get4b(g_buf, slice, sym);
+        UInt m = lane_match(len);
+        $if (len != 0u) {
+            g_lut[slice + 96u + g_tmp[slice + len] + popcount(m & c_mask(tid))] = sym;
+        };
+        // First lane of each equal-length group advances the running offset.
+        $if (tid == c_firstbitlow(m)) {
+            g_tmp[slice + len] = g_tmp[slice + len] + popcount(m);
+        };
+    };
+    // Bounds-checked last literal iteration (symbols 256..287).
+    UInt sym = 8u * 32u + tid;
+    UInt len = select(0u, c_get4b(g_buf, slice, sym), sym < hlit);
+    {
+        UInt m = lane_match(len);
+        $if (len != 0u) {
+            g_lut[slice + 96u + g_tmp[slice + len] + popcount(m & c_mask(tid))] = sym;
+        };
+    }
+    // Distance codes (symbols 288..319 in the LUT).
+    len = c_get4b(g_buf, slice, tid + hlit);
+    {
+        UInt m = lane_match(len);
+        $if (len != 0u) {
+            g_lut[slice + 96u + kDistanceCodesBase + g_tmp[slice + 16u + len] + popcount(m & c_mask(tid))] = tid;
+        };
+    }
+}
+
+// Initialize the fixed-Huffman code lengths and return their histogram.
+inline UInt c_fixed_code_lengths(Shared<uint> &g_buf, UInt slice, UInt tid) noexcept {
+    g_buf[slice + 32u + tid] = select(0x99999999u, 0x88888888u, tid < 18u);
+    g_buf[slice + 64u + tid] = select(0x55555555u, select(0x88888888u, 0x77777777u, tid < 3u), tid < 4u);
+    // Return the histogram: lane7->24, lane8->152, lane9->112, lane21->32.
+    UInt counts = 0u;
+    $if (tid == 7u) { counts = 24u; };
+    $if (tid == 8u) { counts = 152u; };
+    $if (tid == 9u) { counts = 112u; };
+    $if (tid == 21u) { counts = 32u; };
+    return counts;
+}
+
+// Unpack the dynamic-Huffman code lengths into g_buf and return a histogram of
+// literal/length lengths (lanes 0..15) and distance lengths (lanes 16..31).
+inline UInt c_unpack_code_lengths(BitReader &br, const ByteBufferVar &input,
+                                  Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared<uint> &g_lut,
+                                  UInt slice, UInt hlit, UInt hdist, UInt hclen, UInt tid, UInt dst) noexcept {
+    UInt len = c_read_len_codes(br, input, hclen, tid);
+    UInt cnts = c_get_histogram(g_tmp, slice, 19u, len, tid);
+    DecoderPair dec;
+    dec.init(cnts, 7u, tid);
+    // Scatter the precode symbols.
+    UInt m = lane_match(len);
+    $if (len != 0u) {
+        g_lut[slice + 96u + dec.offset(len - 1u) + popcount(m & c_mask(tid))] = tid;
+    };
+    c_scratch_clear(g_buf, slice, tid);
+    g_tmp[slice + tid] = 0u;
+    UInt count = hlit + hdist;
+    UInt base_offset = 0u;
+    UInt lastlen = 0xFFFFFFFFu;
+    $loop {
+        UInt bits = bitreader_peek(br, 14u);
+        UInt sym_len;
+        UInt sym = dec.decode(g_lut, slice, bits, sym_len, false);
+        UInt idx = select(0u, sym - 15u, sym > 15u);
+        UInt n = k_base4[idx] + ((bits >> sym_len) & c_mask(k_xlen4[idx]));
+        // Scan back for the nearest lane holding a valid (non-16) symbol.
+        UInt lane = c_firstbithigh(lane_vote(sym != 16u) & c_mask(tid));
+        UInt codelen = sym;
+        $if (sym > 16u) { codelen = 0u; };
+        // c_firstbithigh returns 32 for an empty mask; never pass it to
+        // warp_read_lane.
+        UInt safe_lane = select(0u, lane, lane != 32u);
+        UInt prevlen = warp_read_lane(codelen, safe_lane);
+        $if (sym == 16u) {
+            $if (lane == 32u) {
+                codelen = lastlen;
+            } $else {
+                codelen = prevlen;
+            };
+        };
+        lastlen = lane_broadcast(codelen, 31u);
+        base_offset = lane_scan(n) + base_offset;
+        $if (base_offset < count & codelen != 0u) {
+            c_update_histograms(g_tmp, slice, codelen, base_offset, n, hlit);
+            c_set4b(g_buf, slice, codelen, n, base_offset);
+        };
+        bitreader_eat(br, input, tid, sym_len + select(0u, k_xlen4[idx], idx != 0u), base_offset < count);
+        base_offset = lane_broadcast(base_offset + n, 31u);
+        $if (!warp_active_all(base_offset < count)) { $break; };
+    };
+    return g_tmp[slice + tid];
+}
+
+// Translate a decoded symbol into its value (literal length, match length or
+// distance) and consume the extra bits (HLSL TranslateSymbol).
+inline UInt c_translate_symbol(BitReader &br, const ByteBufferVar &input,
+                               UInt sym, UInt sym_len, UInt bits, Bool isdist, UInt tid, Bool p) noexcept {
+    UInt base = 1u;
+    UInt n = 0u;
+    $if (isdist) {
+        base = k_base_dist[sym];
+        n = k_extra_dist[sym];
+    } $else {
+        $if (sym >= 256u) {
+            base = k_base_length[sym - 256u];
+            n = k_extra_length[sym - 256u];
+        } $else {
+            base = 1u;
+            n = 0u;
+        };
+    };
+    bitreader_eat(br, input, tid, sym_len + n, isdist | p);
+    return base + ((bits >> sym_len) & c_mask(n));
+}
+
+// Write the current round's outputs (HLSL WriteOutput): one byte per literal
+// lane and the full copy run for every copy lane, using all 32 lanes.
+inline void c_write_output(BufferVar<uint> &output, UInt dst, UInt offset, UInt dist, UInt length,
+                           UInt byte, Bool iscopy, UInt tid) noexcept {
+    dst = dst + offset;
+    // Output literals.
+    $if (!iscopy & length != 0u) {
+        store_byte(output, dst, byte);
+    };
+    // Fill in copy destinations, one copy (lane) at a time, all lanes together.
+    UInt mask = lane_vote(iscopy);
+    $while (mask != 0u) {
+        UInt lane = c_firstbitlow(mask);
+        UInt off = max(lane_broadcast(dist, lane), 1u); // dist 0 is invalid; avoid % 0
+        UInt len = lane_broadcast(length, lane);
+        UInt out = lane_broadcast(dst, lane);
+        $for (i, tid, len, 32u) {
+            UInt data = read_output_byte(output, out + (i % off) - off);
+            store_byte(output, i + out, data);
+        };
+        mask = mask & (mask - 1u);
+    };
+}
+
+// Decode one compressed (fixed or dynamic Huffman) block; returns the updated
+// destination byte offset (HLSL CompressedBlock).
+inline UInt c_compressed_block(BitReader &br, const ByteBufferVar &input, BufferVar<uint> &output,
+                               Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared<uint> &g_lut,
+                               UInt slice, UInt hlit, UInt counts, UInt dst, UInt tid) noexcept {
+    DecoderPair dec;
+    dec.init(counts, 15u, tid);
+    c_symbol_table_init(g_tmp, g_buf, g_lut, slice, hlit, dec.offsets, tid);
+
+    // Initial round - no copy processing yet.
+    UInt sym_len;
+    UInt sym = dec.decode(g_lut, slice, bitreader_peek(br, 31u), sym_len, false);
+    UInt eob = lane_vote(sym == 256u);
+    Bool oob = (eob & c_mask(tid)) != 0u;
+    UInt value = c_translate_symbol(br, input, sym, sym_len, bitreader_peek(br), false, tid, !oob);
+    UInt length = select(0u, value, !oob);
+    Bool iscopy = sym > 256u;
+    UInt byte = sym;
+    UInt offset = lane_scan(length);
+
+    $while (eob == 0u) {
+        sym = dec.decode(g_lut, slice, bitreader_peek(br, 31u), sym_len, iscopy);
+        eob = lane_vote(sym == 256u);
+        oob = (eob & c_mask(tid)) != 0u;
+        value = c_translate_symbol(br, input, sym, sym_len, bitreader_peek(br), iscopy, tid, !oob);
+        c_write_output(output, dst, offset, value, length, byte, iscopy, tid);
+        dst = dst + lane_broadcast(offset + length, 31u);
+        length = select(0u, value, !(iscopy | oob));
+        offset = lane_scan(length);
+        iscopy = sym > 256u;
+        byte = sym;
+    };
+
+    // One last round of copy processing.
+    sym = dec.decode(g_lut, slice, bitreader_peek(br, 31u), sym_len, true);
+    iscopy = iscopy & !oob;
+    UInt dist = c_translate_symbol(br, input, sym, sym_len, bitreader_peek(br), iscopy, tid, false);
+    c_write_output(output, dst, offset, dist, length, byte, iscopy, tid);
+    return dst + lane_broadcast(offset + length, 31u);
+}
+
+// ============================================================================
 // Tile decompression
 // ============================================================================
 
-inline void decompress_tile(const ByteBufferVar &input, ByteBufferVar &output,
-                            UInt tid, UInt in_pos, UInt out_pos, UInt out_size) noexcept {
+inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
+                            UInt tid, UInt warp_in_block, UInt in_pos, UInt out_pos, UInt out_size) noexcept {
     BitReader br;
     bitreader_init(br, input, in_pos, tid);
+
+    // One 32-lane warp decodes one tile.  Each warp owns a private slice of the
+    // shared scratch array (416 words = 32 g_tmp + 64 g_buf + 320 g_lut).  The
+    // warps are independent and may diverge, so no sync_block() may be used.
+    Shared<uint> scratch{4u * (32u + 64u + 320u)};
+    UInt slice = warp_in_block * (32u + 64u + 320u);
 
     UInt dst = out_pos;
     // Clear output tile to avoid garbage around unaligned tail.
@@ -234,7 +591,7 @@ inline void decompress_tile(const ByteBufferVar &input, ByteBufferVar &output,
     $for (iter, clear_iters) {
         UInt idx = tid + iter * 32u;
         $if (idx < clear_words) {
-            output.write(out_pos + idx * 4u, 0u);
+            output.write(out_pos / 4u + idx, 0u);
         };
     };
 
@@ -253,9 +610,17 @@ inline void decompress_tile(const ByteBufferVar &input, ByteBufferVar &output,
                 UInt len = lane_broadcast(bitreader_read(br, input, tid, 16u, tid == 0u), 0u);
                 dst = uncompressed_block(br, input, output, tid, dst, len);
             };
-            $case (1u) { // Fixed Huffman (not implemented in this first version)
+            $case (1u) { // Fixed Huffman
+                UInt counts = c_fixed_code_lengths(scratch, slice, tid);
+                dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, 288u, counts, dst, tid);
             };
-            $case (2u) { // Dynamic Huffman (not implemented in this first version)
+            $case (2u) { // Dynamic Huffman
+                UInt hlit = c_extract(header, 3u, 5u, 257u);
+                UInt hdist = c_extract(header, 8u, 5u, 1u);
+                bitreader_eat(br, input, tid, 14u, tid == 0u);
+                UInt counts = c_unpack_code_lengths(br, input, scratch, scratch, scratch, slice, hlit, hdist,
+                                                    c_extract(header, 13u, 4u, 4u), tid, dst);
+                dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, hlit, counts, dst, tid);
             };
             $default { // Invalid block type
             };
@@ -268,7 +633,7 @@ inline void decompress_tile(const ByteBufferVar &input, ByteBufferVar &output,
 // ============================================================================
 
 inline auto make_decompress_kernel() noexcept {
-        return [](ByteBufferVar input, ByteBufferVar output,
+        return [](ByteBufferVar input, BufferVar<uint> output,
                   UInt stream_in_pos, UInt stream_out_pos, UInt num_tiles) noexcept {
         // One 32-lane warp decompresses one tile.  128 threads = 4 warps, so each
         // block handles 4 tiles.  Pin the warp size to 32 so this mapping is exact
@@ -286,7 +651,7 @@ inline auto make_decompress_kernel() noexcept {
         $if (tile_idx < num_tiles) {
             Var<TileStream> ts = c_tilestream_construct(input, stream_in_pos);
             Var<TileParams> params = c_tilestream_get_params(input, stream_in_pos, stream_out_pos, tile_idx, ts);
-            decompress_tile(input, output, tid, params.in_pos, params.out_pos, params.out_size);
+            decompress_tile(input, output, tid, warp_in_block, params.in_pos, params.out_pos, params.out_size);
         };
     };
 }

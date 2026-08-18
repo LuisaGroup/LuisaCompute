@@ -98,7 +98,7 @@ private:
 
     // Compiled DSL shaders.
     Shader1D<ByteBuffer, ByteBuffer, uint, uint, uint, uint> _compress_shader;
-    Shader1D<ByteBuffer, ByteBuffer, uint, uint, uint> _decompress_shader;
+    Shader1D<ByteBuffer, Buffer<uint>, uint, uint, uint> _decompress_shader;
 };
 
 }// namespace luisa::example::gdeflate

@@ -28,8 +28,9 @@ uint32_t GDeflateCodec::compress(const ByteBuffer &input, ByteBuffer &output, ui
 void GDeflateCodec::decompress(const ByteBuffer &input, ByteBuffer &output, uint32_t output_size) {
     uint32_t num_tiles = compute_num_tiles(output_size);
 
-    // Input tile stream starts at offset 0.
-    _stream << _decompress_shader(input, output, 0u, 0u, num_tiles).dispatch(num_tiles * 32u)
+    // Input tile stream starts at offset 0.  The decompressor needs atomic byte
+    // writes, so the output is bound as a uint view of the byte buffer.
+    _stream << _decompress_shader(input, output.view().as<uint>(), 0u, 0u, num_tiles).dispatch(num_tiles * 32u)
             << synchronize();
 }
 
