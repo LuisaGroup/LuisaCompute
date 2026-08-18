@@ -82,13 +82,24 @@ inline UInt scan16_inclusive(UInt value, UInt tid) noexcept {
     return select(incl, incl - base, tid >= 16u);
 }
 
-// Lane-match mask: bit i set iff lane i holds the same value (HLSL match()).
-inline UInt lane_match(UInt value) noexcept {
-    UInt mask = 0u;
-    $for (i, 32u) {
-        mask = mask | select(0u, 1u << i, warp_read_lane(value, i) == value);
+// Lane-match information for a 4-bit value (HLSL match()): for every lane,
+// `below` is the number of lanes with a smaller index holding the same value,
+// `first` is the index of the first such lane, and `cnt` is the group size.
+// This replaces a 32-iteration warp_read_lane loop with 16 ballots (one per
+// possible 4-bit length), which is significantly cheaper on every backend.
+inline void c_lane_match_info(UInt value, UInt tid, UInt &below, UInt &first, UInt &cnt) noexcept {
+    below = 0u;
+    first = 32u;
+    cnt = 0u;
+    $for (L, 16u) {
+        Bool eq = value == L;
+        UInt m = lane_vote(eq); // all lanes execute the ballot uniformly
+        $if (eq) {
+            below = popcount(m & c_mask(tid));
+            first = c_firstbitlow(m);
+            cnt = popcount(m);
+        };
     };
-    return mask;
 }
 
 // ============================================================================
@@ -190,13 +201,14 @@ inline void bitreader_init(BitReader &br, const ByteBufferVar &input,
 inline void bitreader_refill(BitReader &br, const ByteBufferVar &input,
                              UInt tid, Bool p) noexcept {
     p = p & (br.cnt < BitReader::k_width);
-    UInt ballot = lane_vote(p);
-    UInt offset = popcount(ballot & c_mask(tid)) * 4u;
+    // Exclusive prefix popcount over lanes is a single warp instruction and
+    // replaces the ballot + popcount(ballot & mask(tid)) pair.
+    UInt offset = warp_prefix_count_bits(p) * 4u;
     $if (p) {
         br.buf = br.buf | (static_cast<ULong>(input.read<uint>(br.base + offset)) << br.cnt);
         br.cnt = br.cnt + BitReader::k_width;
     };
-    br.base = br.base + popcount(ballot) * 4u;
+    br.base = br.base + warp_active_count_bits(p) * 4u;
 }
 
 inline void bitreader_eat(BitReader &br, const ByteBufferVar &input,
@@ -228,13 +240,34 @@ inline UInt bitreader_peek(BitReader &br) noexcept {
 // ============================================================================
 
 // Uncompressed DEFLATE block: copy LEN raw bytes from the bitstream.
+//
+// When the destination is 4-byte aligned, each 32-byte round covers whole
+// words, so the round is written with 4 warp shuffles (assemble the word) plus
+// 8 plain global stores instead of 32 atomic byte-ORs.  dst is warp-uniform
+// and advances by 32 per round, so the alignment test is uniform and loop-
+// invariant.  Unaligned destinations (e.g. after a compressed block) fall back
+// to the atomic byte stores, which remain correct for any offset.
 inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, BufferVar<uint> &output,
                                UInt tid, UInt dst, UInt size) noexcept {
     UInt nrounds = size / 32u;
+    Bool aligned = (dst & 3u) == 0u;
 
     $while (nrounds != 0u) {
         UInt byte = bitreader_read(br, input, tid, 8u, true);
-        store_byte(output, dst + tid, byte);
+        $if (aligned) {
+            // Assemble the 4-byte word of this lane's 4-lane group, then have
+            // the group leader issue one plain word store.
+            UInt word = 0u;
+            $for (j, 4u) {
+                UInt src = (tid & ~3u) + j;
+                word = word | (warp_read_lane(byte, src) << (j * 8u));
+            };
+            $if ((tid & 3u) == 0u) {
+                output.write(dst / 4u + tid / 4u, word);
+            };
+        } $else {
+            store_byte(output, dst + tid, byte);
+        };
         dst = dst + 32u;
         nrounds = nrounds - 1u;
     };
@@ -388,30 +421,33 @@ inline void c_symbol_table_init(Shared<uint> &g_tmp, Shared<uint> &g_buf, Shared
     $for (i, 8u) {
         UInt sym = i * 32u + tid;
         UInt len = c_get4b(g_buf, slice, sym);
-        UInt m = lane_match(len);
+        UInt below, first, cnt;
+        c_lane_match_info(len, tid, below, first, cnt);
         $if (len != 0u) {
-            g_lut[slice + 96u + g_tmp[slice + len] + popcount(m & c_mask(tid))] = sym;
+            g_lut[slice + 96u + g_tmp[slice + len] + below] = sym;
         };
         // First lane of each equal-length group advances the running offset.
-        $if (tid == c_firstbitlow(m)) {
-            g_tmp[slice + len] = g_tmp[slice + len] + popcount(m);
+        $if (tid == first) {
+            g_tmp[slice + len] = g_tmp[slice + len] + cnt;
         };
     };
     // Bounds-checked last literal iteration (symbols 256..287).
     UInt sym = 8u * 32u + tid;
     UInt len = select(0u, c_get4b(g_buf, slice, sym), sym < hlit);
     {
-        UInt m = lane_match(len);
+        UInt below, first, cnt;
+        c_lane_match_info(len, tid, below, first, cnt);
         $if (len != 0u) {
-            g_lut[slice + 96u + g_tmp[slice + len] + popcount(m & c_mask(tid))] = sym;
+            g_lut[slice + 96u + g_tmp[slice + len] + below] = sym;
         };
     }
     // Distance codes (symbols 288..319 in the LUT).
     len = c_get4b(g_buf, slice, tid + hlit);
     {
-        UInt m = lane_match(len);
+        UInt below, first, cnt;
+        c_lane_match_info(len, tid, below, first, cnt);
         $if (len != 0u) {
-            g_lut[slice + 96u + kDistanceCodesBase + g_tmp[slice + 16u + len] + popcount(m & c_mask(tid))] = tid;
+            g_lut[slice + 96u + kDistanceCodesBase + g_tmp[slice + 16u + len] + below] = tid;
         };
     }
 }
@@ -439,10 +475,13 @@ inline UInt c_unpack_code_lengths(BitReader &br, const ByteBufferVar &input,
     DecoderPair dec;
     dec.init(cnts, 7u, tid);
     // Scatter the precode symbols.
-    UInt m = lane_match(len);
-    $if (len != 0u) {
-        g_lut[slice + 96u + dec.offset(len - 1u) + popcount(m & c_mask(tid))] = tid;
-    };
+    {
+        UInt below, first, cnt;
+        c_lane_match_info(len, tid, below, first, cnt);
+        $if (len != 0u) {
+            g_lut[slice + 96u + dec.offset(len - 1u) + below] = tid;
+        };
+    }
     c_scratch_clear(g_buf, slice, tid);
     g_tmp[slice + tid] = 0u;
     UInt count = hlit + hdist;
