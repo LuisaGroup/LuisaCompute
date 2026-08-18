@@ -308,10 +308,15 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
                                    UInt in_pos, UInt out_pos, UInt len, UInt tid) noexcept {
     UInt nrounds = len / 32u;
     UInt qgroups = (nrounds + 3u) / 4u;
+    // Software-pipeline the input reads: load packet q+1 before processing
+    // packet q so the global-memory latency overlaps with the shuffle/write work.
+    UInt word = input.read<uint>(in_pos + tid * 4u);
     $for (q, qgroups) {
-        // Packet q of this lane's stream (stream == lane).  Lane 0 may need the
-        // next packet too because its data is shifted by the 19-bit header.
-        UInt word = input.read<uint>(in_pos + (q * 32u + tid) * 4u);
+        UInt cur = word;
+        UInt nq = q + 1u;
+        $if (nq < qgroups) {
+            word = input.read<uint>(in_pos + (nq * 32u + tid) * 4u);
+        };
         $for (j, 4u) {
             UInt round = q * 4u + j;
             $if (round < nrounds) {
@@ -331,7 +336,7 @@ inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &
                         byte = byte | ((w1 << (32u - shift)) & 0xffu);
                     };
                 } $else {
-                    byte = (word >> (j * 8u)) & 0xffu;
+                    byte = (cur >> (j * 8u)) & 0xffu;
                 };
                 // Assemble the 4-byte word of this lane's 4-lane group, then
                 // have the group leader issue one plain word store.
