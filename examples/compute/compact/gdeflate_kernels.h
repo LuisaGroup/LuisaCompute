@@ -972,57 +972,6 @@ inline void compress_tile_single_thread(const ByteBufferVar &input, ByteBufferVa
     };
 }
 
-// Parallel compressor for a single uncompressed-block tile (tile_size <= 65535,
-// which is always true for kDefaultTileSize = 32768).  The 32 GDeflate streams
-// are independent, so one 32-lane warp compresses one tile with one lane per
-// stream.  Stream 0 additionally packs the 19-bit block header; its bytes are
-// bit-packed at 8-bit intervals after the header, so lane 0 uses a 64-bit
-// accumulator.  All other streams are byte-aligned and pack 4 bytes per word.
-// The output layout is the classic packet p of stream s at word p*32+s, which
-// is exactly what fast_uncompressed_tile and the BitReader expect.
-inline void compress_tile_warp(const ByteBufferVar &input, ByteBufferVar &output,
-                               UInt in_pos, UInt out_pos, UInt tile_size, UInt tid) noexcept {
-    UInt nbytes = (tile_size + 31u) / 32u; // bytes per stream (ceil)
-    $if (tid == 0u) {
-        // Stream 0: BFINAL=1, BTYPE=00, LEN(tile_size) = 19 header bits, then
-        // bytes 0, 32, 64, ... at 8-bit intervals.
-        ULong acc = static_cast<ULong>(1u | (tile_size << 3u));
-        UInt nbits = 19u;
-        UInt p = 0u;
-        $for (k, nbytes) {
-            UInt b = read_input_byte(input, in_pos, k * 32u);
-            acc = acc | (static_cast<ULong>(b) << nbits);
-            nbits = nbits + 8u;
-            $if (nbits >= 32u) {
-                output.write(out_pos + p * 128u, static_cast<UInt>(acc));
-                acc = acc >> 32u;
-                nbits = nbits - 32u;
-                p = p + 1u;
-            };
-        };
-        $if (nbits != 0u) {
-            output.write(out_pos + p * 128u, static_cast<UInt>(acc));
-        };
-    } $else {
-        // Streams 1..31: bytes s, s+32, ... packed 4 per word.
-        UInt nwords = (nbytes + 3u) / 4u;
-        $for (p, nwords) {
-            UInt w = 0u;
-            $for (j, 4u) {
-                UInt k = p * 4u + j;
-                $if (k < nbytes) {
-                    UInt byte_idx = k * 32u + tid;
-                    $if (byte_idx < tile_size) {
-                        UInt b = read_input_byte(input, in_pos, byte_idx);
-                        w = w | (b << (j * 8u));
-                    };
-                };
-            };
-            output.write(out_pos + (p * 32u + tid) * 4u, w);
-        };
-    };
-}
-
 // Compute output word p of stream 0 (the bit-packed stream with the 19-bit
 // header) directly from the input bytes.  Every packet is independent: packet
 // 0 is the header plus bytes 0..1; packet p>=1 covers bits 32p..32p+31, which
