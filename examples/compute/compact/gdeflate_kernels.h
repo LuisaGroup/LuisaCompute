@@ -1012,26 +1012,52 @@ inline void compress_tile_parallel(const ByteBufferVar &input, ByteBufferVar &ou
     UInt nbytes = (tile_size + 31u) / 32u;          // bytes per stream (ceil)
     UInt nwords = (nbytes + 3u) / 4u;               // packets per byte-aligned stream
     UInt nwords0 = (19u + nbytes * 8u + 31u) / 32u; // packets for stream 0
-    $for (i, 33u) {
-        UInt p = p0 + 8u * i;
-        $if (s == 0u) {
-            $if (p < nwords0) {
-                output.write(out_pos + p * 128u, compress_stream0_word(input, in_pos, p, tile_size, nbytes));
+    $if (tile_size % 128u == 0u) {
+        // Tile is a whole number of 4-byte words per stream (128-byte aligned):
+        // every stream has a full word count, so all per-byte bounds checks are
+        // provably true; skip them.  kDefaultTileSize (32768) satisfies this.
+        UInt nw = tile_size / 32u;      // exact bytes per stream
+        UInt nw0 = (19u + nw * 8u + 31u) / 32u;
+        $for (i, 33u) {
+            UInt p = p0 + 8u * i;
+            $if (s == 0u) {
+                $if (p < nw0) {
+                    output.write(out_pos + p * 128u, compress_stream0_word(input, in_pos, p, tile_size, nw));
+                };
+            } $else {
+                $if (p < nw / 4u) {
+                    UInt w = 0u;
+                    $for (j, 4u) {
+                        UInt b = read_input_byte(input, in_pos, (p * 4u + j) * 32u + s);
+                        w = w | (b << (j * 8u));
+                    };
+                    output.write(out_pos + (p * 32u + s) * 4u, w);
+                };
             };
-        } $else {
-            $if (p < nwords) {
-                UInt w = 0u;
-                $for (j, 4u) {
-                    UInt k = p * 4u + j;
-                    $if (k < nbytes) {
-                        UInt byte_idx = k * 32u + s;
-                        $if (byte_idx < tile_size) {
-                            UInt b = read_input_byte(input, in_pos, byte_idx);
-                            w = w | (b << (j * 8u));
+        };
+    } $else {
+        // Partial tile: guard every byte read against the tile boundary.
+        $for (i, 33u) {
+            UInt p = p0 + 8u * i;
+            $if (s == 0u) {
+                $if (p < nwords0) {
+                    output.write(out_pos + p * 128u, compress_stream0_word(input, in_pos, p, tile_size, nbytes));
+                };
+            } $else {
+                $if (p < nwords) {
+                    UInt w = 0u;
+                    $for (j, 4u) {
+                        UInt k = p * 4u + j;
+                        $if (k < nbytes) {
+                            UInt byte_idx = k * 32u + s;
+                            $if (byte_idx < tile_size) {
+                                UInt b = read_input_byte(input, in_pos, byte_idx);
+                                w = w | (b << (j * 8u));
+                            };
                         };
                     };
+                    output.write(out_pos + (p * 32u + s) * 4u, w);
                 };
-                output.write(out_pos + (p * 32u + s) * 4u, w);
             };
         };
     };
