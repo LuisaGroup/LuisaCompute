@@ -380,7 +380,7 @@ bool run_huffman_tile_tests(GDeflateCodec &codec, Stream &stream, Device &device
 int main(int argc, char *argv[]) {
     auto executable = argc > 0 && argv != nullptr && argv[0] != nullptr ? argv[0] : "";
     if (argc <= 1 || argv == nullptr || argv[1] == nullptr || argv[1][0] == '\0') {
-        LUISA_INFO("Usage: {} <backend> [size]", executable);
+        LUISA_INFO("Usage: {} <backend> [size] [repeat]", executable);
         return 1;
     }
 
@@ -388,6 +388,12 @@ int main(int argc, char *argv[]) {
     if (argc > 2 && argv[2] != nullptr) {
         size = static_cast<uint32_t>(std::strtoul(argv[2], nullptr, 10));
         if (size == 0u) { size = 1024u * 1024u; }
+    }
+
+    uint32_t repeat = 1u; // benchmark iterations (averaged)
+    if (argc > 3 && argv[3] != nullptr) {
+        repeat = static_cast<uint32_t>(std::strtoul(argv[3], nullptr, 10));
+        if (repeat == 0u) { repeat = 1u; }
     }
 
     Context ctx{argv[0]};
@@ -410,13 +416,21 @@ int main(int argc, char *argv[]) {
     ByteBuffer compressed = codec.allocate_compressed(size);
     ByteBuffer decompressed = codec.allocate_uncompressed(size);
 
-    Clock clock;
+    // Warm up (also validates correctness on the first pass).
     uint32_t compressed_size = codec.compress(input, compressed, size);
-    auto compress_ms = clock.toc();
+    codec.decompress(compressed, decompressed, size);
+
+    Clock clock;
+    for (uint32_t i = 0u; i < repeat; ++i) {
+        codec.compress(input, compressed, size);
+    }
+    auto compress_ms = clock.toc() / static_cast<double>(repeat);
 
     clock.tic();
-    codec.decompress(compressed, decompressed, size);
-    auto decompress_ms = clock.toc();
+    for (uint32_t i = 0u; i < repeat; ++i) {
+        codec.decompress(compressed, decompressed, size);
+    }
+    auto decompress_ms = clock.toc() / static_cast<double>(repeat);
 
     std::vector<std::byte> host_output(size);
     stream << decompressed.copy_to(host_output.data()) << synchronize();
