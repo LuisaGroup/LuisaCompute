@@ -414,6 +414,7 @@ int main(int argc, char *argv[]) {
     uint32_t compressed_size = codec.compress(input, compressed, size);
     auto compress_ms = clock.toc();
 
+    clock.tic();
     codec.decompress(compressed, decompressed, size);
     auto decompress_ms = clock.toc();
 

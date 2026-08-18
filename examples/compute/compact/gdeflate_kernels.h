@@ -286,6 +286,91 @@ inline UInt uncompressed_block(BitReader &br, const ByteBufferVar &input, Buffer
 }
 
 // ============================================================================
+// Fast path: whole tile is one uncompressed DEFLATE block (BFINAL=1, BTYPE=00).
+//
+// For this layout the swizzle is the classic GDeflate one: packet p of stream
+// s lives at word p*32+s.  Stream 0 carries BFINAL(1)+BTYPE(2)+LEN(16)=19 bits
+// followed by bytes 0, 32, 64, ...; every other stream s carries bytes
+// s, s+32, s+64, ...  Byte r*32+s (r-th round) sits at bit r*8 (+19 for s=0)
+// of stream s.
+//
+// Each lane reads ONE word per 4 rounds (its own stream's packet) and unpacks
+// 4 bytes from it, instead of the BitReader's per-round 64-bit refill scans.
+// The 4 output bytes are written with the same 4-lane word-assembly used by
+// uncompressed_block, so input traffic drops 4x while output stays coalesced.
+// ============================================================================
+inline void fast_uncompressed_tile(const ByteBufferVar &input, BufferVar<uint> &output,
+                                   UInt in_pos, UInt out_pos, UInt len, UInt tid) noexcept {
+    UInt nrounds = len / 32u;
+    UInt qgroups = (nrounds + 3u) / 4u;
+    $for (q, qgroups) {
+        // Packet q of this lane's stream (stream == lane).  Lane 0 may need the
+        // next packet too because its data is shifted by the 19-bit header.
+        UInt word = input.read<uint>(in_pos + (q * 32u + tid) * 4u);
+        $for (j, 4u) {
+            UInt round = q * 4u + j;
+            $if (round < nrounds) {
+                UInt byte;
+                $if (tid == 0u) {
+                    // Stream 0's bytes start 19 bits into the stream, so they
+                    // are NOT byte-aligned in the packet: bit = 19 + round*8.
+                    // A byte can even straddle two packets (shift 27), so read
+                    // the containing packet and, when needed, the next one.
+                    UInt bit = 19u + round * 8u;
+                    UInt p = bit >> 5u;
+                    UInt shift = bit & 31u;
+                    UInt w0 = input.read<uint>(in_pos + (p * 32u) * 4u);
+                    byte = (w0 >> shift) & 0xffu;
+                    $if (shift > 24u) {
+                        UInt w1 = input.read<uint>(in_pos + ((p + 1u) * 32u) * 4u);
+                        byte = byte | ((w1 << (32u - shift)) & 0xffu);
+                    };
+                } $else {
+                    byte = (word >> (j * 8u)) & 0xffu;
+                };
+                // Assemble the 4-byte word of this lane's 4-lane group, then
+                // have the group leader issue one plain word store.
+                UInt word_out = 0u;
+                $for (t, 4u) {
+                    UInt src = (tid & ~3u) + t;
+                    word_out = word_out | (warp_read_lane(byte, src) << (t * 8u));
+                };
+                $if ((tid & 3u) == 0u) {
+                    output.write(out_pos / 4u + round * 8u + tid / 4u, word_out);
+                };
+            };
+        };
+    };
+    // Remainder: fewer than 32 bytes left; one byte per lane, atomic store.
+    UInt rem = len % 32u;
+    $if (rem != 0u) {
+        UInt b = nrounds * 32u + tid;
+        $if (tid < rem) {
+            UInt bit;
+            UInt w;
+            $if (tid == 0u) {
+                bit = 19u + b * 8u;
+                UInt p = bit >> 5u;
+                UInt shift = bit & 31u;
+                w = input.read<uint>(in_pos + (p * 32u) * 4u);
+                UInt byte0 = (w >> shift) & 0xffu;
+                $if (shift > 24u) {
+                    UInt w1 = input.read<uint>(in_pos + ((p + 1u) * 32u) * 4u);
+                    byte0 = byte0 | ((w1 << (32u - shift)) & 0xffu);
+                };
+                w = byte0;
+            } $else {
+                bit = (b / 32u) * 8u;
+                UInt p = bit >> 5u;
+                w = input.read<uint>(in_pos + (p * 32u + tid) * 4u);
+                w = (w >> (bit & 31u)) & 0xffu;
+            };
+            store_byte(output, out_pos + b, w);
+        };
+    };
+}
+
+// ============================================================================
 // Shared-memory scratch helpers (per-warp slices of one Shared<uint> array)
 //
 // Layout inside a 416-word slice:
@@ -614,54 +699,82 @@ inline UInt c_compressed_block(BitReader &br, const ByteBufferVar &input, Buffer
 
 inline void decompress_tile(const ByteBufferVar &input, BufferVar<uint> &output,
                             UInt tid, UInt warp_in_block, UInt in_pos, UInt out_pos, UInt out_size) noexcept {
-    BitReader br;
-    bitreader_init(br, input, in_pos, tid);
-
     // One 32-lane warp decodes one tile.  Each warp owns a private slice of the
     // shared scratch array (416 words = 32 g_tmp + 64 g_buf + 320 g_lut).  The
     // warps are independent and may diverge, so no sync_block() may be used.
     Shared<uint> scratch{4u * (32u + 64u + 320u)};
     UInt slice = warp_in_block * (32u + 64u + 320u);
 
-    UInt dst = out_pos;
-    // Clear output tile to avoid garbage around unaligned tail.
-    UInt clear_words = (out_size + 3u) / 4u;
-    UInt clear_iters = (clear_words + 31u) / 32u;
-    $for (iter, clear_iters) {
-        UInt idx = tid + iter * 32u;
-        $if (idx < clear_words) {
-            output.write(out_pos / 4u + idx, 0u);
+    // Fast path: the tile is a single uncompressed DEFLATE block.  Random and
+    // otherwise incompressible tiles hit this branch every time; it bypasses the
+    // BitReader entirely (direct p*32+s packet addressing, 4x fewer input reads
+    // and no per-round warp refill scans).  Stream 0 packet 0 holds the block
+    // header, so BFINAL/BTYPE/LEN are read straight from the first word.
+    UInt word0 = input.read<uint>(in_pos);
+    $if (((word0 & 1u) != 0u) & ((word0 >> 1u) & 3u) == 0u) {
+        UInt len = min((word0 >> 3u) & 0xffffu, out_size);
+        // The round loop overwrites whole words, but the tail bytes are written
+        // with byte-OR atomics, so zero the tail words (and any words beyond
+        // LEN for invalid streams) first.  For a full tile this is skipped
+        // entirely, avoiding a second full write pass over the output.
+        UInt rem = len % 32u;
+        $if (rem != 0u | len < out_size) {
+            UInt start_word = (len / 32u) * 8u;
+            UInt clear_words = (out_size + 3u) / 4u;
+            UInt clear_iters = (clear_words - start_word + 31u) / 32u;
+            $for (iter, clear_iters) {
+                UInt idx = start_word + tid + iter * 32u;
+                $if (idx < clear_words) {
+                    output.write(out_pos / 4u + idx, 0u);
+                };
+            };
         };
-    };
-
-    Bool done = false;
-    $while (!done) {
-        // Read block header from lane 0 and broadcast.
-        UInt header = lane_broadcast(bitreader_peek(br), 0u);
-
-        done = c_extract(header, 0u, 1u, 0u) != 0u;
-        UInt btype = c_extract(header, 1u, 2u, 0u);
-
-        bitreader_eat(br, input, tid, 3u, tid == 0u);
-
-        $switch (btype) {
-            $case (0u) { // Uncompressed block (GDeflate omits the NLEN field)
-                UInt len = lane_broadcast(bitreader_read(br, input, tid, 16u, tid == 0u), 0u);
-                dst = uncompressed_block(br, input, output, tid, dst, len);
+        fast_uncompressed_tile(input, output, in_pos, out_pos, len, tid);
+    } $else {
+        // General path (multi-block tiles, Huffman blocks): clear the whole
+        // output tile first to avoid garbage around unaligned tails.
+        UInt clear_words = (out_size + 3u) / 4u;
+        UInt clear_iters = (clear_words + 31u) / 32u;
+        $for (iter, clear_iters) {
+            UInt idx = tid + iter * 32u;
+            $if (idx < clear_words) {
+                output.write(out_pos / 4u + idx, 0u);
             };
-            $case (1u) { // Fixed Huffman
-                UInt counts = c_fixed_code_lengths(scratch, slice, tid);
-                dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, 288u, counts, dst, tid);
-            };
-            $case (2u) { // Dynamic Huffman
-                UInt hlit = c_extract(header, 3u, 5u, 257u);
-                UInt hdist = c_extract(header, 8u, 5u, 1u);
-                bitreader_eat(br, input, tid, 14u, tid == 0u);
-                UInt counts = c_unpack_code_lengths(br, input, scratch, scratch, scratch, slice, hlit, hdist,
-                                                    c_extract(header, 13u, 4u, 4u), tid, dst);
-                dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, hlit, counts, dst, tid);
-            };
-            $default { // Invalid block type
+        };
+
+        BitReader br;
+        bitreader_init(br, input, in_pos, tid);
+        UInt dst = out_pos;
+
+        Bool done = false;
+        $while (!done) {
+            // Read block header from lane 0 and broadcast.
+            UInt header = lane_broadcast(bitreader_peek(br), 0u);
+
+            done = c_extract(header, 0u, 1u, 0u) != 0u;
+            UInt btype = c_extract(header, 1u, 2u, 0u);
+
+            bitreader_eat(br, input, tid, 3u, tid == 0u);
+
+            $switch (btype) {
+                $case (0u) { // Uncompressed block (GDeflate omits the NLEN field)
+                    UInt len = lane_broadcast(bitreader_read(br, input, tid, 16u, tid == 0u), 0u);
+                    dst = uncompressed_block(br, input, output, tid, dst, len);
+                };
+                $case (1u) { // Fixed Huffman
+                    UInt counts = c_fixed_code_lengths(scratch, slice, tid);
+                    dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, 288u, counts, dst, tid);
+                };
+                $case (2u) { // Dynamic Huffman
+                    UInt hlit = c_extract(header, 3u, 5u, 257u);
+                    UInt hdist = c_extract(header, 8u, 5u, 1u);
+                    bitreader_eat(br, input, tid, 14u, tid == 0u);
+                    UInt counts = c_unpack_code_lengths(br, input, scratch, scratch, scratch, slice, hlit, hdist,
+                                                        c_extract(header, 13u, 4u, 4u), tid, dst);
+                    dst = c_compressed_block(br, input, output, scratch, scratch, scratch, slice, hlit, counts, dst, tid);
+                };
+                $default { // Invalid block type
+                };
             };
         };
     };
