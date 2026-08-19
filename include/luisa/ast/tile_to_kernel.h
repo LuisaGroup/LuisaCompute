@@ -45,6 +45,9 @@ struct LUISA_AST_API TileCompileResult {
 };
 struct TileToKernelConfig {
     bool use_cooperative : 1 {false};
+    // TODO: dynamic batching size support
+    uint32_t min_batching_size{1};
+    uint32_t max_batching_size{1};
 };
 /// Translate a compiled tile kernel (a traced TileFunctionBuilder) into a
 /// regular Luisa kernel (FunctionBuilder).  The traced builder is only read;

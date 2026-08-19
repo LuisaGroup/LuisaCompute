@@ -918,6 +918,57 @@ private:
             case CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
             case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
                 return _translate_cooperative_call(b, expr);
+            // Runtime tensor operators (plan.md §1.4): these ops carry raw
+            // device addresses plus host-side descriptor constants and are
+            // implemented directly by each backend's AST codegen (CUDA first).
+            // They have no XIR representation yet, so the experimental XIR
+            // pipeline rejects them loudly here instead of silently miscompiling.
+            case CallOp::TENSOR_COPY:
+            case CallOp::TENSOR_FILL:
+            case CallOp::TENSOR_CAST:
+            case CallOp::TENSOR_PERMUTE:
+            case CallOp::TENSOR_CONCAT:
+            case CallOp::TENSOR_PAD:
+            case CallOp::TENSOR_NEG:
+            case CallOp::TENSOR_ABS:
+            case CallOp::TENSOR_EXP:
+            case CallOp::TENSOR_LOG:
+            case CallOp::TENSOR_SQRT:
+            case CallOp::TENSOR_RSQRT:
+            case CallOp::TENSOR_SIN:
+            case CallOp::TENSOR_COS:
+            case CallOp::TENSOR_TAN:
+            case CallOp::TENSOR_TANH:
+            case CallOp::TENSOR_SIGMOID:
+            case CallOp::TENSOR_GELU:
+            case CallOp::TENSOR_RELU:
+            case CallOp::TENSOR_LEAKY_RELU:
+            case CallOp::TENSOR_ERF:
+            case CallOp::TENSOR_CEIL:
+            case CallOp::TENSOR_FLOOR:
+            case CallOp::TENSOR_ROUND:
+            case CallOp::TENSOR_ISNAN:
+            case CallOp::TENSOR_ISINF:
+            case CallOp::TENSOR_ADD:
+            case CallOp::TENSOR_SUB:
+            case CallOp::TENSOR_MUL:
+            case CallOp::TENSOR_DIV:
+            case CallOp::TENSOR_POW:
+            case CallOp::TENSOR_MIN:
+            case CallOp::TENSOR_MAX:
+            case CallOp::TENSOR_CLAMP:
+            case CallOp::TENSOR_FMA:
+            case CallOp::TENSOR_REDUCE_SUM:
+            case CallOp::TENSOR_REDUCE_MAX:
+            case CallOp::TENSOR_REDUCE_MIN:
+            case CallOp::TENSOR_CUMSUM:
+            case CallOp::TENSOR_MATMUL:
+            case CallOp::TENSOR_CONTRACT:
+            case CallOp::TENSOR_BATCH_MATMUL:
+                LUISA_NOT_IMPLEMENTED(
+                    "AST tensor operator {} is not representable in XIR yet; "
+                    "use the AST codegen path (disable the experimental XIR codegen).",
+                    luisa::to_string(ast_op));
             case CallOp::ASYNC_COPY:
                 LUISA_NOT_IMPLEMENTED(
                     "AST ASYNC_COPY cannot be represented faithfully in XIR: the AST API models "

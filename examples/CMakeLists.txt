@@ -97,11 +97,17 @@ file(GLOB _tensor_kernels CONFIGURE_DEPENDS tensor/kernel_*.cpp)
 # tile-language split runners: TinyCNN inference (--cnn) and polynomial-fit
 # training (--poly-fit); keep in sync with examples/xmake.lua.
 target_sources(example_tensor_stub PRIVATE
-        ${_tensor_kernels}
-        tensor/cnn_kernels.cpp
-        tensor/cnn_inference.cpp
-        tensor/poly_fit_kernels.cpp
-        tensor/poly_fit.cpp)
+ ${_tensor_kernels}
+ tensor/cnn_kernels.cpp
+ tensor/cnn_inference.cpp
+ tensor/poly_fit_kernels.cpp
+ tensor/poly_fit.cpp
+ tensor/linear_regression_kernels.cpp
+ tensor/linear_regression.cpp
+ tensor/mlp.cpp
+ tensor/mnist.cpp
+ tensor/rnn.cpp
+ tensor/tensor_basics.cpp)
 luisa_compute_add_example(example_cluster_launch_control compute/cluster_launch_control.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_async_copy_prefetch compute/async_copy_prefetch.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_multi_head_attention

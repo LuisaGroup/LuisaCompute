@@ -18,11 +18,31 @@
 //                                    -- polynomial-fit tile-language training
 //                                       (C++ twin of poly_fit_train.py, split
 //                                       usage via --poly-fit)
+//   example_tensor_stub <backend> --linear-regression [--steps N]
+//                                    -- linear & logistic regression training
+//                                       (C++ twin of linear_regression_train.py)
+//   example_tensor_stub <backend> --mlp [--epochs N]
+//                                    -- 3-layer MLP training (C++ twin of
+//                                       mlp_train.py, split usage via --mlp)
+//   example_tensor_stub <backend> --mnist [--epochs N]
+//                                    -- synthetic-MNIST MLP training (C++ twin
+//                                       of mnist_train.py --dataset synthetic)
+//   example_tensor_stub <backend> --rnn [--epochs N]
+//                                    -- RNN sequence classification training
+//                                       (C++ twin of rnn_train.py)
+//   example_tensor_stub <backend> --basics
+//                                    -- tensor basics exercises (C++ twin of
+//                                       tensor_basics.py)
 // =============================================================================
 
 #include "kernels.h"
 #include "cnn_inference.h"
 #include "poly_fit.h"
+#include "linear_regression.h"
+#include "mlp.h"
+#include "mnist.h"
+#include "rnn.h"
+#include "tensor_basics.h"
 
 int main(int argc, char *argv[]) {
     using namespace luisa::compute;// Kernel / Device / Context / detail for the translation test
@@ -48,6 +68,16 @@ int main(int argc, char *argv[]) {
     // --poly-fit: run the polynomial-fit tile-language training instead of the
     // kernel stub (same executable, different command-line usage).
     if (has_flag("--poly-fit")) { return polyfit::run_poly_fit(argc, argv); }
+    // --linear-regression: run the linear & logistic regression training.
+    if (has_flag("--linear-regression")) { return lreg::run_linear_regression(argc, argv); }
+    // --mlp: run the 3-layer MLP training.
+    if (has_flag("--mlp")) { return mlptrain::run_mlp(argc, argv); }
+    // --mnist: run the synthetic-MNIST MLP training.
+    if (has_flag("--mnist")) { return mnisttrain::run_mnist(argc, argv); }
+    // --rnn: run the RNN sequence-classification training.
+    if (has_flag("--rnn")) { return rnntrain::run_rnn(argc, argv); }
+    // --basics: run the tensor-basics exercises.
+    if (has_flag("--basics")) { return basics::run_basics(argc, argv); }
 
     // =========================================================================
     // Trace every tile kernel and lower it with tile_to_kernel.  Structural

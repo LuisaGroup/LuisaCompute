@@ -214,6 +214,7 @@ test_proj("test_tile_function_builder", "unit/ast/test_tile_function_builder.cpp
 test_proj("test_tile_kernel_dsl", "unit/ast/test_tile_kernel_dsl.cpp")
 test_proj("test_tile_to_kernel", "unit/ast/test_tile_to_kernel.cpp")
 test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
+test_proj("test_tensor", "unit/ast/test_tensor.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")
 
@@ -522,3 +523,25 @@ test_proj("test_fp4", "unit/runtime/test_fp4.cpp")
 test_proj("test_fp4_quantization", "unit/runtime/test_fp4_quantization.cpp")
 test_proj("test_fp8", "unit/runtime/test_fp8.cpp")
 test_proj("test_fp8_quantization", "unit/runtime/test_fp8_quantization.cpp")
+
+-- standalone CUDA tensor dispatch example: raw CUDA runtime + driver API with
+-- runtime NVRTC JIT (kernel source is a C++ raw string; no .cu compilation).
+-- Deliberately depends only on lc-core + lc-cuda-backend-base (NOT lc-runtime,
+-- lc-dsl, lc-vstl, or lc-backends-dummy) so it stays a host-only example.
+if has_config("lc_cuda_backend") then
+    target("test_cuda_tensor_dispatch")
+    _config_project({project_kind = "binary"})
+    add_files("cuda/test_cuda_tensor_dispatch.cpp")
+    add_includedirs("./", "./common")
+    add_deps("lc-core", "lc-cuda-backend-base")
+    add_links("cuda", "cudart", "nvrtc")
+    on_load(function(target)
+        local cuda_path = os.getenv("CUDA_PATH")
+        if cuda_path then
+            local forward = (cuda_path:gsub("\\", "/"))
+            target:add("defines", string.format('LUISA_TEST_CUDA_PATH="%s"', forward))
+            target:add("runenvs", "PATH", path.join(cuda_path, "bin"))
+        end
+    end)
+    target_end()
+end

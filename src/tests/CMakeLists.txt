@@ -235,7 +235,8 @@ luisa_compute_add_test(test_bindless_write_usage unit/ast/test_bindless_write_us
 luisa_compute_add_test(test_builtin_kernel  unit/ast/test_builtin_kernel.cpp)
 target_include_directories(test_builtin_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src/runtime)
 luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
-luisa_compute_add_test(test_cooperative_vector unit/ast/test_cooperative_vector.cpp)
+  luisa_compute_add_test(test_cooperative_vector unit/ast/test_cooperative_vector.cpp)
+  luisa_compute_add_test(test_tensor unit/ast/test_tensor.cpp LABELS "unit;unit_ast")
 
 # --- unit/dsl: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_binding_group          unit/dsl/test_binding_group.cpp)
@@ -477,10 +478,10 @@ if (LUISA_COMPUTE_ENABLE_DX)
     # luisa_compute_add_test(test_work_graph      integration/runtime/test_work_graph.cpp     ARGS dx)
 endif ()
 
-# --- integration/runtime: CUDA-only tests ---
-if (LUISA_COMPUTE_ENABLE_CUDA)
-    luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
-endif ()
+  # --- integration/runtime: CUDA-only tests ---
+  if (LUISA_COMPUTE_ENABLE_CUDA)
+      luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
+  endif ()
 
 # --- integration/xir: standalone tests ---
 luisa_compute_add_test(test_xir2ast_roundtrip integration/xir/test_xir2ast_roundtrip.cpp LABELS "unit;unit_xir")

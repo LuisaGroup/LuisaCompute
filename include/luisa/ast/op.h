@@ -532,6 +532,45 @@ enum struct CallOp : uint32_t {
     FENCE_PROXY_ASYNC_ACQUIRE,                    // (): void — fence.proxy.async with acquire
     FENCE_PROXY_ASYNC_RELEASE,                    // (): void — fence.proxy.async with release
 
+    // Tensor operators (runtime tensor API; side-effecting, see plan.md §1.5).
+    // All tensor ops return void: they read the input tensor storage and write
+    // the output tensor storage. Each tensor operand is passed as a host-side
+    // descriptor (encoded as scalar/vector constant arguments carrying the
+    // TensorElementType dtype tag, rank, extents, strides and storage offset)
+    // plus the 64-bit device address of the backing storage.
+
+    // data movement
+    TENSOR_COPY,   // (dst_desc, dst_addr, src_desc, src_addr, count) -> void
+    TENSOR_FILL,   // (dst_desc, dst_addr, value) -> void
+    TENSOR_CAST,   // (dst_desc, dst_addr, src_desc, src_addr, count) -> void
+    TENSOR_PERMUTE,// (dst_desc, dst_addr, src_desc, src_addr, perm) -> void
+    TENSOR_CONCAT, // (dst_desc, dst_addr, [src_desc, src_addr]...) -> void
+    TENSOR_PAD,    // (dst_desc, dst_addr, src_desc, src_addr, pad) -> void
+
+    // element-wise unary: (out_desc, out_addr, in_desc, in_addr, count) -> void
+    TENSOR_NEG, TENSOR_ABS, TENSOR_EXP, TENSOR_LOG, TENSOR_SQRT, TENSOR_RSQRT,
+    TENSOR_SIN, TENSOR_COS, TENSOR_TAN, TENSOR_TANH, TENSOR_SIGMOID, TENSOR_GELU,
+    TENSOR_RELU, TENSOR_LEAKY_RELU, TENSOR_ERF, TENSOR_CEIL, TENSOR_FLOOR,
+    TENSOR_ROUND, TENSOR_ISNAN, TENSOR_ISINF,
+
+    // element-wise binary: (out_desc, out_addr, a_desc, a_addr, b_desc, b_addr, count) -> void
+    // (CLAMP/FMA take extra scalar/vector args)
+    TENSOR_ADD, TENSOR_SUB, TENSOR_MUL, TENSOR_DIV, TENSOR_POW,
+    TENSOR_MIN, TENSOR_MAX, TENSOR_CLAMP, TENSOR_FMA,
+
+    // reductions / scans
+    TENSOR_REDUCE_SUM,   // (out_desc, out_addr, in_desc, in_addr, reduce_dims) -> void
+    TENSOR_REDUCE_MAX,   // (out_desc, out_addr, in_desc, in_addr, reduce_dims) -> void
+    TENSOR_REDUCE_MIN,   // (out_desc, out_addr, in_desc, in_addr, reduce_dims) -> void
+    TENSOR_CUMSUM,       // (out_desc, out_addr, in_desc, in_addr, dim) -> void
+
+    // contractions
+    TENSOR_MATMUL,       // (c_desc, c_addr, a_desc, a_addr, b_desc, b_addr,
+                         //  compute_dtype, trans_a, trans_b, alpha, beta, epilogue) -> void
+    TENSOR_CONTRACT,     // (c_desc, c_addr, a_desc, a_addr, b_desc, b_addr,
+                         //  mode_a, mode_b, mode_c, compute_dtype) -> void
+    TENSOR_BATCH_MATMUL, // like TENSOR_MATMUL + batch stride metadata
+
     // Clock
     CLOCK,// (): uint64
 
@@ -672,6 +711,14 @@ static constexpr size_t call_op_count =
     return v >= to_underlying(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL) &&
            v <= to_underlying(CallOp::FENCE_PROXY_ASYNC_RELEASE);
 }
+
+/// Returns whether the operation is a runtime tensor operator. The tensor
+/// operators deliberately form one contiguous block in CallOp.
+[[nodiscard]] constexpr auto is_tensor_operation(CallOp op) noexcept {
+    auto v = to_underlying(op);
+    return v >= to_underlying(CallOp::TENSOR_COPY) &&
+           v <= to_underlying(CallOp::TENSOR_BATCH_MATMUL);
+}
 class Expression;
 LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept;
 
@@ -808,6 +855,12 @@ public:
                test(CallOp::MBARRIER_TRY_WAIT_PARITY) ||
                test(CallOp::FENCE_PROXY_ASYNC_ACQUIRE) ||
                test(CallOp::FENCE_PROXY_ASYNC_RELEASE);
+    }
+    [[nodiscard]] auto uses_tensor_ops() const noexcept {
+        for (auto op : *this) {
+            if (is_tensor_operation(op)) { return true; }
+        }
+        return false;
     }
 };
 
