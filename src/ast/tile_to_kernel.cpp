@@ -612,7 +612,14 @@ barriers/atomics where TileLang's passes would inject them).
 //   * inside a T.Pipelined body the pipeline variable advances the axis with
 //     the smallest tile extent (the K axis of a GEMM tile) by ko * E;
 //   * the row stride of a global tensor is reconstructed as gx*E1 (2D), E1
-//     (1D) or pipeline_count*E1 when axis 1 is the pipeline axis.
+//     (1D) or pipeline_count*E1 when axis 1 is the pipeline axis;
+//   * with dynamic batching the z dispatch axis carries the runtime batch
+//     count: each z-thread of a block owns one batch item, the per-block z
+//     size is `_batch_block_z` (1 when disabled), and every Global access adds
+//     `batch_index * volume(t)` (clamped to batch 0 for idle tz threads of
+//     the tail z-block).  Warp math is flat over tid_x + tid_z * _threads so
+//     each warp stays inside one batch slice (enforced by the % 64 guard for
+//     warp-collective kernels).
 //
 // View identity: statement operands are *clones* of the AllocStmt output
 // TensorExpr (TensorStmt owns its operands, so two statements never share a
@@ -630,6 +637,7 @@ barriers/atomics where TileLang's passes would inject them).
 #include <luisa/ast/op.h>
 #include <luisa/ast/type.h>
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <limits>
@@ -722,29 +730,69 @@ public:
     TileCompileResult lower(const luisa::shared_ptr<const TileFunctionBuilder> &tile_fn,
                             const TileToKernelConfig &config) {
         _use_cooperative = config.use_cooperative;
+        _tile = tile_fn.get();
+        // Dynamic-batching config contract (the failure branches are the
+        // strongly-skewed "almost never" side, so mark them [[unlikely]]).
+        if (config.min_batching_size < 1u || config.max_batching_size < 1u) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: min/max batching size must be >= 1 "
+                "(got min={}, max={}).",
+                config.min_batching_size, config.max_batching_size);
+        }
+        if (config.min_batching_size > config.max_batching_size) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: min_batching_size ({}) must be <= "
+                "max_batching_size ({}).",
+                config.min_batching_size, config.max_batching_size);
+        }
         auto meta = tile_fn->compile_meta_data();// block size + dispatch grid
         _threads = meta.block_size[0];
         _gx = meta.dispatch_size[0];
         _gy = meta.dispatch_size[1];
         _kernel2d = _gy > 1u;
+        _batching = config.min_batching_size != 1u || config.max_batching_size != 1u;
+        _batch_block_z = _select_batch_block_z(config);
+        _block_threads = _threads * _batch_block_z;
+        // Block-size strategy constraint: total threads/group <= 1024.  The B_z
+        // heuristic caps this already (B_z <= max(1, 1024 / _threads)), so the
+        // assert is a safety net for degenerate T.Kernel thread counts.
+        if (_batching && _block_threads > 1024u) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: batched block size {} (threads) * {} (B_z) = {} "
+                "exceeds the 1024 threads/group limit.",
+                _threads, _batch_block_z, _block_threads);
+        }
+        // Warp/batch alignment guard (decision 7): warps are formed over the
+        // flat linear thread index (tid_x + tid_z * _threads), so a warp
+        // straddles two batch slices iff _threads is not a multiple of the
+        // lane count.  Batched kernels that use warp collectives therefore
+        // require _threads % 64 == 0 (safe for both 32- and 64-lane
+        // backends); the LUISA_ASSERT failure path is already [[unlikely]].
+        if (_batching && _kernel_uses_warp_collectives(tile_fn.get())) {
+            LUISA_ASSERT(_threads % 64u == 0u,
+                         "batched tile kernels with warp collectives require "
+                         "T.Kernel threads to be a multiple of 64 (got {}), so "
+                         "warps never straddle batch slices",
+                         _threads);
+        }
         auto builder = luisa::make_shared<FunctionBuilder>(Function::Tag::KERNEL);
         {
             FunctionBuilder::FunctionStackGuard guard{builder.get()};
             builder->with(builder->body(), [&] {
                 _fb = builder.get();
-                _tile = tile_fn.get();
-                builder->set_block_size(uint3{meta.block_size[0], meta.block_size[1], meta.block_size[2]});
+                // x/y stay the tile's thread count; z is the per-block batch
+                // size (1 when batching is disabled).
+                builder->set_block_size(uint3{meta.block_size[0], meta.block_size[1], _batch_block_z});
+                if (_batching) { _emit_batch_prologue(); }
                 _emit_all(tile_fn->body()->statements());
             });
         }
         // T.Kernel(gx, gy, threads) launches gx*gy BLOCKS of `threads`
         // threads; the Luisa `.dispatch(...)` argument is the TOTAL number of
         // threads (grid = ceildiv(dispatch, block_size)), so the returned
-        // dispatch size is (gx * threads, gy, 1) — the caller dispatches with
-        // .dispatch(result.dispatch_size.x, result.dispatch_size.y).
-        auto dispatch = _kernel2d ?
-                            uint3{meta.dispatch_size[0] * _threads, meta.dispatch_size[1], 1u} :
-                            uint3{meta.dispatch_size[0] * _threads, 1u, 1u};
+        // dispatch size is (gx * threads, gy).  z is reserved for the runtime
+        // batch count when batching is enabled and never appears here.
+        auto dispatch = uint2{meta.dispatch_size[0] * _threads, meta.dispatch_size[1]};
         return {builder, dispatch};
     }
 
@@ -777,6 +825,15 @@ private:
     uint32_t _gx = 1u;
     uint32_t _gy = 1u;
     bool _kernel2d = false;
+    // dynamic batching (see the lowering plan in this file): when enabled
+    // each z-thread of a block owns one batch item, so the block computes
+    // `_batch_block_z` items at once and the z dispatch axis carries the
+    // runtime batch count.
+    bool _batching = false;// min/max batching size != (1,1)
+    uint32_t _batch_block_z = 1u;// z component of set_block_size
+    uint32_t _block_threads = 1u;// _threads * _batch_block_z (flat warp math)
+    const Expression *_batch_index = nullptr;// block_id().z * B_z + thread_id().z
+    const Expression *_batch_valid = nullptr;// _batch_index < dispatch_size().z
     // pipelined-loop context
     const Expression *_pipeline_var = nullptr;
     uint32_t _pipeline_count = 0u;
@@ -854,18 +911,154 @@ private:
         return _fb->warp_lane_id();
     }
 
+    // Flat warp math (decision 5): with batching the block is
+    // (blockDim.x = _threads, blockDim.z = _batch_block_z) and warps form over
+    // the flat linear thread index tid_x + tid_z * _threads, so each warp lies
+    // entirely inside one batch slice (enforced by the % 64 alignment guard).
+    // Disabled batching keeps the legacy _threads-only path bit-identical.
     [[nodiscard]] const Expression *_warp_id() const noexcept {
-        return _fb->binary(Type::of<uint>(), BinaryOp::DIV, _tid_x(), _lane_count());
+        auto linear = _tid_x();
+        if (_batching) {
+            auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                  _vec_comp(_fb->thread_id(), 2u),
+                                  _literal_u(_threads));
+            linear = _fb->binary(Type::of<uint>(), BinaryOp::ADD, linear, t1);
+        }
+        return _fb->binary(Type::of<uint>(), BinaryOp::DIV, linear, _lane_count());
     }
 
+    // Warps per batch slice: reduce/scan partition each batch item's output
+    // space across the slice's own warps (_threads / lanes), NOT across the
+    // flat block-wide warp set.  A flat partition (block_threads / lanes)
+    // would give every batch slice only 1/B_z of the output rows and leave the
+    // rest at the reduce/scan identity — a correctness bug verified on device.
+    // With batching disabled _threads == _block_threads, so this is the legacy
+    // `_threads / lanes` count.
     [[nodiscard]] const Expression *_num_warps() const noexcept {
-        return _fb->binary(Type::of<uint>(), BinaryOp::DIV, _literal_u(_threads), _lane_count());
+        return _fb->binary(Type::of<uint>(), BinaryOp::DIV,
+                           _literal_u(_threads), _lane_count());
+    }
+
+    // Warp id local to the batch slice: the flat _warp_id ranges over the
+    // whole block; the slice-local id is _warp_id % warps_per_slice (valid
+    // because the % 64 alignment guard keeps each slice's warps contiguous and
+    // _threads % lane_count == 0).  When batching is disabled _warp_id is
+    // already < _threads/lanes, so return it unchanged (zero-overhead legacy
+    // path, bit-identical kernel).
+    [[nodiscard]] const Expression *_slice_warp() const noexcept {
+        if (!_batching) [[likely]] { return _warp_id(); }
+        return _fb->binary(Type::of<uint>(), BinaryOp::MOD,
+                           _warp_id(), _num_warps());
     }
 
     [[nodiscard]] const Expression *_ceildiv_expr(const Expression *a, const Expression *b) const noexcept {
         auto t = _fb->binary(Type::of<uint>(), BinaryOp::ADD, a, b);
         t = _fb->binary(Type::of<uint>(), BinaryOp::SUB, t, _literal_u(1u));
         return _fb->binary(Type::of<uint>(), BinaryOp::DIV, t, b);
+    }
+
+    // ---- dynamic batching helpers -------------------------------------------
+
+    // Full tensor volume = the batch stride for Global tensors: every batch
+    // item is stored contiguously in the same Buffer<T>, so batch item `b`
+    // starts at element offset `b * volume(t)` (full tensor size, NOT the
+    // tile extent).  The traced IR records dims only for tensors created with
+    // an explicit shape (T.empty); function-INPUT tensors carry {0,0} dims,
+    // so the full tensor size is reconstructed from the launch grid and the
+    // tile extents — exactly the full_len/row-stride math of _global_index
+    // (grid x tile extent per axis).  Using product(t->dims()) would return 0
+    // for input tensors and silently disable the batch offset.
+    [[nodiscard]] uint32_t _tensor_volume(const TensorExpr *t) const {
+        auto ext = _current_extent != nullptr ? _current_extent : t;
+        auto E = [&](uint32_t i) { return static_cast<uint32_t>(axis_extent(ext, i)); };
+        auto full_len = [&](uint32_t i) -> uint32_t {
+            if (_pipeline_var != nullptr && i == _pipeline_axis) {
+                return _pipeline_count * E(i);
+            }
+            if (_kernel2d) { return i == 0u ? _gy * E(i) : _gx * E(i); }
+            return i == 0u ? _gx * E(i) : E(i);
+        };
+        uint32_t v = 1u;
+        for (auto i = 0u; i < static_cast<uint32_t>(t->rank()); ++i) { v *= full_len(i); }
+        return v;
+    }
+
+    // True when the tile body allocates any block-shared storage: a Shared
+    // tensor, or a Fragment large enough to be backed by a block-shared array
+    // (kFragmentSharedThreshold).  Such kernels are compute/LDS-bound and use
+    // the higher block-size target; pure-fragment / elementwise kernels are
+    // memory/IO-bound and use the lower target (see _select_batch_block_z).
+    [[nodiscard]] static bool _kernel_uses_shared(const TileFunctionBuilder *tile_fn) {
+        for (auto *stmt : tile_fn->body()->statements()) {
+            if (stmt->op() == TileOpKind::ALLOC) {
+                auto *a = static_cast<const AllocStmt *>(stmt);
+                auto *t = a->tensor();
+                if (t->scope() == TensorScope::Shared) { return true; }
+                if (t->scope() == TensorScope::Fragment &&
+                    tile_element_count(t) >= kFragmentSharedThreshold) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // True when the tile body contains warp-collective ops.  Warp collectives
+    // communicate only within one warp; when batching, a warp must never
+    // straddle two batch slices (see the 2.10 guard in lower()), otherwise
+    // reduce/scan/warp-reduce would silently mix different batches.  ANY_OF /
+    // ALL_OF also lower to WARP_ACTIVE_ANY/ALL and share the same hazard.
+    [[nodiscard]] static bool _kernel_uses_warp_collectives(const TileFunctionBuilder *tile_fn) {
+        for (auto *stmt : tile_fn->body()->statements()) {
+            switch (stmt->op()) {
+                case TileOpKind::WARP_REDUCE:
+                case TileOpKind::REDUCE:
+                case TileOpKind::REDUCE_SUM:
+                case TileOpKind::CUMSUM:
+                case TileOpKind::CUMMAX:
+                case TileOpKind::WARP_VOTE:
+                case TileOpKind::SHUFFLE:
+                case TileOpKind::SYNC_THREADS_VOTE:
+                case TileOpKind::ANY_OF:
+                case TileOpKind::ALL_OF:
+                    return true;
+                default: break;
+            }
+        }
+        return false;
+    }
+
+    // Select the z-axis block size (batch items per block) from the config
+    // and a workload pre-scan (block-size strategy in the header plan):
+    //   target = 256 (compute/LDS-bound: any shared alloc) else 128;
+    //   B_z    = clamp(ceil(target / _threads), 1,
+    //                  min(min_batching_size, 64, max(1, 1024 / _threads))).
+    // Disabled batching (min == max == 1) takes the legacy B_z = 1 fast path.
+    // NOTE (shared-memory budget): with batching, per-block LDS grows by B_z
+    // (one tz slice per batch item); B_z <= min_batching_size bounds it, but
+    // for large shared tiles keep `B_z * (largest shared alloc bytes) <= 32 KiB`
+    // or occupancy drops (lc_optimize 4.1/4.7) — profiling is the arbiter.
+    [[nodiscard]] uint32_t _select_batch_block_z(TileToKernelConfig const &config) const {
+        if (!_batching) [[likely]] { return 1u; }
+        auto target = _kernel_uses_shared(_tile) ? 256u : 128u;
+        auto by_threads = (target + _threads - 1u) / _threads;
+        auto cap = std::min(config.min_batching_size, 64u);
+        cap = std::min(cap, std::max(1u, 1024u / _threads));
+        return std::max(1u, std::min(by_threads, cap));
+    }
+
+    // Pure-expression batch prologue: batch_index and batch_valid (no
+    // statements are emitted).  Called once per kernel, reused by every
+    // access site.
+    void _emit_batch_prologue() {
+        auto bid_z = _vec_comp(_fb->block_id(), 2u);
+        auto tid_z = _vec_comp(_fb->thread_id(), 2u);
+        auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                              bid_z, _literal_u(_batch_block_z));
+        _batch_index = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, tid_z);
+        auto dsz_z = _vec_comp(_fb->dispatch_size(), 2u);
+        _batch_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                   _batch_index, dsz_z);
     }
 
     // all-lane warp reduction matching a TileReduceOp (lc_optimize 2.2/2.5:
@@ -904,7 +1097,11 @@ private:
         if (n == 0u) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Fragment staging with zero elements: {}", t->describe());
         }
-        auto s = _fb->shared(Type::array(elem_t, n));
+        // With batching the staging tile is block-shared and holds one slice
+        // per batch item (B_z * n); per-thread fragments are addressed through
+        // _staging_index so every tz thread writes/reads its own slice.
+        auto alloc_n = _batching ? n * _batch_block_z : n;
+        auto s = _fb->shared(Type::array(elem_t, alloc_n));
         _fragment_staging.emplace(t, s);
         return s;
     }
@@ -914,7 +1111,7 @@ private:
                                  const RefExpr *staging) {
         _sync_block();
         _full_loop(t, [&](const Coord &c) {
-            auto idx = _local_index(t, c);
+            auto idx = _staging_index(t, c);
             _write_to(t, c, _fb->access(elem_t, staging, idx));
         });
     }
@@ -1062,8 +1259,12 @@ private:
 
     // ---- index math ----------------------------------------------------------
 
-    // row-major linear index inside a shared/fragment tile
-    [[nodiscard]] const Expression *_local_index(const TensorExpr *t, const Coord &c) const {
+    // row-major linear index inside a shared/fragment tile.  With batching,
+    // block-shared storage (Shared tensors and shared-backed fragments) holds
+    // one slice per batch item: index += tid_z * n.  Per-thread fragments are
+    // replicated per thread (each thread already owns its own batch item's
+    // tile), so they get no slice.
+    [[nodiscard]] const Expression *_local_index(const TensorExpr *t, const Coord &c) {
         auto idx = _literal_u(0u);
         uint32_t stride = 1u;
         for (int32_t i = static_cast<int32_t>(t->rank()) - 1; i >= 0; --i) {
@@ -1071,6 +1272,34 @@ private:
                                     c[i], _literal_u(stride));
             idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, term);
             stride *= static_cast<uint32_t>(axis_extent(t, i));
+        }
+        if (_batching) {
+            if (auto *st = _try_storage(t)) {
+                auto shared_backed = st->scope == TensorScope::Shared ||
+                                     (st->scope == TensorScope::Fragment && st->shared != nullptr);
+                if (shared_backed) {
+                    auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                          _vec_comp(_fb->thread_id(), 2u),
+                                          _literal_u(tile_element_count(t)));
+                    idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, t1);
+                }
+            }
+        }
+        return idx;
+    }
+
+    // Staging-tile index for a fragment producer.  The staging tile is
+    // block-shared and holds one slice per batch item (B_z * n elements).
+    // Per-thread fragments do NOT get a batch slice from _local_index, so the
+    // tz offset is added here; shared-backed fragments already include it via
+    // _local_index (2.5), so they must not be offset twice.
+    [[nodiscard]] const Expression *_staging_index(const TensorExpr *t, const Coord &c) {
+        auto idx = _local_index(t, c);
+        if (_batching && !_is_fragment_shared_backed(t)) {
+            auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                  _vec_comp(_fb->thread_id(), 2u),
+                                  _literal_u(tile_element_count(t)));
+            idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, t1);
         }
         return idx;
     }
@@ -1136,6 +1365,20 @@ private:
                                     sum, _literal_u(row_stride(i)));
             idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, term);
         }
+        if (_batching) {
+            // Clamped batch offset: invalid threads (the tail z-block) read
+            // batch 0's in-bounds data; every downstream global WRITE is
+            // guarded by `_batch_valid`, so those reads are discarded and no
+            // out-of-bounds access can happen.
+            auto safe = _fb->call(Type::of<uint>(), CallOp::SELECT,
+                                  {_literal_u(0u), _batch_index, _batch_valid});
+            auto volume = _tensor_volume(t);
+            if (volume != 0u) {
+                auto off = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                       safe, _literal_u(volume));
+                idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, off);
+            }
+        }
         return idx;
     }
 
@@ -1179,7 +1422,18 @@ private:
         switch (st.scope) {
             case TensorScope::Global: {
                 auto idx = _global_index(t, c);
-                _fb->call(CallOp::BUFFER_WRITE, {st.buffer, idx, value});
+                // Guard every global write with the batch-validity predicate
+                // (decision 4): idle tz threads in the tail z-block must not
+                // write; the guard sits inside the existing element guards and
+                // contains no barrier, so it is divergence-safe.  Global reads
+                // are intentionally unguarded (clamped index, values discarded).
+                if (_batching) {
+                    _if(_batch_valid, [&] {
+                        _fb->call(CallOp::BUFFER_WRITE, {st.buffer, idx, value});
+                    });
+                } else {
+                    _fb->call(CallOp::BUFFER_WRITE, {st.buffer, idx, value});
+                }
                 break;
             }
             case TensorScope::Shared: {
@@ -1496,8 +1750,11 @@ private:
                 if (n == 0u) [[unlikely]] {
                     LUISA_ERROR_WITH_LOCATION("Shared tile allocation with zero elements: {}", t->describe());
                 }
-                st.shared = _fb->shared(Type::array(elem_t, n));
-                st.array_size = n;
+                // With batching the shared array holds one slice per batch item
+                // (B_z * n); _local_index adds the tid_z slice on access.
+                auto alloc_n = _batching ? n * _batch_block_z : n;
+                st.shared = _fb->shared(Type::array(elem_t, alloc_n));
+                st.array_size = alloc_n;
                 break;
             }
           case TensorScope::Fragment: {
@@ -1509,12 +1766,15 @@ private:
                   // Large fragment: back it with a block-shared array instead of a
                   // per-thread local array.  Ops on it use partition loops (one
                   // compute per element across the block) and the shared barrier
-                  // discipline; see _is_fragment_shared_backed.
-                  st.shared = _fb->shared(Type::array(elem_t, n));
+                  // discipline; see _is_fragment_shared_backed.  With batching
+                  // the array is B_z * n (one slice per batch item).
+                  auto alloc_n = _batching ? n * _batch_block_z : n;
+                  st.shared = _fb->shared(Type::array(elem_t, alloc_n));
+                  st.array_size = alloc_n;
               } else {
                   st.fragment = _fb->local(Type::array(elem_t, n));
+                  st.array_size = n;
               }
-              st.array_size = n;
               break;
           }
         }
@@ -1565,7 +1825,7 @@ private:
                   auto staging = _staging_for(dst, elem_t);
                   _sync_block();// staging write-after-read hazard
                   _partition_loop(ext, [&](const Coord &c) {
-                      _fb->assign(_fb->access(elem_t, staging, _local_index(dst, c)),
+                      _fb->assign(_fb->access(elem_t, staging, _staging_index(dst, c)),
                                   _maybe_cast(_value_at(src, c), elem_t));
                   });
                   _replicate_from_staging(dst, elem_t, staging);
@@ -1822,7 +2082,9 @@ private:
         }
         auto lanes = _lane_count();
         auto lane = _lane();
-        auto warp = _warp_id();
+        // Slice-local warp partition: each batch item's output space is
+        // covered by its own slice's warps (see _num_warps / _slice_warp).
+        auto warp = _slice_warp();
         auto nw = _num_warps();
         auto k_iters = _ceildiv_expr(_literal_u(reduce_len), lanes);
         auto o_iters = _ceildiv_expr(_literal_u(out_count), nw);
@@ -1876,7 +2138,7 @@ private:
                                             lane, _literal_u(0u));
                 _if(is_lane0, [&] {
                     if (frag_out) {
-                        _fb->assign(_fb->access(out_t, staging, _local_index(y, yc)),
+                        _fb->assign(_fb->access(out_t, staging, _staging_index(y, yc)),
                                     _maybe_cast(total, out_t));
                     } else {
                         _write_to(y, yc, total);
@@ -1949,7 +2211,7 @@ private:
           _sync_block();// staging write-after-read hazard vs. previous use
           _partition_loop(c, [&](const Coord &cc) {
               auto acc = compute_acc(cc);
-              _fb->assign(_fb->access(out_t, staging, _local_index(c, cc)),
+              _fb->assign(_fb->access(out_t, staging, _staging_index(c, cc)),
                           _maybe_cast(acc, out_t));
           });
           _replicate_from_staging(c, out_t, staging);
@@ -2106,6 +2368,10 @@ private:
         auto c0 = _zero_coord();
         auto tid_x = _vec_comp(_fb->thread_id(), 0u);
         auto cond = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL, tid_x, _literal_u(0u));
+        if (_batching) {
+            // Skip printing from idle tz threads of the tail z-block.
+            cond = _fb->binary(Type::of<bool>(), BinaryOp::AND, cond, _batch_valid);
+        }
         _if(cond, [&] {
             auto v = _value_at(t, c0);
             auto fmt = luisa::format("[tile] {} tile[0] = {{}}", luisa::string{s->msg()});
@@ -2193,34 +2459,39 @@ private:
         // atomic_load has no value operand; only cast when one exists.
         value = value != nullptr ? _maybe_cast(value, elem_t) : nullptr;
         auto body = [&](const Coord &c) {
-            auto idx = _global_index(dst, c);
-            // execute the atomic; the returned old value (if any) is captured
-            // into a throw-away local so the call is type-correct and alive
-            auto tmp = _fb->local(elem_t);
-            switch (s->op()) {
-                case TileAtomicOp::ADD:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::ATOMIC_FETCH_ADD, {st.buffer, idx, value}));
-                    break;
-                case TileAtomicOp::MAX:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::ATOMIC_FETCH_MAX, {st.buffer, idx, value}));
-                    break;
-                case TileAtomicOp::MIN:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::ATOMIC_FETCH_MIN, {st.buffer, idx, value}));
-                    break;
-                case TileAtomicOp::OR:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::ATOMIC_FETCH_OR, {st.buffer, idx, value}));
-                    break;
-                case TileAtomicOp::LOAD:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::BUFFER_VOLATILE_READ, {st.buffer, idx}));
-                    break;
-                case TileAtomicOp::STORE:
-                    _fb->call(CallOp::BUFFER_VOLATILE_WRITE, {st.buffer, idx, value});
-                    break;
-                default:
-                    LUISA_ERROR_WITH_LOCATION(
-                        "tile_to_kernel: unsupported tile atomic op {}.",
-                        static_cast<uint32_t>(s->op()));
-            }
+            auto emit_body = [&] {
+                auto idx = _global_index(dst, c);
+                // execute the atomic; the returned old value (if any) is captured
+                // into a throw-away local so the call is type-correct and alive
+                auto tmp = _fb->local(elem_t);
+                switch (s->op()) {
+                    case TileAtomicOp::ADD:
+                        _fb->assign(tmp, _fb->call(elem_t, CallOp::ATOMIC_FETCH_ADD, {st.buffer, idx, value}));
+                        break;
+                    case TileAtomicOp::MAX:
+                        _fb->assign(tmp, _fb->call(elem_t, CallOp::ATOMIC_FETCH_MAX, {st.buffer, idx, value}));
+                        break;
+                    case TileAtomicOp::MIN:
+                        _fb->assign(tmp, _fb->call(elem_t, CallOp::ATOMIC_FETCH_MIN, {st.buffer, idx, value}));
+                        break;
+                    case TileAtomicOp::OR:
+                        _fb->assign(tmp, _fb->call(elem_t, CallOp::ATOMIC_FETCH_OR, {st.buffer, idx, value}));
+                        break;
+                    case TileAtomicOp::LOAD:
+                        _fb->assign(tmp, _fb->call(elem_t, CallOp::BUFFER_VOLATILE_READ, {st.buffer, idx}));
+                        break;
+                    case TileAtomicOp::STORE:
+                        _fb->call(CallOp::BUFFER_VOLATILE_WRITE, {st.buffer, idx, value});
+                        break;
+                    default:
+                        LUISA_ERROR_WITH_LOCATION(
+                            "tile_to_kernel: unsupported tile atomic op {}.",
+                            static_cast<uint32_t>(s->op()));
+                }
+            };
+            // All atomics target Global storage; guard them with the batch
+            // validity predicate so idle tz threads never touch batch 0.
+            if (_batching) { _if(_batch_valid, emit_body); } else { emit_body(); }
         };
         _partition_loop(dst, body);
         _current_extent = saved;
@@ -2262,7 +2533,9 @@ private:
         }
         auto lanes = _lane_count();
         auto lane = _lane();
-        auto warp = _warp_id();
+        // Slice-local warp partition: each batch item's scan lines are covered
+        // by its own slice's warps (see _num_warps / _slice_warp).
+        auto warp = _slice_warp();
         auto nw = _num_warps();
         auto chunks = _ceildiv_expr(_literal_u(scan_len), lanes);
         auto line_iters = _ceildiv_expr(_literal_u(line_count), nw);
@@ -2354,7 +2627,7 @@ private:
                     _if(valid, [&] {
                         cc[dim] = pos;
                         if (frag_out) {
-                            _fb->assign(_fb->access(out_t, staging, _local_index(dst, cc)),
+                            _fb->assign(_fb->access(out_t, staging, _staging_index(dst, cc)),
                                         _maybe_cast(res, out_t));
                         } else {
                             _write_to(dst, cc, res);

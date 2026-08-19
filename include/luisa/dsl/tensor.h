@@ -1939,12 +1939,17 @@ public:
   public:
       using CompiledKernel<Ret>::CompiledKernel;
 
-      // Lower the traced tile IR to a regular FunctionBuilder and wrap it in a
-      // typed luisa::compute::Kernel whose argument/return buffer element types
-      // are derived from the tile function signature.  `Dim` is the dispatch
-      // dimensionality (1, 2, or 3) expected by the caller.
-      template<size_t Dim>
-      [[nodiscard]] auto to_kernel() const {
+// Lower the traced tile IR to a regular FunctionBuilder and wrap it in a
+// typed luisa::compute::Kernel whose argument/return buffer element types
+// are derived from the tile function signature.  `Dim` is the dispatch
+// dimensionality (1, 2, or 3) expected by the caller.
+//
+// NOTE: dynamic batching (TileToKernelConfig min/max batching size != (1,1))
+// lowers the kernel with a z block size > 1 and dispatches the runtime batch
+// count on the z axis, so batched kernels MUST be wrapped with `Dim = 3` and
+// dispatched as `sh(...).dispatch(x, y, batch_count)`.
+template<size_t Dim>
+[[nodiscard]] auto to_kernel() const {
           using kernel_type = typename detail::make_typed_kernel<
               Dim,
               typename traits::arg_tuple,

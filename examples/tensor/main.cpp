@@ -85,22 +85,25 @@ int main(int argc, char *argv[]) {
     // kernels; device compilation + dispatch + host verification run when a
     // backend name is passed on the command line.
     // =========================================================================
+    auto same_u2 = [](luisa::uint2 a, luisa::uint2 b) noexcept {
+        return a.x == b.x && a.y == b.y;
+    };
     auto same_u3 = [](luisa::uint3 a, luisa::uint3 b) noexcept {
         return a.x == b.x && a.y == b.y && a.z == b.z;
     };
     auto translate_and_verify = [&](luisa::string_view name,
                                     luisa::shared_ptr<const luisa::compute::detail::TileFunctionBuilder> const &tile_fn,
-                                    luisa::uint3 expected_dispatch, luisa::uint3 expected_block,
+                                    luisa::uint2 expected_dispatch, luisa::uint3 expected_block,
                                     size_t expected_buffers) -> TileCompileResult {
         LUISA_INFO("=== tensor-dsl: tile_to_kernel({}){} ===", name,
                    use_cooperative ? luisa::string_view{" [cooperative]"} : luisa::string_view{});
         auto result = tile_to_kernel(tile_fn, TileToKernelConfig{.use_cooperative = use_cooperative});
         LUISA_ASSERT(result.function != nullptr,
                      "[tensor-stub] tile_to_kernel({}) produced a null FunctionBuilder.", name);
-        LUISA_ASSERT(same_u3(result.dispatch_size, expected_dispatch),
-                     "[tensor-stub] tile_to_kernel({}) dispatch mismatch: got ({},{},{}), want ({},{},{}).",
-                     name, result.dispatch_size.x, result.dispatch_size.y, result.dispatch_size.z,
-                     expected_dispatch.x, expected_dispatch.y, expected_dispatch.z);
+        LUISA_ASSERT(same_u2(result.dispatch_size, expected_dispatch),
+                     "[tensor-stub] tile_to_kernel({}) dispatch mismatch: got ({},{}), want ({},{}).",
+                     name, result.dispatch_size.x, result.dispatch_size.y,
+                     expected_dispatch.x, expected_dispatch.y);
         auto block = result.function->block_size();
         LUISA_ASSERT(same_u3(block, expected_block),
                      "[tensor-stub] tile_to_kernel({}) block-size mismatch: got ({},{},{}), want ({},{},{}).",
@@ -109,16 +112,16 @@ int main(int argc, char *argv[]) {
         LUISA_ASSERT(arg_count == expected_buffers,
                      "[tensor-stub] tile_to_kernel({}) buffer-argument count mismatch: got {}, want {}.",
                      name, arg_count, expected_buffers);
-        LUISA_INFO("[tensor-stub] tile_to_kernel({}) -> FunctionBuilder dispatch=({},{},{}), "
+        LUISA_INFO("[tensor-stub] tile_to_kernel({}) -> FunctionBuilder dispatch=({},{}), "
                    "block=({},{},{}), {} buffer argument(s), body has {} statement(s).",
-                   name, result.dispatch_size.x, result.dispatch_size.y, result.dispatch_size.z,
+                   name, result.dispatch_size.x, result.dispatch_size.y,
                    block.x, block.y, block.z, arg_count,
                    result.function->body()->statements().size());
         return result;
     };
 
     auto trace_and_verify = [&]<typename F>(luisa::string_view name, F &&fn,
-                                            luisa::uint3 expected_dispatch,
+                                            luisa::uint2 expected_dispatch,
                                             luisa::uint3 expected_block,
                                             size_t expected_buffers) {
         auto kernel = luisa::compute::tile::jit(std::forward<F>(fn)).compile();
@@ -135,77 +138,100 @@ int main(int argc, char *argv[]) {
     if (backend.empty()) {
         LUISA_INFO("=== tensor-dsl: structural verification only ===");
         trace_and_verify("elementwise_add", elementwise_add,
-                         luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                         luisa::uint2{128u, 4u}, luisa::uint3{32u, 1u, 1u}, 3u);
         trace_and_verify("pipelined_matmul", pipelined_matmul,
-                         luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                         luisa::uint2{128u, 4u}, luisa::uint3{32u, 1u, 1u}, 3u);
         trace_and_verify("rms_norm", rms_norm,
-                         luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
+                         luisa::uint2{512u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
         trace_and_verify("tile_fill", tile_fill_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
         trace_and_verify("tile_transpose", tile_transpose_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("tile_clamp", tile_clamp_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("tile_atomic", tile_atomic_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
         trace_and_verify("tile_sync", tile_sync_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("tile_warp_reduce", tile_warp_reduce_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
         trace_and_verify("tile_reduce", tile_reduce_kernel,
-                         luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 5u);
+                         luisa::uint2{512u, 1u}, luisa::uint3{64u, 1u, 1u}, 5u);
         trace_and_verify("tile_scan", tile_scan_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
         trace_and_verify("tile_min_abs", tile_min_abs_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
         trace_and_verify("tile_vote_shuffle", tile_vote_shuffle_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
         trace_and_verify("exp_kernel", exp_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("log_kernel", log_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("sqrt_kernel", sqrt_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("sin_kernel", sin_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("cos_kernel", cos_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("tan_kernel", tan_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("tanh_kernel", tanh_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("erf_kernel", erf_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("ceil_kernel", ceil_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("floor_kernel", floor_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("round_kernel", round_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("isinf_kernel", isinf_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("isnan_kernel", isnan_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("cast_kernel", cast_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("neg_kernel", neg_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("relu_kernel", relu_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("sigmoid_kernel", sigmoid_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("leaky_relu_kernel", leaky_relu_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("softmax_kernel", softmax_kernel,
-                         luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
+                         luisa::uint2{512u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
         trace_and_verify("pow_kernel", pow_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
         trace_and_verify("gelu_kernel", gelu_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("identity_kernel", identity_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
         trace_and_verify("reciprocal_kernel", reciprocal_kernel,
-                         luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+
+        // ---- dynamic batching (structural) ----------------------------------
+        // elementwise_add (threads=32, shared) with {min=8, max=64} is
+        // compute/LDS-bound (target 256 threads) and therefore selects
+        // B_z = 8; dispatch stays 2D, the runtime batch count rides on z.
+        {
+            auto batched = luisa::compute::tile::jit(elementwise_add).compile();
+            auto lowered = tile_to_kernel(
+                batched.function(),
+                TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 64u});
+            auto block = lowered.function->block_size();
+            LUISA_ASSERT(block.z == 8u,
+                         "[tensor-stub] batched elementwise_add: expected block z == 8, got {}.",
+                         block.z);
+            LUISA_ASSERT(lowered.dispatch_size.x == 128u && lowered.dispatch_size.y == 4u,
+                         "[tensor-stub] batched elementwise_add: unexpected 2D dispatch "
+                         "({},{}).", lowered.dispatch_size.x, lowered.dispatch_size.y);
+            LUISA_INFO("[tensor-stub] batched elementwise_add -> dispatch=({},{}), "
+                       "block=({},{},{}), B_z = {} (dispatch z = runtime batch count)",
+                       lowered.dispatch_size.x, lowered.dispatch_size.y,
+                       block.x, block.y, block.z, block.z);
+        }
+
         luisa::compute::tile::Kernel loop_break_kernel_obj{loop_break_kernel};
         LUISA_INFO("[tensor-stub] loop_break traced {} statements: [{}] (not lowered: "
                    "break_() requires an enclosing loop, see the file header)",
@@ -228,7 +254,7 @@ int main(int argc, char *argv[]) {
         {
             auto [elementwise_kernel, elementwise_result] = trace_and_verify(
                 "elementwise_add", elementwise_add,
-                luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                luisa::uint2{128u, 4u}, luisa::uint3{32u, 1u, 1u}, 3u);
             constexpr uint32_t M = 64u, N = 64u;
             auto bufA = device.create_buffer<float>(M * N);
             auto bufB = device.create_buffer<float>(M * N);
@@ -253,11 +279,153 @@ int main(int argc, char *argv[]) {
             check("elementwise_add", err, 1e-3f);
         }
 
+        // ---- batched exp_kernel (shared-free, uses global->fragment staging) --
+        {
+            constexpr uint32_t N = 64u;
+            constexpr uint32_t batch_counts[] = {1u, 3u};
+            auto batched = luisa::compute::tile::jit(exp_kernel).compile();
+            auto lowered = tile_to_kernel(
+                batched.function(),
+                TileToKernelConfig{.min_batching_size = 4u, .max_batching_size = 16u});
+            auto block = lowered.function->block_size();
+            LUISA_INFO("[tensor-stub] batched exp_kernel: dispatch=({},{}), block=({},{},{}), B_z = {}",
+                       lowered.dispatch_size.x, lowered.dispatch_size.y,
+                       block.x, block.y, block.z, block.z);
+            Kernel3D<Buffer<float>, Buffer<float>> typed_batched{
+                luisa::const_pointer_cast<const luisa::compute::detail::FunctionBuilder>(lowered.function)};
+            auto sh = device.compile(typed_batched);
+            for (auto batch_count : batch_counts) {
+                auto bufA = device.create_buffer<float>(batch_count * N);
+                auto bufB = device.create_buffer<float>(batch_count * N);
+                luisa::vector<float> hA(batch_count * N), hB(batch_count * N), hRef(batch_count * N);
+                for (auto b = 0u; b < batch_count; ++b) {
+                    for (auto i = 0u; i < N; ++i) {
+                        auto idx = b * N + i;
+                        hA[idx] = static_cast<float>(static_cast<int>(i) - 32) * 0.25f;
+                        hRef[idx] = luisa::exp(hA[idx]);
+                    }
+                }
+                stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+                stream << sh(bufA, bufB).dispatch(lowered.dispatch_size.x, lowered.dispatch_size.y, batch_count)
+                       << bufB.copy_to(luisa::span{hB}) << synchronize();
+                auto err = 0.0f;
+                for (auto i = 0u; i < batch_count * N; ++i) { err = luisa::max(err, luisa::abs(hB[i] - hRef[i])); }
+                check(luisa::format("batched exp_kernel (batch_count={})", batch_count), err, 1e-3f);
+            }
+        }
+
+        // ---- batched rms_norm: warp-collective reduce with B_z > 1 ----------
+        // rms_norm (threads=64, a multiple of 64 -> passes the 2.10 warp
+        // alignment guard) uses a warp-collective REDUCE_SUM and a 512-element
+        // shared-backed fragment, so batching exercises the flat warp math
+        // (linear = tid_x + tid_z * _threads), the B_z-sliced shared array, and
+        // the reduce staging slices all at once.
+        {
+            constexpr uint32_t M = 64u, N = 64u;
+            constexpr uint32_t batch_counts[] = {6u, 1u, 8u};// tail (6 % 4), idle (1), full
+            auto batched = luisa::compute::tile::jit(rms_norm).compile();
+            auto lowered = tile_to_kernel(
+                batched.function(),
+                TileToKernelConfig{.min_batching_size = 4u, .max_batching_size = 16u});
+            auto block = lowered.function->block_size();
+            LUISA_INFO("[tensor-stub] batched rms_norm: dispatch=({},{}), block=({},{},{}), B_z = {}",
+                       lowered.dispatch_size.x, lowered.dispatch_size.y,
+                       block.x, block.y, block.z, block.z);
+            LUISA_ASSERT(block.z > 1u,
+                         "[tensor-stub] batched rms_norm: expected B_z > 1.");
+            Kernel3D<Buffer<float>, Buffer<float>> typed_batched{
+                luisa::const_pointer_cast<const luisa::compute::detail::FunctionBuilder>(lowered.function)};
+            auto sh = device.compile(typed_batched);
+            for (auto batch_count : batch_counts) {
+                auto bufA = device.create_buffer<float>(batch_count * M * N);
+                auto bufB = device.create_buffer<float>(batch_count * M * N);
+                luisa::vector<float> hA(batch_count * M * N), hB(batch_count * M * N);
+                luisa::vector<float> hRef(batch_count * M * N);
+                for (auto b = 0u; b < batch_count; ++b) {
+                    for (auto i = 0u; i < M * N; ++i) {
+                        hA[b * M * N + i] = static_cast<float>(static_cast<int>(i % 17) - 8) * 0.25f;
+                    }
+                    for (auto r = 0u; r < M; ++r) {
+                        auto s = 0.0f;
+                        for (auto c = 0u; c < N; ++c) { s += hA[b * M * N + r * N + c] * hA[b * M * N + r * N + c]; }
+                        auto scale = 1.0f / luisa::sqrt(s / static_cast<float>(N) + 1e-12f);
+                        for (auto c = 0u; c < N; ++c) {
+                            hRef[b * M * N + r * N + c] = hA[b * M * N + r * N + c] * scale;
+                        }
+                    }
+                }
+                stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+                stream << sh(bufA, bufB).dispatch(lowered.dispatch_size.x, lowered.dispatch_size.y, batch_count)
+                       << bufB.copy_to(luisa::span{hB}) << synchronize();
+                auto err = 0.0f;
+                for (auto i = 0u; i < batch_count * M * N; ++i) {
+                    err = luisa::max(err, luisa::abs(hB[i] - hRef[i]));
+                }
+                check(luisa::format("batched rms_norm (batch_count={})", batch_count), err, 1e-3f);
+            }
+        }
+
+        // ---- batched elementwise_add: one dispatch computes N batch items ---
+        // Dynamic batching (decision record): multiple tensors are computed by
+        // multiple thread groups, each group processing a slice of the batch;
+        // the runtime batch count rides on the z dispatch axis and the kernel
+        // derives `batch_index` from block_id().z / thread_id().z.  The kernel
+        // is wrapped as a 3D kernel (to_kernel<3>() is the batched contract)
+        // and issued as ONE dispatch per batch set (when a loop needs several
+        // tile kernels / uploads per iteration, batch them into a single
+        // CommandList::create() -> commit() instead of N stream submissions so
+        // host-side submission overhead does not defeat batching).  Tail counts
+        // exercise the idle-tz-thread guard (batch_count % B_z != 0) and
+        // batch_count == 1 with B_z > 1 exercises a nearly-idle z-block.
+        {
+            constexpr uint32_t M = 64u, N = 64u;
+            constexpr uint32_t batch_counts[] = {13u, 1u, 64u};
+            auto batched = luisa::compute::tile::jit(elementwise_add).compile();
+            auto lowered = tile_to_kernel(
+                batched.function(),
+                TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 64u});
+            auto block = lowered.function->block_size();
+            LUISA_INFO("[tensor-stub] batched elementwise_add: dispatch=({},{}), "
+                       "block=({},{},{}), B_z = {}",
+                       lowered.dispatch_size.x, lowered.dispatch_size.y,
+                       block.x, block.y, block.z, block.z);
+            LUISA_ASSERT(block.z > 1u,
+                         "[tensor-stub] batched elementwise_add: expected B_z > 1.");
+            Kernel3D<Buffer<float>, Buffer<float>, Buffer<float>> typed_batched{
+                luisa::const_pointer_cast<const luisa::compute::detail::FunctionBuilder>(lowered.function)};
+            auto sh = device.compile(typed_batched);
+            for (auto batch_count : batch_counts) {
+                auto bufA = device.create_buffer<float>(batch_count * M * N);
+                auto bufB = device.create_buffer<float>(batch_count * M * N);
+                auto bufC = device.create_buffer<float>(batch_count * M * N);
+                luisa::vector<float> hA(batch_count * M * N), hB(batch_count * M * N);
+                luisa::vector<float> hC(batch_count * M * N), hRef(batch_count * M * N);
+                for (auto b = 0u; b < batch_count; ++b) {
+                    for (auto i = 0u; i < M * N; ++i) {
+                        auto idx = b * M * N + i;
+                        hA[idx] = static_cast<float>(i) * 0.5f + static_cast<float>(b);
+                        hB[idx] = static_cast<float>(i) * 1.5f + 1.0f + 2.0f * static_cast<float>(b);
+                        hRef[idx] = hA[idx] + hB[idx];
+                    }
+                }
+                stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
+                // ONE dispatch per batch set: (x, y) = tile grid, z = batch count.
+                stream << sh(bufA, bufB, bufC)
+                              .dispatch(lowered.dispatch_size.x, lowered.dispatch_size.y, batch_count)
+                       << bufC.copy_to(luisa::span{hC}) << synchronize();
+                auto err = 0.0f;
+                for (auto i = 0u; i < batch_count * M * N; ++i) {
+                    err = luisa::max(err, luisa::abs(hC[i] - hRef[i]));
+                }
+                check(luisa::format("batched elementwise_add (batch_count={})", batch_count), err, 1e-3f);
+            }
+        }
+
         // ---- pipelined_matmul: C = max(A @ B, 0) ----------------------------
         {
             auto [matmul_kernel, matmul_result] = trace_and_verify(
                 "pipelined_matmul", pipelined_matmul,
-                luisa::uint3{128u, 4u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                luisa::uint2{128u, 4u}, luisa::uint3{32u, 1u, 1u}, 3u);
             constexpr uint32_t M = 64u, N = 64u, K = 64u;
             auto bufA = device.create_buffer<luisa::half>(M * K);
             auto bufB = device.create_buffer<luisa::half>(K * N);
@@ -305,7 +473,7 @@ int main(int argc, char *argv[]) {
         {
             auto [rms_kernel, rms_result] = trace_and_verify(
                 "rms_norm", rms_norm,
-                luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
+                luisa::uint2{512u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
             constexpr uint32_t M = 64u, N = 64u;
             auto bufA = device.create_buffer<float>(M * N);
             auto bufB = device.create_buffer<float>(M * N);
@@ -334,7 +502,7 @@ int main(int argc, char *argv[]) {
         {
             auto [fill_kernel, fill_result] = trace_and_verify(
                 "tile_fill", tile_fill_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
             constexpr uint32_t N = 64u;
             auto bufC = device.create_buffer<float>(N);
             luisa::vector<float> hC(N);
@@ -352,7 +520,7 @@ int main(int argc, char *argv[]) {
         {
             auto [transpose_kernel, transpose_result] = trace_and_verify(
                 "tile_transpose", tile_transpose_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t BM = 8u, BN = 8u;
             auto bufA = device.create_buffer<float>(BM * BN);
             auto bufB = device.create_buffer<float>(BM * BN);
@@ -378,7 +546,7 @@ int main(int argc, char *argv[]) {
         {
             auto [clamp_kernel, clamp_result] = trace_and_verify(
                 "tile_clamp", tile_clamp_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t BM = 8u, BN = 8u;
             auto bufA = device.create_buffer<float>(BM * BN);
             auto bufC = device.create_buffer<float>(BM * BN);
@@ -403,7 +571,7 @@ int main(int argc, char *argv[]) {
         {
             auto [atomic_kernel, atomic_result] = trace_and_verify(
                 "tile_atomic", tile_atomic_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
             constexpr uint32_t N = 32u;
             auto bufD = device.create_buffer<int>(N);
             luisa::vector<int> hD(N, 0);
@@ -424,7 +592,7 @@ int main(int argc, char *argv[]) {
         {
             auto [sync_kernel, sync_result] = trace_and_verify(
                 "tile_sync", tile_sync_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t BM = 8u, BN = 8u;
             auto bufA = device.create_buffer<float>(BM * BN);
             auto bufC = device.create_buffer<float>(BM * BN);
@@ -446,7 +614,7 @@ int main(int argc, char *argv[]) {
         {
             auto [warp_reduce_kernel_obj, warp_reduce_result] = trace_and_verify(
                 "tile_warp_reduce", tile_warp_reduce_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
             constexpr uint32_t N = 1u;
             auto bufW = device.create_buffer<float>(N);
             luisa::vector<float> hW(N);
@@ -463,7 +631,7 @@ int main(int argc, char *argv[]) {
         {
             auto [reduce_kernel, reduce_result] = trace_and_verify(
                 "tile_reduce", tile_reduce_kernel,
-                luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 5u);
+                luisa::uint2{512u, 1u}, luisa::uint3{64u, 1u, 1u}, 5u);
             constexpr uint32_t M = 64u, N = 64u;
             auto bufA = device.create_buffer<float>(M * N);
             auto bufMax = device.create_buffer<float>(M);
@@ -507,7 +675,7 @@ int main(int argc, char *argv[]) {
         {
             auto [scan_kernel, scan_result] = trace_and_verify(
                 "tile_scan", tile_scan_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufS = device.create_buffer<float>(N);
@@ -536,7 +704,7 @@ int main(int argc, char *argv[]) {
         {
             auto [min_abs_kernel, min_abs_result] = trace_and_verify(
                 "tile_min_abs", tile_min_abs_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
             constexpr uint32_t BM = 8u, BN = 8u;
             auto bufA = device.create_buffer<float>(BM * BN);
             auto bufB = device.create_buffer<float>(BM * BN);
@@ -564,7 +732,7 @@ int main(int argc, char *argv[]) {
         {
             auto [vote_shuffle_kernel, vote_shuffle_result] = trace_and_verify(
                 "tile_vote_shuffle", tile_vote_shuffle_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 1u);
             constexpr uint32_t N = 2u;
             auto bufW = device.create_buffer<float>(N);
             luisa::vector<float> hW(N);
@@ -582,7 +750,7 @@ int main(int argc, char *argv[]) {
         {
             auto [exp_k, exp_r] = trace_and_verify(
                 "exp_kernel", exp_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -606,7 +774,7 @@ int main(int argc, char *argv[]) {
         {
             auto [log_k, log_r] = trace_and_verify(
                 "log_kernel", log_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -630,7 +798,7 @@ int main(int argc, char *argv[]) {
         {
             auto [sqrt_k, sqrt_r] = trace_and_verify(
                 "sqrt_kernel", sqrt_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -654,7 +822,7 @@ int main(int argc, char *argv[]) {
         {
             auto [sin_k, sin_r] = trace_and_verify(
                 "sin_kernel", sin_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -678,7 +846,7 @@ int main(int argc, char *argv[]) {
         {
             auto [cos_k, cos_r] = trace_and_verify(
                 "cos_kernel", cos_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -702,7 +870,7 @@ int main(int argc, char *argv[]) {
         {
             auto [tan_k, tan_r] = trace_and_verify(
                 "tan_kernel", tan_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -726,7 +894,7 @@ int main(int argc, char *argv[]) {
         {
             auto [tanh_k, tanh_r] = trace_and_verify(
                 "tanh_kernel", tanh_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -750,7 +918,7 @@ int main(int argc, char *argv[]) {
         {
             auto [erf_k, erf_r] = trace_and_verify(
                 "erf_kernel", erf_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -774,7 +942,7 @@ int main(int argc, char *argv[]) {
         {
             auto [ceil_k, ceil_r] = trace_and_verify(
                 "ceil_kernel", ceil_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -798,7 +966,7 @@ int main(int argc, char *argv[]) {
         {
             auto [floor_k, floor_r] = trace_and_verify(
                 "floor_kernel", floor_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -822,7 +990,7 @@ int main(int argc, char *argv[]) {
         {
             auto [round_k, round_r] = trace_and_verify(
                 "round_kernel", round_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -846,7 +1014,7 @@ int main(int argc, char *argv[]) {
         {
             auto [isinf_k, isinf_r] = trace_and_verify(
                 "isinf_kernel", isinf_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<int>(N);
@@ -873,7 +1041,7 @@ int main(int argc, char *argv[]) {
         {
             auto [isnan_k, isnan_r] = trace_and_verify(
                 "isnan_kernel", isnan_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<int>(N);
@@ -900,7 +1068,7 @@ int main(int argc, char *argv[]) {
         {
             auto [cast_k, cast_r] = trace_and_verify(
                 "cast_kernel", cast_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<int>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -925,7 +1093,7 @@ int main(int argc, char *argv[]) {
         {
             auto [neg_k, neg_r] = trace_and_verify(
                 "neg_kernel", neg_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -949,7 +1117,7 @@ int main(int argc, char *argv[]) {
         {
             auto [relu_k, relu_r] = trace_and_verify(
                 "relu_kernel", relu_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -979,7 +1147,7 @@ int main(int argc, char *argv[]) {
         {
             auto [lrelu_k, lrelu_r] = trace_and_verify(
                 "leaky_relu_kernel", leaky_relu_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -1003,7 +1171,7 @@ int main(int argc, char *argv[]) {
         {
             auto [softmax_k, softmax_r] = trace_and_verify(
                 "softmax_kernel", softmax_kernel,
-                luisa::uint3{512u, 1u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
+                luisa::uint2{512u, 1u}, luisa::uint3{64u, 1u, 1u}, 2u);
             constexpr uint32_t M = 64u, N = 64u;
             auto bufA = device.create_buffer<float>(M * N);
             auto bufB = device.create_buffer<float>(M * N);
@@ -1035,7 +1203,7 @@ int main(int argc, char *argv[]) {
         {
             auto [pow_k, pow_r] = trace_and_verify(
                 "pow_kernel", pow_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -1069,7 +1237,7 @@ int main(int argc, char *argv[]) {
         {
             auto [identity_k, identity_r] = trace_and_verify(
                 "identity_kernel", identity_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);
@@ -1093,7 +1261,7 @@ int main(int argc, char *argv[]) {
         {
             auto [recip_k, recip_r] = trace_and_verify(
                 "reciprocal_kernel", reciprocal_kernel,
-                luisa::uint3{32u, 1u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
             constexpr uint32_t N = 64u;
             auto bufA = device.create_buffer<float>(N);
             auto bufB = device.create_buffer<float>(N);

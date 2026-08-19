@@ -18,8 +18,17 @@
 // Pure host code: no device / backend is required.
 #include "ut/ut.hpp"
 #include <cstdint>
+#include <functional>
 #include <luisa/dsl/tensor.h>
 #include <luisa/ast/tile_to_kernel.h>
+#include <luisa/ast/expression.h>
+#include <luisa/ast/statement.h>
+#include <luisa/ast/variable.h>
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+#include <cerrno>
+#include <unistd.h>
+#include <sys/wait.h>
+#endif
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
@@ -132,6 +141,143 @@ Tensor<tile_f32, 2> erf_kernel(Tensor<tile_f32, 2> A) {
     }
     return C;
 }
+
+// A reduce kernel with threads = 32 (NOT a multiple of 64): used by the
+// batching warp-alignment death test (batched + warp collectives require
+// T.Kernel threads % 64 == 0, so this combination must abort in lower()).
+Tensor<tile_f32, 2> reduce32_kernel(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 8, N = 8;
+    constexpr tile_i32 blk_m = 4;
+    constexpr tile_i32 threads = 32;
+    Tensor<tile_f32, 2> B = T.empty(T.shape(M, N), tile_f32{});
+    for (auto bx : T.Kernel(T.ceildiv(M, blk_m), threads)) {
+        auto A_local = T.alloc_fragment(T.shape(blk_m, N), tile_f32{});
+        auto A_powsum = T.alloc_fragment(T.shape(blk_m), tile_f32{});
+        T.copy(A(T.range(bx * blk_m, (bx + 1) * blk_m), T.all()), A_local);
+        T.reduce_sum(A_local, A_powsum, /*dim=*/1);
+        A_local(blk_m, N) *= A_powsum(blk_m);
+        T.copy(A_local, B(T.range(bx * blk_m, (bx + 1) * blk_m), T.all()));
+    }
+    return B;
+}
+
+// ---- structural AST walkers (batching tests) --------------------------------
+// The batch machinery is visible in the emitted AST as: block_id().z /
+// thread_id().z member access (batch_index mapping), dispatch_size().z inside
+// a LESS comparison (batch_valid guard), and CallOp::SELECT (clamped global
+// offset).  These walkers search the FunctionBuilder body for those shapes.
+
+bool expr_walk(const Expression *e, const std::function<bool(const Expression *)> &pred) {
+    if (e == nullptr) { return false; }
+    if (pred(e)) { return true; }
+    switch (e->tag()) {
+        case Expression::Tag::UNARY:
+            return expr_walk(static_cast<const UnaryExpr *>(e)->operand(), pred);
+        case Expression::Tag::BINARY: {
+            auto *b = static_cast<const BinaryExpr *>(e);
+            return expr_walk(b->lhs(), pred) || expr_walk(b->rhs(), pred);
+        }
+        case Expression::Tag::MEMBER:
+            return expr_walk(static_cast<const MemberExpr *>(e)->self(), pred);
+        case Expression::Tag::ACCESS: {
+            auto *a = static_cast<const AccessExpr *>(e);
+            return expr_walk(a->range(), pred) || expr_walk(a->index(), pred);
+        }
+        case Expression::Tag::CALL: {
+            auto *c = static_cast<const CallExpr *>(e);
+            for (auto arg : c->arguments()) {
+                if (expr_walk(arg, pred)) { return true; }
+            }
+            return false;
+        }
+        case Expression::Tag::CAST:
+            return expr_walk(static_cast<const CastExpr *>(e)->expression(), pred);
+        default:
+            return false;
+    }
+}
+
+bool stmt_walk(const Statement *s, const std::function<bool(const Expression *)> &expr_pred) {
+    if (s == nullptr) { return false; }
+    switch (s->tag()) {
+        case Statement::Tag::SCOPE: {
+            for (auto *c : static_cast<const ScopeStmt *>(s)->statements()) {
+                if (stmt_walk(c, expr_pred)) { return true; }
+            }
+            return false;
+        }
+        case Statement::Tag::IF: {
+            auto *i = static_cast<const IfStmt *>(s);
+            if (expr_walk(i->condition(), expr_pred)) { return true; }
+            return stmt_walk(i->true_branch(), expr_pred) ||
+                   stmt_walk(i->false_branch(), expr_pred);
+        }
+        case Statement::Tag::FOR: {
+            auto *f = static_cast<const ForStmt *>(s);
+            if (expr_walk(f->variable(), expr_pred) || expr_walk(f->condition(), expr_pred) ||
+                expr_walk(f->step(), expr_pred)) {
+                return true;
+            }
+            return stmt_walk(f->body(), expr_pred);
+        }
+        case Statement::Tag::LOOP:
+            return stmt_walk(static_cast<const LoopStmt *>(s)->body(), expr_pred);
+        case Statement::Tag::ASSIGN: {
+            auto *a = static_cast<const AssignStmt *>(s);
+            return expr_walk(a->lhs(), expr_pred) || expr_walk(a->rhs(), expr_pred);
+        }
+        case Statement::Tag::EXPR:
+            return expr_walk(static_cast<const ExprStmt *>(s)->expression(), expr_pred);
+        default:
+            return false;
+    }
+}
+
+// True when `e` is a component access (x/y/z) of a builtin variable, e.g.
+// thread_id().z.  The lowering emits 1-component swizzles for these.
+bool is_builtin_component(const Expression *e, Variable::Tag tag, uint axis) {
+    if (e == nullptr || e->tag() != Expression::Tag::MEMBER) { return false; }
+    auto *m = static_cast<const MemberExpr *>(e);
+    if (m->self() == nullptr || m->self()->tag() != Expression::Tag::REF) { return false; }
+    if (static_cast<const RefExpr *>(m->self())->variable().tag() != tag) { return false; }
+    if (m->is_swizzle()) {
+        return m->swizzle_size() == 1u && m->swizzle_index(0u) == axis;
+    }
+    return m->member_index() == axis;
+}
+
+// True when the body contains a LESS comparison against dispatch_size().z —
+// the batch_valid guard that wraps every global write / atomic.
+bool stmt_contains_batch_valid_less(const Statement *s) {
+    auto is_dispatch_size_z = [](const Expression *e) {
+        return is_builtin_component(e, Variable::Tag::DISPATCH_SIZE, 2u);
+    };
+    auto is_less_with_dispatch_size_z = [&](const Expression *e) {
+        if (e == nullptr || e->tag() != Expression::Tag::BINARY) { return false; }
+        auto *b = static_cast<const BinaryExpr *>(e);
+        if (b->op() != BinaryOp::LESS) { return false; }
+        return expr_walk(b->lhs(), is_dispatch_size_z) ||
+               expr_walk(b->rhs(), is_dispatch_size_z);
+    };
+    return stmt_walk(s, is_less_with_dispatch_size_z);
+}
+
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+template<typename F>
+[[nodiscard]] bool terminates_with_abort(F &&f) noexcept {
+    auto pid = fork();
+    if (pid < 0) { return false; }
+    if (pid == 0) {
+        f();
+        _exit(0);
+    }
+    auto status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) { return false; }
+    }
+    return WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT;
+}
+#endif
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -142,7 +288,7 @@ int main(int argc, char *argv[]) {
         tile::Kernel kernel{elementwise_add};
         auto result = tile_to_kernel(kernel.function());
         expect(result.function != nullptr);
-        expect(result.dispatch_size.x == 4u * 32u && result.dispatch_size.y == 4u && result.dispatch_size.z == 1u);
+        expect(result.dispatch_size.x == 4u * 32u && result.dispatch_size.y == 4u);
         auto block = result.function->block_size();
         expect(block.x == 32u && block.y == 1u && block.z == 1u);
         // A, B, C -> three buffer arguments
@@ -163,7 +309,7 @@ int main(int argc, char *argv[]) {
         tile::Kernel kernel{pipelined_matmul};
         auto result = tile_to_kernel(kernel.function());
         expect(result.function != nullptr);
-        expect(result.dispatch_size.x == 4u * 32u && result.dispatch_size.y == 4u && result.dispatch_size.z == 1u);
+        expect(result.dispatch_size.x == 4u * 32u && result.dispatch_size.y == 4u);
         auto block = result.function->block_size();
         expect(block.x == 32u && block.y == 1u && block.z == 1u);
         auto args = result.function->arguments();
@@ -178,7 +324,7 @@ int main(int argc, char *argv[]) {
         tile::Kernel kernel{rms_norm};
         auto result = tile_to_kernel(kernel.function());
         expect(result.function != nullptr);
-        expect(result.dispatch_size.x == 8u * 64u && result.dispatch_size.y == 1u && result.dispatch_size.z == 1u);
+        expect(result.dispatch_size.x == 8u * 64u && result.dispatch_size.y == 1u);
         auto block = result.function->block_size();
         expect(block.x == 64u && block.y == 1u && block.z == 1u);
         // A, B -> two buffer arguments
@@ -206,7 +352,7 @@ int main(int argc, char *argv[]) {
         auto result = tile_to_kernel(kernel.function());
         expect(result.function != nullptr);
         // T.Kernel(1, 8): 1 block of 8 threads -> dispatch.x = 1 * 8
-        expect(result.dispatch_size.x == 8u && result.dispatch_size.y == 1u && result.dispatch_size.z == 1u);
+        expect(result.dispatch_size.x == 8u && result.dispatch_size.y == 1u);
         auto block = result.function->block_size();
         expect(block.x == 8u && block.y == 1u && block.z == 1u);
         // A, C -> two buffer arguments
@@ -223,7 +369,7 @@ int main(int argc, char *argv[]) {
         auto result = tile_to_kernel(kernel.function());
         expect(result.function != nullptr);
         // T.Kernel(1, 8): 1 block of 8 threads -> dispatch.x = 1 * 8
-        expect(result.dispatch_size.x == 8u && result.dispatch_size.y == 1u && result.dispatch_size.z == 1u);
+        expect(result.dispatch_size.x == 8u && result.dispatch_size.y == 1u);
         auto block = result.function->block_size();
         expect(block.x == 8u && block.y == 1u && block.z == 1u);
         // C -> one buffer argument (fp8 e4m3 element type)
@@ -239,7 +385,7 @@ int main(int argc, char *argv[]) {
         tile::Kernel kernel{erf_kernel};
         auto result = tile_to_kernel(kernel.function());
         expect(result.function != nullptr);
-        expect(result.dispatch_size.x == 4u * 32u && result.dispatch_size.y == 4u && result.dispatch_size.z == 1u);
+        expect(result.dispatch_size.x == 4u * 32u && result.dispatch_size.y == 4u);
         auto block = result.function->block_size();
         expect(block.x == 32u && block.y == 1u && block.z == 1u);
         // A, C -> two buffer arguments
@@ -256,5 +402,138 @@ int main(int argc, char *argv[]) {
         expect(calls.test(CallOp::EXP)) << "software erf uses exp(-x^2)";
         expect(calls.test(CallOp::ABS)) << "software erf uses |x|";
         expect(calls.test(CallOp::SELECT)) << "software erf applies sign(x)";
+    };
+
+    "batching_disabled_by_default"_test = [] {
+        tile::Kernel kernel{elementwise_add};
+        auto result = tile_to_kernel(kernel.function());// default config
+        auto block = result.function->block_size();
+        expect(block.z == 1u);
+        expect(result.dispatch_size.x == 4u * 32u && result.dispatch_size.y == 4u);
+        // disabled batching adds zero overhead: no SELECT batch clamp is emitted
+        auto calls = result.function->direct_builtin_callables();
+        expect(!calls.test(CallOp::SELECT));
+    };
+
+    "batching_enabled_selects_z_block"_test = [] {
+        // erf_kernel: threads=32, no shared -> memory/IO-bound target 128 -> B_z=4
+        {
+            tile::Kernel kernel{erf_kernel};
+            auto result = tile_to_kernel(kernel.function(),
+                                         TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 64u});
+            auto block = result.function->block_size();
+            expect(block.z == 4u);
+            expect(block.z >= 1u && block.z <= 8u && 32u * block.z <= 1024u);
+        }
+        // elementwise_add: threads=32, shared -> compute/LDS-bound target 256 -> B_z=8
+        {
+            tile::Kernel kernel{elementwise_add};
+            auto result = tile_to_kernel(kernel.function(),
+                                         TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 64u});
+            auto block = result.function->block_size();
+            expect(block.z == 8u);
+            expect(block.z >= 1u && block.z <= 8u && 32u * block.z <= 1024u);
+        }
+    };
+
+    "batching_slices_shared_and_offsets_global"_test = [] {
+        tile::Kernel kernel{elementwise_add};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 64u});
+        auto block = result.function->block_size();
+        expect(block.z == 8u);// B_z
+        // shared A/B tiles: 8x8 = 64 elements each -> 64 * B_z = 512 per slice set
+        auto shared = result.function->shared_variables();
+        expect(shared.size() == 2u);
+        uint32_t shared_elements = 0u;
+        for (auto v : shared) {
+            expect(v.type() != nullptr && v.type()->is_array());
+            if (v.type() != nullptr && v.type()->is_array()) { shared_elements += v.type()->dimension(); }
+        }
+        expect(shared_elements == 2u * 64u * 8u);
+        // global accesses go through the clamped batch offset (CallOp::SELECT)
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::SELECT));
+        expect(calls.test(CallOp::BUFFER_READ));
+        expect(calls.test(CallOp::BUFFER_WRITE));
+    };
+
+    "batching_tail_block_guard"_test = [] {
+        tile::Kernel kernel{elementwise_add};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 64u});
+        auto block = result.function->block_size();
+        expect(block.z == 8u);
+        auto *body = result.function->body();
+        // batch_index mapping: block_id().z and thread_id().z are used
+        expect(stmt_walk(body, [](const Expression *e) {
+            return is_builtin_component(e, Variable::Tag::BLOCK_ID, 2u);
+        }));
+        expect(stmt_walk(body, [](const Expression *e) {
+            return is_builtin_component(e, Variable::Tag::THREAD_ID, 2u);
+        }));
+        // batch_valid guard: LESS comparison against dispatch_size().z wraps
+        // the guarded global writes (idle tz threads of the tail z-block)
+        expect(stmt_contains_batch_valid_less(body));
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::SELECT));
+        expect(calls.test(CallOp::BUFFER_WRITE));
+    };
+
+    "batching_warp_alignment_guard"_test = [] {
+        // Positive: batched elementwise kernel (no warp collectives, threads=32)
+        // must NOT abort even though 32 % 64 != 0.
+        {
+            tile::Kernel kernel{elementwise_add};
+            auto result = tile_to_kernel(kernel.function(),
+                                         TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 64u});
+            expect(result.function != nullptr);
+        }
+        // Positive (warp-collective): rms_norm uses threads=64 (a multiple of
+        // 64) and REDUCE_SUM, so batching must lower without abort and select a
+        // B_z > 1 z-block (compute/LDS-bound: 512-elem shared-backed fragments
+        // -> target 256 -> B_z = ceil(256/64) = 4).  The per-slice warp
+        // partition of _emit_tile_reduce is device-verified in
+        // examples/tensor/main.cpp (batched rms_norm).
+        {
+            tile::Kernel kernel{rms_norm};
+            auto result = tile_to_kernel(kernel.function(),
+                                         TileToKernelConfig{.min_batching_size = 4u, .max_batching_size = 16u});
+            expect(result.function != nullptr);
+            expect(result.function->block_size().z > 1u);
+        }
+        // Negative: batched reduce kernel (threads=32, NOT a multiple of 64)
+        // aborts via the 2.10 LUISA_ASSERT — subprocess death test (POSIX
+        // only, mirroring test_xir2ast_translators.cpp).  On non-POSIX the
+        // abort cannot be caught in-process; the host-side assert contract
+        // covers it.
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+        expect(terminates_with_abort([] {
+            tile::Kernel kernel{reduce32_kernel};
+            (void)tile_to_kernel(kernel.function(),
+                                 TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 64u});
+        }));
+#endif
+    };
+
+    "batching_rejects_invalid_config"_test = [] {
+        // min=0 / max=0 / min>max abort via LUISA_ASSERT (logging.h) and cannot
+        // be caught in-process — documented.  Subprocess death tests where the
+        // platform supports fork(); elsewhere rely on the assert contract.
+#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
+        tile::Kernel kernel{elementwise_add};
+        expect(terminates_with_abort([&] {
+            (void)tile_to_kernel(kernel.function(),
+                                 TileToKernelConfig{.min_batching_size = 0u, .max_batching_size = 8u});
+        }));
+        expect(terminates_with_abort([&] {
+            (void)tile_to_kernel(kernel.function(),
+                                 TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 0u});
+        }));
+        expect(terminates_with_abort([&] {
+            (void)tile_to_kernel(kernel.function(),
+                                 TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 4u});
+        }));
+#endif
     };
 }
