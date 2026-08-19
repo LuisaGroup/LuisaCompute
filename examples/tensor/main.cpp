@@ -11,9 +11,13 @@
 //   example_tensor_stub <backend>     -- compile + dispatch + verify
 //   example_tensor_stub <backend> --cooperative  -- cooperative matrix ops
 //   example_tensor_stub <backend> --trigger-guard -- trigger the multi-kernel guard
+//   example_tensor_stub <backend> --cnn [cnn_input.bin] [--bench]
+//                                    -- TinyCNN tile-language inference (same
+//                                       executable, split usage via --cnn)
 // =============================================================================
 
 #include "kernels.h"
+#include "cnn_inference.h"
 
 int main(int argc, char *argv[]) {
     using namespace luisa::compute;// Kernel / Device / Context / detail for the translation test
@@ -33,6 +37,9 @@ int main(int argc, char *argv[]) {
     // TileToKernelConfig::use_cooperative (matrix ops — currently T.gemm — are
     // computed with cooperative vectors instead of the per-thread path).
     auto use_cooperative = has_flag("--cooperative");
+    // --cnn: run the TinyCNN tile-language inference instead of the kernel
+    // stub (same executable, different command-line usage).
+    if (has_flag("--cnn")) { return cnn::run_cnn_inference(argc, argv); }
 
     // =========================================================================
     // Trace every tile kernel and lower it with tile_to_kernel.  Structural

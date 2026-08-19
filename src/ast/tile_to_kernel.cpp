@@ -794,8 +794,27 @@ private:
     // The association temp-pointer -> producer statement is recorded by the
     // TileFunctionBuilder (temp_output()), so no guessing is needed.
     luisa::unordered_map<const TensorExpr *, TempValue> _temps;
-    // shared staging tiles backing block-partitioned fragment producers
-    luisa::unordered_map<const TensorExpr *, const RefExpr *> _fragment_staging;
+      // shared staging tiles backing block-partitioned fragment producers
+      luisa::unordered_map<const TensorExpr *, const RefExpr *> _fragment_staging;
+
+      // Fragments with at least this many elements are backed by a block-shared
+      // array instead of a per-thread local array.  A per-thread local array of
+      // that size would spill to local/global memory on the GPU (the dominant
+      // dispatch cost for the tensor example kernels), so we stage them in
+      // shared memory and process them with partition loops (each element is
+      // computed once across the block instead of once per thread).  The
+      // existing "sync after every shared-accessing statement" discipline
+      // (see _accesses_shared + the trailing _sync_block() in _emit) provides
+      // the required barriers between the shared-backed ops.
+      static constexpr uint32_t kFragmentSharedThreshold = 512u;
+
+      // True when a fragment tensor is backed by a block-shared array instead of
+      // a per-thread local array (see _emit_alloc / kFragmentSharedThreshold).
+      [[nodiscard]] bool _is_fragment_shared_backed(const TensorExpr *t) noexcept {
+          if (t == nullptr || t->scope() != TensorScope::Fragment) { return false; }
+          auto *st = _try_storage(t);
+          return st != nullptr && st->shared != nullptr;
+      }
 
     // ---- expression helpers -------------------------------------------------
 
@@ -1136,6 +1155,11 @@ private:
                     return _fb->access(elem_t, st->shared, idx);
                 }
                 case TensorScope::Fragment: {
+                    // large fragments are backed by a block-shared array
+                    if (st->shared != nullptr) {
+                        auto idx = _local_index(t, c);
+                        return _fb->access(elem_t, st->shared, idx);
+                    }
                     auto idx = _local_index(t, c);
                     return _fb->access(elem_t, st->fragment, idx);
                 }
@@ -1164,6 +1188,12 @@ private:
                 break;
             }
             case TensorScope::Fragment: {
+                // large fragments are backed by a block-shared array
+                if (st.shared != nullptr) {
+                    auto idx = _local_index(t, c);
+                    _fb->assign(_fb->access(elem_t, st.shared, idx), value);
+                    break;
+                }
                 auto idx = _local_index(t, c);
                 _fb->assign(_fb->access(elem_t, st.fragment, idx), value);
                 break;
@@ -1258,10 +1288,17 @@ private:
         _pipeline_count = 0u;
     }
 
-    [[nodiscard]] bool _accesses_shared(const TensorStmt *s) const {
-        auto shared_scope = [](const TensorExpr *t) {
-            return t != nullptr && t->scope() == TensorScope::Shared;
-        };
+  [[nodiscard]] bool _accesses_shared(const TensorStmt *s) {
+      // A statement touches shared memory when an operand is a Shared tensor or
+      // a large fragment backed by a block-shared array (the latter is created
+      // by _emit_alloc when a fragment is large enough to spill; see
+      // kFragmentSharedThreshold).  The trailing _sync_block() in _emit then
+      // provides the barrier discipline for both kinds of shared storage.
+      auto shared_scope = [this](const TensorExpr *t) {
+          if (t == nullptr) { return false; }
+          if (t->scope() == TensorScope::Shared) { return true; }
+          return _is_fragment_shared_backed(t);
+      };
         switch (s->op()) {
             case TileOpKind::ALLOC: {
                 auto *a = static_cast<const AllocStmt *>(s);
@@ -1463,15 +1500,23 @@ private:
                 st.array_size = n;
                 break;
             }
-            case TensorScope::Fragment: {
-                auto n = tile_element_count(t);
-                if (n == 0u) [[unlikely]] {
-                    LUISA_ERROR_WITH_LOCATION("Fragment tile allocation with zero elements: {}", t->describe());
-                }
-                st.fragment = _fb->local(Type::array(elem_t, n));
-                st.array_size = n;
-                break;
-            }
+          case TensorScope::Fragment: {
+              auto n = tile_element_count(t);
+              if (n == 0u) [[unlikely]] {
+                  LUISA_ERROR_WITH_LOCATION("Fragment tile allocation with zero elements: {}", t->describe());
+              }
+              if (n >= kFragmentSharedThreshold) {
+                  // Large fragment: back it with a block-shared array instead of a
+                  // per-thread local array.  Ops on it use partition loops (one
+                  // compute per element across the block) and the shared barrier
+                  // discipline; see _is_fragment_shared_backed.
+                  st.shared = _fb->shared(Type::array(elem_t, n));
+              } else {
+                  st.fragment = _fb->local(Type::array(elem_t, n));
+              }
+              st.array_size = n;
+              break;
+          }
         }
         _storage_by_ptr[t] = st;
         auto name = t->name();
@@ -1488,15 +1533,15 @@ private:
         auto saved = _current_extent;
         _current_extent = t;
         auto zero = _zero_of(t->dtype());
-        if (t->scope() == TensorScope::Fragment) {
-            _full_loop(t, [&](const Coord &c) { _write_to(t, c, zero); });
-        } else {
-            _partition_loop(t, [&](const Coord &c) { _write_to(t, c, zero); });
-        }
-        _current_extent = saved;
-    }
+      if (t->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(t)) {
+          _full_loop(t, [&](const Coord &c) { _write_to(t, c, zero); });
+      } else {
+          _partition_loop(t, [&](const Coord &c) { _write_to(t, c, zero); });
+      }
+      _current_extent = saved;
+  }
 
-    void _emit_copy(const CopyStmt *s) {
+  void _emit_copy(const CopyStmt *s) {
         auto *src = s->src();
         auto *dst = s->dst();
         auto *ext = op_extent_of(dst, src);
@@ -1511,25 +1556,25 @@ private:
         auto body = [&](const Coord &c) {
             _write_to(dst, c, _value_at(src, c));
         };
-        if (dst->scope() == TensorScope::Fragment) {
-            if (src->scope() == TensorScope::Global) {
-                // coalesced global->fragment staging (lc_optimize 4): the block
-                // cooperatively streams the tile through shared memory instead
-                // of every thread redundantly re-reading the whole tile
-                auto elem_t = tensor_element_type(dst->dtype());
-                auto staging = _staging_for(dst, elem_t);
-                _sync_block();// staging write-after-read hazard
-                _partition_loop(ext, [&](const Coord &c) {
-                    _fb->assign(_fb->access(elem_t, staging, _local_index(dst, c)),
-                                _maybe_cast(_value_at(src, c), elem_t));
-                });
-                _replicate_from_staging(dst, elem_t, staging);
-            } else {
-                _full_loop(ext, body);
-            }
-        } else {
-            _partition_loop(ext, body);
-        }
+          if (dst->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(dst)) {
+              if (src->scope() == TensorScope::Global) {
+                  // coalesced global->fragment staging (lc_optimize 4): the block
+                  // cooperatively streams the tile through shared memory instead
+                  // of every thread redundantly re-reading the whole tile
+                  auto elem_t = tensor_element_type(dst->dtype());
+                  auto staging = _staging_for(dst, elem_t);
+                  _sync_block();// staging write-after-read hazard
+                  _partition_loop(ext, [&](const Coord &c) {
+                      _fb->assign(_fb->access(elem_t, staging, _local_index(dst, c)),
+                                  _maybe_cast(_value_at(src, c), elem_t));
+                  });
+                  _replicate_from_staging(dst, elem_t, staging);
+              } else {
+                  _full_loop(ext, body);
+              }
+          } else {
+              _partition_loop(ext, body);
+          }
         _pipeline_axis = saved_axis;
         _current_extent = saved;
     }
@@ -1560,11 +1605,11 @@ private:
             }
             _write_to(lhs, c, rhs);
         };
-        if (lhs->scope() == TensorScope::Fragment) {
-            _full_loop(ext, body);
-        } else {
-            _partition_loop(ext, body);
-        }
+          if (lhs->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(lhs)) {
+              _full_loop(ext, body);
+          } else {
+              _partition_loop(ext, body);
+          }
         _current_extent = saved;
     }
 
@@ -1896,23 +1941,28 @@ private:
             });
             return acc;
         };
-        if (c->scope() == TensorScope::Fragment) {
-            // fragment C is replicated: publish the partitioned results through
-            // a shared staging tile, then refresh every thread's replica
-            auto out_t = tensor_element_type(c->dtype());
-            auto staging = _staging_for(c, out_t);
-            _sync_block();// staging write-after-read hazard vs. previous use
-            _partition_loop(c, [&](const Coord &cc) {
-                auto acc = compute_acc(cc);
-                _fb->assign(_fb->access(out_t, staging, _local_index(c, cc)),
-                            _maybe_cast(acc, out_t));
-            });
-            _replicate_from_staging(c, out_t, staging);
-        } else {
-            _partition_loop(c, [&](const Coord &cc) {
-                _write_to(c, cc, compute_acc(cc));
-            });
-        }
+      if (c->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(c)) {
+          // fragment C is replicated: publish the partitioned results through
+          // a shared staging tile, then refresh every thread's replica
+          auto out_t = tensor_element_type(c->dtype());
+          auto staging = _staging_for(c, out_t);
+          _sync_block();// staging write-after-read hazard vs. previous use
+          _partition_loop(c, [&](const Coord &cc) {
+              auto acc = compute_acc(cc);
+              _fb->assign(_fb->access(out_t, staging, _local_index(c, cc)),
+                          _maybe_cast(acc, out_t));
+          });
+          _replicate_from_staging(c, out_t, staging);
+      } else {
+          // global C, or a large shared-backed fragment C: each element is
+          // written exactly once across the block (the A/B tiles were staged
+          // in shared memory and published by the copies' trailing barriers;
+          // this statement's own writes are published by _accesses_shared's
+          // trailing _sync_block() in _emit).
+          _partition_loop(c, [&](const Coord &cc) {
+              _write_to(c, cc, compute_acc(cc));
+          });
+      }
         _current_extent = saved;
     }
 
@@ -2074,10 +2124,10 @@ private:
         } else if (s->value_ref() != nullptr) {
             LUISA_ERROR_WITH_LOCATION("tile_to_kernel: R3 RefExpr fill values are not supported.");
         }
-        if (buf->scope() == TensorScope::Fragment) {
-            _full_loop(buf, [&](const Coord &c) { _write_to(buf, c, value); });
-        } else {
-            _partition_loop(buf, [&](const Coord &c) { _write_to(buf, c, value); });
+      if (buf->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(buf)) {
+          _full_loop(buf, [&](const Coord &c) { _write_to(buf, c, value); });
+      } else {
+          _partition_loop(buf, [&](const Coord &c) { _write_to(buf, c, value); });
         }
         _current_extent = saved;
     }
@@ -2094,7 +2144,7 @@ private:
             cs[1] = cd[0];
             _write_to(dst, cd, _value_at(src, cs));
         };
-        if (dst->scope() == TensorScope::Fragment) {
+        if (dst->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(dst)) {
             _full_loop(ext, body);
         } else {
             _partition_loop(ext, body);
@@ -2118,7 +2168,7 @@ private:
             if (hi != nullptr) { clamped = _fb->call(elem_t, CallOp::MIN, {clamped, hi}); }
             _write_to(dst, c, clamped);
         };
-        if (dst->scope() == TensorScope::Fragment) {
+        if (dst->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(dst)) {
             _full_loop(dst, body);
         } else {
             _partition_loop(dst, body);
