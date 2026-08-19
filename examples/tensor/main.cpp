@@ -14,10 +14,15 @@
 //   example_tensor_stub <backend> --cnn [cnn_input.bin] [--bench]
 //                                    -- TinyCNN tile-language inference (same
 //                                       executable, split usage via --cnn)
+//   example_tensor_stub <backend> --poly-fit [--steps N]
+//                                    -- polynomial-fit tile-language training
+//                                       (C++ twin of poly_fit_train.py, split
+//                                       usage via --poly-fit)
 // =============================================================================
 
 #include "kernels.h"
 #include "cnn_inference.h"
+#include "poly_fit.h"
 
 int main(int argc, char *argv[]) {
     using namespace luisa::compute;// Kernel / Device / Context / detail for the translation test
@@ -40,6 +45,9 @@ int main(int argc, char *argv[]) {
     // --cnn: run the TinyCNN tile-language inference instead of the kernel
     // stub (same executable, different command-line usage).
     if (has_flag("--cnn")) { return cnn::run_cnn_inference(argc, argv); }
+    // --poly-fit: run the polynomial-fit tile-language training instead of the
+    // kernel stub (same executable, different command-line usage).
+    if (has_flag("--poly-fit")) { return polyfit::run_poly_fit(argc, argv); }
 
     // =========================================================================
     // Trace every tile kernel and lower it with tile_to_kernel.  Structural
