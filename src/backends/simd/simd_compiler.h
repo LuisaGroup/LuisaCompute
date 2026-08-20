@@ -117,6 +117,7 @@ struct SIMDCompiledKernel {
     size_t block_barrier_loop_epoch_count{0u};
     bool cooperative_block{false};
     bool direct_control_flow{false};
+    size_t predicated_acyclic_surface_filter_handler_count{0u};
     uint32_t warp_width{0u};
     std::string target_triple{};
     // Populated only when explicitly requested for diagnostics.

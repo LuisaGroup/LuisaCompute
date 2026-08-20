@@ -625,7 +625,19 @@ struct SIMDPacketLaunchConfig {
         size_t shared_memory_size) noexcept {nullptr};
     void *(*cooperative_frame_alloc)(size_t size) noexcept {nullptr};
     void (*cooperative_frame_free)(void *memory) noexcept {nullptr};
+    // The compiler may retain both a compact acyclic surface-filter handler
+    // and its independent-PC oracle in one JIT module. Runtime dispatch sets
+    // this once so a query call site can select between the two exact
+    // same-module functions without changing the host callback ABI. Appending
+    // both words preserves every established field offset and avoids
+    // indeterminate tail padding in launch-record comparisons.
+    uint32_t enable_predicated_acyclic_surface_filter{1u};
+    uint32_t reserved_runtime_flags{0u};
 };
+static_assert(
+    offsetof(SIMDPacketLaunchConfig, reserved_runtime_flags) +
+        sizeof(uint32_t) ==
+    sizeof(SIMDPacketLaunchConfig));
 
 struct SIMDLLVMPrintFormat {
     std::string format{};
@@ -642,6 +654,10 @@ struct LLVMSIMDRayQueryPipelineHandlers {
     // the XIR audit proves the surface handler is capture-free and can only
     // inspect/commit the current triangle candidate.
     ::llvm::Function *on_surface_filter{nullptr};
+    // Same direct Embree packet ABI as on_surface_filter, but lowered through
+    // the general independent-PC scheduler. This remains null when the
+    // compact acyclic lowering was ineligible.
+    ::llvm::Function *on_surface_filter_scheduler_oracle{nullptr};
     // W1-only opaque-capture thunk used by the resident runtime loop. One
     // stable indirect target dispatches both candidate kinds to keep the
     // host/JIT boundary friendly to indirect-branch prediction. Wider
@@ -745,6 +761,7 @@ struct LLVMScheduleCodegenResult {
     std::vector<std::vector<uint32_t>> block_barrier_loop_epochs{};
     bool cooperative_block{false};
     bool direct_control_flow{false};
+    bool predicated_acyclic_control_flow{false};
     std::string error{};
 
     [[nodiscard]] bool succeeded() const noexcept {
@@ -838,6 +855,7 @@ lower_ray_query_surface_filter_handler_schedule_to_llvm(
     bool enable_paired_leaf_gather = false,
     uint32_t dispatch_worker_count = 1u,
     bool enable_native_predicated_loop = true,
-    size_t print_format_id_base = 0u);
+    size_t print_format_id_base = 0u,
+    bool enable_predicated_acyclic_control_flow = true);
 
 }// namespace luisa::compute::simd

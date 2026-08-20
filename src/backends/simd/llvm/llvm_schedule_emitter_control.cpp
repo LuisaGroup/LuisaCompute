@@ -599,43 +599,45 @@ void ScheduleEmitter::_find_instruction_spills() {
     }
     std::vector<uint8_t> chained_blocks(
         _source.blocks().size(), uint8_t{0u});
-    for (auto &&block : _source.blocks()) {
-        if (chained_blocks[block.id.value] != 0u) { continue; }
-        if (auto region =
-                _find_chained_predicated_region(block)) {
-            chained_blocks[block.id.value] = 1u;
-            for (auto *inlined : region->inlined_blocks) {
-                emission_blocks[inlined->id.value] = block.id;
-                chained_blocks[inlined->id.value] = 1u;
+    if (!_predicated_acyclic_control_flow) {
+        for (auto &&block : _source.blocks()) {
+            if (chained_blocks[block.id.value] != 0u) { continue; }
+            if (auto region =
+                    _find_chained_predicated_region(block)) {
+                chained_blocks[block.id.value] = 1u;
+                for (auto *inlined : region->inlined_blocks) {
+                    emission_blocks[inlined->id.value] = block.id;
+                    chained_blocks[inlined->id.value] = 1u;
+                }
             }
         }
-    }
-    for (auto &&block : _source.blocks()) {
-        if (chained_blocks[block.id.value] != 0u) { continue; }
-        if (auto diamond =
-                _find_guarded_predicated_math_diamond(block)) {
-            for (auto *arm : diamond->true_blocks) {
-                emission_blocks[arm->id.value] = block.id;
-            }
-            for (auto *arm : diamond->false_blocks) {
-                emission_blocks[arm->id.value] = block.id;
+        for (auto &&block : _source.blocks()) {
+            if (chained_blocks[block.id.value] != 0u) { continue; }
+            if (auto diamond =
+                    _find_guarded_predicated_math_diamond(block)) {
+                for (auto *arm : diamond->true_blocks) {
+                    emission_blocks[arm->id.value] = block.id;
+                }
+                for (auto *arm : diamond->false_blocks) {
+                    emission_blocks[arm->id.value] = block.id;
+                }
             }
         }
-    }
-    for (auto &&block : _source.blocks()) {
-        if (chained_blocks[block.id.value] != 0u) { continue; }
-        if (auto region = _find_nested_predicated_region(block)) {
-            emission_blocks[region->nested_split_block->id.value] =
-                block.id;
-            for (auto *arm : region->nested_diamond.true_blocks) {
-                emission_blocks[arm->id.value] = block.id;
+        for (auto &&block : _source.blocks()) {
+            if (chained_blocks[block.id.value] != 0u) { continue; }
+            if (auto region = _find_nested_predicated_region(block)) {
+                emission_blocks[region->nested_split_block->id.value] =
+                    block.id;
+                for (auto *arm : region->nested_diamond.true_blocks) {
+                    emission_blocks[arm->id.value] = block.id;
+                }
+                for (auto *arm : region->nested_diamond.false_blocks) {
+                    emission_blocks[arm->id.value] = block.id;
+                }
+                emission_blocks[region->nested_merge_block->id.value] =
+                    block.id;
+                emission_blocks[region->other_block->id.value] = block.id;
             }
-            for (auto *arm : region->nested_diamond.false_blocks) {
-                emission_blocks[arm->id.value] = block.id;
-            }
-            emission_blocks[region->nested_merge_block->id.value] =
-                block.id;
-            emission_blocks[region->other_block->id.value] = block.id;
         }
     }
     if (_direct_control_flow) {
@@ -718,7 +720,8 @@ void ScheduleEmitter::_find_instruction_spills() {
 }
 
 void ScheduleEmitter::_allocate_state() {
-    if (!_direct_control_flow) {
+    if (!_direct_control_flow &&
+        !_predicated_acyclic_control_flow) {
         auto *mask_type = _layout.mask_type();
         auto *zero_mask = ::llvm::Constant::getNullValue(mask_type);
         // Dynamic whole-vector frame updates are cheaper through promoted
@@ -1249,6 +1252,15 @@ void ScheduleEmitter::_build() {
               "LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG") &&
           _can_emit_direct_control_flow()));
     _result.direct_control_flow = _direct_control_flow;
+    if (!_direct_control_flow &&
+        _enable_predicated_acyclic_control_flow) {
+        if (auto order = _find_predicated_acyclic_order()) {
+            _predicated_acyclic_control_flow = true;
+            _predicated_acyclic_order = std::move(*order);
+        }
+    }
+    _result.predicated_acyclic_control_flow =
+        _predicated_acyclic_control_flow;
     _allocate_state();
     if (_failed()) { return; }
     _create_external_values();
@@ -1313,6 +1325,10 @@ void ScheduleEmitter::_build() {
     }
     if (_direct_control_flow) {
         _build_direct(initial_mask);
+        return;
+    }
+    if (_predicated_acyclic_control_flow) {
+        _build_predicated_acyclic(initial_mask);
         return;
     }
     _builder.CreateStore(initial_mask, _live_mask);

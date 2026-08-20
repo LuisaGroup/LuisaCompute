@@ -967,6 +967,42 @@ find_handler_local_allocas(
     return result;
 }
 
+[[nodiscard]] static size_t count_handler_localized_input_captures(
+    RayQueryLoopInst *loop,
+    const RayQueryLoopCaptureList &capture_list) noexcept {
+    if (loop == nullptr || loop->dispatch_block() == nullptr) {
+        return 0u;
+    }
+    auto *terminator = loop->dispatch_block()->terminator();
+    if (terminator == nullptr ||
+        !terminator->isa<RayQueryDispatchInst>()) {
+        return 0u;
+    }
+    auto *dispatch =
+        static_cast<RayQueryDispatchInst *>(terminator);
+    RayQueryHandlerRegion surface_region;
+    RayQueryHandlerRegion procedural_region;
+    luisa::string_view reason;
+    if (!collect_outlineable_handler_region(
+            dispatch->on_surface_candidate_block(),
+            loop->dispatch_block(), loop->merge_block(),
+            surface_region, reason) ||
+        !collect_outlineable_handler_region(
+            dispatch->on_procedural_candidate_block(),
+            loop->dispatch_block(), loop->merge_block(),
+            procedural_region, reason)) {
+        // Selection runs only after the atomic preflight, so this is a
+        // defensive fallback rather than a second acceptance path.
+        return 0u;
+    }
+    return find_handler_local_allocas(
+               capture_list,
+               dispatch->on_surface_candidate_block(), surface_region,
+               dispatch->on_procedural_candidate_block(),
+               procedural_region)
+        .all.size();
+}
+
 static void collect_ray_query_loop_capture_list_in_inst(Instruction *inst, const Value *query_object,
                                                         const luisa::unordered_set<Value *> &internal,
                                                         luisa::unordered_set<Value *> &known_in,
@@ -1050,7 +1086,20 @@ select_ray_query_loops(
                 ++handler_instruction_count;
             }
         }
-        auto input_capture_count = capture_list.in_values.size();
+        // Definite-initialization proves that some parent-function allocas are
+        // invocation-local callback scratch. Lowering recreates them inside
+        // the outlined handler and removes them from the final callback ABI,
+        // so they must not consume the selection-time capture budget.
+        auto localized_input_capture_count =
+            count_handler_localized_input_captures(
+                loop, capture_list);
+        LUISA_DEBUG_ASSERT(
+            localized_input_capture_count <=
+                capture_list.in_values.size(),
+            "Localized ray-query handler captures exceed input captures.");
+        auto input_capture_count =
+            capture_list.in_values.size() -
+            localized_input_capture_count;
         auto output_capture_count = capture_list.out_values.size();
         capture_eligible_loop_count +=
             input_capture_count + output_capture_count <=

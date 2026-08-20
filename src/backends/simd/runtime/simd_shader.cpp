@@ -300,6 +300,9 @@ SIMDShader::SIMDShader(
         _enable_packet_batch_entry &&
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY");
+    _enable_predicated_acyclic_surface_filter =
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_ACYCLIC_SURFACE_FILTER_PREDICATION");
     auto *assembly_directory =
         std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR");
     auto capture_assembly =
@@ -379,6 +382,7 @@ SIMDShader::SIMDShader(
             "linear_1d_packet_tail_narrowings={}, "
             "linear_1d_block_coalescings={}, "
             "direct_control_flow={}, "
+            "predicated_acyclic_surface_filter_handlers={}, "
             "schedule_blocks={}, convergence_points={}, "
             "scalar_frame_metadata={}, "
             "state_slots={}, coalesced_state_slots={}, "
@@ -450,6 +454,7 @@ SIMDShader::SIMDShader(
             _compiled.linear_1d_packet_tail_narrowing_count,
             _compiled.linear_1d_block_coalescing_count,
             _compiled.direct_control_flow,
+            _compiled.predicated_acyclic_surface_filter_handler_count,
             _compiled.schedule_block_count,
             _compiled.convergence_point_count,
             _compiled.scalar_frame_metadata,
@@ -627,6 +632,8 @@ void SIMDShader::_dispatch_once(
             config.grid_size[1u] = grid_size.y;
             config.grid_size[2u] = grid_size.z;
             config.kernel_id = kernel_id;
+            config.enable_predicated_acyclic_surface_filter =
+                _enable_predicated_acyclic_surface_filter;
             config.debug_context = &debug_context;
             config.print_callback = simd_print_callback;
             config.assert_fail_callback = simd_assert_fail_callback;

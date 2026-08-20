@@ -238,7 +238,12 @@ generic-loop plus fail-closed reconstruction path. Any non-canonical use
 remains an ordinary loop or rejects a ray-query-shaped near-match. Before
 pipeline selection, SIMD forwards single-store callable argument/return
 scratch so front-end-private allocas do not masquerade as semantic callback
-captures.
+captures. Selection also applies the outliner's existing definite-
+initialization proof before enforcing its capture bound: an alloca wholly
+overwritten before every handler observation is recreated inside that handler
+and consumes no callback argument, while persistent or cross-candidate state
+still counts as a semantic capture. The selection count therefore describes
+the final callback ABI rather than temporary storage in the parent function.
 
 A selected query's surface and procedural regions become internal fixed-vector
 handler functions, and the main packet invokes them with exact sparse
@@ -3468,6 +3473,37 @@ immediately after each load, and runs the same Schedule-IR CFG. A triangle
 commit ORs the current execution mask into one 64-bit result. There are no
 masked gathers/scatters, target intrinsics, per-lane calls, or scalar libm
 calls in this handler.
+
+Small acyclic direct handlers have a more compact Schedule refinement than the
+general independent-PC machine. The compiler accepts only a nonempty reachable
+DAG with at most sixteen Schedule blocks and thirty-two instructions, no loop
+record or loop-back edge, and only branch, split, switch, join, or void-return
+terminators. It validates every target, computes a complete topological order,
+and fails closed to the ordinary scheduler on a cycle, an unreachable block,
+or any unsupported terminator. This policy is deliberately restricted to the
+capture-free W4/W8/W16 Embree surface-filter ABI; it does not weaken the general
+CFG claim or silently extend another handler class.
+
+The compact lowering associates one fixed-vector incoming mask with each
+Schedule block. The entry receives the physical candidate mask. In topological
+order, each block first branches around its body when `any(mask)` is false,
+then executes its instructions once under that exact mask. Split and switch
+edges partition it, edge assignments retain their existing masked-parallel
+semantics, and each successor ORs all incoming edge masks before it is visited.
+A return propagates no mask. LLVM's scalar replacement normally promotes these
+bounded mask slots, while the generated handler contains no ready stack,
+convergence frames, runnable mask, or current-PC dispatch. A dynamically full
+successor mask is therefore handled as the naturally reconverged cohort without
+any scheduler push/pop. Empty arms are never executed, and all existing
+pre-operation inactive-lane sanitization remains in force.
+
+Ordinary production modules retain only the compact function. Setting
+`LUISA_SIMD_DISABLE_ACYCLIC_SURFACE_FILTER_PREDICATION=1` selects and retains
+the independent-PC handler instead. For exact same-module differential tests,
+`LUISA_SIMD_RETAIN_ACYCLIC_SURFACE_FILTER_SCHEDULER_ORACLE=1` retains both and
+the launch record chooses between them once for the dispatch. The oracle is
+diagnostic-only because it is substantially larger and would otherwise add
+cold instruction-cache footprint to every eligible shader.
 
 The runtime validates distance and IDs and auto-commits opaque instances as
 before. For a non-opaque packet it calls the direct handler on Embree's own

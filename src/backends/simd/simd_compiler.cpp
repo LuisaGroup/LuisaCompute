@@ -416,6 +416,22 @@ SIMDCompiledKernel compile_simd_kernel(
             entry_name.empty() ? "simd_kernel" : entry_name,
             warp_width,
             schedule::to_string(*schedule_result.function));
+        for (auto pipeline_index = size_t{0u};
+             pipeline_index < pipeline_schedules.size();
+             pipeline_index++) {
+            LUISA_INFO(
+                "SIMD ray-query surface Schedule IR [{} W{} #{}]:\n{}",
+                entry_name.empty() ? "simd_kernel" : entry_name,
+                warp_width, pipeline_index,
+                schedule::to_string(
+                    pipeline_schedules[pipeline_index].on_surface));
+            LUISA_INFO(
+                "SIMD ray-query procedural Schedule IR [{} W{} #{}]:\n{}",
+                entry_name.empty() ? "simd_kernel" : entry_name,
+                warp_width, pipeline_index,
+                schedule::to_string(
+                    pipeline_schedules[pipeline_index].on_procedural));
+        }
     }
 
     auto context = std::make_unique<::llvm::LLVMContext>();
@@ -431,6 +447,16 @@ SIMDCompiledKernel compile_simd_kernel(
         pipeline_handlers;
     pipeline_handlers.reserve(pipeline_schedules.size());
     std::vector<SIMDLLVMPrintFormat> pipeline_print_formats;
+    // The scheduler oracle is diagnostic-only and substantially larger than
+    // the compact handler. Keep it out of ordinary production JIT modules;
+    // retaining it explicitly lets candidate/oracle processes execute
+    // byte-identical modules, while DISABLE alone remains a convenient
+    // correctness switch.
+    auto retain_acyclic_surface_filter_scheduler_oracle =
+        detail::env_flag(
+            "LUISA_SIMD_RETAIN_ACYCLIC_SURFACE_FILTER_SCHEDULER_ORACLE") ||
+        detail::env_flag(
+            "LUISA_SIMD_DISABLE_ACYCLIC_SURFACE_FILTER_PREDICATION");
     auto handler_name_base = entry_name.empty() ?
                                  std::string{"simd_kernel"} :
                                  std::string{entry_name};
@@ -484,6 +510,8 @@ SIMDCompiledKernel compile_simd_kernel(
         auto *candidate_w1 = static_cast<::llvm::Function *>(nullptr);
         auto *surface_filter_entry =
             static_cast<::llvm::Function *>(nullptr);
+        auto *surface_filter_scheduler_oracle_entry =
+            static_cast<::llvm::Function *>(nullptr);
         if (warp_width >= 4u &&
             pipeline_schedules[pipeline_index]
                 .embree_surface_filter_safe) {
@@ -502,7 +530,7 @@ SIMDCompiledKernel compile_simd_kernel(
                     use_paired_leaf_gather,
                     dispatch_worker_count,
                     use_native_predicated_loop,
-                    pipeline_print_formats.size());
+                    pipeline_print_formats.size(), true);
             if (!surface_filter.succeeded()) {
                 result.diagnostics.emplace_back(
                     "direct surface-filter handler LLVM lowering failed: " +
@@ -510,6 +538,36 @@ SIMDCompiledKernel compile_simd_kernel(
                 return result;
             }
             surface_filter_entry = surface_filter.entry;
+            result.predicated_acyclic_surface_filter_handler_count +=
+                surface_filter.predicated_acyclic_control_flow;
+            if (surface_filter.predicated_acyclic_control_flow &&
+                retain_acyclic_surface_filter_scheduler_oracle) {
+                auto oracle_name = handler_name_base + ".ray_query." +
+                                   std::to_string(pipeline_index) +
+                                   ".surface_filter.scheduler_oracle.simd_w" +
+                                   std::to_string(warp_width);
+                auto scheduler_oracle =
+                    lower_ray_query_surface_filter_handler_schedule_to_llvm(
+                        *module,
+                        pipeline_schedules[pipeline_index].on_surface,
+                        warp_width, oracle_name, enable_fast_math,
+                        static_block_size,
+                        enable_uniform_buffer_broadcast,
+                        enable_lane_affine_buffer,
+                        use_paired_leaf_gather,
+                        dispatch_worker_count,
+                        use_native_predicated_loop,
+                        pipeline_print_formats.size(), false);
+                if (!scheduler_oracle.succeeded() ||
+                    scheduler_oracle.predicated_acyclic_control_flow) {
+                    result.diagnostics.emplace_back(
+                        "direct surface-filter scheduler oracle LLVM lowering failed: " +
+                        scheduler_oracle.error);
+                    return result;
+                }
+                surface_filter_scheduler_oracle_entry =
+                    scheduler_oracle.entry;
+            }
             if (!surface_filter.print_formats.empty()) {
                 result.diagnostics.emplace_back(
                     "direct surface-filter handler unexpectedly emitted print formats");
@@ -532,6 +590,8 @@ SIMDCompiledKernel compile_simd_kernel(
                 .on_surface = surface_entry,
                 .on_procedural = procedural_entry,
                 .on_surface_filter = surface_filter_entry,
+                .on_surface_filter_scheduler_oracle =
+                    surface_filter_scheduler_oracle_entry,
                 .on_candidate_w1 = candidate_w1,
                 .embree_surface_filter_safe =
                     pipeline_schedules[pipeline_index]

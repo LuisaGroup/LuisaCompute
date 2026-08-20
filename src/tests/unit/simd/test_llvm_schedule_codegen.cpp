@@ -8124,6 +8124,8 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
 
 [[nodiscard]] bool run_ast_surface_filter_ray_query_pipeline() {
     static constexpr auto count = uint32_t{13u};
+    ScopedEnvironmentVariable retain_scheduler_oracle{
+        "LUISA_SIMD_RETAIN_ACYCLIC_SURFACE_FILTER_SCHEDULER_ORACLE", "1"};
     Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
         auto index = dispatch_x();
         Float t_min = 0.0f;
@@ -8220,8 +8222,11 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
         }
         CHECK(candidate.direct_ray_query_pipeline_count == 1u);
         CHECK(candidate.surface_filter_ray_query_pipeline_count == 1u);
+        CHECK(candidate.predicated_acyclic_surface_filter_handler_count ==
+              (width >= 4u ? 1u : 0u));
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
         CHECK(oracle.surface_filter_ray_query_pipeline_count == 0u);
+        CHECK(oracle.predicated_acyclic_surface_filter_handler_count == 0u);
         if (width == 8u) {
             auto symbol =
                 "simd_ast_surface_filter_ray_query_pipeline_w8.ray_query.0.surface_filter.simd_w8";
@@ -8248,16 +8253,44 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
                   std::string_view::npos);
             CHECK(direct_ir.find("launch_config") ==
                   std::string_view::npos);
+            CHECK(direct_ir.find("scheduler.") ==
+                  std::string_view::npos);
+            CHECK(direct_ir.find("ready.") ==
+                  std::string_view::npos);
+            CHECK(direct_ir.find("frame.") ==
+                  std::string_view::npos);
+            CHECK(direct_ir.find("predicated.acyclic") !=
+                  std::string_view::npos);
             CHECK(direct_ir.find("llvm.x86.") ==
                   std::string_view::npos);
             CHECK(direct_ir.find("llvm.aarch64.") ==
+                  std::string_view::npos);
+
+            auto scheduler_symbol =
+                "simd_ast_surface_filter_ray_query_pipeline_w8.ray_query.0.surface_filter.scheduler_oracle.simd_w8";
+            auto scheduler_symbol_position =
+                candidate.llvm_ir.find(scheduler_symbol);
+            CHECK(scheduler_symbol_position != std::string::npos);
+            auto scheduler_function_begin = candidate.llvm_ir.rfind(
+                "define internal void", scheduler_symbol_position);
+            auto scheduler_function_end = candidate.llvm_ir.find(
+                "\n}", scheduler_symbol_position);
+            CHECK(scheduler_function_begin != std::string::npos);
+            CHECK(scheduler_function_end != std::string::npos);
+            auto scheduler_ir = std::string_view{candidate.llvm_ir}.substr(
+                scheduler_function_begin,
+                scheduler_function_end + 2u - scheduler_function_begin);
+            CHECK(scheduler_ir.find("scheduler.") !=
+                  std::string_view::npos);
+            CHECK(scheduler_ir.find("predicated.acyclic") ==
                   std::string_view::npos);
         }
 
         auto execute = [&](const SIMDCompiledKernel &compiled,
                            bool enable_surface_pipeline,
                            bool direct_surface_candidate,
-                           std::array<uint32_t, 16u> &values) {
+                           std::array<uint32_t, 16u> &values,
+                           bool enable_predicated_acyclic = true) {
             values.fill(0xdeadbeefu);
             RayQueryFilterProbe probe{
                 .expected_lane_count = width,
@@ -8298,6 +8331,8 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
             auto *entry = reinterpret_cast<Entry *>(compiled.entry);
             CHECK(entry != nullptr);
             auto config = launch_1d(count, 16u);
+            config.enable_predicated_acyclic_surface_filter =
+                enable_predicated_acyclic;
             for (auto first = uint32_t{0u}; first < count;
                  first += width) {
                 config.thread_index = first;
@@ -8329,11 +8364,18 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
         };
 
         std::array<uint32_t, 16u> pipeline_output{};
+        std::array<uint32_t, 16u> scheduler_direct_output{};
         std::array<uint32_t, 16u> state_pipeline_output{};
         std::array<uint32_t, 16u> null_provider_output{};
         std::array<uint32_t, 16u> oracle_output{};
         CHECK(execute(
             candidate, true, width >= 4u, pipeline_output));
+        if (width >= 4u) {
+            CHECK(execute(
+                candidate, true, true,
+                scheduler_direct_output, false));
+            CHECK(pipeline_output == scheduler_direct_output);
+        }
         CHECK(execute(
             candidate, true, false, state_pipeline_output));
         CHECK(execute(
@@ -8351,6 +8393,93 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
             CHECK(pipeline_output[index] == 0xdeadbeefu);
         }
     }
+
+    Kernel1D switch_filter = [](AccelVar accel, BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [](SurfaceCandidate &candidate) noexcept {
+                               $switch (candidate.hit()->inst) {
+                                   $case (5u) {
+                                       $if (candidate.hit()->bary.x < 0.5f) {
+                                           candidate.commit();
+                                       };
+                                   };
+                                   $case (6u) {
+                                       $if (candidate.hit()->bary.y < 0.6f) {
+                                           candidate.commit();
+                                       };
+                                   };
+                                   $default {};
+                               };
+                           })
+                       .on_procedural_candidate(
+                           [](ProceduralCandidate &) noexcept {})
+                       .trace();
+        output.write(index, hit->inst);
+    };
+    SIMDCompiledKernel switch_compiled;
+    {
+        ScopedEnvironmentVariable disable_profitability{
+            "LUISA_SIMD_DISABLE_RAY_QUERY_PIPELINE_PROFITABILITY", "1"};
+        ScopedEnvironmentVariable production_module{
+            "LUISA_SIMD_RETAIN_ACYCLIC_SURFACE_FILTER_SCHEDULER_ORACLE",
+            nullptr};
+        ScopedEnvironmentVariable enable_compact{
+            "LUISA_SIMD_DISABLE_ACYCLIC_SURFACE_FILTER_PREDICATION",
+            nullptr};
+        switch_compiled = compile_simd_kernel(
+            switch_filter.function()->function(), 8u,
+            "simd_ast_surface_filter_predicated_acyclic_switch_w8",
+            false, true);
+    }
+    CHECK(switch_compiled.succeeded());
+    CHECK(switch_compiled.surface_filter_ray_query_pipeline_count == 1u);
+    CHECK(switch_compiled.predicated_acyclic_surface_filter_handler_count ==
+          1u);
+    CHECK(switch_compiled.llvm_ir.find("predicated.acyclic") !=
+          std::string::npos);
+    CHECK(switch_compiled.llvm_ir.find(".scheduler_oracle.") ==
+          std::string::npos);
+
+    Kernel1D loop_filter = [](AccelVar accel, BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [](SurfaceCandidate &candidate) noexcept {
+                               UInt iteration = 0u;
+                               auto limit =
+                                   (candidate.hit()->inst & 1u) + 1u;
+                               $while (iteration < limit) {
+                                   iteration += 1u;
+                               };
+                               $if (candidate.hit()->inst + iteration > 2u) {
+                                   candidate.commit();
+                               };
+                           })
+                       .on_procedural_candidate(
+                           [](ProceduralCandidate &) noexcept {})
+                       .trace();
+        output.write(index, hit->inst);
+    };
+    SIMDCompiledKernel loop_compiled;
+    {
+        ScopedEnvironmentVariable disable_profitability{
+            "LUISA_SIMD_DISABLE_RAY_QUERY_PIPELINE_PROFITABILITY", "1"};
+        loop_compiled = compile_simd_kernel(
+            loop_filter.function()->function(), 8u,
+            "simd_ast_surface_filter_predicated_acyclic_loop_rejection_w8");
+    }
+    CHECK(loop_compiled.succeeded());
+    CHECK(loop_compiled.surface_filter_ray_query_pipeline_count == 1u);
+    CHECK(loop_compiled.predicated_acyclic_surface_filter_handler_count ==
+          0u);
     return true;
 }
 

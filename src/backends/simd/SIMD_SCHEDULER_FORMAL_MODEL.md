@@ -596,6 +596,7 @@ refinement.
 | dynamic target arrival/cascade | `_arrive_at_convergence_target`, `_cascade_at_convergence_target` |
 | branch partition | `_emit_terminator` split/switch lowering |
 | PHI edge transfer | `_apply_assignments` before `_route_edge`; `_coalesce_state_slots` may reuse noninterfering physical storage without changing logical assignments |
+| accepted acyclic block mask `M_b` | bounded `predicated.acyclic.mask.*` slot, normally promoted to SSA after topological emission |
 | scalar-uniform storage | `LLVMValueLayout` plus `WarpUniformity` |
 
 The first column remains an abstract independent-lane transition system. The
@@ -649,6 +650,28 @@ policy selected by real-workload A/B tests, not part of the transition proof.
 fixtures while W1/W2 remain unchanged. The permanent regression checks all
 active-lane counts including zero, inactive sentinels, branch-local collective
 state, exact candidate/oracle results, and identical W2 IR.
+
+A finite reachable acyclic surface-filter CFG has a separate exact refinement.
+For each block `b`, define `M_entry = A` and define `M_b` for every other block
+as the union of the exact masks on all incoming edges. Visit a complete
+topological order, executing `b` once iff `M_b` is nonempty. A branch forwards
+`M_b`; split and switch edges partition it; a join forwards it to the static
+convergence target; and return forwards no lanes. PHI edge assignments retain
+the masked-parallel transfer from Section 4.3.1 and occur before their edge
+mask enters the successor union.
+
+Induction over the topological order proves equivalence to the independent-PC
+model: before `b`, every predecessor has completed exactly the same per-lane
+transition and no later block can still contribute to `M_b`; therefore `M_b`
+is exactly the set of live lanes whose abstract PC is `b`. Executing the body
+and partitioning its outgoing masks produces the same next PCs and lane state.
+The induction terminates because the graph is finite and acyclic. The LLVM
+lowering checks `any(M_b)` before entering a body, so an empty cohort cannot
+make an operand observable, and the ordinary inactive-lane sanitization rules
+still precede poison-, trap-, or memory-sensitive operations. Loops, barriers,
+unreachable blocks, and value returns are outside this refinement and retain
+the bounded scheduler. The retained scheduler oracle supplies exact
+same-module differential execution for accepted graphs.
 
 Cross-block Schedule values remain abstract lane state. LLVM first applies the
 Section 4.3.1 interference proof to reuse physical storage for nonoverlapping

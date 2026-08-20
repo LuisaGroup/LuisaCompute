@@ -61,12 +61,15 @@ private:
     bool _enable_native_predicated_loop{true};
     bool _enable_runtime_packet_geometry{false};
     bool _enable_linear_1d_packet_tail_narrowing{false};
+    bool _enable_predicated_acyclic_control_flow{true};
     ScheduleEntryABI _entry_abi{ScheduleEntryABI::packet};
     std::span<const LLVMSIMDRayQueryPipelineHandlers>
         _ray_query_pipeline_handlers{};
     size_t _print_format_id_base{0u};
     bool _use_scalar_frame_metadata{false};
     bool _direct_control_flow{false};
+    bool _predicated_acyclic_control_flow{false};
+    std::vector<schedule::BlockId> _predicated_acyclic_order{};
     bool _has_block_barrier{false};
     bool _has_shared_memory{false};
     bool _cooperative_block{false};
@@ -649,11 +652,14 @@ private:
         const schedule::BasicBlock &block,
         const std::vector<::llvm::BasicBlock *> &blocks);
     [[nodiscard]] bool _can_emit_direct_control_flow() const noexcept;
+    [[nodiscard]] std::optional<std::vector<schedule::BlockId>>
+    _find_predicated_acyclic_order() const noexcept;
     void _find_instruction_spills();
     void _coalesce_state_slots();
     void _allocate_state();
     void _partition_state_residency();
     void _build_direct(::llvm::Value *initial_mask);
+    void _build_predicated_acyclic(::llvm::Value *initial_mask);
     void _build();
     [[nodiscard]] bool _is_handler_entry() const noexcept {
         return _entry_abi != ScheduleEntryABI::packet;
@@ -679,7 +685,8 @@ public:
                     ScheduleEntryABI entry_abi = ScheduleEntryABI::packet,
                     std::span<const LLVMSIMDRayQueryPipelineHandlers>
                         ray_query_pipeline_handlers = {},
-                    size_t print_format_id_base = 0u);
+                    size_t print_format_id_base = 0u,
+                    bool enable_predicated_acyclic_control_flow = true);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

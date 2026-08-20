@@ -2436,6 +2436,35 @@ reach integer division, shifts, address calculation, or other poison/trap-
 capable operations. Masked gather/scatter, target-specific intrinsics, scalar
 lane calls, and scalar libm calls are forbidden.
 
+The direct handler may replace the independent-PC scheduler with acyclic mask
+propagation only after a fail-closed audit proves all of the following: the
+Schedule graph is nonempty; all blocks are reachable from the entry; it is a
+DAG with no Schedule loop or loop-back edge; it has no more than sixteen blocks
+and thirty-two instructions; and every terminator is branch, split, switch,
+join, or a return without a value. Invalid targets, a cycle, an unreachable
+component, a barrier, a value return, or any unknown terminator must retain the
+general scheduler. This refinement is permitted only for the capture-free
+W4/W8/W16 surface-filter ABI.
+
+For an accepted graph, let each block's incoming mask initially be empty except
+for the entry's exact physical candidate mask. Blocks must be visited once in a
+complete topological order and their bodies must execute only when the scalar
+`any(incoming_mask)` test succeeds. Branches forward that mask; split and switch
+edges form disjoint exact submasks; join edges forward to their audited
+convergence target; and returns forward nothing. Edge assignments must execute
+with the edge mask before that mask is ORed into the successor. No empty block
+body may execute, and all poison/trap/invalid-memory sanitization rules continue
+to apply before vector operations. The compact handler must not materialize a
+ready stack, convergence frame, runnable mask, or independent PC.
+
+Production compilation must not retain the scheduler oracle merely because the
+compact path was selected. `LUISA_SIMD_DISABLE_ACYCLIC_SURFACE_FILTER_PREDICATION=1`
+must compile/select the scheduler path. Diagnostic differential execution may
+set `LUISA_SIMD_RETAIN_ACYCLIC_SURFACE_FILTER_SCHEDULER_ORACLE=1` to retain both
+functions in one module and select between them through a launch-constant flag;
+both selections must produce identical commit masks for full, sparse, and tail
+cohorts.
+
 The direct handler's mask is in physical Embree packet coordinates. The
 runtime must map its result through `ray.id` before updating logical query
 states, reject output bits outside the input candidate mask, and revalidate

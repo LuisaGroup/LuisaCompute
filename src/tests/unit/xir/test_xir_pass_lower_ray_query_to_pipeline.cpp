@@ -939,6 +939,57 @@ void register_tests() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "localized_handler_scratch_does_not_consume_capture_budget"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(Type::of<int>());
+        scratch->set_name("capture_budget_local_scratch");
+        b.store(scratch, m.create_constant_zero(Type::of<int>()));
+        b.set_insertion_point(f.surface);
+        b.store(scratch, m.create_constant_one(Type::of<int>()));
+        b.load(Type::of<int>(), scratch);
+        b.br(f.dispatch);
+
+        expect(xir_verify_module(&m).succeeded());
+        size_t localized_alloca_count = 0u;
+        size_t skipped_loop_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(
+            f.kernel,
+            {.max_captured_argument_count = 0u,
+             .skipped_loop_count = &skipped_loop_count,
+             .localized_alloca_count = &localized_alloca_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(localized_alloca_count == 1u);
+        expect(skipped_loop_count == 0u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline != nullptr) {
+            expect(pipeline->captured_argument_count() == 0u);
+            auto localized_count = 0u;
+            pipeline->on_surface_function()
+                ->definition()
+                ->traverse_instructions(
+                    [&](Instruction *inst) noexcept {
+                        if (inst->isa<AllocaInst>() && inst->name() &&
+                            *inst->name() ==
+                                "capture_budget_local_scratch") {
+                            localized_count++;
+                        }
+                    });
+            expect(localized_count == 1u);
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "capture_bound_selectively_retains_captured_loops"_test = [] {
         Module m;
         auto capture_free = make_fixture(m);

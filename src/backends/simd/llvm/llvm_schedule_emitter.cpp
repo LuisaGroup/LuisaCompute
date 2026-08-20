@@ -50,7 +50,8 @@ ScheduleEmitter::ScheduleEmitter(
     ScheduleEntryABI entry_abi,
     std::span<const LLVMSIMDRayQueryPipelineHandlers>
         ray_query_pipeline_handlers,
-    size_t print_format_id_base)
+    size_t print_format_id_base,
+    bool enable_predicated_acyclic_control_flow)
     : _module{module},
       _source{source},
       _width{width},
@@ -65,6 +66,8 @@ ScheduleEmitter::ScheduleEmitter(
       _enable_runtime_packet_geometry{enable_runtime_packet_geometry},
       _enable_linear_1d_packet_tail_narrowing{
           enable_linear_1d_packet_tail_narrowing},
+      _enable_predicated_acyclic_control_flow{
+          enable_predicated_acyclic_control_flow},
       _entry_abi{entry_abi},
       _ray_query_pipeline_handlers{ray_query_pipeline_handlers},
       _print_format_id_base{print_format_id_base},
@@ -899,6 +902,15 @@ void ScheduleEmitter::_preflight() {
                      _width < 4u) &&
                     handlers.on_surface_filter != nullptr) {
                     _fail("ray-query pipeline has an unsafe surface-filter specialization");
+                    return;
+                }
+                if (handlers.on_surface_filter_scheduler_oracle != nullptr &&
+                    (!handlers.embree_surface_filter_safe ||
+                     _width < 4u ||
+                     handlers.on_surface_filter == nullptr ||
+                     handlers.on_surface_filter_scheduler_oracle->arg_size() !=
+                         5u)) {
+                    _fail("ray-query surface-filter scheduler oracle has an invalid ABI");
                     return;
                 }
                 for (auto capture_index = size_t{1u};

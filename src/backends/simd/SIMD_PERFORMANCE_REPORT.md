@@ -137,6 +137,10 @@ that narrow class while preserving the old pipeline as a null-provider and
 same-binary oracle. The final section reports both the internal gain and a
 corrected fallback comparison after discovering the default fallback pool's
 explicit CPU-affinity override.
+The latest scheduling refinement then replaces the general independent-PC
+machine inside bounded acyclic W4/W8/W16 surface handlers with one topological
+mask-propagation pass. It wins 1.3--2.0% against a byte-identical same-module
+scheduler oracle and moves the fair W16 cutout result to 0.9223x fallback.
 
 ## Test host and method
 
@@ -5317,3 +5321,110 @@ Two independent Release build directories then completed the whole test
 inventory at 167/167 each, including all native-math, Schedule-IR, XIR,
 runtime-width, accel/oracle, graphics, image-processing, voxel, and path-tracing
 gates.
+
+## Topological mask propagation for small surface handlers
+
+The direct Embree packet ABI removed query-state gathers, but its cutout
+handler still entered the general independent-PC scheduler. That machinery is
+necessary for arbitrary supported reducible CFGs; it is disproportionate for
+the real cutout handlers, which are finite 13-block/24-instruction DAGs. The
+compiler now recognizes only reachable capture-free W4/W8/W16 surface-filter
+DAGs bounded to sixteen blocks and thirty-two instructions. It visits a
+verified topological order once, propagates exact fixed-vector edge masks, and
+branches around empty block bodies. Loops, loop-back edges, unreachable
+blocks, value returns, unsupported terminators, or either size bound retain the
+general scheduler.
+
+The diagnostic build keeps both functions in the same JIT object and selects
+one from the launch record. Candidate and oracle processes therefore execute
+byte-identical modules; ordinary production compilation emits only the compact
+handler. Measurements use the default SIMD worker implementation, physical
+CPUs 0--15, sixteen workers, 64 spp, and one spp per dispatch. Each process was
+polled every 50 ms for the known compiler and Psycles interference workloads;
+every contaminated group was discarded in full. W4 uses fourteen alternating
+pairs because its first short sample was not accepted as sufficient evidence:
+
+| width | compact median FPS | scheduler median FPS | compact / scheduler | wins | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 39.0674 | 38.4002 | **1.0201x** | 14/14 | **[1.0122, 1.0280]** |
+| W8 | 43.4894 | 42.6711 | **1.0129x** | 6/7 | **[1.0058, 1.0202]** |
+| W16 | 43.9554 | 43.2985 | **1.0196x** | 7/7 | **[1.0095, 1.0297]** |
+
+Three clean alternating W8 pairs at 256 spp collect hardware counters from
+the same candidate/oracle module:
+
+| counter | compact / scheduler oracle |
+| --- | ---: |
+| throughput | **1.0207x** |
+| cycles | **0.9821x** |
+| instructions | **0.9739x** |
+| branches | **0.9724x** |
+| branch misses | 0.9883x |
+| cache references | **0.8926x** |
+| cache misses | 1.0066x |
+
+The topological path retires 2.6% fewer instructions and 2.8% fewer branches,
+and removes 10.7% of measured cache references. Cache misses remain neutral;
+the 1.8% cycle reduction agrees with the 2.1% long-run throughput gain.
+
+The full-process gain is therefore 1.3--2.0%, not merely a static-code claim.
+All fourteen W4 and all seven W8/W16 candidate/oracle image pairs are
+byte-identical. Each width also has one stable hash across all of its fresh
+processes: W4 `0274b95c8d726c5e97fe2a64d7d6d50e646140ef3c6f95f38646e3387e57b201`,
+W8 `f00e7624e4ff03068c8a3c2759ed4a0a70b24f0723985786eabde997e65d8d29`,
+and W16 `f6b54a3148bd070f5111c8a7203d1f9e6690ef0f361323819852356dc9df3ef3`.
+
+The current equal-core fallback comparison uses the
+system-parallel-for/TBB build because that implementation respects the
+inherited `taskset` mask. Seven rounds rotate fallback, W4, W8, and W16 through
+all four execution orders:
+
+| width | SIMD median FPS | fallback median FPS | SIMD / fallback | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: |
+| W4 | 38.7480 | 47.5519 | 0.8201x | [0.8090, 0.8314] |
+| W8 | 42.9986 | 47.5519 | **0.9068x** | [0.9034, 0.9102] |
+| W16 | 43.9494 | 47.5519 | **0.9223x** | [0.9130, 0.9317] |
+
+W16 is the current best fair cutout width: it is 7.8% behind fallback, versus
+9.9% at the direct-handler checkpoint. W8 is 9.3% behind and W4 is 18.0%
+behind. The non-system-parallel-for control is intentionally not labeled
+equal-core: fallback's 32-worker Akari pool overrides the inherited affinity,
+whereas SIMD was explicitly held to sixteen workers. Its medians are 72.6432
+FPS for fallback and 39.5458/43.6164/44.3381 FPS for W4/W8/W16, producing
+0.5480x/0.6005x/0.6145x ratios. This confirms the earlier affinity audit and
+is not substituted for the TBB table.
+
+Static code explains why a small wall win survives despite Embree dominating
+the render. In the final W8 object the compact handler is 435 bytes, 101
+instructions, 23 control transfers, and has no stack-pointer instruction. Its
+scheduler oracle is 4,668 bytes, 1,146 instructions, 144 control transfers,
+and has seventeen stack/frame-pointer instructions including a 576-byte stack
+allocation. Neither handler contains gather/scatter or a varying scalar-libm
+call. The production main object has 34,755 bytes of `.text` and no
+`scheduler_oracle` symbol; explicitly retaining two oracles grows it to 44,131
+bytes. Five separately emitted W8 objects are pairwise byte-identical between
+the retained candidate and scheduler-selected processes; the main object has
+SHA-256 `1e08197243e1647d02fcb3b05602f58d222fd702bb3ff2990e2f0444feb5b740`.
+The compact-only LLVM regression separately forbids scheduler/ready/
+frame state, masked gather/scatter, and x86 or AArch64 intrinsics while
+requiring the existing inactive-lane sanitizing selects.
+
+The runtime differential covers exact sparse candidate masks and an inactive
+tail at W4/W8/W16, including NaN, infinity, signed zero, and subnormal ray
+fields. A varying indexed switch exercises ordered edge-mask propagation, and
+a dynamic candidate-dependent loop proves fail-closed fallback to the general
+scheduler. The loop fixture also exposed a pipeline-selection bug: an alloca
+already proven definitely initialized and invocation-local was counted against
+the callback capture limit before the outliner recreated it inside the
+handler. Selection now applies that same proof before enforcing the final-ABI
+capture bound; persistent and cross-candidate scratch still count.
+
+A fresh production W16 1,024-spp render passes the checked-in fallback gallery
+reference at 45.150873 dB RGB PSNR, 0.999555 luminance correlation, and
+0.997270 contrast. Its SHA-256 remains
+`cf52566863c4cb9dd2cdf9b7c60cad2cc73d6ae8de660f08b5cb35414655f01d`.
+Both maintained Release configurations then pass the full 167/167 CTest
+inventory independently. This includes all native-math and runtime-width
+tests, the Schedule/JIT and lower-ray-query regressions, all four accel oracle
+modes, graphics/image-processing, path tracing, voxel, and the complete XIR
+and coroutine pass suites.

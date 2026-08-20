@@ -250,12 +250,33 @@ void ScheduleEmitter::_ray_query_pipeline(
                     surface_filter_call_ray_packet,
                     outer_active_bits);
             if (ray_packet == nullptr) { return; }
+            auto *surface_filter_handler =
+                static_cast<::llvm::Value *>(
+                    handler_pair.on_surface_filter);
+            if (handler_pair.on_surface_filter_scheduler_oracle !=
+                nullptr) {
+                if (handler_pair.on_surface_filter->getFunctionType() !=
+                    handler_pair.on_surface_filter_scheduler_oracle
+                        ->getFunctionType()) {
+                    _fail("surface-filter scheduler oracle type does not match the compact handler");
+                    return;
+                }
+                auto *enabled = _load_launch_u32(offsetof(
+                    SIMDPacketLaunchConfig,
+                    enable_predicated_acyclic_surface_filter));
+                surface_filter_handler = _builder.CreateSelect(
+                    _builder.CreateICmpNE(
+                        enabled, _builder.getInt32(0u)),
+                    handler_pair.on_surface_filter,
+                    handler_pair.on_surface_filter_scheduler_oracle,
+                    "ray.query.surface.filter.handler");
+            }
             _builder.CreateCall(
                 pipeline_type, surface_filter_callback,
                 {_builder.getInt32(_width), outer_active_bits,
                  scratch, ray_packet, _launch_config,
                  handler_pair.on_surface,
-                 handler_pair.on_surface_filter});
+                 surface_filter_handler});
         } else {
             auto *pipeline_type = ::llvm::FunctionType::get(
                 _builder.getVoidTy(),

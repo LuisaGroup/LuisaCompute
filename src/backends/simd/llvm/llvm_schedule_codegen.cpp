@@ -849,9 +849,10 @@ lower_ray_query_surface_filter_handler_schedule_to_llvm(
     bool enable_paired_leaf_gather,
     uint32_t dispatch_worker_count,
     bool enable_native_predicated_loop,
-    size_t print_format_id_base) {
+    size_t print_format_id_base,
+    bool enable_predicated_acyclic_control_flow) {
     return detail::ScheduleEmitter{
-        module, function, specialization_width, entry_name, enable_fast_math, static_block_size, enable_uniform_buffer_broadcast, enable_lane_affine_buffer, enable_paired_leaf_gather, dispatch_worker_count, enable_native_predicated_loop, false, false, detail::ScheduleEntryABI::ray_query_surface_filter_handler, {}, print_format_id_base}
+        module, function, specialization_width, entry_name, enable_fast_math, static_block_size, enable_uniform_buffer_broadcast, enable_lane_affine_buffer, enable_paired_leaf_gather, dispatch_worker_count, enable_native_predicated_loop, false, false, detail::ScheduleEntryABI::ray_query_surface_filter_handler, {}, print_format_id_base, enable_predicated_acyclic_control_flow}
         .run();
 }
 
