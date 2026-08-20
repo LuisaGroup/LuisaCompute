@@ -2542,7 +2542,6 @@ void HIPCodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionConte
         llvm::Twine{"luisa.ray.query.pipeline."} +
             llvm::Twine{pipeline_index},
         _llvm_module.get());
-    llvm_pipeline->addFnAttr(llvm::Attribute::AlwaysInline);
     llvm_pipeline->addFnAttr(llvm::Attribute::NoUnwind);
 
     auto llvm_entry = llvm::BasicBlock::Create(

@@ -619,8 +619,6 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture2d_read_function(llvm::VectorTyp
         llvm_value_type,
         {llvm_i64_type, llvm_i64_type, llvm_i1_type, llvm_coord_type}, false);
     auto llvm_func = llvm::Function::Create(llvm_func_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-    llvm_func->addFnAttr(llvm::Attribute::AlwaysInline);
-
     auto llvm_entry = llvm::BasicBlock::Create(_llvm_context, "entry", llvm_func);
     IB b{llvm_entry};
 
@@ -770,8 +768,6 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture2d_write_function(llvm::VectorTy
          llvm_coord_type, llvm_value_type},
         false);
     auto llvm_func = llvm::Function::Create(llvm_func_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-    llvm_func->addFnAttr(llvm::Attribute::AlwaysInline);
-
     auto llvm_entry = llvm::BasicBlock::Create(_llvm_context, "entry", llvm_func);
     IB b{llvm_entry};
 
@@ -907,8 +903,6 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture3d_read_function(llvm::VectorTyp
         llvm_value_type,
         {llvm_i64_type, llvm_i64_type, llvm_i1_type, llvm_coord_type}, false);
     auto llvm_func = llvm::Function::Create(llvm_func_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-    llvm_func->addFnAttr(llvm::Attribute::AlwaysInline);
-
     auto llvm_entry = llvm::BasicBlock::Create(_llvm_context, "entry", llvm_func);
     IB b{llvm_entry};
 
@@ -1059,8 +1053,6 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture3d_write_function(llvm::VectorTy
          llvm_coord_type, llvm_value_type},
         false);
     auto llvm_func = llvm::Function::Create(llvm_func_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-    llvm_func->addFnAttr(llvm::Attribute::AlwaysInline);
-
     auto llvm_entry = llvm::BasicBlock::Create(_llvm_context, "entry", llvm_func);
     IB b{llvm_entry};
 

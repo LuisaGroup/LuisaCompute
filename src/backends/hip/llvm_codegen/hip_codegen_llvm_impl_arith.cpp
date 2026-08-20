@@ -486,8 +486,6 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
                     helper = llvm::Function::Create(
                         helper_type, llvm::Function::PrivateLinkage,
                         name, *_llvm_module);
-                    helper->addFnAttr(llvm::Attribute::AlwaysInline);
-
                     auto entry = llvm::BasicBlock::Create(
                         _llvm_context, "entry", helper);
                     auto positive = llvm::BasicBlock::Create(
@@ -844,7 +842,6 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_matrix_determinant(IB &b, llvm::Valu
     if (func == nullptr) {
         auto func_type = llvm::FunctionType::get(scalar_t, {m->getType()}, false);
         func = llvm::Function::Create(func_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-        func->addFnAttr(llvm::Attribute::AlwaysInline);
         auto entry_bb = llvm::BasicBlock::Create(_llvm_context, "entry", func);
         IB func_b{entry_bb};
         auto matrix = func->getArg(0);
@@ -907,7 +904,6 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_matrix_inverse(IB &b, llvm::Value *m
     if (func == nullptr) {
         auto func_type = llvm::FunctionType::get(m->getType(), {m->getType()}, false);
         func = llvm::Function::Create(func_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-        func->addFnAttr(llvm::Attribute::AlwaysInline);
         auto entry_bb = llvm::BasicBlock::Create(_llvm_context, "entry", func);
         IB func_b{entry_bb};
         auto matrix = func->getArg(0);

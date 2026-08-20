@@ -1985,7 +1985,6 @@ void HIPCodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel, 
             {instance_ptr->getType(), metadata_ptr->getType(),
              is_opaque->getType()}, false);
         f = llvm::Function::Create(f_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-        f->addFnAttr(llvm::Attribute::AlwaysInline);
         auto entry = llvm::BasicBlock::Create(_llvm_context, "entry", f);
         IB fb{entry};
         // The certificate is monotone. An atomic OR linearizes concurrent

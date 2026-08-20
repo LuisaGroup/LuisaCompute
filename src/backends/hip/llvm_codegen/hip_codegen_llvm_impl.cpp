@@ -1074,87 +1074,25 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     }
 
     for (auto &&func : *_llvm_module) {
-        if (!func.isDeclaration() && func.getCallingConv() != llvm::CallingConv::AMDGPU_KERNEL) {
+        if (!func.isDeclaration() &&
+            func.getCallingConv() != llvm::CallingConv::AMDGPU_KERNEL) {
             func.setLinkage(llvm::Function::PrivateLinkage);
-            // Legacy mutating ray-query wrappers must remain call barriers. They
-            // write through a generic/flat pointer while the kernel owns the state
-            // in private address space, and exposing both sides to
-            // InferAddressSpaces has caused invalid non-alias conclusions. gfx12
-            // keeps the ABI in addrspace(5), so its scalar accessors and the small
-            // surface-commit helper are safe to inline. Keep initialize/proceed and
-            // the less common mutations out of line to contain register pressure.
-            auto name = func.getName();
-            auto is_ray_query_wrapper =
-                name.starts_with("luisa_ray_query_") ||
-                name.starts_with("luisa_motion_ray_query_") ||
-                name.starts_with("luisa_pipeline_ray_query_");
-            auto is_stack_overflow_fallback =
-                name.starts_with(
-                    "luisa_hiprt_stack_overflow_fallback_");
-            auto is_generated_callable =
-                func.hasFnAttribute(
-                    llvm_generated_callable_attribute);
-            if (is_generated_callable) {
-                // A DSL Callable is not an ABI or optimization boundary. Match
-                // Cycles' ordinary HIP device functions: enable backend function
-                // calls globally, but leave profitability to LLVM/AMDGPU. The
-                // provenance marker below is consumed only by post-IPO ABI
-                // legalization of callables that the optimizer actually keeps.
+            // A DSL Callable is not an ABI or optimization boundary. Match
+            // Cycles' ordinary HIP device functions: leave profitability to
+            // LLVM/AMDGPU instead of imposing a generated policy. Attributes
+            // on linked low-level wrapper definitions remain source-owned;
+            // those are explicit implementation contracts, not a name-based
+            // policy inferred here after the fact.
+            if (func.hasFnAttribute(
+                    llvm_generated_callable_attribute)) {
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
                 func.removeFnAttr(llvm::Attribute::NoInline);
-            } else if (is_stack_overflow_fallback) {
-                func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                func.addFnAttr(llvm::Attribute::NoInline);
-            } else if (is_ray_query_wrapper) {
-                auto is_pipeline_wrapper =
-                    name.starts_with("luisa_pipeline_ray_query_");
-                auto is_pipeline_initialize =
-                    name == "luisa_pipeline_ray_query_initialize";
-                auto is_pipeline_trace =
-                    name.starts_with("luisa_pipeline_ray_query_trace_");
-                auto is_inline_wrapper =
-                    is_pipeline_wrapper ?
-                        !is_pipeline_initialize &&
-                            !is_pipeline_trace :
-                        _uses_hardware_rt_stack &&
-                            (name == "luisa_ray_query_state" ||
-                             name == "luisa_ray_query_advance" ||
-                             name == "luisa_ray_query_commit_surface_hit" ||
-                             name.starts_with("luisa_ray_query_is_") ||
-                             name.starts_with("luisa_ray_query_candidate_") ||
-                             (name.starts_with("luisa_ray_query_committed_") &&
-                              name != "luisa_ray_query_committed_hit") ||
-                             name.starts_with("luisa_ray_query_ray_"));
-                if (is_inline_wrapper) {
-                    func.removeFnAttr(llvm::Attribute::NoInline);
-                    func.addFnAttr(llvm::Attribute::AlwaysInline);
-                } else if (is_pipeline_initialize || is_pipeline_trace) {
-                    // Synchronous query construction and traversal each have
-                    // one generated call site per query operation. Their size
-                    // and scalarized state vary with the handler, so a blanket
-                    // ABI barrier is not a valid profitability model. Preserve
-                    // neither directive and let the target-aware inliner decide
-                    // after handler projection and constant specialization.
-                    func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                    func.removeFnAttr(llvm::Attribute::NoInline);
-                } else {
-                    func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                    func.addFnAttr(llvm::Attribute::NoInline);
-                }
-            } else if (func.hasFnAttribute(llvm::Attribute::Cold)) {
-                // A cold helper represents a source-level path-frequency
-                // proof, not a mandatory ABI boundary. Do not override that
-                // proof with the blanket wrapper AlwaysInline policy; LLVM's
-                // cost model remains free to inline it when profitable.
-                func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                func.removeFnAttr(llvm::Attribute::NoInline);
-            } else {
-                func.addFnAttr(llvm::Attribute::AlwaysInline);
             }
         }
     }
 
-    // Resolve aliases to actual functions so they get PrivateLinkage + AlwaysInline.
+    // Resolve aliases to actual private functions. Attribute ownership follows
+    // the aliasee exactly; the linker does not invent a separate inline policy.
     // HIPRT bitcode has C++ ctor/dtor delegation aliases (C1→C2, D1→D2) which the
     // function iterator above doesn't visit — leaving 18 functions un-inlined.
     {
@@ -1171,7 +1109,6 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
                 alias->getName() + ".resolved", _llvm_module.get());
             new_fn->copyAttributesFrom(fn);
             new_fn->setLinkage(llvm::Function::PrivateLinkage);
-            new_fn->addFnAttr(llvm::Attribute::AlwaysInline);
             auto *entry = llvm::BasicBlock::Create(_llvm_context, "entry", new_fn);
             IB builder{entry};
             llvm::SmallVector<llvm::Value *, 8> args;
@@ -1490,10 +1427,9 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             constant_dispatch_stats.rewritten_call_count);
     }
 
-    // Preserve the existing exact aggregate-ABI rewrite for explicitly
-    // retained generated callables. Ordinary generated callables carry no
-    // inline/noinline directive, so they deliberately do not enter this pass:
-    // LLVM and the AMDGPU target remain responsible for their call boundaries.
+    // IPO has already selected every retained generated-callable boundary.
+    // Project aggregate value arguments to their exactly observed leaves;
+    // eligibility follows the surviving call graph, never an inline marker.
     auto callable_abi_stats =
         specialize_generated_callable_aggregate_arguments(*_llvm_module);
     if (callable_abi_stats.rewritten_function_count != 0u) {
@@ -1523,6 +1459,26 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             large_return_stats.demoted_return_bytes);
     }
 
+    // Argument legalization has an independent VGPR0--VGPR31 window. Run
+    // after return demotion so its explicit private result pointer is charged
+    // to the same input budget, then move only the overflowing suffix behind a
+    // caller-owned record. This prevents an implicit machine-stack argument
+    // area from growing with scalarized shader-graph leaves while preserving
+    // the maximal register prefix selected by the source ABI order.
+    auto large_argument_stats =
+        demote_generated_callable_large_arguments(*_llvm_module);
+    if (large_argument_stats.rewritten_function_count != 0u) {
+        LUISA_VERBOSE(
+            "Packed {} argument(s) of {} large generated HIP callable(s) "
+            "at {} call site(s) into {} shared private record(s) ({} "
+            "record byte(s)).",
+            large_argument_stats.packed_argument_count,
+            large_argument_stats.rewritten_function_count,
+            large_argument_stats.rewritten_call_count,
+            large_argument_stats.shared_argument_slot_count,
+            large_argument_stats.argument_record_bytes);
+    }
+
     if (dump_ir) {
         auto after_opt_filename = fmt::format("hip_kernel_after_opt_{}.ll", dump_idx);
         _dump_module(after_opt_filename);
@@ -1534,75 +1490,23 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     auto max_vgpr_count = std::min(_config.max_register_count, 256u);
     auto max_vgpr_count_string = std::to_string(max_vgpr_count);
     for (auto &func : *_llvm_module) {
-        // Preserve only backend ABI/correctness boundaries across attribute
-        // cleanup. A generated Callable marker is provenance, not an inlining
-        // decision: any surviving ordinary callable remains available to the
-        // target inliner just like a Cycles ccl_device function.
-        auto name = func.getName();
-        auto preserve_noinline = preserve_hip_backend_noinline_boundary(
-            name.str(), func.hasFnAttribute(llvm::Attribute::NoInline));
-        auto preserve_convergent = preserve_noinline &&
-                                   func.hasFnAttribute(llvm::Attribute::Convergent);
-
-        const auto is_generated_kernel =
-            func.getCallingConv() == llvm::CallingConv::AMDGPU_KERNEL &&
-            func.getName() == _config.entry_point;
-
-        // Collect amdgpu-no-* string attributes from the generated kernel
-        // before stripping. These are added by AMDGPUAttributor and are
-        // critical for correct kernarg segment layout: without them, the
-        // AMDGPU backend assumes 256 bytes of implicit arguments, which can
-        // cause memory faults.
-        llvm::SmallVector<llvm::StringRef, 24> amdgpu_no_attrs;
-        llvm::SmallVector<std::pair<llvm::StringRef, llvm::StringRef>, 8> amdgpu_codegen_attrs;
-        if (is_generated_kernel) {
-            for (auto &attr : func.getAttributes().getFnAttrs()) {
-                if (attr.isStringAttribute()) {
-                    auto key = attr.getKindAsString();
-                    if (key.starts_with("amdgpu-no-")) {
-                        amdgpu_no_attrs.push_back(key);
-                    } else if (key == "amdgpu-waves-per-eu" ||
-                               key == "amdgpu-flat-work-group-size" ||
-                               key == "amdgpu-unsafe-fp-atomics" ||
-                               key == "amdgpu-num-vgpr" ||
-                               key == "amdgpu-num-sgpr") {
-                        amdgpu_codegen_attrs.emplace_back(key, attr.getValueAsString());
-                    }
-                }
-            }
-        }
-
-        func.setAttributes(llvm::AttributeList{});
-
-        if (is_generated_kernel) {
-            func.addFnAttr(llvm::Attribute::NoInline);
-            for (auto &attr_name : amdgpu_no_attrs) {
-                func.addFnAttr(attr_name);
-            }
-            for (auto &[key, val] : amdgpu_codegen_attrs) {
-                func.addFnAttr(key, val);
-            }
-        } else if (preserve_noinline) {
-            func.addFnAttr(llvm::Attribute::NoInline);
-            if (preserve_convergent) {
-                func.addFnAttr(llvm::Attribute::Convergent);
-            }
-        }
-        // Re-add target CPU and features so that downstream consumers
-        // (e.g., HIPRT bitcode compiler) know the GPU architecture.
-        if (!func.isDeclaration()) {
-            func.addFnAttr("target-cpu", target_cpu);
-            if (!target_features.empty()) {
-                func.addFnAttr("target-features", target_features);
-            }
-            // ShaderOption::max_registers is a whole-shader constraint. Apply
-            // it to the complete device call graph, including linked HIPRT
-            // helpers, because an unconstrained callee determines the kernel's
-            // actual VGPR allocation just as much as the root kernel does.
-            if (max_vgpr_count != 0u) {
-                func.addFnAttr("amdgpu-num-vgpr", max_vgpr_count_string);
-            }
-        }
+        // AttributeList contains more than optimization advice: return and
+        // parameter ABI attributes, AMDGPU implicit-argument contracts,
+        // convergence, memory effects, and the floating-point environment are
+        // all represented here. Clearing the list is therefore invalid for a
+        // callee that IPO elects to retain. Preserve the optimizer's complete
+        // proven contract and remove only Luisa's provenance marker plus any
+        // inline directive carried by a generated Callable. Explicit attributes
+        // authored on low-level wrapper definitions remain intact.
+        // AMDGPU_KERNEL already makes the entry point a non-callable root, so
+        // it needs no synthetic noinline attribute.
+        // Apply target CPU/features and ShaderOption::max_registers to the
+        // complete device call graph, including linked HIPRT helpers: a
+        // retained callee participates in allocation just like the root.
+        finalize_hip_function_attributes(
+            func, target_cpu, target_features,
+            max_vgpr_count == 0u ? llvm::StringRef{} :
+                                   llvm::StringRef{max_vgpr_count_string});
     }
 
     // This is the second and final verifier boundary for HIP LLVM codegen. It
