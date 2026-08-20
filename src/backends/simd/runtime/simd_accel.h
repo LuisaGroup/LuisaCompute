@@ -75,6 +75,7 @@ private:
     bool _enable_coherent_w16_direct_trace{true};
     bool _enable_triangle_only_ray_query{true};
     bool _enable_narrow_shared_status{true};
+    bool _enable_w8_wide_shared_status{true};
     bool _enable_procedural_dense_status{true};
     bool _enable_procedural_fused_status{true};
 
@@ -101,7 +102,14 @@ private:
     [[nodiscard]] static uint64_t _ray_query_proceed_status(
         uint32_t lane_count, uint64_t active_mask_bits,
         SIMDHostRayQueryState *const *states) noexcept;
+    [[nodiscard]] static uint64_t _ray_query_proceed_wide_shared(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        SIMDHostRayQueryState *const *states,
+        bool publish_status) noexcept;
     static void _ray_query_proceed_wide(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        SIMDHostRayQueryState *const *states) noexcept;
+    [[nodiscard]] static uint64_t _ray_query_proceed_wide_status(
         uint32_t lane_count, uint64_t active_mask_bits,
         SIMDHostRayQueryState *const *states) noexcept;
     static void _ray_query_pipeline_w1(

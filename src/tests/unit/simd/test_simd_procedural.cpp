@@ -652,6 +652,15 @@ int main(int argc, char *argv[]) {
         run_width(2u);
         run_width(4u);
     }
+    // W8 generic procedural acceleration structures use one shared wide
+    // provider core and publish packed status during its existing
+    // advance/install passes. Retain the preceding provider-plus-wrapper path
+    // as a same-binary semantic oracle.
+    {
+        ScopedEnvironmentVariable disable_w8_shared_status{
+            "LUISA_SIMD_DISABLE_W8_WIDE_SHARED_STATUS", "1"};
+        run_width(8u);
+    }
     // The W16 procedural status provider fuses status publication into the
     // candidate advance/install passes. Keep the original provider as an
     // executable semantic oracle: both paths must survive inactive tails,

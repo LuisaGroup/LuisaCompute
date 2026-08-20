@@ -643,6 +643,8 @@ restores the JIT-side plain-callback gather and cohort check.
 `LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS=1` restores the generic
 plain-provider-plus-status-pack wrapper for W2/W4 acceleration structures that
 cannot use the triangle-only provider.
+`LUISA_SIMD_DISABLE_W8_WIDE_SHARED_STATUS=1` restores the same wrapper for W8
+acceleration structures containing procedural primitives.
 `LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK=1` disables W16 procedural
 status specialization entirely;
 `LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS=1` retains that specialization
@@ -2041,7 +2043,7 @@ pointer. The private handler ABI is
 ABI is `void(ptr state, ptr captures, ptr launch, ptr handler)`; neither is a
 public DSL, runtime-extension, or Embree ABI. The runtime executes the same
 ordered batch advance, scan, commit,
-query-any termination, and continuation rules as `PROCEED`; for each published
+`query_any` termination, and continuation rules as `PROCEED`; for each published
 candidate it calls the single stable thunk with the validated candidate kind.
 The thunk reconstructs the typed handler ABI and dispatches surface versus
 procedural code inside the JIT. LLVM may inline both outlined handlers into
@@ -2049,7 +2051,7 @@ that thunk, but the runtime never interprets capture storage. Invoking handlers
 directly from Embree filter callbacks is forbidden: an overlapping-procedural
 counterexample proves that Embree callback order differs from the deterministic
 sorted candidate order exposed by the current backend. Candidate order,
-query-all/query-any behavior, motion time, visibility, opacity, sparse cohorts,
+`query`/`query_any` behavior, motion time, visibility, opacity, sparse cohorts,
 and partial tails remain identical to the loop oracle.
 
 Capture-free pipelines are ABI-eligible at every width. Captured pipelines are
@@ -2102,14 +2104,14 @@ query semantics.
 
 `PROCEED` gathers the active state pointers into one `<W x ptr>` scratch,
 selects null for inactive lanes, and issues exactly one indirect host callback
-for the current cohort. The callback groups states by accel and query-all/
-query-any mode, then uses W1 scalar traversal, W2 padded W4 traversal, or the
+for the current cohort. The callback groups states by accel and closest/any
+query mode, then uses W1 scalar traversal, W2 padded W4 traversal, or the
 matching W4/W8/W16 packet entry. No active-lane extract/call/insert traversal
-loop is permitted. Query-all and query-any support triangle and round-curve
+loop is permitted. `query` and `query_any` support triangle and round-curve
 surface candidates plus procedural candidates, reject-by-return, surface and
 procedural commit, explicit terminate, world-ray reads, committed-hit reads,
 static time zero, and motion time. Committing immediately updates the public
-world-ray `t_max`; query-any terminates after the first commit. An opaque
+world-ray `t_max`; `query_any` terminates after the first commit. An opaque
 surface instance auto-commits without entering the surface handler. Miss state
 begins with invalid instance/primitive IDs, `HitType::Miss`, zero
 barycentrics, and zero committed distance.
@@ -2281,6 +2283,18 @@ triangle-only provider remains selected when applicable. W1 retains its old
 scalar wrapper because a forced loop/status benchmark rejects the shared core;
 normal selected W1 pipelines use the separate resident ABI. The diagnostic
 oracle is `LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS=1`.
+
+W8 acceleration structures containing procedural primitives use the analogous
+wide shared core. Plain and status-aware entry points are only tail wrappers
+around one `LUISA_NEVER_INLINE` body. The status path publishes cached-lane
+results during the existing advance pass and traversal-lane results during the
+existing W8 batch installation pass; it must not invoke the plain provider and
+then rescan the 1216-byte lane records. The provider retains
+`rtcIntersect8`/`rtcOccluded8`, multiple accel/termination-mode groups, sparse
+masks, and inactive-safe candidate ordering. Triangle-only W8 scenes keep the
+dedicated triangle provider, and non-procedural W8 scenes keep the generic
+paired wrapper. `LUISA_SIMD_DISABLE_W8_WIDE_SHARED_STATUS=1` is the same-binary
+semantic and performance oracle.
 
 The fused installer may bias its already-ascending batch path only while the
 builder invariant `heapified => !ascending` holds. The non-ascending edge must
@@ -2477,11 +2491,14 @@ attached task scheduler after releasing the device and before `dlclose` can
 unmap libtbb. Repeated device creation/destruction in one process is a required
 lifecycle regression, not merely a leak check.
 
-Deeper public instance-stack behavior beyond this one logical outer-SRT-child
-composition is not part of this slice. It must fail at a specific capability
-boundary until its independent semantic, ABI, and machine-boundary gates exist;
-triangle, curve, procedural-query, opacity, and outer-SRT support do not imply
-arbitrary nested instancing.
+Luisa acceleration structures have exactly the public TLAS -> BLAS hierarchy:
+a `MotionInstance` may wrap a mesh, curve, or procedural primitive, but never
+another `Accel`. The one Embree instance-ID level therefore records the TLAS
+instance while `geomID`/`primID` identify the BLAS geometry and primitive. The
+outer-affine SRT forwarder is an implementation detail and must preserve that
+same single public instance ID; it does not introduce another public instance
+level. Arbitrary nested instancing is outside the Luisa resource model rather
+than an unfinished SIMD capability.
 
 ## 7. Executable audit matrix
 

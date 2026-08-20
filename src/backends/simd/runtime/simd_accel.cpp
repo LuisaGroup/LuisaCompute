@@ -1378,7 +1378,7 @@ scan_ray_query_packet_wide_status(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
     bool terminate_on_first) noexcept {
-    static_assert(packet_width == 16u);
+    static_assert(packet_width == 8u || packet_width == 16u);
     alignas(64) std::array<float, 8u * 16u> components{};
     alignas(64) std::array<uint32_t, 16u> visibility_masks{};
     alignas(64) std::array<float, 16u> times{};
@@ -1415,7 +1415,11 @@ scan_ray_query_packet_wide_status(
             packet.id[lane] = lane;
         }
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
-        rtcOccluded16(valid.data(), scene, &context.rtc, &packet);
+        if constexpr (packet_width == 8u) {
+            rtcOccluded8(valid.data(), scene, &context.rtc, &packet);
+        } else {
+            rtcOccluded16(valid.data(), scene, &context.rtc, &packet);
+        }
 #else
         RTCOccludedArguments arguments{};
         rtcInitOccludedArguments(&arguments);
@@ -1424,7 +1428,11 @@ scan_ray_query_packet_wide_status(
             arguments.flags |
             RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
         arguments.filter = detail::ray_query_filter_wide;
-        rtcOccluded16(valid.data(), scene, &packet, &arguments);
+        if constexpr (packet_width == 8u) {
+            rtcOccluded8(valid.data(), scene, &packet, &arguments);
+        } else {
+            rtcOccluded16(valid.data(), scene, &packet, &arguments);
+        }
 #endif
     } else {
         alignas(64) RayHitPacket packet{};
@@ -1436,7 +1444,11 @@ scan_ray_query_packet_wide_status(
             packet.ray.id[lane] = lane;
         }
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
-        rtcIntersect16(valid.data(), scene, &context.rtc, &packet);
+        if constexpr (packet_width == 8u) {
+            rtcIntersect8(valid.data(), scene, &context.rtc, &packet);
+        } else {
+            rtcIntersect16(valid.data(), scene, &context.rtc, &packet);
+        }
 #else
         RTCIntersectArguments arguments{};
         rtcInitIntersectArguments(&arguments);
@@ -1445,7 +1457,11 @@ scan_ray_query_packet_wide_status(
             arguments.flags |
             RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
         arguments.filter = detail::ray_query_filter_wide;
-        rtcIntersect16(valid.data(), scene, &packet, &arguments);
+        if constexpr (packet_width == 8u) {
+            rtcIntersect8(valid.data(), scene, &packet, &arguments);
+        } else {
+            rtcIntersect16(valid.data(), scene, &packet, &arguments);
+        }
 #endif
     }
     if (fully_active) {
@@ -1544,6 +1560,9 @@ SIMDAccel::SIMDAccel(
       _enable_narrow_shared_status{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS")},
+      _enable_w8_wide_shared_status{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_W8_WIDE_SHARED_STATUS")},
       _enable_procedural_dense_status{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK")},
@@ -1717,14 +1736,22 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             use_narrow_shared_status ?
                 _ray_query_proceed_status :
                 simd_host_ray_query_proceed_status;
-        _instance_table.ray_query_proceed_wide_status =
+        auto use_w16_procedural_status =
             simd_host_ray_query_use_procedural_wide_status(
                 _warp_width,
                 _has_procedural_instances,
-                _enable_procedural_dense_status) ?
+                _enable_procedural_dense_status);
+        auto use_w8_shared_status =
+            !use_triangle_only_provider &&
+            _warp_width == 8u && _has_procedural_instances &&
+            _enable_w8_wide_shared_status;
+        _instance_table.ray_query_proceed_wide_status =
+            use_w16_procedural_status ?
                 (_enable_procedural_fused_status ?
                      simd_host_ray_query_proceed_wide_procedural_fused_status :
                      simd_host_ray_query_proceed_wide_procedural_status) :
+            use_w8_shared_status ?
+                _ray_query_proceed_wide_status :
                 simd_host_ray_query_proceed_status;
     };
     if (command.update_instance_buffer_only()) {
@@ -2399,24 +2426,29 @@ LUISA_FORCE_INLINE void SIMDAccel::_ray_query_proceed_wide_lane(
     }
 }
 
-void SIMDAccel::_ray_query_proceed_wide(
+LUISA_NEVER_INLINE uint64_t SIMDAccel::_ray_query_proceed_wide_shared(
     uint32_t lane_count, uint64_t active_mask_bits,
-    SIMDHostRayQueryState *const *states) noexcept {
+    SIMDHostRayQueryState *const *states,
+    bool publish_status) noexcept {
     LUISA_ASSERT(
         states != nullptr &&
             (lane_count == 8u || lane_count == 16u),
         "Invalid wide SIMD ray-query packet width {}.", lane_count);
     auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
     active_mask_bits &= lane_mask;
-    if (active_mask_bits == 0u) { return; }
+    if (active_mask_bits == 0u) { return 0u; }
     auto fully_active = active_mask_bits == lane_mask;
 
     auto pending = uint64_t{0u};
+    auto status = uint64_t{0u};
     if (fully_active) [[likely]] {
         for (auto lane = 0u; lane < lane_count; lane++) {
+            auto bit = uint64_t{1u} << lane;
             _ray_query_proceed_wide_lane(
-                states[lane], lane,
-                uint64_t{1u} << lane, pending);
+                states[lane], lane, bit, pending);
+            if (publish_status && (pending & bit) == 0u) {
+                status |= ray_query_lane_status(*states[lane], bit);
+            }
         }
     } else {
         auto remaining_active = active_mask_bits;
@@ -2427,6 +2459,9 @@ void SIMDAccel::_ray_query_proceed_wide(
             remaining_active &= remaining_active - 1u;
             _ray_query_proceed_wide_lane(
                 states[lane], lane, bit, pending);
+            if (publish_status && (pending & bit) == 0u) {
+                status |= ray_query_lane_status(*states[lane], bit);
+            }
         }
     }
 
@@ -2473,20 +2508,51 @@ void SIMDAccel::_ray_query_proceed_wide(
         }
         LUISA_ASSERT(group != 0u, "Empty wide SIMD ray-query packet group.");
         if (lane_count == 8u) {
-            scan_ray_query_packet_wide<
-                8u, RTCRayHit8, RTCRay8>(
-                self->_scene, self->_instance_table,
-                lane_count, group, states,
-                terminate_on_first);
+            if (publish_status) {
+                status |= scan_ray_query_packet_wide_status<
+                    8u, RTCRayHit8, RTCRay8>(
+                    self->_scene, self->_instance_table,
+                    lane_count, group, states,
+                    terminate_on_first);
+            } else {
+                scan_ray_query_packet_wide<
+                    8u, RTCRayHit8, RTCRay8>(
+                    self->_scene, self->_instance_table,
+                    lane_count, group, states,
+                    terminate_on_first);
+            }
         } else {
-            scan_ray_query_packet_wide<
-                16u, RTCRayHit16, RTCRay16>(
-                self->_scene, self->_instance_table,
-                lane_count, group, states,
-                terminate_on_first);
+            if (publish_status) {
+                status |= scan_ray_query_packet_wide_status<
+                    16u, RTCRayHit16, RTCRay16>(
+                    self->_scene, self->_instance_table,
+                    lane_count, group, states,
+                    terminate_on_first);
+            } else {
+                scan_ray_query_packet_wide<
+                    16u, RTCRayHit16, RTCRay16>(
+                    self->_scene, self->_instance_table,
+                    lane_count, group, states,
+                    terminate_on_first);
+            }
         }
         pending &= ~group;
     }
+    return status;
+}
+
+void SIMDAccel::_ray_query_proceed_wide(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    static_cast<void>(_ray_query_proceed_wide_shared(
+        lane_count, active_mask_bits, states, false));
+}
+
+uint64_t SIMDAccel::_ray_query_proceed_wide_status(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    return _ray_query_proceed_wide_shared(
+        lane_count, active_mask_bits, states, true);
 }
 
 uint64_t simd_host_ray_query_proceed_wide_procedural_fused_status(

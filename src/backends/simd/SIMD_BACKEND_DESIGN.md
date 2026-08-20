@@ -2899,7 +2899,7 @@ linear hit distance and occlusion at every width, includes divergent
 visibility and the three-lane W16 tail, and separately checks a uniform motion
 trace remains one-lane scalar work.
 
-Triangle query-all/query-any is now lowered through the ordinary cohort
+Triangle `query`/`query_any` is now lowered through the ordinary cohort
 scheduler rather than a second callback-side PC machine. The structured
 `RayQueryLoop` becomes ordinary XIR loop/if control; its mutable object is a
 varying pointer to one fixed-size, lane-private state record even when all
@@ -2986,7 +2986,7 @@ therefore the fixed candidate batch retains only the nearest `(instance,
 primitive)` curve candidate and a continuation cursor suppresses later
 surfaces of the same primitive. Triangle insertion remains O(1) until batch
 overflow. The exact curve regression covers all four bases, opaque automatic
-commit, non-opaque accept/reject, query-all/query-any, direct closest/any,
+commit, non-opaque accept/reject, `query`/`query_any`, direct closest/any,
 control-point motion, curve motion instances, W1/W2/W4/W8/W16, and inactive
 tails. Host-selected opaque/non-opaque instances and cutout surface handlers
 therefore share the same query path for triangles, curves, and motion children.
@@ -3000,15 +3000,19 @@ query observes the new opacity bit: opaque surface hits auto-commit without
 entering the handler, while non-opaque hits enter it exactly once. The exact
 LLVM fixture requires scalar and masked paths without an indirect callback;
 the runtime fixture covers W1/W2/W4/W8/W16, thirty-five distinct instances,
-both query modes, divergent opacity, and a three-lane W16 tail. Full deeper
-instance-stack semantics remain explicit work.
+both query modes, divergent opacity, and a three-lane W16 tail. Luisa exposes
+only TLAS -> BLAS: the single Embree instance-ID level is the public TLAS
+instance, while BLAS geometry and primitive identity use `geomID`/`primID`.
+The outer-affine SRT forwarding route preserves that ID and is not another
+public instance level; arbitrary nested TLAS resources are outside the public
+resource model.
 
 Procedural primitives now use Embree user geometry with public AABB buffers,
 including primitive motion and MATRIX/SRT motion-instance children. Bounds are
 copied by Embree during geometry commit; the temporary callback payload is
 removed immediately afterward. Direct closest/any callbacks reject user
 geometry because those operations have no public intersection handler. During
-query-all/query-any only, a scoped thread-local scan context collects stable
+`query`/`query_any` only, a scoped thread-local scan context collects stable
 `(instance, primitive)` candidates and returns to the generated cohort CFG
 before executing the DSL handler. Visibility, ray interval, motion time,
 inactive tails, and divergent/sparse packets retain the packet valid mask.
@@ -3018,7 +3022,7 @@ cached candidates; overflow uses a strict cursor and another packet scan. A
 commit can shrink `t_max`, so unexposed conservative procedural candidates are
 discarded while cached exact surface hits are kept and interval-filtered. The
 permanent regression covers W1/W2/W4/W8/W16, a 35-thread inactive tail,
-query-all/query-any commit/reject/terminate, invalid commit distances,
+`query`/`query_any` commit/reject/terminate, invalid commit distances,
 deterministic order, visibility, a 40-candidate continuation, mixed triangle
 and procedural hits, primitive motion, and procedural motion instances. It has
 985 exact assertions in the ordinary width sweep. W16 is additionally rerun
@@ -3052,6 +3056,18 @@ the shared core regressed a forced loop/status rejection chain there, while the
 normal structured W1 path already uses the resident pipeline.
 `LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS=1` restores the generic status wrapper
 for W2/W4 same-binary semantic and performance checks.
+
+W8 procedural acceleration structures use the same provider-native
+publication principle without cloning the wide scan-heavy provider. The plain
+and status entry points tail-call one `LUISA_NEVER_INLINE` core; cached lanes
+publish in the existing advance loop and scanned lanes publish while the W8
+candidate batch is installed. This removes the wrapper's second traversal of
+the 1216-byte lane records while retaining `rtcIntersect8`/`rtcOccluded8`,
+sparse masks, multiple accel/termination-mode groups, and exact candidate
+ordering. The selection is deliberately narrow: triangle-only W8 keeps its
+dedicated provider and W8 scenes without procedural primitives keep the
+generic paired wrapper. `LUISA_SIMD_DISABLE_W8_WIDE_SHARED_STATUS=1` restores
+that wrapper as a same-binary oracle.
 
 The public rejection-chain benchmark uses 65,536 rays per dispatch, 128 timed
 dispatches per sample, and seven samples per process. On the shared 9950X3D
@@ -3661,7 +3677,7 @@ on 2026-08-11. The repository now contains:
   mask and an optional sanitized motion-time vector, pre-sanitizes inactive
   operands, initializes inactive results, narrows uniform queries to the first
   active lane, and bulk-copies safe sparse native packets;
-- triangle/curve query-all/query-any state machines lowered into ordinary scheduled
+- triangle/curve `query`/`query_any` state machines lowered into ordinary scheduled
   XIR, with lane-private state, one packet `PROCEED` callback per active cohort,
   surface reject/commit/terminate and opaque auto-commit semantics, static and
   motion traversal, curve classification and per-primitive front/back
@@ -3808,13 +3824,15 @@ the cross-backend/DXC structure ABI: the half/ushort test aggregate is
 explicitly four-byte aligned, and a core negative regression continues to
 reject two-byte aggregate alignment.
 
-The next implementation boundary is completion of the remaining Embree
-vertical slice: deeper instance-stack semantics and a SoA packet-query-state
-experiment guarded by stable measurement. Candidate chains beyond
-the fixed batch remain a measured continuation case rather than an unbounded
-state allocation. Cooperative shared memory and block barriers now use the
-packet-coroutine phase model in Section 7, including partial edge blocks and
-shared atomics, nested/repeated barriers, and exact dynamic loop-instance
-validation at every supported width. Broader callable conformance and the
-remaining device-library surface follow. The current compiler returns precise
-diagnostics for unsupported features rather than silently accepting them.
+The next implementation boundary is a provider-native packet-query-state or
+state-boundary experiment guarded by stable measurement. The public Embree
+vertical slice already covers Luisa's complete TLAS -> BLAS hierarchy;
+arbitrary deeper instance stacks are not part of the resource model. Candidate
+chains beyond the fixed batch remain a measured continuation case rather than
+an unbounded state allocation. Cooperative shared memory and block barriers
+now use the packet-coroutine phase model in Section 7, including partial edge
+blocks and shared atomics, nested/repeated barriers, and exact dynamic
+loop-instance validation at every supported width. Broader callable
+conformance and the remaining device-library surface follow. The current
+compiler returns precise diagnostics for unsupported features rather than
+silently accepting them.

@@ -4960,3 +4960,59 @@ non-query 128-spp W4 path trace is likewise neutral across ten pairs at 1.0023x
 runs production W1/W2/W4/W8, wrapper-oracle W2/W4, and production/oracle W16:
 all 1,576 assertions pass, including inactive tails, divergent commit/reject/
 terminate, continuation scans, and surface/procedural provider rebuilds.
+
+## Accepted shared-core W8 provider-native status publication
+
+The remaining W8 generic procedural path still invoked its wide provider and
+then scanned the complete 1216-byte state record for every active lane to pack
+terminal/surface/procedural status. Plain and status-aware W8 entries now
+tail-call one `LUISA_NEVER_INLINE` core. Cached candidates publish during its
+existing advance pass, while lanes requiring Embree traversal publish during
+the existing W8 batch installation pass. Triangle-only and non-procedural W8
+scenes retain their prior providers. The same-binary oracle is
+`LUISA_SIMD_DISABLE_W8_WIDE_SHARED_STATUS=1`.
+
+The final object contains one 12,368-byte wide shared core plus 7-byte plain
+and 10-byte status wrappers. Its `.text` is 3,414,672 bytes, 2,496 bytes above
+the preceding 3,412,176-byte object; there is no second roughly 12 KiB
+provider. Disassembly contains `rtcIntersect8`/`rtcOccluded8` and no W8
+per-lane `rtcIntersect1`/`rtcOccluded1` fallback. The backend SHA-256 at this
+checkpoint is
+`72baaa661f4ce29d81c2b1fd7a29815836eb9e78e9db7adfe4aa71ba78b78676`.
+
+Seven alternating, physical-CPU-pinned process pairs of the 16-candidate
+procedural rejection chain measured 1.0443x [1.0108, 1.0790] with 6/7 wins.
+Three paired counter runs produced the following candidate/oracle geometric
+mean ratios:
+
+| counter | candidate / oracle |
+|---|---:|
+| cycles | 0.9461x |
+| instructions | 0.9446x |
+| branches | 0.9914x |
+| branch misses | 0.9970x |
+| cache references | 1.0125x |
+| cache misses | 0.9915x |
+
+The real 1280x720 procedural renderer wins all seven 128-spp pairs at 1.0774x
+[1.0454, 1.1104]. Seven longer 1024-spp pairs also win 7/7 at 1.0574x
+[1.0389, 1.0763], with candidate/oracle medians of 3,418.6/3,585.3 ms. Every
+candidate and oracle image passes the checked-in gallery reference and the two
+W8 paths produce the same image (SHA-256
+`801b703092be960c4c3034a505fb9bfec8305d8e3d51a7a634b84704d324a92a` at
+128 spp).
+
+Seven independently alternated 1024-spp W8/fallback pairs measured W8 at
+1.3285x fallback [1.2974, 1.3603], with medians of 3,428.5 and 4,486.8 ms.
+Both backends pass the gallery reference; their different PSNR values are the
+pre-existing backend floating-point distinction rather than a candidate/oracle
+semantic difference. The permanent procedural gate now runs production and
+oracle W8 in addition to all other widths and reports 1,773 assertions,
+including inactive tails, commit/reject/terminate, continuation scans, motion,
+and mixed surface/procedural rebuilds.
+
+Both maintained Release trees complete after this change: the default runtime
+and system/TBB configurations each pass 162/162 CTest cases. The focused
+precise/fast native-math, runtime-width, and procedural gates pass separately;
+changed C++ is clang-format-clean and the complete diff passes Git whitespace
+validation.
