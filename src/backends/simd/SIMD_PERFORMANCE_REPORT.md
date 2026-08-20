@@ -4374,3 +4374,75 @@ tests also pass under Clang ASan with leak detection. The reconstruct suite has
 combined XIR pass suite 392/2,445. A fresh W8 1024-spp ordinary Embree path trace
 accepts the checked-in gallery reference at 39.219284 dB RGB PSNR and reports
 native Embree 4.4.1 W4/W8/W16 packet support.
+
+## Compile-time Embree triangle-filter indexing
+
+The next profile separated the remaining triangle-query host boundary from the
+explicit-PC scheduler. On the isolated W8 16-candidate rejection benchmark,
+the pre-change sample attribution was 35.18% Embree traversal, 13.82% in the
+wide triangle filter, 7.95% in `ray_query_proceed_triangle_only_impl<true>`,
+5.86% in batch installation, and 1.40% in the JIT-visible proceed-status
+callback. Individual scheduler/JIT sites were below one percent. Runtime-`N`
+`RTCRayN_*`/`RTCHitN_*` addressing and a large inlined full-batch heap path were
+therefore a measurable filter cost, while explicit PC dispatch alone was not
+the dominant term.
+
+The accepted implementation provides width-specialized filter bodies for
+Embree N=1/4/8/16, retains a cold generic runtime-N fail-safe, and outlines the
+rare full-32-candidate heap replacement path. The same binary selects the old
+generic addressing with
+`LUISA_SIMD_DISABLE_SPECIALIZED_TRIANGLE_FILTER=1`. A fresh specialized W8
+profile attributes 39.51% to Embree, 8.29% to proceed, 5.58% to the filter,
+4.98% to batch installation, and 1.64% to proceed-status. Thus the filter's
+own sampled share falls from 13.82% to 5.58%; the larger Embree percentage is
+the expected redistribution after shortening the callback.
+
+Five alternating same-binary process pairs give these medians:
+
+| triangle rejection | specialized seconds | generic-oracle seconds | speedup |
+| --- | ---: | ---: | ---: |
+| SIMD W8 | 0.081142 | 0.085377 | 1.0522x |
+| SIMD W16 | 0.081524 | 0.085093 | 1.0438x |
+
+Candidate counts 1, 16, 32, 33, and 64 pass at W1/W2/W4/W8/W16, covering the
+under-capacity boundary, first overflow/rescan, padded W2 packet, sparse tail,
+and every provider packet width. The permanent 35-candidate device regression
+continues to prove exact callback count and the farthest committed instance at
+every width. A rejected reverse-batch-cursor experiment changed seven-pair
+cycle count by approximately +0.07% and retired essentially the same number of
+instructions, so it was removed rather than retained on source-level appeal.
+
+The real 64-spp cutout renderer also uses this filter. Seven alternating pairs
+produce:
+
+| renderer | specialized median spp/s | generic-oracle median spp/s | paired geometric mean | wins | 95% CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SIMD W8 | 47.0006 | 46.2230 | 1.0119x | 6/7 | [1.0003, 1.0237] |
+| SIMD W16 | 47.4029 | 46.4882 | 1.0209x | 7/7 | [1.0109, 1.0310] |
+
+Every image hash is identical within a width and oracle pair. A seven-pair W8
+ordinary closest-hit path trace, which never enters the ray-query filter, is a
+negative control at 1.0022x with a confidence interval crossing one
+([0.9990, 1.0053]); its image hashes are also identical.
+
+A separate rotated cutout sweep was interrupted after five clean rounds by an
+unrelated full-core build. The contaminated final two rounds are excluded.
+The five clean process medians give the current width comparison:
+
+| backend/width | median spp/s | paired throughput vs fallback |
+| --- | ---: | ---: |
+| fallback | 70.4716 | 1.0000x |
+| SIMD W1 | 50.7517 | 0.7203x |
+| SIMD W2 | 35.1541 | 0.4959x |
+| SIMD W4 | 42.7861 | 0.6075x |
+| SIMD W8 | 48.2323 | 0.6853x |
+| SIMD W16 | 47.2393 | 0.6689x |
+
+The specialization is therefore a real 1--2% renderer improvement, not a
+closure claim: callback-heavy cutout remains slower than fallback. The public
+DSL already provides the next useful semantic boundary. `traverse` retains a
+complete structured handler region that can become `RayQueryPipelineInst`,
+whereas explicit `query_all`/`query_any` exposes each `proceed()` and must stay
+on the loop route. SIMD currently lowers both to the latter. A direct packet
+pipeline needs a vector callback ABI with exact lane/subset mapping and
+capture spill/reload; it does not need W4/W8/W16 controls in the DSL.

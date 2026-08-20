@@ -213,6 +213,17 @@ lowering. The optional `reconstruct_ray_query_loop` adapter folds only that
 lowering's exact canonical proceed loop back to `RayQueryLoopInst`; it is not
 silently inserted into either production route.
 
+The DSL already preserves the distinction needed for a future SIMD pipeline
+path. `traverse(...).on_*().trace()` enters XIR as one structured
+`RayQueryLoopInst`, whose complete handler regions can be outlined into a
+`RayQueryPipelineInst`; `query_all`/`query_any` with explicit `proceed()` makes
+candidate publication observable and is normalized back to a loop only when
+its exact affine shell is proven. The current SIMD production route still
+lowers both forms to ordinary control flow. Retaining the former as a direct
+packet callback is therefore an XIR-to-SIMD callback-ABI task, not a reason to
+expose Embree or W4/W8/W16 policy in the public DSL. The explicit form must
+continue to use the loop route.
+
 Callable inlining is a legalization requirement for this backend, not its
 generic cost heuristic. Immediately before the final inline-all pass, the
 SIMD front door removes only diagnostic name/location/comment metadata from
@@ -3249,6 +3260,18 @@ filter omits geometry-kind loads and curve deduplication. Candidate ordering,
 overflow continuation, opacity, query-any, sparse masks, and inactive-tail
 safety remain identical. `LUISA_SIMD_DISABLE_TRIANGLE_ONLY_RAY_QUERY=1`,
 sampled at accel construction, is the same-binary oracle.
+
+The triangle-only wide filter is additionally cloned for Embree callback
+widths 1, 4, 8, and 16. Passing that width as a template constant turns every
+`RTCRayN_*`/`RTCHitN_*` structure-of-arrays address into a constant-stride
+access; a cold generic runtime-`N` implementation remains as the fail-safe.
+`LUISA_SIMD_DISABLE_SPECIALIZED_TRIANGLE_FILTER=1` selects that generic path in
+the same binary for correctness and performance A/B tests. The common
+under-32-candidate append path is also separated from a never-inlined overflow
+heap helper, so Embree's callback no longer carries the rare full-batch heap
+implementation in its hot instruction footprint. Neither refinement changes
+the public state size, candidate capacity, cursor/order relation, active mask,
+or packet selection.
 
 This provider is kept in an append-only translation unit. Sharing generic and
 triangle code through one template was rejected even though it was source-

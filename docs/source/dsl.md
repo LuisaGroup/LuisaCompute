@@ -878,6 +878,11 @@ Var<CommittedHit> hit = accel
     .trace();  // Execute traversal, returns CommittedHit
 ```
 
+This form deliberately keeps the complete candidate-handler scopes attached
+to one structured ray-query statement. A backend may therefore outline or
+fuse those handlers with its native traversal pipeline without changing DSL
+semantics. Native packet width and callback ABI remain backend details.
+
 ### SurfaceCandidate
 
 A `SurfaceCandidate` represents a potential triangle or curve intersection:
@@ -957,7 +962,9 @@ immediately split the published candidate with an if/else on
 Candidate work belongs in those two arms. A shared payload before or after the
 split, a cross-boundary `break`/`continue`/`return`, or a nested `proceed()` is
 rejected instead of being assigned backend-dependent semantics. Prefer the
-builder-pattern `traverse()` API when explicit traversal state is unnecessary.
+builder-pattern `traverse()` API when explicit traversal state is unnecessary;
+unlike that structured form, every successful `proceed()` is observable and
+must not be silently fused across user code.
 
 ## Runtime Polymorphism
 

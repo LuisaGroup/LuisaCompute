@@ -55,24 +55,15 @@ namespace {
     return ray_query_key_before(lhs.t, lhs.inst, lhs.prim, rhs);
 }
 
-LUISA_FORCE_INLINE void ray_query_insert_triangle_candidate(
+LUISA_NEVER_INLINE void ray_query_insert_triangle_candidate_overflow(
     SIMDHostRayQueryState &state,
     RayQueryBatchBuildState &build,
     SIMDHostRayQuerySurfaceHit candidate) noexcept {
     constexpr auto capacity =
         simd_host_ray_query_candidate_batch_capacity;
-    if (state.candidate_batch_count < capacity) {
-        if (state.candidate_batch_count != 0u) {
-            auto &&previous =
-                state.candidate_batch[state.candidate_batch_count - 1u];
-            build.ascending &=
-                !ray_query_candidate_before(candidate, previous);
-            build.descending &=
-                !ray_query_candidate_before(previous, candidate);
-        }
-        state.candidate_batch[state.candidate_batch_count++] = candidate;
-        return;
-    }
+    LUISA_ASSERT(
+        state.candidate_batch_count == capacity,
+        "Triangle-only SIMD ray-query overflow helper received a partial batch.");
     state.candidate_batch_has_more = 1u;
     auto begin = std::begin(state.candidate_batch);
     auto end = begin + state.candidate_batch_count;
@@ -89,6 +80,28 @@ LUISA_FORCE_INLINE void ray_query_insert_triangle_candidate(
     std::pop_heap(begin, end, ray_query_candidate_before);
     state.candidate_batch[state.candidate_batch_count - 1u] = candidate;
     std::push_heap(begin, end, ray_query_candidate_before);
+}
+
+LUISA_FORCE_INLINE void ray_query_insert_triangle_candidate(
+    SIMDHostRayQueryState &state,
+    RayQueryBatchBuildState &build,
+    SIMDHostRayQuerySurfaceHit candidate) noexcept {
+    constexpr auto capacity =
+        simd_host_ray_query_candidate_batch_capacity;
+    if (state.candidate_batch_count < capacity) [[likely]] {
+        if (state.candidate_batch_count != 0u) {
+            auto &&previous =
+                state.candidate_batch[state.candidate_batch_count - 1u];
+            build.ascending &=
+                !ray_query_candidate_before(candidate, previous);
+            build.descending &=
+                !ray_query_candidate_before(previous, candidate);
+        }
+        state.candidate_batch[state.candidate_batch_count++] = candidate;
+        return;
+    }
+    ray_query_insert_triangle_candidate_overflow(
+        state, build, candidate);
 }
 
 template<size_t lane_count>
@@ -113,32 +126,63 @@ template<size_t lane_count>
 
 }// namespace
 
-void ray_query_filter_wide_triangle_only(
+namespace {
+
+template<size_t packet_width>
+void ray_query_filter_wide_triangle_only_specialized(
     const RTCFilterFunctionNArguments *arguments) noexcept {
     auto *context = reinterpret_cast<RayQueryScanContext *>(
         arguments->context);
-    if (context == nullptr || arguments->valid == nullptr ||
-        arguments->ray == nullptr || arguments->hit == nullptr ||
-        arguments->N == 0u || arguments->N > 16u) [[unlikely]] {
-        std::abort();
-    }
-    auto valid_mask = [&]() noexcept {
-        switch (arguments->N) {
-            case 1u: return ray_query_valid_mask<1u>(arguments->valid);
-            case 4u: return ray_query_valid_mask<4u>(arguments->valid);
-            case 8u: return ray_query_valid_mask<8u>(arguments->valid);
-            case 16u: return ray_query_valid_mask<16u>(arguments->valid);
-            default: {
-                auto mask = uint32_t{0u};
-                for (auto lane = 0u; lane < arguments->N; lane++) {
-                    mask |= static_cast<uint32_t>(
-                                arguments->valid[lane] == -1)
-                            << lane;
-                }
-                return mask;
-            }
+    auto valid_mask =
+        ray_query_valid_mask<packet_width>(arguments->valid);
+    while (valid_mask != 0u) {
+        auto packet_lane = static_cast<uint32_t>(
+            std::countr_zero(valid_mask));
+        valid_mask &= valid_mask - 1u;
+        arguments->valid[packet_lane] = 0;
+        auto lane = RTCRayN_id(
+            arguments->ray, packet_width, packet_lane);
+        if (lane >= context->lane_count) { continue; }
+        auto *state = context->states[lane];
+        if (state == nullptr || state->terminated != 0u) { continue; }
+        auto t = RTCRayN_tfar(
+            arguments->ray, packet_width, packet_lane);
+        auto inst = RTCHitN_instID(
+            arguments->hit, packet_width, packet_lane, 0u);
+        auto prim = RTCHitN_primID(
+            arguments->hit, packet_width, packet_lane);
+        if (!(t >= state->world_ray[3u] &&
+              t <= state->world_ray[7u]) ||
+            inst == RTC_INVALID_GEOMETRY_ID ||
+            prim == RTC_INVALID_GEOMETRY_ID ||
+            !ray_query_key_after_cursor(*state, t, inst, prim)) {
+            continue;
         }
-    }();
+        ray_query_insert_triangle_candidate(
+            *state, context->batch_build[lane],
+            SIMDHostRayQuerySurfaceHit{
+                .inst = inst,
+                .prim = prim,
+                .bary = {
+                    RTCHitN_u(
+                        arguments->hit, packet_width, packet_lane),
+                    RTCHitN_v(
+                        arguments->hit, packet_width, packet_lane)},
+                .t = t,
+            });
+    }
+}
+
+LUISA_NEVER_INLINE void ray_query_filter_wide_triangle_only_generic(
+    const RTCFilterFunctionNArguments *arguments) noexcept {
+    auto *context = reinterpret_cast<RayQueryScanContext *>(
+        arguments->context);
+    auto valid_mask = uint32_t{0u};
+    for (auto lane = 0u; lane < arguments->N; lane++) {
+        valid_mask |= static_cast<uint32_t>(
+                          arguments->valid[lane] == -1)
+                      << lane;
+    }
     while (valid_mask != 0u) {
         auto packet_lane = static_cast<uint32_t>(
             std::countr_zero(valid_mask));
@@ -174,6 +218,46 @@ void ray_query_filter_wide_triangle_only(
                         arguments->hit, arguments->N, packet_lane)},
                 .t = t,
             });
+    }
+}
+
+[[nodiscard]] bool specialized_triangle_filter_enabled() noexcept {
+    static const auto enabled =
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_SPECIALIZED_TRIANGLE_FILTER");
+    return enabled;
+}
+
+}// namespace
+
+void ray_query_filter_wide_triangle_only(
+    const RTCFilterFunctionNArguments *arguments) noexcept {
+    if (arguments == nullptr || arguments->context == nullptr ||
+        arguments->valid == nullptr || arguments->ray == nullptr ||
+        arguments->hit == nullptr || arguments->N == 0u ||
+        arguments->N > 16u) [[unlikely]] {
+        std::abort();
+    }
+    if (!specialized_triangle_filter_enabled()) [[unlikely]] {
+        ray_query_filter_wide_triangle_only_generic(arguments);
+        return;
+    }
+    switch (arguments->N) {
+        case 1u:
+            ray_query_filter_wide_triangle_only_specialized<1u>(arguments);
+            break;
+        case 4u:
+            ray_query_filter_wide_triangle_only_specialized<4u>(arguments);
+            break;
+        case 8u:
+            ray_query_filter_wide_triangle_only_specialized<8u>(arguments);
+            break;
+        case 16u:
+            ray_query_filter_wide_triangle_only_specialized<16u>(arguments);
+            break;
+        default:
+            ray_query_filter_wide_triangle_only_generic(arguments);
+            break;
     }
 }
 

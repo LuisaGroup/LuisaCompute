@@ -1974,6 +1974,16 @@ external predecessors, and loop-carried SSA PHIs are rejected. Reconstruction
 retargets every handler exit, repairs merge PHIs, preserves metadata, and
 recreates omitted empty handlers.
 
+The higher-level DSL `traverse` form retains both complete handler scopes in
+`RayQueryLoopInst` and is therefore eligible for a backend that consumes a
+`RayQueryPipelineInst` directly. The current SIMD implementation does not yet
+exercise that route: it deliberately lowers the instruction to the explicit
+loop above. Any future direct route must be observationally equivalent for
+captured inputs and outputs, special registers, commit/terminate side effects,
+candidate order, sparse cohorts, and inactive tails. An explicit
+`query_all`/`query_any` `proceed()` loop remains on the state-machine route;
+packet width and native traversal ABI are not DSL semantics.
+
 Distinct simultaneously live query objects also receive distinct records.
 Sequential construction sites may share the same per-lane scratch only after
 a fail-closed Schedule-IR analysis proves that each construction result is
@@ -2213,6 +2223,17 @@ accel summary above. Every W1/W2/W4 packet uses a dense filter. Each filter
 context places the configured Embree context at offset zero, as required by
 Embree callback recovery; the triangle-only context is an independent private
 type rather than an unrelated layout-compatible cast of the generic context.
+
+The triangle-only wide-filter dispatcher must provide compile-time-indexed
+implementations for Embree callback widths 1, 4, 8, and 16. The current
+provider selects that dispatcher only for adaptive W8/W16 traversal; W1 and
+the W2-padded-W4/W4 packets retain the dense filter. An unexpected valid width
+up to 16 must retain a generic runtime-indexed fail-safe rather than extending
+the query domain or reading beyond the packet. The same-binary generic oracle
+must produce identical committed hits and exact candidate callback counts.
+Moving the full 32-candidate heap replacement path out of line is permitted
+only when the under-capacity append path and the overflow cursor/order
+semantics remain unchanged.
 
 The currently accepted acceleration surface is static and vertex-motion
 triangle-mesh build; static and control-point-motion round-curve build for
