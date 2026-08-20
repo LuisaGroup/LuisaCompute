@@ -32,14 +32,15 @@ aggregate extracts receive an independent bounds/type proof; query traversal,
 candidate payload reads, commits, termination, and memory remain under the
 ordinary scheduler. A broader whole-query-loop prototype and an extra select-
 factoring experiment were rejected by real-renderer measurements.
-The newest ray-query stage consumes the structured DSL boundary directly.
-Capture-free `traverse(...).on_*().trace()` regions remain
-`RayQueryPipelineInst` at W2/W4/W8/W16 and execute through internal
-fixed-vector handlers with exact sparse masks; captured callbacks and explicit
-`proceed()` loops retain the ordinary scheduler. Front-end callable
-argument/return scratch is forwarded before capture classification. W1 keeps
-the scalar loop by default after a stable renderer regression from the extra
-handler call.
+The newest ray-query stage also consumes canonical inline DSL traversal.
+After fail-closed reconstruction of an exact `$while (query.proceed())` plus
+candidate dispatch, SIMD runs the same selective pipeline lowering a second
+time. W1/W2 accept every capture-eligible handler; W4/W8/W16 require either 24
+handler instructions or two eligible query sites in the function. This keeps
+small single-query handlers on the scheduler while preserving the real W4
+procedural and W8 two-query cutout pipelines. W1 uses the resident provider.
+Front-end callable argument/return scratch is forwarded before capture
+classification, and non-canonical explicit control remains an ordinary loop.
 The newest memory stage independently applies ISPC's bounded-gather lesson to
 one much narrower Luisa pattern: eligible W8 direct typed-buffer vectors pack
 adjacent 32-bit leaves into legal 64-bit LLVM masked gathers. TargetTransformInfo
@@ -4454,8 +4455,9 @@ closure claim: callback-heavy cutout remains slower than fallback. At this
 checkpoint, the public DSL already provided the next useful semantic boundary.
 `traverse` retains a complete structured handler region that can become
 `RayQueryPipelineInst`, whereas explicit `query_all`/`query_any` exposes each
-`proceed()` and must stay on the loop route. The following stage consumes that
-boundary without adding W4/W8/W16 controls to the DSL.
+`proceed()` and at this checkpoint stayed on the loop route. The later
+reconstruction stage documented below proves and consumes the canonical inline
+form without adding W4/W8/W16 controls to the DSL.
 
 ## Capture-free structured ray-query pipeline
 
@@ -4468,8 +4470,9 @@ captures, or live-outs. Both cutout queries consequently report
 `direct_ray_query_pipelines=2`; the W8 main schedule falls from 53 to 31 blocks
 and from 31 to 28 instruction spills. A real captured value/resource or
 mutable live-out still fails the zero-capture selection and follows the prior
-loop implementation. An explicit DSL `proceed()` loop is a compile-tested
-negative control and also remains on that route.
+loop implementation. At this stage an explicit DSL `proceed()` loop was a
+compile-tested negative control; the later selective reconstruction stage
+supersedes that policy for the exact canonical form.
 
 Each outlined handler has the internal width-specialized ABI
 `void(i32, i64, ptr, ptr)` for lane count, exact sparse mask, a null-sanitized
@@ -4652,7 +4655,9 @@ No public DSL extension was necessary. The high-level
 AST-to-XIR directly creates `RayQueryLoopInst`. The pipeline pass consumes that
 structured node before the later reconstruct pass considers a user-written
 inline `proceed()` loop. This stage extends only the private JIT/runtime ABI;
-explicit `proceed()` remains observable and stays on the loop route.
+at this checkpoint explicit `proceed()` remained on the loop route. The later
+section records the exact shape proof and cost gate that now permit its
+canonical immediate-dispatch form to use the same resident implementation.
 
 The profitability run pinned the Ryzen 9 9950X3D's 16 physical cores and used
 16 SIMD workers. Each row alternated fresh resident and loop-oracle processes;
@@ -4707,3 +4712,102 @@ removing scalar scheduler overhead does not substitute for packet traversal.
 | W4 captured direct | 617.162 | 591.011 | 0.9425x | 0/7 | [0.9164, 0.9695] |
 | W8 | 453.357 | 591.011 | **1.2764x** | 7/7 | [1.2313, 1.3231] |
 | W16 | 360.214 | 575.357 | **1.6033x** | 9/9 | [1.5676, 1.6398] |
+
+## Reconstructed inline ray queries and handler-cost selection
+
+The SIMD production pipeline now applies a second selective
+`lower_ray_query_to_pipeline` after `reconstruct_ray_query_loop`. Consequently,
+the canonical affine DSL spelling
+`$while (query.proceed()) { if (query.is_surface_candidate()) ... }` can use the
+same direct or W1-resident implementation as an original
+`traverse(...).on_*().trace()` node. Reconstruction remains fail-closed: a
+non-canonical use of the `proceed()` result, shared shell payload, nested
+`PROCEED`, escaping temporary, unsupported exit, or loop-carried SSA value is
+not converted. No public DSL, Embree, query-state, or handler ABI changed.
+
+Blindly outlining every proven loop is not profitable. The representative
+single procedural handler contains 9 XIR instructions without a counter
+capture and 12 with it. Its original structured/direct form compared with the
+explicit scheduled loop as follows on a Ryzen 9 9950X3D, pinned to physical
+cores 0--15 with 16 workers and seven alternating fresh-process pairs:
+
+| width/workload | direct versus loop geomean | wins | paired 95% CI |
+| --- | ---: | ---: | ---: |
+| W1, procedural 16 candidates | 1.2065x | 7/7 | [1.1791, 1.2346] |
+| W4, procedural 16 candidates | 0.9489x | 0/7 | [0.9417, 0.9561] |
+| W1, triangle 16 candidates | 1.0584x | 7/7 | [1.0422, 1.0749] |
+| W4, triangle 16 candidates | 0.9918x | 2/7 | [0.9764, 1.0074] |
+
+Capture-free width sweeps confirmed that the effect is not caused solely by
+capture projection. The procedural direct path was 1.1978x/1.0625x at W1/W2,
+but 0.9399x/0.9752x/0.9760x at W4/W8/W16. The triangle direct path was a small
+1.0306x/1.0150x at W1/W2 and statistically neutral at the wider widths. The
+shared lowering therefore preflights all structurally valid loops and applies
+two independent selection predicates:
+
+- the existing capture ABI bound: at most four semantic captures at W1/W4,
+  capture-free at W2/W8/W16 unless forced;
+- W1/W2 have no handler-cost threshold; W4/W8/W16 require at least 24 handler
+  XIR instructions or at least two capture-eligible query loops in the same
+  function.
+
+The second condition preserves the real 108-instruction procedural handler and
+the W8 cutout function's two 8-instruction query sites, but retains a lone
+9--12-instruction micro-handler as a loop. The diagnostic
+`LUISA_SIMD_DISABLE_RAY_QUERY_PIPELINE_PROFITABILITY=1` bypasses only this cost
+gate, providing a same-binary direct oracle. Comparing the final default policy
+against that forced direct route gives:
+
+| explicit procedural case | policy median | forced-direct median | policy speedup | wins | paired 95% CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 counted | 108.724 ms | 115.703 ms | 1.0707x | 7/7 | [1.0473, 1.0947] |
+| W4 capture-free | 107.774 ms | 113.891 ms | 1.0551x | 7/7 | [1.0443, 1.0660] |
+| W8 capture-free | 85.455 ms | 91.668 ms | 1.0358x | 7/7 | [1.0201, 1.0518] |
+| W16 capture-free | 73.606 ms | 75.319 ms | 1.0263x | 7/7 | [1.0194, 1.0333] |
+
+The profitable reconstructed W1 counted path was repeated for nine alternating
+pairs. Resident execution took a 159.555 ms median versus 191.185 ms for the
+global loop oracle: **1.1922x**, 9/9 wins, with paired 95% CI
+[1.1816, 1.2029]. Five additional `perf stat` pairs quantify the mechanism;
+ratios are resident divided by loop:
+
+| counter | resident/loop |
+| --- | ---: |
+| cycles | 0.8358 |
+| retired instructions | 0.8351 |
+| branches | 0.8311 |
+| branch misses | 0.7020 |
+| aggregate task clock | 0.8343 |
+
+The W1 direct object contains 113 static instructions, 14 branches, 11 stack
+references, and a 1,256-byte frame; the loop oracle contains 110 instructions,
+17 branches, 19 stack references, and a 1,232-byte frame. Neither object has an
+undefined scalar-math symbol. The direct profile attributes 9.64% to the
+resident pipeline, while the loop profile attributes 18.77% to
+`_ray_query_proceed`; the dynamic reduction comes from avoiding scheduler and
+proceed turnover, not merely from static code size.
+
+The final selection preserves both established graphics paths exactly.
+Default and profitability-bypassed optimized assembly hashes match for all
+three W4 procedural renderer modules and all five W8 cutout modules. Their
+two-spp PNGs are byte-identical as well. The optimization report adds
+`post_reconstruction_ray_query_pipelines`; W1 explicit counted reports one
+resident second-pass pipeline, W2 capture-free reports one packet pipeline,
+one small W8 explicit query reports zero, two small W8 queries report two, the
+real W4 procedural renderer reports one, and the real W8 cutout renderer
+reports two.
+
+The current DSL is therefore semantically sufficient for this stage. A future
+front-end refinement can emit `RayQueryLoopInst` directly for the canonical
+inline spelling and attach audited effect/capture facts, avoiding CFG pattern
+reconstruction and improving diagnostics. It must remain backend-neutral:
+packet width, the 24-instruction threshold, Embree entry points, and the choice
+between resident, packet, and scheduler routes stay private to the SIMD
+compiler.
+
+Final validation passes the complete configured suite 162/162 in both the
+default Release build and the TBB/system-parallel-for Release build. The
+explicit world-ray query passes 48 assertions on fallback and independently at
+W1/W2/W4/W8/W16; the five-lane wide runs include inactive tails. Changed C++
+and header files pass clang-format's dry-run check, and the complete diff passes
+Git whitespace validation.

@@ -207,34 +207,45 @@ The intended initial XIR pipeline is:
 
 Ray-query representation changes are named by their destination. Fallback,
 CUDA, HIP, and coroutine normalization use `lower_ray_query_to_pipeline` to
-outline candidate callbacks. SIMD and native SPIR-V use
-`lower_ray_query_to_loop` so candidate control remains visible to their CFG
-lowering. The optional `reconstruct_ray_query_loop` adapter folds only that
-lowering's exact canonical proceed loop back to `RayQueryLoopInst`; it is not
-silently inserted into either production route.
+outline candidate callbacks. Native SPIR-V uses `lower_ray_query_to_loop` so
+candidate control remains visible to its CFG lowering. SIMD first selects
+profitable structured queries for pipeline lowering, reconstructs only proven
+canonical inline `proceed()` loops, selects profitable reconstructed queries a
+second time, and finally lowers every retained query to an ordinary loop. The
+second selection is therefore an explicit SIMD production boundary, not a
+generic implicit insertion of the inverse adapter.
 
 The DSL already preserves the distinction needed by the SIMD pipeline path.
 `traverse(...).on_*().trace()` enters XIR as one structured
 `RayQueryLoopInst`, whose complete handler regions can be outlined into a
 `RayQueryPipelineInst`; `query_all`/`query_any` with explicit `proceed()` makes
-candidate publication observable and is normalized back to a loop only when
-its exact affine shell is proven. Before making that choice, SIMD forwards
-single-store callable argument/return scratch so front-end-private allocas do
-not masquerade as semantic callback captures.
+candidate publication observable, but its canonical immediate candidate
+dispatch can be reconstructed into the same structured instruction without
+changing the sequence of handler observations. Any non-canonical use remains
+an ordinary loop or rejects a ray-query-shaped near-match. Before making that
+choice, SIMD forwards single-store callable argument/return scratch so
+front-end-private allocas do not masquerade as semantic callback captures.
 
-At W2/W4/W8/W16, a structured query with no captured input or live-out is now
-retained as `RayQueryPipelineInst`. Its surface and procedural regions become
-internal fixed-vector handler functions, and the main packet invokes them with
-the exact sparse candidate masks while one status-driven loop advances the
-native query provider. A callback that captures a kernel value/resource or
-exports mutable state remains on the ordinary scheduled-loop route. W1 also
-uses that route by default because the extra handler call measured slower than
-the already-scalar loop; a force control exists only for semantic regression.
-An explicit `proceed()` loop always stays on the loop route. This is therefore
-an XIR-to-SIMD callback-ABI specialization, not a reason to expose Embree or
-W4/W8/W16 policy in the public DSL. Supporting more structured callbacks in a
-later stage requires an internal uniform/resource capture ABI, not new DSL
-syntax.
+A selected query's surface and procedural regions become internal fixed-vector
+handler functions, and the main packet invokes them with exact sparse
+candidate masks while one status-driven loop advances the native provider. W1
+uses its resident scalar provider. Up to four semantic captures are accepted
+at W1/W4 by default; W2/W8/W16 require capture-free handlers unless a diagnostic
+override forces the captured ABI. W1/W2 accept every capture-eligible query.
+At W4/W8/W16, one small handler pair remains on the scheduler route unless it
+contains at least 24 XIR instructions or its function has at least two
+capture-eligible query sites. This measured gate retains the small synthetic
+loop where outlining regresses while preserving the two-query cutout and the
+108-instruction procedural renderer handler. Both original structured queries
+and reconstructed canonical `proceed()` loops use this policy.
+
+This is an XIR-to-SIMD callback-ABI specialization, not a reason to expose
+Embree, packet width, or profitability controls in the public DSL. A future
+front-end extension may emit the structured ray-query node directly for the
+canonical inline spelling and retain an audited effect/capture summary. That
+would avoid reconstructing generic CFG and improve diagnostics, but is not a
+semantic prerequisite: the existing DSL already supplies a complete boundary
+whenever the proof succeeds.
 
 Callable inlining is a legalization requirement for this backend, not its
 generic cost heuristic. Immediately before the final inline-all pass, the
@@ -3641,13 +3652,17 @@ on 2026-08-11. The repository now contains:
   advance/scan loop per structured query and invokes one stable opaque-capture
   JIT callback target that dispatches both candidate kinds, preserving the
   existing sorted-batch order rather than exposing Embree callback order;
-  capture-free handlers use the direct route at every width, while the measured
-  resource-using path accepts up to four captures at W1 and W4; private handler
+  capture-free handlers are eligible for the direct route at every width,
+  while the measured resource-using path accepts up to four captures at W1 and
+  W4; one small handler pair at W4/W8/W16 remains a loop unless it reaches the
+  24-instruction threshold or shares its function with another eligible query;
+  private handler
   arguments preserve the caller's
   `warp_uniform`/`cohort_uniform`/`varying` class, resource descriptors remain
   scalar, and reference captures use per-lane local handles; unprofitable
-  captured W2/W8/W16 pipelines and every explicit `proceed()` loop retain the
-  ordinary state-machine path;
+  captured W2/W8/W16 pipelines and non-canonical explicit `proceed()` loops
+  retain the ordinary state-machine path, while canonical inline loops are
+  reconstructed and pass through the same selection policy;
 - a fail-closed W4/W8/W16 loop-route ray-query status sidecar, also required by
   the direct W2 path, colored with query scratch liveness, that keeps
   terminated/surface/procedural masks in one JIT scalar, publishes validity

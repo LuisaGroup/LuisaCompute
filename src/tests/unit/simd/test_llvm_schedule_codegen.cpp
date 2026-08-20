@@ -7469,6 +7469,8 @@ void ray_query_filter_pipeline_w1_probe(
         SIMDHostBufferView output;
     };
     for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        ScopedEnvironmentVariable disable_profitability{
+            "LUISA_SIMD_DISABLE_RAY_QUERY_PIPELINE_PROFITABILITY", "1"};
         auto candidate = compile_simd_kernel(
             kernel.function()->function(), width,
             "simd_ast_direct_ray_query_pipeline_w" +
@@ -7589,7 +7591,7 @@ void ray_query_filter_pipeline_w1_probe(
     };
     auto explicit_compiled = compile_simd_kernel(
         explicit_proceed.function()->function(), 8u,
-        "simd_ast_explicit_proceed_stays_loop_w8");
+        "simd_ast_explicit_proceed_profitability_loop_w8");
     if (!explicit_compiled.succeeded()) {
         for (auto &&diagnostic : explicit_compiled.diagnostics) {
             std::cerr << diagnostic << '\n';
@@ -7597,6 +7599,131 @@ void ray_query_filter_pipeline_w1_probe(
         return false;
     }
     CHECK(explicit_compiled.direct_ray_query_pipeline_count == 0u);
+    CHECK(explicit_compiled.post_reconstruction_ray_query_pipeline_count == 0u);
+    CHECK(explicit_compiled.resident_ray_query_pipeline_count == 0u);
+    auto explicit_compiled_w2 = compile_simd_kernel(
+        explicit_proceed.function()->function(), 2u,
+        "simd_ast_explicit_proceed_reconstructed_pipeline_w2");
+    CHECK(explicit_compiled_w2.succeeded());
+    CHECK(explicit_compiled_w2.direct_ray_query_pipeline_count == 1u);
+    CHECK(explicit_compiled_w2.post_reconstruction_ray_query_pipeline_count == 1u);
+    CHECK(explicit_compiled_w2.resident_ray_query_pipeline_count == 0u);
+
+    Kernel1D two_explicit_queries = [](
+                                        AccelVar accel,
+                                        BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        UInt result = 0u;
+        {
+            auto query = accel.query_all(ray, {});
+            $while (query.proceed()) {
+                $if (query.is_surface_candidate()) {
+                    query.surface_candidate().terminate();
+                }
+                $else {
+                    query.procedural_candidate().terminate();
+                };
+            };
+            result += query.committed_hit()->inst;
+        }
+        {
+            auto query = accel.query_all(ray, {});
+            $while (query.proceed()) {
+                $if (query.is_surface_candidate()) {
+                    query.surface_candidate().terminate();
+                }
+                $else {
+                    query.procedural_candidate().terminate();
+                };
+            };
+            result += query.committed_hit()->inst;
+        }
+        output.write(index, result);
+    };
+    auto two_explicit_compiled = compile_simd_kernel(
+        two_explicit_queries.function()->function(), 8u,
+        "simd_ast_two_explicit_reconstructed_pipelines_w8");
+    CHECK(two_explicit_compiled.succeeded());
+    CHECK(two_explicit_compiled.direct_ray_query_pipeline_count == 2u);
+    CHECK(two_explicit_compiled.post_reconstruction_ray_query_pipeline_count == 2u);
+
+    Kernel1D explicit_captured = [](
+                                     AccelVar accel,
+                                     BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        auto query = accel.query_all(ray, {});
+        UInt callbacks = 0u;
+        $while (query.proceed()) {
+            $if (query.is_surface_candidate()) {
+                callbacks += 1u;
+                query.surface_candidate().commit();
+            }
+            $else {
+                callbacks += 2u;
+                query.procedural_candidate().commit(1.0f);
+            };
+        };
+        output.write(
+            index,
+            callbacks + query.committed_hit()->prim);
+    };
+    auto explicit_captured_w1 = compile_simd_kernel(
+        explicit_captured.function()->function(), 1u,
+        "simd_ast_explicit_captured_resident_pipeline_w1");
+    auto explicit_captured_w4 = compile_simd_kernel(
+        explicit_captured.function()->function(), 4u,
+        "simd_ast_explicit_captured_loop_w4");
+    CHECK(explicit_captured_w1.succeeded());
+    CHECK(explicit_captured_w4.succeeded());
+    CHECK(explicit_captured_w1.direct_ray_query_pipeline_count == 1u);
+    CHECK(explicit_captured_w1.post_reconstruction_ray_query_pipeline_count == 1u);
+    CHECK(explicit_captured_w1.resident_ray_query_pipeline_count == 1u);
+    CHECK(explicit_captured_w4.direct_ray_query_pipeline_count == 0u);
+    CHECK(explicit_captured_w4.post_reconstruction_ray_query_pipeline_count == 0u);
+
+    Kernel1D explicit_complex_captured = [](
+                                             AccelVar accel,
+                                             BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        auto query = accel.query_all(ray, {});
+        UInt value = index;
+        $while (query.proceed()) {
+            $if (query.is_surface_candidate()) {
+                auto candidate = query.surface_candidate();
+                auto hit = candidate.hit();
+                value += hit->inst + 1u;
+                value ^= hit->prim + 3u;
+                value += value << 1u;
+                value ^= value >> 3u;
+                value += hit->inst * 5u;
+                value ^= hit->prim * 7u;
+                candidate.commit();
+            }
+            $else {
+                auto candidate = query.procedural_candidate();
+                value += candidate.hit()->prim + 11u;
+                candidate.commit(1.0f);
+            };
+        };
+        output.write(
+            index,
+            value + query.committed_hit()->prim);
+    };
+    auto explicit_complex_w4 = compile_simd_kernel(
+        explicit_complex_captured.function()->function(), 4u,
+        "simd_ast_explicit_complex_captured_pipeline_w4");
+    CHECK(explicit_complex_w4.succeeded());
+    CHECK(explicit_complex_w4.direct_ray_query_pipeline_count == 1u);
+    CHECK(explicit_complex_w4.post_reconstruction_ray_query_pipeline_count == 1u);
 
     Callable trace_callable = [](
                                   AccelVar accel,
@@ -7620,9 +7747,14 @@ void ray_query_filter_pipeline_w1_probe(
         auto second = trace_callable(accel, ray);
         output.write(index, first + second);
     };
-    auto reused_compiled = compile_simd_kernel(
-        reused_callable.function()->function(), 8u,
-        "simd_ast_reused_callable_direct_ray_query_pipeline_w8");
+    SIMDCompiledKernel reused_compiled;
+    {
+        ScopedEnvironmentVariable disable_profitability{
+            "LUISA_SIMD_DISABLE_RAY_QUERY_PIPELINE_PROFITABILITY", "1"};
+        reused_compiled = compile_simd_kernel(
+            reused_callable.function()->function(), 8u,
+            "simd_ast_reused_callable_direct_ray_query_pipeline_w8");
+    }
     if (!reused_compiled.succeeded()) {
         for (auto &&diagnostic : reused_compiled.diagnostics) {
             std::cerr << diagnostic << '\n';
@@ -7803,7 +7935,7 @@ void ray_query_filter_pipeline_w1_probe(
     CHECK(w4_disabled.succeeded());
     CHECK(w1_default.direct_ray_query_pipeline_count == 1u);
     CHECK(w1_default.resident_ray_query_pipeline_count == 1u);
-    CHECK(w4_default.direct_ray_query_pipeline_count == 1u);
+    CHECK(w4_default.direct_ray_query_pipeline_count == 0u);
     CHECK(w4_default.resident_ray_query_pipeline_count == 0u);
     CHECK(w8_default.direct_ray_query_pipeline_count == 0u);
     CHECK(w1_disabled.direct_ray_query_pipeline_count == 0u);

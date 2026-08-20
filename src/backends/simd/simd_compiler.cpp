@@ -632,26 +632,44 @@ SIMDCompiledKernel compile_simd_kernel(
     // force the explicit proceed-loop path.
     static_cast<void>(xir::local_store_forward_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+    auto force_captured_ray_query_pipeline = detail::env_flag(
+        "LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE");
+    auto enable_captured_ray_query_pipeline =
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE") &&
+        (warp_width == 1u || warp_width == 4u ||
+         force_captured_ray_query_pipeline);
+    auto enable_ray_query_pipeline_profitability =
+        !force_captured_ray_query_pipeline &&
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_RAY_QUERY_PIPELINE_PROFITABILITY");
+    // A single 9--12-instruction handler regresses at W4/W8/W16 because the
+    // outlined callback costs more than the scheduler states it removes.
+    // Two query sites amortize that boundary (the measured cutout renderer),
+    // while one 108-instruction handler does so by itself (procedural). W1's
+    // resident provider and W2's packet path remain profitable without this
+    // gate. The diagnostic override retains a same-binary direct oracle.
+    auto ray_query_pipeline_options =
+        xir::LowerRayQueryToPipelineOptions{
+            .max_captured_argument_count =
+                enable_captured_ray_query_pipeline ?
+                    (force_captured_ray_query_pipeline ?
+                         std::numeric_limits<size_t>::max() :
+                         4u) :
+                    0u,
+            .min_handler_instruction_count =
+                enable_ray_query_pipeline_profitability &&
+                        warp_width >= 4u ?
+                    24u :
+                    0u,
+            .min_small_handler_loop_count = 2u};
     auto direct_ray_query_pipeline =
         xir::LowerRayQueryToPipelineInfo{};
     if (!detail::env_flag(
             "LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE")) {
-        auto force_captured_pipeline = detail::env_flag(
-            "LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE");
-        auto enable_captured_pipeline =
-            !detail::env_flag(
-                "LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE") &&
-            (warp_width == 1u || warp_width == 4u ||
-             force_captured_pipeline);
         direct_ray_query_pipeline =
             xir::lower_ray_query_to_pipeline_pass_run_on_module(
-                module.get(), nullptr,
-                {.max_captured_argument_count =
-                     enable_captured_pipeline ?
-                         (force_captured_pipeline ?
-                              std::numeric_limits<size_t>::max() :
-                              4u) :
-                         0u});
+                module.get(), nullptr, ray_query_pipeline_options);
         if (!direct_ray_query_pipeline.succeeded()) {
             SIMDCompiledKernel result{.warp_width = warp_width};
             result.diagnostics.emplace_back(
@@ -671,6 +689,23 @@ SIMDCompiledKernel compile_simd_kernel(
             "XIR explicit ray-query reconstruction failed (errors=" +
             std::to_string(inline_ray_query.error_count) + ")");
         return result;
+    }
+    auto reconstructed_ray_query_pipeline =
+        xir::LowerRayQueryToPipelineInfo{};
+    if (!detail::env_flag(
+            "LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE")) {
+        reconstructed_ray_query_pipeline =
+            xir::lower_ray_query_to_pipeline_pass_run_on_module(
+                module.get(), nullptr, ray_query_pipeline_options);
+        if (!reconstructed_ray_query_pipeline.succeeded()) {
+            SIMDCompiledKernel result{.warp_width = warp_width};
+            result.diagnostics.emplace_back(
+                "XIR reconstructed ray-query pipeline lowering failed (errors=" +
+                std::to_string(
+                    reconstructed_ray_query_pipeline.error_count) +
+                ")");
+            return result;
+        }
     }
     // Single-block callables can be folded before CFG legalization. A second
     // pass after destructuring handles multi-block callables without cloning
@@ -811,6 +846,8 @@ SIMDCompiledKernel compile_simd_kernel(
         capture_assembly, dispatch_worker_count,
         enable_packet_batch_entry,
         enable_block_batch_entry);
+    result.post_reconstruction_ray_query_pipeline_count =
+        reconstructed_ray_query_pipeline.lowered_loop_count;
     result.fast_math_identity_count = fast_math_info.identity_count;
     result.fast_math_radix_pow_count = fast_math_info.radix_pow_count;
     result.decomposed_aggregate_alloca_count =

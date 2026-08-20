@@ -60,10 +60,18 @@ struct LowerRayQueryToPipelineOptions {
     // for a different lowering.
     size_t max_captured_argument_count{
         std::numeric_limits<size_t>::max()};
+    // Optional backend profitability filter. A capture-eligible loop is
+    // selected when its two handler regions contain at least this many XIR
+    // instructions, or when its function contains at least
+    // min_small_handler_loop_count capture-eligible ray-query loops. Defaults
+    // preserve the established unconditional lowering behavior.
+    size_t min_handler_instruction_count{0u};
+    size_t min_small_handler_loop_count{
+        std::numeric_limits<size_t>::max()};
     // Optional output for callers using the selective overload. The pass
     // resets this value to zero and reports structurally valid loops retained
-    // because their callback capture ABI exceeds the bound above. Keeping the
-    // counter here preserves the established LowerRayQueryToPipelineInfo ABI.
+    // by either selection bound above. Keeping the counter here preserves the
+    // established LowerRayQueryToPipelineInfo ABI.
     size_t *skipped_loop_count{nullptr};
 };
 

@@ -62,8 +62,11 @@ lowering. The two ray-query lowerings name their destination representation:
 callback-owning backends use `RayQueryPipelineInst`, while inline-query
 backends use an ordinary structured `LoopInst`. Reconstruction recognizes only
 the exact `PROCEED -> IS_TERMINATED -> candidate dispatch` loop contract emitted
-by `lower_ray_query_to_loop`; an ordinary loop is ignored and a ray-like
-near-match rejects the complete function/module before mutation.
+by `lower_ray_query_to_loop` or the equivalent pre-mem2reg affine DSL
+`SimpleLoopInst`; an ordinary loop is ignored and a ray-like near-match rejects
+the complete function/module before mutation. A consumer may run reconstruction
+and then a selective pipeline lowering, but that composition remains explicit
+in the consumer's production pipeline.
 `destructure_cfg` lowers `IfInst`, `SwitchInst`, `LoopInst`,
 `SimpleLoopInst`, `BreakInst`, and `ContinueInst` in every owned block.
 `SwitchInst` becomes `IndexedBranchInst`, preserving its selector, case

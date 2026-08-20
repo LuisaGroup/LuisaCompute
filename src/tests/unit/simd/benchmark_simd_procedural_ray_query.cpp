@@ -2,7 +2,11 @@
 //
 // Run as:
 //   benchmark_simd_procedural_ray_query fallback [candidate-count]
+//                                      [structured|explicit]
+//                                      [counted|capture-free]
 //   benchmark_simd_procedural_ray_query simd <1|2|4|8|16> [candidate-count]
+//                                      [structured|explicit]
+//                                      [counted|capture-free]
 
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/dsl/sugar.h>
@@ -67,7 +71,8 @@ constexpr auto sample_count = 7u;
 int main(int argc, char *argv[]) {
     if (argc < 2 || argv[1] == nullptr) {
         std::cerr << "Usage: " << (argc > 0 ? argv[0] : "benchmark")
-                  << " <fallback|simd> [simd-width] [candidate-count]\n";
+                  << " <fallback|simd> [simd-width] [candidate-count] "
+                     "[structured|explicit] [counted|capture-free]\n";
         return 1;
     }
     auto backend = std::string_view{argv[1]};
@@ -85,6 +90,26 @@ int main(int argc, char *argv[]) {
         std::cerr << "Candidate count must be in [1, 256]\n";
         return 1;
     }
+    auto query_form_argument = backend == "simd" ? 4 : 3;
+    auto query_form = argc > query_form_argument &&
+                              argv[query_form_argument] != nullptr ?
+                          std::string_view{argv[query_form_argument]} :
+                          std::string_view{"structured"};
+    if (query_form != "structured" && query_form != "explicit") {
+        std::cerr << "Expected structured or explicit query form\n";
+        return 1;
+    }
+    auto explicit_query = query_form == "explicit";
+    auto payload_argument = query_form_argument + 1;
+    auto payload = argc > payload_argument &&
+                           argv[payload_argument] != nullptr ?
+                       std::string_view{argv[payload_argument]} :
+                       std::string_view{"counted"};
+    if (payload != "counted" && payload != "capture-free") {
+        std::cerr << "Expected counted or capture-free payload\n";
+        return 1;
+    }
+    auto count_callbacks = payload == "counted";
 
     Context context{argc > 0 ? argv[0] : ""};
     DeviceConfig config{};
@@ -107,7 +132,8 @@ int main(int argc, char *argv[]) {
     auto accel = device.create_accel();
     accel.emplace_back(procedural);
 
-    Kernel1D query = [candidate_count](
+    Kernel1D query = [candidate_count, explicit_query,
+                      count_callbacks](
                          AccelVar scene, BufferUInt2 output) noexcept {
         set_block_size(64u, 1u, 1u);
         auto index = dispatch_x();
@@ -117,21 +143,59 @@ int main(int argc, char *argv[]) {
             make_float3(0.0f, 0.0f, -1.0f),
             0.0f, 4.0f);
         UInt callbacks = 0u;
-        auto committed = scene.traverse(ray, {})
-                             .on_surface_candidate(
-                                 [](SurfaceCandidate &) noexcept {})
-                             .on_procedural_candidate(
-                                 [&](ProceduralCandidate &candidate) noexcept {
-                                     callbacks += 1u;
-                                     $if (candidate.hit()->prim ==
-                                          candidate_count - 1u) {
-                                         candidate.commit(0.95f);
-                                     };
-                                 })
-                             .trace();
-        output.write(
-            index,
-            make_uint2(committed->prim, callbacks));
+        if (explicit_query) {
+            auto query = scene.query_all(ray, {});
+            $while (query.proceed()) {
+                $if (query.is_procedural_candidate()) {
+                    auto candidate = query.procedural_candidate();
+                    if (count_callbacks) { callbacks += 1u; }
+                    $if (candidate.hit()->prim ==
+                         candidate_count - 1u) {
+                        candidate.commit(0.95f);
+                    };
+                }
+                $else {
+                    static_cast<void>(query.surface_candidate());
+                };
+            };
+            if (count_callbacks) {
+                output.write(
+                    index,
+                    make_uint2(
+                        query.committed_hit()->prim, callbacks));
+            } else {
+                output.write(
+                    index,
+                    make_uint2(
+                        query.committed_hit()->prim,
+                        candidate_count));
+            }
+        } else {
+            auto committed = scene.traverse(ray, {})
+                                 .on_surface_candidate(
+                                     [](SurfaceCandidate &) noexcept {})
+                                 .on_procedural_candidate(
+                                     [&](ProceduralCandidate &candidate) noexcept {
+                                         if (count_callbacks) {
+                                             callbacks += 1u;
+                                         }
+                                         $if (candidate.hit()->prim ==
+                                              candidate_count - 1u) {
+                                             candidate.commit(0.95f);
+                                         };
+                                     })
+                                 .trace();
+            if (count_callbacks) {
+                output.write(
+                    index,
+                    make_uint2(committed->prim, callbacks));
+            } else {
+                output.write(
+                    index,
+                    make_uint2(
+                        committed->prim, candidate_count));
+            }
+        }
     };
     auto shader = device.compile(query);
     auto output = device.create_buffer<uint2>(ray_count);
@@ -182,6 +246,8 @@ int main(int argc, char *argv[]) {
               << ",backend=" << backend
               << ",width=" << (backend == "simd" ? width : 1u)
               << ",candidates=" << candidate_count
+              << ",query_form=" << query_form
+              << ",payload=" << payload
               << ",rays_per_sample=" << static_cast<uint64_t>(rays)
               << ",median_seconds=" << median_seconds
               << ",minimum_seconds=" << minimum_seconds

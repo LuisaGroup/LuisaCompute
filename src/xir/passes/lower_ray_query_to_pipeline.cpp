@@ -488,24 +488,76 @@ static void collect_ray_query_loop_capture_list_in_inst(Instruction *inst, const
 }
 
 [[nodiscard]] static luisa::vector<RayQueryLoopInst *>
-select_ray_query_loops_by_capture_count(
+select_ray_query_loops(
     luisa::span<RayQueryLoopInst *const> loops,
     LowerRayQueryToPipelineOptions options) noexcept {
-    luisa::vector<RayQueryLoopInst *> selected;
-    selected.reserve(loops.size());
+    struct Candidate {
+        RayQueryLoopInst *loop;
+        size_t handler_block_count;
+        size_t handler_instruction_count;
+        size_t input_capture_count;
+        size_t output_capture_count;
+    };
+    luisa::vector<Candidate> candidates;
+    candidates.reserve(loops.size());
+    auto capture_eligible_loop_count = size_t{0u};
     for (auto *loop : loops) {
         auto subgraph = collect_ray_query_loop_subgraph(loop);
         auto capture_list = collect_ray_query_loop_capture_list(subgraph);
-        auto capture_count = capture_list.in_values.size() +
-                             capture_list.out_values.size();
-        if (capture_count <= options.max_captured_argument_count) {
-            selected.emplace_back(loop);
+        auto handler_block_count = subgraph.reverse_post_order.size() - 1u;
+        auto handler_instruction_count = size_t{0u};
+        for (auto *block : subgraph.reverse_post_order) {
+            if (block == loop->dispatch_block()) { continue; }
+            for (auto *instruction : block->instructions()) {
+                static_cast<void>(instruction);
+                ++handler_instruction_count;
+            }
+        }
+        auto input_capture_count = capture_list.in_values.size();
+        auto output_capture_count = capture_list.out_values.size();
+        capture_eligible_loop_count +=
+            input_capture_count + output_capture_count <=
+                    options.max_captured_argument_count ?
+                1u :
+                0u;
+        candidates.emplace_back(Candidate{
+            .loop = loop,
+            .handler_block_count = handler_block_count,
+            .handler_instruction_count = handler_instruction_count,
+            .input_capture_count = input_capture_count,
+            .output_capture_count = output_capture_count});
+    }
+    luisa::vector<RayQueryLoopInst *> selected;
+    selected.reserve(loops.size());
+    for (auto &&candidate : candidates) {
+        auto capture_count = candidate.input_capture_count +
+                             candidate.output_capture_count;
+        auto capture_eligible =
+            capture_count <= options.max_captured_argument_count;
+        auto profitability_eligible =
+            candidate.handler_instruction_count >=
+                options.min_handler_instruction_count ||
+            capture_eligible_loop_count >=
+                options.min_small_handler_loop_count;
+        if (capture_eligible && profitability_eligible) {
+            LUISA_VERBOSE(
+                "lower_ray_query_to_pipeline: selecting loop with {} handler block(s), {} handler instruction(s), {} input and {} output captured argument(s).",
+                candidate.handler_block_count,
+                candidate.handler_instruction_count,
+                candidate.input_capture_count,
+                candidate.output_capture_count);
+            selected.emplace_back(candidate.loop);
         } else {
             LUISA_VERBOSE(
-                "lower_ray_query_to_pipeline: retaining loop with {} input and {} output captured argument(s) (limit={}).",
-                capture_list.in_values.size(),
-                capture_list.out_values.size(),
-                options.max_captured_argument_count);
+                "lower_ray_query_to_pipeline: retaining loop with {} handler block(s), {} handler instruction(s), {} input and {} output captured argument(s) (capture_limit={}, min_handler_instructions={}, eligible_loop_count={}, small_handler_loop_threshold={}).",
+                candidate.handler_block_count,
+                candidate.handler_instruction_count,
+                candidate.input_capture_count,
+                candidate.output_capture_count,
+                options.max_captured_argument_count,
+                options.min_handler_instruction_count,
+                capture_eligible_loop_count,
+                options.min_small_handler_loop_count);
             if (options.skipped_loop_count != nullptr) {
                 ++*options.skipped_loop_count;
             }
@@ -874,7 +926,7 @@ static void run_lower_ray_query_to_pipeline_pass_on_function(
     // Preflight the complete function before touching dispatch PHIs, hoisting
     // allocas, creating callbacks, or running function-wide DCE.
     if (!lower_ray_query_to_pipeline_preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
-    loops = select_ray_query_loops_by_capture_count(
+    loops = select_ray_query_loops(
         luisa::span{loops}, options);
     lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
         function, luisa::span{loops}, info);
@@ -933,7 +985,7 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         }
         if (accepted) {
             for (auto &item : work) {
-                item.loops = detail::select_ray_query_loops_by_capture_count(
+                item.loops = detail::select_ray_query_loops(
                     luisa::span{item.loops}, options);
             }
             for (auto &item : work) {

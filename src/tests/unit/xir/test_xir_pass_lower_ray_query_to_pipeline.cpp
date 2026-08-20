@@ -434,6 +434,122 @@ void register_tests() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "profitability_filter_retains_one_small_handler_loop"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.surface);
+        b.br(f.dispatch);
+        auto function_count = count_functions(m);
+        size_t skipped_loop_count = 0u;
+
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(
+            f.kernel,
+            {.min_handler_instruction_count = 3u,
+             .min_small_handler_loop_count = 2u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 0u);
+        expect(skipped_loop_count == 1u);
+        expect(count_functions(m) == function_count);
+        expect(f.body->terminator() == f.loop);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "profitability_filter_lowers_one_large_handler_loop"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.surface);
+        static_cast<void>(b.alloca_local(Type::of<int>()));
+        b.br(f.dispatch);
+        auto function_count = count_functions(m);
+        size_t skipped_loop_count = 0u;
+
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(
+            f.kernel,
+            {.min_handler_instruction_count = 3u,
+             .min_small_handler_loop_count = 2u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(skipped_loop_count == 0u);
+        expect(count_functions(m) == function_count + 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "profitability_filter_does_not_batch_across_functions"_test = [] {
+        Module m;
+        auto first = make_fixture(m);
+        auto second = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(first.surface);
+        b.br(first.dispatch);
+        b.set_insertion_point(second.surface);
+        b.br(second.dispatch);
+        auto function_count = count_functions(m);
+        size_t skipped_loop_count = 0u;
+
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, nullptr,
+            {.min_handler_instruction_count = 3u,
+             .min_small_handler_loop_count = 2u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 0u);
+        expect(skipped_loop_count == 2u);
+        expect(count_functions(m) == function_count);
+        expect(first.body->terminator() == first.loop);
+        expect(second.body->terminator() == second.loop);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "profitability_filter_batches_two_small_handler_loops"_test = [] {
+        Module m;
+        auto first = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(first.surface);
+        b.br(first.dispatch);
+        first.merge->terminator()->remove_self();
+
+        b.set_insertion_point(first.merge);
+        auto *query = b.alloca_local(Type::of<RayQueryAll>());
+        auto *second = b.ray_query_loop();
+        auto *dispatch = second->create_dispatch_block();
+        auto *merge = second->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(query);
+        dispatch_inst->set_exit_block(merge);
+        auto *surface =
+            dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural =
+            dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        b.br(dispatch);
+        b.set_insertion_point(procedural);
+        b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto function_count = count_functions(m);
+        size_t skipped_loop_count = 0u;
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(
+            first.kernel,
+            {.min_handler_instruction_count = 3u,
+             .min_small_handler_loop_count = 2u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 2u);
+        expect(skipped_loop_count == 0u);
+        expect(count_functions(m) == function_count + 4u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "multiple_handler_exits_are_outlined_to_returns"_test = [] {
         Module m;
         auto f = make_fixture(m);

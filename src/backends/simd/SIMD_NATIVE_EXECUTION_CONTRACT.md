@@ -1952,15 +1952,18 @@ themselves are still evaluated only once and splat only at the state
 initialization stores. A copied query value is an internal pointer to that
 lane's record.
 
-SIMD has two control routes. Any explicit `proceed()` query is lowered to
-ordinary XIR loop/if control containing `PROCEED`, candidate-kind reads, and
-object writes; the cohort scheduler executes its divergent handlers without a
-second callback-side PC machine. A structured
-`traverse(...).on_*().trace()` query may instead be outlined to
-`RayQueryPipelineInst` before loop reconstruction. Capture-free pipelines use
-the direct route at W1/W2/W4/W8/W16. The measured captured specializations
-accept at most four semantic captures at W1 and W4; other captured widths
-remain loops.
+SIMD has two control routes. A query retained as ordinary XIR loop/if control
+contains `PROCEED`, candidate-kind reads, and object writes; the cohort
+scheduler executes its divergent handlers without a second callback-side PC
+machine. A structured `traverse(...).on_*().trace()` query may instead be
+outlined to `RayQueryPipelineInst` before reconstruction. Afterward, the exact
+canonical inline `$while (query.proceed())` plus immediate candidate dispatch
+may be reconstructed and offered to the same selective pipeline pass. This is
+legal only because reconstruction preserves every successful candidate
+observation and handler ordering; arbitrary uses of the Boolean result or
+query payload remain loops or reject a ray-query-shaped near-match. The
+measured captured specializations accept at most four semantic captures at W1
+and W4; other captured widths remain loops.
 Constants, function operands, and special registers are not captures. Kernel
 arguments, resources, reference state, and live-outs are captures. A
 preliminary single-store local forwarding pass may remove only front-end
@@ -2041,22 +2044,34 @@ sorted candidate order exposed by the current backend. Candidate order,
 query-all/query-any behavior, motion time, visibility, opacity, sparse cohorts,
 and partial tails remain identical to the loop oracle.
 
-Capture-free pipelines use the direct route at every width. Captured pipelines
-are bounded to four captures at W1 and W4 by default; forced W2 is a regression
-and longer W8/W16 confidence intervals cross one. W1's resident route is the
-measured exception: it removes repeated scheduler/status turnover without
-changing callback order.
+Capture-free pipelines are ABI-eligible at every width. Captured pipelines are
+bounded to four captures at W1 and W4 by default; forced W2 is a regression and
+longer W8/W16 confidence intervals cross one. W1's resident route removes
+repeated scheduler/status turnover without changing callback order. W1/W2
+accept every ABI-eligible query. At W4/W8/W16, a query is selected only when
+its two handler regions contain at least 24 XIR instructions or its function
+contains at least two ABI-eligible query loops. Counting is per function and
+performed before mutation, so two small sequential sites are batched by one
+stable decision. A selected second-pass loop increments
+`post_reconstruction_ray_query_pipelines`; this counter may also include an
+original structured loop revisited after reconstruction makes the function's
+multi-query condition true.
 `LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE=1` restores the loop oracle for
 all pipelines.
 `LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE=1` retains captured loops while
 leaving capture-free direct pipelines enabled;
 `LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE=1` removes the width/count
-profitability gate for tests and experiments. An explicit `query_all`/
-`query_any` `proceed()` loop always remains on the state-machine route because
-each successful proceed is observable. Packet width and native traversal ABI
-are not DSL semantics. The existing structured DSL already supplies the
-whole-query boundary and lexical captures, so no SIMD-specific public syntax
-is required.
+profitability gate for tests and experiments.
+`LUISA_SIMD_DISABLE_RAY_QUERY_PIPELINE_PROFITABILITY=1` preserves the ABI and
+capture checks but bypasses the handler-size/query-count gate as a same-binary
+performance oracle. Non-canonical explicit `query_all`/`query_any` control
+remains on the state-machine route. Packet width and native traversal ABI are
+not DSL semantics. The existing structured DSL and the proven canonical inline
+form already supply the whole-query boundary and lexical captures, so no
+SIMD-specific public syntax is required. A future front-end representation may
+retain this boundary directly, together with audited effect/capture facts, to
+avoid reconstruction; it must not expose backend width policy or weaken the
+same fail-closed shape proof.
 
 Distinct simultaneously live query objects also receive distinct records.
 Sequential construction sites may share the same per-lane scratch only after

@@ -4,8 +4,10 @@
 // but the farthest candidate (sixteen by default). This isolates candidate-
 // continuation cost while retaining the public DSL and backend boundary. Run
 // as:
-//   benchmark_simd_ray_query fallback [candidate-count]
+//   benchmark_simd_ray_query fallback [candidate-count] [structured|explicit]
+//                            [counted|capture-free]
 //   benchmark_simd_ray_query simd <1|2|4|8|16> [candidate-count]
+//                            [structured|explicit] [counted|capture-free]
 
 // The process performs warmup plus seven samples and reports both the median
 // and minimum. Running the executable several times remains required on a
@@ -99,7 +101,8 @@ constexpr auto sample_count = 7u;
 int main(int argc, char *argv[]) {
     if (argc < 2 || argv[1] == nullptr) {
         std::cerr << "Usage: " << (argc > 0 ? argv[0] : "benchmark")
-                  << " <fallback|simd> [simd-width] [candidate-count]\n";
+                  << " <fallback|simd> [simd-width] [candidate-count] "
+                     "[structured|explicit] [counted|capture-free]\n";
         return 1;
     }
     auto backend = std::string_view{argv[1]};
@@ -111,6 +114,26 @@ int main(int argc, char *argv[]) {
     if (backend == "simd" && width == 0u) { return 1; }
     auto candidate_count = parse_candidate_count(argc, argv, backend);
     if (candidate_count == 0u) { return 1; }
+    auto query_form_argument = backend == "simd" ? 4 : 3;
+    auto query_form = argc > query_form_argument &&
+                              argv[query_form_argument] != nullptr ?
+                          std::string_view{argv[query_form_argument]} :
+                          std::string_view{"structured"};
+    if (query_form != "structured" && query_form != "explicit") {
+        std::cerr << "Expected structured or explicit query form\n";
+        return 1;
+    }
+    auto explicit_query = query_form == "explicit";
+    auto payload_argument = query_form_argument + 1;
+    auto payload = argc > payload_argument &&
+                           argv[payload_argument] != nullptr ?
+                       std::string_view{argv[payload_argument]} :
+                       std::string_view{"counted"};
+    if (payload != "counted" && payload != "capture-free") {
+        std::cerr << "Expected counted or capture-free payload\n";
+        return 1;
+    }
+    auto count_callbacks = payload == "counted";
 
     Context context{argc > 0 ? argv[0] : ""};
     DeviceConfig config{};
@@ -141,7 +164,8 @@ int main(int argc, char *argv[]) {
     }
 
     auto ray_t_max = 2.0f * static_cast<float>(candidate_count) + 2.0f;
-    Kernel1D query = [candidate_count, ray_t_max](
+    Kernel1D query = [candidate_count, ray_t_max, explicit_query,
+                      count_callbacks](
                          AccelVar scene, BufferUInt2 output) noexcept {
         set_block_size(64u, 1u, 1u);
         auto index = dispatch_x();
@@ -150,21 +174,59 @@ int main(int argc, char *argv[]) {
             make_float3(0.0f, 0.0f, -1.0f),
             0.0f, ray_t_max);
         UInt callbacks = 0u;
-        auto committed = scene.traverse(ray, AccelTraceOptions{})
-                             .on_surface_candidate(
-                                 [&](SurfaceCandidate &candidate) noexcept {
-                                     callbacks += 1u;
-                                     $if (candidate.hit()->inst ==
-                                          candidate_count - 1u) {
-                                         candidate.commit();
-                                     };
-                                 })
-                             .on_procedural_candidate(
-                                 [](ProceduralCandidate &) noexcept {})
-                             .trace();
-        output.write(
-            index,
-            make_uint2(committed->inst, callbacks));
+        if (explicit_query) {
+            auto query = scene.query_all(ray, AccelTraceOptions{});
+            $while (query.proceed()) {
+                $if (query.is_surface_candidate()) {
+                    auto candidate = query.surface_candidate();
+                    if (count_callbacks) { callbacks += 1u; }
+                    $if (candidate.hit()->inst ==
+                         candidate_count - 1u) {
+                        candidate.commit();
+                    };
+                }
+                $else {
+                    static_cast<void>(query.procedural_candidate());
+                };
+            };
+            if (count_callbacks) {
+                output.write(
+                    index,
+                    make_uint2(
+                        query.committed_hit()->inst, callbacks));
+            } else {
+                output.write(
+                    index,
+                    make_uint2(
+                        query.committed_hit()->inst,
+                        candidate_count));
+            }
+        } else {
+            auto committed = scene.traverse(ray, AccelTraceOptions{})
+                                 .on_surface_candidate(
+                                     [&](SurfaceCandidate &candidate) noexcept {
+                                         if (count_callbacks) {
+                                             callbacks += 1u;
+                                         }
+                                         $if (candidate.hit()->inst ==
+                                              candidate_count - 1u) {
+                                             candidate.commit();
+                                         };
+                                     })
+                                 .on_procedural_candidate(
+                                     [](ProceduralCandidate &) noexcept {})
+                                 .trace();
+            if (count_callbacks) {
+                output.write(
+                    index,
+                    make_uint2(committed->inst, callbacks));
+            } else {
+                output.write(
+                    index,
+                    make_uint2(
+                        committed->inst, candidate_count));
+            }
+        }
     };
     auto shader = device.compile(query);
     auto output = device.create_buffer<uint2>(ray_count);
@@ -207,6 +269,8 @@ int main(int argc, char *argv[]) {
               << ",backend=" << backend
               << ",width=" << (backend == "simd" ? width : 1u)
               << ",candidates=" << candidate_count
+              << ",query_form=" << query_form
+              << ",payload=" << payload
               << ",rays_per_sample=" << static_cast<uint64_t>(rays)
               << ",median_seconds=" << median_seconds
               << ",minimum_seconds=" << minimum_seconds
