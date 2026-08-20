@@ -2384,11 +2384,12 @@ required same-binary semantic and performance oracle.
 
 The surface-filter callback has two width-disjoint internal ABIs. W2 retains
 the original five arguments `(width, mask, states, launch, handler)` and must
-receive no ray-packet operand. W4/W8/W16 use six arguments by inserting one
-opaque ray-packet pointer between `states` and `launch`. Since device width is
-fixed, the instance table may store these alternatives in one pointer-sized
-union slot; code generated for one width must never invoke the other type.
-W1 does not use either surface-filter ABI.
+receive no ray-packet operand. W4/W8/W16 use seven arguments by inserting one
+opaque ray-packet pointer between `states` and `launch`, then passing both the
+general state-backed handler and the direct candidate handler. Since device
+width is fixed, the instance table may store these alternatives in one
+pointer-sized union slot; code generated for one width must never invoke the
+other type. W1 does not use either surface-filter ABI.
 
 For W4/W8/W16 the pointed-to input is exactly twelve component-major vectors
 matching the target Embree `RTCRay4/8/16` layout and alignment. Fields are
@@ -2413,14 +2414,38 @@ never uninitialized or stale storage. This pre-call rule prevents
 uninitialized, poison, or stale query data from reaching Embree. Sanitizing
 after traversal is insufficient.
 
-The state AoS remains authoritative for candidate publication, commits,
-fallback providers, and the disabled oracle. The packet-input runtime may use
+The state AoS remains authoritative for general candidate publication,
+committed results, fallback providers, and the disabled oracle. The
+packet-input runtime may use
 the sanitized ray packet directly for occlusion and may copy it only as the ray
 prefix of an initialized closest-hit packet. It must not reconstruct active
 rays through a lane-by-lane state-pointer loop. The diagnostic
 `LUISA_SIMD_DISABLE_IN_FILTER_RAY_PACKET_INPUT=1` must retain JIT construction
 and sanitization while selecting the state-unpack runtime, so measurements
 isolate this boundary without changing the generated module.
+
+For a compiler-audited capture-free surface filter at W4/W8/W16, the runtime
+may invoke a separate direct handler with exactly five arguments `(width,
+physical_candidate_mask, ray_packet, hit_packet, commit_mask_out)`. That ABI
+must not contain state-pointer, launch, resource, or capture arguments. The
+handler may read only the first instance ID, primitive ID, barycentrics, and
+current ray `tfar` from Embree's component-major packets and may only OR active
+lanes into `commit_mask_out`. Every field load must be a fixed-vector load and
+must select a benign value for inactive physical lanes before the value can
+reach integer division, shifts, address calculation, or other poison/trap-
+capable operations. Masked gather/scatter, target-specific intrinsics, scalar
+lane calls, and scalar libm calls are forbidden.
+
+The direct handler's mask is in physical Embree packet coordinates. The
+runtime must map its result through `ray.id` before updating logical query
+states, reject output bits outside the input candidate mask, and revalidate
+candidate IDs and distance before the call. It may re-read an accepted hit
+from the live Embree packet after the call; it must not publish rejected
+candidates to the state AoS. W2 must retain the state handler. The diagnostic
+`LUISA_SIMD_DISABLE_DIRECT_SURFACE_FILTER_CANDIDATE=1` must select the general
+handler without changing the JIT module or packet-input provider, and the two
+paths must produce identical output for closest and any traversal, sparse
+cohorts, and partial tails.
 
 At W8/W16, a full runtime cohort mask must use a dense proceed loop in either
 the generic or triangle-only adaptive provider. A sparse mask may iterate its

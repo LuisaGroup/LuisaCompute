@@ -1087,22 +1087,30 @@ void ScheduleEmitter::_partition_state_residency() {
 
 void ScheduleEmitter::_build() {
     auto &context = _module.getContext();
-    auto handler_entry =
-        _entry_abi == ScheduleEntryABI::ray_query_handler;
+    auto handler_entry = _is_handler_entry();
     auto parameter_types = std::vector<::llvm::Type *>{};
     if (handler_entry) {
-        parameter_types = {
-            ::llvm::Type::getInt32Ty(context),
-            ::llvm::Type::getInt64Ty(context),
-            ::llvm::PointerType::getUnqual(context),
-            ::llvm::PointerType::getUnqual(context)};
-        parameter_types.reserve(3u + _parameters.size());
-        for (auto index = size_t{1u};
-             index < _parameters.size(); index++) {
-            auto *type = _handler_parameter_type(
-                *_parameters[index]);
-            if (type == nullptr) { return; }
-            parameter_types.emplace_back(type);
+        if (_is_surface_filter_handler_entry()) {
+            parameter_types = {
+                ::llvm::Type::getInt32Ty(context),
+                ::llvm::Type::getInt64Ty(context),
+                ::llvm::PointerType::getUnqual(context),
+                ::llvm::PointerType::getUnqual(context),
+                ::llvm::PointerType::getUnqual(context)};
+        } else {
+            parameter_types = {
+                ::llvm::Type::getInt32Ty(context),
+                ::llvm::Type::getInt64Ty(context),
+                ::llvm::PointerType::getUnqual(context),
+                ::llvm::PointerType::getUnqual(context)};
+            parameter_types.reserve(3u + _parameters.size());
+            for (auto index = size_t{1u};
+                 index < _parameters.size(); index++) {
+                auto *type = _handler_parameter_type(
+                    *_parameters[index]);
+                if (type == nullptr) { return; }
+                parameter_types.emplace_back(type);
+            }
         }
     } else {
         parameter_types = {
@@ -1136,6 +1144,14 @@ void ScheduleEmitter::_build() {
     if (handler_entry) {
         _entry->setDSOLocal(true);
         _entry->addFnAttr(::llvm::Attribute::InlineHint);
+        if (_is_surface_filter_handler_entry()) {
+            for (auto index : {2u, 3u}) {
+                _entry->addParamAttr(index, ::llvm::Attribute::NonNull);
+                _entry->addParamAttr(index, ::llvm::Attribute::ReadOnly);
+            }
+            _entry->addParamAttr(4u, ::llvm::Attribute::NonNull);
+            _entry->addParamAttr(4u, ::llvm::Attribute::NoAlias);
+        }
     }
     _result.schedule_block_count = _source.blocks().size();
     _result.convergence_point_count =
@@ -1146,13 +1162,31 @@ void ScheduleEmitter::_build() {
         _active_lane_count->setName("lane_count");
         _handler_active_mask_bits = &*argument++;
         _handler_active_mask_bits->setName("active_mask_bits");
-        _argument_buffer = &*argument++;
-        _argument_buffer->setName("state_pointer_lanes");
-        _launch_config = &*argument;
-        _launch_config->setName("launch_config");
-        for (auto index = size_t{1u};
-             index < _parameters.size(); index++) {
-            (++argument)->setName("capture." + std::to_string(index - 1u));
+        if (_is_surface_filter_handler_entry()) {
+            auto *pointer_type =
+                ::llvm::PointerType::getUnqual(context);
+            _argument_buffer =
+                ::llvm::ConstantPointerNull::get(pointer_type);
+            _launch_config =
+                ::llvm::ConstantPointerNull::get(pointer_type);
+            _surface_filter_ray_packet = &*argument++;
+            _surface_filter_ray_packet->setName("ray_packet");
+            _surface_filter_hit_packet = &*argument++;
+            _surface_filter_hit_packet->setName("hit_packet");
+            _surface_filter_committed_mask_bits = &*argument;
+            _surface_filter_committed_mask_bits->setName(
+                "committed_mask_bits");
+        } else {
+            _argument_buffer = &*argument++;
+            _argument_buffer->setName("state_pointer_lanes");
+            _launch_config = &*argument++;
+            _launch_config->setName("launch_config");
+            for (auto index = size_t{1u};
+                 index < _parameters.size(); index++) {
+                argument->setName(
+                    "capture." + std::to_string(index - 1u));
+                ++argument;
+            }
         }
         _return_buffer = ::llvm::ConstantPointerNull::get(
             ::llvm::PointerType::getUnqual(context));

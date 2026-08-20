@@ -5242,3 +5242,78 @@ packet/unpack-oracle images are byte-identical at W4/W8/W16. The new packet
 probe covers all twelve fields, thirteen special `tnear` bit patterns, sparse
 cohorts, and inactive tails; changed C++ is clang-format-clean and the complete
 diff passes Git whitespace validation.
+
+## Direct Embree candidate packet handler
+
+The next profile split the 256-spp W8 cutout process into approximately 42.2%
+JIT, 40.6% Embree, and 15.3% SIMD runtime. Although packet input had removed
+the host ray initializer, the hottest JIT regions still wrote each Embree
+candidate into the 1,248-byte-per-lane query AoS, gathered `inst/prim/u/v/t`
+back into the surface handler, and scattered the commit flag and distance.
+Two live query sites explain the 19,968-byte main-kernel stack allocation.
+
+Capture-free candidate-local W4/W8/W16 handlers now have a second five-argument
+ABI that consumes Embree's ray/hit SoA pointers directly and returns one commit
+bit mask. The runtime keeps rejected candidates out of the state AoS and
+re-reads only accepted hits from the still-live Embree packet. W2 retains the
+state path. `LUISA_SIMD_DISABLE_DIRECT_SURFACE_FILTER_CANDIDATE=1` selects the
+general handler in the same JIT module and is the mechanism oracle.
+
+Seven alternating fresh-process pairs use the system/TBB build, physical CPUs
+0--15, sixteen workers, 64 spp, and one spp per dispatch. Both compiler and
+Psycles interference processes were polled before and after every child; no
+reported group was contaminated:
+
+| width | direct median FPS | state-handler median FPS | direct / state | wins | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 38.8898 | 37.9566 | **1.0238x** | 7/7 | **[1.0022, 1.0458]** |
+| W8 | 43.1371 | 41.2922 | **1.0451x** | 7/7 | **[1.0354, 1.0550]** |
+| W16 | 43.4802 | 40.5397 | **1.0719x** | 7/7 | **[1.0590, 1.0850]** |
+
+A separate seven-round rotation placed one equal-resource fallback process and
+W4/W8/W16 processes in four cyclic orders. Its fallback median was 47.7651
+FPS:
+
+| width | SIMD median FPS | SIMD / fallback | 95% paired CI |
+| --- | ---: | ---: | ---: |
+| W4 | 38.6090 | 0.8049x | [0.7969, 0.8130] |
+| W8 | 42.4775 | **0.8857x** | [0.8723, 0.8993] |
+| W16 | 43.2627 | **0.9010x** | [0.8935, 0.9085] |
+
+W16 is now the best cutout width in this configuration and is 9.9% below
+fallback, versus 16.6% at the preceding checkpoint. W1 and W2 cannot select
+the new ABI; their preceding equal-resource ratios remain 0.7096x and 0.5979x.
+
+Three alternating W8 256-spp `perf stat` pairs corroborate the wall result:
+
+| counter | direct / state-handler oracle |
+| --- | ---: |
+| throughput | **1.0341x** |
+| cycles | **0.9654x** |
+| instructions | 1.0004x |
+| branches | 0.9961x |
+| branch misses | 1.0389x |
+| cache references | 0.9880x |
+| cache misses | 1.0037x |
+
+The win is therefore latency rather than deleted scalar work: retired
+instructions are neutral, but removal of four dependent AoS gather/scatter
+instructions per handler lowers cycles by 3.5%. Branch-miss and cache-miss
+ratios remain noisy around one.
+
+In the final dumped W8 cutout object, each general handler is 4,829 bytes and
+contains three `vgatherqps` plus one `vscatterqps`; each direct handler is 4,668
+bytes and contains none. Retaining two oracle handlers and two direct handlers
+adds 9,336 bytes of cold `.text`; the complete object `.text` is 43,203 bytes.
+The direct LLVM IR has five fixed-vector packet loads, sanitizing selects before
+use, no masked gather/scatter, no target intrinsic, and no state-pointer or
+launch argument. The object contains no varying scalar-libm call.
+
+The final W16 1,024-spp cutout render passed the saved fallback reference at
+45.1509 dB PSNR, 0.999555 correlation, and 0.997270 contrast. Direct and
+same-binary state-handler-oracle PNGs are byte-identical (SHA-256
+`cf52566863c4cb9dd2cdf9b7c60cad2cc73d6ae8de660f08b5cb35414655f01d`).
+Two independent Release build directories then completed the whole test
+inventory at 167/167 each, including all native-math, Schedule-IR, XIR,
+runtime-width, accel/oracle, graphics, image-processing, voxel, and path-tracing
+gates.

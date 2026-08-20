@@ -40,6 +40,7 @@ namespace luisa::compute::simd::detail {
 enum class ScheduleEntryABI {
     packet,
     ray_query_handler,
+    ray_query_surface_filter_handler,
 };
 
 // Private implementation shared by the focused Schedule IR lowering units.
@@ -80,6 +81,9 @@ private:
     ::llvm::Value *_launch_config{nullptr};
     ::llvm::Value *_active_lane_count{nullptr};
     ::llvm::Value *_handler_active_mask_bits{nullptr};
+    ::llvm::Value *_surface_filter_ray_packet{nullptr};
+    ::llvm::Value *_surface_filter_hit_packet{nullptr};
+    ::llvm::Value *_surface_filter_committed_mask_bits{nullptr};
     ::llvm::BasicBlock *_scheduler_loop{nullptr};
     ::llvm::BasicBlock *_scheduler_dispatch_route{nullptr};
     ::llvm::PHINode *_scheduler_dispatch_pc{nullptr};
@@ -499,6 +503,10 @@ private:
         const schedule::Instruction &instruction);
     void _ray_query_write(
         const schedule::Instruction &instruction);
+    [[nodiscard]] ::llvm::Value *_ray_query_surface_filter_read(
+        const schedule::Instruction &instruction);
+    void _ray_query_surface_filter_write(
+        const schedule::Instruction &instruction);
     void _ray_query_pipeline(
         const schedule::Instruction &instruction);
     [[nodiscard]] AccelInstanceAddress _accel_instance_address(
@@ -647,6 +655,13 @@ private:
     void _partition_state_residency();
     void _build_direct(::llvm::Value *initial_mask);
     void _build();
+    [[nodiscard]] bool _is_handler_entry() const noexcept {
+        return _entry_abi != ScheduleEntryABI::packet;
+    }
+    [[nodiscard]] bool _is_surface_filter_handler_entry() const noexcept {
+        return _entry_abi ==
+               ScheduleEntryABI::ray_query_surface_filter_handler;
+    }
 
 public:
     ScheduleEmitter(::llvm::Module &module,

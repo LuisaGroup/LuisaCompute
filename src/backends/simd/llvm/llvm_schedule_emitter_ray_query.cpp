@@ -1246,6 +1246,9 @@ void ScheduleEmitter::_ray_query_update_status(
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_ray_query_read(
     const schedule::Instruction &instruction) {
+    if (_is_surface_filter_handler_entry()) {
+        return _ray_query_surface_filter_read(instruction);
+    }
     if (!instruction.result || !instruction.source_op ||
         instruction.operands.size() != 1u) {
         _fail("ray-query object read is malformed");
@@ -1400,6 +1403,10 @@ void ScheduleEmitter::_ray_query_update_status(
 
 void ScheduleEmitter::_ray_query_write(
     const schedule::Instruction &instruction) {
+    if (_is_surface_filter_handler_entry()) {
+        _ray_query_surface_filter_write(instruction);
+        return;
+    }
     if (!instruction.source_op || instruction.operands.empty()) {
         _fail("ray-query object write is malformed");
         return;

@@ -119,7 +119,8 @@ struct SIMDCompiledKernel {
     bool direct_control_flow{false};
     uint32_t warp_width{0u};
     std::string target_triple{};
-    // Populated only when explicitly requested by a diagnostic benchmark.
+    // Populated only when explicitly requested for diagnostics.
+    std::string llvm_ir{};
     std::string assembly{};
     std::vector<std::string> diagnostics{};
 

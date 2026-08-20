@@ -439,7 +439,7 @@ void ScheduleEmitter::_analyze_local_lvalues() {
         bool shared{false};
     };
     std::vector<PendingLValue> ready;
-    if (_entry_abi == ScheduleEntryABI::ray_query_handler) {
+    if (_is_handler_entry()) {
         for (auto &&value : _source.values()) {
             if (value.origin != schedule::ValueOrigin::parameter) {
                 continue;
@@ -577,10 +577,15 @@ void ScheduleEmitter::_preflight() {
         _fail("LLVM packet specialization width must be in [1, 128]");
         return;
     }
-    if (_entry_abi == ScheduleEntryABI::ray_query_handler &&
+    if (_is_handler_entry() &&
         _width != 1u && _width != 2u && _width != 4u &&
         _width != 8u && _width != 16u) {
         _fail("ray-query handler width must be one of W1/W2/W4/W8/W16");
+        return;
+    }
+    if (_is_surface_filter_handler_entry() &&
+        _width != 4u && _width != 8u && _width != 16u) {
+        _fail("direct surface-filter handler width must be W4/W8/W16");
         return;
     }
     if (_source.logical_warp_width() != 0u &&
@@ -659,8 +664,7 @@ void ScheduleEmitter::_preflight() {
     }
     _cooperative_block = _has_block_barrier || _has_shared_memory;
     _result.cooperative_block = _cooperative_block;
-    if (_cooperative_block &&
-        _entry_abi == ScheduleEntryABI::ray_query_handler) {
+    if (_cooperative_block && _is_handler_entry()) {
         _fail("ray-query handlers cannot contain shared memory or block barriers");
         return;
     }
@@ -781,9 +785,12 @@ void ScheduleEmitter::_preflight() {
             return;
         }
     }
-    if (_entry_abi == ScheduleEntryABI::ray_query_handler &&
-        parameters.empty()) {
+    if (_is_handler_entry() && parameters.empty()) {
         _fail("ray-query handler ABI requires a query parameter");
+        return;
+    }
+    if (_is_surface_filter_handler_entry() && parameters.size() != 1u) {
+        _fail("direct surface-filter handler cannot have captures");
         return;
     }
     _parameter_offsets.resize(parameters.size());
@@ -805,6 +812,33 @@ void ScheduleEmitter::_preflight() {
 
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
+            if (_is_surface_filter_handler_entry()) {
+                auto valid_direct_instruction =
+                    instruction.opcode == schedule::Opcode::arithmetic ||
+                    instruction.opcode == schedule::Opcode::cast ||
+                    instruction.opcode == schedule::Opcode::ray_query_read ||
+                    instruction.opcode == schedule::Opcode::ray_query_write;
+                if (!valid_direct_instruction) {
+                    _fail("direct surface-filter handler contains a stateful instruction");
+                    return;
+                }
+                if (instruction.opcode == schedule::Opcode::ray_query_read &&
+                    (!instruction.source_op ||
+                     *instruction.source_op != static_cast<uint32_t>(
+                                                   xir::RayQueryObjectReadOp::
+                                                       RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT))) {
+                    _fail("direct surface-filter handler may only read the current triangle candidate");
+                    return;
+                }
+                if (instruction.opcode == schedule::Opcode::ray_query_write &&
+                    (!instruction.source_op ||
+                     *instruction.source_op != static_cast<uint32_t>(
+                                                   xir::RayQueryObjectWriteOp::
+                                                       RAY_QUERY_OBJECT_COMMIT_TRIANGLE))) {
+                    _fail("direct surface-filter handler may only commit the current triangle candidate");
+                    return;
+                }
+            }
             if (instruction.opcode != schedule::Opcode::arithmetic &&
                 instruction.opcode != schedule::Opcode::cast &&
                 instruction.opcode != schedule::Opcode::alloca &&
@@ -852,6 +886,19 @@ void ScheduleEmitter::_preflight() {
                     handlers.on_procedural->arg_size() !=
                         expected_argument_count) {
                     _fail("ray-query pipeline handler capture count does not match its Schedule operands");
+                    return;
+                }
+                if (handlers.embree_surface_filter_safe &&
+                    _width >= 4u &&
+                    (handlers.on_surface_filter == nullptr ||
+                     handlers.on_surface_filter->arg_size() != 5u)) {
+                    _fail("ray-query surface-filter specialization has an invalid ABI");
+                    return;
+                }
+                if ((!handlers.embree_surface_filter_safe ||
+                     _width < 4u) &&
+                    handlers.on_surface_filter != nullptr) {
+                    _fail("ray-query pipeline has an unsafe surface-filter specialization");
                     return;
                 }
                 for (auto capture_index = size_t{1u};
@@ -1299,13 +1346,26 @@ void ScheduleEmitter::_create_external_values() {
             case schedule::ValueOrigin::parameter: {
                 auto *metadata = std::get_if<
                     schedule::ParameterValueMetadata>(&value.metadata);
-                if (_entry_abi ==
-                    ScheduleEntryABI::ray_query_handler) {
+                if (_is_handler_entry()) {
                     if (metadata->index == 0u) {
-                        auto *bases = _builder.CreateVectorSplat(
-                            _width, _argument_buffer);
-                        auto *offsets = _lane_offsets(
-                            _lane_ids(), sizeof(void *));
+                        auto *pointer_type =
+                            ::llvm::PointerType::getUnqual(
+                                _module.getContext());
+                        auto *bases = _is_surface_filter_handler_entry() ?
+                                          static_cast<::llvm::Value *>(
+                                              ::llvm::Constant::getNullValue(
+                                                  ::llvm::FixedVectorType::get(
+                                                      pointer_type, _width))) :
+                                          _builder.CreateVectorSplat(
+                                              _width, _argument_buffer);
+                        auto *offsets =
+                            _is_surface_filter_handler_entry() ?
+                                static_cast<::llvm::Value *>(
+                                    ::llvm::Constant::getNullValue(
+                                        ::llvm::FixedVectorType::get(
+                                            _builder.getInt64Ty(), _width))) :
+                                _lane_offsets(
+                                    _lane_ids(), sizeof(void *));
                         llvm_value = _local_handle(bases, offsets);
                     } else {
                         llvm_value = _entry->getArg(

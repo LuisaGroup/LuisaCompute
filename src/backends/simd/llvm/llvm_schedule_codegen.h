@@ -219,6 +219,15 @@ using SIMDHostRayQuerySurfaceFilterHandler = void(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
     const SIMDPacketLaunchConfig *launch_config);
+// Specialized W4/W8/W16 form for an audited capture-free surface filter.
+// ray_packet and hit_packet point at Embree's native SoA packet fields;
+// committed_mask_bits is OR-ed with the physical packet lanes that executed a
+// triangle commit. Keeping this separate from the general handler ABI lets the
+// runtime retain the latter as an exact same-module oracle.
+using SIMDHostRayQueryDirectSurfaceFilterHandler = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    const void *ray_packet, const void *hit_packet,
+    uint64_t *committed_mask_bits);
 using SIMDHostAccelRayQuerySurfaceFilterPipeline = void(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
@@ -229,7 +238,8 @@ using SIMDHostAccelRayQuerySurfaceFilterPacketPipeline = void(
     SIMDHostRayQueryState *const *states,
     void *ray_packet,
     const SIMDPacketLaunchConfig *launch_config,
-    SIMDHostRayQuerySurfaceFilterHandler *on_surface);
+    SIMDHostRayQuerySurfaceFilterHandler *on_surface,
+    SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct);
 
 // One fixed-size state belongs to each logical lane and simultaneously live
 // query object. Noninterfering construction sites may share storage after a
@@ -628,6 +638,10 @@ struct SIMDLLVMPrintFormat {
 struct LLVMSIMDRayQueryPipelineHandlers {
     ::llvm::Function *on_surface{nullptr};
     ::llvm::Function *on_procedural{nullptr};
+    // W4/W8/W16-only Embree packet specialization. This remains null unless
+    // the XIR audit proves the surface handler is capture-free and can only
+    // inspect/commit the current triangle candidate.
+    ::llvm::Function *on_surface_filter{nullptr};
     // W1-only opaque-capture thunk used by the resident runtime loop. One
     // stable indirect target dispatches both candidate kinds to keep the
     // host/JIT boundary friendly to indirect-branch prediction. Wider
@@ -793,6 +807,28 @@ struct LLVMScheduleCodegenResult {
 // per-lane local-handle representation as the packet caller.
 [[nodiscard]] LLVMScheduleCodegenResult
 lower_ray_query_handler_schedule_to_llvm(
+    ::llvm::Module &module, const schedule::Function &function,
+    uint32_t specialization_width, std::string_view entry_name,
+    bool enable_fast_math = false,
+    std::array<uint32_t, 3u> static_block_size = {},
+    bool enable_uniform_buffer_broadcast = true,
+    bool enable_lane_affine_buffer = true,
+    bool enable_paired_leaf_gather = false,
+    uint32_t dispatch_worker_count = 1u,
+    bool enable_native_predicated_loop = true,
+    size_t print_format_id_base = 0u);
+
+// Direct Embree surface-filter handler ABI:
+//   void handler(i32 lane_count, i64 active_mask_bits,
+//                ptr ray_packet, ptr hit_packet,
+//                ptr committed_mask_bits)
+//
+// This entry is deliberately narrower than the general ray-query handler:
+// it accepts one query parameter, reads only the current triangle candidate,
+// and may only commit that candidate. Candidate fields stay in Embree's SoA
+// packet and never round-trip through SIMDHostRayQueryState.
+[[nodiscard]] LLVMScheduleCodegenResult
+lower_ray_query_surface_filter_handler_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
     uint32_t specialization_width, std::string_view entry_name,
     bool enable_fast_math = false,

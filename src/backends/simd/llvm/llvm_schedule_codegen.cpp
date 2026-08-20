@@ -834,18 +834,24 @@ lower_ray_query_handler_schedule_to_llvm(
     bool enable_native_predicated_loop,
     size_t print_format_id_base) {
     return detail::ScheduleEmitter{
-        module, function, specialization_width, entry_name,
-        enable_fast_math, static_block_size,
-        enable_uniform_buffer_broadcast,
-        enable_lane_affine_buffer,
-        enable_paired_leaf_gather,
-        dispatch_worker_count,
-        enable_native_predicated_loop,
-        false,
-        false,
-        detail::ScheduleEntryABI::ray_query_handler,
-        {},
-        print_format_id_base}
+        module, function, specialization_width, entry_name, enable_fast_math, static_block_size, enable_uniform_buffer_broadcast, enable_lane_affine_buffer, enable_paired_leaf_gather, dispatch_worker_count, enable_native_predicated_loop, false, false, detail::ScheduleEntryABI::ray_query_handler, {}, print_format_id_base}
+        .run();
+}
+
+LLVMScheduleCodegenResult
+lower_ray_query_surface_filter_handler_schedule_to_llvm(
+    ::llvm::Module &module, const schedule::Function &function,
+    uint32_t specialization_width, std::string_view entry_name,
+    bool enable_fast_math,
+    std::array<uint32_t, 3u> static_block_size,
+    bool enable_uniform_buffer_broadcast,
+    bool enable_lane_affine_buffer,
+    bool enable_paired_leaf_gather,
+    uint32_t dispatch_worker_count,
+    bool enable_native_predicated_loop,
+    size_t print_format_id_base) {
+    return detail::ScheduleEmitter{
+        module, function, specialization_width, entry_name, enable_fast_math, static_block_size, enable_uniform_buffer_broadcast, enable_lane_affine_buffer, enable_paired_leaf_gather, dispatch_worker_count, enable_native_predicated_loop, false, false, detail::ScheduleEntryABI::ray_query_surface_filter_handler, {}, print_format_id_base}
         .run();
 }
 

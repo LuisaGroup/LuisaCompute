@@ -12,6 +12,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Support/raw_ostream.h>
 
 #include <luisa/ast/function.h>
 #include <luisa/core/logging.h>
@@ -481,6 +482,40 @@ SIMDCompiledKernel compile_simd_kernel(
             std::make_move_iterator(procedural.print_formats.begin()),
             std::make_move_iterator(procedural.print_formats.end()));
         auto *candidate_w1 = static_cast<::llvm::Function *>(nullptr);
+        auto *surface_filter_entry =
+            static_cast<::llvm::Function *>(nullptr);
+        if (warp_width >= 4u &&
+            pipeline_schedules[pipeline_index]
+                .embree_surface_filter_safe) {
+            auto name = handler_name_base + ".ray_query." +
+                        std::to_string(pipeline_index) +
+                        ".surface_filter.simd_w" +
+                        std::to_string(warp_width);
+            auto surface_filter =
+                lower_ray_query_surface_filter_handler_schedule_to_llvm(
+                    *module,
+                    pipeline_schedules[pipeline_index].on_surface,
+                    warp_width, name, enable_fast_math,
+                    static_block_size,
+                    enable_uniform_buffer_broadcast,
+                    enable_lane_affine_buffer,
+                    use_paired_leaf_gather,
+                    dispatch_worker_count,
+                    use_native_predicated_loop,
+                    pipeline_print_formats.size());
+            if (!surface_filter.succeeded()) {
+                result.diagnostics.emplace_back(
+                    "direct surface-filter handler LLVM lowering failed: " +
+                    surface_filter.error);
+                return result;
+            }
+            surface_filter_entry = surface_filter.entry;
+            if (!surface_filter.print_formats.empty()) {
+                result.diagnostics.emplace_back(
+                    "direct surface-filter handler unexpectedly emitted print formats");
+                return result;
+            }
+        }
         if (warp_width == 1u) {
             candidate_w1 = build_w1_ray_query_handler_thunk(
                 *module, surface_entry, procedural_entry,
@@ -496,6 +531,7 @@ SIMDCompiledKernel compile_simd_kernel(
             LLVMSIMDRayQueryPipelineHandlers{
                 .on_surface = surface_entry,
                 .on_procedural = procedural_entry,
+                .on_surface_filter = surface_filter_entry,
                 .on_candidate_w1 = candidate_w1,
                 .embree_surface_filter_safe =
                     pipeline_schedules[pipeline_index]
@@ -652,6 +688,9 @@ SIMDCompiledKernel compile_simd_kernel(
     result.jit = std::move(jit);
     result.target_triple = result.jit->target_triple();
     if (capture_assembly) {
+        ::llvm::raw_string_ostream llvm_ir_stream{result.llvm_ir};
+        module->print(llvm_ir_stream, nullptr);
+        llvm_ir_stream.flush();
         result.assembly = result.jit->emit_assembly_copy(*module);
         if (result.assembly.empty()) {
             result.diagnostics.emplace_back(result.jit->error());

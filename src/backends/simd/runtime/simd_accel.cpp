@@ -1564,6 +1564,9 @@ SIMDAccel::SIMDAccel(
       _enable_surface_filter_ray_packet{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_IN_FILTER_RAY_PACKET_INPUT")},
+      _enable_direct_surface_filter_candidate{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_DIRECT_SURFACE_FILTER_CANDIDATE")},
       _enable_narrow_shared_status{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS")},

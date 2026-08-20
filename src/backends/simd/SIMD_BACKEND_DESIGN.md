@@ -3402,11 +3402,11 @@ kept in `ray.id`; inactive and padded origins, directions, interval, time,
 visibility, flags, and hit fields are initialized before Embree can inspect
 them.
 
-The Embree argument filter translates only its current valid lanes into the
-existing state ABI and calls the already generated fixed-vector surface
-handler with that exact sparse candidate mask. Opaque instances auto-commit.
-For non-opaque instances the handler either commits, leaving the Embree valid
-bit set, or rejects by clearing it. After traversal, every original lane is
+The original Embree argument-filter route translates its current valid lanes
+into the existing state ABI and calls the general fixed-vector surface handler
+with that exact sparse candidate mask. Opaque instances auto-commit. For
+non-opaque instances the handler either commits, leaving the Embree valid bit
+set, or rejects by clearing it. After traversal, every original lane is
 published terminal and the existing status sidecar is updated once. Ray time,
 visibility, closest versus occlusion behavior, sparse cohorts, partial tails,
 and Luisa's single TLAS -> BLAS instance level stay intact.
@@ -3425,7 +3425,7 @@ W4/W8/W16 construction additionally retains Embree's twelve-field `RTCRayW`
 input as component-major fixed vectors in the query's proven status color.
 Origin, direction, interval, time, visibility, logical lane ID, and flags are
 formed once in JIT SSA and written with masked vector stores; the state AoS
-remains authoritative for callbacks and for every fallback route. The `tnear`
+remains authoritative for general callbacks and for every fallback route. The `tnear`
 bit transform exactly matches the established host oracle: NaN and infinities
 are unchanged, other finite values take one representable step toward negative
 infinity, and a result below the minimum normal magnitude clamps to negative
@@ -3458,9 +3458,43 @@ sparse sanitization remain present on both sides. W1 and W2 do not consult this
 control. Their five cutout JIT assembly files and object files are byte-for-byte
 identical to the pre-change binaries.
 
-Permanent coverage compares provider, null-provider, and direct-loop results
-at W2/W4/W8/W16, including an exact sparse candidate mask and a thirteen-item
-tail. Runtime coverage exercises closest and any queries, reject-near/
+The audited W4/W8/W16 surface filter has a second, narrower JIT handler that
+removes the remaining candidate AoS round trip. Its private five-argument ABI
+is `(width, physical_candidate_mask, embree_ray_packet, embree_hit_packet,
+commit_mask_out)`: it has no state-pointer packet, launch configuration, or
+captures. The handler performs fixed-vector loads of Embree's `inst`, `prim`,
+`u`, `v`, and current `tfar`, selects zero for every inactive physical lane
+immediately after each load, and runs the same Schedule-IR CFG. A triangle
+commit ORs the current execution mask into one 64-bit result. There are no
+masked gathers/scatters, target intrinsics, per-lane calls, or scalar libm
+calls in this handler.
+
+The runtime validates distance and IDs and auto-commits opaque instances as
+before. For a non-opaque packet it calls the direct handler on Embree's own
+ray/hit pointers. Physical packet bits are intentionally used even if
+`ray.id` maps them to different logical lanes; the runtime maps the returned
+commit bits back through that ID before updating the authoritative committed
+hit. Rejected candidates never enter the state AoS. Accepted candidates are
+re-read from the still-live Embree packet, avoiding a second candidate scratch
+array and avoiding stores for the usually more numerous rejected candidates.
+W2 retains the state-backed handler because its padded `RTCRay4` layout cannot
+be consumed as a two-lane fixed vector.
+
+The general state-backed handler remains in the same JIT module as a semantic
+and performance oracle. `LUISA_SIMD_DISABLE_DIRECT_SURFACE_FILTER_CANDIDATE=1`
+selects it when the SIMD accel is created while retaining the direct handler,
+packet construction, and native Embree traversal. In the measured W8 cutout
+object each of the two direct handlers is 4,668 bytes versus 4,829 bytes for
+its general counterpart; retaining both adds 9,336 bytes of cold `.text`, but
+the executed direct functions contain zero gather/scatter instructions. This
+bounded duplication is restricted to already eligible capture-free filters.
+
+Permanent coverage compares direct-candidate, state-handler, null-provider,
+and direct-loop results at W2/W4/W8/W16, including all five candidate fields,
+an exact sparse candidate mask, deliberately acceptable inactive operands,
+and a thirteen-item tail. The W8 IR gate requires fixed-vector packet loads
+and pre-ALU selects and rejects masked gather/scatter or target intrinsics.
+Runtime coverage exercises closest and any queries, reject-near/
 commit-far behavior, misses, opacity, visibility, motion time, buffer-only
 committed-scene state, a thirty-five-lane tail, and the disabled-provider CTest
 oracle. Captured, terminating, resource-using, and reused stateful handlers are

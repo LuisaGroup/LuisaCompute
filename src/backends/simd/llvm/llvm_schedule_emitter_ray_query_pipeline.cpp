@@ -242,7 +242,7 @@ void ScheduleEmitter::_ray_query_pipeline(
                 _builder.getVoidTy(),
                 {_builder.getInt32Ty(), _builder.getInt64Ty(),
                  pointer_type, pointer_type, pointer_type,
-                 pointer_type},
+                 pointer_type, pointer_type},
                 false);
             auto *ray_packet =
                 _ray_query_surface_filter_ray_packet_for_call(
@@ -254,7 +254,8 @@ void ScheduleEmitter::_ray_query_pipeline(
                 pipeline_type, surface_filter_callback,
                 {_builder.getInt32(_width), outer_active_bits,
                  scratch, ray_packet, _launch_config,
-                 handler_pair.on_surface});
+                 handler_pair.on_surface,
+                 handler_pair.on_surface_filter});
         } else {
             auto *pipeline_type = ::llvm::FunctionType::get(
                 _builder.getVoidTy(),
