@@ -2456,6 +2456,40 @@ branch in the same generated module. Inactive lanes remain masked before every
 store on either branch; selecting the compact path does not permit an inactive
 or out-of-prefix access.
 
+An additional W4/W8/W16 provider ABI is legal only for a query variable proven
+to have exactly one capture-free empty surface handler, an empty procedural
+handler, triangle-only surface-filter eligibility, no caller-side query write,
+and no caller read other than committed hit or termination. Its signature is
+`(width, physical_mask, accel, states, ray_packet, terminate_on_first)`. The
+cached callback and accel packets must agree across all active lanes. A null
+callback must select the ordinary provider; a null accel for a non-null
+callback or an active-lane disagreement is an invalid internal ABI. Stale data
+from a reused status color must never select this path.
+
+On the non-null path, `ray_packet` is the same twelve-field component-major
+packet and obeys the same pre-call inactive-lane sanitization contract. Each
+active state supplies only the original interval in `world_ray[3]` and
+`world_ray[7]`; its `committed` member is initialized to the public miss value
+and is the only writable output. The provider must not read or write accel,
+proceed, origin/direction, time, visibility, control/candidate/status fields,
+batch storage, callback pointers, or object ray. Construction may leave every
+such field uninitialized, so even diagnostic reads are forbidden.
+
+The provider must invoke exactly the matching `rtcIntersect4/8/16` or
+`rtcOccluded4/8/16` packet entry, never a per-lane scalar Embree call. Its
+filter validates IDs and the original inclusive interval, writes an opaque
+surface hit directly to `committed`, and rejects every non-opaque triangle.
+It must not invoke either JIT candidate handler or pack state status. After the
+call, the JIT marks the original active lanes terminal in the normal status
+sidecar; no candidate may remain observable. Miss, closest, query-any,
+visibility, motion time, sparse masks, partial tails, and runtime opacity must
+remain identical to the ordinary empty-handler surface-filter route.
+
+`LUISA_SIMD_DISABLE_OUTPUT_ONLY_EMPTY_SURFACE_FILTER=1` must select the
+ordinary route by publishing a null provider without changing generated LLVM
+IR or object code. W1, W2, curves/procedurals, captures, multiple pipelines,
+query mutation, or any additional query-object read must never use this ABI.
+
 For a compiler-audited capture-free surface filter at W4/W8/W16, the runtime
 may invoke a separate direct handler with exactly five arguments `(width,
 physical_candidate_mask, ray_packet, hit_packet, commit_mask_out)`. That ABI

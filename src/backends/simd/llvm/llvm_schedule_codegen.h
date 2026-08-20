@@ -240,6 +240,15 @@ using SIMDHostAccelRayQuerySurfaceFilterPacketPipeline = void(
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQuerySurfaceFilterHandler *on_surface,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct);
+// An audited empty surface handler needs no candidate callback or mutable
+// query input. The packet provider receives the accel and sanitized Embree ray
+// packet directly. Active state pointers provide the original world-ray
+// interval in world_ray[3]/world_ray[7] and output storage for committed;
+// the provider must not access any other SIMDHostRayQueryState field.
+using SIMDHostAccelRayQueryEmptySurfaceFilterPacketPipeline = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    void *accel, SIMDHostRayQueryState *const *states,
+    void *ray_packet, uint32_t terminate_on_first);
 
 // One fixed-size state belongs to each logical lane and simultaneously live
 // query object. Noninterfering construction sites may share storage after a
@@ -454,6 +463,8 @@ struct alignas(16) SIMDHostAccelInstanceTable {
     // using the new primitive kind.
     const SIMDHostAccelCommittedInstance *committed_instances{nullptr};
     size_t committed_size{0u};
+    SIMDHostAccelRayQueryEmptySurfaceFilterPacketPipeline *
+        ray_query_empty_surface_filter_packet_pipeline{nullptr};
 };
 
 struct alignas(16) SIMDHostAccelView {
@@ -512,7 +523,7 @@ static_assert(offsetof(SIMDHostAccelInstance, geometry_kind) == 55u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_frames) == 64u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_keyframe_count) == 72u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_mode) == 76u);
-static_assert(sizeof(SIMDHostAccelInstanceTable) == 64u);
+static_assert(sizeof(SIMDHostAccelInstanceTable) == 80u);
 static_assert(offsetof(SIMDHostAccelInstanceTable, data) == 0u);
 static_assert(offsetof(SIMDHostAccelInstanceTable, size) == sizeof(void *));
 static_assert(offsetof(
@@ -538,6 +549,10 @@ static_assert(offsetof(
 static_assert(offsetof(
                   SIMDHostAccelInstanceTable,
                   committed_size) == 7u * sizeof(void *));
+static_assert(offsetof(
+                  SIMDHostAccelInstanceTable,
+                  ray_query_empty_surface_filter_packet_pipeline) ==
+              8u * sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, accel) == 0u);
 static_assert(offsetof(SIMDHostAccelView, trace_closest) == sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));
@@ -681,6 +696,10 @@ struct LLVMSIMDRayQueryPipelineHandlers {
     // must be empty. This permits the private Embree in-filter route without
     // changing observable candidate ordering for stateful handlers.
     bool embree_surface_filter_safe{false};
+    // True only when the audited surface handler contains no semantic
+    // instruction. This enables the output-only opacity-filter packet ABI;
+    // nonempty candidate-local handlers retain the general packet provider.
+    bool surface_handler_empty{false};
 };
 
 // Packet ABI:
@@ -726,6 +745,7 @@ struct LLVMScheduleCodegenResult {
     size_t ray_query_status_slot_count{0u};
     size_t ray_query_state_handle_slot_count{0u};
     size_t compact_surface_filter_state_count{0u};
+    size_t output_only_empty_surface_filter_state_count{0u};
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};

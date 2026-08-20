@@ -298,6 +298,7 @@ SIMDCompiledKernel compile_simd_kernel(
         schedule::Function on_surface;
         schedule::Function on_procedural;
         bool embree_surface_filter_safe{false};
+        bool surface_handler_empty{false};
     };
     std::vector<PipelineSchedules> pipeline_schedules;
     pipeline_schedules.reserve(
@@ -380,12 +381,17 @@ SIMDCompiledKernel compile_simd_kernel(
             pipeline->on_procedural_function(),
             "procedural handler");
         if (!surface || !procedural) { return result; }
+        auto embree_surface_filter_safe =
+            ray_query_surface_filter_is_order_independent(pipeline);
         pipeline_schedules.emplace_back(PipelineSchedules{
             .on_surface = std::move(*surface),
             .on_procedural = std::move(*procedural),
             .embree_surface_filter_safe =
-                ray_query_surface_filter_is_order_independent(
-                    pipeline),
+                embree_surface_filter_safe,
+            .surface_handler_empty =
+                embree_surface_filter_safe &&
+                ray_query_handler_is_empty(
+                    pipeline->on_surface_function()),
         });
     }
     result.direct_ray_query_pipeline_count =
@@ -599,6 +605,9 @@ SIMDCompiledKernel compile_simd_kernel(
                 .embree_surface_filter_safe =
                     pipeline_schedules[pipeline_index]
                         .embree_surface_filter_safe,
+                .surface_handler_empty =
+                    pipeline_schedules[pipeline_index]
+                        .surface_handler_empty,
             });
     }
     auto llvm_result = lower_schedule_to_llvm(
@@ -651,6 +660,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.ray_query_state_handle_slot_count;
     result.compact_surface_filter_state_count =
         llvm_result.compact_surface_filter_state_count;
+    result.output_only_empty_surface_filter_state_count =
+        llvm_result.output_only_empty_surface_filter_state_count;
     result.uniform_buffer_broadcast_count =
         llvm_result.uniform_buffer_broadcast_count;
     result.contiguous_buffer_read_count =

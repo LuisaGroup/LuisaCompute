@@ -42,6 +42,10 @@ void ray_query_surface_filter_packet_pipeline_triangle_only_state_oracle(
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQuerySurfaceFilterHandler *on_surface,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct) noexcept;
+void ray_query_empty_surface_filter_packet_pipeline_triangle_only(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    void *accel, SIMDHostRayQueryState *const *states,
+    void *ray_packet, uint32_t terminate_on_first) noexcept;
 
 }// namespace triangle_ray_query
 
@@ -97,6 +101,7 @@ private:
     bool _enable_surface_filter_pipeline{true};
     bool _enable_surface_filter_ray_packet{true};
     bool _enable_direct_surface_filter_candidate{true};
+    bool _enable_output_only_empty_surface_filter{true};
     bool _enable_narrow_shared_status{true};
     bool _enable_w8_wide_shared_status{true};
     bool _enable_procedural_dense_status{true};

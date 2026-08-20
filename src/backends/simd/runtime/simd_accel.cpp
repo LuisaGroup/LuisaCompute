@@ -1567,6 +1567,9 @@ SIMDAccel::SIMDAccel(
       _enable_direct_surface_filter_candidate{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_DIRECT_SURFACE_FILTER_CANDIDATE")},
+      _enable_output_only_empty_surface_filter{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_OUTPUT_ONLY_EMPTY_SURFACE_FILTER")},
       _enable_narrow_shared_status{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS")},
@@ -1755,6 +1758,15 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         } else {
             _instance_table.ray_query_surface_filter_pipeline = nullptr;
         }
+        _instance_table.ray_query_empty_surface_filter_packet_pipeline =
+            use_triangle_only_provider &&
+                    _enable_surface_filter_pipeline &&
+                    _enable_surface_filter_ray_packet &&
+                    _enable_output_only_empty_surface_filter &&
+                    _warp_width >= 4u ?
+                triangle_ray_query::
+                    ray_query_empty_surface_filter_packet_pipeline_triangle_only :
+                nullptr;
         auto use_narrow_shared_status =
             !use_triangle_only_provider &&
             (_warp_width == 2u || _warp_width == 4u) &&

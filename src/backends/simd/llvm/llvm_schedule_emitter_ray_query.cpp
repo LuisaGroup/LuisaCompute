@@ -88,10 +88,14 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     _ray_query_status_slots.assign(value_count, invalid);
     _ray_query_compact_surface_filter_state.assign(
         value_count, uint8_t{0u});
+    _ray_query_output_only_empty_surface_filter_state.assign(
+        value_count, uint8_t{0u});
     _ray_query_status_storage.clear();
     _ray_query_status_callback_storage.clear();
     _ray_query_pipeline_callback_storage.clear();
     _ray_query_surface_filter_pipeline_callback_storage.clear();
+    _ray_query_empty_surface_filter_pipeline_callback_storage.clear();
+    _ray_query_empty_surface_filter_accel_storage.clear();
     _ray_query_surface_filter_ray_packet_storage.clear();
     _ray_query_surface_filter_ray_packet_call_storage.clear();
     _ray_query_state_handle_storage.clear();
@@ -100,6 +104,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     std::vector<uint32_t> construction_for_value(value_count, invalid);
     auto has_pipeline = false;
     auto has_surface_filter_pipeline = false;
+    auto has_output_only_empty_surface_filter_pipeline = false;
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
             has_pipeline |= instruction.opcode ==
@@ -109,9 +114,13 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 instruction.source_op &&
                 *instruction.source_op <
                     _ray_query_pipeline_handlers.size()) {
+                auto handlers =
+                    _ray_query_pipeline_handlers[*instruction.source_op];
                 has_surface_filter_pipeline |=
-                    _ray_query_pipeline_handlers[*instruction.source_op]
-                        .embree_surface_filter_safe;
+                    handlers.embree_surface_filter_safe;
+                has_output_only_empty_surface_filter_pipeline |=
+                    handlers.embree_surface_filter_safe &&
+                    handlers.surface_handler_empty;
             }
             if (!is_ray_query_construction(instruction)) { continue; }
             auto id = *instruction.result;
@@ -700,6 +709,13 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                     status_slot_count, nullptr);
             }
         }
+        if (_width >= 4u &&
+            has_output_only_empty_surface_filter_pipeline) {
+            _ray_query_empty_surface_filter_pipeline_callback_storage.assign(
+                status_slot_count, nullptr);
+            _ray_query_empty_surface_filter_accel_storage.assign(
+                status_slot_count, nullptr);
+        }
         _result.ray_query_status_slot_count = status_slot_count;
         // The status proof already establishes one published local owner per
         // active lane and non-overlapping lifetimes per color. Reuse that
@@ -725,7 +741,11 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         !_ray_query_surface_filter_pipeline_callback_storage.empty()) {
         std::vector<uint8_t> eligible(
             variable_count, uint8_t{1u});
+        std::vector<uint8_t> output_only_eligible(
+            variable_count, uint8_t{1u});
         std::vector<uint32_t> pipeline_count(variable_count, 0u);
+        std::vector<uint32_t> empty_pipeline_count(
+            variable_count, 0u);
         for (auto &&block : _source.blocks()) {
             for (auto &&instruction : block.instructions) {
                 auto variable = use_variable_for(instruction);
@@ -737,19 +757,43 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                                     _ray_query_pipeline_handlers.size() &&
                                 _ray_query_pipeline_handlers[*instruction.source_op]
                                     .embree_surface_filter_safe;
+                    auto output_only_safe =
+                        safe &&
+                        _ray_query_pipeline_handlers[*instruction.source_op]
+                            .surface_handler_empty;
                     if (safe) {
                         pipeline_count[variable]++;
                     } else {
                         eligible[variable] = 0u;
                     }
+                    if (output_only_safe) {
+                        empty_pipeline_count[variable]++;
+                    } else {
+                        output_only_eligible[variable] = 0u;
+                    }
                 } else if (instruction.opcode ==
                            schedule::Opcode::ray_query_read) {
+                    auto read_op = instruction.source_op ?
+                                       static_cast<xir::RayQueryObjectReadOp>(
+                                           *instruction.source_op) :
+                                       xir::RayQueryObjectReadOp::
+                                           RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY;
                     auto safe = instruction.source_op &&
-                                static_cast<xir::RayQueryObjectReadOp>(
-                                    *instruction.source_op) !=
+                                read_op !=
                                     xir::RayQueryObjectReadOp::
                                         RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY;
                     if (!safe) { eligible[variable] = 0u; }
+                    auto output_only_safe =
+                        instruction.source_op &&
+                        (read_op ==
+                             xir::RayQueryObjectReadOp::
+                                 RAY_QUERY_OBJECT_COMMITTED_HIT ||
+                         read_op ==
+                             xir::RayQueryObjectReadOp::
+                                 RAY_QUERY_OBJECT_IS_TERMINATED);
+                    if (!output_only_safe) {
+                        output_only_eligible[variable] = 0u;
+                    }
                 } else if (instruction.opcode ==
                            schedule::Opcode::ray_query_write) {
                     // The caller-side compact form is deliberately limited to
@@ -757,6 +801,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                     // Candidate handler writes live in separately lowered
                     // functions and do not appear in this Schedule.
                     eligible[variable] = 0u;
+                    output_only_eligible[variable] = 0u;
                 }
             }
         }
@@ -776,6 +821,18 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                         .size()) {
                 _ray_query_compact_surface_filter_state[construction.value] = 1u;
                 _result.compact_surface_filter_state_count++;
+            }
+            if (output_only_eligible[variable] != 0u &&
+                empty_pipeline_count[variable] == 1u &&
+                status_slot != invalid &&
+                status_slot <
+                    _ray_query_empty_surface_filter_pipeline_callback_storage
+                        .size() &&
+                status_slot <
+                    _ray_query_empty_surface_filter_accel_storage.size()) {
+                _ray_query_output_only_empty_surface_filter_state
+                    [construction.value] = 1u;
+                _result.output_only_empty_surface_filter_state_count++;
             }
         }
     }
@@ -904,6 +961,8 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     auto *pipeline_w1 = static_cast<::llvm::Value *>(nullptr);
     auto *surface_filter_pipeline =
         static_cast<::llvm::Value *>(nullptr);
+    auto *empty_surface_filter_pipeline =
+        static_cast<::llvm::Value *>(nullptr);
     auto status_index = cache_status ?
                             _ray_query_status_slots[instruction.result->value] :
                             std::numeric_limits<uint32_t>::max();
@@ -911,6 +970,10 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         _width == 1u && cache_status &&
         status_index <
             _ray_query_pipeline_callback_storage.size();
+    auto output_only_eligible =
+        result_id <
+            _ray_query_output_only_empty_surface_filter_state.size() &&
+        _ray_query_output_only_empty_surface_filter_state[result_id] != 0u;
     if (cache_status) {
         auto *instances = _builder.CreateExtractValue(accel, {3u});
         _trap_if(
@@ -956,6 +1019,22 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 ::llvm::Align{alignof(void *)});
             surface_filter_pipeline = pipeline_load;
         }
+        if (output_only_eligible &&
+            status_index <
+                _ray_query_empty_surface_filter_pipeline_callback_storage
+                    .size()) {
+            auto *pipeline_pointer = _byte_pointer(
+                instances,
+                offsetof(
+                    SIMDHostAccelInstanceTable,
+                    ray_query_empty_surface_filter_packet_pipeline));
+            auto *pipeline_load = _builder.CreateLoad(
+                pointer_type, pipeline_pointer,
+                "accel.ray.query.empty.surface.filter.pipeline.callback");
+            pipeline_load->setAlignment(
+                ::llvm::Align{alignof(void *)});
+            empty_surface_filter_pipeline = pipeline_load;
+        }
     }
     auto *missing_callback = _builder.CreateOr(
         _builder.CreateICmpEQ(object, null_pointer),
@@ -977,6 +1056,17 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     auto compact_eligible =
         result_id < _ray_query_compact_surface_filter_state.size() &&
         _ray_query_compact_surface_filter_state[result_id] != 0u;
+    auto *use_output_only_state = static_cast<::llvm::Value *>(
+        _builder.getFalse());
+    if (output_only_eligible) {
+        if (empty_surface_filter_pipeline == nullptr) {
+            _fail("output-only ray-query state lost its packet provider");
+            return nullptr;
+        }
+        use_output_only_state = _builder.CreateICmpNE(
+            empty_surface_filter_pipeline, null_pointer,
+            "ray.query.output.only.state");
+    }
     auto *use_compact_state = static_cast<::llvm::Value *>(
         _builder.getFalse());
     if (compact_eligible) {
@@ -1020,10 +1110,6 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
             value, field_pointers(offset),
             ::llvm::Align{alignment}, _active_mask);
     };
-    scatter(
-        object, offsetof(SIMDHostRayQueryState, accel), alignof(void *));
-    scatter(
-        plain_proceed, offsetof(SIMDHostRayQueryState, proceed), alignof(void *));
     if (cache_status) {
         auto status_slot = status_index;
         auto *old_callbacks = _builder.CreateAlignedLoad(
@@ -1066,40 +1152,59 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 _ray_query_surface_filter_pipeline_callback_storage[status_slot],
                 ::llvm::Align{alignof(void *)});
         }
+        if (status_slot <
+            _ray_query_empty_surface_filter_pipeline_callback_storage.size()) {
+            auto *old_pipelines = _builder.CreateAlignedLoad(
+                pointer_lanes,
+                _ray_query_empty_surface_filter_pipeline_callback_storage
+                    [status_slot],
+                ::llvm::Align{alignof(void *)});
+            auto *pipeline = empty_surface_filter_pipeline == nullptr ?
+                                 static_cast<::llvm::Value *>(null_pointer) :
+                                 empty_surface_filter_pipeline;
+            _builder.CreateAlignedStore(
+                _builder.CreateSelect(
+                    _active_mask,
+                    _builder.CreateVectorSplat(_width, pipeline),
+                    old_pipelines),
+                _ray_query_empty_surface_filter_pipeline_callback_storage
+                    [status_slot],
+                ::llvm::Align{alignof(void *)});
+        }
+        if (status_slot <
+            _ray_query_empty_surface_filter_accel_storage.size()) {
+            auto *old_accels = _builder.CreateAlignedLoad(
+                pointer_lanes,
+                _ray_query_empty_surface_filter_accel_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+            auto *empty_accel = output_only_eligible ? object : null_pointer;
+            _builder.CreateAlignedStore(
+                _builder.CreateSelect(
+                    _active_mask,
+                    _builder.CreateVectorSplat(_width, empty_accel),
+                    old_accels),
+                _ray_query_empty_surface_filter_accel_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+        }
     }
 
     auto *zero_offsets = ::llvm::Constant::getNullValue(
         ::llvm::FixedVectorType::get(_builder.getInt64Ty(), _width));
-    _scatter_data(
-        states, zero_offsets, ray_value->type, ray,
-        offsetof(SIMDHostRayQueryState, world_ray));
     auto *zero_float = ::llvm::Constant::getNullValue(float_lanes);
     auto *safe_time = motion ?
                           _builder.CreateSelect(
                               _active_mask, time, zero_float,
                               "ray.query.safe.time") :
                           zero_float;
-    scatter(
-        safe_time, offsetof(SIMDHostRayQueryState, time), alignof(float));
     auto *zero_i32 = ::llvm::Constant::getNullValue(i32_lanes);
     visibility = _builder.CreateZExtOrTrunc(visibility, i32_lanes);
     visibility = _builder.CreateSelect(
         _active_mask, visibility, zero_i32,
         "ray.query.safe.visibility");
-    scatter(
-        visibility, offsetof(SIMDHostRayQueryState, visibility_mask),
-        alignof(uint32_t));
     if (!_store_ray_query_surface_filter_ray_packet(
             *ray_value, ray, safe_time, visibility, status_index)) {
         return nullptr;
     }
-    scatter(
-        _builder.getInt32(query_any ? 1u : 0u),
-        offsetof(SIMDHostRayQueryState, terminate_on_first),
-        alignof(uint32_t));
-    scatter(
-        zero_i32, offsetof(SIMDHostRayQueryState, cursor_valid),
-        alignof(uint32_t));
     auto packed_init =
         _width >= 4u &&
         !luisa::compute::detail::env_flag(
@@ -1107,29 +1212,6 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     auto *i64_lanes = ::llvm::FixedVectorType::get(
         _builder.getInt64Ty(), _width);
     auto *zero_i64 = ::llvm::Constant::getNullValue(i64_lanes);
-    if (packed_init) {
-        scatter(
-            zero_i64, offsetof(SIMDHostRayQueryState, candidate_kind),
-            alignof(uint32_t));
-        scatter(
-            zero_i64, offsetof(SIMDHostRayQueryState, terminated),
-            alignof(uint32_t));
-    } else {
-        scatter(
-            zero_i32, offsetof(SIMDHostRayQueryState, candidate_kind),
-            alignof(uint32_t));
-        scatter(
-            zero_i32,
-            offsetof(SIMDHostRayQueryState, candidate_committed),
-            alignof(uint32_t));
-        scatter(
-            zero_i32, offsetof(SIMDHostRayQueryState, terminated),
-            alignof(uint32_t));
-        scatter(
-            zero_i32,
-            offsetof(SIMDHostRayQueryState, procedural_cursor_valid),
-            alignof(uint32_t));
-    }
     auto eager_batch_init =
         _width == 2u ||
         luisa::compute::detail::env_flag(
@@ -1231,24 +1313,108 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 SIMDHostRayQueryState, procedural_batch_initialized),
             alignof(uint32_t));
     };
-    if (compact_eligible) {
-        // A scalar runtime guard is cheaper than materializing all-false
-        // fixed-vector masks and executing the three ordinary-state scatters
-        // on every capture-free query. Keep the complete-state stores in a
-        // cold path so the diagnostic flag and a null provider remain exact
-        // ABI oracles.
-        auto *full_state_init = ::llvm::BasicBlock::Create(
-            _module.getContext(), "ray.query.full.state.init", _entry);
+    auto initialize_operational_state = [&]() noexcept {
+        scatter(
+            object, offsetof(SIMDHostRayQueryState, accel),
+            alignof(void *));
+        scatter(
+            plain_proceed, offsetof(SIMDHostRayQueryState, proceed),
+            alignof(void *));
+        _scatter_data(
+            states, zero_offsets, ray_value->type, ray,
+            offsetof(SIMDHostRayQueryState, world_ray));
+        scatter(
+            safe_time, offsetof(SIMDHostRayQueryState, time),
+            alignof(float));
+        scatter(
+            visibility,
+            offsetof(SIMDHostRayQueryState, visibility_mask),
+            alignof(uint32_t));
+        scatter(
+            _builder.getInt32(query_any ? 1u : 0u),
+            offsetof(SIMDHostRayQueryState, terminate_on_first),
+            alignof(uint32_t));
+        scatter(
+            zero_i32, offsetof(SIMDHostRayQueryState, cursor_valid),
+            alignof(uint32_t));
+        if (packed_init) {
+            scatter(
+                zero_i64,
+                offsetof(SIMDHostRayQueryState, candidate_kind),
+                alignof(uint32_t));
+            scatter(
+                zero_i64,
+                offsetof(SIMDHostRayQueryState, terminated),
+                alignof(uint32_t));
+        } else {
+            scatter(
+                zero_i32,
+                offsetof(SIMDHostRayQueryState, candidate_kind),
+                alignof(uint32_t));
+            scatter(
+                zero_i32,
+                offsetof(SIMDHostRayQueryState, candidate_committed),
+                alignof(uint32_t));
+            scatter(
+                zero_i32,
+                offsetof(SIMDHostRayQueryState, terminated),
+                alignof(uint32_t));
+            scatter(
+                zero_i32,
+                offsetof(
+                    SIMDHostRayQueryState,
+                    procedural_cursor_valid),
+                alignof(uint32_t));
+        }
+        if (compact_eligible) {
+            // The complete-state tail is needed only by the ordinary provider.
+            // Retain it behind the existing scalar compact-state guard.
+            auto *full_state_init = ::llvm::BasicBlock::Create(
+                _module.getContext(), "ray.query.full.state.init", _entry);
+            auto *compact_state_ready = ::llvm::BasicBlock::Create(
+                _module.getContext(), "ray.query.compact.state.ready", _entry);
+            _builder.CreateCondBr(
+                use_compact_state, compact_state_ready, full_state_init);
+            _builder.SetInsertPoint(full_state_init);
+            initialize_full_state();
+            _builder.CreateBr(compact_state_ready);
+            _builder.SetInsertPoint(compact_state_ready);
+        } else {
+            initialize_full_state();
+        }
+    };
+    auto initialize_output_only_state = [&]() noexcept {
+        auto *t_min = _extract_child(ray, ray_value->type, 1u, true);
+        auto *t_max = _extract_child(ray, ray_value->type, 3u, true);
+        scatter(
+            t_min,
+            offsetof(SIMDHostRayQueryState, world_ray) +
+                3u * sizeof(float),
+            alignof(float));
+        scatter(
+            t_max,
+            offsetof(SIMDHostRayQueryState, world_ray) +
+                7u * sizeof(float),
+            alignof(float));
+    };
+    if (output_only_eligible) {
+        auto *output_only_init = ::llvm::BasicBlock::Create(
+            _module.getContext(), "ray.query.output.only.state.init", _entry);
+        auto *operational_init = ::llvm::BasicBlock::Create(
+            _module.getContext(), "ray.query.operational.state.init", _entry);
         auto *state_ready = ::llvm::BasicBlock::Create(
             _module.getContext(), "ray.query.state.ready", _entry);
         _builder.CreateCondBr(
-            use_compact_state, state_ready, full_state_init);
-        _builder.SetInsertPoint(full_state_init);
-        initialize_full_state();
+            use_output_only_state, output_only_init, operational_init);
+        _builder.SetInsertPoint(output_only_init);
+        initialize_output_only_state();
+        _builder.CreateBr(state_ready);
+        _builder.SetInsertPoint(operational_init);
+        initialize_operational_state();
         _builder.CreateBr(state_ready);
         _builder.SetInsertPoint(state_ready);
     } else {
-        initialize_full_state();
+        initialize_operational_state();
     }
     return _builder.CreateBitCast(states, pointer_lanes);
 }

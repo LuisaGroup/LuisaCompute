@@ -904,6 +904,11 @@ void ScheduleEmitter::_preflight() {
                     _fail("ray-query pipeline has an unsafe surface-filter specialization");
                     return;
                 }
+                if (handlers.surface_handler_empty &&
+                    !handlers.embree_surface_filter_safe) {
+                    _fail("empty ray-query surface handler is not filter-safe");
+                    return;
+                }
                 if (handlers.on_surface_filter_scheduler_oracle != nullptr &&
                     (!handlers.embree_surface_filter_safe ||
                      _width < 4u ||

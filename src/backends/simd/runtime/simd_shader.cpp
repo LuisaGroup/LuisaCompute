@@ -400,6 +400,7 @@ SIMDShader::SIMDShader(
             "ray_query_scratch_bytes={}, ray_query_status_slots={}, "
             "ray_query_state_handle_slots={}, "
             "compact_surface_filter_states={}, "
+            "output_only_empty_surface_filter_states={}, "
             "uniform_buffer_broadcasts={}, contiguous_buffer_reads={}, "
             "contiguous_buffer_writes={}, transposed_buffer_reads={}, "
             "transposed_buffer_writes={}, paired_leaf_gathers={}.",
@@ -478,6 +479,7 @@ SIMDShader::SIMDShader(
             _compiled.ray_query_status_slot_count,
             _compiled.ray_query_state_handle_slot_count,
             _compiled.compact_surface_filter_state_count,
+            _compiled.output_only_empty_surface_filter_state_count,
             _compiled.uniform_buffer_broadcast_count,
             _compiled.contiguous_buffer_read_count,
             _compiled.contiguous_buffer_write_count,

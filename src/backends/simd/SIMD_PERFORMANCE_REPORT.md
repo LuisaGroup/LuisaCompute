@@ -5589,3 +5589,95 @@ After this change, both maintained Release trees pass the complete 168/168
 CTest inventory independently. Fresh W1/W2/W4/W8/W16 1,024-spp non-coroutine
 cutout renders also pass the checked-in fallback gallery without regenerating
 it, at 39.100980/40.178515/40.098347/39.996424/39.885689 dB RGB PSNR.
+
+## Output-only empty-handler query state
+
+The empty-handler packet route still initialized the operational
+`SIMDHostRayQueryState` prefix and returned through the general surface-filter
+provider even though no JIT candidate handler could run. A stricter Schedule
+proof now accepts only one capture-free empty surface pipeline, an empty
+procedural handler, no query write, and no caller read except committed hit or
+termination. At W4/W8/W16, construction stores only the original inclusive ray
+interval and miss-valued committed output; the provider reads those two
+interval fields, writes only `committed`, and lets the JIT publish terminal
+status after the packet call. Every other state field may remain uninitialized.
+W1/W2, a nonempty/captured handler, procedural geometry, another query use, or
+a null provider retains the established route.
+
+`LUISA_SIMD_DISABLE_OUTPUT_ONLY_EMPTY_SURFACE_FILTER=1` publishes that null
+provider without recompiling the shader. Fresh system/TBB processes used
+physical CPUs 0--15, sixteen workers, 64 spp, and one spp per dispatch.
+Candidate/oracle order alternated within seven pairs. A 50-ms monitor found no
+compiler or Psycles interference in any reported A/B run.
+
+| width | output-only median FPS | state-provider median FPS | paired geometric speedup | wins | 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 47.6955 | 43.2424 | **1.1029x** | 7/7 | **[1.0908, 1.1151]** |
+| W8 | 53.0114 | 47.7849 | **1.1092x** | 7/7 | **[1.0997, 1.1187]** |
+| W16 | 54.9684 | 48.9715 | **1.1291x** | 7/7 | **[1.1172, 1.1411]** |
+
+Three clean alternating W8 pairs at 256 spp used a non-multiplexed grouped
+hardware-counter run. Candidate/oracle geometric ratios are:
+
+| counter | output-only / state-provider oracle |
+| --- | ---: |
+| throughput | **1.1185x** |
+| task-clock | **0.8948x** |
+| cycles | **0.8928x** |
+| instructions | **0.9307x** |
+| branches | **0.8810x** |
+| branch misses | **0.9840x** |
+
+A separate three-pair non-multiplexed cache group measured 1.1162x throughput,
+0.8975x task-clock, 0.8834x cache references, and 1.0110x cache misses. Thus
+the full-process gain comes from deleting query-state initialization,
+candidate-handler dispatch, and status-packing work. It does not support a
+cache-miss-rate claim.
+
+The current equal-core comparison rotates fallback and every SIMD width
+through six execution orders under the same affinity. An external Psycles/test
+job started during the first collection; any group in which the 50-ms monitor
+observed that job or its compiler was discarded in full. The first three clean
+groups and four later clean replacements form the seven reported rounds. One
+low but uncontaminated W8 sample (only 1.0072x fallback) is retained.
+
+| width | SIMD median FPS | fallback median FPS | paired geometric SIMD / fallback | wins | 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W1 | 34.8943 | 51.3348 | 0.6787x | 0/7 | [0.6711, 0.6863] |
+| W2 | 31.2671 | 51.3348 | 0.6075x | 0/7 | [0.5968, 0.6185] |
+| W4 | 47.7062 | 51.3348 | 0.9307x | 0/7 | [0.9255, 0.9360] |
+| W8 | 53.1046 | 51.3348 | **1.0333x** | 7/7 | **[1.0178, 1.0491]** |
+| W16 | 55.2887 | 51.3348 | **1.0733x** | 7/7 | **[1.0647, 1.0820]** |
+
+This is the first accepted opaque-query result where both W8 and W16 exceed
+equal-core fallback with complete paired intervals above one. W16 remains the
+best width. The result is scoped to the empty-handler opaque-query workload;
+it does not replace the separate cutout-handler, ordinary direct-trace,
+graphics, image-processing, voxel, GEMM, or ISPC comparisons elsewhere in this
+report.
+
+The final W8 candidate and disabled-oracle processes emit five pairwise
+byte-identical JIT objects. The 39,720-byte main object has SHA-256
+`b160dc5eadb0a41a1e024cd61c6523cd2451485c5157febea94037ae036eb135`,
+no undefined symbol, and no varying scalar-libm or scalar Embree reference.
+Disassembly of the new backend provider contains only
+`rtcIntersect4/8/16` and `rtcOccluded4/8/16`; the backend's scalar Embree
+symbols belong to the separately supported W1 path. Candidate and oracle
+64-spp W8 PNGs are byte-identical at SHA-256
+`3bc123a19b1262649479eeba5ba8acbca345d3c5c30493815ede5e9e96cfd174`.
+
+The permanent JIT differential runs W4/W8/W16 output-only, state-provider,
+null-provider, and ordered-loop routes. Its physical query mask is sparse
+(even lanes only) and also ends in a partial tail; every inactive state pointer
+must be null and all twelve inactive packet fields must already be benign.
+The provider verifies the compact/full physical stride, original interval,
+miss output, closest/query-any selector, and exact call counts without reading
+any unaudited state field. The real Embree test mutates alternating runtime
+instance opacity and requires exact opaque commit/non-opaque rejection at all
+five widths. A dedicated CTest selects the disabled-provider oracle.
+
+Both maintained Release trees pass the complete 169/169 inventory
+independently (338/338 total). Fresh W1/W2/W4/W8/W16 1,024-spp non-coroutine
+cutout renders explicitly compare against the checked-in fallback gallery and
+pass at 42.930016/46.208391/45.900175/45.529821/45.150873 dB RGB PSNR,
+respectively; the reference was not regenerated.

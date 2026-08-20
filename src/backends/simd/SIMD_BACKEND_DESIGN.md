@@ -3509,6 +3509,48 @@ instructions remain at 0.9985x. The current equal-core fallback ratios are
 the best cutout width and remains 5.7% behind fallback; the performance report
 records the complete methodology and intervals.
 
+An empty surface handler admits a still narrower caller/provider boundary at
+W4/W8/W16. The Schedule audit requires exactly one empty, capture-free,
+triangle-only surface-filter pipeline for the query variable, no query-object
+write, and no caller read except committed hit or termination. Construction
+caches a second provider pointer and the scalar accel object in the proven
+status color. A null provider clears those lane sidecars and selects the
+ordinary compact/full-state path in the same JIT module; W1/W2 and every
+unproven use never publish this callback.
+
+The non-null path treats the colored ray packet as the complete traversal
+input. Construction initializes only the original `t_min`/`t_max` interval and
+the miss-valued committed hit in the state record; accel/proceed, world origin
+and direction, time, visibility, query-control flags, candidate state, and all
+batch/object-ray fields remain untouched. The provider receives
+`(width, mask, accel, states, ray_packet, terminate_on_first)`. It may read only
+`world_ray[3]` and `world_ray[7]`, and may write only `committed`. Opaque
+triangles update that output in the Embree filter, non-opaque triangles clear
+their valid bit, and the JIT publishes terminal status after the single call.
+No candidate handler or runtime status-packing pass is entered.
+
+This is an output-state specialization, not a public state ABI change. The
+same full backing allocation and 160-byte compact stride remain available, and
+the existing packet sanitizer still replaces every inactive ray field before
+the provider call. `LUISA_SIMD_DISABLE_OUTPUT_ONLY_EMPTY_SURFACE_FILTER=1`
+publishes a null callback without recompiling the shader. The compiler report
+field `output_only_empty_surface_filter_states` counts accepted construction
+sites. Runtime publication additionally requires the committed scene to be
+triangle-only, packet input to be enabled, and the exact W4/W8/W16 Embree
+entry point to exist.
+
+Seven clean alternating 64-spp pairs measure this boundary against its
+same-module state-provider oracle at 1.1029x/1.1092x/1.1291x paired geometric
+throughput for W4/W8/W16, with every candidate winning and all 95% log-paired
+intervals above one. Three W8 256-spp counter pairs measure 0.8928x cycles,
+0.9307x instructions, and 0.8810x branches; a separate three-pair group
+measures 0.8834x cache references while cache misses remain neutral at
+1.0110x. Candidate/oracle JIT objects and the audited W8 64-spp images are
+byte-identical. A seven-round equal-core rotation now measures SIMD/fallback at
+0.6787x/0.6075x/0.9307x/1.0333x/1.0733x for W1/W2/W4/W8/W16; the W8 and W16
+95% paired intervals are both above one. The performance report records the
+raw methodology and hashes.
+
 The audited W4/W8/W16 surface filter has a second, narrower JIT handler that
 removes the remaining candidate AoS round trip. Its private five-argument ABI
 is `(width, physical_candidate_mask, embree_ray_packet, embree_hit_packet,
