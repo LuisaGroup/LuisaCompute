@@ -4860,3 +4860,40 @@ explicit world-ray query passes 48 assertions on fallback and independently at
 W1/W2/W4/W8/W16; the five-lane wide runs include inactive tails. Changed C++
 and header files pass clang-format's dry-run check, and the complete diff passes
 Git whitespace validation.
+
+## Rejected narrow-packet status fusion
+
+A fresh W4 procedural rejection-chain profile attributed 20.27% of sampled
+cycles to `_ray_query_proceed` and another 7.57% to the generic status wrapper
+that packs `terminated` and candidate-kind bits after the provider returns.
+This suggested extending the provider-native W16 publication scheme to
+W2/W4. Two implementations were evaluated against an environment-selected
+same-binary wrapper oracle while pinned to physical CPUs 0--15 with sixteen
+workers.
+
+The first implementation fused the complete narrow provider and status
+publication. Seven alternating process pairs on the 16-candidate synthetic
+procedural chain measured 1.0508x at W2 and 1.0672x at W4, both with 7/7 wins.
+Five W4 counter pairs reduced cycles to 0.9363x, instructions to 0.9233x, and
+branches to 0.9528x of the oracle; branch misses were 1.0075x. The real
+1280x720, 1024-spp mixed procedural renderer instead measured 0.9679x across
+five alternating W4 pairs with only 1/5 wins. All ten images were byte-identical
+with SHA-256
+`d95cbe53b1cf7c573953986e2f64516494bfa7870536dbd2e37f98b2feb49036`.
+
+A second implementation fused only lanes whose initialized candidate metadata
+proved that `advance_ray_query_candidate` could publish or terminate without a
+new scan; every other lane delegated to the original provider and packer. The
+synthetic result fell to 1.0265x at W2 and a neutral 1.0021x at W4. More
+importantly, the real renderer remained negative: 0.9859x across three W2 pairs
+and 0.9507x across five W4 pairs, with 1 win at each width. The eligibility
+pass itself is overhead when most real calls need an initial or continuation
+Embree scan.
+
+Both variants were therefore rejected. The final source retains the original
+narrow provider and generic status wrapper; after rebuilding, the SIMD backend
+shared object was byte-identical to the pre-experiment binary (SHA-256
+`3cd40152e3ed0f041715895f95769fb46762cd4d8402cee441780e3f97096087`).
+The result narrows future work: a useful register/SoA query-state design must
+avoid both the post-provider state pass and a speculative pre-provider
+eligibility pass, while keeping the scan-heavy path compact.
