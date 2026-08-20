@@ -21,4 +21,15 @@ add_headerfiles("*.h")
 add_rules("utils.bin2obj", {extensions = {".bytes", ".dxil"}})
 add_defines('LUISA_BIN_2_OBJ')
 add_files('builtin/*.bytes', 'builtin/*.dxil')
+add_files(
+    'builtin/bc6_encode_block',
+    'builtin/bc6_header',
+    'builtin/bc6_trymode_g10cs',
+    'builtin/bc6_trymode_le10cs',
+    'builtin/bc7_encode_block',
+    'builtin/bc7_header',
+    'builtin/bc7_trymode_02cs',
+    'builtin/bc7_trymode_137cs',
+    'builtin/bc7_trymode_456cs',
+    {rules = "utils.bin2obj"})
 target_end()
