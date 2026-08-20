@@ -518,6 +518,133 @@ LC_ATOMIC_OP2_INT(fetch_xor)
 LC_ATOMIC_OP2_ALL(fetch_min)
 LC_ATOMIC_OP2_ALL(fetch_max)
 
+// Metal's native fmod flushes subnormal operands/results on Apple GPUs even
+// when fast math is disabled. Keep the common hardware path, but recover an
+// IEEE-754 remainder with integer significand arithmetic when the native
+// result is zero or non-finite. Constructing the final float with as_type also
+// preserves signed zero and subnormal result bits without another FP op.
+[[nodiscard]] inline auto lc_fmod(float x, float y) {
+    constexpr auto sign_mask = 0x80000000u;
+    constexpr auto magnitude_mask = 0x7fffffffu;
+    constexpr auto exponent_mask = 0x7f800000u;
+    constexpr auto significand_mask = 0x007fffffu;
+    constexpr auto implicit_bit = 0x00800000u;
+    constexpr auto quiet_nan = 0x7fc00000u;
+
+    auto x_bits = as_type<uint>(x);
+    auto y_bits = as_type<uint>(y);
+    auto x_magnitude = x_bits & magnitude_mask;
+    auto y_magnitude = y_bits & magnitude_mask;
+    auto sign = x_bits & sign_mask;
+
+    if (y_magnitude == 0u ||
+        x_magnitude >= exponent_mask ||
+        y_magnitude > exponent_mask) {
+        return as_type<float>(quiet_nan);
+    }
+    if (x_magnitude < y_magnitude) { return x; }
+    if (x_magnitude == y_magnitude) {
+        return as_type<float>(sign);
+    }
+
+    auto native = metal::fmod(x, y);
+    auto native_magnitude = as_type<uint>(native) & magnitude_mask;
+    if (native_magnitude != 0u && native_magnitude < exponent_mask) {
+        return native;
+    }
+
+    auto x_exponent = static_cast<int>(x_magnitude >> 23u);
+    auto y_exponent = static_cast<int>(y_magnitude >> 23u);
+    if (x_exponent == 0) {
+        auto probe = x_magnitude << 9u;
+        while ((probe & sign_mask) == 0u) {
+            --x_exponent;
+            probe <<= 1u;
+        }
+        x_magnitude <<= static_cast<uint>(-x_exponent + 1);
+    } else {
+        x_magnitude =
+            (x_magnitude & significand_mask) | implicit_bit;
+    }
+    if (y_exponent == 0) {
+        auto probe = y_magnitude << 9u;
+        while ((probe & sign_mask) == 0u) {
+            --y_exponent;
+            probe <<= 1u;
+        }
+        y_magnitude <<= static_cast<uint>(-y_exponent + 1);
+    } else {
+        y_magnitude =
+            (y_magnitude & significand_mask) | implicit_bit;
+    }
+
+    while (x_exponent > y_exponent) {
+        auto difference = x_magnitude - y_magnitude;
+        if ((difference & sign_mask) == 0u) {
+            if (difference == 0u) { return as_type<float>(sign); }
+            x_magnitude = difference;
+        }
+        x_magnitude <<= 1u;
+        --x_exponent;
+    }
+    auto difference = x_magnitude - y_magnitude;
+    if ((difference & sign_mask) == 0u) {
+        if (difference == 0u) { return as_type<float>(sign); }
+        x_magnitude = difference;
+    }
+    while ((x_magnitude & implicit_bit) == 0u) {
+        x_magnitude <<= 1u;
+        --x_exponent;
+    }
+    if (x_exponent > 0) {
+        x_magnitude =
+            (x_magnitude - implicit_bit) |
+            (static_cast<uint>(x_exponent) << 23u);
+    } else {
+        x_magnitude >>= static_cast<uint>(-x_exponent + 1);
+    }
+    return as_type<float>(sign | x_magnitude);
+}
+
+[[nodiscard]] inline auto lc_fmod(float2 x, float2 y) {
+    return float2{lc_fmod(x.x, y.x), lc_fmod(x.y, y.y)};
+}
+
+[[nodiscard]] inline auto lc_fmod(float3 x, float3 y) {
+    return float3{
+        lc_fmod(x.x, y.x), lc_fmod(x.y, y.y), lc_fmod(x.z, y.z)};
+}
+
+[[nodiscard]] inline auto lc_fmod(float4 x, float4 y) {
+    return float4{
+        lc_fmod(x.x, y.x), lc_fmod(x.y, y.y),
+        lc_fmod(x.z, y.z), lc_fmod(x.w, y.w)};
+}
+
+[[nodiscard]] inline auto lc_fmod(float2 x, float y) {
+    return lc_fmod(x, float2{y, y});
+}
+
+[[nodiscard]] inline auto lc_fmod(float3 x, float y) {
+    return lc_fmod(x, float3{y, y, y});
+}
+
+[[nodiscard]] inline auto lc_fmod(float4 x, float y) {
+    return lc_fmod(x, float4{y, y, y, y});
+}
+
+[[nodiscard]] inline auto lc_fmod(float x, float2 y) {
+    return lc_fmod(float2{x, x}, y);
+}
+
+[[nodiscard]] inline auto lc_fmod(float x, float3 y) {
+    return lc_fmod(float3{x, x, x}, y);
+}
+
+[[nodiscard]] inline auto lc_fmod(float x, float4 y) {
+    return lc_fmod(float4{x, x, x, x}, y);
+}
+
 [[nodiscard]] inline auto lc_isnan(float x) {
     auto u = as_type<uint>(x);
     return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
