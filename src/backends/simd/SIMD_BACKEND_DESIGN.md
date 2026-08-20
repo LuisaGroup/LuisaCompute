@@ -3665,6 +3665,19 @@ native W4/W8/W16 packet entry points. These are correctness and conformance
 results; throughput from a machine carrying unrelated work is not promoted to
 a performance claim.
 
+The graphics device-loop checkpoint makes the fire simulation a permanent
+offline SIMD integration gate. Its 256-particle render traversal must be a DSL
+device loop rather than a host loop that clones the body into the recorded AST;
+this keeps the loop body single-copy for Schedule lowering and LLVM
+optimization. The complete example validates particle state and the checked-in
+image, and the broader W8 offline capability sweep covers the path-tracing,
+procedural-query, SDF, Voxel, image-processing, shader, and attention examples.
+The compiler-focused Release tree passes 149/149 tests, while both maintained
+fallback+SIMD/Embree trees pass 161/161. The example startup gate also preserves
+the cross-backend/DXC structure ABI: the half/ushort test aggregate is
+explicitly four-byte aligned, and a core negative regression continues to
+reject two-byte aggregate alignment.
+
 The next implementation boundary is completion of the remaining Embree
 vertical slice: deeper instance-stack semantics and a SoA packet-query-state
 experiment guarded by stable measurement. Candidate chains beyond

@@ -214,23 +214,34 @@ if (LUISA_COMPUTE_ENABLE_GUI AND LUISA_COMPUTE_EXAMPLE_QT_INTEROP)
 endif ()
 
 if (TARGET luisa-compute-backend-simd)
+    add_dependencies(example_helloworld luisa-compute-backend-simd)
+    add_test(NAME simd_example_helloworld
+            COMMAND $<TARGET_FILE:example_helloworld> simd)
+    set_tests_properties(simd_example_helloworld PROPERTIES
+            LABELS "integration_simd"
+            TIMEOUT 30
+            WORKING_DIRECTORY $<TARGET_FILE_DIR:example_helloworld>)
+
     foreach (_simd_graphics_example IN ITEMS
             image_processing
             shader_toy
-            game_of_life)
+            game_of_life
+            fire_simulation)
         set(_simd_graphics_target
                 example_${_simd_graphics_example})
-        add_dependencies(${_simd_graphics_target}
-                luisa-compute-backend-simd)
-        add_test(NAME simd_graphics_${_simd_graphics_example}
-                COMMAND $<TARGET_FILE:${_simd_graphics_target}>
-                simd --offline -c
-                ${CMAKE_SOURCE_DIR}/docs/gallery/test_${_simd_graphics_example}.png)
-        set_tests_properties(
-                simd_graphics_${_simd_graphics_example} PROPERTIES
-                LABELS "integration_simd;graphics_simd"
-                TIMEOUT 120
-                WORKING_DIRECTORY
-                $<TARGET_FILE_DIR:${_simd_graphics_target}>)
+        if (TARGET ${_simd_graphics_target})
+            add_dependencies(${_simd_graphics_target}
+                    luisa-compute-backend-simd)
+            add_test(NAME simd_graphics_${_simd_graphics_example}
+                    COMMAND $<TARGET_FILE:${_simd_graphics_target}>
+                    simd --offline -c
+                    ${CMAKE_SOURCE_DIR}/docs/gallery/test_${_simd_graphics_example}.png)
+            set_tests_properties(
+                    simd_graphics_${_simd_graphics_example} PROPERTIES
+                    LABELS "integration_simd;graphics_simd"
+                    TIMEOUT 120
+                    WORKING_DIRECTORY
+                    $<TARGET_FILE_DIR:${_simd_graphics_target}>)
+        endif ()
     endforeach ()
 endif ()

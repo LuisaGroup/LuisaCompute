@@ -302,8 +302,11 @@ int main(int argc, char *argv[]) {
         // Accumulate particle contributions
         Var color = make_float3(0.0f);
 
-        // Draw the documented 1/256 subset for performance.
-        for (uint sample_index = 0u; sample_index < rendered_particle_count; sample_index++) {
+        // Draw the documented 1/256 subset for performance. Keep this as a
+        // device loop: a host loop would clone the body 256 times into the
+        // recorded AST and make CPU-backend JIT optimization prohibitively
+        // expensive.
+        $for (sample_index, rendered_particle_count) {
             auto i = sample_index * render_particle_stride;
             Var p = particle_buf.read(i);
 
@@ -351,7 +354,7 @@ int main(int argc, char *argv[]) {
                 // Additive blending
                 color += particle_color * intensity * 0.5f;
             };
-        }
+        };
 
         // Tone mapping and output
         color = min(color, 1.0f);

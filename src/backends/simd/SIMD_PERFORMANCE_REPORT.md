@@ -4221,3 +4221,66 @@ repository's complete Embree renderer because no matched full-renderer ISPC
 implementation exists. Raw records are
 `/tmp/luisa-simd-ispc-loop-barrier-a-7r-20260816.json` and
 `/tmp/luisa-simd-ispc-loop-barrier-b-7r-20260816.json`.
+
+## Graphics device-loop completion
+
+The offline fire simulation exposed a front-end/JIT scaling defect rather than
+a packet-scheduler defect. Its render kernel used a C++ loop over the selected
+256 particles, so recording cloned the complete body 256 times into the AST.
+The old executable did not produce a frame within 300 seconds, kept one host
+thread busy while the worker pool slept, and reached approximately 2,798,044
+KiB RSS. Expressing the same iteration space as a DSL `$for` emits one device
+loop. The complete 200-frame offline run then finishes in about 5.6 seconds at
+approximately 132 MiB RSS. This is a greater-than-53x end-to-end wall-time
+lower bound and a greater-than-21x resident-memory reduction; it is primarily
+an AST construction and LLVM optimization-size fix, not a claim that the SIMD
+scheduler alone became 53x faster.
+
+The output-state oracle and checked-in image comparison pass. Fallback reaches
+85.889909 dB RGB PSNR and every SIMD width reaches 85.348272 dB. With the SIMD
+pool fixed at 32 workers, independent complete-process repetitions give these
+wall-time medians; speedup is fallback time divided by SIMD time:
+
+| backend/width | median seconds | throughput vs fallback |
+| --- | ---: | ---: |
+| fallback | 11.62 | 1.000x |
+| SIMD W1 | 25.13 | 0.462x |
+| SIMD W2 | 21.29 | 0.546x |
+| SIMD W4 | 10.62 | **1.094x** |
+| SIMD W8 | 5.78 | **2.010x** |
+| SIMD W16 | 3.24 | **3.586x** |
+
+The first W2 series overlapped unrelated host work and contained two obvious
+slow samples. It was discarded in full, then repeated five times; the clean
+20.81--21.36-second series supplies the table. Every other entry is the median
+of three successful complete runs. These are repeated process medians, not a
+paired confidence interval.
+
+W2 is a semantic and correctness width, but not a native two-lane x86
+execution width. Its render packet contains 1,495 static instructions versus
+1,324 at W4 while processing only half as many lanes; both map principally to
+XMM operations. This accounts for the W2 regression without implicating an
+incorrect width selection. W16 uses ZMM operations heavily. Both dumped W16
+JIT objects have no undefined symbol and no varying `sinf`, `cosf`, `expf`,
+`logf`, `powf`, SVML, SLEEF, or other scalar-libm dependency. The retained
+artifacts are under `/tmp/luisa-simd-fire-w16-20260820/`.
+
+The fire program is now a permanent offline SIMD graphics test, and
+`helloworld` is a permanent backend-startup/ABI test. The latter fixes its
+half/ushort aggregate at four-byte alignment; two-byte aggregate alignment
+remains deliberately invalid for the cross-backend/DXC structure ABI, with a
+core type-system negative regression. Complete Release CTest inventories pass
+149/149 in the compiler-focused tree and 161/161 in each of the two maintained
+fallback+SIMD/Embree trees. The focused native-math, runtime-width,
+`helloworld`, and fire gate passes 5/5.
+
+A broader W8 offline capability sweep also completes base, camera, cutout,
+HDR, nested-callable, ray-mask, and spectrum path tracing; photon mapping;
+procedural ray query; black-hole, SpaceX, and visual shaders; SDF and both
+XIR-to-AST examples; Voxel; image processing; shader toy; game of life; and
+the MHA/MLA examples. MHA and MLA pass their independent CPU-reference checks.
+The short rendering sweeps are capability coverage, not stable performance
+samples. The current official ISPC claim therefore remains scoped to the
+matched five-workload compiler suite above: its geomean is 1.24489x at W8 and
+1.24922x at W16 in Luisa's favor, while no matched ISPC implementation of the
+complete Embree renderer exists.
