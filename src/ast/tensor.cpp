@@ -156,6 +156,10 @@ const char *tensor_element_type_name(TensorElementType e) noexcept {
         case TensorElementType::F16: return "half";
         case TensorElementType::F32: return "float";
         case TensorElementType::I32: return "int";
+        case TensorElementType::I8: return "int8";
+        case TensorElementType::FP8: return "fp8";
+        case TensorElementType::I4: return "int4";
+        case TensorElementType::FP4: return "fp4";
     }
     return "?";
 }
@@ -164,16 +168,17 @@ const char *tensor_element_type_name(TensorElementType e) noexcept {
 // TensorExpr
 // ---------------------------------------------------------------------------
 
-TensorExpr::TensorExpr(int32_t rank,
-                       TensorElementType dtype,
-                       TensorScope scope,
-                       luisa::fixed_vector<int32_t, 4> &&dims,
-                       luisa::fixed_vector<int32_t, 4> &&offset,
-                       luisa::fixed_vector<int32_t, 4> &&extent,
-                       const RefExpr *handle) noexcept
-    : _rank{rank}, _dtype{dtype}, _scope{scope},
-      _dims{std::move(dims)}, _offset{std::move(offset)},
-      _extent{std::move(extent)}, _handle{handle} {
+  TensorExpr::TensorExpr(int32_t rank,
+                         TensorElementType dtype,
+                         TensorScope scope,
+                         luisa::fixed_vector<int32_t, 4> &&dims,
+                         luisa::fixed_vector<int32_t, 4> &&offset,
+                         luisa::fixed_vector<int32_t, 4> &&extent,
+                         const RefExpr *handle,
+                         luisa::string_view name) noexcept
+        : _rank{rank}, _dtype{dtype}, _scope{scope},
+          _dims{std::move(dims)}, _offset{std::move(offset)},
+          _extent{std::move(extent)}, _handle{handle}, _name{name} {
     if (_offset.empty() && !_dims.empty()) [[likely]] { _offset.assign(_dims.size(), 0); }
     if (_extent.empty()) [[likely]] { _extent = _dims; }// whole-tensor view
 }
@@ -209,7 +214,7 @@ bool TensorExpr::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!read_i32(input_ptr, end_ptr, _rank)) [[unlikely]] { return false; }
     uint32_t dtype;
     if (!read_u32(input_ptr, end_ptr, dtype)) [[unlikely]] { return false; }
-    if (dtype > static_cast<uint32_t>(TensorElementType::I32)) [[unlikely]] { return false; }
+    if (dtype > static_cast<uint32_t>(TensorElementType::FP4)) [[unlikely]] { return false; }
     _dtype = static_cast<TensorElementType>(dtype);
     uint32_t scope;
     if (!read_u32(input_ptr, end_ptr, scope)) [[unlikely]] { return false; }
@@ -389,11 +394,11 @@ bool TilePrintStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
 
 // --- Alloc ---
 AllocStmt::AllocStmt(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype, TensorScope scope,
-                     const RefExpr *handle) noexcept
-    : TensorStmt{TileOpKind::ALLOC,
-                 new TensorExpr{static_cast<int32_t>(dims.size()), dtype, scope,
-                                std::move(dims), {}, {}, handle},
-                 {}} {}
+                       const RefExpr *handle, luisa::string_view name) noexcept
+      : TensorStmt{TileOpKind::ALLOC,
+                   new TensorExpr{static_cast<int32_t>(dims.size()), dtype, scope,
+                                  std::move(dims), {}, {}, handle, name},
+                   {}} {}
 size_t AllocStmt::serialize(luisa::vector<char> &output_buffer) {
     return TensorStmt::serialize(output_buffer);
 }
@@ -475,11 +480,32 @@ bool MaxStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     return read_literal(input_ptr, end_ptr, _b);
 }
 
+// --- Min ---
+size_t MinStmt::serialize(luisa::vector<char> &output_buffer) {
+    auto start = output_buffer.size();
+    TensorStmt::serialize(output_buffer);
+    write_literal(output_buffer, _b);
+    return output_buffer.size() - start;
+}
+bool MinStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
+    if (!TensorStmt::deserialize(input_ptr, end_ptr)) [[unlikely]] { return false; }
+    _b = nullptr;
+    return read_literal(input_ptr, end_ptr, _b);
+}
+
 // --- Rsqrt ---
 size_t RsqrtStmt::serialize(luisa::vector<char> &output_buffer) {
     return TensorStmt::serialize(output_buffer);
 }
 bool RsqrtStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
+    return TensorStmt::deserialize(input_ptr, end_ptr);
+}
+
+// --- Abs ---
+size_t AbsStmt::serialize(luisa::vector<char> &output_buffer) {
+    return TensorStmt::serialize(output_buffer);
+}
+bool AbsStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     return TensorStmt::deserialize(input_ptr, end_ptr);
 }
 
@@ -1152,15 +1178,20 @@ size_t IeeeMathStmt::serialize(luisa::vector<char> &output_buffer) {
     TensorStmt::serialize(output_buffer);
     write_u32(output_buffer, static_cast<uint32_t>(_op));
     write_i32(output_buffer, _rounding_mode);
+    write_u32(output_buffer, static_cast<uint32_t>(_cast_dtype));
     return output_buffer.size() - start;
 }
 bool IeeeMathStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!TensorStmt::deserialize(input_ptr, end_ptr)) [[unlikely]] { return false; }
     uint32_t op;
     if (!read_u32(input_ptr, end_ptr, op)) [[unlikely]] { return false; }
-    if (op > static_cast<uint32_t>(TileIeeeOp::FDIV)) [[unlikely]] { return false; }
+    if (op > static_cast<uint32_t>(TileIeeeOp::CAST)) [[unlikely]] { return false; }
     _op = static_cast<TileIeeeOp>(op);
-    return read_i32(input_ptr, end_ptr, _rounding_mode);
+    if (!read_i32(input_ptr, end_ptr, _rounding_mode)) [[unlikely]] { return false; }
+    uint32_t cd;
+    if (!read_u32(input_ptr, end_ptr, cd)) [[unlikely]] { return false; }
+    _cast_dtype = static_cast<TensorElementType>(cd);
+    return true;
 }
 
 // --- PackedMath ---
@@ -1190,7 +1221,7 @@ bool FastMathStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!TensorStmt::deserialize(input_ptr, end_ptr)) [[unlikely]] { return false; }
     uint32_t op;
     if (!read_u32(input_ptr, end_ptr, op)) [[unlikely]] { return false; }
-    if (op > static_cast<uint32_t>(TileFastMathOp::TAN)) [[unlikely]] { return false; }
+    if (op > static_cast<uint32_t>(TileFastMathOp::ERF)) [[unlikely]] { return false; }
     _op = static_cast<TileFastMathOp>(op);
     return true;
 }
@@ -1291,7 +1322,7 @@ bool DynamicStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!read_string(input_ptr, end_ptr, _name)) [[unlikely]] { return false; }
     uint32_t dtype;
     if (!read_u32(input_ptr, end_ptr, dtype)) [[unlikely]] { return false; }
-    if (dtype > static_cast<uint32_t>(TensorElementType::I32)) [[unlikely]] { return false; }
+    if (dtype > static_cast<uint32_t>(TensorElementType::FP4)) [[unlikely]] { return false; }
     _dtype = static_cast<TensorElementType>(dtype);
     return true;
 }
@@ -1309,7 +1340,7 @@ bool SymbolicStmt::deserialize(char const *&input_ptr, char const *end_ptr) {
     if (!read_string(input_ptr, end_ptr, _name)) [[unlikely]] { return false; }
     uint32_t dtype;
     if (!read_u32(input_ptr, end_ptr, dtype)) [[unlikely]] { return false; }
-    if (dtype > static_cast<uint32_t>(TensorElementType::I32)) [[unlikely]] { return false; }
+    if (dtype > static_cast<uint32_t>(TensorElementType::FP4)) [[unlikely]] { return false; }
     _dtype = static_cast<TensorElementType>(dtype);
     return true;
 }

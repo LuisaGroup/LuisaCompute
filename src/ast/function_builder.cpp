@@ -301,9 +301,10 @@ const CallExpr *FunctionBuilder::make_vector(const Type *type, luisa::span<const
                     return CallOp::MAKE_INT2;
                 case Type::Tag::INT64:
                     return CallOp::MAKE_LONG2;
-                case Type::Tag::FLOAT16: [[fallthrough]];
-                case Type::Tag::FLOAT32:
+                case Type::Tag::FLOAT16:
                     return CallOp::MAKE_HALF2;
+                case Type::Tag::FLOAT32:
+                    return CallOp::MAKE_FLOAT2;
                 case Type::Tag::FLOAT64:
                     return CallOp::MAKE_DOUBLE2;
                 default:

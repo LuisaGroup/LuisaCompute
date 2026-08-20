@@ -13,6 +13,7 @@ struct [[builtin("ray_query_all")]] RayQueryAll {
     [[callop("RAY_QUERY_IS_TRIANGLE_CANDIDATE")]] bool is_triangle_candidate();
     [[callop("RAY_QUERY_IS_PROCEDURAL_CANDIDATE")]] bool is_procedural_candidate();
     [[callop("RAY_QUERY_WORLD_SPACE_RAY")]] Ray world_ray();
+    [[callop("RAY_QUERY_OBJECT_SPACE_RAY")]] Ray object_ray();
     [[callop("RAY_QUERY_PROCEDURAL_CANDIDATE_HIT")]] ProceduralHit procedural_candidate();
     [[callop("RAY_QUERY_TRIANGLE_CANDIDATE_HIT")]] TriangleHit triangle_candidate();
     [[callop("RAY_QUERY_COMMITTED_HIT")]] CommittedHit committed_hit();
@@ -31,6 +32,7 @@ struct [[builtin("ray_query_any")]] RayQueryAny {
     [[callop("RAY_QUERY_IS_TRIANGLE_CANDIDATE")]] bool is_triangle_candidate();
     [[callop("RAY_QUERY_IS_PROCEDURAL_CANDIDATE")]] bool is_procedural_candidate();
     [[callop("RAY_QUERY_WORLD_SPACE_RAY")]] Ray world_ray();
+    [[callop("RAY_QUERY_OBJECT_SPACE_RAY")]] Ray object_ray();
     [[callop("RAY_QUERY_PROCEDURAL_CANDIDATE_HIT")]] ProceduralHit procedural_candidate();
     [[callop("RAY_QUERY_TRIANGLE_CANDIDATE_HIT")]] TriangleHit triangle_candidate();
     [[callop("RAY_QUERY_COMMITTED_HIT")]] CommittedHit committed_hit();

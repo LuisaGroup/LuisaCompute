@@ -198,6 +198,63 @@ inline void coro_frame_append_reserved_fields(luisa::vector<size_t> &fields) noe
     return relocation_fields;
 }
 
+/// Factor token-indexed relocation payloads R[t] into
+///
+///   C = intersection(t != 0) R[t]
+///   D[t] = R[t] - C.
+///
+/// A queued coroutine frame is a tagged union: for target token t, only R[t]
+/// is defined. Schedulers may copy C unconditionally and dispatch only D[t]
+/// on the token, which is exactly R[t] without reading inactive physical
+/// slots. The factorization is a code-size optimization, not a liveness
+/// approximation; CoroGraph remains the sole source of the relocation proof.
+struct CoroFrameRelocationFieldPartition {
+    luisa::vector<size_t> common_fields;
+    luisa::vector<luisa::vector<size_t>> residual_fields;
+};
+
+[[nodiscard]] inline auto coro_frame_partition_relocation_fields(
+    const CoroGraph &graph, size_t frame_field_count) noexcept {
+    auto exact_fields = coro_frame_collect_relocation_fields(
+        graph, frame_field_count);
+    CoroFrameRelocationFieldPartition partition;
+    partition.residual_fields = exact_fields;
+    if (exact_fields.size() > 1u) {
+        partition.common_fields = exact_fields[1u];
+        for (auto token = 2u; token < exact_fields.size(); ++token) {
+            auto &fields = exact_fields[token];
+            partition.common_fields.erase(
+                std::remove_if(
+                    partition.common_fields.begin(),
+                    partition.common_fields.end(),
+                    [&](auto field) noexcept {
+                        return std::find(
+                                   fields.begin(), fields.end(), field) ==
+                               fields.end();
+                    }),
+                partition.common_fields.end());
+        }
+    }
+    for (auto token = 1u;
+         token < partition.residual_fields.size(); ++token) {
+        auto &fields = partition.residual_fields[token];
+        fields.erase(
+            std::remove_if(
+                fields.begin(), fields.end(),
+                [&](auto field) noexcept {
+                    return std::find(
+                               partition.common_fields.begin(),
+                               partition.common_fields.end(), field) !=
+                           partition.common_fields.end();
+                }),
+            fields.end());
+    }
+    if (!partition.residual_fields.empty()) {
+        partition.residual_fields.front().clear();
+    }
+    return partition;
+}
+
 class CoroFrameSharedStorage {
 
 private:
@@ -439,6 +496,60 @@ inline void coro_frame_load_soa_into(
     return capacity * static_cast<uint>(layout.field_capacity_strides[field_index]) +
            frame_index * static_cast<uint>(layout.field_strides[field_index]) +
            static_cast<uint>(layout.field_offsets[field_index]);
+}
+
+/// Copy exactly the fields proved live for one tagged coroutine state.
+/// Source and destination frame indices must be distinct, and concurrent
+/// invocations must own disjoint destinations. Copying through a complete
+/// CoroFrame aggregate is intentionally avoided: fields outside the token's
+/// relocation set are undefined and therefore may not be loaded merely to
+/// simplify storage movement.
+inline void coro_frame_copy_fields(
+    const Expr<ByteBuffer> &buffer, Expr<uint> source_index,
+    Expr<uint> destination_index, Expr<uint> soa_capacity,
+    const CoroFrameDesc *desc, const CoroFrameStorageLayout &layout,
+    bool soa, luisa::span<const size_t> fields,
+    bool is_volatile = false) noexcept {
+    LUISA_ASSERT(desc != nullptr, "Coroutine frame descriptor is null.");
+    auto *fb = luisa::compute::detail::FunctionBuilder::current();
+    for (auto field_index : fields) {
+        LUISA_ASSERT(
+            field_index < desc->frame_field_count(),
+            "Coroutine relocation field {} is outside frame field count {}.",
+            field_index, desc->frame_field_count());
+        auto *type = desc->frame_field_type(field_index);
+        auto copy_at_offsets = [&](auto source_offset,
+                                   auto destination_offset) noexcept {
+            auto *value = fb->call(
+                type,
+                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ :
+                              CallOp::BYTE_BUFFER_READ,
+                {buffer.expression(),
+                 luisa::compute::detail::extract_expression(source_offset)});
+            fb->call(
+                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE :
+                              CallOp::BYTE_BUFFER_WRITE,
+                {buffer.expression(),
+                 luisa::compute::detail::extract_expression(
+                     destination_offset),
+                 value});
+        };
+        if (soa) {
+            auto source_offset = coro_frame_runtime_soa_offset(
+                source_index, soa_capacity, layout, field_index);
+            auto destination_offset = coro_frame_runtime_soa_offset(
+                destination_index, soa_capacity, layout, field_index);
+            copy_at_offsets(source_offset, destination_offset);
+        } else {
+            auto stride = static_cast<uint>(layout.frame_stride);
+            auto field_offset =
+                static_cast<uint>(layout.field_offsets[field_index]);
+            auto source_offset = source_index * stride + field_offset;
+            auto destination_offset =
+                destination_index * stride + field_offset;
+            copy_at_offsets(source_offset, destination_offset);
+        }
+    }
 }
 
 inline void coro_frame_store_runtime_soa(

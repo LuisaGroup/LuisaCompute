@@ -353,9 +353,114 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
             }
             auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
             if (!(return_type->dimension() == matrix_dimension.y &&          // output is N
-                  args[2]->type()->dimension() == matrix_dimension.x         // input is K
+                  args[3]->type()->dimension() == matrix_dimension.x         // input is K
                   )) [[unlikely]] {
                 LUISA_ERROR("Cooperative-Mul call dimension mismatch.");
+            }
+            break;
+        }
+        // Future cooperative-vector element-wise operations. These validate only
+        // the general operand shape; every backend currently rejects them with a
+        // placeholder assertion until native support lands.
+        case CallOp::COOPERATIVE_VECTOR_DOT: {
+            if (!(return_type->is_scalar() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Dot call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_ABS:
+        case CallOp::COOPERATIVE_VECTOR_SIGN:
+        case CallOp::COOPERATIVE_VECTOR_FLOOR:
+        case CallOp::COOPERATIVE_VECTOR_CEIL:
+        case CallOp::COOPERATIVE_VECTOR_FRACT:
+        case CallOp::COOPERATIVE_VECTOR_TRUNC:
+        case CallOp::COOPERATIVE_VECTOR_ROUND:
+        case CallOp::COOPERATIVE_VECTOR_RINT:
+        case CallOp::COOPERATIVE_VECTOR_SQRT:
+        case CallOp::COOPERATIVE_VECTOR_RSQRT:
+        case CallOp::COOPERATIVE_VECTOR_EXP2:
+        case CallOp::COOPERATIVE_VECTOR_EXP10:
+        case CallOp::COOPERATIVE_VECTOR_LOG2:
+        case CallOp::COOPERATIVE_VECTOR_LOG10:
+        case CallOp::COOPERATIVE_VECTOR_SATURATE:
+        case CallOp::COOPERATIVE_VECTOR_SIN:
+        case CallOp::COOPERATIVE_VECTOR_COS:
+        case CallOp::COOPERATIVE_VECTOR_TAN:
+        case CallOp::COOPERATIVE_VECTOR_ASIN:
+        case CallOp::COOPERATIVE_VECTOR_ACOS:
+        case CallOp::COOPERATIVE_VECTOR_SINH:
+        case CallOp::COOPERATIVE_VECTOR_COSH:
+        case CallOp::COOPERATIVE_VECTOR_ASINH:
+        case CallOp::COOPERATIVE_VECTOR_ACOSH:
+        case CallOp::COOPERATIVE_VECTOR_ATANH: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 1u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector unary call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_ISINF:
+        case CallOp::COOPERATIVE_VECTOR_ISNAN: {
+            if (!(return_type->is_cooperative_vector() &&
+                  return_type->element()->is_bool() &&
+                  args.size() == 1u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-IsInf/IsNan call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_POW:
+        case CallOp::COOPERATIVE_VECTOR_STEP:
+        case CallOp::COOPERATIVE_VECTOR_ADD:
+        case CallOp::COOPERATIVE_VECTOR_SUB:
+        case CallOp::COOPERATIVE_VECTOR_MUL:
+        case CallOp::COOPERATIVE_VECTOR_DIV: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector binary call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_LESS:
+        case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_GREATER:
+        case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL: {
+            if (!(return_type->is_cooperative_vector() &&
+                  return_type->element()->is_bool() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector relational call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_MIX:
+        case CallOp::COOPERATIVE_VECTOR_LERP:
+        case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 3u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[2]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension() &&
+                  args[0]->type()->dimension() == args[2]->type()->dimension() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector ternary call argument type mismatch.");
             }
             break;
         }
@@ -374,6 +479,197 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
                   args[3]->type()->dimension() == matrix_dimension.x         // input is K
                   )) [[unlikely]] {
                 LUISA_ERROR("Cooperative-Mul call dimension mismatch.");
+            }
+            break;
+        }
+        case CallOp::TENSOR_COPY:
+        case CallOp::TENSOR_FILL:
+        case CallOp::TENSOR_CAST:
+        case CallOp::TENSOR_PERMUTE:
+        case CallOp::TENSOR_CONCAT:
+        case CallOp::TENSOR_PAD:
+        case CallOp::TENSOR_NEG:
+        case CallOp::TENSOR_ABS:
+        case CallOp::TENSOR_EXP:
+        case CallOp::TENSOR_LOG:
+        case CallOp::TENSOR_SQRT:
+        case CallOp::TENSOR_RSQRT:
+        case CallOp::TENSOR_SIN:
+        case CallOp::TENSOR_COS:
+        case CallOp::TENSOR_TAN:
+        case CallOp::TENSOR_TANH:
+        case CallOp::TENSOR_SIGMOID:
+        case CallOp::TENSOR_GELU:
+        case CallOp::TENSOR_RELU:
+        case CallOp::TENSOR_LEAKY_RELU:
+        case CallOp::TENSOR_ERF:
+        case CallOp::TENSOR_CEIL:
+        case CallOp::TENSOR_FLOOR:
+        case CallOp::TENSOR_ROUND:
+        case CallOp::TENSOR_ISNAN:
+        case CallOp::TENSOR_ISINF:
+        case CallOp::TENSOR_ADD:
+        case CallOp::TENSOR_SUB:
+        case CallOp::TENSOR_MUL:
+        case CallOp::TENSOR_DIV:
+        case CallOp::TENSOR_POW:
+        case CallOp::TENSOR_MIN:
+        case CallOp::TENSOR_MAX:
+        case CallOp::TENSOR_CLAMP:
+        case CallOp::TENSOR_FMA:
+        case CallOp::TENSOR_REDUCE_SUM:
+        case CallOp::TENSOR_REDUCE_MAX:
+        case CallOp::TENSOR_REDUCE_MIN:
+        case CallOp::TENSOR_CUMSUM:
+        case CallOp::TENSOR_MATMUL:
+        case CallOp::TENSOR_CONTRACT:
+        case CallOp::TENSOR_BATCH_MATMUL: {
+            // Runtime tensor operators (plan.md §1.5). All tensor ops are
+            // side-effecting statement-like calls returning void. Each tensor
+            // operand is encoded as six arguments: [dtype:uint32, rank:uint32,
+            // extents:uint4, strides:uint4, offset:uint32, addr:uint64]. The
+            // remaining arguments are op-specific scalar/vector constants
+            // (count, dims, alpha/beta, modes, ...) carried verbatim to the
+            // backend.
+            auto is_uint32 = [](const Expression *e) noexcept { return e->type()->is_uint32(); };
+            auto is_uint4 = [](const Expression *e) noexcept {
+                return e->type()->is_vector() && e->type()->element()->is_uint32() &&
+                       e->type()->dimension() == 4u;
+            };
+            auto is_float32 = [](const Expression *e) noexcept { return e->type()->is_float32(); };
+            auto is_uint64 = [](const Expression *e) noexcept { return e->type()->is_uint64(); };
+            auto check_desc = [&](const Expression *const *a) noexcept {
+                return is_uint32(a[0]) && is_uint32(a[1]) && is_uint4(a[2]) &&
+                       is_uint4(a[3]) && is_uint32(a[4]) && is_uint64(a[5]);
+            };
+            auto check_void = [&]() noexcept {
+                return return_type == nullptr || return_type == Type::of<void>();
+            };
+            auto fail = [&] { LUISA_ERROR("Tensor call argument type mismatch ({}).", luisa::to_string(op)); };
+            if (!check_void()) [[unlikely]] { fail(); }
+            switch (op) {
+                case CallOp::TENSOR_COPY:
+                case CallOp::TENSOR_CAST:
+                    if (!(args.size() == 13u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && is_uint32(args[12]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_FILL:
+                    if (!(args.size() == 8u && check_desc(args.data()) &&
+                          is_uint32(args[6]) && is_uint32(args[7]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_PERMUTE:
+                case CallOp::TENSOR_PAD:
+                    if (!(args.size() == 13u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && is_uint4(args[12]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_CONCAT:
+                    if (!(args.size() == 56u && check_desc(args.data()) &&
+                          is_uint32(args[6]) && is_uint32(args[7]))) [[unlikely]] {
+                        fail();
+                    }
+                    for (auto i = 0u; i < 8u; i++) {
+                        if (!check_desc(args.data() + 8u + 6u * i)) [[unlikely]] { fail(); }
+                    }
+                    break;
+                case CallOp::TENSOR_NEG:
+                case CallOp::TENSOR_ABS:
+                case CallOp::TENSOR_EXP:
+                case CallOp::TENSOR_LOG:
+                case CallOp::TENSOR_SQRT:
+                case CallOp::TENSOR_RSQRT:
+                case CallOp::TENSOR_SIN:
+                case CallOp::TENSOR_COS:
+                case CallOp::TENSOR_TAN:
+                case CallOp::TENSOR_TANH:
+                case CallOp::TENSOR_SIGMOID:
+                case CallOp::TENSOR_GELU:
+                case CallOp::TENSOR_RELU:
+                case CallOp::TENSOR_LEAKY_RELU:
+                case CallOp::TENSOR_ERF:
+                case CallOp::TENSOR_CEIL:
+                case CallOp::TENSOR_FLOOR:
+                case CallOp::TENSOR_ROUND:
+                case CallOp::TENSOR_ISNAN:
+                case CallOp::TENSOR_ISINF:
+                    if (!(args.size() == 13u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && is_uint32(args[12]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_ADD:
+                case CallOp::TENSOR_SUB:
+                case CallOp::TENSOR_MUL:
+                case CallOp::TENSOR_DIV:
+                case CallOp::TENSOR_POW:
+                case CallOp::TENSOR_MIN:
+                case CallOp::TENSOR_MAX:
+                    if (!(args.size() == 19u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && check_desc(args.data() + 12u) &&
+                          is_uint32(args[18]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_CLAMP:
+                    if (!(args.size() == 15u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && is_uint32(args[12]) &&
+                          is_uint32(args[13]) && is_uint32(args[14]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_FMA:
+                    if (!(args.size() == 25u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && check_desc(args.data() + 12u) &&
+                          check_desc(args.data() + 18u) && is_uint32(args[24]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_REDUCE_SUM:
+                case CallOp::TENSOR_REDUCE_MAX:
+                case CallOp::TENSOR_REDUCE_MIN:
+                    if (!(args.size() == 14u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && is_uint32(args[12]) &&
+                          is_uint4(args[13]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_CUMSUM:
+                    if (!(args.size() == 13u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && is_uint32(args[12]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_MATMUL:
+                    if (!(args.size() == 24u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && check_desc(args.data() + 12u) &&
+                          is_uint32(args[18]) && is_uint32(args[19]) && is_uint32(args[20]) &&
+                          is_float32(args[21]) && is_float32(args[22]) && is_uint32(args[23]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_BATCH_MATMUL:
+                    if (!(args.size() == 25u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && check_desc(args.data() + 12u) &&
+                          is_uint32(args[18]) && is_uint32(args[19]) && is_uint32(args[20]) &&
+                          is_float32(args[21]) && is_float32(args[22]) && is_uint32(args[23]) &&
+                          is_uint32(args[24]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                case CallOp::TENSOR_CONTRACT:
+                    if (!(args.size() == 22u && check_desc(args.data()) &&
+                          check_desc(args.data() + 6u) && check_desc(args.data() + 12u) &&
+                          is_uint4(args[18]) && is_uint4(args[19]) && is_uint4(args[20]) &&
+                          is_uint32(args[21]))) [[unlikely]] {
+                        fail();
+                    }
+                    break;
+                default: break;
             }
             break;
         }

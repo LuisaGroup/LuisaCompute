@@ -413,6 +413,158 @@ void test_procedural_ray_query_world_ray(Device &device) {
         static_cast<uint>(HitType::Procedural));
     expect(
         static_cast<uint>(host_results[4].z) == 1u);
+
+    // Compile a distinct object-ray-only handler. Besides making the contract
+    // explicit, this guards the HIP native-closest quotient: the callback must
+    // consume HIPRT's already-transformed active ray without materializing an
+    // instance matrix in user code or aliasing the world-ray representation.
+    Kernel1D trace_object_ray = [](
+                                    AccelVar accel,
+                                    BufferFloat4 results) noexcept {
+        auto ray = make_ray(
+            make_float3(0.125f, -0.125f, 3.0f),
+            make_float3(0.0f, 0.0f, -2.0f),
+            0.25f, 7.5f);
+        UInt callback_count = 0u;
+        auto committed =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [](SurfaceCandidate &) noexcept {})
+                .on_procedural_candidate(
+                    [&](ProceduralCandidate &candidate) noexcept {
+                        auto before = candidate.object_ray();
+                        results.write(
+                            0u, make_float4(
+                                    before->origin(), before->t_min()));
+                        results.write(
+                            1u, make_float4(
+                                    before->direction(), before->t_max()));
+                        callback_count += 1u;
+                        candidate.commit(1.0f);
+                        auto after = candidate.object_ray();
+                        results.write(
+                            2u, make_float4(
+                                    after->origin(), after->t_min()));
+                        results.write(
+                            3u, make_float4(
+                                    after->direction(), after->t_max()));
+                    })
+                .trace();
+        results.write(
+            4u, make_float4(
+                    committed->distance(),
+                    cast<float>(committed->hit_type),
+                    cast<float>(callback_count), 0.0f));
+    };
+    auto object_ray_shader = device.compile(trace_object_ray);
+    host_results.fill({});
+    stream << object_ray_shader(accel, result_buffer).dispatch(1u)
+           << result_buffer.copy_to(luisa::span{host_results})
+           << synchronize();
+
+    auto check_object_ray_fields =
+        [&](const float4 &origin_tmin,
+            const float4 &direction_tmax,
+            luisa::string_view phase) noexcept {
+            expect_near(origin_tmin.x, 0.125f,
+                        luisa::format("{} origin.x", phase));
+            expect_near(origin_tmin.y, -0.125f,
+                        luisa::format("{} origin.y", phase));
+            expect_near(origin_tmin.z, 1.0f,
+                        luisa::format("{} origin.z", phase));
+            expect_near(origin_tmin.w, 0.25f,
+                        luisa::format("{} t_min", phase));
+            expect_near(direction_tmax.x, 0.0f,
+                        luisa::format("{} direction.x", phase));
+            expect_near(direction_tmax.y, 0.0f,
+                        luisa::format("{} direction.y", phase));
+            expect_near(direction_tmax.z, -1.0f,
+                        luisa::format("{} direction.z", phase));
+        };
+    check_object_ray_fields(
+        host_results[0], host_results[1],
+        "procedural object ray before commit");
+    check_object_ray_fields(
+        host_results[2], host_results[3],
+        "procedural object ray after commit");
+    expect_near(host_results[1].w, 7.5f,
+                "procedural object pre-commit t_max");
+    expect_near(host_results[3].w, 1.0f,
+                "procedural object post-commit t_max");
+    expect_near(host_results[4].x, 1.0f,
+                "procedural object committed distance");
+    expect(static_cast<uint>(host_results[4].y) ==
+           static_cast<uint>(HitType::Procedural));
+    expect(static_cast<uint>(host_results[4].z) == 1u);
+
+    // A handler may observe both representations. Their product cannot be
+    // encoded by aliasing one mutable ray field: the world ray is immutable,
+    // while the object ray is candidate-dependent. HIP therefore classifies
+    // the containing function into the exact resumable state domain.
+    Kernel1D trace_both_rays = [](
+                                   AccelVar accel,
+                                   BufferFloat4 results) noexcept {
+        auto ray = make_ray(
+            make_float3(0.125f, -0.125f, 3.0f),
+            make_float3(0.0f, 0.0f, -2.0f),
+            0.25f, 7.5f);
+        UInt callback_count = 0u;
+        auto committed =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [](SurfaceCandidate &) noexcept {})
+                .on_procedural_candidate(
+                    [&](ProceduralCandidate &candidate) noexcept {
+                        auto world = candidate.ray();
+                        auto object = candidate.object_ray();
+                        results.write(
+                            0u, make_float4(
+                                    world->origin(), world->t_min()));
+                        results.write(
+                            1u, make_float4(
+                                    object->origin(), object->t_min()));
+                        results.write(
+                            2u, make_float4(
+                                    world->direction(), world->t_max()));
+                        results.write(
+                            3u, make_float4(
+                                    object->direction(), object->t_max()));
+                        callback_count += 1u;
+                        candidate.commit(1.0f);
+                        results.write(
+                            4u, make_float4(
+                                    candidate.ray()->t_max(),
+                                    candidate.object_ray()->t_max(),
+                                    cast<float>(callback_count), 0.0f));
+                    })
+                .trace();
+        results.atomic(4u).w.fetch_add(
+            committed->distance());
+    };
+    auto both_rays_shader = device.compile(trace_both_rays);
+    host_results.fill({});
+    stream << both_rays_shader(accel, result_buffer).dispatch(1u)
+           << result_buffer.copy_to(luisa::span{host_results})
+           << synchronize();
+
+    check_immutable_ray_fields(
+        host_results[0], host_results[2],
+        "joint world/object world ray");
+    check_object_ray_fields(
+        host_results[1], host_results[3],
+        "joint world/object object ray");
+    expect_near(host_results[2].w, 7.5f,
+                "joint world/object world pre-commit t_max");
+    expect_near(host_results[3].w, 7.5f,
+                "joint world/object object pre-commit t_max");
+    expect_near(host_results[4].x, 1.0f,
+                "joint world/object world post-commit t_max");
+    expect_near(host_results[4].y, 1.0f,
+                "joint world/object object post-commit t_max");
+    expect_near(host_results[4].z, 1.0f,
+                "joint world/object callback count");
+    expect_near(host_results[4].w, 1.0f,
+                "joint world/object committed distance");
 }
 
 }// namespace

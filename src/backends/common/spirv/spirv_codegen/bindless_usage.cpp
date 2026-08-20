@@ -34,11 +34,14 @@ SpirvBindlessResourceUsage spirv_bindless_resource_usage(
     luisa::compute::xir::BindlessResourceAccess access) noexcept {
     namespace xir = luisa::compute::xir;
     switch (op) {
-        case xir::ResourceReadOp::BINDLESS_BUFFER_READ:
-        case xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ:
-            return {
-                .buffer_heap = true,
-                .buffer_metadata = !access.typed};
+ case xir::ResourceReadOp::BINDLESS_BUFFER_READ:
+ case xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ:
+ case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+ case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+ case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+ return {
+ .buffer_heap = true,
+ .buffer_metadata = !access.typed};
         case xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ:
         case xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
             return {.texture_2d = true};
@@ -54,11 +57,12 @@ SpirvBindlessResourceUsage spirv_bindless_resource_usage(
     luisa::compute::xir::BindlessResourceAccess access) noexcept {
     namespace xir = luisa::compute::xir;
     switch (op) {
-        case xir::ResourceWriteOp::BINDLESS_BUFFER_WRITE:
-        case xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
-            return {
-                .buffer_heap = true,
-                .buffer_metadata = !access.typed};
+ case xir::ResourceWriteOp::BINDLESS_BUFFER_WRITE:
+ case xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
+ case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+ return {
+ .buffer_heap = true,
+ .buffer_metadata = !access.typed};
         default: return {};
     }
 }

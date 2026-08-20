@@ -312,6 +312,8 @@ namespace detail {
     switch (op) {
         case RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
             return CallOp::RAY_QUERY_WORLD_SPACE_RAY;
+        case RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY:
+            return CallOp::RAY_QUERY_OBJECT_SPACE_RAY;
         case RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT:
             return CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT;
         case RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT:

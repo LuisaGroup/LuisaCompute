@@ -45,6 +45,8 @@ if (LUISA_COMPUTE_HIP_LINKED_LLVM)
             hip_codegen_llvm_impl_func.cpp
             hip_callable_abi.h
             hip_callable_abi.cpp
+            hip_private_memory.h
+            hip_private_memory.cpp
             hip_codegen_llvm_impl_inst.cpp
             hip_codegen_llvm_impl_cflow.cpp
             hip_codegen_llvm_impl_arith.cpp

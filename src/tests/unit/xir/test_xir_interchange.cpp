@@ -1297,6 +1297,7 @@ void reg_ray_query_instruction_round_trip() {
         auto distance = object_function->create_value_argument(float_type);
         builder.set_insertion_point(object_function->create_body_block());
         builder.call(ray, RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY, {query});
+        builder.call(ray, RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY, {query});
         builder.call(procedural_hit, RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT, {query});
         builder.call(surface_hit, RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT, {query});
         builder.call(committed_hit, RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT, {query});
@@ -1375,7 +1376,7 @@ void reg_ray_query_instruction_round_trip() {
         }
         expect(counts[0u] == 1u);
         expect(counts[1u] == 1u);
-        expect(counts[2u] == 7u);
+        expect(counts[2u] == 8u);
         expect(counts[3u] == 4u);
         expect(counts[4u] == 1u);
         auto canonical = xir_to_interchange_text(decoded.module.get());

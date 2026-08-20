@@ -877,7 +877,7 @@ void MetalCodegenAST::visit(const UnaryExpr *expr) noexcept {
 void MetalCodegenAST::visit(const BinaryExpr *expr) noexcept {
     if (expr->op() == BinaryOp::MOD &&
         expr->type()->is_float_or_float_vector()) {
-        _scratch << "fmod(";
+        _scratch << "lc_fmod(";
         expr->lhs()->accept(*this);
         _scratch << ", ";
         expr->rhs()->accept(*this);
@@ -1239,6 +1239,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "accel_query_any"; break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "ray_query_world_ray"; break;
+        case CallOp::RAY_QUERY_OBJECT_SPACE_RAY: _scratch << "ray_query_object_ray"; break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "ray_query_procedural_candidate"; break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "ray_query_triangle_candidate"; break;
         case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "ray_query_committed_hit"; break;

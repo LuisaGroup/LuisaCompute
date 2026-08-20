@@ -38,7 +38,7 @@ HIPAccel::HIPAccel(hiprtContext ctx, const AccelOption &option) noexcept
     : _option{option}, _hiprt_ctx{ctx} {}
 
 HIPAccel::~HIPAccel() noexcept {
-    if (_scene || _instance_buffer || _scene_build_buffer) {
+    if (_scene || _instance_allocation || _scene_build_buffer) {
         // Scene builds and traces are asynchronous, while HIPRT destruction and
         // hipFree below have no stream on which to order their deallocation.
         LUISA_CHECK_HIP(hipDeviceSynchronize());
@@ -46,8 +46,9 @@ HIPAccel::~HIPAccel() noexcept {
     if (_scene) {
         LUISA_CHECK_HIPRT(hiprtDestroyScene(_hiprt_ctx, _scene));
     }
-    if (_instance_buffer) {
-        LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_instance_buffer)));
+    if (_instance_allocation) {
+        LUISA_CHECK_HIP(hipFree(
+            reinterpret_cast<void *>(_instance_allocation)));
     }
     if (_scene_build_buffer) {
         LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_scene_build_buffer)));
@@ -203,21 +204,33 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
 
     auto required_size = instance_count * sizeof(CodegenInstance);
     if (_instance_buffer_size < required_size) {
-        hipDeviceptr_t new_instance_buffer{};
+        hipDeviceptr_t new_instance_allocation{};
+        auto allocation_size = sizeof(CodegenMetadata) + required_size;
         LUISA_CHECK_HIP(hipMallocAsync(
-            reinterpret_cast<void **>(&new_instance_buffer), required_size, hip_stream));
+            reinterpret_cast<void **>(&new_instance_allocation),
+            allocation_size, hip_stream));
         LUISA_CHECK_HIP(hipMemsetAsync(
-            reinterpret_cast<void *>(new_instance_buffer), 0, required_size, hip_stream));
-        if (_instance_buffer) {
+            reinterpret_cast<void *>(new_instance_allocation), 0,
+            allocation_size, hip_stream));
+        auto new_instance_buffer = reinterpret_cast<hipDeviceptr_t>(
+            reinterpret_cast<std::byte *>(new_instance_allocation) +
+            sizeof(CodegenMetadata));
+        if (_instance_allocation) {
             auto copy_count = std::min(old_instance_count, static_cast<size_t>(instance_count));
+            // Preserve the monotone opacity certificate across growth before
+            // copying the independently indexed instance payload.
+            LUISA_CHECK_HIP(hipMemcpyDtoDAsync(
+                new_instance_allocation, _instance_allocation,
+                sizeof(CodegenMetadata), hip_stream));
             if (copy_count > 0u) {
                 LUISA_CHECK_HIP(hipMemcpyDtoDAsync(
                     new_instance_buffer, _instance_buffer,
                     copy_count * sizeof(CodegenInstance), hip_stream));
             }
             LUISA_CHECK_HIP(hipFreeAsync(
-                reinterpret_cast<void *>(_instance_buffer), hip_stream));
+                reinterpret_cast<void *>(_instance_allocation), hip_stream));
         }
+        _instance_allocation = new_instance_allocation;
         _instance_buffer = new_instance_buffer;
         _instance_buffer_size = required_size;
     } else if (instance_count > old_instance_count) {
@@ -230,6 +243,7 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
     }
 
     auto mods = command->modifications();
+    auto opacity_may_be_present = false;
     for (auto &m : mods) {
         auto idx = m.index;
         LUISA_ASSERT(idx < instance_count, "Modification index out of range.");
@@ -255,7 +269,11 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
         }
 
         if (m.flags & AccelBuildCommand::Modification::flag_visibility) {
-            inst.visibility_mask = m.vis_mask;
+            inst.visibility_mask =
+                (inst.visibility_mask &
+                 CodegenInstance::packed_visibility_opaque_bit) |
+                (static_cast<uint32_t>(m.vis_mask) &
+                 CodegenInstance::visibility_mask_bits);
         }
 
         if (m.flags & AccelBuildCommand::Modification::flag_user_id) {
@@ -263,10 +281,31 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
         }
 
         if (m.flags & AccelBuildCommand::Modification::flag_opaque_on) {
+            opacity_may_be_present = true;
             inst.flags |= CodegenInstance::flag_opaque;
+            inst.visibility_mask |=
+                CodegenInstance::packed_visibility_opaque_bit;
         } else if (m.flags & AccelBuildCommand::Modification::flag_opaque_off) {
             inst.flags &= ~CodegenInstance::flag_opaque;
+            inst.visibility_mask &=
+                ~CodegenInstance::packed_visibility_opaque_bit;
         }
+    }
+
+    // Enqueue the certificate transition before the corresponding instance
+    // flag uploads on the same stream. It is intentionally never cleared:
+    // stale one only rejects an optimization, whereas stale zero would make a
+    // semantic proof unsound after device-side opacity mutations.
+    if (opacity_may_be_present) {
+        encoder.with_upload_buffer(
+            sizeof(uint32_t), [&](auto upload_buffer) noexcept {
+                constexpr uint32_t present = 1u;
+                std::memcpy(upload_buffer->address(), &present,
+                            sizeof(present));
+                LUISA_CHECK_HIP(hipMemcpyHtoDAsync(
+                    _instance_allocation, upload_buffer->address(),
+                    sizeof(present), hip_stream));
+            });
     }
 
     // A geometry or nested scene can recreate its HIPRT handle while retaining
@@ -400,9 +439,19 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
                 upload_field(Mod::flag_transform,
                              offsetof(CodegenInstance, affine),
                              sizeof(CodegenInstance::affine));
+                // Visibility and opacity are independently shader-mutable.
+                // Upload only their disjoint packed bytes so a host change to
+                // one field cannot overwrite a newer device-side value of the
+                // other. The public visibility domain is exactly eight bits;
+                // opacity occupies bit 31 (the high byte on HIP's little-
+                // endian targets).
                 upload_field(Mod::flag_visibility,
                              offsetof(CodegenInstance, visibility_mask),
-                             sizeof(CodegenInstance::visibility_mask));
+                             sizeof(uint8_t));
+                upload_field(
+                    Mod::flag_opaque,
+                    offsetof(CodegenInstance, visibility_mask) + 3u,
+                    sizeof(uint8_t));
                 upload_field(Mod::flag_user_id,
                              offsetof(CodegenInstance, user_id),
                              sizeof(CodegenInstance::user_id));

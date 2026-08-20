@@ -6,17 +6,16 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 
 namespace luisa::compute::hip {
 
-// A generated callable larger than this remains a real function boundary.
-// This caps the structural complexity contributed by any single callee to an
-// AMDGPU kernel while leaving ordinary small-callable inlining to LLVM.
-inline constexpr size_t generated_callable_inline_instruction_budget =
-    500000u;
-
-[[nodiscard]] bool preserve_generated_callable_boundary(
-    size_t instruction_count) noexcept;
+// Attribute cleanup preserves only explicitly modeled backend boundaries.
+// Ordinary generated callables are absent from this predicate by design and
+// therefore retain neither inline directive after IPO.
+[[nodiscard]] bool preserve_hip_backend_noinline_boundary(
+    std::string_view function_name,
+    bool has_noinline_attribute) noexcept;
 
 // Replaces complete `no-keep-loops` pass-option tokens while preserving every
 // other byte of the serialized pipeline. The caller owns the version-specific

@@ -33,6 +33,9 @@ public:
 
 public:
     [[nodiscard]] Var<Ray> ray() const noexcept;
+    /// Returns the current candidate's instance-space ray. The direction is
+    /// deliberately not normalized, preserving the world-space ray parameter.
+    [[nodiscard]] Var<Ray> object_ray() const noexcept;
     [[nodiscard]] Var<TriangleHit> hit() const noexcept;
     void commit() const noexcept;
     void terminate() const noexcept;
@@ -60,6 +63,9 @@ public:
 
 public:
     [[nodiscard]] Var<Ray> ray() const noexcept;
+    /// Returns the current candidate's instance-space ray. The direction is
+    /// deliberately not normalized, preserving the world-space ray parameter.
+    [[nodiscard]] Var<Ray> object_ray() const noexcept;
     [[nodiscard]] Var<ProceduralHit> hit() const noexcept;
     void commit(Expr<float> distance) const noexcept;
     void terminate() const noexcept;

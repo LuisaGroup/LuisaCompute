@@ -47,6 +47,10 @@ class RayQueryPipelineInst;
 
 struct RayQueryLoopLowerInfo {
     size_t lowered_loop_count{0u};
+    // Local allocations whose address and contents are proven observable only
+    // within one candidate-handler invocation and are therefore recreated in
+    // the outlined callback instead of entering its captured environment.
+    size_t localized_alloca_count{0u};
     size_t error_count{0u};
     [[nodiscard]] bool succeeded() const noexcept { return error_count == 0u; }
 };

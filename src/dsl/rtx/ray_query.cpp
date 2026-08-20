@@ -9,6 +9,11 @@ Var<Ray> SurfaceCandidate::ray() const noexcept {
         Type::of<Ray>(), CallOp::RAY_QUERY_WORLD_SPACE_RAY, {_query}));
 }
 
+Var<Ray> SurfaceCandidate::object_ray() const noexcept {
+    return def<Ray>(detail::FunctionBuilder::current()->call(
+        Type::of<Ray>(), CallOp::RAY_QUERY_OBJECT_SPACE_RAY, {_query}));
+}
+
 Var<TriangleHit> SurfaceCandidate::hit() const noexcept {
     return def<TriangleHit>(detail::FunctionBuilder::current()->call(
         Type::of<TriangleHit>(),
@@ -47,6 +52,11 @@ void ProceduralCandidate::terminate() const noexcept {
 Var<Ray> ProceduralCandidate::ray() const noexcept {
     return def<Ray>(detail::FunctionBuilder::current()->call(
         Type::of<Ray>(), CallOp::RAY_QUERY_WORLD_SPACE_RAY, {_query}));
+}
+
+Var<Ray> ProceduralCandidate::object_ray() const noexcept {
+    return def<Ray>(detail::FunctionBuilder::current()->call(
+        Type::of<Ray>(), CallOp::RAY_QUERY_OBJECT_SPACE_RAY, {_query}));
 }
 
 namespace detail {

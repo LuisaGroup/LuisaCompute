@@ -214,6 +214,188 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         expect_filled(host, 13u, "cross_1suspend_persistent");
     };
 
+    "projected_arguments_are_routed_in_all_schedulers"_test =
+        [options, expect_filled] {
+            constexpr uint N = 64u;
+            constexpr uint entry_base = 101u;
+            constexpr uint resume_base = 211u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto entry_output = device.create_buffer<uint>(N);
+            auto resume_output = device.create_buffer<uint>(N);
+            auto *entry_output_capture = &entry_output;
+            auto *resume_output_capture = &resume_output;
+            auto coroutine = Coroutine<void(uint, uint)>{
+                [entry_output_capture, resume_output_capture](
+                    UInt before_base, UInt after_base) noexcept {
+                    auto before = Expr<Buffer<uint>>{
+                        *entry_output_capture};
+                    auto after = Expr<Buffer<uint>>{
+                        *resume_output_capture};
+                    auto tid = dispatch_x();
+                    before.write(tid, before_base + tid);
+                    $suspend("between-projected-arguments");
+                    after.write(tid, after_base + tid);
+                }};
+            auto lowered =
+                luisa::compute::detail::compile_coroutine_pipeline(
+                    coroutine.function_builder());
+            auto *resume_node = lowered.graph.node_by_name(
+                "between-projected-arguments");
+            expect(resume_node != nullptr);
+            auto source = coroutine.function();
+            auto bound_count = [&](size_t continuation_index) noexcept {
+                auto count = 0u;
+                for (auto source_index :
+                     lowered.subroutine_source_argument_indices[continuation_index]) {
+                    count += !luisa::holds_alternative<
+                        luisa::monostate>(
+                        source.bound_arguments()[source_index]);
+                }
+                return count;
+            };
+            expect(lowered.subroutine_source_argument_indices[0u]
+                       .size() == 2u);
+            expect(lowered.subroutine_source_argument_indices[resume_node->index]
+                       .size() == 2u);
+            expect(bound_count(0u) == 1u)
+                << "entry must capture only its own output resource";
+            expect(bound_count(resume_node->index) == 1u)
+                << "resume must capture only its own output resource";
+
+            auto check = [&](luisa::string_view label) noexcept {
+                luisa::vector<uint> entry_host(N);
+                luisa::vector<uint> resume_host(N);
+                stream << entry_output.copy_to(luisa::span{entry_host})
+                       << resume_output.copy_to(luisa::span{resume_host})
+                       << synchronize();
+                expect_filled(entry_host, entry_base, label);
+                expect_filled(resume_host, resume_base, label);
+            };
+            {
+                StateMachineCoroScheduler<uint, uint>
+                    scheduler{device, coroutine};
+                scheduler(entry_base, resume_base)
+                    .dispatch(N)(stream);
+                check("projected_arguments_state_machine");
+            }
+            {
+                WavefrontCoroScheduler<uint, uint>
+                    scheduler{device, coroutine};
+                scheduler(entry_base, resume_base)
+                    .dispatch(N)(stream);
+                check("projected_arguments_wavefront");
+            }
+            {
+                PersistentThreadsCoroScheduler<uint, uint>
+                    scheduler{
+                        device, coroutine,
+                        PersistentThreadsCoroSchedulerConfig{
+                            .thread_count = N, .block_size = N}};
+                scheduler(entry_base, resume_base)
+                    .dispatch(N)(stream);
+                check("projected_arguments_persistent");
+            }
+        };
+
+    "continuation_local_callable_resources_are_closed"_test =
+        [options, expect_filled] {
+            constexpr uint N = 64u;
+            constexpr uint base = 307u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+            auto *output_capture = &output;
+            Callable write_output = [output_capture](
+                                        UInt index, UInt value) noexcept {
+                Expr<Buffer<uint>>{*output_capture}.write(index, value);
+            };
+            auto coroutine = Coroutine<void(uint)>{
+                [write_output](UInt value_base) noexcept {
+                    const auto tid = dispatch_x();
+                    $suspend("before-continuation-local-resource");
+                    write_output(tid, value_base + tid);
+                }};
+
+            auto check = [&](luisa::string_view label) noexcept {
+                luisa::vector<uint> host(N);
+                stream << output.copy_to(luisa::span{host}) << synchronize();
+                expect_filled(host, base, label);
+            };
+            {
+                StateMachineCoroScheduler<uint> scheduler{device, coroutine};
+                scheduler(base).dispatch(N)(stream);
+                check("continuation_local_resource_state_machine");
+            }
+            {
+                WavefrontCoroScheduler<uint> scheduler{device, coroutine};
+                scheduler(base).dispatch(N)(stream);
+                check("continuation_local_resource_wavefront");
+            }
+            {
+                PersistentThreadsCoroScheduler<uint> scheduler{
+                    device, coroutine,
+                    PersistentThreadsCoroSchedulerConfig{
+                        .thread_count = N, .block_size = N}};
+                scheduler(base).dispatch(N)(stream);
+                check("continuation_local_resource_persistent");
+            }
+        };
+
+    "continuation_local_builtins_are_implicit"_test =
+        [options, expect_filled] {
+            constexpr uint N = 32u;
+            constexpr uint base = 401u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+            auto coroutine = Coroutine<void(Buffer<uint>, uint)>{
+                [](BufferUInt result, UInt value_base) noexcept {
+                    constexpr uint block_stride = 32u;
+                    $suspend("before-continuation-local-builtins");
+                    // block_id and thread_id are introduced only in the
+                    // continuation. XIR-to-AST represents callable builtins as
+                    // implicit arguments; neither belongs to the source
+                    // coroutine argument projection.
+                    const auto index = thread_x();
+                    result.write(index,
+                                 value_base + index +
+                                     block_x() * block_stride);
+                }};
+
+            auto check = [&](luisa::string_view label) noexcept {
+                luisa::vector<uint> host(N);
+                stream << output.copy_to(luisa::span{host}) << synchronize();
+                expect_filled(host, base, label);
+            };
+            {
+                StateMachineCoroScheduler<Buffer<uint>, uint> scheduler{
+                    device, coroutine};
+                scheduler(output, base).dispatch(N)(stream);
+                check("continuation_local_builtins_state_machine");
+            }
+            {
+                WavefrontCoroScheduler<Buffer<uint>, uint> scheduler{
+                    device, coroutine};
+                scheduler(output, base).dispatch(N)(stream);
+                check("continuation_local_builtins_wavefront");
+            }
+            {
+                PersistentThreadsCoroScheduler<Buffer<uint>, uint> scheduler{
+                    device, coroutine,
+                    PersistentThreadsCoroSchedulerConfig{
+                        .thread_count = N, .block_size = N}};
+                scheduler(output, base).dispatch(N)(stream);
+                check("continuation_local_builtins_persistent");
+            }
+        };
+
     // ══════════════════════════════════════════════════════════════════
     // 3-suspend coroutine — all 3 schedulers
     // ══════════════════════════════════════════════════════════════════
@@ -897,7 +1079,8 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             $for (i, 4u) {
                 $if (((x + i) & 1u) != 0u) {
                     result += i + 2u;
-                } $else {
+                }
+                $else {
                     result ^= i + 3u;
                 };
             };

@@ -1,6 +1,6 @@
 ---
 name: lc_optimize
-description: Optimize LuisaCompute DSL kernels using warp/wave primitives, shared-memory aggregation, block-level collectives, and C++ branch-prediction hints (`[[likely]]`/`[[unlikely]]`). Use when kernels bottleneck on atomics, reductions, or inter-thread communication.
+description: Optimize LuisaCompute DSL kernels using warp/wave primitives, shared-memory aggregation, block-level collectives, thread-group (block) size / occupancy tuning, and C++ branch-prediction hints (`[[likely]]`/`[[unlikely]]`). Use when kernels bottleneck on atomics, reductions, inter-thread communication, or poor occupancy.
 ---
 
 # LuisaCompute DSL Kernel Optimization Guide
@@ -351,11 +351,64 @@ UInt first_true = ctz(flag_mask);
 UInt num_true = popcount(flag_mask);
 ```
 
+### 3.7 Shared-Memory Cross-Lane Communication → Warp Intrinsics (Generic Recipe)
+
+`Shared<T>` used *only* to exchange values between lanes of one warp can be replaced by warp intrinsics: no barrier, no shared capacity, and usually a single hardware instruction. This is valid whenever cooperation is fully intra-warp — either the block is exactly one warp, or each warp processes an independent work item and uses `warp_lane_id()` as its lane index.
+
+**Step 1 — Audit every `Shared<T>` access.** Classify each use:
+- Slot indexed by lane id (`shared[lane]`, `shared[lane + k]`) → shuffle / broadcast.
+- Ballot, reduction, or scan over lanes → warp collective.
+- Any access indexed by something other than the lane (arbitrary thread id, work-item id, dynamic offsets), or any value that another warp must see → keep shared (section 4).
+
+Only when **every** access is lane-local is the refactor sound.
+
+**Step 2 — Map each shared-memory idiom to a warp intrinsic.**
+
+| Shared-memory idiom | Warp replacement |
+|---|---|
+| Ballot: `shared[tid] = pred;` tree-OR with barriers; read `shared[0]` | `warp_active_bit_mask(pred).x` |
+| Broadcast: `$if (tid == src) { shared[0] = v; };` barrier; read `shared[0]` | `warp_read_lane(v, src)` (or `warp_read_first_active_lane(v)`) |
+| Shuffle: `shared[src] = v;` barrier; read `shared[tid]` | `warp_read_lane(v, src)` |
+| Exclusive scan: Hillis–Steele `shared` loop + barriers | `warp_prefix_sum(v)` |
+| All-reduce: shared tree + barriers | `warp_active_sum` / `warp_active_min` / `warp_active_max` / ... |
+| Neighbor gather: lane `tid` reads `shared[tid + k]` | `warp_read_lane(v, tid + k)` |
+| Vote then count: `shared` ballot + `popcount` | `warp_active_bit_mask(pred).x` + `popcount`, or `warp_active_count_bits(pred)` |
+
+**Step 3 — Apply the correctness rules.**
+
+1. **All lanes must participate in every shuffle.** `warp_read_lane` reads the *active* source lane; if a source lane skipped the call inside a divergent `$if`, the read is undefined. Compute shuffled values unconditionally into locals, then guard only the consumer `$if`.
+2. **Clamp out-of-range lane indices.** `warp_read_lane(v, min(tid + k, warp_lane_count() - 1u))` keeps boundary lanes in range; their unused results are discarded, so clamping is safe.
+3. **Delete now-redundant `sync_block()` calls.** They existed to publish shared writes across lanes; warp intrinsics are complete for the calling lane immediately. Leaving them adds a block-wide stall.
+4. **Use `warp_lane_id()` as the lane index** once the block has more than one warp; `thread_x()` then only computes the warp index (section 3.8).
+5. **Never mix warp and block scope.** Values that must cross warps, or non-lane indexing, stay in shared memory (section 4).
+
+### 3.8 Block-Size Scaling: One Warp per Independent Work Item
+
+Kernels often start with `set_block_size(32, 1, 1)` and one warp per item because the item's cooperative step needs exactly 32 lanes. Once the cross-lane logic is warp-only (section 3.7), enlarge the block to 64/128 threads — several warps per block, each still owning one item — which usually improves occupancy and reduces per-block overhead:
+
+```cpp
+constexpr uint kBlockThreads = 128u;
+constexpr uint kWarpThreads = 32u;
+constexpr uint kWarpsPerBlock = kBlockThreads / kWarpThreads;
+set_block_size(kBlockThreads, 1u, 1u);
+set_warp_size(static_cast<uint8_t>(kWarpThreads)); // pin so the mapping is exact
+
+UInt lane = warp_lane_id();                         // 0..warp_lane_count()-1
+UInt warp_in_block = thread_x() / warp_lane_count();// which warp inside this block
+UInt item_idx = block_id().x * kWarpsPerBlock + warp_in_block;
+$if (item_idx < num_items) { /* ... work on item_idx with lanes `lane` ... */ };
+```
+
+- **Pin the warp size.** If the algorithm assumes 32 lanes per item, call `set_warp_size(32)` (host: `device.compute_warp_size()`). Without pinning, a backend may choose a wider wave/subgroup (e.g. 64), which shrinks `warp_in_block` and silently skips items.
+- **Keep the tail guard.** `$if (item_idx < num_items)` makes idle warps in the last block harmless, so the host dispatch needs no change: `dispatch(num_items * warp_size)` still covers every item.
+- **When each thread owns an item** (no cross-lane cooperation), the same block-size increase is simpler: keep `dispatch_id().x` indexing and just raise `set_block_size`; the total thread count is unchanged.
+- **Verify on multiple backends.** Warp intrinsics lower to different hardware ops (WaveIntrinsics on DX, subgroup ops on Vulkan/SPIR-V, `__shfl*` on CUDA). Re-run the same correctness cases — including tail/partial-item sizes that exercise idle warps and boundary lanes — on at least two backends after the change.
+
 ---
 
 ## 4. Shared Array (Workgroup Memory) Optimization
 
-Warp collectives (section 3) only communicate *within one warp*. When cooperation must span the **whole thread block** (multiple warps), or you need persistent per-block scratch, arbitrary cross-thread indexing, or block-local privatization of a global atomic, use a **shared array** (`Shared<T>` / `$shared<T>`). Shared memory is on-chip and orders of magnitude faster than global memory, so staging data there once and reusing it, or aggregating locally before touching global memory, is a core optimization.
+Warp collectives (section 3) only communicate *within one warp*. When cooperation must span the **whole thread block** (multiple warps), or you need persistent per-block scratch, arbitrary cross-thread indexing, or block-local privatization of a global atomic, use a **shared array** (`Shared<T>` / `$shared<T>`). Shared memory is on-chip and orders of magnitude faster than global memory, so staging data there once and reusing it, or aggregating locally before touching global memory, is a core optimization. (For the reverse direction — replacing *lane-local* shared memory with warp intrinsics — see section 3.7.)
 
 ### 4.1 API (`include/luisa/dsl/shared.h`, `include/luisa/dsl/sugar.h:105`)
 
@@ -481,7 +534,79 @@ sync_block();                                 // publish to the whole block
 
 ---
 
-## 5. Hardware Mapping
+## 5. Thread-Group (Block) Size Selection and Occupancy
+
+Choosing `set_block_size(x, y, z)` is one of the most impactful tuning decisions for a kernel. The right size depends on whether the kernel is **memory/IO-bound** or **compute-bound**, because group size directly controls **occupancy** — how many thread groups (blocks) can co-reside on one compute unit (CU/SM) — which in turn determines how well the GPU hides latency by switching between waves/warps.
+
+### 5.1 Hardware Constraints
+
+A thread group cannot be split across CUs: every wave/warp of a group must fit into **one CU's resources simultaneously** before the group can begin executing. The binding limits (DX11+ / modern GPUs):
+
+| Limit | Value |
+|---|---|
+| Max threads per group | 1024 (X×Y×Z) |
+| Max shared memory (LDS) per group | 32 KiB (DX11-era floor; backend/device-dependent on Vulkan/DX12 — verify against the target API) |
+| Hardware wave/warp size | 64 (AMD), 32 (NVIDIA), 8 (Intel) |
+
+Never hardcode the wave width: query `device.compute_warp_size()` on the host and `warp_lane_count()` on the device. Because all waves of a group must fit simultaneously, a larger group can reduce the number of resident groups per CU, lowering occupancy and the GPU's ability to hide memory latency.
+
+### 5.2 Memory/IO-Bound Kernels
+
+**Characteristic:** the kernel spends most of its time waiting for global memory loads/stores; arithmetic intensity (FLOPs per byte moved) is low.
+
+| Goal | Approach |
+|---|---|
+| Maximize latency hiding | Use **smaller groups (64–256 threads)** so multiple groups fit on one CU |
+| Maximize occupancy | Reduce register pressure and LDS usage per group |
+| Exploit cache hierarchy | Use shared memory (section 4) to coalesce/redundant loads, but keep it small |
+
+**Why smaller groups help:** a memory-bound CU stalls waiting for global memory; hiding that latency requires **more concurrent waves** from multiple groups. A 1024-thread group with moderate register usage can consume so many VGPRs that only one group fits per CU, leaving SIMD units idle when its waves stall.
+
+Practical defaults:
+- **64 threads** — one wave on AMD, two warps on NVIDIA; minimal footprint; barriers can often be eliminated entirely.
+- **128 or 256 threads** — good balance when some LDS is needed; AMD recommends 256 as the default when LDS is not heavily used.
+
+LDS caveat: if shared memory is used to cut global traffic (e.g. tiling), keep the per-group LDS small enough that **at least 2 groups fit per CU**; otherwise LDS becomes the new bottleneck.
+
+### 5.3 Compute-Bound Kernels
+
+**Characteristic:** dominated by ALU operations (complex math, loops, branching); arithmetic intensity is high.
+
+| Goal | Approach |
+|---|---|
+| Maximize ALU throughput | Use **larger groups (512–1024 threads)** to saturate the CU's SIMD units |
+| Reduce redundant computation | Store reusable intermediates in LDS or registers |
+| Balance resources per block | Trade off register pressure vs. shared memory |
+
+**Why larger groups help:** compute-bound kernels want the maximum number of active threads doing math per CU. A 1024-thread group gives more waves (16 on AMD GCN) filling SIMD slots — but only if the register file is not exhausted. On AMD GCN a CU has 65,536 VGPRs; at 40 VGPRs/thread, 1024 threads need 40,960, leaving headroom for a second group but pushing the limit. **Register spilling** (compiler moves variables to global memory) collapses performance due to memory latency.
+
+Practical guidance:
+- **LDS-heavy reuse** (stencils, convolution tiles): 512 threads is often the sweet spot — large enough to amortize LDS setup, small enough to fit multiple groups per CU.
+- **Pure register-heavy compute** with no LDS: prefer 256 threads to avoid occupancy cliffs; profile with Nsight Compute or Radeon GPU Profiler.
+
+### 5.4 Summary Table
+
+| Workload Type | Recommended Group Size | Key Tuning Knob |
+|---|---|---|
+| **Memory/IO-bound** (bandwidth/latency limited) | 64–256 threads | Occupancy; minimize registers & LDS |
+| **Compute-bound** (ALU heavy, high arithmetic intensity) | 256–1024 threads | Saturate SIMD; balance registers vs. LDS |
+| **LDS-heavy tiling** (image filters, stencils) | 128–512 threads | Fit ≥2 groups per CU; watch the LDS limit |
+
+### 5.5 Profiling Is Non-Negotiable
+
+The right size is found empirically:
+- **NVIDIA:** Nsight Compute — check "Speed of Light" throughput and Roofline charts. If memory utilization > 60% while SM utilization < 60%, the kernel is memory-bound → reduce group size.
+- **AMD:** Radeon GPU Profiler — inspect wave occupancy and LDS pressure.
+- **Rule of thumb:** if the kernel uses no LDS at all, default to **256 threads** for broad hardware compatibility.
+
+### 5.6 Relationship to the Rest of This Guide
+
+- Group size interacts with warp collectives: when cooperation is per-warp, enlarging the block packs more warps per CU (`item_idx = block_id().x * warps_per_block + thread_x() / warp_lane_count()`, section 3.8). Both `set_block_size(...)` and `set_warp_size(...)` are called inside the kernel lambda.
+- The LDS budget (section 4) caps how large a shared tile can be while keeping ≥2 groups resident.
+
+---
+
+## 6. Hardware Mapping
 
 | GPU Backend | Warp/Lane Terminology | Native Width |
 |---|---|---|
@@ -495,7 +620,7 @@ Always query `device.compute_warp_size()` on the host and `warp_lane_count()` on
 
 ---
 
-## 6. Rules of Thumb
+## 7. Rules of Thumb
 
 1. **Prefer warp collectives over shared memory.** `warp_active_sum`, `warp_active_max`, `warp_prefix_sum` compile to single hardware instructions (e.g. `__shfl_xor_sync` on CUDA, `OpGroupNonUniformFAdd` on SPIR-V). No barrier needed.
 
@@ -519,13 +644,19 @@ Always query `device.compute_warp_size()` on the host and `warp_lane_count()` on
 
 11. **Shared memory needs `sync_block()`; warp collectives do not.** Barrier after filling shared and between the read/write-back phases of a tree reduction (section 4.4). Reduce into a register first, then write back after the barrier to avoid RAW/WAR hazards.
 
+12. **Replace lane-local shared memory with warp intrinsics (section 3.7).** Ballot → `warp_active_bit_mask(p).x`, broadcast/shuffle → `warp_read_lane`, scan → `warp_prefix_sum`. Only valid when every shared access is intra-warp and lane-indexed; cross-warp or arbitrary indexing must stay in `Shared<T>`.
+
+13. **All lanes must execute a shuffle; clamp the lane index.** Put `warp_read_lane` outside the divergent `$if` that consumes it, and clamp with `min(lane + k, warp_lane_count() - 1u)` at the boundary.
+
+14. **Scale block size by packing one warp per item (section 3.8).** After warp-only refactors, enlarge `set_block_size` to 64/128 and map `item_idx = block_id().x * warps_per_block + thread_x() / warp_lane_count()`; pin the warp size so the mapping is exact.
+
 ---
 
-## 7. Host-Side Command Batching with CommandList
+## 8. Host-Side Command Batching with CommandList
 
-GPU kernel optimization (sections 1–6) focuses on what happens *inside* a single kernel dispatch. Equally important is how you *submit* work from the host: every `stream << command` call adds driver overhead. When a per-frame or per-iteration hot loop issues many small stream submissions (upload, dispatch A, dispatch B, download, ...), the accumulated driver cost can become a bottleneck, especially on D3D12 and Vulkan where command submission is not free.
+GPU kernel optimization (sections 1–7) focuses on what happens *inside* a single kernel dispatch. Equally important is how you *submit* work from the host: every `stream << command` call adds driver overhead. When a per-frame or per-iteration hot loop issues many small stream submissions (upload, dispatch A, dispatch B, download, ...), the accumulated driver cost can become a bottleneck, especially on D3D12 and Vulkan where command submission is not free.
 
-### 7.1 The Pattern
+### 8.1 The Pattern
 
 `CommandList` lets you batch multiple commands into a single submission. Commands are recorded into a `CommandList` object, then committed to the stream in one shot:
 
@@ -540,19 +671,19 @@ stream << cmdlist.commit() << synchronize();
 
 All commands execute in FIFO order on the GPU, exactly as if they were submitted individually — but with a single driver round-trip instead of many.
 
-### 7.2 When to Use
+### 8.2 When to Use
 
 - **Hot loops**: Rendering loops, training iterations, or per-frame update loops that submit several commands each iteration.
 - **Dependent pipeline stages**: Commands with producer-consumer relationships (e.g., kernel A writes a buffer, kernel B reads it) that can be submitted together because GPU ordering guarantees correct sequencing.
 - **Upload → compute → download chains**: Batched uploads followed by multiple kernels then final downloads, all in one commit.
 
-### 7.3 When NOT to Use
+### 8.3 When NOT to Use
 
 - **Interactive latency-sensitive paths**: If a command produces results that need immediate host feedback (e.g., debug readbacks), avoid delaying it behind unrelated work.
 - **Cross-stream synchronization**: Commands in different streams (COMPUTE vs GRAPHICS) must use events for ordering; a single `CommandList` cannot span multiple streams.
 - **Very long command sequences**: Extremely large command lists may starve the GPU if they take too long to record; split into chunks if recording itself becomes a bottleneck.
 
-### 7.4 General Recipe
+### 8.4 General Recipe
 
 1. **Identify the hot loop** — look for repeated `stream <<` statements inside a loop or per-frame function.
 2. **Group dependent commands** — all commands that form an in-order GPU pipeline (upload → kernel A → kernel B → download) belong in the same `CommandList`.
@@ -560,7 +691,7 @@ All commands execute in FIFO order on the GPU, exactly as if they were submitted
 4. **Commit once** — `stream << cmdlist.commit()` submits the batch; follow with a single `synchronize()` if host-readback is needed.
 5. **Verify correctness** — ensure the sequence of operations inside the CommandList matches the dependency order (commands execute in FIFO order on the GPU).
 
-### 7.5 Performance Impact
+### 8.5 Performance Impact
 
 Batching N separate `stream << cmd` submissions into one `CommandList` reduces:
 - **Driver submission overhead**: Each stream submission incurs a kernel transition / command-queue flush cost. With CommandList, that cost is paid once per batch.
@@ -568,7 +699,7 @@ Batching N separate `stream << cmd` submissions into one `CommandList` reduces:
 
 In practice, replacing 5+ stream submissions per iteration with a single `CommandList::create()` → `commit()` can yield measurable wall-clock speedups in offline rendering or training-data export loops, where the CPU-side submission overhead is a meaningful fraction of the iteration time.
 
-### 7.6 Comparison with Other Optimizations
+### 8.6 Comparison with Other Optimizations
 
 | Optimization | Scope | Impact |
 |---|---|---|
@@ -578,7 +709,7 @@ In practice, replacing 5+ stream submissions per iteration with a single `Comman
 
 CommandList batching is orthogonal to kernel-level optimizations. Apply both: optimize the kernel with warp/shared-memory techniques, then batch the host submissions for maximum throughput.
 
-### 7.7 Key Rules
+### 8.7 Key Rules
 
 1. **One CommandList, one commit, one sync.** Create a single `CommandList` for a group of dependent commands, commit it once, and synchronize once rather than submitting each command separately.
 2. **FIFO ordering preserved.** Commands execute in record order — no need for explicit barriers between kernel dispatches and buffer copies inside the same CommandList (GPU pipeline dependencies are handled automatically).
@@ -586,7 +717,7 @@ CommandList batching is orthogonal to kernel-level optimizations. Apply both: op
 4. **Prefer CommandList over chaining on `stream <<`.** Batched submission is more efficient than long chains of `stream << a << b << c << synchronize()` because it reduces internal queue flushes.
 5. **Combine with kernel optimization.** Host-side batching and kernel-level warp/shared-memory optimization are complementary — use both.
 
-### 7.8 Async Callbacks — Replacing `synchronize()` with Non-Blocking Completion
+### 8.8 Async Callbacks — Replacing `synchronize()` with Non-Blocking Completion
 
 `CommandList` provides two callback hooks that decouple host work from GPU execution:
 
@@ -602,7 +733,7 @@ cmdlist.add_dtor_callback([](auto &&... captured) noexcept {
 });
 ```
 
-#### 7.8.1 Understanding the Two Callbacks
+#### 8.8.1 Understanding the Two Callbacks
 
 | Callback | When it fires | GPU status | Typical use |
 |---|---|---|---|
@@ -611,7 +742,7 @@ cmdlist.add_dtor_callback([](auto &&... captured) noexcept {
 
 **Critical difference:** `add_dtor_callback` runs *before* GPU execution begins — it is not a completion callback. Only `add_callback` guarantees GPU work is finished.
 
-#### 7.8.2 Avoiding `synchronize()` Stalls
+#### 8.8.2 Avoiding `synchronize()` Stalls
 
 Without callbacks, host→GPU data exchange typically looks like:
 
@@ -637,7 +768,7 @@ This is most impactful when:
 - The GPU work is long enough that blocking would waste host cycles.
 - You process results per-iteration and can pipeline iterations (iteration N's callback runs while iteration N+1's GPU work is already in flight).
 
-#### 7.8.3 The Pipelined Iteration Pattern
+#### 8.8.3 The Pipelined Iteration Pattern
 
 The classic pattern for hiding latency: overlap GPU execution of iteration N+1 with host processing of iteration N's results.
 
@@ -670,7 +801,7 @@ With this pattern:
 - **CPU and GPU overlap** — iteration N's result processing runs concurrently with iteration N+1's GPU execution.
 - **Throughput improves** by the cost of one `synchronize()` stall × (N−1) iterations.
 
-#### 7.8.4 Capturing Resources for Callbacks
+#### 8.8.4 Capturing Resources for Callbacks
 
 Lambdas passed to `add_callback` / `add_dtor_callback` must own their captured resources because the callback outlives the `CommandList` object. Use:
 
@@ -690,7 +821,7 @@ cmdlist.add_callback([raw]() noexcept { /* DANGER: raw may be dangling */ });
 
 `add_dtor_callback` has the same ownership rules, despite running earlier — it still fires after `commit()` returns, so stack variables captured by reference would be invalid.
 
-#### 7.8.5 When to Use Which
+#### 8.8.5 When to Use Which
 
 | Situation | Use |
 |---|---|
@@ -700,7 +831,7 @@ cmdlist.add_callback([raw]() noexcept { /* DANGER: raw may be dangling */ });
 | Signal a host work queue that GPU output is ready | `add_callback` |
 | Launch the next iteration's host prep work | Just place after `commit()` on the host (no callback needed) |
 
-#### 7.8.6 Key Rules
+#### 8.8.6 Key Rules
 
 1. **`add_callback` fires after GPU completion** — it is the non-blocking replacement for `synchronize()`.
 2. **`add_dtor_callback` fires before GPU starts** — use only for host-side cleanup, never for reading back GPU results.
@@ -710,11 +841,11 @@ cmdlist.add_callback([raw]() noexcept { /* DANGER: raw may be dangling */ });
 
 ---
 
-## 8. C++ Branch-Prediction Hints: `[[likely]]` / `[[unlikely]]`
+## 9. C++ Branch-Prediction Hints: `[[likely]]` / `[[unlikely]]`
 
 The engine compiles with C++20 (`lc_cxx_standard`, default `cxx20`), so the `[[likely]]` / `[[unlikely]]` attributes are available in every translation unit. They are **hints, never semantic changes**: they bias branch layout, inlining, and code generation toward the annotated direction. Apply them to native C++ `if`/`else` branches whose runtime direction is strongly skewed — hot serialization/deserialization, validation, decode, and dispatch paths. This is a generic rule applied per branch; do not copy annotations from one file to another without re-checking that branch's own frequency.
 
-### 8.1 Syntax (codebase convention)
+### 9.1 Syntax (codebase convention)
 
 Place the attribute **after the condition (or the `else` keyword), before the branch body**:
 
@@ -724,7 +855,7 @@ if (ptr != nullptr) [[likely]] { use(ptr); }    // common fast path
 if (a) { ... } else [[likely]] { ... }          // also valid on the else side
 ```
 
-### 8.2 Generic decision rule
+### 9.2 Generic decision rule
 
 Classify each branch by *how often it runs at runtime*, then hint accordingly:
 
@@ -737,14 +868,14 @@ Classify each branch by *how often it runs at runtime*, then hint accordingly:
   - default setup that usually applies (e.g. filling in default views/offsets);
   - the non-empty case in guarded bulk operations (e.g. `if (n != 0u)` around `memcpy`).
 
-### 8.3 When NOT to hint
+### 9.3 When NOT to hint
 
 1. **Ambiguous frequency** — both sides run often (general lookups, formatting separators, balanced `if`/`else`). A wrong hint misleads the optimizer; leave the branch unannotated.
 2. **Cold code** — debug/describe/formatting helpers where the hint cannot affect a measurable hot path.
 3. **DSL branches** — `$if` / `$else` inside kernels are LuisaCompute expression-building macros (see `include/luisa/dsl/sugar.h`), not native C++ statements; these attributes do not apply to them. Optimize kernel control flow with the warp/shared-memory techniques in sections 1–4 instead.
 4. **Balanced branches** — never annotate when the split is close to 50/50; the hint is a promise about frequency, not a preference.
 
-### 8.4 Workflow
+### 9.4 Workflow
 
 1. Identify frequently-executed functions (serialize/deserialize, validators, decode, hot dispatch loops).
 2. For each `if`/`else`, ask: *“which side runs almost always / almost never?”*

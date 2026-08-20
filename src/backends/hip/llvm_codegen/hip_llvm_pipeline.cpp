@@ -8,10 +8,14 @@
 
 namespace luisa::compute::hip {
 
-bool preserve_generated_callable_boundary(
-    size_t instruction_count) noexcept {
-    return instruction_count >
-           generated_callable_inline_instruction_budget;
+bool preserve_hip_backend_noinline_boundary(
+    std::string_view function_name,
+    bool has_noinline_attribute) noexcept {
+    return has_noinline_attribute &&
+           (function_name.starts_with("luisa_ray_query_") ||
+            function_name.starts_with("luisa_motion_ray_query_") ||
+            function_name.starts_with(
+                "luisa_hiprt_stack_overflow_fallback_"));
 }
 
 size_t preserve_hardware_ray_query_loop_form(

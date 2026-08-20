@@ -4,12 +4,10 @@ import("lib.detect.find_file")
 import("core.project.config")
 local _sdks = {
     dx_sdk = {
-        name = 'dx_sdk_20260714.zip'
+        name = 'dx_sdk_20260815.zip'
     },
     vk_sdk = {
-        -- The 2026-07-29 binary requires GLIBC 2.43; use the Ubuntu 24.04-
-        -- compatible build until the newer SDK is rebuilt on an older base.
-        name = 'linux_dxc_2025_07_14.x86_64.zip'
+        name = 'linux_dxc_20260815_x86_64.zip'
     }
 }
 

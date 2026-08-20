@@ -131,11 +131,15 @@ template<typename Enum>
                 if (!is_spirv_plain_data_type(member)) { return false; }
             }
             return true;
+        case Type::Tag::COOPERATIVE_VECTOR:
+            return type->element() != nullptr &&
+                   type->element()->is_scalar() &&
+                   !type->element()->is_bool() &&
+                   type->dimension() != 0u;
         case Type::Tag::BUFFER:
         case Type::Tag::TEXTURE:
         case Type::Tag::BINDLESS_ARRAY:
         case Type::Tag::ACCEL:
-        case Type::Tag::COOPERATIVE_VECTOR:
         case Type::Tag::COOPERATIVE_VECTOR_REF:
         case Type::Tag::COOPERATIVE_MATRIX_REF:
         case Type::Tag::CUSTOM: return false;
@@ -787,6 +791,66 @@ private:
             case xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
             case xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL:
             case xir::ResourceReadOp::DEVICE_ADDRESS_READ: break;
+            case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::COOPERATIVE_MUL:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+                if (!is_spirv_plain_data_type(inst->type())) {
+                    _error(function, block, inst,
+                           luisa::format(
+                               "Native XIR-to-SPIR-V resource read '{}' cannot "
+                               "materialize cooperative-vector type {}.",
+                               xir::to_string(inst->op()),
+                               inst->type() == nullptr ? "<null>" :
+                                                         inst->type()->description()));
+                }
+                break;
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: {
+                if (!is_spirv_plain_data_type(inst->type()) ||
+                    inst->type() == nullptr ||
+                    !inst->type()->is_cooperative_vector()) {
+                    _error(function, block, inst,
+                           luisa::format(
+                               "Native XIR-to-SPIR-V cooperative-vector workgroup "
+                               "load cannot materialize result type {}.",
+                               inst->type() == nullptr ? "<null>" :
+                                                         inst->type()->description()));
+                    break;
+                }
+                if (inst->operand_count() != 2u) {
+                    _error(function, block, inst,
+                           luisa::format(
+                               "Native XIR-to-SPIR-V cooperative-vector workgroup "
+                               "load requires (shared array, uint index), got {} "
+                               "operands.",
+                               inst->operand_count()));
+                    break;
+                }
+                auto root = root_address(inst->operand(0));
+                auto alloca = root != nullptr && root->isa<xir::AllocaInst>() ?
+                                  static_cast<const xir::AllocaInst *>(root) :
+                                  nullptr;
+                if (alloca == nullptr || !alloca->is_shared()) {
+                    _error(function, block, inst,
+                           "Native XIR-to-SPIR-V cooperative-vector workgroup "
+                           "load requires a shared (Workgroup) array allocation.");
+                    break;
+                }
+                auto array_type = alloca->type();
+                if (array_type == nullptr || !array_type->is_array() ||
+                    array_type->element() == nullptr ||
+                    array_type->element() != inst->type()->element()) {
+                    _error(function, block, inst,
+                           "Native XIR-to-SPIR-V cooperative-vector workgroup "
+                           "load array element type must match the cooperative "
+                           "vector component type.");
+                }
+                break;
+            }
         }
     }
 
@@ -875,6 +939,50 @@ private:
             case xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
                 payload_index = 3u;
                 break;
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+                payload_index = 2u;
+                break;
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                payload_index = 2u;
+                if (inst->operand_count() != 3u) {
+                    _error(function, block, inst,
+                           luisa::format(
+                               "Native XIR-to-SPIR-V cooperative-vector workgroup "
+                               "store requires (shared array, uint index, "
+                               "coop vector), got {} operands.",
+                               inst->operand_count()));
+                    break;
+                }
+                {
+                    auto root = root_address(inst->operand(0));
+                    auto alloca = root != nullptr && root->isa<xir::AllocaInst>() ?
+                                      static_cast<const xir::AllocaInst *>(root) :
+                                      nullptr;
+                    if (alloca == nullptr || !alloca->is_shared()) {
+                        _error(function, block, inst,
+                               "Native XIR-to-SPIR-V cooperative-vector workgroup "
+                               "store requires a shared (Workgroup) array "
+                               "allocation.");
+                        break;
+                    }
+                    auto array_type = alloca->type();
+                    auto payload = inst->operand(2);
+                    if (array_type == nullptr || !array_type->is_array() ||
+                        array_type->element() == nullptr ||
+                        payload == nullptr ||
+                        !payload->type()->is_cooperative_vector() ||
+                        array_type->element() != payload->type()->element()) {
+                        _error(function, block, inst,
+                               "Native XIR-to-SPIR-V cooperative-vector workgroup "
+                               "store array element type must match the "
+                               "cooperative-vector component type.");
+                    }
+                }
+                break;
+            case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+                payload_index = 3u;
+                break;
             case xir::ResourceWriteOp::DEVICE_ADDRESS_WRITE:
             case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
             case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK:
@@ -884,6 +992,17 @@ private:
             case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT:
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL:
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: break;
+            case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+                if (inst->operand_count() != 5u) {
+                    _error(function, block, inst,
+                           luisa::format(
+                               "Native XIR-to-SPIR-V cooperative outer-product "
+                               "accumulate requires (matrix buffer, uint offset, "
+                               "coop vector, coop vector, constant "
+                               "interpretation), got {} operands.",
+                               inst->operand_count()));
+                }
+                break;
         }
         if (payload_index != 0u && inst->operand_count() > payload_index) {
             auto payload = inst->operand(payload_index);
@@ -2409,6 +2528,63 @@ spirv_xir_dialect_support(xir::ResourceReadOp op) noexcept {
         case xir::ResourceReadOp::DEVICE_ADDRESS_READ:
             return unsupported(
                 "physical-storage-buffer loads are not implemented");
+        case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_MUL:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+            return supported();
+        // Future cooperative-vector element-wise operations — TODO: implement
+        // in the SPIR-V dialect backend.
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ATANH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_POW:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+            return unsupported(
+                "cooperative-vector element-wise operations are not implemented");
     }
     return unknown();
 }
@@ -2439,6 +2615,12 @@ spirv_xir_dialect_support(xir::ResourceWriteOp op) noexcept {
             return unsupported(
                 "the Vulkan acceleration-structure instance ABI has no native "
                 "motion-key representation in this code generator");
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+        case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+            return supported();
     }
     return unknown();
 }
@@ -2483,6 +2665,7 @@ SpirvXIRDialectOpSupport
 spirv_xir_dialect_support(xir::RayQueryObjectReadOp op) noexcept {
     switch (op) {
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY:
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT:
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT:
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT:

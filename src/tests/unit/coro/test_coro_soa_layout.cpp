@@ -34,6 +34,55 @@ LUISA_STRUCT(CoroSoASevenWords, a, b, c, d, e, f, g) {};
 
 void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
 
+    "mutually_exclusive_suspend_edges_share_frame_storage"_test = [] {
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto index = dispatch_x();
+            // Both values are defined before the control split on purpose:
+            // their source-level ranges overlap, but no dynamic continuation
+            // ever needs them together. Frame interference is therefore an
+            // edge-live property, not a lexical/source-range property.
+            auto left = def(index * 3u + 1u);
+            auto right = def(index * 5u + 2u);
+            $if ((index & 1u) == 0u) {
+                $suspend("A", coro_frame_export(
+                                  "branch_left_payload", left));
+                output.write(index, left);
+            }
+            $else {
+                $suspend("B", coro_frame_export(
+                                  "branch_right_payload", right));
+                output.write(index, right);
+            };
+            $suspend("C");
+        });
+
+        const auto *entry = &coro.graph().node(0u);
+        const auto *a = coro.graph().node_by_name("A");
+        const auto *b = coro.graph().node_by_name("B");
+        const auto *c = coro.graph().node_by_name("C");
+        expect(a != nullptr);
+        expect(b != nullptr);
+        expect(c != nullptr);
+        if (a != nullptr && b != nullptr && c != nullptr) {
+            expect(coro.graph().edge(entry->index, a->index) != nullptr);
+            expect(coro.graph().edge(entry->index, b->index) != nullptr);
+            expect(coro.graph().edge(a->index, c->index) != nullptr);
+            expect(coro.graph().edge(b->index, c->index) != nullptr);
+            expect(coro.graph().edge(a->index, b->index) == nullptr);
+            expect(coro.graph().edge(b->index, a->index) == nullptr);
+        }
+
+        auto left_field =
+            coro.frame().field_index("branch_left_payload");
+        auto right_field =
+            coro.frame().field_index("branch_right_payload");
+        expect(left_field != static_cast<size_t>(-1));
+        expect(right_field != static_cast<size_t>(-1));
+        expect(left_field == right_field)
+            << "mutually exclusive edge-live values of the same type must "
+               "reuse one physical frame slot";
+    };
+
     "runtime_soa_layout_is_linear_and_capacity_invariant"_test = [] {
         auto coro = Coroutine<void(Buffer<float4>)>([](BufferFloat4 output) {
             auto i = dispatch_x();
@@ -81,6 +130,100 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
                 cursor = end;
             }
             expect(cursor == small.frame_stride * capacity);
+        }
+    };
+
+    "selective_frame_copy_does_not_touch_inactive_fields"_test = [options] {
+        constexpr uint frame_capacity = 4u;
+        constexpr uint source_index = 3u;
+        constexpr uint destination_index = 1u;
+        constexpr uint output_count = 6u;
+
+        CoroFrameDesc desc;
+        desc.add_field("selected_uint", Type::of<uint>());
+        desc.add_field("inactive_float", Type::of<float>());
+        desc.add_field("selected_uint_2", Type::of<uint>());
+        desc.add_field("inactive_float3", Type::of<float3>());
+        auto selected_fields = luisa::vector<size_t>{0u, 2u};
+
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+
+        for (auto soa : {false, true}) {
+            auto layout = soa ?
+                              CoroFrameStorageLayout::make_runtime_soa(
+                                  desc, frame_capacity) :
+                              CoroFrameStorageLayout::make_aos(
+                                  desc, frame_capacity);
+            auto frames = device.create_byte_buffer(layout.size_bytes);
+            auto output = device.create_buffer<uint>(output_count);
+            Kernel1D copy = [&desc, layout, soa,
+                             selected_fields](ByteBufferVar frames,
+                                              BufferUInt output) noexcept {
+                auto frame_buf = Expr<ByteBuffer>{frames};
+                coro_frame_write_field(
+                    frame_buf, source_index, frame_capacity,
+                    layout, soa, 0u, 101u);
+                coro_frame_write_field(
+                    frame_buf, source_index, frame_capacity,
+                    layout, soa, 1u, 2.5f);
+                coro_frame_write_field(
+                    frame_buf, source_index, frame_capacity,
+                    layout, soa, 2u, 303u);
+                coro_frame_write_field(
+                    frame_buf, source_index, frame_capacity,
+                    layout, soa, 3u, make_float3(4.5f, 5.5f, 6.5f));
+
+                coro_frame_write_field(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 0u, 11u);
+                coro_frame_write_field(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 1u, -2.0f);
+                coro_frame_write_field(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 2u, 33u);
+                coro_frame_write_field(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 3u, make_float3(-4.0f, -5.0f, -6.0f));
+
+                coro_frame_copy_fields(
+                    frame_buf, source_index, destination_index,
+                    frame_capacity, &desc, layout, soa,
+                    luisa::span<const size_t>{selected_fields});
+
+                output.write(0u, coro_frame_read_field<uint>(
+                                     frame_buf, destination_index,
+                                     frame_capacity, layout, soa, 0u));
+                output.write(1u, coro_frame_read_field<float>(
+                                     frame_buf, destination_index,
+                                     frame_capacity, layout, soa, 1u)
+                                     .as<uint>());
+                output.write(2u, coro_frame_read_field<uint>(
+                                     frame_buf, destination_index,
+                                     frame_capacity, layout, soa, 2u));
+                auto inactive = coro_frame_read_field<float3>(
+                    frame_buf, destination_index, frame_capacity,
+                    layout, soa, 3u);
+                output.write(3u, inactive.x.as<uint>());
+                output.write(4u, inactive.y.as<uint>());
+                output.write(5u, inactive.z.as<uint>());
+            };
+            auto shader = device.compile(copy);
+            luisa::vector<uint> host(output_count);
+            stream << shader(frames, output).dispatch(1u)
+                   << output.copy_to(luisa::span{host})
+                   << synchronize();
+
+            auto expected = luisa::vector<uint>{
+                101u, std::bit_cast<uint>(-2.0f), 303u,
+                std::bit_cast<uint>(-4.0f),
+                std::bit_cast<uint>(-5.0f),
+                std::bit_cast<uint>(-6.0f)};
+            expect(host == expected)
+                << "selective relocation must copy certified fields and "
+                   "leave every inactive destination field unchanged";
         }
     };
 

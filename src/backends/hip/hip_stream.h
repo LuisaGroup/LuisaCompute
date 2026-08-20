@@ -10,6 +10,7 @@
 #include <condition_variable>
 
 #include <hip/hip_runtime.h>
+#include <hiprt/hiprt.h>
 
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/queue.h>
@@ -38,6 +39,8 @@ private:
     HIPStageBufferPool _download_pool;
     hipDeviceptr_t _rt_scratch_buffer{};
     size_t _rt_scratch_capacity{};
+    hipDeviceptr_t _rt_global_stack_buffer{};
+    uint32_t _rt_global_stack_thread_capacity{};
     std::thread _callback_thread;
     std::mutex _callback_mutex;
     std::condition_variable _callback_cv;
@@ -70,6 +73,11 @@ public:
     // Temporary acceleration-structure builders on one stream are totally
     // ordered, so they share one allocation whose lifetime is the stream.
     [[nodiscard]] hipDeviceptr_t rt_scratch_buffer(size_t required_size) noexcept;
+    // Static HIPRT stacks are indexed by the physical launch thread. Keeping
+    // one grow-only allocation per stream makes reuse stream-ordered while
+    // preventing cross-stream aliasing.
+    [[nodiscard]] hiprtGlobalStackBuffer
+    rt_global_stack_buffer(size_t required_thread_count) noexcept;
     void dispatch(CommandList &&command_list) noexcept;
     void synchronize() noexcept;
     void callback(CallbackContainer &&callbacks) noexcept;

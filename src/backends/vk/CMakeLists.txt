@@ -152,8 +152,8 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
             # The 2026-07-29 binary requires GLIBC 2.43 and cannot load on
             # supported Ubuntu 24.04 package builders. Keep the compatible
             # baseline until the newer SDK is rebuilt against an older glibc.
-            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_2025_07_14.x86_64.zip")
-            set(LUISA_COMPUTE_VK_SDK_SHA256 "9ba3197dcc58d0613afd183757102dd87466223a84f5ad5095c8598ca7f91adc")
+            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_20260815_x86_64.zip")
+            set(LUISA_COMPUTE_VK_SDK_SHA256 "1522a849b12e717a128b10c037be5d74fd491e04074ad75dde1df4691cfe8fde")
             message(STATUS "Downloading Vulkan(DXC) SDK from ${LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL}")
             include(FetchContent)
             FetchContent_Declare(luisa_compute_vk_sdk

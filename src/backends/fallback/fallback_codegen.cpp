@@ -1972,6 +1972,7 @@ private:
             using namespace std::string_view_literals;
             switch (op) {
                 case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: return "luisa.ray.query.object.world.space.ray"sv;
+                case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: return "luisa.ray.query.object.candidate.object.space.ray"sv;
                 case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: return "luisa.ray.query.object.procedural.candidate.hit"sv;
                 case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: return "luisa.ray.query.object.surface.candidate.hit"sv;
                 case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: return "luisa.ray.query.object.committed.hit"sv;
@@ -2953,6 +2954,61 @@ private:
             case xir::ResourceReadOp::BINDLESS_BUFFER_READ: return _translate_bindless_buffer_read(current, b, inst);
             case xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ: return _translate_bindless_buffer_read(current, b, inst, true);
             case xir::ResourceReadOp::DEVICE_ADDRESS_READ: return _translate_device_address_read(current, b, inst);
+            case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::COOPERATIVE_MUL:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            // Future cooperative-vector element-wise operations — TODO: implement
+            // in the fallback backend.
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_COS:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ATANH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_POW:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+                LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the fallback backend yet.");
         }
         LUISA_ERROR_WITH_LOCATION("Unexpected resource read operation: {}.", xir::to_string(inst->op()));
     }
@@ -2977,6 +3033,12 @@ private:
             case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: return _translate_accel_access(current, b, "luisa.accel.set.instance.motion.srt", inst);
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: break;
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: break;
+            case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+            case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                LUISA_NOT_IMPLEMENTED();
         }
         LUISA_ERROR_WITH_LOCATION("Unexpected resource write operation: {}.", xir::to_string(inst->op()));
     }

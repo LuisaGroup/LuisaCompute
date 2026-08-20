@@ -437,9 +437,15 @@ void test_accel_opacity(Device &device) {
     Kernel1D mutate = [](AccelVar accel, Bool opaque) noexcept {
         accel.set_instance_opaque(0u, opaque);
     };
+    Kernel1D mutate_visibility = [](
+                                     AccelVar accel,
+                                     UInt visibility) noexcept {
+        accel.set_instance_visibility(0u, visibility);
+    };
 
     auto trace_shader = device.compile(trace);
     auto mutate_shader = device.compile(mutate);
+    auto mutate_visibility_shader = device.compile(mutate_visibility);
     auto results = device.create_buffer<uint4>(2u);
 
     auto verify_results = [&](const std::array<uint4, 2u> &host_results,
@@ -560,6 +566,34 @@ void test_accel_opacity(Device &device) {
     stream << mutate_shader(accel, true).dispatch(1u)
            << accel.build(Accel::BuildRequest::PREFER_UPDATE);
     run(accel, 0u, "device opaque update");
+
+    auto read_visibility = [&]() noexcept {
+        stream << inspect_shader(metadata, transforms, accel).dispatch(1u)
+               << metadata.copy_to(
+                      luisa::span{same_stream_metadata})
+               << synchronize();
+        return same_stream_metadata[0].x;
+    };
+
+    // The packed HIP node snapshot shares one uint with public visibility,
+    // while both fields remain independently mutable. A host visibility-only
+    // update after a device opacity write must preserve opacity. Conversely, a
+    // host opacity-only update after a device visibility write must preserve
+    // the newer visibility. These two orders catch whole-word uploads from a
+    // stale host mirror in either direction.
+    stream << mutate_shader(accel, false).dispatch(1u)
+           << accel.build(Accel::BuildRequest::PREFER_UPDATE);
+    accel.set_visibility_on_update(0u, 0x5au);
+    stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
+    run(accel, 1u, "host visibility preserves device non-opacity");
+    expect(read_visibility() == 0x5au);
+
+    stream << mutate_visibility_shader(accel, 0x3cu).dispatch(1u)
+           << accel.build(Accel::BuildRequest::PREFER_UPDATE);
+    accel.set_opaque_on_update(0u, true);
+    stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
+    run(accel, 0u, "host opacity preserves device visibility");
+    expect(read_visibility() == 0x3cu);
 }
 
 int main(int argc, char *argv[]) {

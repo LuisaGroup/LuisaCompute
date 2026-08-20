@@ -58,7 +58,14 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
-    -- example_proj("example_tensor_stub", "compute/tensor_stub.cpp", false)
+     example_proj("example_tensor_stub", "tensor/main.cpp", false, function()
+          add_files("tensor/kernel_*.cpp")
+          add_files("tensor/cnn_kernels.cpp", "tensor/cnn_inference.cpp")
+          add_files("tensor/poly_fit_kernels.cpp", "tensor/poly_fit.cpp")
+          add_files("tensor/linear_regression_kernels.cpp", "tensor/linear_regression.cpp")
+          add_files("tensor/mlp.cpp", "tensor/mnist.cpp", "tensor/rnn.cpp", "tensor/tensor_basics.cpp")
+      end)
+example_proj("example_tile_bench", "compute/tile_bench.cpp", false)
     example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
     example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
@@ -79,6 +86,7 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
         add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp")
     end)
     includes("compute/tokenize")
+    includes("compute/compact")
 
 -- extension
 if has_config("lc_dx_backend") then

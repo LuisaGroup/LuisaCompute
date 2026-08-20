@@ -14,8 +14,14 @@ namespace luisa::compute::hip {
 
 namespace {
 
-constexpr auto hip_hardware_ray_query_state_size = 448u;
-constexpr auto hip_software_ray_query_state_size = 576u;
+constexpr auto hip_hardware_ray_query_state_size = 224u;
+constexpr auto hip_software_ray_query_state_size = 608u;
+// The synchronous gfx12 traversal is latency-bound and its unconstrained
+// allocation falls immediately below the next useful occupancy tier. Express
+// that tier to LLVM instead of encoding a VGPR count: waves-per-EU lets the
+// target balance VGPR, SGPR, LDS, and spill costs as one resource constraint.
+// An explicit ShaderOption::max_registers remains authoritative below.
+constexpr auto hip_gfx12_synchronous_ray_query_min_waves_per_eu = 10u;
 
 }// namespace
 
@@ -57,6 +63,14 @@ llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_kernel_function(const xir::Ker
     if (_config.max_register_count != 0u) {
         auto max_vgpr_count = std::min(_config.max_register_count, 256u);
         llvm_kernel->addFnAttr("amdgpu-num-vgpr", std::to_string(max_vgpr_count));
+    } else if ((_config.amdgpu_arch == "gfx1200" ||
+                _config.amdgpu_arch == "gfx1201") &&
+               _uses_hardware_rt_stack &&
+               _uses_synchronous_ray_query_pipeline) {
+        llvm_kernel->addFnAttr(
+            "amdgpu-waves-per-eu",
+            std::to_string(
+                hip_gfx12_synchronous_ray_query_min_waves_per_eu));
     }
 
     return llvm_kernel;
@@ -89,9 +103,8 @@ llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_callable_function(const xir::C
     auto llvm_func = llvm::Function::Create(llvm_func_type, llvm::Function::PrivateLinkage, 0,
                                             func->name().value_or("callable"), _llvm_module.get());
     llvm_func->addFnAttr("amdgpu-unsafe-fp-atomics", "true");
-    // Keep the provenance of DSL callables across native bitcode linking.
-    // The module optimizer uses this marker to apply its ordinary inlining
-    // cost model instead of forcing every callable into every call site.
+    // Keep provenance across native bitcode linking for post-IPO ABI
+    // legalization. This marker is deliberately not an inline/noinline policy.
     llvm_func->addFnAttr(llvm_generated_callable_attribute);
     return llvm_func;
 }
@@ -141,6 +154,8 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_kernel_function(const xir::Kernel
     auto llvm_kernel = _get_or_declare_llvm_function(func);
     LUISA_DEBUG_ASSERT(llvm_kernel->isDeclaration(), "Kernel function already defined.");
     FunctionContext func_ctx{llvm_kernel};
+    func_ctx.llvm_rq_state_uses_resumable_abi =
+        _function_uses_resumable_ray_query_state(func);
     IB b{func_ctx.llvm_entry_block};
     auto llvm_arg_struct = llvm_kernel->getArg(0);
     auto arg_index = 0u;
@@ -186,10 +201,13 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_kernel_function(const xir::Kernel
         // allocation exact: it is address-taken across the out-of-line
         // traversal calls, so every unused byte becomes per-thread scratch.
         // Generic HIPRT traversal with a private instance stack uses the
-        // exact 576-byte state checked in hiprt_device_wrapper.hip.
-        auto llvm_rq_state_size = _uses_hardware_rt_stack ?
-                                      hip_hardware_ray_query_state_size :
-                                      hip_software_ray_query_state_size;
+        // exact 608-byte state checked in hiprt_device_wrapper.hip.
+        auto llvm_rq_state_size =
+            !func_ctx.llvm_rq_state_uses_resumable_abi ?
+                hip_synchronous_ray_query_state_size :
+            _uses_hardware_rt_stack ?
+                hip_hardware_ray_query_state_size :
+                hip_software_ray_query_state_size;
         auto llvm_rq_state_type = llvm::ArrayType::get(b.getInt8Ty(), llvm_rq_state_size);
         IB alloca_b{func_ctx.llvm_alloca_block->getTerminator()};
         auto alloca_inst = alloca_b.CreateAlloca(llvm_rq_state_type, nullptr, "rq.state");
@@ -216,6 +234,8 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_callable_function(const xir::Call
     auto llvm_func = _get_or_declare_llvm_function(func);
     LUISA_DEBUG_ASSERT(llvm_func->isDeclaration(), "Callable function already defined.");
     FunctionContext func_ctx{llvm_func};
+    func_ctx.llvm_rq_state_uses_resumable_abi =
+        _function_uses_resumable_ray_query_state(func);
     auto llvm_arg_iter = llvm_func->arg_begin();
     for (auto arg : func->arguments()) {
         func_ctx.local_values.try_emplace(arg, llvm_arg_iter++);
@@ -242,9 +262,12 @@ llvm::Function *HIPCodegenLLVMImpl::_translate_callable_function(const xir::Call
         func_ctx.llvm_rt_stack_data->setName("rt.stack.data");
     }
     if (_rt_analysis.uses_ray_query) {
-        auto llvm_rq_state_size = _uses_hardware_rt_stack ?
-                                      hip_hardware_ray_query_state_size :
-                                      hip_software_ray_query_state_size;
+        auto llvm_rq_state_size =
+            !func_ctx.llvm_rq_state_uses_resumable_abi ?
+                hip_synchronous_ray_query_state_size :
+            _uses_hardware_rt_stack ?
+                hip_hardware_ray_query_state_size :
+                hip_software_ray_query_state_size;
         auto llvm_rq_state_type = llvm::ArrayType::get(
             llvm::Type::getInt8Ty(_llvm_context), llvm_rq_state_size);
         IB alloca_b{func_ctx.llvm_alloca_block->getTerminator()};
@@ -294,6 +317,17 @@ llvm::BasicBlock *HIPCodegenLLVMImpl::_translate_function_definition(FunctionCon
         for (auto inst : bb->instructions()) {
             _translate_instruction(b, func_ctx, inst);
         }
+        // Lowering an instruction is allowed to refine one XIR block into an
+        // LLVM sub-CFG, but every such refinement has one continuation block.
+        // Record that tail after the XIR terminator has been emitted: this is
+        // the actual predecessor associated with outgoing SSA edge values.
+        auto *llvm_exit_block = b.GetInsertBlock();
+        LUISA_ASSERT(llvm_exit_block != nullptr &&
+                         llvm_exit_block->getTerminator() != nullptr,
+                     "LLVM lowering of XIR block '{}' has no unique "
+                     "terminated exit block.",
+                     bb->name().value_or("<unnamed>"));
+        func_ctx.llvm_exit_blocks.try_emplace(bb, llvm_exit_block);
     });
     _finalize_pending_phi_nodes(func_ctx, translated_blocks);
     // Dominator traversal skips unreachable structured merge blocks, but LLVM still requires terminators.

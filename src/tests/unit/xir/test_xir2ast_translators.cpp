@@ -131,6 +131,11 @@ void reg_xir2ast_direct() {
             RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY,
             {query}));
         static_cast<void>(b.call(
+            Type::of<Ray>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY,
+            {query}));
+        static_cast<void>(b.call(
             Type::of<ProceduralHit>(),
             RayQueryObjectReadOp::
                 RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT,
@@ -189,7 +194,12 @@ void reg_xir2ast_direct() {
         // on the rebuilt SSA value rather than through incidental loads/stores.
         static_cast<void>(mem2reg_pass_run_on_module(rebuilt.get()));
 
-        std::array<size_t, 7u> read_counts{};
+        std::array<
+            size_t,
+            luisa::to_underlying(
+                RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED) +
+                1u>
+            read_counts{};
         std::array<size_t, 4u> write_counts{};
         const AssumeInst *rebuilt_assume = nullptr;
         for (auto *function : rebuilt->function_list()) {

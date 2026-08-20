@@ -10,6 +10,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/coro/coro_frame_storage.h>
 #include <luisa/coro/coro_scheduler.h>
+#include <luisa/coro/radix_sort.h>
 #include <luisa/coro/schedulers/detail/token_index.h>
 #include <luisa/coro/schedulers/graph_wavefront_policy.h>
 #include <luisa/dsl/coro_func.h>
@@ -60,6 +61,15 @@ struct GraphWavefrontCoroSchedulerConfig {
     uint tail_megakernel_threshold = 4096u;
     bool report_stats = false;
     ShaderOption shader_option{};
+    // Optional queue-local coherence key. `hint_fields` names CoroGraph
+    // continuations whose frame indices should be sorted by the explicitly
+    // exported uint `coro_hint` before consumption. These host/JIT choices do
+    // not change coroutine semantics or the consuming continuation shader
+    // identity; only the optional sorting shaders depend on the hint range.
+    // Exact queue cardinality is required, so hint sorting is currently
+    // defined only for non-speculative selective scheduling.
+    uint hint_range = 0xffffffffu;
+    luisa::vector<luisa::string> hint_fields;
 };
 
 struct GraphWavefrontCoroDispatchStats {
@@ -89,6 +99,7 @@ struct GraphWavefrontCoroDispatchStats {
     luisa::vector<uint> max_transition_output_field_count;
     luisa::vector<uint64_t> continuation_dispatch_count;
     luisa::vector<uint64_t> continuation_executed_count;
+    luisa::vector<uint64_t> continuation_hint_sort_count;
     luisa::vector<uint64_t> continuation_max_wait_actions;
     luisa::vector<luisa::string> continuation_names;
     double elapsed_ms{0.0};
@@ -126,6 +137,17 @@ public:
     using Config = GraphWavefrontCoroSchedulerConfig;
 
 private:
+    // Device work-state ABI. Keep scheduler scalars named: these indices are
+    // shared by several independently compiled kernels and therefore form a
+    // real ABI rather than disposable implementation magic numbers.
+    static constexpr uint _work_logical_first = 0u;
+    static constexpr uint _work_admit_count = 1u;
+    static constexpr uint _work_free_first = 2u;
+    static constexpr uint _work_return_free_first = 3u;
+    static constexpr uint _work_return_count = 4u;
+    static constexpr uint _work_carry_count = 5u;
+    static constexpr uint _work_node_count_base = 6u;
+
     Config _config;
     CoroFrameStorageLayout _frame_layout;
     ByteBuffer _frame_buffer;
@@ -144,7 +166,7 @@ private:
     Shader1D<uint, uint, uint, uint, uint, uint> _prepare_action_shader;
     Shader1D<uint, uint, uint, uint> _carry_queues_shader;
     Shader1D<uint, uint, uint3, Args...> _entry_shader;
-    luisa::vector<Shader1D<uint, uint, uint, Args...>>
+    luisa::vector<Shader1D<uint, Buffer<uint>, uint, uint, Args...>>
         _continuation_shaders;
     Shader1D<uint, uint> _prepare_returns_shader;
     Shader1D<uint> _copy_returns_shader;
@@ -152,6 +174,10 @@ private:
     Shader1D<uint, uint> _snapshot_shader;
     Shader1D<uint> _prepare_tail_offsets_shader;
     Shader1D<uint, uint, Args...> _tail_shader;
+    Buffer<uint> _sort_key[2];
+    Buffer<uint> _sort_index;
+    radix_sort::temp_storage _sort_temp_storage;
+    radix_sort::instance<Buffer<uint>, ByteBuffer, uint> _sort_hint;
     luisa::vector<uint> _host_snapshots;
     luisa::vector<uint64_t> _shader_structure_hashes;
     GraphWavefrontCoroDispatchStats _last_dispatch_stats;
@@ -159,11 +185,54 @@ private:
     luisa::vector<uint> _max_transition_output_field_count;
     luisa::vector<luisa::string> _continuation_names;
     luisa::vector<uint> _refill_nodes;
+    luisa::vector<bool> _have_hint;
+    size_t _hint_field_index{static_cast<size_t>(-1)};
     uint _node_count{};
     uint _snapshot_stride{};
     uint _active_frame_capacity{};
+    bool _has_hint_sort{false};
 
 private:
+    [[nodiscard]] static auto _find_frame_field_index(
+        const CoroFrameDesc &desc, luisa::string_view name) noexcept {
+        auto index = desc.field_index(name);
+        return index == static_cast<size_t>(-1) ?
+                   index :
+                   CoroFrameDesc::reserved_field_count + index;
+    }
+
+    [[nodiscard]] auto _valid_hint_field_count() const noexcept {
+        auto count = 0u;
+        for (auto hint : _have_hint) {
+            if (hint) { count++; }
+        }
+        return count;
+    }
+
+    [[nodiscard]] auto _sort_hint_range(
+        Stream &stream, BufferView<uint> source_indices,
+        uint count) noexcept {
+        LUISA_ASSERT(
+            _has_hint_sort && count != 0u &&
+                count <= _config.thread_count &&
+                source_indices.size() >= count,
+            "Invalid graph-wavefront hint-sort range: enabled={} count={} "
+            "capacity={} source_size={}.",
+            _has_hint_sort, count, _config.thread_count,
+            source_indices.size());
+        BufferView<uint> indices[2] = {
+            source_indices.subview(0u, count),
+            _sort_index.view().subview(0u, count)};
+        BufferView<uint> keys[2] = {
+            _sort_key[0].view().subview(0u, count),
+            _sort_key[1].view().subview(0u, count)};
+        auto output = _sort_hint.sort_switch(
+            stream, keys, indices, count,
+            source_indices.subview(0u, count),
+            _frame_buffer, _config.thread_count);
+        return indices[output];
+    }
+
     [[nodiscard]] static auto _dispatch_id_from_linear_index(
         UInt global_index, UInt3 dispatch_shape) noexcept {
         auto index_z = global_index /
@@ -263,27 +332,28 @@ private:
                     // Every consumer is gated by a count published by this
                     // pre-execution ownership certificate, never by a queue
                     // counter that might already exceed its capacity.
-                    work.write(5u + node - 1u, 0u);
+                    work.write(_work_node_count_base + node - 1u, 0u);
                 }
                 ownership_valid &= free_count == remaining_capacity;
                 auto logical_first = state.read(0u);
                 auto remaining = ite(
                     logical_first < logical_count,
                     logical_count - logical_first, 0u);
-                work.write(0u, logical_first);
-                work.write(1u, 0u);
-                work.write(2u, free_count);
+                work.write(_work_logical_first, logical_first);
+                work.write(_work_admit_count, 0u);
+                work.write(_work_free_first, free_count);
+                work.write(_work_carry_count, 0u);
                 $if (ownership_valid) {
                     auto admit_count = min(free_count, remaining);
                     auto free_first = free_count - admit_count;
                     counts.write(0u, free_first);
                     state.write(0u, logical_first + admit_count);
-                    work.write(1u, admit_count);
-                    work.write(2u, free_first);
+                    work.write(_work_admit_count, admit_count);
+                    work.write(_work_free_first, free_first);
                     for (auto node = 1u; node <= active_node_count; ++node) {
                         auto source_queue =
                             1u + source_bank * active_node_count + node - 1u;
-                        work.write(5u + node - 1u,
+                        work.write(_work_node_count_base + node - 1u,
                                    counts.read(source_queue));
                     }
                 }
@@ -315,6 +385,7 @@ private:
                 auto free_count = counts.read(0u);
                 auto remaining_capacity = def(active_capacity);
                 auto ownership_valid = def(free_count <= active_capacity);
+                auto carry_count = def(0u);
                 remaining_capacity -= min(free_count, remaining_capacity);
                 for (auto node = 1u; node <= active_node_count; ++node) {
                     auto source_queue = 1u + source_bank * active_node_count +
@@ -326,12 +397,13 @@ private:
                         source_count, remaining_capacity);
                     auto destination_queue =
                         1u + destination_bank * active_node_count + node - 1u;
-                    auto carry_count = ite(
+                    auto carried_count = ite(
                         selected_node == node, 0u, source_count);
-                    counts.write(destination_queue, carry_count);
-                    work.write(5u + node - 1u,
+                    counts.write(destination_queue, carried_count);
+                    work.write(_work_node_count_base + node - 1u,
                                ite(selected_node == node,
                                    source_count, 0u));
+                    carry_count = max(carry_count, carried_count);
                 }
                 ownership_valid &= remaining_capacity == 0u;
                 auto logical_first = state.read(0u);
@@ -340,15 +412,16 @@ private:
                     logical_count - logical_first, 0u);
                 auto admit_count = min(
                     free_count, remaining) * min(admit_entry, 1u);
-                work.write(0u, logical_first);
-                work.write(1u, 0u);
-                work.write(2u, free_count);
+                work.write(_work_logical_first, logical_first);
+                work.write(_work_admit_count, 0u);
+                work.write(_work_free_first, free_count);
+                work.write(_work_carry_count, carry_count);
                 $if (ownership_valid) {
                     auto free_first = free_count - admit_count;
                     counts.write(0u, free_first);
                     state.write(0u, logical_first + admit_count);
-                    work.write(1u, admit_count);
-                    work.write(2u, free_first);
+                    work.write(_work_admit_count, admit_count);
+                    work.write(_work_free_first, free_first);
                 }
                 $else {
                     unreachable(
@@ -360,13 +433,21 @@ private:
             device, prepare_action, "graph_wavefront_prepare_action");
 
         Kernel1D carry_queues =
-            [queue_indices, queue_counts, active_node_count](
+            [queue_indices, queue_counts, work_state, active_node_count](
                 UInt source_bank, UInt destination_bank,
                 UInt selected_node, UInt storage_capacity) noexcept {
                 auto indices = Expr<Buffer<uint>>{*queue_indices};
                 auto counts = Expr<Buffer<uint>>{*queue_counts};
+                auto work = Expr<Buffer<uint>>{*work_state};
                 auto x = def(dispatch_x());
-                $while (x < storage_capacity) {
+                // Let C_i be the source count of unselected queue i and
+                // M=max_i C_i. Copying queue i visits exactly [0,C_i), which
+                // is a subset of [0,M). The selected queue has C_i=0 for this
+                // transfer. Therefore [0,M) is both a sufficient and the
+                // smallest common rectangular launch domain; scanning the
+                // complete frame capacity adds no observable work.
+                auto carry_count = work.read(_work_carry_count);
+                $while (x < carry_count) {
                     for (auto node = 1u; node <= active_node_count; ++node) {
                         auto source_queue =
                             1u + source_bank * active_node_count + node - 1u;
@@ -425,16 +506,16 @@ private:
                              Var<Args>... args) noexcept {
             set_block_size(block_size);
             auto admit_count =
-                Expr<Buffer<uint>>{*work_state}.read(1u);
+                Expr<Buffer<uint>>{*work_state}.read(_work_admit_count);
             auto x = def(dispatch_x());
             $while (x < admit_count) {
                 auto free_first =
-                    Expr<Buffer<uint>>{*work_state}.read(2u);
+                    Expr<Buffer<uint>>{*work_state}.read(_work_free_first);
                 auto frame_index =
                     Expr<Buffer<uint>>{*queue_indices}.read(
                         free_first + x);
                 auto logical_first =
-                    Expr<Buffer<uint>>{*work_state}.read(0u);
+                    Expr<Buffer<uint>>{*work_state}.read(_work_logical_first);
                 auto logical_id = _dispatch_id_from_linear_index(
                     logical_first + x, dispatch_shape);
                 auto frame = coro.instantiate(logical_id, dispatch_shape);
@@ -485,24 +566,21 @@ private:
             _input_field_count[node_index] =
                 static_cast<uint>(input_fields.size());
             Kernel1D continuation =
-                [&coro, frame_buffer, queue_indices, queue_counts, work_state,
-                 block_size,
+                [&coro, frame_buffer, work_state, block_size,
                  active_node_count, layout, soa, node_index, subroutine,
                  input_fields = std::move(input_fields),
                  output_fields = std::move(output_fields), token_to_index,
-                 push_frame](UInt source_bank, UInt destination_bank,
-                             UInt storage_capacity,
+                 push_frame](UInt destination_bank,
+                             BufferUInt resume_indices,
+                             UInt resume_offset, UInt storage_capacity,
                              Var<Args>... args) noexcept {
                     set_block_size(block_size);
-                    auto source_queue = 1u + source_bank * active_node_count +
-                                        node_index - 1u;
                     auto count = Expr<Buffer<uint>>{*work_state}.read(
-                        5u + node_index - 1u);
+                        _work_node_count_base + node_index - 1u);
                     auto x = def(dispatch_x());
                     $while (x < count) {
-                        auto frame_index =
-                            Expr<Buffer<uint>>{*queue_indices}.read(
-                                source_queue * storage_capacity + x);
+                        auto frame_index = resume_indices.read(
+                            resume_offset + x);
                         auto frame = coro_frame_load(
                             &coro.frame(), Expr<ByteBuffer>{*frame_buffer},
                             frame_index, storage_capacity, layout, soa,
@@ -545,8 +623,8 @@ private:
             $if (returned_count <= returned_capacity) {
                 $if (returned_count <= storage_capacity) {
                     $if (free_first <= storage_capacity - returned_count) {
-                        work.write(3u, free_first);
-                        work.write(4u, returned_count);
+                        work.write(_work_return_free_first, free_first);
+                        work.write(_work_return_count, returned_count);
                     }
                     $else {
                         unreachable(
@@ -573,8 +651,8 @@ private:
                                     UInt storage_capacity) noexcept {
             auto indices = Expr<Buffer<uint>>{*queue_indices};
             auto work = Expr<Buffer<uint>>{*work_state};
-            auto free_first = work.read(3u);
-            auto returned_count = work.read(4u);
+            auto free_first = work.read(_work_return_free_first);
+            auto returned_count = work.read(_work_return_count);
             auto x = def(dispatch_x());
             $while (x < returned_count) {
                 auto frame_index = indices.read(
@@ -589,7 +667,8 @@ private:
         Kernel1D commit_returns = [queue_counts, work_state]() noexcept {
             auto work = Expr<Buffer<uint>>{*work_state};
             Expr<Buffer<uint>>{*queue_counts}.write(
-                0u, work.read(3u) + work.read(4u));
+                0u, work.read(_work_return_free_first) +
+                        work.read(_work_return_count));
         };
         _commit_returns_shader = _compile(
             device, commit_returns, "graph_wavefront_commit_returns");
@@ -760,6 +839,8 @@ private:
             _node_count, 0u);
         _last_dispatch_stats.continuation_executed_count.resize(
             _node_count, 0u);
+        _last_dispatch_stats.continuation_hint_sort_count.resize(
+            _node_count, 0u);
         _last_dispatch_stats.continuation_max_wait_actions.resize(
             _node_count, 0u);
         _last_dispatch_stats.continuation_names = _continuation_names;
@@ -888,9 +969,33 @@ private:
                         _last_dispatch_stats.entry_dispatch_count++;
                     }
                     if (action.selected_node != 0u) {
+                        auto source_queue =
+                            1u + source_bank * active_node_count +
+                            action.selected_node - 1u;
+                        auto source_indices = _queue_indices.view().subview(
+                            source_queue * _config.thread_count,
+                            _config.thread_count);
+                        auto resume_indices = source_indices;
+                        auto selected_count = static_cast<uint>(
+                            latest_population.queues[action.selected_node]);
+                        if (_has_hint_sort &&
+                            _have_hint[action.selected_node]) {
+                            LUISA_ASSERT(
+                                selected_count != 0u &&
+                                    selected_count <= _active_frame_capacity,
+                                "Graph-wavefront selected queue {} has invalid "
+                                "exact population {} for active capacity {}.",
+                                action.selected_node, selected_count,
+                                _active_frame_capacity);
+                            resume_indices = _sort_hint_range(
+                                stream, source_indices, selected_count);
+                            _last_dispatch_stats
+                                .continuation_hint_sort_count[
+                                    action.selected_node]++;
+                        }
                         stream << _continuation_shaders[action.selected_node](
-                                      source_bank, destination_bank,
-                                      _config.thread_count, args...)
+                                      destination_bank, resume_indices,
+                                      0u, _config.thread_count, args...)
                                       .dispatch(worker_count);
                         _last_dispatch_stats
                             .continuation_dispatch_count[action.selected_node]++;
@@ -912,9 +1017,14 @@ private:
                                   .dispatch(worker_count);
                     _last_dispatch_stats.entry_dispatch_count++;
                     for (auto node = 1u; node < _node_count; ++node) {
+                        auto source_queue =
+                            1u + source_bank * active_node_count + node - 1u;
+                        auto source_indices = _queue_indices.view().subview(
+                            source_queue * _config.thread_count,
+                            _config.thread_count);
                         stream << _continuation_shaders[node](
-                                      source_bank, destination_bank,
-                                      _config.thread_count, args...)
+                                      destination_bank, source_indices,
+                                      0u, _config.thread_count, args...)
                                       .dispatch(worker_count);
                         _last_dispatch_stats
                             .continuation_dispatch_count[node]++;
@@ -1041,7 +1151,7 @@ private:
                     "Graph wavefront queue: index={} name='{}' queued_sum={} "
                     "nonempty_snapshots={} peak_queued={} input_fields={} "
                     "max_transition_output_fields={} dispatches={} "
-                    "executed={} max_wait_actions={}.",
+                    "executed={} hint_sorts={} max_wait_actions={}.",
                     node, _last_dispatch_stats.continuation_names[node],
                     _last_dispatch_stats.queued_count_sum[node],
                     _last_dispatch_stats.nonempty_snapshot_count[node],
@@ -1053,6 +1163,8 @@ private:
                         .continuation_dispatch_count[node],
                     _last_dispatch_stats
                         .continuation_executed_count[node],
+                    _last_dispatch_stats
+                        .continuation_hint_sort_count[node],
                     _last_dispatch_stats
                         .continuation_max_wait_actions[node]);
             }
@@ -1107,6 +1219,109 @@ public:
             "node count (got {}).",
             coro.subroutine_count());
         _node_count = static_cast<uint>(coro.subroutine_count());
+        _have_hint.resize(_node_count, false);
+        luisa::vector<luisa::string> valid_hint_fields;
+        valid_hint_fields.reserve(_config.hint_fields.size());
+        for (auto &&name : _config.hint_fields) {
+            if (auto *node = coro.graph().node_by_name(name)) {
+                if (node->index == 0u || node->index >= _node_count) {
+                    LUISA_WARNING(
+                        "Graph-wavefront hint continuation '{}' resolves to "
+                        "invalid node {}; hint disabled.",
+                        name, node->index);
+                } else {
+                    _have_hint[node->index] = true;
+                    valid_hint_fields.emplace_back(name);
+                }
+            } else {
+                LUISA_WARNING(
+                    "Graph-wavefront hint continuation '{}' does not match a "
+                    "suspend name; hint disabled.",
+                    name);
+            }
+        }
+        _config.hint_fields = std::move(valid_hint_fields);
+        if (_valid_hint_field_count() != 0u) {
+            _hint_field_index = _find_frame_field_index(
+                coro.frame(), "coro_hint");
+            if (_hint_field_index == static_cast<size_t>(-1)) {
+                LUISA_WARNING(
+                    "GraphWavefrontCoroSchedulerConfig::hint_fields requires "
+                    "a uint frame value explicitly exported as 'coro_hint'; "
+                    "hint sorting is disabled.");
+                std::fill(_have_hint.begin(), _have_hint.end(), false);
+                _config.hint_fields.clear();
+            } else if (coro.frame().frame_field_type(_hint_field_index) !=
+                       Type::of<uint>()) {
+                LUISA_WARNING(
+                    "Graph-wavefront coroutine frame export 'coro_hint' must "
+                    "be uint; hint sorting is disabled.");
+                std::fill(_have_hint.begin(), _have_hint.end(), false);
+                _config.hint_fields.clear();
+            } else {
+                // A scheduler observes a queued frame by target token. The
+                // exported field is valid for that token iff CoroGraph's
+                // relocation certificate contains it; cfg distillation has
+                // already proved this as a must property over every incoming
+                // edge. Merely finding the same physical field globally would
+                // permit a misconfigured continuation to read a stale slot.
+                luisa::vector<luisa::string> frame_valid_hint_fields;
+                frame_valid_hint_fields.reserve(_config.hint_fields.size());
+                for (auto &&name : _config.hint_fields) {
+                    auto *node = coro.graph().node_by_name(name);
+                    LUISA_ASSERT(node != nullptr && node->index < _node_count,
+                                 "Validated graph-wavefront hint node '{}' "
+                                 "disappeared from CoroGraph.",
+                                 name);
+                    auto &&fields = node->relocation_fields;
+                    if (std::find(fields.begin(), fields.end(),
+                                  _hint_field_index) != fields.end()) {
+                        frame_valid_hint_fields.emplace_back(name);
+                    } else {
+                        _have_hint[node->index] = false;
+                        LUISA_WARNING(
+                            "Graph-wavefront hint continuation '{}' does not "
+                            "carry the exported 'coro_hint' field on every "
+                            "incoming edge; hint disabled for this node.",
+                            name);
+                    }
+                }
+                _config.hint_fields =
+                    std::move(frame_valid_hint_fields);
+            }
+        }
+        // Queue-local sorting is semantics preserving, but encoding a sort
+        // requires the exact source cardinality on the host. The selective
+        // policy's one-snapshot/one-slot contract supplies that cardinality;
+        // speculative or all-node sweeps deliberately do not synchronize for
+        // it. Disable only the optimization when this proof precondition is
+        // absent.
+        if (_valid_hint_field_count() != 0u &&
+            (!_config.selective_scheduling ||
+             _config.counter_readback_batch_size != 1u ||
+             _config.counter_readback_pipeline_depth != 1u)) {
+            LUISA_WARNING(
+                "Graph-wavefront hint sorting requires exact selective "
+                "scheduling with one snapshot and one readback slot; hint "
+                "sorting is disabled.");
+            std::fill(_have_hint.begin(), _have_hint.end(), false);
+            _config.hint_fields.clear();
+        }
+        // Small ranges use subgroup-independent bucket sorting. Larger ranges
+        // use one-sweep radix ranking, whose contract requires 32-lane waves.
+        if (_valid_hint_field_count() != 0u &&
+            _config.hint_range > radix_sort::hist_block_size &&
+            device.compute_warp_size() != radix_sort::warp_size) {
+            LUISA_WARNING(
+                "Graph-wavefront hint sorting over range {} requires "
+                "{}-lane subgroups, but the device reports {}; hint sorting "
+                "is disabled.",
+                _config.hint_range, radix_sort::warp_size,
+                device.compute_warp_size());
+            std::fill(_have_hint.begin(), _have_hint.end(), false);
+            _config.hint_fields.clear();
+        }
+        _has_hint_sort = _valid_hint_field_count() != 0u;
         _snapshot_stride = _node_count + 1u;
         auto active_node_count = _node_count - 1u;
         auto queue_count = 2ull + 2ull * active_node_count;
@@ -1123,9 +1338,51 @@ public:
                             CoroFrameStorageLayout::make_aos(
                                 coro.frame(), _config.thread_count);
         _frame_buffer = device.create_byte_buffer(_frame_layout.size_bytes);
+        if (_has_hint_sort) {
+            _sort_index = device.create_buffer<uint>(_config.thread_count);
+            _sort_key[0] = device.create_buffer<uint>(_config.thread_count);
+            _sort_key[1] = device.create_buffer<uint>(_config.thread_count);
+            auto max_digit = std::max(
+                1u, std::min(_config.hint_range,
+                             radix_sort::hist_block_size));
+            _sort_temp_storage = radix_sort::temp_storage{
+                device, _config.thread_count, max_digit};
+            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint)> keep_index =
+                [](UInt index, BufferUInt values, ByteBufferVar,
+                   UInt) noexcept { return values.read(index); };
+            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint)> get_hint =
+                [layout = _frame_layout,
+                 soa = _config.global_memory_soa,
+                 hint_field_index = static_cast<uint>(_hint_field_index)](
+                    UInt index, BufferUInt values, ByteBufferVar frame_buffer,
+                    UInt frame_capacity) noexcept {
+                    auto frame_index = values.read(index);
+                    return coro_frame_read_field<uint>(
+                        frame_buffer, frame_index, frame_capacity,
+                        layout, soa, hint_field_index);
+                };
+            if (_config.hint_range <= radix_sort::hist_block_size) {
+                auto hint_digit = std::max(_config.hint_range, 1u);
+                _sort_hint = radix_sort::instance<
+                    Buffer<uint>, ByteBuffer, uint>{
+                    device, _config.thread_count, _sort_temp_storage,
+                    &get_hint, &keep_index, &get_hint, 1u, hint_digit};
+            } else {
+                auto high_bit = 0u;
+                while ((_config.hint_range >> high_bit) != 1u) {
+                    high_bit++;
+                }
+                _sort_hint = radix_sort::instance<
+                    Buffer<uint>, ByteBuffer, uint>{
+                    device, _config.thread_count, _sort_temp_storage,
+                    &get_hint, &keep_index, &get_hint, 0u,
+                    radix_sort::hist_block_size, 0u, high_bit};
+            }
+        }
         _queue_indices = device.create_buffer<uint>(queue_element_count);
         _queue_counts = device.create_buffer<uint>(queue_count);
-        _work_state = device.create_buffer<uint>(5u + active_node_count);
+        _work_state = device.create_buffer<uint>(
+            _work_node_count_base + active_node_count);
         _dispatch_state = device.create_buffer<uint>(1u);
         auto snapshot_count =
             static_cast<uint64_t>(_snapshot_stride) *

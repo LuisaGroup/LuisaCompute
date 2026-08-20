@@ -33,6 +33,33 @@ struct Onb {
     float3 normal;
 };
 
+enum class TraceMode {
+    cutout_query,
+    accept_query,
+    opaque_query,
+    direct,
+};
+
+[[nodiscard]] static std::optional<TraceMode> parse_trace_mode(
+    std::string_view name) noexcept {
+    if (name == "cutout-query") { return TraceMode::cutout_query; }
+    if (name == "accept-query") { return TraceMode::accept_query; }
+    if (name == "opaque-query") { return TraceMode::opaque_query; }
+    if (name == "direct") { return TraceMode::direct; }
+    return std::nullopt;
+}
+
+[[nodiscard]] static std::string_view trace_mode_name(
+    TraceMode mode) noexcept {
+    switch (mode) {
+        case TraceMode::cutout_query: return "cutout-query";
+        case TraceMode::accept_query: return "accept-query";
+        case TraceMode::opaque_query: return "opaque-query";
+        case TraceMode::direct: return "direct";
+    }
+    return "invalid";
+}
+
 // clang-format off
 LUISA_STRUCT(Material, albedo, emission) {};
 
@@ -49,7 +76,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-registers N]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-registers N] [--trace-mode cutout-query|accept-query|opaque-query|direct]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         exit(1);
     }
 
@@ -58,16 +85,24 @@ int main(int argc, char *argv[]) {
         LUISA_WARNING("Invalid command line: {}", opts.error_message);
         return 1;
     }
-    // The filtered HIPRT traversal has a large resumable state machine. On
-    // gfx12, constraining it to 176 VGPRs improves this example's steady trace
-    // time without changing the rendered result. Keep other backends uncapped
-    // and retain the command-line override for architecture-specific tuning.
-    auto max_registers = std::string_view{argv[1]} == "hip" ? 176u : 0u;
+    // Keep the example backend-neutral. The HIP backend owns its native
+    // traversal occupancy policy; this override remains available for explicit
+    // resource-sensitivity experiments.
+    auto max_registers = 0u;
+    auto trace_mode = TraceMode::cutout_query;
     for (auto i = 2; i + 1 < argc; i++) {
         if (std::string_view{argv[i]} == "--max-registers") {
             max_registers = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+        } else if (std::string_view{argv[i]} == "--trace-mode") {
+            auto parsed = parse_trace_mode(argv[++i]);
+            if (!parsed) {
+                LUISA_WARNING("Invalid --trace-mode '{}'.", argv[i]);
+                return 1;
+            }
+            trace_mode = *parsed;
         }
     }
+    LUISA_INFO("Trace microbenchmark mode: {}.", trace_mode_name(trace_mode));
 
     Device device = context.create_device(argv[1]);
 
@@ -132,7 +167,9 @@ int main(int argc, char *argv[]) {
     for (auto i = 0u; i < mesh_count; i++) {
         // Only the two alpha-cutout boxes need surface-candidate filtering.
         // Marking the room and light opaque lets ray queries auto-commit them.
-        auto opaque = i != short_inst && i != tall_inst;
+        auto opaque = trace_mode == TraceMode::opaque_query ||
+                      trace_mode == TraceMode::direct ||
+                      (i != short_inst && i != tall_inst);
         accel.emplace_back(meshes[i], make_float4x4(1.0f), 0xffu, opaque);
     }
     stream << heap.update()
@@ -227,6 +264,58 @@ int main(int argc, char *argv[]) {
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt dispatch_spp) noexcept {
         set_block_size(16u, 16u, 1u);
+        auto trace_closest = [&](Expr<Ray> query_ray) noexcept {
+            if (trace_mode == TraceMode::direct) {
+                auto surface_hit = accel.intersect(query_ray, {});
+                return def<CommittedHit>(
+                    surface_hit.inst, surface_hit.prim, surface_hit.bary,
+                    ite(surface_hit->miss(),
+                        static_cast<uint32_t>(HitType::Miss),
+                        static_cast<uint32_t>(HitType::Surface)),
+                    surface_hit.committed_ray_t);
+            }
+            if (trace_mode == TraceMode::opaque_query) {
+                return accel.traverse(query_ray, {}).trace();
+            }
+            if (trace_mode == TraceMode::accept_query) {
+                return accel.traverse(query_ray, {})
+                    .on_surface_candidate([](auto &candidate) noexcept {
+                        candidate.commit();
+                    })
+                    .trace();
+            }
+            return accel.traverse(query_ray, {})
+                .on_surface_candidate([&](auto &candidate) noexcept {
+                    $if (filter_triangle_hit(candidate.hit())) {
+                        candidate.commit();
+                    };
+                })
+                .trace();
+        };
+        auto trace_any = [&](Expr<Ray> query_ray) noexcept {
+            if (trace_mode == TraceMode::direct) {
+                return accel.intersect_any(query_ray, {});
+            }
+            if (trace_mode == TraceMode::opaque_query) {
+                return !accel.traverse_any(query_ray, {}).trace()->miss();
+            }
+            if (trace_mode == TraceMode::accept_query) {
+                return !accel.traverse_any(query_ray, {})
+                            .on_surface_candidate([](auto &candidate) noexcept {
+                                candidate.commit();
+                            })
+                            .trace()
+                            ->miss();
+            }
+            return !accel.traverse_any(query_ray, {})
+                        .on_surface_candidate([&](auto &candidate) noexcept {
+                            $if (filter_triangle_hit(candidate.hit())) {
+                                candidate.commit();
+                            };
+                        })
+                        .trace()
+                        ->miss();
+        };
         UInt2 coord = dispatch_id().xy();
         Float frame_size = min(resolution.x, resolution.y).cast<float>();
         UInt state = seed_image.read(coord).x;
@@ -247,13 +336,7 @@ int main(int argc, char *argv[]) {
             $for (depth, 10u) {
 
                 // trace
-                Var<CommittedHit> hit = accel.traverse(ray, {})
-                                            .on_surface_candidate([&](auto &c) noexcept {
-                                                $if (filter_triangle_hit(c.hit())) {
-                                                    c.commit();
-                                                };
-                                            })
-                                            .trace();
+                Var<CommittedHit> hit = trace_closest(ray);
                 $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float4x4 m = accel.instance_transform(hit.inst);
@@ -292,14 +375,7 @@ int main(int argc, char *argv[]) {
                 Float d_light = distance(pp, pp_light);
                 Float3 wi_light = normalize(pp_light - pp);
                 Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, ng), wi_light, 0.f, d_light);
-                Bool occluded = !accel.traverse_any(shadow_ray, {})
-                                     .on_surface_candidate([&](auto &c) noexcept {
-                                         $if (filter_triangle_hit(c.hit())) {
-                                             c.commit();
-                                         };
-                                     })
-                                     .trace()
-                                     ->miss();
+                Bool occluded = trace_any(shadow_ray);
                 Float cos_wi_light = dot(wi_light, ns);
                 Float cos_light = -dot(light_normal, wi_light);
                 $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {

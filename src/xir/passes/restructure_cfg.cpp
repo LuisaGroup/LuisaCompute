@@ -2290,6 +2290,7 @@ collect_loop_boundary_selection_entries(
         bool true_break_proxy{false};
         bool false_break_proxy{false};
         bool merge_proxy{false};
+        bool merge_proxy_on_true{false};
     };
     auto apply_rewrites = [&](luisa::span<const Rewrite> rewrites) noexcept {
         XIRBuilder builder;
@@ -2315,8 +2316,22 @@ collect_loop_boundary_selection_entries(
             if (rewrite.merge_proxy) {
                 auto *new_merge = def->create_basic_block();
                 builder.set_insertion_point(new_merge);
-                builder.br(new_false);
-                rewrite.if_inst->set_false_target(new_merge);
+                // Preserve the identity of the arm which represented the
+                // old declared merge. A one-sided boundary If may use either
+                // arm as its ordinary fallthrough. Always proxying the false
+                // arm turns a true-merge spelling into a different CFG role:
+                // the boundary arm becomes the declared merge, so construct
+                // repair and boundary canonicalization can undo each other
+                // forever. Opposing-boundary Ifs have no old merge arm and
+                // deliberately choose false as their canonical proxy side.
+                auto *old_merge_arm =
+                    rewrite.merge_proxy_on_true ? new_true : new_false;
+                builder.br(old_merge_arm);
+                if (rewrite.merge_proxy_on_true) {
+                    rewrite.if_inst->set_true_target(new_merge);
+                } else {
+                    rewrite.if_inst->set_false_target(new_merge);
+                }
                 rewrite.if_inst->set_merge_block(new_merge);
             }
         }
@@ -2414,6 +2429,8 @@ collect_loop_boundary_selection_entries(
                      rewrite.selection_merge == loop.merge ||
                      structured_merge_owner_counts[
                          rewrite.selection_merge] > 1u);
+                rewrite.merge_proxy_on_true =
+                    true_is_selection_merge;
                 if (rewrite.true_break_proxy ||
                     rewrite.false_break_proxy ||
                     rewrite.merge_proxy) {

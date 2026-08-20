@@ -1,6 +1,7 @@
 #include "hip_callable_abi.h"
 
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/IR/Argument.h>
@@ -8,12 +9,16 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Transforms/IPO/MergeFunctions.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/Local.h>
 
 #include <luisa/core/logging.h>
 
 #include <algorithm>
+#include <limits>
 #include <map>
+#include <optional>
 #include <vector>
 
 namespace luisa::compute::hip {
@@ -33,6 +38,163 @@ struct AggregateArgumentPlan {
     std::vector<AggregatePath> paths;
     std::vector<AggregateProjection> projections;
 };
+
+struct LargeReturnPlan {
+    llvm::Function *original;
+    llvm::Function *replacement{};
+    llvm::Type *return_type;
+    size_t return_bytes;
+};
+
+struct ConstantArgumentCallGroup {
+    llvm::SmallVector<llvm::ConstantInt *, 2> values;
+    llvm::SmallVector<llvm::CallInst *, 8> calls;
+};
+
+[[nodiscard]] llvm::AttributeList remove_parameter_attributes(
+    llvm::LLVMContext &context, llvm::AttributeList attributes,
+    llvm::ArrayRef<unsigned> removed_parameters,
+    unsigned old_parameter_count) noexcept {
+    llvm::SmallVector<llvm::AttributeSet, 16> parameter_attributes;
+    parameter_attributes.reserve(
+        old_parameter_count - removed_parameters.size());
+    for (auto parameter_index = 0u;
+         parameter_index < old_parameter_count; parameter_index++) {
+        if (!std::binary_search(
+                removed_parameters.begin(), removed_parameters.end(),
+                parameter_index)) {
+            parameter_attributes.emplace_back(
+                attributes.getParamAttrs(parameter_index));
+        }
+    }
+    return llvm::AttributeList::get(
+        context, attributes.getFnAttrs(), attributes.getRetAttrs(),
+        parameter_attributes);
+}
+
+void simplify_constant_argument_clone(
+    llvm::Function &function) noexcept {
+    // CloneFunction substitutes the formal in SSA but intentionally does not
+    // run a pass pipeline. Iterate the local fixed point needed by this
+    // transformation: fold pure instructions, fold constant terminators, then
+    // delete unreachable alternatives. No interprocedural or alias fact is
+    // introduced here.
+    auto changed = false;
+    do {
+        changed = false;
+        for (auto &block : function) {
+            changed |= llvm::SimplifyInstructionsInBlock(&block);
+        }
+        for (auto &block : function) {
+            changed |= llvm::ConstantFoldTerminator(
+                &block, true);
+        }
+        changed |= llvm::removeUnreachableBlocks(function);
+    } while (changed);
+}
+
+// Luisa's retained generated callables use FastCC so LLVM can optimize their
+// internal ABI. Some focused/runtime-generated modules retain the default C
+// convention. Both conventions use RetCC_AMDGPU_Func for AMDGPU function
+// returns, and the transform preserves the convention identically on the
+// replacement function and every direct call. Other conventions may carry
+// target- or language-specific ABI rules that are not modeled here.
+[[nodiscard]] bool supported_large_return_calling_convention(
+    llvm::CallingConv::ID convention) noexcept {
+    return convention == llvm::CallingConv::C ||
+           convention == llvm::CallingConv::Fast;
+}
+
+// RetCC_AMDGPU_Func exposes 32 32-bit VGPR return locations. This computes a
+// conservative upper bound on the number of those locations occupied after
+// the calling convention's aggregate decomposition. Aggregates are decomposed
+// recursively without charging layout padding. Narrow scalar leaves consume
+// one location because the convention may promote them; 16-bit vector pairs
+// are legal packed return values, while wider vector leaves occupy one
+// location per 32-bit chunk. Returning nullopt rejects scalable or unsized
+// types rather than guessing.
+[[nodiscard]] std::optional<size_t> amdgpu_return_vgpr_count(
+    llvm::Type *type, const llvm::DataLayout &data_layout) noexcept {
+    if (type->isVoidTy()) { return 0u; }
+    if (auto *structure = llvm::dyn_cast<llvm::StructType>(type)) {
+        if (structure->isOpaque()) { return std::nullopt; }
+        auto count = size_t{};
+        for (auto *element : structure->elements()) {
+            auto element_count =
+                amdgpu_return_vgpr_count(element, data_layout);
+            if (!element_count ||
+                *element_count >
+                    std::numeric_limits<size_t>::max() - count) {
+                return std::nullopt;
+            }
+            count += *element_count;
+        }
+        return count;
+    }
+    if (auto *array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+        auto element_count =
+            amdgpu_return_vgpr_count(array->getElementType(), data_layout);
+        if (!element_count ||
+            (array->getNumElements() != 0u &&
+             *element_count > std::numeric_limits<size_t>::max() /
+                                  array->getNumElements())) {
+            return std::nullopt;
+        }
+        return *element_count * array->getNumElements();
+    }
+    if (llvm::isa<llvm::ScalableVectorType>(type) || !type->isSized()) {
+        return std::nullopt;
+    }
+    if (auto *vector = llvm::dyn_cast<llvm::FixedVectorType>(type)) {
+        auto *element = vector->getElementType();
+        auto element_bits = data_layout.getTypeSizeInBits(element);
+        if (element_bits.isScalable()) { return std::nullopt; }
+        const auto bits = element_bits.getFixedValue();
+        const auto lanes = vector->getNumElements();
+        if (bits < 16u) {
+            // RetCC_AMDGPU_Func has no packed sub-16-bit vector location, so
+            // legalization may promote every lane independently.
+            return lanes;
+        }
+        if (bits == 16u) { return (lanes + 1u) / 2u; }
+        const auto locations_per_lane = (bits + 31u) / 32u;
+        if (lanes != 0u &&
+            locations_per_lane >
+                std::numeric_limits<size_t>::max() / lanes) {
+            return std::nullopt;
+        }
+        return locations_per_lane * lanes;
+    }
+    auto bits = data_layout.getTypeSizeInBits(type);
+    if (bits.isScalable()) { return std::nullopt; }
+    return std::max<size_t>(
+        1u, (bits.getFixedValue() + 31u) / 32u);
+}
+
+[[nodiscard]] llvm::AttributeList prepend_result_pointer_attributes(
+    llvm::LLVMContext &context, llvm::AttributeList attributes,
+    size_t old_parameter_count) noexcept {
+    // The replacement writes the result through its new parameter, so a
+    // formerly speculatable call is no longer speculatable. A `returned`
+    // parameter describes equality with the direct SSA return and is invalid
+    // once that return becomes void. All other old parameters retain their
+    // attributes at index + 1.
+    auto function_attributes = attributes.getFnAttrs().removeAttribute(
+        context, llvm::Attribute::Speculatable);
+    llvm::SmallVector<llvm::AttributeSet, 16> parameter_attributes;
+    parameter_attributes.reserve(old_parameter_count + 1u);
+    parameter_attributes.emplace_back();
+    for (auto parameter_index = size_t{0u};
+         parameter_index < old_parameter_count; parameter_index++) {
+        parameter_attributes.emplace_back(
+            attributes.getParamAttrs(
+                          static_cast<unsigned>(parameter_index))
+                .removeAttribute(context, llvm::Attribute::Returned));
+    }
+    return llvm::AttributeList::get(
+        context, function_attributes, llvm::AttributeSet{},
+        parameter_attributes);
+}
 
 // The analysis domain for one aggregate argument is the finite lattice
 //
@@ -118,6 +280,189 @@ struct AggregateArgumentPlan {
 
 }// namespace
 
+ConstantArgumentSpecializationStats
+specialize_marked_constant_integer_arguments(
+    llvm::Module &module,
+    llvm::StringRef argument_attribute) noexcept {
+    llvm::SmallVector<llvm::Function *, 8> marked_functions;
+    for (auto &function : module) {
+        for (auto &argument : function.args()) {
+            if (argument.hasAttribute(argument_attribute)) {
+                marked_functions.emplace_back(&function);
+                break;
+            }
+        }
+    }
+
+    auto stats = ConstantArgumentSpecializationStats{};
+    llvm::SmallVector<llvm::Function *, 16> specialized_functions;
+    for (auto *function : marked_functions) {
+        llvm::SmallVector<unsigned, 2> marked_arguments;
+        for (auto &argument : function->args()) {
+            if (argument.hasAttribute(argument_attribute)) {
+                marked_arguments.emplace_back(argument.getArgNo());
+            }
+        }
+        // The marker is a codegen-internal analysis request, not a target ABI
+        // attribute. Strip every occurrence before any fail-closed exit.
+        for (auto argument_index : marked_arguments) {
+            function->removeParamAttr(
+                argument_index, argument_attribute);
+        }
+        if (marked_arguments.empty()) { continue; }
+        const auto marked_arguments_are_supported = std::all_of(
+            marked_arguments.begin(), marked_arguments.end(),
+            [function](auto argument_index) noexcept {
+                auto *argument = function->getArg(argument_index);
+                return argument->getType()->isIntegerTy() &&
+                       argument->getType()->getIntegerBitWidth() <= 64u;
+            });
+        if (function->isDeclaration() || function->isVarArg() ||
+            !function->hasLocalLinkage() || function->hasAddressTaken() ||
+            function->hasMetadata() || function->hasComdat() ||
+            function->hasGC() || function->hasPersonalityFn() ||
+            function->hasPrefixData() || function->hasPrologueData() ||
+            function->hasFnAttribute(llvm::Attribute::AllocSize) ||
+            !marked_arguments_are_supported) {
+            continue;
+        }
+
+        llvm::SmallVector<llvm::CallInst *, 16> calls;
+        auto supported_uses = true;
+        for (auto *user : function->users()) {
+            auto *call = llvm::dyn_cast<llvm::CallInst>(user);
+            if (call == nullptr ||
+                call->getCalledOperand() != function ||
+                call->getFunction() == function ||
+                call->getCallingConv() != function->getCallingConv() ||
+                call->isMustTailCall() ||
+                call->hasMetadataOtherThanDebugLoc() ||
+                call->hasFnAttr(llvm::Attribute::AllocSize)) {
+                supported_uses = false;
+                break;
+            }
+            for (auto argument_index : marked_arguments) {
+                if (!llvm::isa<llvm::ConstantInt>(
+                        call->getArgOperand(argument_index))) {
+                    supported_uses = false;
+                    break;
+                }
+            }
+            if (!supported_uses) { break; }
+            calls.emplace_back(call);
+        }
+        if (!supported_uses || calls.empty()) { continue; }
+
+        std::vector<ConstantArgumentCallGroup> groups;
+        for (auto *call : calls) {
+            llvm::SmallVector<llvm::ConstantInt *, 2> values;
+            values.reserve(marked_arguments.size());
+            for (auto argument_index : marked_arguments) {
+                values.emplace_back(llvm::cast<llvm::ConstantInt>(
+                    call->getArgOperand(argument_index)));
+            }
+            auto group = std::find_if(
+                groups.begin(), groups.end(),
+                [&values](const auto &candidate) noexcept {
+                    return std::equal(
+                        candidate.values.begin(),
+                        candidate.values.end(), values.begin(),
+                        values.end(),
+                        [](auto *lhs, auto *rhs) noexcept {
+                            return lhs->getValue() == rhs->getValue();
+                        });
+                });
+            if (group == groups.end()) {
+                groups.emplace_back(ConstantArgumentCallGroup{
+                    .values = std::move(values)});
+                group = std::prev(groups.end());
+            }
+            group->calls.emplace_back(call);
+        }
+        std::sort(
+            groups.begin(), groups.end(),
+            [](const auto &lhs, const auto &rhs) noexcept {
+                return std::lexicographical_compare(
+                    lhs.values.begin(), lhs.values.end(),
+                    rhs.values.begin(), rhs.values.end(),
+                    [](auto *lhs_value, auto *rhs_value) noexcept {
+                        return lhs_value->getValue().ult(
+                            rhs_value->getValue());
+                    });
+            });
+
+        auto original_name = function->getName().str();
+        for (auto &group : groups) {
+            llvm::ValueToValueMapTy value_map;
+            for (auto i = 0u; i < marked_arguments.size(); i++) {
+                value_map[function->getArg(marked_arguments[i])] =
+                    group.values[i];
+            }
+            auto *clone = llvm::CloneFunction(function, value_map);
+            llvm::SmallString<64> clone_name{original_name};
+            clone_name.append(".constant");
+            for (auto *value : group.values) {
+                clone_name.push_back('.');
+                value->getValue().toString(
+                    clone_name, 10u, false);
+            }
+            clone->setName(clone_name);
+            simplify_constant_argument_clone(*clone);
+            specialized_functions.emplace_back(clone);
+
+            for (auto *call : group.calls) {
+                llvm::IRBuilder<> builder{call};
+                llvm::SmallVector<llvm::Value *, 16> arguments;
+                arguments.reserve(
+                    call->arg_size() - marked_arguments.size());
+                for (auto actual_index = 0u;
+                     actual_index < call->arg_size(); actual_index++) {
+                    if (!std::binary_search(
+                            marked_arguments.begin(),
+                            marked_arguments.end(), actual_index)) {
+                        arguments.emplace_back(
+                            call->getArgOperand(actual_index));
+                    }
+                }
+                llvm::SmallVector<llvm::OperandBundleDef, 2> bundles;
+                call->getOperandBundlesAsDefs(bundles);
+                auto *new_call = builder.CreateCall(
+                    clone->getFunctionType(), clone,
+                    arguments, bundles);
+                new_call->setCallingConv(call->getCallingConv());
+                new_call->setTailCallKind(call->getTailCallKind());
+                new_call->setAttributes(remove_parameter_attributes(
+                    module.getContext(), call->getAttributes(),
+                    marked_arguments, call->arg_size()));
+                new_call->setDebugLoc(call->getDebugLoc());
+                new_call->copyMetadata(*call);
+                new_call->setFastMathFlags(
+                    call->getFastMathFlags());
+                new_call->takeName(call);
+                call->replaceAllUsesWith(new_call);
+                call->eraseFromParent();
+                stats.rewritten_call_count++;
+            }
+            stats.cloned_function_count++;
+        }
+        LUISA_ASSERT(
+            function->use_empty(),
+            "Constant-argument specialization left an original use.");
+        function->eraseFromParent();
+        stats.rewritten_function_count++;
+    }
+    if (specialized_functions.size() > 1u) {
+        // Specialization can expose equality that the main IPO pipeline could
+        // not see through the formerly dynamic parameter. Delegate semantic
+        // equivalence (including attributes and constants) to LLVM's own
+        // function comparator instead of inventing a backend hash.
+        auto merged = llvm::MergeFunctionsPass::runOnFunctions(
+            specialized_functions);
+        stats.merged_clone_count = merged.size();
+    }
+    return stats;
+}
+
 AggregateArgumentSpecializationStats
 specialize_generated_callable_aggregate_arguments(
     llvm::Module &module,
@@ -175,7 +520,8 @@ specialize_generated_callable_aggregate_arguments(
                 LUISA_ASSERT(projected_type != nullptr &&
                              !projected_type->isAggregateType());
                 projected_size += data_layout.getTypeAllocSize(
-                    projected_type).getFixedValue();
+                                                 projected_type)
+                                      .getFixedValue();
             }
             if (projected_size >= original_size) {
                 argument_index++;
@@ -211,12 +557,14 @@ specialize_generated_callable_aggregate_arguments(
 
         for (auto &plan : owned_plans) {
             auto original_size = data_layout.getTypeAllocSize(
-                plan.argument->getType()).getFixedValue();
+                                                plan.argument->getType())
+                                     .getFixedValue();
             auto projected_size = size_t{};
             for (auto &path : plan.paths) {
                 projected_size += data_layout.getTypeAllocSize(
-                    llvm::ExtractValueInst::getIndexedType(
-                        plan.argument->getType(), path)).getFixedValue();
+                                                 llvm::ExtractValueInst::getIndexedType(
+                                                     plan.argument->getType(), path))
+                                      .getFixedValue();
             }
             stats.removed_aggregate_bytes +=
                 original_size - projected_size;
@@ -322,6 +670,202 @@ specialize_generated_callable_aggregate_arguments(
         }
         LUISA_ASSERT(function->use_empty());
         function->eraseFromParent();
+        stats.rewritten_function_count++;
+    }
+    return stats;
+}
+
+LargeReturnDemotionStats demote_generated_callable_large_returns(
+    llvm::Module &module,
+    llvm::StringRef callable_attribute) noexcept {
+    const auto &data_layout = module.getDataLayout();
+    auto plans = std::vector<LargeReturnPlan>{};
+    for (auto &function : module) {
+        if (function.isDeclaration() ||
+            !function.hasFnAttribute(callable_attribute) ||
+            !function.hasLocalLinkage() || function.isVarArg() ||
+            !supported_large_return_calling_convention(
+                function.getCallingConv()) ||
+            function.hasAddressTaken() || function.hasMetadata() ||
+            function.hasComdat() || function.hasGC() ||
+            function.hasPersonalityFn() || function.hasPrefixData() ||
+            function.hasPrologueData() ||
+            function.hasFnAttribute(llvm::Attribute::AllocSize)) {
+            continue;
+        }
+        auto *return_type = function.getReturnType();
+        auto return_vgprs =
+            amdgpu_return_vgpr_count(return_type, data_layout);
+        if (!return_vgprs ||
+            *return_vgprs <= amdgpu_callable_return_vgpr_limit) {
+            continue;
+        }
+        auto supported_returns = true;
+        for (auto &block : function) {
+            if (auto *return_instruction =
+                    llvm::dyn_cast<llvm::ReturnInst>(block.getTerminator());
+                return_instruction != nullptr &&
+                return_instruction->hasMetadataOtherThanDebugLoc()) {
+                supported_returns = false;
+                break;
+            }
+        }
+        if (!supported_returns) { continue; }
+        auto supported_uses = true;
+        for (auto *user : function.users()) {
+            auto *call = llvm::dyn_cast<llvm::CallInst>(user);
+            if (call == nullptr || call->getCalledOperand() != &function ||
+                call->getCallingConv() != function.getCallingConv() ||
+                call->hasOperandBundles() ||
+                call->getTailCallKind() != llvm::CallInst::TCK_None ||
+                call->hasMetadataOtherThanDebugLoc() ||
+                call->getFastMathFlags().any() ||
+                call->hasFnAttr(llvm::Attribute::AllocSize)) {
+                supported_uses = false;
+                break;
+            }
+        }
+        if (!supported_uses || function.use_empty()) { continue; }
+        plans.emplace_back(LargeReturnPlan{
+            .original = &function,
+            .return_type = return_type,
+            .return_bytes = static_cast<size_t>(
+                data_layout.getTypeAllocSize(return_type).getFixedValue())});
+    }
+
+    auto stats = LargeReturnDemotionStats{};
+    if (plans.empty()) { return stats; }
+    const auto alloca_address_space = data_layout.getAllocaAddrSpace();
+
+    // First create every replacement and move each body. Calls are rewritten
+    // only after this phase, so a call nested in another transformed callable
+    // automatically belongs to that callable's replacement function.
+    for (auto &plan : plans) {
+        auto *function = plan.original;
+        llvm::SmallVector<llvm::Type *, 16> parameter_types;
+        parameter_types.reserve(function->arg_size() + 1u);
+        parameter_types.emplace_back(
+            llvm::PointerType::get(module.getContext(),
+                                   alloca_address_space));
+        for (auto &argument : function->args()) {
+            parameter_types.emplace_back(argument.getType());
+        }
+        auto *replacement_type = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(module.getContext()),
+            parameter_types, false);
+        auto old_name = function->getName().str();
+        function->setName(old_name + ".large.return.abi.old");
+        auto *replacement = llvm::Function::Create(
+            replacement_type, function->getLinkage(), old_name, &module);
+        plan.replacement = replacement;
+        replacement->copyAttributesFrom(function);
+        replacement->setAttributes(prepend_result_pointer_attributes(
+            module.getContext(), function->getAttributes(),
+            function->arg_size()));
+        replacement->setMemoryEffects(
+            function->getMemoryEffects() |
+            llvm::MemoryEffects::argMemOnly(llvm::ModRefInfo::Mod));
+        replacement->setCallingConv(function->getCallingConv());
+        replacement->splice(replacement->end(), function);
+
+        auto new_argument = std::next(replacement->arg_begin());
+        for (auto &old_argument : function->args()) {
+            old_argument.replaceAllUsesWith(new_argument);
+            new_argument->takeName(&old_argument);
+            ++new_argument;
+        }
+
+        auto *result_pointer = replacement->getArg(0u);
+        result_pointer->setName("return.storage");
+        llvm::SmallVector<llvm::ReturnInst *, 4> returns;
+        for (auto &block : *replacement) {
+            if (auto *return_instruction =
+                    llvm::dyn_cast<llvm::ReturnInst>(block.getTerminator())) {
+                returns.emplace_back(return_instruction);
+            }
+        }
+        for (auto *return_instruction : returns) {
+            auto *return_value = return_instruction->getReturnValue();
+            LUISA_ASSERT(return_value != nullptr,
+                         "Large-return callable has a void return.");
+            llvm::IRBuilder<> builder{return_instruction};
+            auto *store = builder.CreateStore(
+                return_value, result_pointer);
+            store->setAlignment(
+                data_layout.getPrefTypeAlign(plan.return_type));
+            auto *void_return = builder.CreateRetVoid();
+            void_return->setDebugLoc(return_instruction->getDebugLoc());
+            return_instruction->eraseFromParent();
+        }
+        stats.demoted_return_bytes += plan.return_bytes;
+    }
+
+    // All calls of one exact result type in one caller reuse one slot. Every
+    // result is loaded immediately after its defining call, so the slot's live
+    // intervals are disjoint even when the calls themselves are not mutually
+    // exclusive. Recursive invocations have distinct machine stack frames.
+    llvm::DenseMap<llvm::Function *,
+                   llvm::DenseMap<llvm::Type *, llvm::AllocaInst *>>
+        caller_result_slots;
+    for (auto &plan : plans) {
+        auto *function = plan.original;
+        auto *replacement = plan.replacement;
+        llvm::SmallVector<llvm::CallInst *, 16> calls;
+        for (auto *user : function->users()) {
+            calls.emplace_back(llvm::cast<llvm::CallInst>(user));
+        }
+        for (auto *call : calls) {
+            auto *caller = call->getFunction();
+            auto &type_slots = caller_result_slots[caller];
+            auto *&slot = type_slots[plan.return_type];
+            if (slot == nullptr) {
+                auto *entry = &caller->getEntryBlock();
+                llvm::IRBuilder<> entry_builder{
+                    &*entry->getFirstInsertionPt()};
+                slot = entry_builder.CreateAlloca(
+                    plan.return_type, alloca_address_space, nullptr,
+                    "callable.return.storage");
+                slot->setAlignment(
+                    data_layout.getPrefTypeAlign(plan.return_type));
+                stats.shared_result_slot_count++;
+            }
+
+            llvm::IRBuilder<> builder{call};
+            llvm::SmallVector<llvm::Value *, 16> arguments;
+            arguments.reserve(call->arg_size() + 1u);
+            arguments.emplace_back(slot);
+            for (auto &operand : call->args()) {
+                arguments.emplace_back(operand.get());
+            }
+            llvm::SmallVector<llvm::OperandBundleDef, 2> bundles;
+            call->getOperandBundlesAsDefs(bundles);
+            auto *new_call = builder.CreateCall(
+                replacement->getFunctionType(), replacement,
+                arguments, bundles);
+            new_call->setCallingConv(call->getCallingConv());
+            new_call->setAttributes(prepend_result_pointer_attributes(
+                module.getContext(), call->getAttributes(),
+                call->arg_size()));
+            new_call->setMemoryEffects(
+                call->getMemoryEffects() |
+                llvm::MemoryEffects::argMemOnly(
+                    llvm::ModRefInfo::Mod));
+            new_call->setDebugLoc(call->getDebugLoc());
+            new_call->copyMetadata(*call);
+            auto *load = builder.CreateLoad(
+                plan.return_type, slot);
+            load->setAlignment(
+                data_layout.getPrefTypeAlign(plan.return_type));
+            load->setDebugLoc(call->getDebugLoc());
+            load->takeName(call);
+            call->replaceAllUsesWith(load);
+            call->eraseFromParent();
+            stats.rewritten_call_count++;
+        }
+    }
+    for (auto &plan : plans) {
+        LUISA_ASSERT(plan.original->use_empty());
+        plan.original->eraseFromParent();
         stats.rewritten_function_count++;
     }
     return stats;

@@ -8,12 +8,16 @@
 //    pipelined)
 // - alloc operators returning correctly laid-out TensorExpr
 // - value operators returning caller-owned fragment temporaries
+// - compile_meta_data deriving SIMT launch metadata from the single T.Kernel
+//   (a body with no T.Kernel or more than one T.Kernel is rejected: the
+//   function logs an error and aborts)
 // - name config
 //
 // Pure host code: no device / backend is required.
 
 #include "ut/ut.hpp"
 
+#include <array>
 #include <cstdint>
 
 #include <luisa/ast/tile_function_builder.h>
@@ -104,9 +108,9 @@ int main(int argc, char *argv[]) {
         auto *eps = new_literal(Type::of<float>(), 1e-12f);
         auto *scale = new_literal(Type::of<float>(), 2.0f);
 
-        luisa::unique_ptr<TensorExpr> tmp_binary;
-        luisa::unique_ptr<TensorExpr> tmp_max;
-        luisa::unique_ptr<TensorExpr> tmp_rsqrt;
+        TileFunctionBuilder::TensorExprPtr tmp_binary;
+        TileFunctionBuilder::TensorExprPtr tmp_max;
+        TileFunctionBuilder::TensorExprPtr tmp_rsqrt;
         int32_t ceildiv_result = 0;
 
         auto f = TileFunctionBuilder::define([&] {
@@ -144,10 +148,14 @@ int main(int argc, char *argv[]) {
             b->tile_kernel_1d(256, 128);
             b->tile_kernel_2d(8, 16, 32);
             b->tile_pipelined(64, 3);
+            auto *Ai8 = b->tile_empty({4, 4}, TensorElementType::I8);
+            expect(Ai8 != nullptr);
+            expect(Ai8->dtype() == TensorElementType::I8);
+            expect(same_span(Ai8->dims(), {4, 4}));
         });
 
         auto statements = f->body()->statements();
-        expect(statements.size() == 17u);
+        expect(statements.size() == 18u);
 
         const TileOpKind expected[] = {
             TileOpKind::ALLOC,      TileOpKind::ALLOC,      TileOpKind::ALLOC,
@@ -155,7 +163,7 @@ int main(int argc, char *argv[]) {
             TileOpKind::REDUCE_SUM, TileOpKind::PRINT,      TileOpKind::STORE,
             TileOpKind::STORE,      TileOpKind::BINARY,     TileOpKind::MAX,
             TileOpKind::RSQRT,      TileOpKind::CEILDIV,    TileOpKind::KERNEL_1D,
-            TileOpKind::KERNEL_2D,  TileOpKind::PIPELINED};
+            TileOpKind::KERNEL_2D,  TileOpKind::PIPELINED,  TileOpKind::ALLOC};
         for (auto i = 0u; i < statements.size(); ++i) {
             expect(statements[i]->op() == expected[i]);
         }
@@ -231,6 +239,11 @@ int main(int argc, char *argv[]) {
         expect(pipe->count() == 64);
         expect(pipe->stages() == 3);
 
+        auto *alloc8 = static_cast<const AllocStmt *>(statements[17]);
+        expect(alloc8->scope() == TensorScope::Global);
+        expect(alloc8->tensor()->dtype() == TensorElementType::I8);
+        expect(same_span(alloc8->dims(), {4, 4}));
+
         // value operators return caller-owned fragment temporaries
         expect(tmp_binary != nullptr);
         expect(tmp_binary->scope() == TensorScope::Fragment);
@@ -261,5 +274,43 @@ int main(int argc, char *argv[]) {
         expect(pipe->count() == 16 && pipe->stages() == 4);
         auto *k2 = static_cast<const Kernel2DStmt *>(statements[2]);
         expect(k2->gx() == 4 && k2->gy() == 8 && k2->threads() == 16);
+    };
+
+    "compile_meta_data"_test = [] {
+        // Helper: trace `body` into a TileFunctionBuilder.  define() returns a
+        // const builder, which is enough because compile_meta_data() is const.
+        auto build = [](auto &&body) {
+            return TileFunctionBuilder::define(std::forward<decltype(body)>(body));
+        };
+
+        // 1D launch: T.Kernel(gx, threads) -> block (threads,1,1), grid (gx,1,1).
+        {
+            auto f = build([&] { TileFunctionBuilder::current()->tile_kernel_1d(256, 128); });
+            auto meta = f->compile_meta_data();
+            expect(meta.block_size == std::array<uint32_t, 3>{128u, 1u, 1u});
+            expect(meta.dispatch_size == std::array<uint32_t, 3>{256u, 1u, 1u});
+        }
+        // 2D launch: T.Kernel(gx, gy, threads) -> grid (gx, gy, 1).
+        {
+            auto f = build([&] { TileFunctionBuilder::current()->tile_kernel_2d(8, 16, 32); });
+            auto meta = f->compile_meta_data();
+            expect(meta.block_size == std::array<uint32_t, 3>{32u, 1u, 1u});
+            expect(meta.dispatch_size == std::array<uint32_t, 3>{8u, 16u, 1u});
+        }
+        // Non-kernel statements may precede the single T.Kernel; the launch
+        // metadata is still derived from it.  (A second T.Kernel is now
+        // rejected: compile_meta_data() logs an error and aborts, which cannot
+        // be asserted in-process — see the trigger in examples/compute/
+        // tensor_stub.cpp.)
+        {
+            auto f = build([&] {
+                auto *b = TileFunctionBuilder::current();
+                b->tile_clear(make_tile());
+                b->tile_kernel_2d(4, 8, 16);
+            });
+            auto meta = f->compile_meta_data();
+            expect(meta.block_size == std::array<uint32_t, 3>{16u, 1u, 1u});
+            expect(meta.dispatch_size == std::array<uint32_t, 3>{4u, 8u, 1u});
+        }
     };
 }

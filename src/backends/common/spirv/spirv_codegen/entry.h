@@ -164,6 +164,7 @@ private:
     bool _runtime_target_plan_installed{false};
     SpirvTargetFeatureMask _required_target_features{};
     bool _uses_float8{false};
+ bool _uses_cooperative_vector{false};
     bool _uses_8bit_storage_buffer{false};
     bool _uses_8bit_uniform_storage{false};
     bool _uses_8bit_push_constant{false};
@@ -312,8 +313,9 @@ private:
     void _emit_ray_query_traversal_to_completion(
         spv::Id ray_query) noexcept;
     void _emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept;
-    void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
-    void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
+ void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
+ void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
+ [[nodiscard]] spv::Id _emit_cooperative_array_pointer(spv::Id buffer) noexcept;
     [[nodiscard]] bool _bindless_index_is_nonuniform(
         const xir::Value *index,
         xir::BindlessResourceAccess access) const noexcept;

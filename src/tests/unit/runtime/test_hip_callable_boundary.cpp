@@ -173,6 +173,26 @@ evaluate_normalized_vectors_through_callable(
         begin, end + 2u - begin);
 }
 
+[[nodiscard]] std::string_view llvm_function_body(
+    const std::string &module,
+    std::string_view function_name) noexcept {
+    for (auto name = module.find(function_name);
+         name != std::string::npos;
+         name = module.find(function_name, name + 1u)) {
+        auto begin = module.rfind('\n', name);
+        begin = begin == std::string::npos ? 0u : begin + 1u;
+        if (!std::string_view{module}.substr(begin).starts_with(
+                "define ")) {
+            continue;
+        }
+        auto end = module.find("\n}", name);
+        if (end == std::string::npos) { return {}; }
+        return std::string_view{module}.substr(
+            begin, end + 2u - begin);
+    }
+    return {};
+}
+
 [[nodiscard]] bool contains_dynamic_fp_operation(
     std::string_view body) noexcept {
     constexpr std::array operations{
@@ -184,6 +204,17 @@ evaluate_normalized_vectors_through_callable(
         }
     }
     return false;
+}
+
+[[nodiscard]] size_t count_occurrences(
+    std::string_view text, std::string_view pattern) noexcept {
+    auto count = size_t{0u};
+    for (auto position = text.find(pattern);
+         position != std::string_view::npos;
+         position = text.find(pattern, position + pattern.size())) {
+        ++count;
+    }
+    return count;
 }
 
 [[nodiscard]] CompileResult compile_reused_callable(
@@ -228,6 +259,407 @@ evaluate_normalized_vectors_through_callable(
     return CompileResult{
         .artifact_size = artifact_size,
         .values = std::move(values)};
+}
+
+void compile_minimal_ray_query(Device &device) noexcept {
+    Kernel1D kernel = [](BufferUInt output, AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        auto all_hit = accel.traverse(ray, {})
+                           .on_surface_candidate(
+                               [](auto &candidate) noexcept {
+                                   candidate.commit();
+                               })
+                           .trace();
+        auto any_hit = accel.traverse_any(ray, {})
+                           .on_surface_candidate(
+                               [](auto &candidate) noexcept {
+                                   candidate.commit();
+                               })
+                           .trace();
+        output.write(dispatch_x(), all_hit->prim ^ any_hit->prim);
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
+void compile_observing_ray_query(Device &device) noexcept {
+    Kernel1D kernel = [](BufferUInt output, AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        Float observed_t_max = -1.0f;
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [&](SurfaceCandidate &candidate) noexcept {
+                               // Put the world-ray observation in a nested
+                               // generated Callable. The compact-transaction
+                               // eligibility proof must follow this edge, not
+                               // merely scan the immediate handler body.
+                               Callable observe = [&candidate]() noexcept {
+                                   return candidate.ray()->t_max();
+                               };
+                               observed_t_max = observe();
+                               candidate.commit();
+                           })
+                       .trace();
+        output.write(
+            dispatch_x(),
+            hit->prim ^ cast<uint>(observed_t_max > 0.0f));
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
+void compile_large_ray_query_environment(
+    Device &device, bool observe_post_state,
+    bool observe_world_ray = false) noexcept {
+    Kernel1D kernel = [observe_post_state, observe_world_ray](
+                          BufferUInt output,
+                          BufferUInt input_0,
+                          BufferUInt input_1,
+                          BufferUInt input_2,
+                          BufferUInt input_3,
+                          BufferUInt input_4,
+                          BufferUInt input_5,
+                          BufferUInt input_6,
+                          BufferUInt input_7,
+                          BufferUInt input_8,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [&](SurfaceCandidate &candidate) noexcept {
+                               // Every buffer is consumed by the handler, so
+                               // argument-demand projection cannot shrink this
+                               // environment below the ordinary 64-byte native
+                               // budget even after each buffer descriptor is
+                               // projected to its demanded device-pointer leaf.
+                               // The output write is the semantic result when
+                               // the query post-state is discarded.
+                               auto checksum =
+                                   input_0.read(0u) ^ input_1.read(0u) ^
+                                   input_2.read(0u) ^ input_3.read(0u) ^
+                                   input_4.read(0u) ^ input_5.read(0u) ^
+                                   input_6.read(0u) ^ input_7.read(0u) ^
+                                   input_8.read(0u);
+                               if (observe_world_ray) {
+                                   checksum ^= cast<uint>(
+                                       candidate.ray()->t_max() > 0.0f);
+                               }
+                               output.write(dispatch_x(), checksum);
+                               candidate.commit();
+                           })
+                       .trace();
+        if (observe_post_state) {
+            output.write(dispatch_x(), hit->prim);
+        }
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
+void compile_large_pure_closest_reduction(
+    Device &device, bool explicitly_terminate) noexcept {
+    Kernel1D kernel = [explicitly_terminate](
+                          BufferUInt output,
+                          BufferUInt input_0,
+                          BufferUInt input_1,
+                          BufferUInt input_2,
+                          BufferUInt input_3,
+                          BufferUInt input_4,
+                          BufferUInt input_5,
+                          BufferUInt input_6,
+                          BufferUInt input_7,
+                          BufferUInt input_8,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [&](SurfaceCandidate &candidate) noexcept {
+                               // These nine live resource handles keep the
+                               // projected callback environment above 64
+                               // bytes even when unused descriptor-size leaves
+                               // are removed. Resource reads are pure and the only
+                               // state transition is a conditional closest-hit
+                               // commit, so enumeration order is unobservable
+                               // unless terminate() is present.
+                               auto checksum =
+                                   input_0.read(0u) ^ input_1.read(0u) ^
+                                   input_2.read(0u) ^ input_3.read(0u) ^
+                                   input_4.read(0u) ^ input_5.read(0u) ^
+                                   input_6.read(0u) ^ input_7.read(0u) ^
+                                   input_8.read(0u);
+                               Callable commit_if_even =
+                                   [&candidate](UInt value) noexcept {
+                                       $if ((value & 1u) == 0u) {
+                                           candidate.commit();
+                                       };
+                                   };
+                               commit_if_even(checksum);
+                               if (explicitly_terminate) {
+                                   candidate.terminate();
+                               }
+                           })
+                       .on_procedural_candidate(
+                           [](ProceduralCandidate &candidate) noexcept {
+                               // A procedural leaf has one candidate, so the
+                               // native closest and resumable HIPRT state
+                               // machines expose the same active max here.
+                               const auto distance =
+                                   candidate.ray()->t_max() * 0.5f;
+                               $if (distance > 0.0f) {
+                                   candidate.commit(distance);
+                               };
+                           })
+                       .trace();
+        output.write(dispatch_x(), hit->prim);
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
+void compile_mixed_ray_query_pipelines(Device &device) noexcept {
+    Callable compact_trace = [](
+                                 AccelVar accel,
+                                 Var<Ray> ray) noexcept {
+        auto compact_hit =
+            accel.traverse_any(ray, {})
+                .on_surface_candidate(
+                    [](SurfaceCandidate &candidate) noexcept {
+                        candidate.commit();
+                    })
+                .trace();
+        return compact_hit->prim;
+    };
+    compact_trace.function_builder()->set_name(
+        "hip_mixed_exact_query_state_domain");
+
+    Callable observed_trace = [](
+                                  AccelVar accel,
+                                  Var<Ray> ray,
+                                  BufferUInt input_0,
+                                  BufferUInt input_1,
+                                  BufferUInt input_2,
+                                  BufferUInt input_3,
+                                  BufferUInt input_4,
+                                  BufferUInt input_5,
+                                  BufferUInt input_6,
+                                  BufferUInt input_7,
+                                  BufferUInt input_8) noexcept {
+        auto observed_hit =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        auto checksum =
+                            input_0.read(0u) ^ input_1.read(0u) ^
+                            input_2.read(0u) ^ input_3.read(0u) ^
+                            input_4.read(0u) ^ input_5.read(0u) ^
+                            input_6.read(0u) ^ input_7.read(0u) ^
+                            input_8.read(0u);
+                        checksum ^= cast<uint>(
+                            candidate.ray()->t_max() > 0.0f);
+                        $if ((checksum & 1u) == 0u) {
+                            candidate.commit();
+                        };
+                    })
+                .trace();
+        return observed_hit->prim;
+    };
+    observed_trace.function_builder()->set_name(
+        "hip_mixed_resumable_query_state_domain");
+
+    Kernel1D kernel = [&compact_trace, &observed_trace](
+                          BufferUInt output,
+                          BufferUInt input_0,
+                          BufferUInt input_1,
+                          BufferUInt input_2,
+                          BufferUInt input_3,
+                          BufferUInt input_4,
+                          BufferUInt input_5,
+                          BufferUInt input_6,
+                          BufferUInt input_7,
+                          BufferUInt input_8,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        output.write(0u, compact_trace(accel, ray));
+        // This post-state observation and the nine independently demanded
+        // pointer leaves make only this Callable's function-owned state domain
+        // budget-constrained. The compact Callable owns a distinct state and
+        // must remain synchronous in the same generated module.
+        output.write(
+            1u,
+            observed_trace(
+                accel, ray, input_0, input_1, input_2, input_3,
+                input_4, input_5, input_6, input_7, input_8));
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
+void compile_object_ray_reduction(
+    Device &device, bool observe_world_ray) noexcept {
+    Kernel1D kernel = [observe_world_ray](
+                          BufferUInt output,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [](SurfaceCandidate &candidate) noexcept {
+                               candidate.commit();
+                           })
+                       .on_procedural_candidate(
+                           [&](ProceduralCandidate &candidate) noexcept {
+                               const auto object_ray = candidate.object_ray();
+                               auto distance = object_ray->t_max() * 0.5f;
+                               if (observe_world_ray) {
+                                   // Both values are demanded by this one
+                                   // handler invocation. They cannot alias one
+                                   // compact ray field even though surface and
+                                   // procedural handler domains may otherwise
+                                   // use distinct representations independently.
+                                   const auto world_ray = candidate.ray();
+                                   distance = min(
+                                       distance,
+                                       world_ray->t_max() * 0.5f);
+                               }
+                               $if (distance > 0.0f) {
+                                   candidate.commit(distance);
+                               };
+                           })
+                       .trace();
+        output.write(dispatch_x(), hit->prim);
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
+enum class EffectOnlyRayQueryCase {
+    proven,
+    nested_commit,
+    opacity_write,
+};
+
+void compile_effect_only_ray_query(
+    Device &device, EffectOnlyRayQueryCase test_case) noexcept {
+    Kernel1D kernel = [test_case](
+                          BufferUInt output,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        UInt callback_count = 0u;
+        const auto ignored =
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        const auto hit = candidate.hit();
+                        output.write(
+                            dispatch_x(),
+                            hit->prim ^ callback_count);
+                        if (test_case ==
+                            EffectOnlyRayQueryCase::proven) {
+                            // Active-query provenance must cross this direct
+                            // Callable edge. TERMINATE preserves the effect-
+                            // only quotient and arbitrary buffer writes remain
+                            // observable in their original candidate order.
+                            Callable terminate_after_two =
+                                [&candidate](UInt count) noexcept {
+                                    $if (count == 2u) {
+                                        candidate.terminate();
+                                    };
+                                };
+                            callback_count += 1u;
+                            terminate_after_two(callback_count);
+                        } else if (
+                            test_case ==
+                            EffectOnlyRayQueryCase::nested_commit) {
+                            // A commit hidden behind the same call boundary
+                            // must invalidate the proof.
+                            Callable commit =
+                                [&candidate]() noexcept {
+                                    candidate.commit();
+                                };
+                            commit();
+                        } else {
+                            // Even without a query commit, mutation of the
+                            // accel opacity domain can invalidate the monotone
+                            // non-opaque certificate during traversal.
+                            accel.set_instance_opaque(hit->inst, false);
+                        }
+                    })
+                .trace();
+        static_cast<void>(ignored);
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
+}
+
+void compile_terminal_predicate_ray_query(
+    Device &device, bool observe_full_hit,
+    bool write_opacity = false,
+    bool with_native_closest = false) noexcept {
+    Kernel1D kernel = [observe_full_hit, write_opacity,
+                       with_native_closest](
+                          BufferUInt output,
+                          AccelVar accel) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, -1.0f),
+            make_float3(0.0f, 0.0f, 1.0f));
+        UInt closest_kind = 0u;
+        if (with_native_closest) {
+            auto closest =
+                accel.traverse(ray, {})
+                    .on_surface_candidate(
+                        [](SurfaceCandidate &candidate) noexcept {
+                            candidate.commit();
+                        })
+                    .on_procedural_candidate(
+                        [](ProceduralCandidate &candidate) noexcept {
+                            candidate.commit(0.5f);
+                        })
+                    .trace();
+            closest_kind = closest->hit_type;
+        }
+        auto hit =
+            accel.traverse_any(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        const auto candidate_hit = candidate.hit();
+                        if (write_opacity) {
+                            // Opacity is part of the traversal state, not the
+                            // parent-visible hit-kind quotient. A write from
+                            // this callback must therefore keep the native
+                            // terminal route while forcing live opacity reads
+                            // for all later candidates.
+                            accel.set_instance_opaque(
+                                candidate_hit->inst, true);
+                        }
+                        $if ((candidate_hit->prim & 1u) == 0u) {
+                            candidate.commit();
+                        };
+                    })
+                .trace();
+        if (observe_full_hit) {
+            // One identity field invalidates the terminal predicate quotient.
+            output.write(dispatch_x(), hit->prim ^ closest_kind);
+        } else {
+            output.write(
+                dispatch_x(),
+                cast<uint>(hit->miss()) | (closest_kind << 1u));
+        }
+    };
+    static_cast<void>(device.compile(
+        kernel, ShaderOption{.enable_cache = false}));
 }
 
 }// namespace
@@ -347,6 +779,480 @@ int main(int argc, char *argv[]) {
             }
         };
 
+    "HIP RayQuery projects candidate-only callback transactions"_test =
+        [&] {
+            compile_minimal_ray_query(device);
+            compile_observing_ray_query(device);
+            compile_large_ray_query_environment(device, false);
+            compile_large_ray_query_environment(device, true);
+            compile_large_ray_query_environment(device, false, true);
+            compile_large_pure_closest_reduction(device, false);
+            compile_large_pure_closest_reduction(device, true);
+            compile_mixed_ray_query_pipelines(device);
+            compile_object_ray_reduction(device, false);
+            compile_object_ray_reduction(device, true);
+            compile_effect_only_ray_query(
+                device, EffectOnlyRayQueryCase::proven);
+            compile_effect_only_ray_query(
+                device, EffectOnlyRayQueryCase::nested_commit);
+            compile_effect_only_ray_query(
+                device, EffectOnlyRayQueryCase::opacity_write);
+            compile_terminal_predicate_ray_query(device, false);
+            compile_terminal_predicate_ray_query(
+                device, false, false, true);
+            compile_terminal_predicate_ray_query(
+                device, true, false, true);
+            compile_terminal_predicate_ray_query(
+                device, false, true, true);
+            const auto before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_4.ll");
+            const auto observing_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_5.ll");
+            const auto module = read_text_file(
+                dump_directory / "hip_kernel_final_4.ll");
+            const auto observing_module = read_text_file(
+                dump_directory / "hip_kernel_final_5.ll");
+            const auto handler_only_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_6.ll");
+            const auto observed_large_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_7.ll");
+            const auto before_root =
+                amdgpu_kernel_body(before_module);
+            const auto observing_before_root =
+                amdgpu_kernel_body(observing_before_module);
+            const auto root = amdgpu_kernel_body(module);
+            const auto observing_dispatcher = llvm_function_body(
+                observing_module,
+                "@luisa_ray_query_pipeline_dispatch");
+            const auto handler_only_before_root =
+                amdgpu_kernel_body(handler_only_before_module);
+            const auto observed_large_before_root =
+                amdgpu_kernel_body(observed_large_before_module);
+            const auto full_candidate_large_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_8.ll");
+            const auto full_candidate_large_before_root =
+                amdgpu_kernel_body(full_candidate_large_before_module);
+            const auto pure_reduction_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_9.ll");
+            const auto pure_reduction_before_root =
+                amdgpu_kernel_body(pure_reduction_before_module);
+            const auto terminating_reduction_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_10.ll");
+            const auto terminating_reduction_before_root =
+                amdgpu_kernel_body(terminating_reduction_before_module);
+            const auto mixed_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_11.ll");
+            const auto object_ray_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_12.ll");
+            const auto joint_rays_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_13.ll");
+            const auto effect_only_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_14.ll");
+            const auto effect_commit_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_15.ll");
+            const auto effect_opacity_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_16.ll");
+            const auto terminal_only_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_17.ll");
+            const auto terminal_predicate_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_18.ll");
+            const auto terminal_full_hit_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_19.ll");
+            const auto terminal_mutable_opacity_before_module = read_text_file(
+                dump_directory / "hip_kernel_before_opt_20.ll");
+            const auto mixed_before_root =
+                amdgpu_kernel_body(mixed_before_module);
+            const auto object_ray_before_root =
+                amdgpu_kernel_body(object_ray_before_module);
+            const auto joint_rays_before_root =
+                amdgpu_kernel_body(joint_rays_before_module);
+            const auto effect_only_before_root =
+                amdgpu_kernel_body(effect_only_before_module);
+            const auto effect_commit_before_root =
+                amdgpu_kernel_body(effect_commit_before_module);
+            const auto effect_opacity_before_root =
+                amdgpu_kernel_body(effect_opacity_before_module);
+            const auto terminal_only_before_root =
+                amdgpu_kernel_body(terminal_only_before_module);
+            const auto terminal_predicate_before_root =
+                amdgpu_kernel_body(terminal_predicate_before_module);
+            const auto terminal_full_hit_before_root =
+                amdgpu_kernel_body(terminal_full_hit_before_module);
+            const auto terminal_mutable_opacity_before_root =
+                amdgpu_kernel_body(
+                    terminal_mutable_opacity_before_module);
+            const auto mixed_exact_state_domain =
+                llvm_function_body(
+                    mixed_before_module,
+                    "hip_mixed_exact_query_state_domain");
+            const auto mixed_resumable_state_domain =
+                llvm_function_body(
+                    mixed_before_module,
+                    "hip_mixed_resumable_query_state_domain");
+            expect(!before_root.empty() &&
+                   !observing_before_root.empty() && !root.empty() &&
+                   !observing_dispatcher.empty() &&
+                   !handler_only_before_root.empty() &&
+                   !observed_large_before_root.empty() &&
+                   !full_candidate_large_before_root.empty() &&
+                   !pure_reduction_before_root.empty() &&
+                   !terminating_reduction_before_root.empty() &&
+                   !mixed_before_root.empty() &&
+                   !object_ray_before_root.empty() &&
+                   !joint_rays_before_root.empty() &&
+                   !effect_only_before_root.empty() &&
+                   !effect_commit_before_root.empty() &&
+                   !effect_opacity_before_root.empty() &&
+                   !terminal_only_before_root.empty() &&
+                   !terminal_predicate_before_root.empty() &&
+                   !terminal_full_hit_before_root.empty() &&
+                   !terminal_mutable_opacity_before_root.empty() &&
+                   !mixed_exact_state_domain.empty() &&
+                   !mixed_resumable_state_domain.empty())
+                << "failed to locate the generated RayQuery functions";
+            const auto uses_gfx12_hardware_stack =
+                module.find(
+                    "@llvm.amdgcn.ds.bvh.stack.push8.pop1.rtn") !=
+                std::string::npos;
+            const auto uses_static_native_closest =
+                before_root.find(
+                    "@luisa_pipeline_ray_query_trace_all_native_closest_"
+                    "global_stack_stable_opacity(") !=
+                std::string_view::npos;
+            // Selection is a codegen property, while outlining is an LLVM
+            // profitability decision. Inspect the generated root before the
+            // ordinary inliner instead of requiring trace wrappers to survive
+            // in final IR.
+            if (uses_gfx12_hardware_stack) {
+                expect(uses_static_native_closest &&
+                       before_root.find(
+                           "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
+                           std::string_view::npos &&
+                       before_root.find(
+                           "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") ==
+                           std::string_view::npos)
+                    << "gfx12 closest reduction did not select one static-"
+                       "global HIPRT closest transaction";
+            } else {
+                expect(before_root.find(
+                           "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
+                       std::string_view::npos)
+                    << "software closest reduction did not select one native "
+                       "HIPRT closest traversal";
+            }
+            expect(before_root.find(
+                       "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
+                   std::string_view::npos)
+                << "RayQueryAny without device opacity writes did not select "
+                   "its stable-opacity native traversal";
+            expect(before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all(") ==
+                       std::string_view::npos &&
+                   before_root.find(
+                       "@luisa_pipeline_ray_query_trace_any(") ==
+                       std::string_view::npos)
+                << "stable-opacity RayQuery retained a mutable-opacity "
+                   "traversal entry point";
+            expect(before_root.find(
+                       "@luisa_pipeline_ray_query_trace(") ==
+                   std::string_view::npos)
+                << "synchronous RayQuery regressed to a runtime-kind "
+                   "traversal entry point";
+            expect(root.find(
+                       "alloca { i64, i64, i64, i64, i64 }") ==
+                   std::string_view::npos)
+                << "HIP RayQuery regressed to the 40-byte source-layout "
+                   "surrogate";
+            expect(root.find("alloca i32") == std::string_view::npos)
+                << "HIP RayQuery identity escaped the traversal state into "
+                   "a separate private token allocation";
+            expect(module.find("ray.query.context.projected") ==
+                   std::string::npos)
+                << "empty RayQuery callback environment was "
+                   "materialized in private memory";
+            if (uses_gfx12_hardware_stack) {
+                // Neither compact RayQueryAll nor RayQueryAny observes
+                // query-object identity. The hardware traversal still requires
+                // an addressable 112-byte transaction state, but no extra
+                // pointer-to-integer identity may escape it.
+                expect(root.find("ray.query.state.address") ==
+                           std::string_view::npos &&
+                       root.find("ray.query.identity.address") ==
+                           std::string_view::npos)
+                    << "candidate-only RayQuery materialized an unobservable "
+                       "private-state identity";
+            }
+
+            // The second kernel hides a world-ray observation in a nested
+            // Callable. The fixed-point proof must follow that call edge and
+            // retain the full query transaction, while constant specialization
+            // still removes pipeline identity from its three-argument
+            // {query, context, candidate-kind} ABI.
+            expect(observing_dispatcher.find("load i32, ptr %0") !=
+                       std::string_view::npos &&
+                   observing_dispatcher.find("i32 44") !=
+                       std::string_view::npos)
+                << "nested world-ray observation was not decoded from the "
+                   "dedicated query identity";
+            expect(observing_before_root.find(
+                       "ray.query.identity.address") !=
+                       std::string_view::npos &&
+                   observing_before_root.find(
+                       "ray.query.identity.field") !=
+                       std::string_view::npos)
+                << "full-state RayQuery failed to materialize identity at "
+                   "its observable callback boundary";
+            expect(observing_module.find(
+                       "@luisa_pipeline_ray_query_dispatch_compact(") ==
+                   std::string_view::npos)
+                << "nested world-ray observation unsafely selected the "
+                   "candidate-only transaction";
+            expect(observing_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_native_closest") ==
+                   std::string_view::npos)
+                << "mutable world-ray t_max observation unsafely selected "
+                   "the order-independent closest reduction";
+            expect(module.find("luisa-specialize-constant-argument") ==
+                       std::string_view::npos &&
+                   observing_module.find(
+                       "luisa-specialize-constant-argument") ==
+                       std::string_view::npos)
+                << "internal constant-specialization marker escaped HIP "
+                   "codegen";
+            if (uses_gfx12_hardware_stack) {
+                // RayQueryAny retains the exact single-region hardware
+                // frontier, while the proven closest reduction uses HIPRT's
+                // 24-entry-per-lane static global spill stack. The two routes
+                // are non-reentrant and overlay one arena; for a 256-thread
+                // block the latter dominates at 24 * 256 dwords.
+                expect(module.find(
+                           "@luisa_hiprt_shared_stack_cache = internal "
+                           "addrspace(3) global [6144 x i32]") !=
+                       std::string::npos)
+                    << "gfx12 mixed native/hardware query did not reserve "
+                       "the maximum route-local LDS footprint";
+                expect(module.find(", i32 16)") !=
+                       std::string::npos)
+                    << "gfx12 BVH-stack intrinsic did not receive the "
+                       "native 16-entry frontier capacity";
+            }
+
+            // The two large-environment kernels differ only in whether the
+            // parent observes the committed-hit post-state. A local query
+            // whose only result is handler side effects may retain the native
+            // synchronous traversal even when its projected capture product
+            // exceeds the ordinary budget. Adding one post-state read must
+            // fail the closed-use proof and select the resumable ABI.
+            expect(handler_only_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
+                   std::string_view::npos)
+                << "large handler-only RayQuery did not retain native "
+                   "synchronous traversal";
+            expect(count_occurrences(
+                       handler_only_before_root,
+                       "ray.query.context.projected.field") >= 9u)
+                << "large handler-only RayQuery regression did not exercise "
+                   "an environment above the ordinary native budget";
+            expect(observed_large_before_module.find(
+                       "@luisa_ray_query_proceed(") !=
+                       std::string_view::npos &&
+                   observed_large_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
+                       std::string_view::npos)
+                << "observable large RayQuery post-state did not fail closed "
+                   "to the resumable traversal ABI";
+            expect(full_candidate_large_before_module.find(
+                       "@luisa_ray_query_proceed(") !=
+                       std::string_view::npos &&
+                   full_candidate_large_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
+                       std::string_view::npos)
+                << "large full-candidate RayQuery did not fail closed to the "
+                   "resumable traversal ABI";
+
+            // A large environment is not itself a semantic reason to expose
+            // HIPRT's continuation frontier. Prove the candidate callbacks
+            // are a pure closest-hit reduction and lower the complete query
+            // to one target-native closest transaction. The surface commit is
+            // intentionally in a nested Callable to exercise active-query
+            // provenance across a call edge; the procedural handler exercises
+            // the formally equivalent active-ray frontier used by ribbons.
+            // Explicit termination changes the observable candidate prefix and
+            // must fail the same proof.
+            const auto expected_pure_reduction_trace =
+                uses_gfx12_hardware_stack ?
+                    "@luisa_pipeline_ray_query_trace_all_native_closest_"
+                    "global_stack_stable_opacity(" :
+                    "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(";
+            expect(pure_reduction_before_root.find(
+                       expected_pure_reduction_trace) !=
+                       std::string_view::npos &&
+                   pure_reduction_before_module.find(
+                       "@luisa_ray_query_proceed(") ==
+                       std::string::npos)
+                << "large pure closest reduction did not lower to one "
+                   "target-native transaction";
+            expect(count_occurrences(
+                       pure_reduction_before_root,
+                       "ray.query.context.projected.field") >= 9u)
+                << "pure closest regression did not retain the intended "
+                   "large callback environment";
+            expect(terminating_reduction_before_module.find(
+                       "@luisa_ray_query_proceed(") !=
+                       std::string::npos &&
+                   terminating_reduction_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_native_closest") ==
+                       std::string_view::npos &&
+                   (!uses_gfx12_hardware_stack ||
+                    terminating_reduction_before_root.find(
+                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
+                        std::string_view::npos))
+                << "explicitly terminating RayQuery did not fail closed to "
+                   "the resumable traversal ABI";
+
+            // Handler observations are a tagged product
+            //   SurfaceObservation x ProceduralObservation,
+            // not one union. The object-only procedural handler therefore
+            // retains native closest traversal with encoded mask 4 << 8,
+            // while its surface handler remains candidate-only. Demanding
+            // world and object rays in the same procedural invocation needs
+            // two simultaneous representations and selects exact state.
+            expect(object_ray_before_root.find(
+                       expected_pure_reduction_trace) !=
+                       std::string_view::npos &&
+                   object_ray_before_root.find("i32 1024") !=
+                       std::string_view::npos &&
+                   object_ray_before_module.find(
+                       "@luisa_pipeline_ray_query_dispatch_compact_object_ray(") !=
+                       std::string_view::npos &&
+                   object_ray_before_root.find(
+                       "ray.query.identity.address") ==
+                       std::string_view::npos &&
+                   object_ray_before_module.find(
+                       "@luisa_ray_query_proceed(") ==
+                       std::string_view::npos)
+                << "procedural object-ray reduction did not retain the "
+                   "split-mask native closest route and object-ray quotient";
+            expect(joint_rays_before_module.find(
+                       "@luisa_ray_query_proceed(") !=
+                       std::string_view::npos &&
+                   joint_rays_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_native_closest") ==
+                       std::string_view::npos)
+                << "one handler observing both ray spaces did not select "
+                   "the exact resumable state domain";
+
+            // Effect-only RayQueryAll is a separate formal quotient from a
+            // closest-hit reduction: query post-state is dead, handlers may
+            // perform arbitrary ordered side effects, and the active query is
+            // proven to admit only reads/terminate. A nested commit must fail
+            // that interprocedural proof. A device opacity write must also
+            // keep the exact route because it can invalidate the accel proof
+            // certificate during the same traversal.
+            const auto expected_effect_only_trace =
+                uses_gfx12_hardware_stack ?
+                    "@luisa_pipeline_ray_query_trace_all_hardware_effect(" :
+                    "@luisa_pipeline_ray_query_trace_all_native_effect(";
+            expect(effect_only_before_root.find(
+                       expected_effect_only_trace) !=
+                       std::string_view::npos &&
+                   effect_only_before_module.find(
+                       "@luisa_ray_query_proceed(") ==
+                       std::string::npos)
+                << "proven effect-only RayQueryAll did not select one "
+                   "specialized candidate-effect traversal";
+            expect(effect_commit_before_root.find(
+                       "native_effect") == std::string_view::npos &&
+                   effect_commit_before_root.find(
+                       "hardware_effect") == std::string_view::npos &&
+                   effect_commit_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
+                       std::string_view::npos)
+                << "nested active-query commit did not reject native "
+                   "effect-only enumeration";
+            expect(effect_opacity_before_root.find(
+                       "native_effect") == std::string_view::npos &&
+                   effect_opacity_before_root.find(
+                       "hardware_effect") == std::string_view::npos &&
+                   effect_opacity_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all(") !=
+                       std::string_view::npos)
+                << "kernel-reachable opacity mutation did not retain the "
+                   "exact mutable-opacity traversal";
+
+            const auto expected_terminal_trace =
+                uses_gfx12_hardware_stack ?
+                    "@luisa_pipeline_ray_query_trace_any_native_terminal_"
+                    "global_stack(" :
+                    "@luisa_pipeline_ray_query_trace_any_native_terminal(";
+            if (uses_gfx12_hardware_stack) {
+                expect(terminal_only_before_root.find(
+                           "@luisa_pipeline_ray_query_trace_any_"
+                           "stable_opacity(") != std::string_view::npos &&
+                       terminal_only_before_root.find(
+                           "native_terminal") == std::string_view::npos)
+                    << "isolated gfx12 terminal query abandoned its faster "
+                       "single-frontier route";
+            } else {
+                expect(terminal_only_before_root.find(
+                           expected_terminal_trace) !=
+                       std::string_view::npos)
+                    << "pre-gfx12 terminal query did not select native "
+                       "AnyHit traversal";
+            }
+            expect(terminal_predicate_before_root.find(
+                       expected_terminal_trace) != std::string_view::npos &&
+                   terminal_predicate_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_any_stable_opacity(") ==
+                       std::string_view::npos)
+                << "hit-kind-only RayQueryAny did not select native terminal "
+                   "AnyHit traversal";
+            expect(terminal_full_hit_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
+                       std::string_view::npos &&
+                   terminal_full_hit_before_root.find(
+                       "native_terminal") == std::string_view::npos)
+                << "RayQueryAny identity observation did not fail closed to "
+                   "the complete committed-hit transaction";
+            expect(terminal_mutable_opacity_before_root.find(
+                       expected_terminal_trace) != std::string_view::npos)
+                << "kernel-reachable opacity write rejected the live-opacity "
+                   "native terminal traversal";
+
+            if (uses_gfx12_hardware_stack) {
+                // Traversal control is outlined from the owning Callables,
+                // while their state allocations remain in the named function
+                // bodies. Check route coexistence module-wide and state
+                // representation ownership in the individual domains.
+                expect(mixed_before_module.find(
+                           "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
+                           std::string::npos &&
+                       mixed_before_module.find(
+                           "@luisa_ray_query_proceed(") !=
+                           std::string::npos)
+                    << "function-domain retry did not retain synchronous and "
+                       "resumable gfx12 RayQuery routes in one module";
+                expect(mixed_exact_state_domain.find(
+                           "alloca [112 x i8]") !=
+                           std::string_view::npos &&
+                       mixed_exact_state_domain.find(
+                           "alloca [224 x i8]") ==
+                           std::string_view::npos &&
+                       mixed_resumable_state_domain.find(
+                           "alloca [224 x i8]") !=
+                           std::string_view::npos)
+                    << "mixed gfx12 RayQuery pipelines did not allocate one "
+                       "ABI-consistent state representation per function";
+                expect(mixed_before_module.find(
+                           "@luisa_hiprt_shared_stack_cache = internal "
+                           "addrspace(3) global [4608 x i32]") !=
+                       std::string::npos)
+                    << "mixed gfx12 RayQuery did not overlay one-region "
+                       "16-entry and two-region 9-entry frontiers at the "
+                       "common 576-dword stride for eight waves";
+            }
+        };
+
     "HIP lowers fixed-vector dot products and preserves FP mode"_test =
         [&] {
             auto dumped_module_count = 0u;
@@ -365,7 +1271,10 @@ int main(int argc, char *argv[]) {
                     module.find("llvm.vector.reduce.fadd") !=
                     std::string::npos;
             }
-            expect(dumped_module_count == 4u)
+            constexpr auto callable_and_fp_shader_count = 4u;
+            constexpr auto ray_query_shader_count = 17u;
+            expect(dumped_module_count ==
+                   callable_and_fp_shader_count + ray_query_shader_count)
                 << "expected one final HIP LLVM module per compiled shader";
             expect(!retained_vector_reduction)
                 << "fixed-vector dot product retained the target-unstable "

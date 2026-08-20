@@ -144,14 +144,20 @@ enum struct TensorScope : uint32_t {
 
 /// Element dtype tag of a tensor (host-side, R1).  TensorExpr stores the
 /// element dtype directly as this tag; only scalar element types are
-/// supported (F16 / F32 / I32).
+/// supported.  The first three values (F16 / F32 / I32) are stable and must
+/// not be renumbered (they are serialized as raw u32 tags); I8 / FP8 / I4 /
+/// FP4 are the quantized element types (TileLang `int8` / `fp8` / `int4` /
+/// `fp4`).  `FP8` maps to the fp8 e4m3 encoding (the common default; e5m2
+/// can be added on a later R1 tag) and `FP4` to the 4-bit e2m1 encoding.
 enum struct TensorElementType : uint32_t {
     F16 = 0,// half
     F32 = 1,// float
-    I32 = 2 // int32_t
+    I32 = 2,// int
+    I8 = 3, // int8 (signed 8-bit)
+    FP8 = 4,// fp8 (e4m3)
+    I4 = 5, // int4 (signed 4-bit, sub-byte)
+    FP4 = 6 // fp4 (e2m1, sub-byte)
 };
-
-/// Discriminator of every tensor statement (the `op` metadata member).
 /// Maps 1:1 to the TensorStmt sub-classes implemented in this header.
 enum struct TileOpKind : uint32_t {
     ALLOC,     // T.empty / T.alloc_shared / T.alloc_fragment
@@ -224,7 +230,9 @@ enum struct TileOpKind : uint32_t {
     INLINE,           // T.inline(func) host-side marker
     META_CLASS,       // T.meta_class(cls) host-side marker
     ACCESS_PTR,       // T.access_ptr(base, access_type, ...)
-    INDEX_TO_COORDINATES// T.index_to_coordinates(index, shape)
+    INDEX_TO_COORDINATES,// T.index_to_coordinates(index, shape)
+    MIN,      // T.min(a, b) whole-tile elementwise minimum
+    ABS       // T.abs(a) whole-tile elementwise absolute value
 };
 
 // =============================================================================
@@ -293,8 +301,10 @@ enum struct TileSyncThreadsVoteOp : uint32_t {
 };
 
 /// T.ieee_* discriminator; rounding modes are R1 ids 0=rn, 1=rz, 2=ru, 3=rd.
+/// CAST carries a target element dtype in the `cast_dtype` field of IeeeMathStmt.
 enum struct TileIeeeOp : uint32_t {
-    ADD = 0, SUB = 1, MUL = 2, FMAF = 3, FRCP = 4, FSQRT = 5, FRSQRT = 6, FDIV = 7
+    ADD = 0, SUB = 1, MUL = 2, FMAF = 3, FRCP = 4, FSQRT = 5, FRSQRT = 6, FDIV = 7,
+    SQRT = 8, POW = 9, CEIL = 10, FLOOR = 11, ROUND = 12, ISINF = 13, ISNAN = 14, CAST = 15
 };
 
 /// packed x2 math discriminator (T.add2 / sub2 / mul2 / fma2 / max2 / min2 / abs2).
@@ -303,9 +313,10 @@ enum struct TilePackedOp : uint32_t {
 };
 
 /// fast-math intrinsic discriminator (T.__exp / __exp10 / __log / __log2 /
-/// __log10 / __sin / __cos / __tan).
+/// __log10 / __sin / __cos / __tan / __tanh / __erf).
 enum struct TileFastMathOp : uint32_t {
-    EXP = 0, EXP10 = 1, LOG = 2, LOG2 = 3, LOG10 = 4, SIN = 5, COS = 6, TAN = 7
+    EXP = 0, EXP10 = 1, LOG = 2, LOG2 = 3, LOG10 = 4, SIN = 5, COS = 6, TAN = 7,
+    TANH = 8, ERF = 9
 };
 
 /// T.alloc_var / alloc_local / alloc_global / alloc_barrier / alloc_reducer /
@@ -360,10 +371,13 @@ enum struct TileAnnotKind : uint32_t {
 //                                    InlineStmt, MetaClassStmt, AccessPtrStmt,
 //                                    IndexToCoordinatesStmt
 //
-// Remaining gap — [dtype]: TensorElementType only models F16/F32/I32.  TileLang
-// additionally carries f64 / bf16 / i8 / u8 / i16 / u16 / u32 / i64 / u64 / bool /
-// fp8(e4m3,e5m2) / fp6 / fp4 (mxfp) — none of which are expressible in TensorExpr
-// yet (extending TensorElementType is an R1 enum change, not a TensorStmt).
+// Remaining gap — [dtype]: TensorElementType now models F16/F32/I32 plus the
+// quantized I8/FP8/I4/FP4 tags (R1).  TileLang additionally carries f64 / bf16 /
+// u8 / i16 / u16 / u32 / i64 / u64 / bool / fp8-e5m2 / fp6 — none of which are
+// expressible in TensorExpr yet (extending TensorElementType is an R1 enum
+// change, not a TensorStmt).  The regular-kernel lowering can only lower the
+// tags that have a core element Type (F16/F32/I32/I8/FP8); I4/FP4 are sub-byte
+// dtypes with no core element Type today, so the lowering rejects them.
 // =============================================================================
 
 [[nodiscard]] LUISA_AST_API const char *scope_name(TensorScope scope) noexcept;
@@ -383,20 +397,28 @@ private:
     luisa::fixed_vector<int32_t, 4> _offset; // R1: tile anchor (host); runtime anchor is R3 `ref`
     luisa::fixed_vector<int32_t, 4> _extent; // R1: tile size BM, BN (host)
     const RefExpr *_handle{nullptr};// R3: kernel-side variable (BUFFER/SHARED/LOCAL)
+    // R1: host-side display/identity name (e.g. "A" / "T.alloc_shared#3").
+    // Used by the tile lowering (tile_to_kernel) to resolve a view clone back
+    // to its AllocStmt storage when several tensors share one layout.  The
+    // name is host metadata: it is copied by the (compiler-generated) copy
+    // constructor but intentionally NOT serialized (see serialize()).
+    luisa::string _name;
 
 public:
     TensorExpr() noexcept = default;
 
     /// Construct a tensor with the given layout.  When `extent` is empty it
     /// defaults to the whole-tensor extent (`dims`); when `offset` is empty it
-    /// defaults to zeros.  `handle` is borrowed and not owned.
+    /// defaults to zeros.  `handle` is borrowed and not owned; `name` is
+    /// host-side identity metadata used by the tile lowering.
     TensorExpr(int32_t rank,
                TensorElementType dtype,
                TensorScope scope,
                luisa::fixed_vector<int32_t, 4> &&dims,
                luisa::fixed_vector<int32_t, 4> &&offset = {},
                luisa::fixed_vector<int32_t, 4> &&extent = {},
-               const RefExpr *handle = nullptr) noexcept;
+               const RefExpr *handle = nullptr,
+               luisa::string_view name = {}) noexcept;
 
     [[nodiscard]] auto rank() const noexcept { return _rank; }
     [[nodiscard]] auto dtype() const noexcept { return _dtype; }
@@ -405,6 +427,8 @@ public:
     [[nodiscard]] auto offset() const noexcept { return luisa::span<const int32_t>{_offset.data(), _offset.size()}; }
     [[nodiscard]] auto extent() const noexcept { return luisa::span<const int32_t>{_extent.data(), _extent.size()}; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    /// Host-side identity/display name (not serialized).
+    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
 
     /// Human readable description, e.g. "A(16,16)@(0,0)".
     [[nodiscard]] luisa::string describe() const;
@@ -559,7 +583,7 @@ class LUISA_AST_API AllocStmt final : public TensorStmt {
 public:
     AllocStmt() noexcept : TensorStmt{TileOpKind::ALLOC} {}
     AllocStmt(luisa::fixed_vector<int32_t, 4> dims, TensorElementType dtype, TensorScope scope,
-              const RefExpr *handle = nullptr) noexcept;
+              const RefExpr *handle = nullptr, luisa::string_view name = {}) noexcept;
     [[nodiscard]] auto tensor() const noexcept { return output(); }
     [[nodiscard]] auto rank() const noexcept { return output() == nullptr ? 0 : output()->rank(); }
     [[nodiscard]] auto dims() const noexcept {
@@ -637,12 +661,41 @@ public:
     bool deserialize(char const *&input_ptr, char const *end_ptr) override;
 };
 
+// --- Min: T.min(a, b) -------------------------------------------------------
+// Whole-tile elementwise minimum with an R2 scalar bound (the mirror of
+// MaxStmt); the result is a caller-owned fragment temporary.
+class LUISA_AST_API MinStmt final : public TensorStmt {
+    const LiteralExpr *_b{nullptr};// R2 (borrowed, managed by TileFunctionBuilder)
+
+public:
+    MinStmt() noexcept : TensorStmt{TileOpKind::MIN} {}
+    MinStmt(TensorExpr *a, const LiteralExpr *b) noexcept
+        : TensorStmt{TileOpKind::MIN, nullptr, {a}}, _b{b} {}
+    [[nodiscard]] auto a() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
+    [[nodiscard]] auto b() const noexcept { return _b; }
+    [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
+    bool deserialize(char const *&input_ptr, char const *end_ptr) override;
+};
+
 // --- Rsqrt: T.rsqrt(a) ------------------------------------------------------
 class LUISA_AST_API RsqrtStmt final : public TensorStmt {
 public:
     RsqrtStmt() noexcept : TensorStmt{TileOpKind::RSQRT} {}
     explicit RsqrtStmt(TensorExpr *a) noexcept
         : TensorStmt{TileOpKind::RSQRT, nullptr, {a}} {}
+    [[nodiscard]] auto a() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
+    [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
+    bool deserialize(char const *&input_ptr, char const *end_ptr) override;
+};
+
+// --- Abs: T.abs(a) ------------------------------------------------------------
+// Whole-tile elementwise absolute value; the result is a caller-owned fragment
+// temporary (Rsqrt pattern).
+class LUISA_AST_API AbsStmt final : public TensorStmt {
+public:
+    AbsStmt() noexcept : TensorStmt{TileOpKind::ABS} {}
+    explicit AbsStmt(TensorExpr *a) noexcept
+        : TensorStmt{TileOpKind::ABS, nullptr, {a}} {}
     [[nodiscard]] auto a() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
     [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
     bool deserialize(char const *&input_ptr, char const *end_ptr) override;
@@ -1370,6 +1423,11 @@ class LUISA_AST_API ShuffleStmt final : public TensorStmt {
 
 public:
     ShuffleStmt() noexcept : TensorStmt{TileOpKind::SHUFFLE} {}
+    /// Fragment-tile value form (the tile DSL): the shuffled value is the READ
+    /// operand inputs[0]; the shuffled scalar is a caller-owned temporary.
+    ShuffleStmt(TileShuffleOp op, TensorExpr *value, int32_t delta, int32_t width = 32) noexcept
+        : TensorStmt{TileOpKind::SHUFFLE, nullptr, {value}},
+          _op{op}, _width{width}, _delta{delta} {}
     explicit ShuffleStmt(TileShuffleOp op, const LiteralExpr *value_literal = nullptr,
                 const RefExpr *value_ref = nullptr, const RefExpr *mask = nullptr,
                 const RefExpr *src_lane = nullptr, int32_t width = 32,
@@ -1386,6 +1444,7 @@ public:
     [[nodiscard]] auto src_lane() const noexcept { return _src_lane; }
     [[nodiscard]] auto value_literal() const noexcept { return _value_literal; }
     [[nodiscard]] auto value_ref() const noexcept { return _value_ref; }
+    [[nodiscard]] auto value_tensor() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
     [[nodiscard]] size_t serialize(luisa::vector<char> &output_buffer) override;
     bool deserialize(char const *&input_ptr, char const *end_ptr) override;
 };
@@ -1426,18 +1485,21 @@ public:
 class LUISA_AST_API IeeeMathStmt final : public TensorStmt {
     TileIeeeOp _op{TileIeeeOp::ADD};// R1
     int32_t _rounding_mode{0};      // R1
+    TensorElementType _cast_dtype{TensorElementType::F32}; // R1: target dtype for CAST
 
 public:
     IeeeMathStmt() noexcept : TensorStmt{TileOpKind::IEEE_MATH} {}
     IeeeMathStmt(TileIeeeOp op, TensorExpr *a, TensorExpr *b = nullptr,
-                 TensorExpr *c = nullptr, int32_t rounding_mode = 0) noexcept
+                 TensorExpr *c = nullptr, int32_t rounding_mode = 0,
+                 TensorElementType cast_dtype = TensorElementType::F32) noexcept
         : TensorStmt{TileOpKind::IEEE_MATH, nullptr,
                      c != nullptr ? luisa::vector<TensorExpr *>{a, b, c}
                      : b != nullptr ? luisa::vector<TensorExpr *>{a, b}
                                     : luisa::vector<TensorExpr *>{a}},
-          _op{op}, _rounding_mode{rounding_mode} {}
+          _op{op}, _rounding_mode{rounding_mode}, _cast_dtype{cast_dtype} {}
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto rounding_mode() const noexcept { return _rounding_mode; }
+    [[nodiscard]] auto cast_dtype() const noexcept { return _cast_dtype; }
     [[nodiscard]] auto a() const noexcept { return inputs().size() > 0 ? inputs()[0] : nullptr; }
     [[nodiscard]] auto b() const noexcept { return inputs().size() > 1 ? inputs()[1] : nullptr; }
     [[nodiscard]] auto c() const noexcept { return inputs().size() > 2 ? inputs()[2] : nullptr; }
@@ -1467,7 +1529,7 @@ public:
 };
 
 // --- FastMath: T.__exp / __exp10 / __log / __log2 / __log10 / __sin / __cos /
-// __tan (all unary) ------------------------------------------------------------
+// __tan / __tanh / __erf (all unary) -------------------------------------------
 class LUISA_AST_API FastMathStmt final : public TensorStmt {
     TileFastMathOp _op{TileFastMathOp::EXP};// R1
 

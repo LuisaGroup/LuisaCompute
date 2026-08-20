@@ -155,10 +155,10 @@ void test_equivalent_callable_capture_environments(Device &device) {
     auto shader = device.compile(
         kernel, ShaderOption{.enable_cache = false});
     auto stream = device.create_stream();
-    stream << lhs.copy_from(lhs_values.data())
-           << rhs.copy_from(rhs_values.data())
+    stream << lhs.copy_from(luisa::span{lhs_values.data(), lhs_values.size()})
+           << rhs.copy_from(luisa::span{rhs_values.data(), rhs_values.size()})
            << shader(lhs, rhs, output).dispatch(element_count)
-           << output.copy_to(output_values.data())
+           << output.copy_to(luisa::span{output_values.data(), output_values.size()})
            << synchronize();
 
     for (auto i = 0u; i < element_count; ++i) {
@@ -167,6 +167,18 @@ void test_equivalent_callable_capture_environments(Device &device) {
         expect(output_values[i].y == rhs_values[i])
             << "canonical callable definition lost the right capture environment";
     }
+}
+
+void test_callable_has_no_launch_block_size() {
+    Callable identity = [](UInt value) noexcept { return value; };
+    const auto callable_block_size = identity.function().block_size();
+    expect(all(callable_block_size == make_uint3(0u)))
+        << "callable metadata must have a defined empty launch block size";
+
+    Kernel1D kernel = [](BufferUInt) noexcept {};
+    const auto kernel_block_size = kernel.function()->function().block_size();
+    expect(all(kernel_block_size == make_uint3(256u, 1u, 1u)))
+        << "one-dimensional kernels must retain their default launch block size";
 }
 
 int main(int argc, char *argv[]) {
@@ -179,4 +191,5 @@ int main(int argc, char *argv[]) {
     auto &device = dc->device;
     test_callable(device);
     test_equivalent_callable_capture_environments(device);
+    test_callable_has_no_launch_block_size();
 }

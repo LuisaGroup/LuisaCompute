@@ -136,6 +136,10 @@ private:
     Shader1D<uint, uint> _initialize_shader;
     Shader1D<Buffer<uint>, uint> _clear_count_shader;
     Shader1D<uint, Buffer<uint>, uint> _count_shader;
+    Shader1D<uint, Buffer<uint>, uint, uint>
+        _publish_generated_count_shader;
+    Shader1D<uint, Buffer<uint>, uint, Buffer<uint>, uint, uint>
+        _publish_resumed_count_shader;
     Shader1D<uint, Buffer<uint>, Buffer<uint>, uint> _gather_shader;
     Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint>
         _gather_selected_shader;
@@ -324,14 +328,13 @@ private:
         auto *frame_buffer = &_frame_buffer;
         _resume_index = device.create_buffer<uint>(_config.thread_count);
         _resume_count = device.create_buffer<uint>(nc);
-        // Incremental queue counts are scheduler-owned captured state. For
+        // Incremental queue counts are scheduler-owned state. For
         // every nonterminal continuation t, C[t] is the cardinality of the
         // active-prefix frames whose target token is t. Queue zero is derived
         // as prefix_size - sum(C[1..]) and is deliberately not maintained.
-        // Keeping the buffer captured avoids changing every coroutine user's
-        // argument ABI; the host policy still enters the shader structure
-        // through its compile-time C++ branch below.
-        auto *queue_count = &_resume_count;
+        // Only scheduler-owned publication kernels bind this buffer, keeping
+        // every user continuation's AST and argument ABI independent of the
+        // queue-accounting policy.
         _resume_offset = device.create_buffer<uint>(nc);
         _global_buffer = device.create_buffer<uint>(1u);
         if (use_sort) {
@@ -400,9 +403,8 @@ private:
         }
 
         if (auto entry_sub = coro[0u]) {
-            Kernel1D k_gen = [&coro, frame_buffer, queue_count, layout = _frame_layout, output_fields = _transition_output_fields[0u],
+            Kernel1D k_gen = [&coro, frame_buffer, layout = _frame_layout, output_fields = _transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
-                              incremental = _config.incremental_continuation_counts,
                               execution_block_size = _config.execution_block_size,
                               token_to_index](
                                  UInt frame_capacity,
@@ -421,12 +423,6 @@ private:
                 coro.entry()(frame, k_args...);
                 auto next = token_to_index(frame.target_token);
                 frame.target_token = next;
-                if (incremental) {
-                    auto counts = Expr<Buffer<uint>>{*queue_count};
-                    $if(next != 0u) {
-                        counts.atomic(next).fetch_add(1u);
-                    };
-                }
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
                     $if (next == static_cast<uint>(target)) {
                         coro_frame_store(
@@ -446,9 +442,8 @@ private:
         for (size_t i = 1u; i < nc; ++i) {
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
-            Kernel1D k_cont = [&coro, frame_buffer, queue_count, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
+            Kernel1D k_cont = [&coro, frame_buffer, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
-                               incremental = _config.incremental_continuation_counts,
                                execution_block_size = _config.execution_block_size,
                                read_scheduler_token, token_to_index](
                                   UInt frame_capacity,
@@ -462,10 +457,6 @@ private:
                 auto idx = resume_index.read(resume_offset + x);
                 auto tok = read_scheduler_token(idx, frame_buf, frame_capacity);
                 $if (tok != static_cast<uint>(i)) { $return(); };
-                if (incremental) {
-                    auto counts = Expr<Buffer<uint>>{*queue_count};
-                    counts.atomic(static_cast<uint>(i)).fetch_sub(1u);
-                }
                 auto frame = coro_frame_load(
                     &coro.frame(), frame_buf, idx, frame_capacity,
                     layout, soa, luisa::span{input_fields});
@@ -473,12 +464,6 @@ private:
                 coro[i](frame, k_args...);
                 auto next = token_to_index(frame.target_token);
                 frame.target_token = next;
-                if (incremental) {
-                    auto counts = Expr<Buffer<uint>>{*queue_count};
-                    $if(next != 0u) {
-                        counts.atomic(next).fetch_add(1u);
-                    };
-                }
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
                     $if (next == static_cast<uint>(target)) {
                         coro_frame_store(
@@ -542,6 +527,83 @@ private:
                 _config.shader_option, "wavefront_count"),
             "wavefront_count");
 
+        if (_config.incremental_continuation_counts) {
+            // Queue cardinality is a scheduler concern, not continuation
+            // state. Keep its atomics out of user coroutines so adding an
+            // incremental scheduler cannot change a trace/shade kernel's
+            // argument ABI, register pressure, or private-memory demand.
+            //
+            // Generation publishes
+            //
+            //   C' = C + histogram(target(frame_offset + [0, n))).
+            //
+            // Incremental scheduling requires compact active-prefix storage,
+            // as asserted by the public constructor, so newly admitted frames
+            // occupy exactly this contiguous range.
+            //
+            // Token zero denotes termination and is intentionally omitted.
+            Kernel1D publish_generated_count_kernel =
+                [frame_buffer, layout = _frame_layout,
+                 soa = _config.global_memory_soa,
+                 read_scheduler_token,
+                 node_count = static_cast<uint>(nc)](
+                    UInt frame_capacity, BufferUInt count,
+                    UInt frame_offset, UInt n) noexcept {
+                    auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
+                    auto x = dispatch_x();
+                    $if (x >= n) { $return(); };
+                    auto tok = read_scheduler_token(
+                        frame_offset + x, frame_buf, frame_capacity);
+                    $if ((tok != 0u) & (tok < node_count)) {
+                        count.atomic(tok).fetch_add(1u);
+                    };
+                };
+            _publish_generated_count_shader = _compile_shader(
+                device, publish_generated_count_kernel,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option,
+                    "wavefront_publish_generated_count"),
+                "wavefront_publish_generated_count");
+
+            // Resuming the complete selected queue i with index set S obeys
+            // the exact finite-state conservation law
+            //
+            //   C' = C - |S| e_i + sum(f in S) e_target(f).
+            //
+            // The subtraction and histogram increments are commutative
+            // atomics. This remains correct for self-edges (target == i),
+            // sparse source tokens (the scheduler uses dense node indices),
+            // and frames that fail the defensive token check (their old i is
+            // read back and restored by the histogram).
+            Kernel1D publish_resumed_count_kernel =
+                [frame_buffer, layout = _frame_layout,
+                 soa = _config.global_memory_soa,
+                 read_scheduler_token,
+                 node_count = static_cast<uint>(nc)](
+                    UInt frame_capacity, BufferUInt index,
+                    UInt index_offset, BufferUInt count,
+                    UInt source_token, UInt n) noexcept {
+                    auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
+                    auto x = dispatch_x();
+                    $if (x >= n) { $return(); };
+                    $if (x == 0u) {
+                        count.atomic(source_token).fetch_sub(n);
+                    };
+                    auto frame_index = index.read(index_offset + x);
+                    auto tok = read_scheduler_token(
+                        frame_index, frame_buf, frame_capacity);
+                    $if ((tok != 0u) & (tok < node_count)) {
+                        count.atomic(tok).fetch_add(1u);
+                    };
+                };
+            _publish_resumed_count_shader = _compile_shader(
+                device, publish_resumed_count_kernel,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option,
+                    "wavefront_publish_resumed_count"),
+                "wavefront_publish_resumed_count");
+        }
+
         Kernel1D gather_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
              read_scheduler_token, node_count = static_cast<uint>(nc)](
@@ -586,9 +648,16 @@ private:
                 "wavefront_gather_selected");
         }
 
+        auto relocation_partition = coro_frame_partition_relocation_fields(
+            coro.graph(), coro.frame().frame_field_count());
         Kernel1D compact_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
-             read_scheduler_token, desc = &coro.frame()](
+             read_scheduler_token, desc = &coro.frame(),
+             node_count = static_cast<uint>(nc),
+             common_relocation_fields =
+                 std::move(relocation_partition.common_fields),
+             residual_relocation_fields =
+                 std::move(relocation_partition.residual_fields)](
                 UInt frame_capacity,
                 BufferUInt index, BufferUInt global,
                 UInt active_count, UInt empty_count, UInt scan_count) noexcept {
@@ -597,7 +666,7 @@ private:
                 auto src = active_count + x;
                 $if (src >= scan_count) { $return(); };
                 auto tok = read_scheduler_token(src, frame_buf, frame_capacity);
-                $if (tok != 0u) {
+                $if ((tok != 0u) & (tok < node_count)) {
                     auto dst = def(0u);
                     auto found_dst = def(false);
                     $while (!found_dst) {
@@ -607,10 +676,39 @@ private:
                         found_dst = dst < active_count;
                     };
                     $if (found_dst) {
-                        auto frame = coro_frame_load(
-                            desc, frame_buf, src, frame_capacity, layout, soa);
-                        coro_frame_store(
-                            frame_buf, dst, frame_capacity, frame, layout, soa);
+                        // A queued frame is the tagged union Sigma_t R[t].
+                        // Copying every physical slot would read outside the
+                        // domain R[t], where values are intentionally
+                        // undefined after interference coloring. The common
+                        // intersection plus the token residual is exactly
+                        // R[t], as certified by CoroGraph's fixed-point
+                        // live-begin projection.
+                        if (!common_relocation_fields.empty()) {
+                            coro_frame_copy_fields(
+                                frame_buf, src, dst, frame_capacity, desc,
+                                layout, soa,
+                                luisa::span<const size_t>{
+                                    common_relocation_fields});
+                        }
+                        auto copy_residual = switch_(tok);
+                        for (size_t token = 1u;
+                             token < residual_relocation_fields.size();
+                             ++token) {
+                            copy_residual = std::move(copy_residual).case_(
+                                static_cast<uint>(token), [&, token] {
+                                    auto &fields =
+                                        residual_relocation_fields[token];
+                                    if (!fields.empty()) {
+                                        coro_frame_copy_fields(
+                                            frame_buf, src, dst,
+                                            frame_capacity, desc, layout,
+                                            soa,
+                                            luisa::span<const size_t>{
+                                                fields});
+                                    }
+                                });
+                        }
+                        std::move(copy_residual).default_([] {});
                         coro_frame_write_field(
                             frame_buf, src, frame_capacity,
                             layout, soa, 6u, 0u);
@@ -1009,6 +1107,12 @@ private:
                                       _host_offset[0u], frame_offset,
                                       dispatch_counter, gen_count, dispatch_size, args...)
                               .dispatch(gen_count);
+                if (_config.incremental_continuation_counts) {
+                    stream << _publish_generated_count_shader(
+                                  _config.thread_count, _resume_count,
+                                  frame_offset, gen_count)
+                                  .dispatch(gen_count);
+                }
                 if (report_stats) {
                     auto &entry =
                         _last_dispatch_stats.continuations[0u];
@@ -1086,11 +1190,27 @@ private:
                                                      indices[sorted_index],
                                                      0u, count, args...)
                                       .dispatch(count);
+                        if (_config.incremental_continuation_counts) {
+                            stream << _publish_resumed_count_shader(
+                                          _config.thread_count,
+                                          indices[sorted_index], 0u,
+                                          _resume_count,
+                                          static_cast<uint>(i), count)
+                                          .dispatch(count);
+                        }
                     } else {
                         stream << _resume_kernels[i](_config.thread_count,
                                                      _resume_index,
                                                      _host_offset[i], count, args...)
                                       .dispatch(count);
+                        if (_config.incremental_continuation_counts) {
+                            stream << _publish_resumed_count_shader(
+                                          _config.thread_count,
+                                          _resume_index, _host_offset[i],
+                                          _resume_count,
+                                          static_cast<uint>(i), count)
+                                          .dispatch(count);
+                        }
                     }
                 }
             }

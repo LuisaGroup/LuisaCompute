@@ -17,3 +17,6 @@ extern "C" const unsigned char luisa_compute_cuda_device_math[];
 
 extern "C" const unsigned long long luisa_compute_cuda_device_resource_size;
 extern "C" const unsigned char luisa_compute_cuda_device_resource[];
+
+extern "C" const unsigned long long luisa_compute_cuda_device_tensor_size;
+extern "C" const unsigned char luisa_compute_cuda_device_tensor[];
