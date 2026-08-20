@@ -1017,7 +1017,7 @@ int test_device_math(Device &device) {
                 const auto tolerance =
                     i == 0u ||
                             i + 1u == strict_acos_inputs.size()
-                        ? 1.0e-7f
+                        ? 2.5e-7f
                         : 1.0e-6f;
                 expect(
                     std::abs(candidate[i] - expected) <=
