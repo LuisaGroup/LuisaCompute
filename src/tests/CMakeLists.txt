@@ -72,20 +72,6 @@ if (TARGET luisa-compute-backend-hip)
     find_package(LLVM QUIET CONFIG)
 endif ()
 if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
-    luisa_compute_add_test(test_hip_callable_inline_graph unit/core/test_hip_callable_inline_graph.cpp LABELS "unit;unit_core")
-    target_sources(test_hip_callable_inline_graph PRIVATE
-            ../backends/hip/llvm_codegen/hip_callable_inline_graph.cpp
-            ../backends/hip/llvm_codegen/hip_llvm_pipeline.cpp)
-    target_include_directories(test_hip_callable_inline_graph PRIVATE
-            ../backends/hip/llvm_codegen ${LLVM_INCLUDE_DIRS})
-    if (TARGET LLVM)
-        target_link_libraries(test_hip_callable_inline_graph PRIVATE LLVM)
-    else ()
-        llvm_map_components_to_libnames(_hip_callable_inline_graph_llvm_libs
-                analysis core support)
-        target_link_libraries(test_hip_callable_inline_graph PRIVATE
-                ${_hip_callable_inline_graph_llvm_libs})
-    endif ()
     luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
     target_sources(test_hip_callable_abi PRIVATE
         ../backends/hip/llvm_codegen/hip_callable_abi.cpp

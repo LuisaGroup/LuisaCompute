@@ -33,10 +33,8 @@
 #include <luisa/core/stl/hash.h>
 #include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
-#include "hip_callable_inline_graph.h"
 #include "hip_private_memory.h"
 #include "hip_llvm_pipeline.h"
-#include "../../common/env_flag.h"
 #include "hiprt_device_wrapper.hip"
 #include "hip_codegen_llvm_device_bitcode.h"
 
@@ -1075,39 +1073,6 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         }
     }
 
-    // Model generated callable expansion before assigning LLVM attributes.
-    // Mutually exclusive call frontiers are discovered from the actual LLVM
-    // CFG rather than inferred from source names or scene-specific counts.
-    auto inline_graph = build_generated_callable_inline_graph(
-        *_llvm_module, llvm_generated_callable_attribute);
-    auto &generated_callables = inline_graph.functions;
-    auto generated_callable_indices =
-        llvm::DenseMap<const llvm::Function *, size_t>{};
-    for (auto node_index = size_t{0u};
-         node_index < generated_callables.size(); node_index++) {
-        generated_callable_indices.try_emplace(
-            generated_callables[node_index], node_index);
-    }
-    auto generated_callable_boundaries =
-        select_generated_callable_boundaries(inline_graph.nodes);
-    const auto dump_callable_boundaries =
-        luisa::compute::detail::env_flag(
-            "LUISA_HIP_DUMP_CALLABLE_BOUNDARIES");
-    if (dump_callable_boundaries) {
-        for (auto node_index = size_t{0u};
-             node_index < generated_callables.size(); node_index++) {
-            const auto &node = inline_graph.nodes[node_index];
-            LUISA_INFO(
-                "HIP generated callable '{}': instructions={}, "
-                "calls={}, alternative_groups={}, preserve={}.",
-                generated_callables[node_index]->getName().str(),
-                node.instruction_count,
-                node.callees.size(),
-                node.alternative_call_groups.size(),
-                generated_callable_boundaries[node_index] != 0u);
-        }
-    }
-
     for (auto &&func : *_llvm_module) {
         if (!func.isDeclaration() && func.getCallingConv() != llvm::CallingConv::AMDGPU_KERNEL) {
             func.setLinkage(llvm::Function::PrivateLinkage);
@@ -1130,21 +1095,13 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
                 func.hasFnAttribute(
                     llvm_generated_callable_attribute);
             if (is_generated_callable) {
-                // Luisa Callable is an intentional DSL/JIT-stage function
-                // boundary. LLVM gives a large bonus to single-call-site local
-                // functions, which can otherwise inline mutually exclusive
-                // generated alternatives into one enormous caller. Bound both
-                // individual bodies and formally modeled alternative expansion;
-                // small linear call graphs still use LLVM's ordinary cost model.
+                // A DSL Callable is not an ABI or optimization boundary. Match
+                // Cycles' ordinary HIP device functions: enable backend function
+                // calls globally, but leave profitability to LLVM/AMDGPU. The
+                // provenance marker below is consumed only by post-IPO ABI
+                // legalization of callables that the optimizer actually keeps.
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                const auto index =
-                    generated_callable_indices.find(&func);
-                if (index != generated_callable_indices.end() &&
-                    generated_callable_boundaries[index->second]) {
-                    func.addFnAttr(llvm::Attribute::NoInline);
-                } else {
-                    func.removeFnAttr(llvm::Attribute::NoInline);
-                }
+                func.removeFnAttr(llvm::Attribute::NoInline);
             } else if (is_stack_overflow_fallback) {
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
                 func.addFnAttr(llvm::Attribute::NoInline);
@@ -1533,10 +1490,10 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             constant_dispatch_stats.rewritten_call_count);
     }
 
-    // IPO has now selected the final generated-Callable boundaries, while
-    // their internal marker and noinline attributes are still present. Narrow
-    // aggregate ABIs here: no later IPO pass may widen the signatures again,
-    // and the attribute cleanup below can still recognize the new functions.
+    // Preserve the existing exact aggregate-ABI rewrite for explicitly
+    // retained generated callables. Ordinary generated callables carry no
+    // inline/noinline directive, so they deliberately do not enter this pass:
+    // LLVM and the AMDGPU target remain responsible for their call boundaries.
     auto callable_abi_stats =
         specialize_generated_callable_aggregate_arguments(*_llvm_module);
     if (callable_abi_stats.rewritten_function_count != 0u) {
@@ -1577,23 +1534,13 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
     auto max_vgpr_count = std::min(_config.max_register_count, 256u);
     auto max_vgpr_count_string = std::to_string(max_vgpr_count);
     for (auto &func : *_llvm_module) {
-        // Preserve every function boundary deliberately retained by the
-        // module optimizer across the ABI-attribute cleanup below. This
-        // includes large shared DSL callables and mutating ray-query wrappers.
-        // In particular, the gfx12 proceed helper is a large resumable
-        // traversal state machine; letting the downstream compiler inline it
-        // causes severe register pressure and scratch spills.
+        // Preserve only backend ABI/correctness boundaries across attribute
+        // cleanup. A generated Callable marker is provenance, not an inlining
+        // decision: any surviving ordinary callable remains available to the
+        // target inliner just like a Cycles ccl_device function.
         auto name = func.getName();
-        auto preserve_generated_callable =
-            func.hasFnAttribute(
-                llvm_generated_callable_attribute);
-        auto preserve_noinline =
-            preserve_generated_callable ||
-            ((name.starts_with("luisa_ray_query_") ||
-              name.starts_with("luisa_motion_ray_query_") ||
-              name.starts_with(
-                  "luisa_hiprt_stack_overflow_fallback_")) &&
-             func.hasFnAttribute(llvm::Attribute::NoInline));
+        auto preserve_noinline = preserve_hip_backend_noinline_boundary(
+            name.str(), func.hasFnAttribute(llvm::Attribute::NoInline));
         auto preserve_convergent = preserve_noinline &&
                                    func.hasFnAttribute(llvm::Attribute::Convergent);
 
