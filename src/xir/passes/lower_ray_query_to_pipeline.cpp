@@ -39,6 +39,7 @@ namespace detail {
 
 struct LowerRayQueryToPipelineRunInfo : LowerRayQueryToPipelineInfo {
     size_t localized_alloca_count{0u};
+    size_t selection_localization_analysis_count{0u};
 };
 
 struct RayQueryHandlerRegion {
@@ -1098,13 +1099,21 @@ static void collect_ray_query_loop_capture_list_in_inst(Instruction *inst, const
 [[nodiscard]] static luisa::vector<RayQueryLoopInst *>
 select_ray_query_loops(
     luisa::span<RayQueryLoopInst *const> loops,
-    LowerRayQueryToPipelineOptions options) noexcept {
+    LowerRayQueryToPipelineOptions options,
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
     struct Candidate {
         RayQueryLoopInst *loop;
         size_t handler_block_count;
         size_t handler_instruction_count;
         size_t input_capture_count;
         size_t output_capture_count;
+        bool capture_eligible;
+    };
+    auto capture_count_within_limit = [](size_t input_count,
+                                         size_t output_count,
+                                         size_t limit) noexcept {
+        return output_count <= limit &&
+               input_count <= limit - output_count;
     };
     luisa::vector<Candidate> candidates;
     candidates.reserve(loops.size());
@@ -1121,48 +1130,54 @@ select_ray_query_loops(
                 ++handler_instruction_count;
             }
         }
-        // Definite-initialization proves that some parent-function allocas are
-        // invocation-local callback scratch. Lowering recreates them inside
-        // the outlined handler and removes them from the final callback ABI,
-        // so they must not consume the selection-time capture budget.
-        auto localized_input_capture_count =
-            count_handler_localized_input_captures(
-                loop, capture_list);
-        LUISA_DEBUG_ASSERT(
-            localized_input_capture_count <=
-                capture_list.in_values.size(),
-            "Localized ray-query handler captures exceed input captures.");
-        auto input_capture_count =
-            capture_list.in_values.size() -
-            localized_input_capture_count;
+        // Localization can affect selection only when the raw capture count
+        // exceeds the finite budget. If the raw count already fits (including
+        // the unbounded default), proving which inputs will later become
+        // handler-local is dead analysis: every possible proof result selects
+        // the same loop. The lowering phase still performs the complete proof
+        // exactly once before changing the callback ABI.
+        auto input_capture_count = capture_list.in_values.size();
         auto output_capture_count = capture_list.out_values.size();
-        capture_eligible_loop_count +=
-            input_capture_count + output_capture_count <=
-                    options.max_captured_argument_count ?
-                1u :
-                0u;
+        auto capture_eligible = capture_count_within_limit(
+            input_capture_count, output_capture_count,
+            options.max_captured_argument_count);
+        // Output captures cannot be localized. If they alone exceed the
+        // budget, no input-localization result can make the loop eligible.
+        if (!capture_eligible &&
+            output_capture_count <=
+                options.max_captured_argument_count) {
+            ++info.selection_localization_analysis_count;
+            auto localized_input_capture_count =
+                count_handler_localized_input_captures(
+                    loop, capture_list);
+            LUISA_DEBUG_ASSERT(
+                localized_input_capture_count <= input_capture_count,
+                "Localized ray-query handler captures exceed input captures.");
+            input_capture_count -= localized_input_capture_count;
+            capture_eligible = capture_count_within_limit(
+                input_capture_count, output_capture_count,
+                options.max_captured_argument_count);
+        }
+        capture_eligible_loop_count += capture_eligible ? 1u : 0u;
         candidates.emplace_back(Candidate{
             .loop = loop,
             .handler_block_count = handler_block_count,
             .handler_instruction_count = handler_instruction_count,
             .input_capture_count = input_capture_count,
-            .output_capture_count = output_capture_count});
+            .output_capture_count = output_capture_count,
+            .capture_eligible = capture_eligible});
     }
     luisa::vector<RayQueryLoopInst *> selected;
     selected.reserve(loops.size());
     for (auto &&candidate : candidates) {
-        auto capture_count = candidate.input_capture_count +
-                             candidate.output_capture_count;
-        auto capture_eligible =
-            capture_count <= options.max_captured_argument_count;
         auto profitability_eligible =
             candidate.handler_instruction_count >=
                 options.min_handler_instruction_count ||
             capture_eligible_loop_count >=
                 options.min_small_handler_loop_count;
-        if (capture_eligible && profitability_eligible) {
+        if (candidate.capture_eligible && profitability_eligible) {
             LUISA_VERBOSE(
-                "lower_ray_query_to_pipeline: selecting loop with {} handler block(s), {} handler instruction(s), {} input and {} output captured argument(s).",
+                "lower_ray_query_to_pipeline: selecting loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s).",
                 candidate.handler_block_count,
                 candidate.handler_instruction_count,
                 candidate.input_capture_count,
@@ -1170,7 +1185,7 @@ select_ray_query_loops(
             selected.emplace_back(candidate.loop);
         } else {
             LUISA_VERBOSE(
-                "lower_ray_query_to_pipeline: retaining loop with {} handler block(s), {} handler instruction(s), {} input and {} output captured argument(s) (capture_limit={}, min_handler_instructions={}, eligible_loop_count={}, small_handler_loop_threshold={}).",
+                "lower_ray_query_to_pipeline: retaining loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s) (capture_limit={}, min_handler_instructions={}, eligible_loop_count={}, small_handler_loop_threshold={}).",
                 candidate.handler_block_count,
                 candidate.handler_instruction_count,
                 candidate.input_capture_count,
@@ -1590,7 +1605,7 @@ static void run_lower_ray_query_to_pipeline_pass_on_function(
     // allocas, creating callbacks, or running function-wide DCE.
     if (!lower_ray_query_to_pipeline_preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
     loops = select_ray_query_loops(
-        luisa::span{loops}, options);
+        luisa::span{loops}, options, info);
     lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
         function, luisa::span{loops}, info);
 }
@@ -1658,7 +1673,7 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         if (accepted) {
             for (auto &item : work) {
                 item.loops = detail::select_ray_query_loops(
-                    luisa::span{item.loops}, options);
+                    luisa::span{item.loops}, options, info);
             }
             for (auto &item : work) {
                 detail::lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
@@ -1670,6 +1685,8 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         report->set(
             "lowered_ray_query_to_pipeline", info.lowered_loop_count);
         report->set("error", info.error_count);
+        report->set("selection_localization_analysis",
+                    info.selection_localization_analysis_count);
     }
     if (options.localized_alloca_count != nullptr) {
         *options.localized_alloca_count = info.localized_alloca_count;

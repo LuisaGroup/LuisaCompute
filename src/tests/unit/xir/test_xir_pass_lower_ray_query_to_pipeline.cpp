@@ -2,6 +2,8 @@
 
 #include "ut/ut.hpp"
 
+#include <limits>
+
 #include <luisa/ast/type_registry.h>
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/basic_block.h>
@@ -17,6 +19,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
 #include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 
 using namespace luisa;
@@ -37,6 +40,14 @@ namespace {
     size_t n = 0u;
     for ([[maybe_unused]] auto *block : def->basic_blocks()) { ++n; }
     return n;
+}
+
+[[nodiscard]] uint64_t report_value(
+    const PassReport &report, luisa::string_view key) noexcept {
+    for (auto &&entry : report.entries()) {
+        if (entry.key == key) { return entry.value; }
+    }
+    return std::numeric_limits<uint64_t>::max();
 }
 
 struct RayQueryFixture {
@@ -500,10 +511,20 @@ void register_tests() {
         b.br(f.dispatch);
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        PassReport report;
+        size_t localized_alloca_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, &report,
+            {.localized_alloca_count = &localized_alloca_count});
         expect(info.succeeded());
         expect(info.lowered_loop_count == 1u);
-        expect(info.localized_alloca_count == 1u);
+        expect(localized_alloca_count == 1u);
+        // The default capture budget is unbounded, so localization cannot
+        // affect selection. The expensive proof must run only during actual
+        // lowering, not once speculatively and once for the ABI rewrite.
+        expect(report_value(
+                   report,
+                   "selection_localization_analysis") == 0u);
         expect(xir_verify_module(&m).succeeded());
     };
 
@@ -990,8 +1011,9 @@ void register_tests() {
         expect(xir_verify_module(&m).succeeded());
         size_t localized_alloca_count = 0u;
         size_t skipped_loop_count = 0u;
-        auto info = lower_ray_query_to_pipeline_pass_run_on_function(
-            f.kernel,
+        PassReport report;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, &report,
             {.max_captured_argument_count = 0u,
              .skipped_loop_count = &skipped_loop_count,
              .localized_alloca_count = &localized_alloca_count});
@@ -1000,6 +1022,12 @@ void register_tests() {
         expect(info.lowered_loop_count == 1u);
         expect(localized_alloca_count == 1u);
         expect(skipped_loop_count == 0u);
+        // Here the raw capture count exceeds the finite budget, so the same
+        // proof is semantically required during selection and cannot be
+        // skipped by the dead-analysis rule.
+        expect(report_value(
+                   report,
+                   "selection_localization_analysis") == 1u);
         RayQueryPipelineInst *pipeline = nullptr;
         f.body->traverse_instructions([&](Instruction *inst) noexcept {
             if (inst->isa<RayQueryPipelineInst>()) {
