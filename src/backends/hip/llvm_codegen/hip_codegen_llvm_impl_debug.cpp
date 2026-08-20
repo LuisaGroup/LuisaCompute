@@ -82,7 +82,6 @@ void HIPCodegenLLVMImpl::_translate_print_inst(
         auto llvm_function = llvm::Function::Create(
             llvm_function_type, llvm::Function::PrivateLinkage,
             name, *_llvm_module);
-        llvm_function->addFnAttr(llvm::Attribute::NoInline);
         llvm_function->addFnAttr(llvm::Attribute::NoUnwind);
 
         auto llvm_entry = llvm::BasicBlock::Create(
