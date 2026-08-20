@@ -68,12 +68,13 @@ Tensor<tile_f16, 2> bench_gemm(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> B) {
 // =============================================================================
 // 1b. Large GEMM: C = A @ B (4096 x 4096 x 4096, f32)
 //     Exercises the warp-K-split path in tile_to_kernel: block_K = 256 hits
-//     the K >= 256 gate, the 16x16 C tile gives MT*NT = 16 < threads = 32,
-//     and C_local is a small fragment -> single-warp barrier-free write-back.
+//     the K >= 256 gate, the 8x8 C tile gives MT*NT = 4 < threads = 32,
+//     C_local is a small fragment -> single-warp barrier-free write-back, and
+//     the shared tiles stay at 16 KB total (Vulkan-safe).
 // =============================================================================
 Tensor<tile_f32, 2> bench_gemm_4096(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
     constexpr tile_i32 M = 4096, N = 4096, K = 4096;
-    constexpr tile_i32 block_M = 8, block_N = 8, block_K = 512;
+    constexpr tile_i32 block_M = 8, block_N = 8, block_K = 256;
     constexpr tile_i32 threads = 32;
     constexpr tile_i32 num_stages = 1;
 
@@ -141,6 +142,28 @@ Tensor<tile_f32, 2> bench_scan(Tensor<tile_f32, 2> A) {
         LuisaTensor.cumsum(A_shared(blk_m, N), S_shared(blk_m, N), /*dim=*/1);
         LuisaTensor.copy(S_shared(blk_m, N),
                          S(LuisaTensor.range(bx * blk_m, (bx + 1) * blk_m), LuisaTensor.all()));
+    }
+    return S;
+}
+
+// =============================================================================
+// 3b. 1D inclusive prefix scan (one long line, many warps) — exercises the
+//     two-pass block scan in tile_to_kernel (line_count = 1 < nw = 8 for
+//     256 threads; the warp-per-line partition would leave 7 warps idle).
+// =============================================================================
+Tensor<tile_f32, 1> bench_scan_1d(Tensor<tile_f32, 1> A) {
+    constexpr tile_i32 N = 2048;
+    constexpr tile_i32 threads = 256;
+
+    Tensor<tile_f32, 1> S = LuisaTensor.empty(LuisaTensor.shape(N), tile_f32{});
+
+    for (auto bx : LuisaTensor.Kernel(1, threads)) {
+        auto A_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(N), tile_f32{});
+        auto S_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(N), tile_f32{});
+
+        LuisaTensor.copy(A(0), A_shared(N));
+        LuisaTensor.cumsum(A_shared(N), S_shared(N), /*dim=*/0);
+        LuisaTensor.copy(S_shared(N), S(0));
     }
     return S;
 }
@@ -235,8 +258,9 @@ int main(int argc, char *argv[]) {
 
     // ---- bench_gemm_4096 -----------------------------------------------------
     // 4096x4096x4096 f32 GEMM. This config hits the warp-K-split path in
-    // tile_to_kernel (block_K = 256, MT*NT = 16 < threads = 32, small fragment
-    // C_local -> single-warp barrier-free write-back). Correctness is checked
+    // tile_to_kernel (block_K = 256, MT*NT = 4 < threads = 32, small fragment
+    // C_local -> single-warp barrier-free write-back, 16 KB shared -> safe on
+    // Vulkan). Correctness is checked
     // against a double-precision host reference on sampled points; performance
     // is reported in GFLOP/s. Default iteration count is capped to keep the
     // benchmark fast (each iteration is ~137 GFLOP).
@@ -373,6 +397,39 @@ int main(int argc, char *argv[]) {
         }
         stream << synchronize();
         report("bench_scan", clock.toc() / iters, 0.0, iters);
+    }
+
+    // ---- bench_scan_1d -------------------------------------------------------
+    // 1D inclusive scan of a single 2048-element line with 256 threads. The
+    // default warp-per-line partition leaves 7 of 8 warps idle, so the
+    // lowering switches to the two-pass block scan (plan 2.8).  All-ones input
+    // keeps the prefix sums exact in f32 so the reference is exact.
+    {
+        constexpr uint32_t N = 2048u;
+        auto kernel = luisa::compute::tile::jit(bench_scan_1d).compile();
+        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto bufA = device.create_buffer<float>(N);
+        auto bufS = device.create_buffer<float>(N);
+        luisa::vector<float> hA(N, 1.0f), hS(N);
+        stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+        kernel.validate(bufA, bufS);
+        auto typed = kernel.to_kernel<1>();
+        auto sh = device.compile(typed);
+        stream << sh(bufA, bufS).dispatch(result.dispatch_size.x)
+               << bufS.copy_to(luisa::span{hS}) << synchronize();
+        auto err = 0.0f;
+        for (auto i = 0u; i < N; ++i) {
+            err = luisa::max(err, luisa::abs(hS[i] - static_cast<float>(i + 1u)));
+        }
+        check("bench_scan_1d", err, 1e-5f);
+
+        clock.tic();
+        for (auto i = 0u; i < iters; ++i) {
+            stream << sh(bufA, bufS).dispatch(result.dispatch_size.x);
+        }
+        stream << synchronize();
+        report("bench_scan_1d", clock.toc() / iters, 0.0, iters);
     }
 
     // ---- bench_add -----------------------------------------------------------

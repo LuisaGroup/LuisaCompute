@@ -269,6 +269,21 @@ barriers/atomics where TileLang's passes would inject them).
        element;
     4. reverse=1 → scan over the reversed index space (or scan and flip).
   dim selects the scanned axis of dst (a tile may be 1D/2D).
+  Optimization (implemented): when there are FEWER scan lines than warps
+  (line_count < nw, e.g. a 1D full-tensor scan with threads > 32), the
+  default warp-per-line partition would leave most warps idle.  Use the
+  TWO-PASS BLOCK scan instead (plan step 3):
+    - pass 1: each warp scans its contiguous segment of the scan axis
+      (butterfly + intra-segment carry) and publishes the segment total;
+    - sync_block();
+    - pass 2: warp 0 scans the segment totals -> per-segment exclusive
+      prefix;
+    - sync_block();
+    - pass 3: each warp recomputes its segment scan, combines every
+      element with its exclusive prefix, and writes the output.
+  Keeps the whole block busy for full-tile / few-line scans.  Segments
+  are defined in the scan-axis (off) order, so reverse is honored by the
+  existing per-element position mapping inside each segment.
 
 --- 2.9 PRINT (T.print(t, "msg")) ------------------------------------------
   TileLang: printf of the tile with __syncthreads + guard. Luisa: no tile
@@ -642,7 +657,8 @@ barriers/atomics where TileLang's passes would inject them).
   - rank-2 elementwise loops use the div/mod-free `_partition_loop_2d`;
     REDUCE uses a block-wide two-level reduction for few-output
     reductions; ANY_OF/ALL_OF partition Global/Shared tiles; TRANSPOSE
-    stages through Shared for Global operands.
+    stages through Shared for Global operands; CUMSUM/CUMMAX use a
+    two-pass block scan when there are fewer scan lines than warps.
   - Deferred (correct today, not optimized): true async multi-buffered
     PIPELINED (2.16), vectorized float4/half2 chunks (1.3), lane-mapped
     fragment layouts (1.2), tensor-core/WGMMA/TCGEN05 paths, packed
@@ -3646,6 +3662,52 @@ private:
      *   };
      *   if dst is Fragment:
      *       _replicate_from_staging(dst, staging)
+     *
+     *   // ---- two-pass block scan (plan 2.8 / lc_optimize 4.5) -----------
+     *   // Active when !batching && line_count < nw_est && scan_len > lanes:
+     *   // fewer scan lines than warps -> the warp-per-line partition leaves
+     *   // most warps idle; split each line's scan axis across ALL warps.
+     *   if use_block_scan:
+     *       seg_count = min(nw_est, scan_len)
+     *       seg_len = ceildiv(scan_len, seg_count)   // segment max length
+     *       totals_s = Shared<T>{seg_count}; prefix_s = Shared<T>{seg_count}
+     *       scan_segment(line, seg_start, seg_len_w, base):  // helper
+     *           // same butterfly inclusive scan as above, but over the
+     *           // segment's off range [seg_start, seg_start + seg_len_w)
+     *           carry = base
+     *           $for (ch, 0u, ceildiv(seg_len_w, lanes)) {
+     *               off = seg_start + ch * lanes + lane;
+     *               pos = reverse ? (scan_len - 1u - off) : off;
+     *               ... butterfly incl scan (v loaded from src at pos) ...
+     *               total = warp_read_lane(incl, lanes - 1u);
+     *               res = combine(carry, incl);
+     *               $if (off < seg_start + seg_len_w) {
+     *                   // write dst/staging at pos (fragment -> staging)
+     *               };
+     *               carry = combine(carry, total);
+     *           }
+     *           return carry   // segment total
+     *       $for (line, 0u, line_count) {          // few lines, sequential
+     *           // pass 1: each warp scans its segment, publishes the total
+     *           seg_w = min(seg_len, scan_len - warp * seg_len)
+     *           total = scan_segment(line, warp*seg_len, seg_w, identity)
+     *           $if (lane == 0u) { totals_s[warp] = total; }
+     *           sync_block()
+     *           // pass 2: warp 0 inclusive-scans the seg_count totals
+     *           $if (warp == 0u) {
+     *               v = lane < seg_count ? totals_s[lane] : identity
+     *               incl = butterfly_scan(v)          // inclusive over totals
+     *               prev = lane == 0u ? identity : warp_read_lane(incl, lane - 1u)
+     *               $if (lane < seg_count) { prefix_s[lane] = prev; }
+     *           }
+     *           sync_block()
+     *           // pass 3: each warp recomputes its segment scan + prefix
+     *           seg_w = min(seg_len, scan_len - warp * seg_len)
+     *           scan_segment(line, warp*seg_len, seg_w, prefix_s[warp])
+     *       }
+     *       if dst is Fragment:
+     *           _replicate_from_staging(dst, staging)
+     *       return
      */
     void _emit_scan(const TensorExpr *src, const TensorExpr *dst,
                     uint32_t dim, int32_t reverse, bool is_max) {
@@ -3673,6 +3735,196 @@ private:
             return _reduce_identity(is_max ? TileReduceOp::MAX : TileReduceOp::SUM,
                                     src->dtype());
         };
+        // ---- two-pass block scan (plan 2.8 / lc_optimize 4.5) -----------------
+        // Fewer scan lines than warps -> the warp-per-line partition leaves most
+        // warps idle; split each line's scan axis across ALL warps instead.
+        const uint32_t nw_est = _threads / 32u;// host, pinned warp size 32
+        const bool use_block_scan = !_batching && line_count < nw_est && scan_len > 32u;
+        if (use_block_scan) {
+            const uint32_t seg_count = std::min<uint32_t>(nw_est, scan_len);
+            const uint32_t seg_len = (scan_len + seg_count - 1u) / seg_count;
+            const uint32_t seg_chunks = (seg_len + 32u - 1u) / 32u;// lanes pinned to 32
+            auto totals_s = _fb->shared(Type::array(elem_t, seg_count));
+            auto prefix_s = _fb->shared(Type::array(elem_t, seg_count));
+            for (uint32_t line = 0u; line < line_count; ++line) {
+                // decompose host-constant line -> coords for all axes except dim
+                Coord cc = _zero_coord();
+                auto rem = line;
+                for (int32_t i = static_cast<int32_t>(src->rank()) - 1; i >= 0; --i) {
+                    auto ui = static_cast<uint32_t>(i);
+                    if (ui == dim) { continue; }
+                    auto e = static_cast<uint32_t>(axis_extent(src, ui));
+                    auto ci = rem % e;
+                    rem /= e;
+                    cc[ui] = _literal_u(ci);
+                }
+                // per-line carry: pass 1 leaves the segment total here for the
+                // lane-0 publish; pass 3 accumulates its scan with the prefix
+                auto carry = _fb->local(elem_t);
+                // ONE local lambda for both passes: butterfly inclusive scan of
+                // the segment's off range [seg_start, seg_start + seg_w) with an
+                // initial `base` carry; writes output only when emit_writes.
+                auto scan_segment = [&](const Coord &cc0,
+                                        const Expression *seg_start,
+                                        uint32_t seg_w,
+                                        const Expression *base,
+                                        bool emit_writes) -> void {
+                    (void)seg_w;// chunk count is the host seg_chunks; tail guard is off<scan_len
+                    Coord scc = cc0;
+                    _fb->assign(carry, base);
+                    _for_range(_literal_u(0u), _literal_u(seg_chunks), _literal_u(1u),
+                               [&](const Expression *ch) {
+                        auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                              ch, lanes);
+                        auto t2 = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
+                                              seg_start, t1);
+                        auto off = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
+                                               t2, lane);
+                        // element position along the scan axis (from the scan side)
+                        const Expression *pos = off;
+                        if (reverse != 0) {
+                            pos = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
+                                              _literal_u(scan_len - 1u), off);
+                        }
+                        auto valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                                 off, _literal_u(scan_len));
+                        auto v = _fb->local(elem_t);
+                        _fb->assign(v, identity());
+                        _if(valid, [&] {
+                            scc[dim] = pos;
+                            _fb->assign(v, _maybe_cast(_value_at(src, scc), elem_t));
+                        });
+                        // in-chunk inclusive scan across the warp: butterfly
+                        // inclusive scan via WARP_READ_LANE (lc_optimize 2.2;
+                        // the lane read is unconditional/clamped so it is never
+                        // divergent)
+                        auto incl = _fb->local(elem_t);
+                        _fb->assign(incl, v);
+                        for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
+                            auto d_active = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                                        _literal_u(d), lanes);
+                            _if(d_active, [&] {
+                                auto clamped = _fb->call(Type::of<uint>(), CallOp::MIN,
+                                                         {lane, _literal_u(d)});
+                                auto peer = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
+                                                        lane, clamped);
+                                auto other = _fb->local(elem_t);
+                                _fb->assign(other, _fb->call(elem_t, CallOp::WARP_READ_LANE,
+                                                             {incl, peer}));
+                                auto has_prev = _fb->binary(Type::of<bool>(),
+                                                            BinaryOp::GREATER_EQUAL,
+                                                            lane, _literal_u(d));
+                                _if(has_prev, [&] {
+                                    auto combined = is_max
+                                                        ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {incl, other}))
+                                                        : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, incl, other));
+                                    _fb->assign(incl, combined);
+                                });
+                            });
+                        }
+                        // chunk total = the last lane's inclusive value
+                        auto last = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
+                                                lanes, _literal_u(1u));
+                        auto total = _fb->call(elem_t, CallOp::WARP_READ_LANE, {incl, last});
+                        const Expression *res = is_max
+                                                    ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {carry, incl}))
+                                                    : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, carry, incl));
+                        if (emit_writes) {
+                            _if(valid, [&] {
+                                scc[dim] = pos;
+                                if (frag_out) {
+                                    _fb->assign(_fb->access(out_t, staging, _staging_index(dst, scc)),
+                                                _maybe_cast(res, out_t));
+                                } else {
+                                    _write_to(dst, scc, res);
+                                }
+                            });
+                        }
+                        const Expression *new_carry = is_max
+                                                          ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {carry, total}))
+                                                          : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, carry, total));
+                        _fb->assign(carry, new_carry);
+                    });
+                };
+                auto seg_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                             warp, _literal_u(seg_count));
+                _if(seg_valid, [&] {
+                    // pass 1: scan segment, publish the segment total
+                    auto seg_start = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                                 warp, _literal_u(seg_len));
+                    _fb->assign(carry, identity());
+                    scan_segment(cc, seg_start, seg_len, identity(), false);
+                    _if(_fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                    lane, _literal_u(0u)), [&] {
+                        _fb->assign(_fb->access(elem_t, totals_s, warp), carry);
+                    });
+                });
+                _sync_block();// publish totals before warp 0 scans them
+                // pass 2: warp 0 inclusive-scans the seg_count totals -> per-
+                // segment exclusive prefixes
+                _if(_fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                warp, _literal_u(0u)), [&] {
+                    auto v = _fb->local(elem_t);
+                    _fb->assign(v, identity());
+                    auto lane_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                                  lane, _literal_u(seg_count));
+                    _if(lane_valid, [&] {
+                        _fb->assign(v, _fb->access(elem_t, totals_s, lane));
+                    });
+                    auto incl = _fb->local(elem_t);
+                    _fb->assign(incl, v);
+                    // butterfly inclusive scan of totals (same loop as above)
+                    for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
+                        auto d_active = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                                    _literal_u(d), lanes);
+                        _if(d_active, [&] {
+                            auto clamped = _fb->call(Type::of<uint>(), CallOp::MIN,
+                                                     {lane, _literal_u(d)});
+                            auto peer = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
+                                                    lane, clamped);
+                            auto other = _fb->local(elem_t);
+                            _fb->assign(other, _fb->call(elem_t, CallOp::WARP_READ_LANE,
+                                                         {incl, peer}));
+                            auto has_prev = _fb->binary(Type::of<bool>(),
+                                                        BinaryOp::GREATER_EQUAL,
+                                                        lane, _literal_u(d));
+                            _if(has_prev, [&] {
+                                auto combined = is_max
+                                                    ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {incl, other}))
+                                                    : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, incl, other));
+                                _fb->assign(incl, combined);
+                            });
+                        });
+                    }
+                    // exclusive prefix = predecessor lane's inclusive total
+                    auto pred = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
+                                            lane, _fb->call(Type::of<uint>(), CallOp::MIN,
+                                                            {lane, _literal_u(1u)}));
+                    auto prev = _fb->local(elem_t);
+                    _fb->assign(prev, _fb->call(elem_t, CallOp::WARP_READ_LANE,
+                                                 {incl, pred}));
+                    _if(_fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                    lane, _literal_u(0u)), [&] {
+                        _fb->assign(prev, identity());
+                    });
+                    _if(lane_valid, [&] {
+                        _fb->assign(_fb->access(elem_t, prefix_s, lane), prev);
+                    });
+                });
+                _sync_block();// publish prefixes before pass 3 reads them
+                _if(seg_valid, [&] {
+                    // pass 3: recompute the segment scan with the exclusive prefix
+                    auto seg_start = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                                 warp, _literal_u(seg_len));
+                    auto base = _fb->local(elem_t);
+                    _fb->assign(base, _fb->access(elem_t, prefix_s, warp));
+                    scan_segment(cc, seg_start, seg_len, base, true);
+                });
+            }
+            if (frag_out) { _replicate_from_staging(dst, out_t, staging); }
+            _current_extent = saved;
+            return;
+        }
         _for_range(_literal_u(0u), line_iters, _literal_u(1u),
                    [&](const Expression *li) {
             auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, li, nw);
