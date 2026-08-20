@@ -5147,3 +5147,98 @@ regenerating it; RGB PSNR is 42.930016/46.208391/45.900175/45.529821/
 translation units pass the clangd syntax checker, formatting and Git whitespace
 checks pass, and the new runtime object imports only the six packet Embree
 symbols listed above.
+
+## JIT-resident surface-filter ray packet input
+
+The preceding W8 profile still attributed 4.93% of total samples to rebuilding
+an Embree SoA packet from per-lane query-state pointers at the runtime boundary.
+W4/W8/W16 query construction now retains the twelve `RTCRayW` fields in
+status-colored JIT fixed-vector storage. A full cohort passes that storage
+directly; a sparse cohort first uses twelve vector selects to replace
+scheduler-inactive lanes with benign ray bits. Occlusion consumes the packet
+in place, while closest traversal copies only its contiguous ray prefix into
+an initialized hit packet. W2 has no native `RTCRay2` and retains the original
+state-unpack path and five-argument callback ABI.
+
+`LUISA_SIMD_DISABLE_IN_FILTER_RAY_PACKET_INPUT=1` selects a separately compiled
+six-argument state-unpack specialization for W4/W8/W16 while retaining the
+same JIT packet construction and sanitization. This is the same-binary oracle
+for the removed runtime boundary. The production specialization's disassembly
+calls `rtcIntersect4/8/16` and `rtcOccluded4/8/16` directly and contains no call
+to a state-pointer packet initializer; the oracle specialization contains the
+three width-specific initializers. Their sizes are 7,559 and 7,037 bytes,
+respectively. After the final codegen responsibility split, the complete
+backend `.text` grows from 3,468,816 to 3,507,344 bytes because both auditable
+runtime specializations remain available and the pipeline emitter is no longer
+inlined into its dispatcher translation unit. Five separately dumped cutout
+JIT objects and assembly files are byte-identical before and after the change
+at both W1 and W2, including a fresh comparison after that split.
+
+The final equal-resource measurements use the system/TBB build, physical CPUs
+0--15, sixteen workers, 64 spp, and one spp per dispatch. Every ordinary cell
+is seven fresh processes; order is cyclically rotated within each round. W8's
+mechanism result combines two independent seven-pair groups. The unrelated
+workload alternates between a 32-way compiler and a single-core Psycles HIP
+render. Contaminated width groups are discarded and restarted; the final
+W1/W2 controls additionally poll for both processes while every child is
+running. Speedups and ordinary 95% paired intervals are computed in log space.
+
+The mechanism comparison is:
+
+| width | packet median FPS | unpack-oracle median FPS | packet / oracle | wins | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 37.9804 | 36.9350 | **1.0318x** | 7/7 | **[1.0223, 1.0414]** |
+| W8 | 39.8361 | 38.9686 | **1.0262x** | 13/14 | **[1.0161, 1.0365]** |
+| W16 | 39.8378 | 38.3878 | **1.0369x** | 7/7 | **[1.0184, 1.0557]** |
+
+The packet input is therefore a statistically resolved whole-process win at
+every native packet width: 3.2% at W4, 2.6% at W8, and 3.7% at W16. Against
+the exact pre-change binary, the final seven-pair W4/W8/W16 ratios are 1.0377x
+[1.0236, 1.0521], 1.0139x [0.9944, 1.0339], and 1.0365x [1.0201, 1.0532].
+The same-binary oracle is the cleaner mechanism measurement because it avoids
+shared-library layout drift. The W1 and W2 negative controls, which cannot
+select the new packet input, remain neutral against the old binary at 1.0043x
+[0.9929, 1.0158] and 1.0019x [0.9827, 1.0215].
+
+Three additional alternating W8 pairs use 256 spp under `perf stat`. The
+candidate/oracle geometric-mean ratios are:
+
+| counter | candidate / unpack oracle |
+| --- | ---: |
+| throughput | 1.0329x |
+| cycles | 0.9696x |
+| instructions | 0.9549x |
+| branches | 0.9354x |
+| branch misses | 0.9288x |
+| cache references | 1.0580x |
+| cache misses | 1.0181x |
+
+The 3.0% cycle and 4.5% instruction reductions corroborate the wall-time
+result. JIT packet retention trades additional stack traffic for removal of
+the runtime gather loop; the higher cache-reference count is real, but it does
+not offset the instruction and branch reduction.
+
+The corresponding current-SIMD versus equal-resource fallback result is:
+
+| width | SIMD median FPS | fallback median FPS | SIMD / fallback | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: |
+| W1 | 33.7266 | 47.6629 | 0.7096x | [0.7000, 0.7194] |
+| W2 | 28.6653 | 47.8213 | 0.5979x | [0.5827, 0.6135] |
+| W4 | 37.9804 | 47.6061 | 0.8028x | [0.7922, 0.8136] |
+| W8 | 38.6911 | 45.2442 | **0.8538x** | [0.8389, 0.8690] |
+| W16 | 39.8378 | 47.9838 | **0.8343x** | [0.8221, 0.8466] |
+
+W8 remains the best cutout width and is 14.6% behind fallback under this
+equal-resource setup; W16 is 16.6% behind. This accepted change removes a
+measured host packing cost; it does not remove the remaining JIT, scheduler,
+and Embree traversal gap.
+
+Both maintained Release trees pass 166/166 CTest cases after the final source
+split. The focused native-math, runtime-width, Schedule/JIT, accel, and three
+provider-oracle modes pass 8/8. Fresh 1024-spp cutout runs at W1/W2/W4/W8/W16
+pass the checked-in reference without regenerating it, at RGB PSNR
+42.930016/46.208391/45.900175/45.529821/45.150873 dB. Independent 64-spp
+packet/unpack-oracle images are byte-identical at W4/W8/W16. The new packet
+probe covers all twelve fields, thirteen special `tnear` bit patterns, sparse
+cohorts, and inactive tails; changed C++ is clang-format-clean and the complete
+diff passes Git whitespace validation.

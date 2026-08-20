@@ -15,11 +15,11 @@ inline constexpr auto embree_hit_packet_field_count =
 inline constexpr auto embree_hit_packet_field_count =
     7u + RTC_MAX_INSTANCE_LEVEL_COUNT;
 #endif
-inline constexpr auto embree_ray_packet_field_count = 12u;
-
 [[nodiscard]] constexpr uint32_t embree_packet_field_count(
     uint32_t width, bool closest) noexcept {
-    if (!closest) { return embree_ray_packet_field_count; }
+    if (!closest) {
+        return simd_host_accel_ray_packet_field_count;
+    }
     switch (width) {
         case 1u:
             return static_cast<uint32_t>(
@@ -45,15 +45,15 @@ static_assert(
     simd_host_accel_ray_tfar_field == 8u &&
     simd_host_accel_ray_id_field == 10u &&
     simd_host_accel_hit_u_field ==
-        embree_ray_packet_field_count + 3u &&
+        simd_host_accel_ray_packet_field_count + 3u &&
     simd_host_accel_hit_v_field ==
-        embree_ray_packet_field_count + 4u &&
+        simd_host_accel_ray_packet_field_count + 4u &&
     simd_host_accel_hit_prim_field ==
-        embree_ray_packet_field_count + 5u &&
+        simd_host_accel_ray_packet_field_count + 5u &&
     simd_host_accel_hit_geom_field ==
-        embree_ray_packet_field_count + 6u &&
+        simd_host_accel_ray_packet_field_count + 6u &&
     simd_host_accel_hit_inst_field ==
-        embree_ray_packet_field_count + 7u);
+        simd_host_accel_ray_packet_field_count + 7u);
 
 [[nodiscard]] bool is_float_array(
     const Type *type, uint32_t dimension) noexcept {
@@ -894,7 +894,7 @@ void ScheduleEmitter::_accel_motion_write(
     store_packet_field(9u, visibility);
     store_packet_field(11u, zero_i32);
     if (closest) {
-        for (auto field = embree_ray_packet_field_count;
+        for (auto field = simd_host_accel_ray_packet_field_count;
              field < simd_host_accel_hit_prim_field; field++) {
             store_packet_field(field, zero_i32);
         }

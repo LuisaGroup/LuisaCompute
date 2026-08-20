@@ -111,6 +111,10 @@ private:
     std::vector<::llvm::AllocaInst *> _ray_query_pipeline_callback_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_surface_filter_pipeline_callback_storage{};
+    std::vector<::llvm::AllocaInst *>
+        _ray_query_surface_filter_ray_packet_storage{};
+    std::vector<::llvm::AllocaInst *>
+        _ray_query_surface_filter_ray_packet_call_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_state_handle_storage{};
     // Dense indices exist only for natural loops enclosing at least one
     // static block barrier. Each slot is a per-lane epoch vector retained in
@@ -473,6 +477,14 @@ private:
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_ray_query_create(
         const schedule::Instruction &instruction);
+    [[nodiscard]] bool _store_ray_query_surface_filter_ray_packet(
+        const schedule::Value &ray_value, ::llvm::Value *ray,
+        ::llvm::Value *safe_time, ::llvm::Value *visibility,
+        uint32_t status_index);
+    [[nodiscard]] ::llvm::Value *
+    _ray_query_surface_filter_ray_packet_for_call(
+        ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
+        ::llvm::Value *active_mask_bits);
     [[nodiscard]] ::llvm::Value *_ray_query_state_handles(
         schedule::ValueId object_id);
     [[nodiscard]] ::llvm::AllocaInst *_ray_query_status_slot(

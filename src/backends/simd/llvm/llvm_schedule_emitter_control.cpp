@@ -962,6 +962,29 @@ void ScheduleEmitter::_allocate_state() {
             _ray_query_surface_filter_pipeline_callback_storage[slot] =
                 pipeline_callback;
         }
+        if (slot <
+            _ray_query_surface_filter_ray_packet_storage.size()) {
+            auto *lane_type = ::llvm::FixedVectorType::get(
+                _builder.getInt32Ty(), _width);
+            auto *packet_type = ::llvm::ArrayType::get(
+                lane_type, simd_host_accel_ray_packet_field_count);
+            auto *ray_packet = _builder.CreateAlloca(
+                packet_type, nullptr,
+                "ray.query.surface.filter.ray.packet.slot." +
+                    std::to_string(slot));
+            ray_packet->setAlignment(::llvm::Align{
+                _width * sizeof(uint32_t)});
+            _ray_query_surface_filter_ray_packet_storage[slot] =
+                ray_packet;
+            auto *call_packet = _builder.CreateAlloca(
+                packet_type, nullptr,
+                "ray.query.surface.filter.call.ray.packet.slot." +
+                    std::to_string(slot));
+            call_packet->setAlignment(::llvm::Align{
+                _width * sizeof(uint32_t)});
+            _ray_query_surface_filter_ray_packet_call_storage[slot] =
+                call_packet;
+        }
         if (slot < _ray_query_state_handle_storage.size()) {
             auto *state_handles = _builder.CreateAlloca(
                 callback_type, nullptr,

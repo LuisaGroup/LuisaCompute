@@ -3,6 +3,7 @@
 
 #include <array>
 #include <bit>
+#include <cstring>
 #include <cstdlib>
 #include <limits>
 
@@ -258,6 +259,82 @@ void initialize_hit_packet(HitPacket &hit) noexcept {
     }
 }
 
+template<size_t packet_width>
+void initialize_valid_packet(
+    std::array<int, packet_width> &valid,
+    uint32_t lane_count, uint64_t active_mask_bits) noexcept {
+    auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
+    auto active = active_mask_bits & lane_mask;
+    for (auto lane = uint32_t{0u}; lane < packet_width; lane++) {
+        valid[lane] = lane < lane_count &&
+                              (active & (uint64_t{1u} << lane)) != 0u ?
+                          -1 :
+                          0;
+    }
+}
+
+template<size_t packet_width, typename RayPacket>
+void occluded_packet(
+    RTCScene scene, SurfaceFilterPipelineContext &context,
+    std::array<int, packet_width> &valid,
+    RayPacket &packet) noexcept {
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+    if constexpr (packet_width == 4u) {
+        rtcOccluded4(valid.data(), scene, &context.rtc, &packet);
+    } else if constexpr (packet_width == 8u) {
+        rtcOccluded8(valid.data(), scene, &context.rtc, &packet);
+    } else {
+        rtcOccluded16(valid.data(), scene, &context.rtc, &packet);
+    }
+#else
+    RTCOccludedArguments arguments{};
+    rtcInitOccludedArguments(&arguments);
+    arguments.context = &context.rtc;
+    arguments.flags = static_cast<RTCRayQueryFlags>(
+        arguments.flags |
+        RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
+    arguments.filter = surface_filter_pipeline_dispatch;
+    if constexpr (packet_width == 4u) {
+        rtcOccluded4(valid.data(), scene, &packet, &arguments);
+    } else if constexpr (packet_width == 8u) {
+        rtcOccluded8(valid.data(), scene, &packet, &arguments);
+    } else {
+        rtcOccluded16(valid.data(), scene, &packet, &arguments);
+    }
+#endif
+}
+
+template<size_t packet_width, typename RayHitPacket>
+void intersect_packet(
+    RTCScene scene, SurfaceFilterPipelineContext &context,
+    std::array<int, packet_width> &valid,
+    RayHitPacket &packet) noexcept {
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
+    if constexpr (packet_width == 4u) {
+        rtcIntersect4(valid.data(), scene, &context.rtc, &packet);
+    } else if constexpr (packet_width == 8u) {
+        rtcIntersect8(valid.data(), scene, &context.rtc, &packet);
+    } else {
+        rtcIntersect16(valid.data(), scene, &context.rtc, &packet);
+    }
+#else
+    RTCIntersectArguments arguments{};
+    rtcInitIntersectArguments(&arguments);
+    arguments.context = &context.rtc;
+    arguments.flags = static_cast<RTCRayQueryFlags>(
+        arguments.flags |
+        RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
+    arguments.filter = surface_filter_pipeline_dispatch;
+    if constexpr (packet_width == 4u) {
+        rtcIntersect4(valid.data(), scene, &packet, &arguments);
+    } else if constexpr (packet_width == 8u) {
+        rtcIntersect8(valid.data(), scene, &packet, &arguments);
+    } else {
+        rtcIntersect16(valid.data(), scene, &packet, &arguments);
+    }
+#endif
+}
+
 void initialize_context(
     SurfaceFilterPipelineContext &context,
     const SIMDHostAccelInstanceTable &instances,
@@ -282,12 +359,14 @@ void initialize_context(
 #endif
 }
 
-template<size_t packet_width, typename RayHitPacket, typename RayPacket>
+template<bool packet_input, size_t packet_width,
+         typename RayHitPacket, typename RayPacket>
 void trace_group(
     RTCScene scene, const SIMDHostAccelInstanceTable &instances,
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
     bool terminate_on_first,
+    void *ray_packet,
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept {
     alignas(64) SurfaceFilterPipelineContext context{};
@@ -295,63 +374,37 @@ void trace_group(
         context, instances, lane_count, active_mask_bits, states,
         launch_config, on_surface);
     alignas(64) std::array<int, packet_width> valid{};
+    if constexpr (packet_input) {
+        initialize_valid_packet(
+            valid, lane_count, active_mask_bits);
+    }
     if (terminate_on_first) {
-        alignas(64) RayPacket packet{};
-        initialize_ray_packet<packet_width>(
-            packet, valid, lane_count, active_mask_bits, states);
-#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
-        if constexpr (packet_width == 4u) {
-            rtcOccluded4(valid.data(), scene, &context.rtc, &packet);
-        } else if constexpr (packet_width == 8u) {
-            rtcOccluded8(valid.data(), scene, &context.rtc, &packet);
+        if constexpr (packet_input) {
+            auto *packet = static_cast<RayPacket *>(ray_packet);
+            occluded_packet<packet_width>(
+                scene, context, valid, *packet);
         } else {
-            rtcOccluded16(valid.data(), scene, &context.rtc, &packet);
+            alignas(64) RayPacket packet{};
+            initialize_ray_packet<packet_width>(
+                packet, valid, lane_count,
+                active_mask_bits, states);
+            occluded_packet<packet_width>(
+                scene, context, valid, packet);
         }
-#else
-        RTCOccludedArguments arguments{};
-        rtcInitOccludedArguments(&arguments);
-        arguments.context = &context.rtc;
-        arguments.flags = static_cast<RTCRayQueryFlags>(
-            arguments.flags |
-            RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
-        arguments.filter = surface_filter_pipeline_dispatch;
-        if constexpr (packet_width == 4u) {
-            rtcOccluded4(valid.data(), scene, &packet, &arguments);
-        } else if constexpr (packet_width == 8u) {
-            rtcOccluded8(valid.data(), scene, &packet, &arguments);
-        } else {
-            rtcOccluded16(valid.data(), scene, &packet, &arguments);
-        }
-#endif
     } else {
         alignas(64) RayHitPacket packet{};
-        initialize_ray_packet<packet_width>(
-            packet.ray, valid, lane_count, active_mask_bits, states);
+        if constexpr (packet_input) {
+            std::memcpy(
+                &packet.ray, ray_packet,
+                sizeof(RayPacket));
+        } else {
+            initialize_ray_packet<packet_width>(
+                packet.ray, valid, lane_count,
+                active_mask_bits, states);
+        }
         initialize_hit_packet<packet_width>(packet.hit);
-#if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
-        if constexpr (packet_width == 4u) {
-            rtcIntersect4(valid.data(), scene, &context.rtc, &packet);
-        } else if constexpr (packet_width == 8u) {
-            rtcIntersect8(valid.data(), scene, &context.rtc, &packet);
-        } else {
-            rtcIntersect16(valid.data(), scene, &context.rtc, &packet);
-        }
-#else
-        RTCIntersectArguments arguments{};
-        rtcInitIntersectArguments(&arguments);
-        arguments.context = &context.rtc;
-        arguments.flags = static_cast<RTCRayQueryFlags>(
-            arguments.flags |
-            RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER);
-        arguments.filter = surface_filter_pipeline_dispatch;
-        if constexpr (packet_width == 4u) {
-            rtcIntersect4(valid.data(), scene, &packet, &arguments);
-        } else if constexpr (packet_width == 8u) {
-            rtcIntersect8(valid.data(), scene, &packet, &arguments);
-        } else {
-            rtcIntersect16(valid.data(), scene, &packet, &arguments);
-        }
-#endif
+        intersect_packet<packet_width>(
+            scene, context, valid, packet);
     }
     auto remaining =
         active_mask_bits & ((uint64_t{1u} << lane_count) - 1u);
@@ -370,11 +423,13 @@ void trace_group(
     }
 }
 
+template<bool packet_input>
 void trace_group_for_width(
     SIMDAccel &accel, uint32_t lane_count,
     uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
     bool terminate_on_first,
+    void *ray_packet,
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept {
     auto scene = SurfaceFilterPipelineAccelAccess::scene(accel);
@@ -383,21 +438,21 @@ void trace_group_for_width(
     switch (lane_count) {
         case 2u:
         case 4u:
-            trace_group<4u, RTCRayHit4, RTCRay4>(
+            trace_group<packet_input, 4u, RTCRayHit4, RTCRay4>(
                 scene, instances, lane_count, active_mask_bits,
-                states, terminate_on_first, launch_config,
+                states, terminate_on_first, ray_packet, launch_config,
                 on_surface);
             break;
         case 8u:
-            trace_group<8u, RTCRayHit8, RTCRay8>(
+            trace_group<packet_input, 8u, RTCRayHit8, RTCRay8>(
                 scene, instances, lane_count, active_mask_bits,
-                states, terminate_on_first, launch_config,
+                states, terminate_on_first, ray_packet, launch_config,
                 on_surface);
             break;
         case 16u:
-            trace_group<16u, RTCRayHit16, RTCRay16>(
+            trace_group<packet_input, 16u, RTCRayHit16, RTCRay16>(
                 scene, instances, lane_count, active_mask_bits,
-                states, terminate_on_first, launch_config,
+                states, terminate_on_first, ray_packet, launch_config,
                 on_surface);
             break;
         default:
@@ -407,18 +462,20 @@ void trace_group_for_width(
     }
 }
 
-}// namespace
-
-void ray_query_surface_filter_pipeline_triangle_only(
+template<bool packet_input>
+void ray_query_surface_filter_pipeline_triangle_only_impl(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
+    void *ray_packet,
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept {
     LUISA_ASSERT(
         states != nullptr && launch_config != nullptr &&
             on_surface != nullptr &&
             (lane_count == 2u || lane_count == 4u ||
-             lane_count == 8u || lane_count == 16u),
+             lane_count == 8u || lane_count == 16u) &&
+            (packet_input ? ray_packet != nullptr && lane_count >= 4u :
+                            ray_packet == nullptr),
         "Invalid SIMD in-filter ray-query pipeline invocation at W{}.",
         lane_count);
     auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
@@ -460,11 +517,45 @@ void ray_query_surface_filter_pipeline_triangle_only(
         LUISA_ASSERT(
             group != 0u,
             "SIMD in-filter ray query formed an empty traversal group.");
-        trace_group_for_width(
+        trace_group_for_width<packet_input>(
             *accel, lane_count, group, states,
-            terminate_on_first, launch_config, on_surface);
+            terminate_on_first, ray_packet,
+            launch_config, on_surface);
         pending &= ~group;
     }
+}
+
+}// namespace
+
+void ray_query_surface_filter_packet_pipeline_triangle_only(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    void *ray_packet,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept {
+    ray_query_surface_filter_pipeline_triangle_only_impl<true>(
+        lane_count, active_mask_bits, states, ray_packet,
+        launch_config, on_surface);
+}
+
+void ray_query_surface_filter_pipeline_triangle_only(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept {
+    ray_query_surface_filter_pipeline_triangle_only_impl<false>(
+        lane_count, active_mask_bits, states, nullptr,
+        launch_config, on_surface);
+}
+
+void ray_query_surface_filter_packet_pipeline_triangle_only_state_oracle(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    void *, const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept {
+    ray_query_surface_filter_pipeline_triangle_only_impl<false>(
+        lane_count, active_mask_bits, states, nullptr,
+        launch_config, on_surface);
 }
 
 }// namespace luisa::compute::simd::triangle_ray_query

@@ -7140,6 +7140,23 @@ struct RayQueryStatusProbe {
     return true;
 }
 
+[[nodiscard]] uint32_t embree_tnear_bits_for_probe(
+    float tnear) noexcept {
+    constexpr auto sign_bit = 0x80000000u;
+    constexpr auto magnitude_mask = 0x7fffffffu;
+    constexpr auto minimum_normal_bits = 0x00800000u;
+    constexpr auto infinity_bits = 0x7f800000u;
+    auto bits = std::bit_cast<uint32_t>(tnear);
+    auto magnitude = bits & magnitude_mask;
+    if (magnitude >= infinity_bits) { return bits; }
+    if (magnitude == 0u) { return sign_bit | minimum_normal_bits; }
+    bits = (bits & sign_bit) != 0u ? bits + 1u : bits - 1u;
+    if ((bits & magnitude_mask) < minimum_normal_bits) {
+        bits = sign_bit | minimum_normal_bits;
+    }
+    return bits;
+}
+
 struct RayQueryFilterProbe {
     uint32_t calls{0u};
     uint32_t surface_pipeline_calls{0u};
@@ -7339,9 +7356,10 @@ void ray_query_surface_filter_plain_probe(
         lane_count, active_mask_bits, states);
 }
 
-void ray_query_surface_filter_pipeline_probe(
+void ray_query_surface_filter_pipeline_probe_impl(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
+    void *ray_packet,
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept {
     if (states == nullptr || launch_config == nullptr ||
@@ -7360,12 +7378,28 @@ void ray_query_surface_filter_pipeline_probe(
         first_state->accel);
     probe->surface_pipeline_calls++;
     probe->valid &= lane_count == probe->expected_lane_count;
+    probe->valid &= lane_count == 2u ?
+                        ray_packet == nullptr :
+                        ray_packet != nullptr;
     auto candidates = uint64_t{0u};
     for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
         auto active =
             (active_mask_bits & (uint64_t{1u} << lane)) != 0u;
         if (!active) {
             probe->valid &= states[lane] == nullptr;
+            if (ray_packet != nullptr) {
+                auto *packet_words =
+                    static_cast<uint32_t *>(ray_packet);
+                for (auto field = uint32_t{0u};
+                     field < simd_host_accel_ray_packet_field_count;
+                     field++) {
+                    auto safe_bits =
+                        field == 6u ? 0x3f800000u : 0u;
+                    probe->valid &=
+                        packet_words[field * lane_count + lane] ==
+                        safe_bits;
+                }
+            }
             continue;
         }
         auto *state = states[lane];
@@ -7378,6 +7412,42 @@ void ray_query_surface_filter_pipeline_probe(
         auto index = static_cast<uint32_t>(state->world_ray[0u]);
         probe->valid &= state->world_ray[0u] ==
                         static_cast<float>(index);
+        if (ray_packet != nullptr) {
+            auto *packet_words = static_cast<uint32_t *>(ray_packet);
+            auto packet_word = [&](uint32_t field) noexcept {
+                return packet_words[field * lane_count + lane];
+            };
+            probe->valid &= packet_word(0u) ==
+                            std::bit_cast<uint32_t>(
+                                state->world_ray[0u]);
+            probe->valid &= packet_word(1u) ==
+                            std::bit_cast<uint32_t>(
+                                state->world_ray[1u]);
+            probe->valid &= packet_word(2u) ==
+                            std::bit_cast<uint32_t>(
+                                state->world_ray[2u]);
+            probe->valid &= packet_word(3u) ==
+                            embree_tnear_bits_for_probe(
+                                state->world_ray[3u]);
+            probe->valid &= packet_word(4u) ==
+                            std::bit_cast<uint32_t>(
+                                state->world_ray[4u]);
+            probe->valid &= packet_word(5u) ==
+                            std::bit_cast<uint32_t>(
+                                state->world_ray[5u]);
+            probe->valid &= packet_word(6u) ==
+                            std::bit_cast<uint32_t>(
+                                state->world_ray[6u]);
+            probe->valid &= packet_word(7u) ==
+                            std::bit_cast<uint32_t>(state->time);
+            probe->valid &= packet_word(8u) ==
+                            std::bit_cast<uint32_t>(
+                                state->world_ray[7u]);
+            probe->valid &= packet_words[9u * lane_count + lane] ==
+                            state->visibility_mask;
+            probe->valid &= packet_words[10u * lane_count + lane] == lane;
+            probe->valid &= packet_word(11u) == 0u;
+        }
         if ((index & 1u) != 0u) {
             state->terminated = 1u;
             continue;
@@ -7423,6 +7493,27 @@ void ray_query_surface_filter_pipeline_probe(
         state->candidate_committed = 0u;
         state->terminated = 1u;
     }
+}
+
+void ray_query_surface_filter_pipeline_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept {
+    ray_query_surface_filter_pipeline_probe_impl(
+        lane_count, active_mask_bits, states, nullptr,
+        launch_config, on_surface);
+}
+
+void ray_query_surface_filter_packet_pipeline_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    void *ray_packet,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept {
+    ray_query_surface_filter_pipeline_probe_impl(
+        lane_count, active_mask_bits, states, ray_packet,
+        launch_config, on_surface);
 }
 
 [[nodiscard]] bool run_ast_ray_query_filter_predication() {
@@ -7958,9 +8049,42 @@ void ray_query_surface_filter_pipeline_probe(
     static constexpr auto count = uint32_t{13u};
     Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
         auto index = dispatch_x();
+        Float t_min = 0.0f;
+        $if (index == 1u) {
+            t_min = std::bit_cast<float>(0x80000000u);
+        };
+        $if (index == 2u) {
+            t_min = std::bit_cast<float>(0x00000001u);
+        };
+        $if (index == 3u) {
+            t_min = std::bit_cast<float>(0x80000001u);
+        };
+        $if (index == 4u) {
+            t_min = std::bit_cast<float>(0x00800000u);
+        };
+        $if (index == 5u) {
+            t_min = std::bit_cast<float>(0x80800000u);
+        };
+        $if (index == 6u) { t_min = 1.0f; };
+        $if (index == 7u) { t_min = -1.0f; };
+        $if (index == 8u) {
+            t_min = std::bit_cast<float>(0x7f800000u);
+        };
+        $if (index == 9u) {
+            t_min = std::bit_cast<float>(0xff800000u);
+        };
+        $if (index == 10u) {
+            t_min = std::bit_cast<float>(0x7fc12345u);
+        };
+        $if (index == 11u) {
+            t_min = std::bit_cast<float>(0x7f7fffffu);
+        };
+        $if (index == 12u) {
+            t_min = std::bit_cast<float>(0xff7fffffu);
+        };
         auto ray = make_ray(
             make_float3(cast<float>(index), 0.0f, 0.0f),
-            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+            make_float3(0.0f, 0.0f, 1.0f), t_min, 100.0f);
         auto hit = accel.traverse(ray, {})
                        .on_surface_candidate(
                            [](SurfaceCandidate &candidate) noexcept {
@@ -8033,11 +8157,16 @@ void ray_query_surface_filter_pipeline_probe(
                     ray_query_surface_filter_status_probe,
                 .ray_query_proceed_wide_status =
                     ray_query_surface_filter_status_probe,
-                .ray_query_surface_filter_pipeline =
-                    enable_surface_pipeline ?
-                        ray_query_surface_filter_pipeline_probe :
-                        nullptr,
             };
+            if (enable_surface_pipeline) {
+                if (width >= 4u) {
+                    instance_table.ray_query_surface_filter_packet_pipeline =
+                        ray_query_surface_filter_packet_pipeline_probe;
+                } else {
+                    instance_table.ray_query_surface_filter_pipeline =
+                        ray_query_surface_filter_pipeline_probe;
+                }
+            }
             Arguments arguments{
                 .accel = {
                     .accel = &probe,

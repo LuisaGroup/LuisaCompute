@@ -140,6 +140,7 @@ struct alignas(16) SIMDHostBindlessArrayView {
 // its embedded valid array directly to Embree, which writes results in place.
 inline constexpr auto simd_host_accel_ray_tfar_field = 8u;
 inline constexpr auto simd_host_accel_ray_id_field = 10u;
+inline constexpr auto simd_host_accel_ray_packet_field_count = 12u;
 inline constexpr auto simd_host_accel_hit_u_field = 15u;
 inline constexpr auto simd_host_accel_hit_v_field = 16u;
 inline constexpr auto simd_host_accel_hit_prim_field = 17u;
@@ -221,6 +222,12 @@ using SIMDHostRayQuerySurfaceFilterHandler = void(
 using SIMDHostAccelRayQuerySurfaceFilterPipeline = void(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQuerySurfaceFilterHandler *on_surface);
+using SIMDHostAccelRayQuerySurfaceFilterPacketPipeline = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    void *ray_packet,
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQuerySurfaceFilterHandler *on_surface);
 
@@ -415,8 +422,12 @@ struct alignas(16) SIMDHostAccelInstanceTable {
     SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_status{nullptr};
     SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_wide_status{nullptr};
     SIMDHostAccelRayQueryPipelineW1 *ray_query_pipeline_w1{nullptr};
-    SIMDHostAccelRayQuerySurfaceFilterPipeline *
-        ray_query_surface_filter_pipeline{nullptr};
+    union {
+        SIMDHostAccelRayQuerySurfaceFilterPipeline *
+            ray_query_surface_filter_pipeline{nullptr};
+        SIMDHostAccelRayQuerySurfaceFilterPacketPipeline *
+            ray_query_surface_filter_packet_pipeline;
+    };
     // Geometry classification belongs to the last committed Embree scene,
     // not necessarily to the desired public table above. A buffer-only
     // primitive replacement or resize must not reinterpret stale BVH hits
@@ -445,6 +456,9 @@ static_assert(
 static_assert(sizeof(SIMDHostAccelRayQueryProceedStatus *) == sizeof(void *));
 static_assert(
     sizeof(SIMDHostAccelRayQuerySurfaceFilterPipeline *) == sizeof(void *));
+static_assert(
+    sizeof(SIMDHostAccelRayQuerySurfaceFilterPacketPipeline *) ==
+    sizeof(void *));
 static_assert(sizeof(SIMDHostRayQuerySurfaceHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryCommittedHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryProceduralHit) == 8u);
@@ -493,6 +507,10 @@ static_assert(offsetof(
 static_assert(offsetof(
                   SIMDHostAccelInstanceTable,
                   ray_query_surface_filter_pipeline) ==
+              5u * sizeof(void *));
+static_assert(offsetof(
+                  SIMDHostAccelInstanceTable,
+                  ray_query_surface_filter_packet_pipeline) ==
               5u * sizeof(void *));
 static_assert(offsetof(
                   SIMDHostAccelInstanceTable,

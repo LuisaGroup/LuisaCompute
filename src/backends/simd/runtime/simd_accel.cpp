@@ -35,7 +35,8 @@ inline constexpr auto embree_hit_packet_field_count =
 inline constexpr auto embree_hit_packet_field_count =
     7u + RTC_MAX_INSTANCE_LEVEL_COUNT;
 #endif
-inline constexpr auto embree_ray_packet_field_count = 12u;
+inline constexpr auto embree_ray_packet_field_count =
+    simd_host_accel_ray_packet_field_count;
 
 static_assert(sizeof(int) == sizeof(uint32_t));
 static_assert(std::bit_cast<uint32_t>(-1) == ~uint32_t{0u});
@@ -1560,6 +1561,9 @@ SIMDAccel::SIMDAccel(
       _enable_surface_filter_pipeline{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE")},
+      _enable_surface_filter_ray_packet{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_IN_FILTER_RAY_PACKET_INPUT")},
       _enable_narrow_shared_status{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS")},
@@ -1731,12 +1735,23 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         auto use_triangle_only_provider =
             !_has_procedural_instances && !_has_curve_instances &&
             _enable_triangle_only_ray_query;
-        _instance_table.ray_query_surface_filter_pipeline =
-            use_triangle_only_provider &&
-                    _enable_surface_filter_pipeline ?
-                triangle_ray_query::
-                    ray_query_surface_filter_pipeline_triangle_only :
-                nullptr;
+        if (use_triangle_only_provider &&
+            _enable_surface_filter_pipeline) {
+            if (_warp_width >= 4u) {
+                _instance_table.ray_query_surface_filter_packet_pipeline =
+                    _enable_surface_filter_ray_packet ?
+                        triangle_ray_query::
+                            ray_query_surface_filter_packet_pipeline_triangle_only :
+                        triangle_ray_query::
+                            ray_query_surface_filter_packet_pipeline_triangle_only_state_oracle;
+            } else {
+                _instance_table.ray_query_surface_filter_pipeline =
+                    triangle_ray_query::
+                        ray_query_surface_filter_pipeline_triangle_only;
+            }
+        } else {
+            _instance_table.ray_query_surface_filter_pipeline = nullptr;
+        }
         auto use_narrow_shared_status =
             !use_triangle_only_provider &&
             (_warp_width == 2u || _warp_width == 4u) &&

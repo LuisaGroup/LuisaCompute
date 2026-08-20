@@ -3421,6 +3421,43 @@ that could observe order remain on the sorted path. The diagnostic
 `LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1` restores that path without
 recompiling the shader.
 
+W4/W8/W16 construction additionally retains Embree's twelve-field `RTCRayW`
+input as component-major fixed vectors in the query's proven status color.
+Origin, direction, interval, time, visibility, logical lane ID, and flags are
+formed once in JIT SSA and written with masked vector stores; the state AoS
+remains authoritative for callbacks and for every fallback route. The `tnear`
+bit transform exactly matches the established host oracle: NaN and infinities
+are unchanged, other finite values take one representable step toward negative
+infinity, and a result below the minimum normal magnitude clamps to negative
+minimum-normal. This includes both signed zeros and subnormals. W2 has no
+native `RTCRay2`, keeps its original five-argument callback ABI, and continues
+to form one padded W4 packet from state.
+
+A raw colored packet cannot be passed for a sparse cohort because its inactive
+lanes may belong to another live query. The call boundary therefore has a
+second transient packet. A full cohort passes the raw packet directly; a
+sparse cohort emits twelve fixed-vector `select`s that retain active fields and
+replace every inactive field with benign bits (`dir_z = 1`, all others zero)
+before Embree can inspect it. The runtime then uses the packet directly for
+occlusion or copies its ray prefix into a locally initialized hit packet for
+closest traversal. No per-lane state-pointer unpack remains on this route.
+The runtime may further partition those initialized active lanes by accel and
+closest/any mode. Its Embree valid mask is then a subset of the JIT call mask:
+temporarily excluded lanes still contain complete initialized rays, while all
+lanes outside the JIT call mask retain the benign values above.
+The five-argument state path and six-argument packet path are separate
+compile-time runtime specializations, so W2 carries neither the packet branch
+nor an extra argument. Because a SIMD device has one fixed width, both callback
+types share the existing instance-table pointer slot and the JIT interprets
+that slot according to its compile-time width.
+
+`LUISA_SIMD_DISABLE_IN_FILTER_RAY_PACKET_INPUT=1` selects the six-argument
+state-unpack implementation without recompiling the shader. It is an exact
+same-binary oracle for the host unpack boundary: JIT packet construction and
+sparse sanitization remain present on both sides. W1 and W2 do not consult this
+control. Their five cutout JIT assembly files and object files are byte-for-byte
+identical to the pre-change binaries.
+
 Permanent coverage compares provider, null-provider, and direct-loop results
 at W2/W4/W8/W16, including an exact sparse candidate mask and a thirteen-item
 tail. Runtime coverage exercises closest and any queries, reject-near/
@@ -3919,8 +3956,10 @@ conformance and the remaining device-library surface follow. The current
 compiler returns precise diagnostics for unsupported features rather than
 silently accepting them.
 
-At the current candidate-local surface-filter checkpoint, both maintained
-Release trees pass 163/163 CTest cases. The accel regression passes 6,730
-assertions with the provider enabled and again with its same-binary oracle, and
-fresh checked-in-reference 1024-spp cutout renders pass independently at
-W1/W2/W4/W8/W16.
+At the current JIT-resident ray-packet checkpoint, both maintained Release
+trees pass 166/166 CTest cases. The accel regression passes 6,730 assertions
+with the provider enabled and with each same-binary oracle, and fresh
+checked-in-reference 1024-spp cutout renders pass independently at
+W1/W2/W4/W8/W16. Ray-query analysis, pipeline emission, and packet formation
+live in separate translation units; all remain below the enforced 2,000-line
+review budget under CMake's own counting rule.

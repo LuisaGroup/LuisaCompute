@@ -2382,6 +2382,46 @@ ordering is promised. Any handler capable of observing order remains on the
 sorted pipeline. `LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1` is the
 required same-binary semantic and performance oracle.
 
+The surface-filter callback has two width-disjoint internal ABIs. W2 retains
+the original five arguments `(width, mask, states, launch, handler)` and must
+receive no ray-packet operand. W4/W8/W16 use six arguments by inserting one
+opaque ray-packet pointer between `states` and `launch`. Since device width is
+fixed, the instance table may store these alternatives in one pointer-sized
+union slot; code generated for one width must never invoke the other type.
+W1 does not use either surface-filter ABI.
+
+For W4/W8/W16 the pointed-to input is exactly twelve component-major vectors
+matching the target Embree `RTCRay4/8/16` layout and alignment. Fields are
+`org_x/y/z`, adjusted `tnear`, `dir_x/y/z`, `time`, `tfar`, `mask`, logical
+lane `id`, and zero `flags`. The adjusted `tnear` must be bit-identical to the
+state-unpack oracle: NaN and either infinity pass through; every other finite
+value moves one representable value toward negative infinity; if that result
+has subnormal magnitude it becomes negative minimum-normal. Thus `+0`, `-0`,
+and either-sign subnormals all map to negative minimum-normal. This is an
+interval-conserving implementation detail, not a domain extension.
+
+Packet storage is status-colored per lane. Construction may update only active
+lanes because an inactive lane can hold another live query in the same color.
+Consequently a sparse raw packet is not a legal Embree operand. Before the
+call, the JIT must copy it through fixed-vector selects into transient storage,
+preserving active fields and setting every inactive field to zero except
+`dir_z = 1.0f`; a full mask may bypass that copy. Embree's integer valid array
+must be a subset of that JIT call mask. The runtime may clear additional valid
+bits while partitioning initialized active lanes by accel and closest/any mode;
+such temporarily excluded lanes contain complete rays for another live query,
+never uninitialized or stale storage. This pre-call rule prevents
+uninitialized, poison, or stale query data from reaching Embree. Sanitizing
+after traversal is insufficient.
+
+The state AoS remains authoritative for candidate publication, commits,
+fallback providers, and the disabled oracle. The packet-input runtime may use
+the sanitized ray packet directly for occlusion and may copy it only as the ray
+prefix of an initialized closest-hit packet. It must not reconstruct active
+rays through a lane-by-lane state-pointer loop. The diagnostic
+`LUISA_SIMD_DISABLE_IN_FILTER_RAY_PACKET_INPUT=1` must retain JIT construction
+and sanitization while selecting the state-unpack runtime, so measurements
+isolate this boundary without changing the generated module.
+
 At W8/W16, a full runtime cohort mask must use a dense proceed loop in either
 the generic or triangle-only adaptive provider. A sparse mask may iterate its
 set bits and may initialize/install only the corresponding lane records, but
