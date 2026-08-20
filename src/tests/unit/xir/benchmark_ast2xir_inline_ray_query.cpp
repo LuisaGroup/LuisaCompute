@@ -205,7 +205,7 @@ int main(int argc, char **argv) {
             make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
         UInt result = 0u;
         for (auto query_index = 0u; query_index < 4u; ++query_index) {
-            auto query = accel.query_all(ray, {});
+            auto query = accel.query(ray, {});
             $while (query.proceed()) {
                 $if (query.is_surface_candidate()) {
                     auto candidate = query.surface_candidate();

@@ -144,7 +144,7 @@ int main(int argc, char *argv[]) {
             0.0f, 4.0f);
         UInt callbacks = 0u;
         if (explicit_query) {
-            auto query = scene.query_all(ray, {});
+            auto query = scene.query(ray, {});
             $while (query.proceed()) {
                 $if (query.is_procedural_candidate()) {
                     auto candidate = query.procedural_candidate();

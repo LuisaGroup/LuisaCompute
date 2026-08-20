@@ -931,12 +931,12 @@ You can register handlers in any order — either `.on_surface_candidate()` firs
 
 ### Explicit Query Loops
 
-The lower-level `query_all()` and `query_any()` APIs expose the traversal state
+The lower-level `query()` and `query_any()` APIs expose the traversal state
 when an algorithm needs to spell out `proceed()` explicitly. Motion variants
-are available as `query_all_motion()` and `query_any_motion()`.
+are available as `query_motion()` and `query_any_motion()`.
 
 ```cpp
-auto query = accel.query_all(ray, AccelTraceOptions{});
+auto query = accel.query(ray, AccelTraceOptions{});
 $while (query.proceed()) {
     $if (query.is_surface_candidate()) {
         auto candidate = query.surface_candidate();

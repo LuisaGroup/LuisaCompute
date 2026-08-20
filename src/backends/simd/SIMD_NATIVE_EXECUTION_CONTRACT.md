@@ -2076,7 +2076,7 @@ performance oracle.
 `LUISA_SIMD_DISABLE_FRONTEND_RAY_QUERY_PRESERVATION=1` is a diagnostic
 compile/code-shape oracle that retains the historical generic-loop plus
 reconstruction route; it does not change the public AST or runtime contract.
-Non-canonical explicit `query_all`/`query_any` control remains on the
+Non-canonical explicit `query`/`query_any` control remains on the
 state-machine route. Packet width and native traversal ABI are not DSL
 semantics. The target-independent frontend supplies only a proven whole-query
 boundary and lexical handlers; it does not expose backend width policy or

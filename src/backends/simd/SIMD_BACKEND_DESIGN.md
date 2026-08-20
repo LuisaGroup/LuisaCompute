@@ -220,7 +220,7 @@ The DSL already preserves the distinction needed by the SIMD pipeline path.
 `RayQueryLoopInst`, whose complete handler regions can be outlined into a
 `RayQueryPipelineInst`. The `$while` DSL also retains its original condition as
 non-semantic provenance while leaving the historical explicit guard in the
-AST. AST-to-XIR transactionally proves a canonical `query_all`/`query_any`
+AST. AST-to-XIR transactionally proves a canonical `query`/`query_any`
 `proceed()` plus immediate candidate dispatch and emits the same
 `RayQueryLoopInst` directly. A malformed marked query in the function disables
 all direct preservation, and provenance-free/serialized ASTs retain the old
@@ -2930,7 +2930,7 @@ rejects a ray-like near-match atomically. Shared shell payload, nested
 `PROCEED`, escaping guard temporaries, external predecessors, and loop-carried
 SSA PHIs are rejected rather than guessed. Ordinary loops are ignored.
 
-The DSL exposes this form through affine `query_all`/`query_any` objects, with
+The DSL exposes this form through affine `query`/`query_any` objects, with
 motion variants, explicit `proceed`, candidate-kind tests, typed surface and
 procedural candidate views, termination, world-ray access, and committed-hit
 access. Live DSL ASTs preserve the proven form directly; the compatibility

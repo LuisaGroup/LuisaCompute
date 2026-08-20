@@ -7578,7 +7578,7 @@ void ray_query_filter_pipeline_w1_probe(
         auto ray = make_ray(
             make_float3(cast<float>(index), 0.0f, 0.0f),
             make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
-        auto query = accel.query_all(ray, {});
+        auto query = accel.query(ray, {});
         $while (query.proceed()) {
             $if (query.is_surface_candidate()) {
                 query.terminate();
@@ -7640,7 +7640,7 @@ void ray_query_filter_pipeline_w1_probe(
             make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
         UInt result = 0u;
         {
-            auto query = accel.query_all(ray, {});
+            auto query = accel.query(ray, {});
             $while (query.proceed()) {
                 $if (query.is_surface_candidate()) {
                     query.surface_candidate().terminate();
@@ -7652,7 +7652,7 @@ void ray_query_filter_pipeline_w1_probe(
             result += query.committed_hit()->inst;
         }
         {
-            auto query = accel.query_all(ray, {});
+            auto query = accel.query(ray, {});
             $while (query.proceed()) {
                 $if (query.is_surface_candidate()) {
                     query.surface_candidate().terminate();
@@ -7679,7 +7679,7 @@ void ray_query_filter_pipeline_w1_probe(
         auto ray = make_ray(
             make_float3(cast<float>(index), 0.0f, 0.0f),
             make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
-        auto query = accel.query_all(ray, {});
+        auto query = accel.query(ray, {});
         UInt callbacks = 0u;
         $while (query.proceed()) {
             $if (query.is_surface_candidate()) {
@@ -7716,7 +7716,7 @@ void ray_query_filter_pipeline_w1_probe(
         auto ray = make_ray(
             make_float3(cast<float>(index), 0.0f, 0.0f),
             make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
-        auto query = accel.query_all(ray, {});
+        auto query = accel.query(ray, {});
         UInt value = index;
         $while (query.proceed()) {
             $if (query.is_surface_candidate()) {

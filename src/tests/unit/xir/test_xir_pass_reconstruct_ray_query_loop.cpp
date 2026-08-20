@@ -12,6 +12,7 @@
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
@@ -668,7 +669,7 @@ void register_tests() {
         expect(xir_verify_module(&module).succeeded());
     };
 
-    "frontend_dsl_query_all_with_both_handlers_round_trips"_test = [] {
+    "frontend_dsl_traverse_with_both_handlers_round_trips"_test = [] {
         Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
             auto index = dispatch_x();
             auto ray = make_ray(
@@ -769,7 +770,7 @@ void register_tests() {
             auto ray = make_ray(
                 make_float3(cast<float>(index), 0.0f, 0.0f),
                 make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
-            auto query = accel.query_all(ray, {});
+            auto query = accel.query(ray, {});
             UInt callback_weight = 0u;
             $while (query.proceed()) {
                 $if (query.is_surface_candidate()) {
@@ -953,6 +954,52 @@ void register_tests() {
         expect(xir_verify_module(module.get()).succeeded());
     };
 
+    "frontend_dsl_inline_query_motion_uses_all_motion_opcode"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f));
+            auto query = accel.query_motion(ray, 0.5f, {});
+            UInt callback_weight = 0u;
+            $while (query.proceed()) {
+                $if (query.is_surface_candidate()) {
+                    auto candidate = query.surface_candidate();
+                    callback_weight += candidate.hit()->prim;
+                    candidate.commit();
+                }
+                $else {
+                    auto candidate = query.procedural_candidate();
+                    callback_weight += candidate.hit()->prim + 1u;
+                    candidate.commit(1.0f);
+                };
+            };
+            output.write(
+                index,
+                callback_weight + query.committed_hit()->prim);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        if (module == nullptr) { return; }
+        auto *translated_kernel = find_kernel(module.get());
+        expect(translated_kernel != nullptr);
+        if (translated_kernel == nullptr) { return; }
+        auto saw_query_all_motion = false;
+        translated_kernel->definition()->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                if (instruction->isa<ResourceQueryInst>()) {
+                    auto *query = static_cast<ResourceQueryInst *>(
+                        instruction);
+                    saw_query_all_motion |=
+                        query->op() == ResourceQueryOp::
+                                           RAY_TRACING_QUERY_ALL_MOTION_BLUR;
+                }
+            });
+        expect(saw_query_all_motion);
+        expect_frontend_round_trip(std::move(module), 1u, 0u);
+    };
+
     "frontend_dsl_inline_query_nested_in_ordinary_while_is_preserved"_test = [] {
         Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
             auto index = dispatch_x();
@@ -962,7 +1009,7 @@ void register_tests() {
             UInt outer_iteration = 0u;
             UInt result = 0u;
             $while (outer_iteration < 2u) {
-                auto query = accel.query_all(ray, {});
+                auto query = accel.query(ray, {});
                 $while (query.proceed()) {
                     $if (query.is_surface_candidate()) {
                         auto candidate = query.surface_candidate();
@@ -1034,7 +1081,7 @@ void register_tests() {
             auto ray = make_ray(
                 make_float3(cast<float>(index), 0.0f, 0.0f),
                 make_float3(0.0f, 0.0f, 1.0f));
-            auto query = accel.query_all(ray, {});
+            auto query = accel.query(ray, {});
             UInt candidate_count = 0u;
             $while (query.proceed()) {
                 candidate_count += 1u;
@@ -1071,7 +1118,7 @@ void register_tests() {
                 make_float3(cast<float>(index), 0.0f, 0.0f),
                 make_float3(0.0f, 0.0f, 1.0f));
             UInt result = 0u;
-            auto valid = accel.query_all(ray, {});
+            auto valid = accel.query(ray, {});
             $while (valid.proceed()) {
                 $if (valid.is_surface_candidate()) {
                     auto candidate = valid.surface_candidate();

@@ -175,7 +175,7 @@ int main(int argc, char *argv[]) {
             0.0f, ray_t_max);
         UInt callbacks = 0u;
         if (explicit_query) {
-            auto query = scene.query_all(ray, AccelTraceOptions{});
+            auto query = scene.query(ray, AccelTraceOptions{});
             $while (query.proceed()) {
                 $if (query.is_surface_candidate()) {
                     auto candidate = query.surface_candidate();

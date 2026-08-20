@@ -223,7 +223,7 @@ void test_inline_ray_query_dsl(Device &device) {
             make_float3(0.0f, 0.0f, 1.0f),
             make_float3(0.0f, 0.0f, -1.0f),
             0.0f, 10.0f);
-        auto query = accel.query_all(ray, {});
+        auto query = accel.query(ray, {});
         UInt callback_count = 0u;
         $while (query.proceed()) {
             $if (query.is_surface_candidate()) {
