@@ -692,6 +692,11 @@ if (TARGET luisa-compute-backend-simd)
     set_tests_properties(test_simd_accel_incoherent_oracle PROPERTIES
             LABELS "integration_simd;runtime_simd"
             ENVIRONMENT "LUISA_SIMD_DISABLE_COHERENT_W16_DIRECT_TRACE=1")
+    add_test(NAME test_simd_accel_surface_filter_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_surface_filter_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1")
 
     foreach (_simd_runtime_test IN ITEMS
             test_buffer

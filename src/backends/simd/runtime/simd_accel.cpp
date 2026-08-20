@@ -1557,6 +1557,9 @@ SIMDAccel::SIMDAccel(
               "LUISA_SIMD_DISABLE_COHERENT_W16_DIRECT_TRACE")},
       _enable_triangle_only_ray_query{
           triangle_ray_query::triangle_only_ray_query_enabled()},
+      _enable_surface_filter_pipeline{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE")},
       _enable_narrow_shared_status{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS")},
@@ -1728,6 +1731,12 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
         auto use_triangle_only_provider =
             !_has_procedural_instances && !_has_curve_instances &&
             _enable_triangle_only_ray_query;
+        _instance_table.ray_query_surface_filter_pipeline =
+            use_triangle_only_provider &&
+                    _enable_surface_filter_pipeline ?
+                triangle_ray_query::
+                    ray_query_surface_filter_pipeline_triangle_only :
+                nullptr;
         auto use_narrow_shared_status =
             !use_triangle_only_provider &&
             (_warp_width == 2u || _warp_width == 4u) &&

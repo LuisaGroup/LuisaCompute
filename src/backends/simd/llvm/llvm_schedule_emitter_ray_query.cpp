@@ -89,15 +89,26 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     _ray_query_status_storage.clear();
     _ray_query_status_callback_storage.clear();
     _ray_query_pipeline_callback_storage.clear();
+    _ray_query_surface_filter_pipeline_callback_storage.clear();
     _ray_query_state_handle_storage.clear();
 
     std::vector<schedule::ValueId> constructions;
     std::vector<uint32_t> construction_for_value(value_count, invalid);
     auto has_pipeline = false;
+    auto has_surface_filter_pipeline = false;
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
             has_pipeline |= instruction.opcode ==
                             schedule::Opcode::ray_query_pipeline;
+            if (instruction.opcode ==
+                    schedule::Opcode::ray_query_pipeline &&
+                instruction.source_op &&
+                *instruction.source_op <
+                    _ray_query_pipeline_handlers.size()) {
+                has_surface_filter_pipeline |=
+                    _ray_query_pipeline_handlers[*instruction.source_op]
+                        .embree_surface_filter_safe;
+            }
             if (!is_ray_query_construction(instruction)) { continue; }
             auto id = *instruction.result;
             construction_for_value[id.value] =
@@ -675,6 +686,10 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
             _ray_query_pipeline_callback_storage.assign(
                 status_slot_count, nullptr);
         }
+        if (_width != 1u && has_surface_filter_pipeline) {
+            _ray_query_surface_filter_pipeline_callback_storage.assign(
+                status_slot_count, nullptr);
+        }
         _result.ray_query_status_slot_count = status_slot_count;
         // The status proof already establishes one published local owner per
         // active lane and non-overlapping lifetimes per color. Reuse that
@@ -823,9 +838,14 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     auto *null_pointer = ::llvm::ConstantPointerNull::get(pointer_type);
     auto *status_proceed = static_cast<::llvm::Value *>(nullptr);
     auto *pipeline_w1 = static_cast<::llvm::Value *>(nullptr);
+    auto *surface_filter_pipeline =
+        static_cast<::llvm::Value *>(nullptr);
+    auto status_index = cache_status ?
+                            _ray_query_status_slots[instruction.result->value] :
+                            std::numeric_limits<uint32_t>::max();
     auto cache_pipeline_w1 =
         _width == 1u && cache_status &&
-        _ray_query_status_slots[instruction.result->value] <
+        status_index <
             _ray_query_pipeline_callback_storage.size();
     if (cache_status) {
         auto *instances = _builder.CreateExtractValue(accel, {3u});
@@ -858,6 +878,20 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 ::llvm::Align{alignof(void *)});
             pipeline_w1 = pipeline_load;
         }
+        if (status_index <
+            _ray_query_surface_filter_pipeline_callback_storage.size()) {
+            auto *pipeline_pointer = _byte_pointer(
+                instances,
+                offsetof(
+                    SIMDHostAccelInstanceTable,
+                    ray_query_surface_filter_pipeline));
+            auto *pipeline_load = _builder.CreateLoad(
+                pointer_type, pipeline_pointer,
+                "accel.ray.query.surface.filter.pipeline.callback");
+            pipeline_load->setAlignment(
+                ::llvm::Align{alignof(void *)});
+            surface_filter_pipeline = pipeline_load;
+        }
     }
     auto *missing_callback = _builder.CreateOr(
         _builder.CreateICmpEQ(object, null_pointer),
@@ -881,7 +915,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     scatter(
         plain_proceed, offsetof(SIMDHostRayQueryState, proceed), alignof(void *));
     if (cache_status) {
-        auto status_slot = _ray_query_status_slots[instruction.result->value];
+        auto status_slot = status_index;
         auto *old_callbacks = _builder.CreateAlignedLoad(
             pointer_lanes,
             _ray_query_status_callback_storage[status_slot],
@@ -905,6 +939,21 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                         _width, pipeline_w1),
                     old_pipelines),
                 _ray_query_pipeline_callback_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+        }
+        if (status_slot <
+            _ray_query_surface_filter_pipeline_callback_storage.size()) {
+            auto *old_pipelines = _builder.CreateAlignedLoad(
+                pointer_lanes,
+                _ray_query_surface_filter_pipeline_callback_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+            _builder.CreateAlignedStore(
+                _builder.CreateSelect(
+                    _active_mask,
+                    _builder.CreateVectorSplat(
+                        _width, surface_filter_pipeline),
+                    old_pipelines),
+                _ray_query_surface_filter_pipeline_callback_storage[status_slot],
                 ::llvm::Align{alignof(void *)});
         }
     }
@@ -1347,9 +1396,37 @@ void ScheduleEmitter::_ray_query_pipeline(
         if (capture == nullptr) { return; }
         handler_arguments.emplace_back(capture);
     }
+    auto *surface_filter_callback =
+        static_cast<::llvm::Value *>(nullptr);
+    if (handler_pair.embree_surface_filter_safe &&
+        status_index <
+            _ray_query_surface_filter_pipeline_callback_storage.size()) {
+        auto *pipeline_callbacks = _builder.CreateAlignedLoad(
+            pointer_lanes,
+            _ray_query_surface_filter_pipeline_callback_storage[status_index],
+            ::llvm::Align{alignof(void *)},
+            "ray.query.surface.filter.pipeline.callbacks");
+        surface_filter_callback = _builder.CreateExtractElement(
+            pipeline_callbacks, _safe_first_lane(_active_mask));
+        auto *pipeline_callback_mismatch = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                pipeline_callbacks,
+                _builder.CreateVectorSplat(
+                    _width, surface_filter_callback)));
+        _trap_if(
+            _builder.CreateOrReduce(pipeline_callback_mismatch),
+            "ray.query.surface.filter.pipeline.callback.mismatch");
+    }
     auto *preheader = _builder.GetInsertBlock();
     auto *loop = ::llvm::BasicBlock::Create(
         context, "ray.query.pipeline.loop", _entry);
+    auto *surface_filter_call =
+        surface_filter_callback == nullptr ?
+            nullptr :
+            ::llvm::BasicBlock::Create(
+                context,
+                "ray.query.pipeline.surface.filter", _entry);
     auto *surface_call = ::llvm::BasicBlock::Create(
         context, "ray.query.pipeline.surface", _entry);
     auto *after_surface = ::llvm::BasicBlock::Create(
@@ -1360,7 +1437,27 @@ void ScheduleEmitter::_ray_query_pipeline(
         context, "ray.query.pipeline.continue", _entry);
     auto *exit = ::llvm::BasicBlock::Create(
         context, "ray.query.pipeline.exit", _entry);
-    _builder.CreateBr(loop);
+    if (surface_filter_callback == nullptr) {
+        _builder.CreateBr(loop);
+    } else {
+        _builder.CreateCondBr(
+            _builder.CreateICmpNE(
+                surface_filter_callback, null_pointer),
+            surface_filter_call, loop);
+
+        _builder.SetInsertPoint(surface_filter_call);
+        auto *pipeline_type = ::llvm::FunctionType::get(
+            _builder.getVoidTy(),
+            {_builder.getInt32Ty(), _builder.getInt64Ty(),
+             pointer_type, pointer_type, pointer_type},
+            false);
+        _builder.CreateCall(
+            pipeline_type, surface_filter_callback,
+            {_builder.getInt32(_width), outer_active_bits,
+             scratch, _launch_config,
+             handler_pair.on_surface});
+        _builder.CreateBr(exit);
+    }
 
     _builder.SetInsertPoint(loop);
     auto *active_bits = _builder.CreatePHI(

@@ -15,6 +15,7 @@ class SIMDSRTMotionForwarder;
 namespace triangle_ray_query {
 
 struct SIMDAccelAccess;
+struct SurfaceFilterPipelineAccelAccess;
 [[nodiscard]] bool triangle_only_ray_query_enabled() noexcept;
 void ray_query_proceed_triangle_only(
     uint32_t lane_count, uint64_t active_mask_bits,
@@ -22,6 +23,11 @@ void ray_query_proceed_triangle_only(
 void ray_query_proceed_wide_triangle_only(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states) noexcept;
+void ray_query_surface_filter_pipeline_triangle_only(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQuerySurfaceFilterHandler *on_surface) noexcept;
 
 }// namespace triangle_ray_query
 
@@ -74,12 +80,14 @@ private:
     uint32_t _warp_width{8u};
     bool _enable_coherent_w16_direct_trace{true};
     bool _enable_triangle_only_ray_query{true};
+    bool _enable_surface_filter_pipeline{true};
     bool _enable_narrow_shared_status{true};
     bool _enable_w8_wide_shared_status{true};
     bool _enable_procedural_dense_status{true};
     bool _enable_procedural_fused_status{true};
 
     friend struct triangle_ray_query::SIMDAccelAccess;
+    friend struct triangle_ray_query::SurfaceFilterPipelineAccelAccess;
     friend uint64_t
     simd_host_ray_query_proceed_wide_procedural_fused_status(
         uint32_t lane_count, uint64_t active_mask_bits,

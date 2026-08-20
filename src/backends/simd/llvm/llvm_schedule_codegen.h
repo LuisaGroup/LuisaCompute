@@ -203,6 +203,19 @@ using SIMDHostAccelRayQueryPipelineW1 = void(
     SIMDHostRayQueryState *state, const void *capture,
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQueryPipelineHandlerW1 *on_candidate);
+// Capture-free, surface-only handlers whose result depends solely on the
+// current triangle candidate may execute directly from Embree's packet filter.
+// The handler keeps the established internal packet ABI; the runtime owns the
+// traversal and invokes it only for the exact candidate-lane mask.
+using SIMDHostRayQuerySurfaceFilterHandler = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    const SIMDPacketLaunchConfig *launch_config);
+using SIMDHostAccelRayQuerySurfaceFilterPipeline = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQuerySurfaceFilterHandler *on_surface);
 
 // One fixed-size state belongs to each logical lane and simultaneously live
 // query object. Noninterfering construction sites may share storage after a
@@ -393,6 +406,8 @@ struct alignas(16) SIMDHostAccelInstanceTable {
     SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_status{nullptr};
     SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_wide_status{nullptr};
     SIMDHostAccelRayQueryPipelineW1 *ray_query_pipeline_w1{nullptr};
+    SIMDHostAccelRayQuerySurfaceFilterPipeline *
+        ray_query_surface_filter_pipeline{nullptr};
     // Geometry classification belongs to the last committed Embree scene,
     // not necessarily to the desired public table above. A buffer-only
     // primitive replacement or resize must not reinterpret stale BVH hits
@@ -415,6 +430,8 @@ static_assert(sizeof(SIMDHostAccelTraceClosest *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelTraceAny *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelRayQueryProceed *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelRayQueryProceedStatus *) == sizeof(void *));
+static_assert(
+    sizeof(SIMDHostAccelRayQuerySurfaceFilterPipeline *) == sizeof(void *));
 static_assert(sizeof(SIMDHostRayQuerySurfaceHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryCommittedHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryProceduralHit) == 8u);
@@ -459,10 +476,14 @@ static_assert(offsetof(
                   ray_query_pipeline_w1) == 4u * sizeof(void *));
 static_assert(offsetof(
                   SIMDHostAccelInstanceTable,
-                  committed_instances) == 5u * sizeof(void *));
+                  ray_query_surface_filter_pipeline) ==
+              5u * sizeof(void *));
 static_assert(offsetof(
                   SIMDHostAccelInstanceTable,
-                  committed_size) == 6u * sizeof(void *));
+                  committed_instances) == 6u * sizeof(void *));
+static_assert(offsetof(
+                  SIMDHostAccelInstanceTable,
+                  committed_size) == 7u * sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, accel) == 0u);
 static_assert(offsetof(SIMDHostAccelView, trace_closest) == sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));
@@ -574,6 +595,12 @@ struct LLVMSIMDRayQueryPipelineHandlers {
     // host/JIT boundary friendly to indirect-branch prediction. Wider
     // pipelines keep this null and retain packet handlers.
     ::llvm::Function *on_candidate_w1{nullptr};
+    // True only after an XIR audit proves that the capture-free surface
+    // handler reads the current triangle candidate, performs pure control/ALU
+    // work, and may only commit that same candidate; the procedural handler
+    // must be empty. This permits the private Embree in-filter route without
+    // changing observable candidate ordering for stateful handlers.
+    bool embree_surface_filter_safe{false};
 };
 
 // Packet ABI:

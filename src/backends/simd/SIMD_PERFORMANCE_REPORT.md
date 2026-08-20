@@ -123,6 +123,13 @@ limited to W16 schedules with at least 32 logical slots and retains the result
 only when at least two additional physical slots disappear. This reduces the
 analytic, Voxel, and cutout W16 frames while rolling the neutral one-slot
 ordinary-path opportunity back to byte-identical code.
+The newest ray-query stage proves a capture-free surface handler to be
+candidate-local and invokes its existing fixed-vector JIT body directly from
+an Embree packet filter. It removes the ordered host batch/publish cycle for
+that narrow class while preserving the old pipeline as a null-provider and
+same-binary oracle. The final section reports both the internal gain and a
+corrected fallback comparison after discovering the default fallback pool's
+explicit CPU-affinity override.
 
 ## Test host and method
 
@@ -144,9 +151,14 @@ ordinary-path optimization ablations use 64 or 128 spp with that same fixed
 batching. The current fallback-relative ordinary row instead uses one fully
 synchronized 32-spp dispatch in seven rotated rounds; final FPS is read only
 after stream synchronization, so fallback's asynchronous submission is not
-mistaken for execution time. It confines both backends to 30 logical CPUs
-`0-12,14-28,30-31`; SIMD uses 30 workers and fallback's default pool remains
-inside that same affinity. The current cutout sweep uses seven pairs per width.
+mistaken for execution time. A later affinity audit found that fallback's
+default Akari pool pins its 32 worker threads to CPU IDs 0--31 and thereby
+overrides an inherited `taskset` restriction. Consequently those historical
+default-fallback rows are product-configuration comparisons, not equal-core
+comparisons. SIMD used 30 workers on `0-12,14-28,30-31`; fallback used its
+default 32 workers. The current cutout section below reports this product
+configuration and a separate 16-vs-16 system-parallel-for/TBB control that
+does respect `taskset`.
 The focused triangle-only-provider result uses twelve W8 pairs, while the
 other widths use four to six pairs. The refreshed ordinary and voxel processes
 keep stable per-backend hashes and use separate gallery conformance runs. The
@@ -167,7 +179,12 @@ candidate.
 Speedup is always `fallback time / SIMD time`, or
 `SIMD throughput / fallback throughput`, so values above one are wins.
 
-## Current fallback-relative results
+## Cross-workload fallback-relative checkpoint
+
+The non-ray rows remain the latest completed all-width sweeps for their named
+workloads. The ordinary and cutout rows are historical product-configuration
+checkpoints; the candidate-local Embree section at the end of this report is
+the authoritative current cutout result and supplies the equal-core control.
 
 | Workload and metric | fallback | W1 | W2 | W4 | W8 | W16 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -223,8 +240,9 @@ through W16; their paired 95% log-space Student-t intervals are
 seven. Every width/backend retains one stable output hash across its seven
 processes, and separate gallery runs supply correctness conformance.
 
-The final-binary cutout row uses seven paired rounds after the direct
-structured-query stage. W1 was repeated separately after its production gate;
+The structured-query checkpoint cutout row uses seven paired rounds after the
+direct structured-query stage and is superseded by the current in-filter table
+below. W1 was repeated separately after its production gate;
 the other widths use one balanced six-configuration rotation. It remains below
 fallback at every width: 0.6779x/0.4973x/0.6045x/0.6800x/0.6587x, with paired
 95% intervals [0.6636, 0.6924], [0.4761, 0.5194], [0.5892, 0.6203],
@@ -2654,11 +2672,13 @@ Voxel, all five image-processing kernels, non-coroutine SDF, shader toy, game
 of life, Mandelbrot, masked stream, AoS-to-SoA, and GEMM report zero local,
 nested, or chained regions; this stage makes no throughput claim for them.
 
-For a current fallback-relative renderer checkpoint, both backends were
-confined to the same 30 logical CPUs
-`0-12,14-28,30-31`, excluding a separately loaded physical core and its SMT
-sibling. SIMD used 30 workers; fallback retained its default 32-thread pool
-inside that affinity. Five rotated rounds used one synchronized 32-spp dispatch.
+For this historical fallback-relative renderer checkpoint, both processes
+inherited the 30-logical-CPU mask `0-12,14-28,30-31`, excluding a separately
+loaded physical core and its SMT sibling. The later affinity audit shows that
+only SIMD remained inside it with 30 workers: fallback's default 32-thread pool
+re-pinned itself to CPU IDs 0--31. This is therefore a product-configuration,
+not equal-core, comparison. Five rotated rounds used one synchronized 32-spp
+dispatch.
 The final synchronized FPS is required here: fallback dispatch is asynchronous,
 so the pre-synchronize per-dispatch timer is not a valid fallback measurement.
 
@@ -5016,3 +5036,107 @@ and system/TBB configurations each pass 162/162 CTest cases. The focused
 precise/fast native-math, runtime-width, and procedural gates pass separately;
 changed C++ is clang-format-clean and the complete diff passes Git whitespace
 validation.
+
+## Candidate-local Embree surface-filter pipeline
+
+The current triangle-only cutout stage removes the ordered host-batch boundary
+only for capture-free handlers whose decision is proven to depend solely on
+the current surface candidate. Embree invokes the existing fixed-vector JIT
+handler from its packet filter with the exact candidate mask. W2 is padded into
+one W4 traversal; W4/W8/W16 use matching packet traversal. W1, captured or
+stateful handlers, procedural scenes, and every unavailable provider retain the
+previous pipeline. `LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1` is the
+same-binary legacy oracle.
+
+Seven alternating fresh-process pairs on the real 1280x720 cutout renderer use
+64 spp at W2/W4 and 128 spp at W8/W16, one spp per dispatch, 16 workers pinned
+to physical CPUs 0--15. Speedup is current pipeline throughput divided by its
+same-binary ordered-pipeline oracle:
+
+| width | current median FPS | ordered median FPS | current / ordered | wins | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W2 | 27.3957 | 24.2435 | **1.1325x** | 7/7 | [1.1163, 1.1488] |
+| W4 | 35.6274 | 30.9961 | **1.1503x** | 7/7 | [1.1368, 1.1640] |
+| W8 | 39.8061 | 37.0180 | **1.0652x** | 6/7 | [1.0361, 1.0951] |
+| W16 | 36.9048 | 35.8817 | **1.0250x** | 7/7 | [1.0139, 1.0362] |
+
+This is a stable internal win at every packet width, but it does not by itself
+make sparse cutout path tracing faster than fallback. Two fallback baselines
+are reported because the default fallback pool has a non-obvious affinity
+policy. Its 32 Akari workers explicitly pin themselves to CPU IDs 0--31, so a
+parent `taskset -c 0-15` does not constrain the worker threads. The following
+seven-pair product-configuration sweep therefore compares the default 32-worker
+fallback with SIMD's 30 configured workers; it is representative of those
+defaults, not equal-core. The final-binary refresh repeats W2/W4/W8/W16; W1
+does not enter this provider and retains the preceding seven-pair result:
+
+| width | SIMD median FPS | paired fallback median FPS | SIMD / fallback | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: |
+| W1 | 43.408 | 63.938 | 0.6853x | [0.6695, 0.7009] |
+| W2 | 38.082 | 64.533 | 0.6070x | [0.5721, 0.6441] |
+| W4 | 45.690 | 64.922 | 0.7010x | [0.6930, 0.7092] |
+| W8 | 48.506 | 63.817 | 0.7560x | [0.7452, 0.7670] |
+| W16 | 44.385 | 62.040 | 0.7113x | [0.6917, 0.7315] |
+
+The equal-resource control uses the system-parallel-for/TBB build, which
+respects the inherited mask, and pins both backends to physical CPUs 0--15 with
+16 workers. The final-binary refresh repeats seven 64-spp pairs at every
+affected W2/W4/W8/W16 width; W1 does not enter this provider and retains its
+preceding seven-pair control:
+
+| width | SIMD median FPS | TBB fallback median FPS | SIMD / fallback | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: |
+| W1 | 33.353 | 47.577 | 0.6978x | [0.6899, 0.7049] |
+| W2 | 27.106 | 44.817 | 0.5808x | [0.5448, 0.6192] |
+| W4 | 35.014 | 44.518 | 0.7811x | [0.7674, 0.7949] |
+| W8 | 38.173 | 44.795 | **0.8522x** | [0.8448, 0.8598] |
+| W16 | 36.344 | 44.866 | **0.8094x** | [0.8028, 0.8160] |
+
+Thus the best fair cutout result is currently W8, 14.8% below fallback; W16 is
+19.1% below. W2's interval is wider because several paired rounds coincided
+with the unrelated host workload; all seven points remain losses. A
+full-machine 32-spp check measured TBB fallback at 66.98 FPS and
+the default pool around 68.4 FPS, so merely replacing the pool is not the main
+remaining gap. An earlier six-configuration rotated product sweep produced
+0.6704x/0.5799x/0.6897x/0.7391x/0.6848x from W1 through W16; it is retained as
+load sensitivity rather than substituted for the adjacent-pair result above.
+
+A 256-spp W8 cycle profile separates the accepted mechanism. Current and
+ordered-oracle FPS were 38.0455/35.0146. Current samples were 40.23% JIT,
+36.71% Embree, and 21.29% SIMD runtime; the oracle was 34.35%/38.48%/25.13%.
+The old proceed implementation alone contributed 6.77% of total samples and
+the old filter/batch-install/status pieces another 11.06%. The new in-filter
+pipeline contributes 5.61% and its packet initializer 4.93%. The sampled event
+total falls from about 545.40 to 504.13 billion, consistent with the measured
+positive W8 wall-time result, but JIT work and Embree traversal now dominate.
+
+The object boundary contains undefined `rtcIntersect4/8/16` and
+`rtcOccluded4/8/16` only; it contains no `rtcIntersect1` or `rtcOccluded1` for
+this route. Two tempting follow-ups were rejected. If-converting the outlined
+surface handlers reduced each handler from 4,829 to 3,035 bytes but measured
+0.9935x with only 2/7 wins at W8. Compacting sparse logical lanes to an active
+packet prefix measured 1.0025x [0.9852, 1.0167] at 64 spp and 1.0056x
+[0.9949, 1.0188] at 128 spp, with unstable outliers. Production therefore
+keeps direct logical-lane packet layout and the existing handler CFG.
+
+The matched ISPC result remains the independently implemented, same-algorithm
+compiler suite, not the repository's complete Embree renderer. Fourteen
+single-worker pairs give Luisa/ISPC geometric means of **1.2449x at W8** and
+**1.2492x at W16** across Mandelbrot, masked stream, AoS-to-SoA, GEMM, and the
+asset-free analytic path tracer. Per-workload W8/W16 ratios are
+1.4087x/1.5574x, 1.4507x/1.4245x, 0.9941x/0.9720x,
+1.3418x/1.3788x, and 1.0969x/1.0232x respectively. There is still no matched
+end-to-end ISPC implementation of the Embree cutout or ordinary repository
+renderer, so no honest ISPC-versus-Luisa number is claimed for those paths.
+
+Final validation completes both maintained Release trees at **163/163 CTest
+cases**. The focused native-math, runtime-width, Schedule/JIT, accel, and
+disabled-provider oracle gate passes 6/6; the accel executable reports
+6,730/6,730 assertions in each provider mode. Fresh 1024-spp cutout gallery
+runs pass the checked-in reference independently at W1/W2/W4/W8/W16 without
+regenerating it; RGB PSNR is 42.930016/46.208391/45.900175/45.529821/
+45.150873 dB respectively. The final W16 comparison additionally reports
+0.999555 luminance correlation and 0.997270 contrast ratio. All changed C++
+translation units pass the clangd syntax checker, formatting and Git whitespace
+checks pass, and the new runtime object imports only the six packet Embree
+symbols listed above.

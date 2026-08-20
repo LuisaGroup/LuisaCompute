@@ -458,6 +458,7 @@ int main(int argc, char *argv[]) {
                                            BufferFloat translations,
                                            BufferUInt hits,
                                            BufferUInt query_hits,
+                                           BufferUInt query_any_hits,
                                            UInt metadata_count) noexcept {
             set_block_size(32u, 1u, 1u);
             set_warp_size(static_cast<uint8_t>(width));
@@ -489,8 +490,17 @@ int main(int argc, char *argv[]) {
                                  .on_procedural_candidate(
                                      [](ProceduralCandidate &) noexcept {})
                                  .trace();
+            auto query_any_hit = scene.traverse_any(ray, options)
+                                     .on_surface_candidate(
+                                         [](SurfaceCandidate &candidate) noexcept {
+                                             candidate.commit();
+                                         })
+                                     .on_procedural_candidate(
+                                         [](ProceduralCandidate &) noexcept {})
+                                     .trace();
             hits.write(index, hit->inst);
             query_hits.write(index, query_hit->inst);
+            query_any_hits.write(index, query_any_hit->inst);
         };
         auto inspect_buffer_only_shader =
             device.compile(inspect_buffer_only);
@@ -498,10 +508,12 @@ int main(int argc, char *argv[]) {
         auto buffer_only_translations = device.create_buffer<float>(2u);
         auto buffer_only_hits = device.create_buffer<uint>(3u);
         auto buffer_only_query_hits = device.create_buffer<uint>(3u);
+        auto buffer_only_query_any_hits = device.create_buffer<uint>(3u);
         std::array<uint4, 2u> host_buffer_only_metadata{};
         std::array<float, 2u> host_buffer_only_translations{};
         std::array<uint, 3u> host_buffer_only_hits{};
         std::array<uint, 3u> host_buffer_only_query_hits{};
+        std::array<uint, 3u> host_buffer_only_query_any_hits{};
 
         buffer_only_accel.set_transform_on_update(
             0u, translation(make_float3(3.0f, 0.0f, 0.0f)));
@@ -516,7 +528,8 @@ int main(int argc, char *argv[]) {
                       buffer_only_metadata,
                       buffer_only_translations,
                       buffer_only_hits,
-                      buffer_only_query_hits, 2u)
+                      buffer_only_query_hits,
+                      buffer_only_query_any_hits, 2u)
                       .dispatch(3u)
                << buffer_only_metadata.copy_to(
                       luisa::span{host_buffer_only_metadata})
@@ -526,6 +539,8 @@ int main(int argc, char *argv[]) {
                       luisa::span{host_buffer_only_hits})
                << buffer_only_query_hits.copy_to(
                       luisa::span{host_buffer_only_query_hits})
+               << buffer_only_query_any_hits.copy_to(
+                      luisa::span{host_buffer_only_query_any_hits})
                << synchronize();
         expect(static_cast<bool>(
             all(host_buffer_only_metadata[0u] ==
@@ -546,9 +561,12 @@ int main(int argc, char *argv[]) {
             << "buffer-only update must not mutate the committed BVH";
         expect(host_buffer_only_query_hits == host_buffer_only_hits)
             << "buffer-only query view diverged from the committed BVH";
+        expect(host_buffer_only_query_any_hits == host_buffer_only_hits)
+            << "buffer-only any-query view diverged from the committed BVH";
 
         host_buffer_only_hits.fill(0u);
         host_buffer_only_query_hits.fill(0u);
+        host_buffer_only_query_any_hits.fill(0u);
         stream << buffer_only_accel.build(
                       Accel::BuildRequest::PREFER_UPDATE)
                << inspect_buffer_only_shader(
@@ -556,43 +574,55 @@ int main(int argc, char *argv[]) {
                       buffer_only_metadata,
                       buffer_only_translations,
                       buffer_only_hits,
-                      buffer_only_query_hits, 2u)
+                      buffer_only_query_hits,
+                      buffer_only_query_any_hits, 2u)
                       .dispatch(3u)
                << buffer_only_hits.copy_to(
                       luisa::span{host_buffer_only_hits})
                << buffer_only_query_hits.copy_to(
                       luisa::span{host_buffer_only_query_hits})
+               << buffer_only_query_any_hits.copy_to(
+                      luisa::span{host_buffer_only_query_any_hits})
                << synchronize();
         expect(host_buffer_only_hits ==
                std::array<uint, 3u>{~0u, 0u, 1u})
             << "ordinary build did not commit deferred buffer-only updates";
         expect(host_buffer_only_query_hits == host_buffer_only_hits)
             << "deferred-build query view mismatch";
+        expect(host_buffer_only_query_any_hits == host_buffer_only_hits)
+            << "deferred-build any-query view mismatch";
 
         buffer_only_accel.pop_back();
         host_buffer_only_hits.fill(0u);
         host_buffer_only_query_hits.fill(0u);
+        host_buffer_only_query_any_hits.fill(0u);
         stream << buffer_only_accel.update_instance_buffer()
                << inspect_buffer_only_shader(
                       buffer_only_accel,
                       buffer_only_metadata,
                       buffer_only_translations,
                       buffer_only_hits,
-                      buffer_only_query_hits, 1u)
+                      buffer_only_query_hits,
+                      buffer_only_query_any_hits, 1u)
                       .dispatch(3u)
                << buffer_only_hits.copy_to(
                       luisa::span{host_buffer_only_hits})
                << buffer_only_query_hits.copy_to(
                       luisa::span{host_buffer_only_query_hits})
+               << buffer_only_query_any_hits.copy_to(
+                      luisa::span{host_buffer_only_query_any_hits})
                << synchronize();
         expect(host_buffer_only_hits ==
                std::array<uint, 3u>{~0u, 0u, 1u})
             << "buffer-only shrink must retain the committed BVH view";
         expect(host_buffer_only_query_hits == host_buffer_only_hits)
             << "buffer-only shrink lost committed query metadata";
+        expect(host_buffer_only_query_any_hits == host_buffer_only_hits)
+            << "buffer-only shrink lost committed any-query metadata";
 
         host_buffer_only_hits.fill(0u);
         host_buffer_only_query_hits.fill(0u);
+        host_buffer_only_query_any_hits.fill(0u);
         stream << buffer_only_accel.build(
                       Accel::BuildRequest::PREFER_UPDATE)
                << inspect_buffer_only_shader(
@@ -600,18 +630,23 @@ int main(int argc, char *argv[]) {
                       buffer_only_metadata,
                       buffer_only_translations,
                       buffer_only_hits,
-                      buffer_only_query_hits, 1u)
+                      buffer_only_query_hits,
+                      buffer_only_query_any_hits, 1u)
                       .dispatch(3u)
                << buffer_only_hits.copy_to(
                       luisa::span{host_buffer_only_hits})
                << buffer_only_query_hits.copy_to(
                       luisa::span{host_buffer_only_query_hits})
+               << buffer_only_query_any_hits.copy_to(
+                      luisa::span{host_buffer_only_query_any_hits})
                << synchronize();
         expect(host_buffer_only_hits ==
                std::array<uint, 3u>{~0u, 0u, ~0u})
             << "ordinary build did not commit a deferred shrink";
         expect(host_buffer_only_query_hits == host_buffer_only_hits)
             << "deferred-shrink query view mismatch";
+        expect(host_buffer_only_query_any_hits == host_buffer_only_hits)
+            << "deferred-shrink any-query view mismatch";
 
         Kernel1D trace_query = [width](
                                    AccelVar scene,
@@ -784,6 +819,111 @@ int main(int argc, char *argv[]) {
                 << "triangle ray-query terminate mismatch";
         }
 
+        // Capture-free, surface-only handlers are eligible for the Embree
+        // in-filter packet pipeline. Even lanes reject the nearer instance
+        // and commit the farther one; odd lanes miss, forming sparse callback
+        // masks. Thirty-five lanes exercise every width's inactive tail.
+        Kernel1D trace_surface_filter_pipeline = [width](
+                                                     AccelVar scene,
+                                                     BufferUInt4 metadata,
+                                                     BufferFloat2 distances) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto index = dispatch_x();
+            auto direction = select(
+                make_float3(0.0f, 0.0f, -1.0f),
+                make_float3(0.0f, 0.0f, 1.0f),
+                (index & 1u) != 0u);
+            auto ray = make_ray(
+                make_float3(0.0f, 0.0f, 1.0f),
+                direction, 0.0f, 10.0f);
+            auto options = AccelTraceOptions{
+                .visibility_mask = 0x10u};
+            auto closest = scene.traverse(ray, options)
+                               .on_surface_candidate(
+                                   [](SurfaceCandidate &candidate) noexcept {
+                                       $if (candidate.hit()->inst == 1u) {
+                                           candidate.commit();
+                                       };
+                                   })
+                               .on_procedural_candidate(
+                                   [](ProceduralCandidate &) noexcept {})
+                               .trace();
+            auto any = scene.traverse_any(ray, options)
+                           .on_surface_candidate(
+                               [](SurfaceCandidate &candidate) noexcept {
+                                   $if (candidate.hit()->inst == 1u) {
+                                       candidate.commit();
+                                   };
+                               })
+                           .on_procedural_candidate(
+                               [](ProceduralCandidate &) noexcept {})
+                           .trace();
+            metadata.write(
+                index,
+                make_uint4(
+                    closest->hit_type, closest->inst,
+                    any->hit_type, any->inst));
+            distances.write(
+                index,
+                make_float2(
+                    closest->committed_ray_t,
+                    any->committed_ray_t));
+        };
+        auto trace_surface_filter_pipeline_shader =
+            device.compile(trace_surface_filter_pipeline);
+        auto surface_filter_metadata =
+            device.create_buffer<uint4>(thread_count);
+        auto surface_filter_distances =
+            device.create_buffer<float2>(thread_count);
+        std::array<uint4, thread_count>
+            host_surface_filter_metadata{};
+        std::array<float2, thread_count>
+            host_surface_filter_distances{};
+        stream << trace_surface_filter_pipeline_shader(
+                      query_accel, surface_filter_metadata,
+                      surface_filter_distances)
+                      .dispatch(thread_count)
+               << surface_filter_metadata.copy_to(
+                      luisa::span{host_surface_filter_metadata})
+               << surface_filter_distances.copy_to(
+                      luisa::span{host_surface_filter_distances})
+               << synchronize();
+        for (auto i = 0u; i < thread_count; i++) {
+            if ((i & 1u) == 0u) {
+                expect(static_cast<bool>(
+                    all(host_surface_filter_metadata[i] ==
+                        make_uint4(
+                            static_cast<uint32_t>(HitType::Surface),
+                            1u,
+                            static_cast<uint32_t>(HitType::Surface),
+                            1u))))
+                    << luisa::format(
+                           "surface-filter hit mismatch at W{} lane {}",
+                           width, i);
+                expect(std::abs(
+                           host_surface_filter_distances[i].x - 3.0f) <=
+                           1.0e-5f &&
+                       std::abs(
+                           host_surface_filter_distances[i].y - 3.0f) <=
+                           1.0e-5f)
+                    << luisa::format(
+                           "surface-filter distance mismatch at W{} lane {}",
+                           width, i);
+            } else {
+                expect(static_cast<bool>(
+                    all(host_surface_filter_metadata[i] ==
+                        make_uint4(
+                            static_cast<uint32_t>(HitType::Miss),
+                            ~0u,
+                            static_cast<uint32_t>(HitType::Miss),
+                            ~0u))))
+                    << luisa::format(
+                           "surface-filter miss mismatch at W{} lane {}",
+                           width, i);
+            }
+        }
+
         // Cross the fixed thirty-two-candidate speculative batch boundary. The
         // thirty-third candidate must trigger a continuation scan without
         // duplicating or skipping handler invocations.
@@ -895,7 +1035,9 @@ int main(int argc, char *argv[]) {
         Kernel1D trace_motion_query = [width](
                                           AccelVar scene,
                                           BufferUInt4 metadata,
-                                          BufferFloat2 distances) noexcept {
+                                          BufferFloat2 distances,
+                                          BufferUInt2 filter_metadata,
+                                          BufferFloat2 filter_distances) noexcept {
             set_block_size(32u, 1u, 1u);
             set_warp_size(static_cast<uint8_t>(width));
             auto index = dispatch_x();
@@ -928,6 +1070,22 @@ int main(int argc, char *argv[]) {
                            .on_procedural_candidate(
                                [](ProceduralCandidate &) noexcept {})
                            .trace();
+            auto filter_all = scene.traverse_motion(ray, time, options)
+                                  .on_surface_candidate(
+                                      [](SurfaceCandidate &candidate) noexcept {
+                                          candidate.commit();
+                                      })
+                                  .on_procedural_candidate(
+                                      [](ProceduralCandidate &) noexcept {})
+                                  .trace();
+            auto filter_any = scene.traverse_any_motion(ray, time, options)
+                                  .on_surface_candidate(
+                                      [](SurfaceCandidate &candidate) noexcept {
+                                          candidate.commit();
+                                      })
+                                  .on_procedural_candidate(
+                                      [](ProceduralCandidate &) noexcept {})
+                                  .trace();
             metadata.write(
                 index,
                 make_uint4(
@@ -938,22 +1096,39 @@ int main(int argc, char *argv[]) {
                 make_float2(
                     all->committed_ray_t,
                     any->committed_ray_t));
+            filter_metadata.write(
+                index, make_uint2(filter_all->inst, filter_any->inst));
+            filter_distances.write(
+                index,
+                make_float2(
+                    filter_all->committed_ray_t,
+                    filter_any->committed_ray_t));
         };
         auto trace_motion_query_shader =
             device.compile(trace_motion_query);
         auto motion_query_metadata = device.create_buffer<uint4>(4u);
         auto motion_query_distances = device.create_buffer<float2>(4u);
+        auto motion_filter_metadata = device.create_buffer<uint2>(4u);
+        auto motion_filter_distances = device.create_buffer<float2>(4u);
         std::array<uint4, 4u> host_motion_query_metadata{};
         std::array<float2, 4u> host_motion_query_distances{};
+        std::array<uint2, 4u> host_motion_filter_metadata{};
+        std::array<float2, 4u> host_motion_filter_distances{};
         stream << trace_motion_query_shader(
                       instance_motion_accel,
                       motion_query_metadata,
-                      motion_query_distances)
+                      motion_query_distances,
+                      motion_filter_metadata,
+                      motion_filter_distances)
                       .dispatch(4u)
                << motion_query_metadata.copy_to(
                       luisa::span{host_motion_query_metadata})
                << motion_query_distances.copy_to(
                       luisa::span{host_motion_query_distances})
+               << motion_filter_metadata.copy_to(
+                      luisa::span{host_motion_filter_metadata})
+               << motion_filter_distances.copy_to(
+                      luisa::span{host_motion_filter_distances})
                << synchronize();
         for (auto i = 0u; i < 4u; i++) {
             auto expected_instance = i & 1u;
@@ -972,6 +1147,18 @@ int main(int argc, char *argv[]) {
                     host_motion_query_distances[i].y -
                     expected_distance) <= 1.0e-5f)
                 << "opaque motion ray-query distance mismatch";
+            expect(static_cast<bool>(
+                all(host_motion_filter_metadata[i] ==
+                    make_uint2(expected_instance, expected_instance))))
+                << "surface-filter motion ray-query metadata mismatch";
+            expect(
+                std::abs(
+                    host_motion_filter_distances[i].x -
+                    expected_distance) <= 1.0e-5f &&
+                std::abs(
+                    host_motion_filter_distances[i].y -
+                    expected_distance) <= 1.0e-5f)
+                << "surface-filter motion ray-query distance mismatch";
         }
 
         Kernel1D trace_srt_interpolation = [width](

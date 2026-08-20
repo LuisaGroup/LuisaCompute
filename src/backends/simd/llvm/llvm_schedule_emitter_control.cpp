@@ -947,6 +947,21 @@ void ScheduleEmitter::_allocate_state() {
             _ray_query_pipeline_callback_storage[slot] =
                 pipeline_callback;
         }
+        if (slot <
+            _ray_query_surface_filter_pipeline_callback_storage.size()) {
+            auto *pipeline_callback = _builder.CreateAlloca(
+                callback_type, nullptr,
+                "ray.query.surface.filter.pipeline.callback.slot." +
+                    std::to_string(slot));
+            pipeline_callback->setAlignment(
+                ::llvm::Align{alignof(void *)});
+            _builder.CreateAlignedStore(
+                ::llvm::Constant::getNullValue(callback_type),
+                pipeline_callback,
+                ::llvm::Align{alignof(void *)});
+            _ray_query_surface_filter_pipeline_callback_storage[slot] =
+                pipeline_callback;
+        }
         if (slot < _ray_query_state_handle_storage.size()) {
             auto *state_handles = _builder.CreateAlloca(
                 callback_type, nullptr,

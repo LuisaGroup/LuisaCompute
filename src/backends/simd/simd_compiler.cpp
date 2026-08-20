@@ -176,6 +176,86 @@ void strip_debug_call_metadata_for_legalization(
     }
 }
 
+[[nodiscard]] bool ray_query_handler_is_empty(
+    const xir::Function *function) noexcept {
+    auto *definition = function == nullptr ? nullptr :
+                                             function->definition();
+    if (definition == nullptr) { return false; }
+    auto empty = true;
+    definition->traverse_instructions(
+        [&](const xir::Instruction *instruction) noexcept {
+            switch (instruction->derived_instruction_tag()) {
+                case xir::DerivedInstructionTag::BRANCH:
+                case xir::DerivedInstructionTag::RETURN: break;
+                default: empty = false; break;
+            }
+        });
+    return empty;
+}
+
+// Embree may visit accepted candidates in a provider-defined order. Running a
+// JIT handler from that filter is therefore legal only when the handler cannot
+// observe ordering or communicate across candidates: it has no captures, may
+// read only the current triangle hit, performs pure SSA/control work, and may
+// only commit that same hit. Stateful handlers retain the ordered batch path.
+[[nodiscard]] bool ray_query_surface_filter_is_order_independent(
+    const xir::RayQueryPipelineInst *pipeline) noexcept {
+    if (pipeline == nullptr ||
+        pipeline->captured_argument_count() != 0u ||
+        !ray_query_handler_is_empty(
+            pipeline->on_procedural_function())) {
+        return false;
+    }
+    auto *surface = pipeline->on_surface_function();
+    auto *definition = surface == nullptr ? nullptr :
+                                            surface->definition();
+    if (definition == nullptr) { return false; }
+    auto argument_count = size_t{0u};
+    for ([[maybe_unused]] auto *argument : surface->arguments()) {
+        argument_count++;
+    }
+    if (argument_count != 1u) { return false; }
+    auto *query = surface->arguments().front();
+    auto valid = true;
+    auto saw_commit = false;
+    definition->traverse_instructions(
+        [&](const xir::Instruction *instruction) noexcept {
+            if (!valid) { return; }
+            switch (instruction->derived_instruction_tag()) {
+                case xir::DerivedInstructionTag::BRANCH:
+                case xir::DerivedInstructionTag::CONDITIONAL_BRANCH:
+                case xir::DerivedInstructionTag::INDEXED_BRANCH:
+                case xir::DerivedInstructionTag::RETURN:
+                case xir::DerivedInstructionTag::PHI:
+                case xir::DerivedInstructionTag::ARITHMETIC:
+                case xir::DerivedInstructionTag::CAST: break;
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ: {
+                    auto *read = static_cast<
+                        const xir::RayQueryObjectReadInst *>(instruction);
+                    valid = read->op() ==
+                                xir::RayQueryObjectReadOp::
+                                    RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT &&
+                            read->operand_count() == 1u &&
+                            read->operand(0u) == query;
+                    break;
+                }
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE: {
+                    auto *write = static_cast<
+                        const xir::RayQueryObjectWriteInst *>(instruction);
+                    valid = write->op() ==
+                                xir::RayQueryObjectWriteOp::
+                                    RAY_QUERY_OBJECT_COMMIT_TRIANGLE &&
+                            write->operand_count() == 1u &&
+                            write->operand(0u) == query;
+                    saw_commit |= valid;
+                    break;
+                }
+                default: valid = false; break;
+            }
+        });
+    return valid && saw_commit;
+}
+
 }// namespace
 
 SIMDCompiledKernel compile_simd_kernel(
@@ -213,6 +293,7 @@ SIMDCompiledKernel compile_simd_kernel(
     struct PipelineSchedules {
         schedule::Function on_surface;
         schedule::Function on_procedural;
+        bool embree_surface_filter_safe{false};
     };
     std::vector<PipelineSchedules> pipeline_schedules;
     pipeline_schedules.reserve(
@@ -298,12 +379,21 @@ SIMDCompiledKernel compile_simd_kernel(
         pipeline_schedules.emplace_back(PipelineSchedules{
             .on_surface = std::move(*surface),
             .on_procedural = std::move(*procedural),
+            .embree_surface_filter_safe =
+                ray_query_surface_filter_is_order_independent(
+                    pipeline),
         });
     }
     result.direct_ray_query_pipeline_count =
         pipeline_schedules.size();
     result.resident_ray_query_pipeline_count =
         warp_width == 1u ? pipeline_schedules.size() : 0u;
+    if (warp_width != 1u) {
+        for (auto &&pipeline : pipeline_schedules) {
+            result.surface_filter_ray_query_pipeline_count +=
+                pipeline.embree_surface_filter_safe;
+        }
+    }
     auto jit = std::make_unique<LLVMJIT>(capture_assembly);
     if (!jit->succeeded()) {
         result.diagnostics.emplace_back(jit->error());
@@ -407,6 +497,9 @@ SIMDCompiledKernel compile_simd_kernel(
                 .on_surface = surface_entry,
                 .on_procedural = procedural_entry,
                 .on_candidate_w1 = candidate_w1,
+                .embree_surface_filter_safe =
+                    pipeline_schedules[pipeline_index]
+                        .embree_surface_filter_safe,
             });
     }
     auto llvm_result = lower_schedule_to_llvm(

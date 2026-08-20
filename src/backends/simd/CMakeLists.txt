@@ -159,7 +159,8 @@ luisa_compute_add_backend(simd SOURCES
         # runtime object order and hot-code layout remain stable.
         runtime/simd_accel_ray_query.cpp
         runtime/simd_accel_ray_query_triangle.cpp
-        runtime/simd_accel_ray_query_status.cpp)
+        runtime/simd_accel_ray_query_status.cpp
+        runtime/simd_accel_ray_query_filter_pipeline.cpp)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # Keep the optional W8/W16 ray-query filter from contributing a small
     # .text.unlikely partition ahead of the established narrow hot text. On
@@ -169,6 +170,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             runtime/simd_accel_ray_query.cpp
             runtime/simd_accel_ray_query_triangle.cpp
             runtime/simd_accel_ray_query_status.cpp
+            runtime/simd_accel_ray_query_filter_pipeline.cpp
             PROPERTIES COMPILE_OPTIONS "-fno-reorder-blocks-and-partition")
 endif ()
 target_link_libraries(luisa-compute-backend-simd PRIVATE

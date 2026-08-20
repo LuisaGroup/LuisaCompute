@@ -68,6 +68,7 @@ struct SIMDCompiledKernel {
     size_t direct_ray_query_pipeline_count{0u};
     size_t post_reconstruction_ray_query_pipeline_count{0u};
     size_t resident_ray_query_pipeline_count{0u};
+    size_t surface_filter_ray_query_pipeline_count{0u};
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};

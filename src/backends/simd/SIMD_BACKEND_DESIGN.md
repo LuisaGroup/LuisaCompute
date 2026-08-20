@@ -15,6 +15,13 @@ candidate advance/install passes through one shared provider body;
 triangle-only structures and W1 retain their prior providers. W16 acceleration
 structures containing procedural instances additionally use a measured dense
 full-cohort status pack while retaining the sparse inactive-safe path.
+Capture-free surface handlers that are proven to depend only on the current
+triangle candidate can now execute inside one Embree packet traversal. W2 is
+padded to W4 and W4/W8/W16 use their matching packet APIs; W1 and every
+stateful, captured, procedural, or resource-using handler retain the ordered
+pipeline. The accel summary publishes this route only for a committed
+triangle-only TLAS, so buffer-only metadata changes cannot reinterpret the
+stale Embree scene.
 Acceleration instance-buffer-only updates now publish metadata and primitive
 bindings without mutating the committed Embree scene; a later ordinary build
 reconciles the deferred state even after the originating modification command
@@ -3352,6 +3359,59 @@ rejection sweep remains below fallback at every width: W1/W2/W4/W8/W16 reach
 0.8182x/0.6551x/0.7609x/0.8522x/0.8576x paired throughput. The accepted host
 specialization therefore does not close the JIT query-state/filter boundary.
 
+### Candidate-local Embree surface-filter pipeline
+
+The remaining cutout boundary was a deliberate consequence of preserving a
+globally sorted candidate stream: Embree filled a bounded host batch, the host
+published one candidate, the JIT ran the surface handler, and the cycle
+repeated. A stricter compiler proof now permits one narrower route. An eligible
+pipeline must have no captures, an empty procedural handler, exactly one query
+argument, and at least one triangle commit. Its surface handler may contain
+only branch/PHI, arithmetic, cast, a read of that query's current triangle
+candidate, and a commit of the same query. Memory or resource access, another
+query object, committed/world-ray reads, termination, calls, and every unknown
+instruction reject the route. This classification is fail-closed and is
+recorded as `surface_filter_ray_query_pipelines` in the optimization report.
+
+For an eligible query, construction caches one private provider pointer in the
+same proven status color as the query state. A null pointer falls through to
+the established ordered status loop. A non-null pointer receives the exact
+outer physical mask and state-pointer packet once, groups lanes by accel and
+`query` versus `query_any`, and performs one native Embree traversal per group:
+W2 pads benign inactive operands into `rtcIntersect4`/`rtcOccluded4`, while
+W4/W8/W16 use the corresponding 4/8/16-wide entry. Production contains no
+`rtcIntersect1` or `rtcOccluded1` reference for this path. Logical lane IDs are
+kept in `ray.id`; inactive and padded origins, directions, interval, time,
+visibility, flags, and hit fields are initialized before Embree can inspect
+them.
+
+The Embree argument filter translates only its current valid lanes into the
+existing state ABI and calls the already generated fixed-vector surface
+handler with that exact sparse candidate mask. Opaque instances auto-commit.
+For non-opaque instances the handler either commits, leaving the Embree valid
+bit set, or rejects by clearing it. After traversal, every original lane is
+published terminal and the existing status sidecar is updated once. Ray time,
+visibility, closest versus occlusion behavior, sparse cohorts, partial tails,
+and Luisa's single TLAS -> BLAS instance level stay intact.
+
+This route intentionally adopts Embree's provider-defined traversal order.
+The eligibility proof makes per-candidate acceptance independent of that order,
+so the closest accepted distance and occlusion result are unchanged. When two
+accepted primitives have exactly equal distance, the winning primitive may
+differ from the old private `(t, instance, primitive)` tie-break; public ray
+tracing does not define an equal-distance primitive order. Stateful handlers
+that could observe order remain on the sorted path. The diagnostic
+`LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1` restores that path without
+recompiling the shader.
+
+Permanent coverage compares provider, null-provider, and direct-loop results
+at W2/W4/W8/W16, including an exact sparse candidate mask and a thirteen-item
+tail. Runtime coverage exercises closest and any queries, reject-near/
+commit-far behavior, misses, opacity, visibility, motion time, buffer-only
+committed-scene state, a thirty-five-lane tail, and the disabled-provider CTest
+oracle. Captured, terminating, resource-using, and reused stateful handlers are
+required to report zero eligible pipelines.
+
 Static-instance transform, user-id, and visibility reads and writes bypass
 runtime callbacks. The accel argument carries a pointer to a stable table
 descriptor; the runtime republishes its data pointer and count after vector
@@ -3718,6 +3778,11 @@ on 2026-08-11. The repository now contains:
   whose compact scan context and surface filter never touch procedural/curve
   bookkeeping, and whose mesh/procedural/mesh rebuild regression proves that
   one compiled shader follows provider changes without stale host views;
+- a stricter capture-free candidate-local pipeline that calls the existing
+  fixed-vector surface handler from one Embree packet filter at W2/W4/W8/W16,
+  preserves exact sparse masks and inactive-tail sanitization, and falls back
+  to the sorted provider for stateful handlers, procedural scenes, W1, or a
+  null runtime capability;
 - MATRIX and quaternion-SRT motion-instance resources with validated time
   ranges, TLAS-owned keyframe storage, exact outer-affine composition,
   quaternion interpolation, Embree 3/4 same-width child-packet forwarding,
@@ -3836,3 +3901,9 @@ loop-instance validation at every supported width. Broader callable
 conformance and the remaining device-library surface follow. The current
 compiler returns precise diagnostics for unsupported features rather than
 silently accepting them.
+
+At the current candidate-local surface-filter checkpoint, both maintained
+Release trees pass 163/163 CTest cases. The accel regression passes 6,730
+assertions with the provider enabled and again with its same-binary oracle, and
+fresh checked-in-reference 1024-spp cutout renders pass independently at
+W1/W2/W4/W8/W16.

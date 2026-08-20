@@ -2327,6 +2327,46 @@ W1 uses one scalar Embree traversal, W2 one padded W4 traversal, and W4/W8/W16
 one matching native packet traversal per scan. Curves or procedural instances
 must never enter this path, including through a motion child.
 
+A direct structured pipeline may bypass the sorted candidate batch only after
+an XIR audit proves a candidate-local surface predicate. The surface handler
+must be capture-free, take exactly its query object, read only that object's
+current triangle candidate, contain only pure branch/PHI/arithmetic/cast
+instructions, and write only `COMMIT_TRIANGLE` to that same object. It must
+contain a commit. The procedural handler must be empty. Calls, memory or
+resource access, another query object, current world-ray or committed-hit
+reads, explicit termination, procedural access, and unknown instructions make
+the pipeline ineligible. Eligibility is a compiler optimization property and
+must never extend the accepted device-function domain.
+
+An eligible W2/W4/W8/W16 construction may cache the stable instance table's
+surface-filter provider in its proven status color. All active lanes must agree
+on that pointer. Null selects the ordinary ordered pipeline. Non-null is legal
+only for the last committed triangle-only scene; buffer-only updates must keep
+selection tied to that committed summary. W1 must not use this ABI. The
+provider groups active states only by accel and terminate-on-first mode, uses
+one padded W4 packet for W2 and one native W4/W8/W16 packet otherwise, and
+must not enumerate active lanes through scalar Embree traversal calls.
+
+Before an Embree packet call, every inactive or padded ray and hit operand must
+be initialized to a benign value and its valid entry must be zero. Active
+logical lane IDs remain stable in `ray.id`; time, visibility, interval, and
+flags retain the ordinary query construction values. The filter may dereference
+only Embree-valid lanes, must reject invalid IDs and out-of-range distances,
+and invokes the JIT handler once with exactly the current non-opaque candidate
+mask. A rejected candidate clears the corresponding Embree valid entry. An
+accepted or opaque candidate updates the authoritative committed hit and
+closest interval; after traversal every input lane is terminal and no
+candidate remains published. The caller then refreshes the normal packed status
+sidecar once.
+
+Embree's traversal order is provider-defined on this path. Since acceptance is
+candidate-local, closest distance and occlusion are preserved, but an exact
+equal-distance primitive tie may select a different accepted primitive from
+the private sorted provider. No public equal-distance candidate or primitive
+ordering is promised. Any handler capable of observing order remains on the
+sorted pipeline. `LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1` is the
+required same-binary semantic and performance oracle.
+
 At W8/W16, a full runtime cohort mask must use a dense proceed loop in either
 the generic or triangle-only adaptive provider. A sparse mask may iterate its
 set bits and may initialize/install only the corresponding lane records, but
