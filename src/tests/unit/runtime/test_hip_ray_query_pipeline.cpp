@@ -264,6 +264,9 @@ void test_hip_effect_only_native_enumeration(Device &device) {
                             BufferUInt4 metadata,
                             BufferUInt sequence,
                             BufferUInt post_state) noexcept {
+            set_block_size(256u);
+            const auto invocation = dispatch_x();
+            constexpr auto sequence_stride = 8u;
             UInt callback_count = 0u;
             UInt surface_count = 0u;
             UInt procedural_count = 0u;
@@ -281,7 +284,10 @@ void test_hip_effect_only_native_enumeration(Device &device) {
                                 0x10000000u |
                                 (hit->inst << 16u) |
                                 hit->prim;
-                            sequence.write(callback_count, code);
+                            sequence.write(
+                                invocation * sequence_stride +
+                                    callback_count,
+                                code);
                             checksum = checksum * 16777619u ^ code;
                             callback_count += 1u;
                             surface_count += 1u;
@@ -296,7 +302,10 @@ void test_hip_effect_only_native_enumeration(Device &device) {
                                 0x20000000u |
                                 (hit->inst << 16u) |
                                 hit->prim;
-                            sequence.write(callback_count, code);
+                            sequence.write(
+                                invocation * sequence_stride +
+                                    callback_count,
+                                code);
                             checksum = checksum * 16777619u ^ code;
                             callback_count += 1u;
                             procedural_count += 1u;
@@ -306,14 +315,14 @@ void test_hip_effect_only_native_enumeration(Device &device) {
                         })
                     .trace();
             metadata.write(
-                0u, make_uint4(
+                invocation, make_uint4(
                         callback_count, surface_count,
                         procedural_count, checksum));
             if (observe_post_state) {
                 // This read deliberately makes the otherwise identical query
                 // ineligible for effect-only lowering, providing the exact
                 // iterative oracle for candidate effects and ordering.
-                post_state.write(0u, committed->hit_type);
+                post_state.write(invocation, committed->hit_type);
             } else {
                 static_cast<void>(committed);
             }
@@ -324,30 +333,43 @@ void test_hip_effect_only_native_enumeration(Device &device) {
         make_trace(false), ShaderOption{.enable_cache = false});
     auto exact_shader = device.compile(
         make_trace(true), ShaderOption{.enable_cache = false});
-    auto native_metadata = device.create_buffer<uint4>(1u);
-    auto exact_metadata = device.create_buffer<uint4>(1u);
-    auto native_sequence = device.create_buffer<uint>(8u);
-    auto exact_sequence = device.create_buffer<uint>(8u);
-    auto post_state = device.create_buffer<uint>(1u);
+    // 513 invocations cross two complete 256-thread workgroups and leave a
+    // partial third group. Repeating the launch exercises stack reuse as well
+    // as the per-workgroup LDS/global-stack index product; neither dimension
+    // may alter candidate effects or ordering.
+    constexpr auto dispatch_count = 513u;
+    constexpr auto sequence_stride = 8u;
+    constexpr auto repeat_count = 8u;
+    auto native_metadata = device.create_buffer<uint4>(dispatch_count);
+    auto exact_metadata = device.create_buffer<uint4>(dispatch_count);
+    auto native_sequence = device.create_buffer<uint>(
+        dispatch_count * sequence_stride);
+    auto exact_sequence = device.create_buffer<uint>(
+        dispatch_count * sequence_stride);
+    auto post_state = device.create_buffer<uint>(dispatch_count);
 
     auto compare = [&](Accel &accel, bool expect_four_callbacks) noexcept {
-        constexpr std::array<uint, 8u> sentinel{
-            ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u};
-        std::array<uint4, 1u> host_native_metadata{};
-        std::array<uint4, 1u> host_exact_metadata{};
-        std::array<uint, 8u> host_native_sequence{};
-        std::array<uint, 8u> host_exact_sequence{};
+        std::vector<uint> sentinel(
+            dispatch_count * sequence_stride, ~0u);
+        std::vector<uint4> host_native_metadata(dispatch_count);
+        std::vector<uint4> host_exact_metadata(dispatch_count);
+        std::vector<uint> host_native_sequence(
+            dispatch_count * sequence_stride);
+        std::vector<uint> host_exact_sequence(
+            dispatch_count * sequence_stride);
         stream << native_sequence.copy_from(luisa::span{sentinel})
-               << exact_sequence.copy_from(luisa::span{sentinel})
-               << native_shader(
-                      accel, native_metadata, native_sequence,
-                      post_state)
-                      .dispatch(1u)
-               << exact_shader(
-                      accel, exact_metadata, exact_sequence,
-                      post_state)
-                      .dispatch(1u)
-               << native_metadata.copy_to(
+               << exact_sequence.copy_from(luisa::span{sentinel});
+        for (auto repeat = 0u; repeat < repeat_count; ++repeat) {
+            stream << native_shader(
+                          accel, native_metadata, native_sequence,
+                          post_state)
+                          .dispatch(dispatch_count)
+                   << exact_shader(
+                          accel, exact_metadata, exact_sequence,
+                          post_state)
+                          .dispatch(dispatch_count);
+        }
+        stream << native_metadata.copy_to(
                       luisa::span{host_native_metadata})
                << exact_metadata.copy_to(
                       luisa::span{host_exact_metadata})
@@ -356,33 +378,49 @@ void test_hip_effect_only_native_enumeration(Device &device) {
                << exact_sequence.copy_to(
                       luisa::span{host_exact_sequence})
                << synchronize();
-        const auto native_summary = host_native_metadata[0];
-        const auto exact_summary = host_exact_metadata[0];
-        expect(native_summary.x == exact_summary.x &&
-               native_summary.y == exact_summary.y &&
-               native_summary.z == exact_summary.z &&
-               native_summary.w == exact_summary.w)
-            << "native effect-only callback summary differs from exact "
-               "RayQueryAll";
-        for (auto i = 0u; i < host_native_sequence.size(); ++i) {
-            expect(host_native_sequence[i] == host_exact_sequence[i])
+        for (auto invocation = 0u;
+             invocation < dispatch_count; ++invocation) {
+            const auto native_summary =
+                host_native_metadata[invocation];
+            const auto exact_summary =
+                host_exact_metadata[invocation];
+            expect(native_summary.x == exact_summary.x &&
+                   native_summary.y == exact_summary.y &&
+                   native_summary.z == exact_summary.z &&
+                   native_summary.w == exact_summary.w)
                 << luisa::format(
-                       "effect-only callback {} differs: native=0x{:08x}, "
-                       "exact=0x{:08x}",
-                       i, host_native_sequence[i],
-                       host_exact_sequence[i]);
-        }
-        if (expect_four_callbacks) {
-            expect(host_native_metadata[0].x == 4u)
-                << "effect-only terminate boundary did not retain exactly "
-                   "four callbacks";
-        } else {
-            // The opaque mesh bypasses the surface handler. This case also
-            // proves that a nonzero accel certificate enters the exact path
-            // before any callback side effect is executed.
-            expect(host_native_metadata[0].y == 0u)
-                << "opaque instance unexpectedly reached the surface "
-                   "candidate handler";
+                       "native effect-only callback summary differs from "
+                       "exact RayQueryAll at invocation {}",
+                       invocation);
+            for (auto callback = 0u;
+                 callback < sequence_stride; ++callback) {
+                const auto i =
+                    invocation * sequence_stride + callback;
+                expect(host_native_sequence[i] ==
+                       host_exact_sequence[i])
+                    << luisa::format(
+                           "effect-only invocation {} callback {} differs: "
+                           "native=0x{:08x}, exact=0x{:08x}",
+                           invocation, callback,
+                           host_native_sequence[i],
+                           host_exact_sequence[i]);
+            }
+            if (expect_four_callbacks) {
+                expect(native_summary.x == 4u)
+                    << luisa::format(
+                           "effect-only terminate boundary retained {} "
+                           "callbacks at invocation {} instead of four",
+                           native_summary.x, invocation);
+            } else {
+                // The opaque mesh bypasses the surface handler. This case
+                // also proves that a nonzero accel certificate enters the
+                // exact path before any callback side effect is executed.
+                expect(native_summary.y == 0u)
+                    << luisa::format(
+                           "opaque surface reached the candidate handler at "
+                           "invocation {}",
+                           invocation);
+            }
         }
     };
     compare(nonopaque_accel, true);
