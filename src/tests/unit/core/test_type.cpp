@@ -353,6 +353,9 @@ static auto test_type_numeric_boundaries_registration = [] {
             "texture<65538,float>",
             "coopvec_ref<4,65536>",
             "struct<0,uint>",
+            // Two-byte aggregate alignment is intentionally outside the
+            // cross-backend/DXC-compatible structure ABI.
+            "struct<2,half,ushort>",
             "struct<65536,uint>",
             "array<void,1>",
             "vector<void,2>",

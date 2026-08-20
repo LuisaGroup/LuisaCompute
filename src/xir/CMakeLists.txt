@@ -58,6 +58,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
 
         # translators
         translators/ast2xir.cpp
+        translators/ast2xir_inline_ray_query.cpp
         translators/json2xir.cpp
         translators/xir_interchange.cpp
         translators/xir2ast.cpp
@@ -99,8 +100,9 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/local_store_forward.cpp
         passes/local_load_elimination.cpp
         passes/lower_irreducible_cfg.cpp
-        passes/lower_ray_query_loop.cpp
-        passes/lower_ray_query_loop_to_loop.cpp
+        passes/lower_ray_query_to_pipeline.cpp
+        passes/lower_ray_query_to_loop.cpp
+        passes/reconstruct_ray_query_loop.cpp
         passes/mem2reg.cpp
         passes/autodiff.cpp
         passes/transpose_gep.cpp
@@ -109,6 +111,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/promote_ref_arg.cpp
         passes/reassociate.cpp
         passes/algebraic_simplify.cpp
+        passes/fast_math_simplify.cpp
         passes/alias_analysis.cpp
         passes/const_fold.cpp
         passes/dead_arg_elim.cpp
@@ -119,6 +122,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/natural_loop.cpp
         passes/loop_fusion.cpp
         passes/loop_rotation.cpp
+        passes/loop_unswitch.cpp
         passes/loop_vectorization.cpp
         passes/slp_vectorization.cpp
         passes/lower_break_continue.cpp
@@ -135,6 +139,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/gvn.cpp
         passes/phi_cleanup.cpp
         passes/if_conversion.cpp
+        passes/select_factor.cpp
         passes/indvar_simplify.cpp
         passes/irreducible_cfg_analysis.cpp
         passes/pass_verification.cpp

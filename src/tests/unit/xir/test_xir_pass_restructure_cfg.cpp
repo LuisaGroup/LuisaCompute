@@ -28,7 +28,7 @@
 #include <luisa/xir/passes/if_conversion.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
-#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/reg2mem.h>
@@ -257,9 +257,26 @@ struct ScopedEnvironmentVariable {
     return false;
 }
 
+[[nodiscard]] bool branch_chain_continues_to(
+    BasicBlock *from, BasicBlock *target) noexcept {
+    luisa::unordered_set<BasicBlock *> visited;
+    auto *cur = from;
+    while (cur != nullptr && visited.emplace(cur).second &&
+           cur->is_terminated()) {
+        auto *terminator = cur->terminator();
+        if (terminator->isa<ContinueInst>()) {
+            return static_cast<ContinueInst *>(terminator)
+                       ->target_block() == target;
+        }
+        if (!terminator->isa<BranchInst>()) { return false; }
+        cur = static_cast<BranchInst *>(terminator)->target_block();
+    }
+    return false;
+}
+
 void run_spirv_normalize_before_restructure(Module *m) noexcept {
     auto algebraic_options = AlgebraicSimplifyOptions{};
-    (void)lower_ray_query_loop_to_loop_pass_run_on_module(m);
+    (void)lower_ray_query_to_loop_pass_run_on_module(m);
     (void)destructure_cfg_pass_run_on_module(m);
     (void)mem2reg_pass_run_on_module(m);
     (void)algebraic_simplify_pass_run_on_module(m, algebraic_options);
@@ -847,8 +864,15 @@ void reg_restructure_cfg() {
         expect(info.boundary_merge_rewrite_batch_count > 0u);
         expect(boundary->merge_block() != outer_merge);
         expect(boundary->true_block() == boundary->merge_block());
-        expect(branch_chain_reaches(
-            boundary->merge_block(), outer_merge));
+        // SimpleLoop continue canonicalization may split the shared
+        // outer_merge payload into per-predecessor Continue blocks. Accept
+        // either representation while still proving that proxying the true
+        // merge arm preserved its executable continuation.
+        expect(
+            branch_chain_reaches(
+                boundary->merge_block(), outer_merge) ||
+            branch_chain_continues_to(
+                boundary->merge_block(), loop_body));
         expect(xir_verify_module(
                    &module,
                    {.require_unique_merge_blocks = true,

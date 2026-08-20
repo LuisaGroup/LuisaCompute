@@ -243,9 +243,20 @@ public:
 /// Loop statement
 class LUISA_AST_API LoopStmt : public Statement {
     friend class CallableLibrary;
+    friend class detail::FunctionBuilder;
 
 private:
     ScopeStmt _body;
+    // Optional, non-semantic provenance for loops created by the DSL $while
+    // spelling. The explicit guard remains in _body, so consumers that ignore
+    // this hint observe exactly the historical AST. CallableLibrary
+    // serialization may also drop the hint and let later normalization recover
+    // the canonical shape from the explicit guard.
+    const Expression *_while_condition{nullptr};
+    // Number of leading body statements materialized while evaluating the
+    // original condition. Direct structural preservation requires this to be
+    // zero; otherwise skipping the explicit guard could skip observable work.
+    size_t _while_condition_statement_count{0u};
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
@@ -254,6 +265,12 @@ public:
     LoopStmt() noexcept : Statement{Tag::LOOP} {}
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
+    [[nodiscard]] auto while_condition() const noexcept {
+        return _while_condition;
+    }
+    [[nodiscard]] auto while_condition_statement_count() const noexcept {
+        return _while_condition_statement_count;
+    }
     LUISA_STATEMENT_COMMON()
 };
 

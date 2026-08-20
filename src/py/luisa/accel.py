@@ -217,8 +217,8 @@ class Accel:
         return None, expr
 
     @BuiltinFuncBuilder
-    def query_all(self, ray, vis_mask):
-        check_exact_signature([Ray, uint], [ray, vis_mask], "query_all")
+    def query(self, ray, vis_mask):
+        check_exact_signature([Ray, uint], [ray, vis_mask], "query")
         expr = lcapi.builder().call(to_lctype(rayQueryAllType), lcapi.CallOp.RAY_TRACING_QUERY_ALL, [self.expr, ray.expr, vis_mask.expr])
         return rayQueryAllType, expr
 

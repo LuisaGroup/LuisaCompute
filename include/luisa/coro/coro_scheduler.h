@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <type_traits>
+
 #include <luisa/core/basic_types.h>
 #include <luisa/core/concepts.h>
 #include <luisa/core/stl/format.h>
@@ -67,8 +69,17 @@ class CoroSchedulerInvoke : public concepts::Noncopyable {
 
 private:
     using Scheduler = CoroScheduler<Args...>;
+    template<typename T>
+    using InvocationArgument = compute::detail::prototype_to_shader_invocation_t<T>;
+    // Lazy dispatch owns ordinary scalar/aggregate snapshots. Move-only
+    // resources such as Accel retain the invocation API's reference lifetime.
+    template<typename T>
+    using StoredArgument = std::conditional_t<
+        std::is_copy_constructible_v<std::decay_t<InvocationArgument<T>>>,
+        std::decay_t<InvocationArgument<T>>,
+        InvocationArgument<T>>;
     Scheduler *_scheduler;
-    std::tuple<compute::detail::prototype_to_shader_invocation_t<Args>...> _args;
+    std::tuple<StoredArgument<Args>...> _args;
 
 private:
     friend Scheduler;

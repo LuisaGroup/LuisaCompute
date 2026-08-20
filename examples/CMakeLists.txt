@@ -50,7 +50,6 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_example(example_blackhole rendering/blackhole.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_voxel_raytracer rendering/voxel_raytracer.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_procedural rendering/procedural.cpp MIRROR_AS_TEST)
-    luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_toy_spacex rendering/shader_toy_spacex.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_visuals_present rendering/shader_visuals_present.cpp MIRROR_AS_TEST)
 
@@ -61,7 +60,6 @@ if (LUISA_COMPUTE_ENABLE_GUI)
 
     # simulation
     luisa_compute_add_example(example_fire_simulation simulation/fire_simulation.cpp MIRROR_AS_TEST)
-    luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_mpm3d simulation/mpm3d.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_mpm88 simulation/mpm88.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_nbody_simulation simulation/nbody_simulation.cpp MIRROR_AS_TEST)
@@ -82,8 +80,6 @@ if (LUISA_COMPUTE_ENABLE_GUI)
         luisa_compute_add_example(example_win_hdr gui/win_hdr.cpp)
     endif ()
 
-    # compute (GUI-dependent)
-    luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)
 endif ()
 
 # compute (headless)
@@ -108,6 +104,9 @@ target_sources(example_tensor_stub PRIVATE
  tensor/mnist.cpp
  tensor/rnn.cpp
  tensor/tensor_basics.cpp)
+luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_cluster_launch_control compute/cluster_launch_control.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_async_copy_prefetch compute/async_copy_prefetch.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_multi_head_attention
@@ -230,4 +229,37 @@ if (LUISA_COMPUTE_ENABLE_GUI AND LUISA_COMPUTE_EXAMPLE_QT_INTEROP)
             luisa_example_pair_link(example_swapchain_qt PRIVATE Qt::Widgets Qt::Core Qt::Gui Qt::GuiPrivate)
         endif ()
     endif ()
+endif ()
+
+if (TARGET luisa-compute-backend-simd)
+    add_dependencies(example_helloworld luisa-compute-backend-simd)
+    add_test(NAME simd_example_helloworld
+            COMMAND $<TARGET_FILE:example_helloworld> simd)
+    set_tests_properties(simd_example_helloworld PROPERTIES
+            LABELS "integration_simd"
+            TIMEOUT 30
+            WORKING_DIRECTORY $<TARGET_FILE_DIR:example_helloworld>)
+
+    foreach (_simd_graphics_example IN ITEMS
+            image_processing
+            shader_toy
+            game_of_life
+            fire_simulation)
+        set(_simd_graphics_target
+                example_${_simd_graphics_example})
+        if (TARGET ${_simd_graphics_target})
+            add_dependencies(${_simd_graphics_target}
+                    luisa-compute-backend-simd)
+            add_test(NAME simd_graphics_${_simd_graphics_example}
+                    COMMAND $<TARGET_FILE:${_simd_graphics_target}>
+                    simd --offline -c
+                    ${CMAKE_SOURCE_DIR}/docs/gallery/test_${_simd_graphics_example}.png)
+            set_tests_properties(
+                    simd_graphics_${_simd_graphics_example} PROPERTIES
+                    LABELS "integration_simd;graphics_simd"
+                    TIMEOUT 120
+                    WORKING_DIRECTORY
+                    $<TARGET_FILE_DIR:${_simd_graphics_target}>)
+        endif ()
+    endforeach ()
 endif ()

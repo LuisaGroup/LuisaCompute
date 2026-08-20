@@ -27,6 +27,192 @@ endfunction()
 # Unit Tests
 # =============================================================================
 
+# --- unit/simd: dependency-light Schedule IR semantic model ---
+# Keep this target independent from LLVM, Embree, and the runtime backends so
+# divergent-control semantics can be tested in the smallest host build.
+add_executable(test_simd_cohort_scheduler
+        unit/simd/test_cohort_scheduler.cpp)
+target_compile_features(test_simd_cohort_scheduler PRIVATE cxx_std_20)
+target_include_directories(test_simd_cohort_scheduler PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+add_test(NAME test_simd_cohort_scheduler
+        COMMAND test_simd_cohort_scheduler)
+set_tests_properties(test_simd_cohort_scheduler PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_scheduler_model
+        unit/simd/test_scheduler_model.cpp)
+target_compile_features(test_simd_scheduler_model PRIVATE cxx_std_20)
+target_include_directories(test_simd_scheduler_model PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+add_test(NAME test_simd_scheduler_model
+        COMMAND test_simd_scheduler_model)
+set_tests_properties(test_simd_scheduler_model PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_reference_warp_collectives
+        unit/simd/test_reference_warp_collectives.cpp)
+target_compile_features(test_simd_reference_warp_collectives PRIVATE cxx_std_20)
+target_include_directories(test_simd_reference_warp_collectives PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit/simd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+add_test(NAME test_simd_reference_warp_collectives
+        COMMAND test_simd_reference_warp_collectives)
+set_tests_properties(test_simd_reference_warp_collectives PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_schedule_ir
+        unit/simd/test_schedule_ir.cpp
+        ../backends/simd/schedule/schedule_ir.cpp)
+target_compile_features(test_simd_schedule_ir PRIVATE cxx_std_20)
+target_include_directories(test_simd_schedule_ir PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+add_test(NAME test_simd_schedule_ir
+        COMMAND test_simd_schedule_ir)
+set_tests_properties(test_simd_schedule_ir PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_thread_pool
+        unit/simd/test_simd_thread_pool.cpp
+        ../backends/simd/runtime/simd_thread_pool.cpp)
+target_compile_features(test_simd_thread_pool PRIVATE cxx_std_20)
+target_include_directories(test_simd_thread_pool PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/runtime)
+target_link_libraries(test_simd_thread_pool PRIVATE
+        luisa-compute-core)
+add_test(NAME test_simd_thread_pool
+        COMMAND test_simd_thread_pool)
+set_tests_properties(test_simd_thread_pool PROPERTIES
+        LABELS "unit;unit_simd")
+
+luisa_compute_add_test(test_simd_warp_uniformity
+        unit/simd/test_warp_uniformity.cpp
+        LABELS "unit;unit_simd;unit_xir")
+target_sources(test_simd_warp_uniformity PRIVATE
+        ../backends/simd/schedule/warp_uniformity.cpp)
+target_include_directories(test_simd_warp_uniformity PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+
+luisa_compute_add_test(test_simd_xir_to_schedule
+        unit/simd/test_xir_to_schedule.cpp
+        LABELS "unit;unit_simd;unit_xir")
+target_sources(test_simd_xir_to_schedule PRIVATE
+        ../backends/simd/schedule/block_barrier.cpp
+        ../backends/simd/schedule/schedule_ir.cpp
+        ../backends/simd/schedule/warp_uniformity.cpp
+        ../backends/simd/schedule/xir_to_schedule.cpp)
+target_include_directories(test_simd_xir_to_schedule PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+
+if (TARGET luisa-compute-simd-llvm)
+    add_executable(test_fallback_llvm_native_math
+            unit/fallback/test_fallback_llvm_native_math.cpp
+            ../backends/fallback/fallback_codegen.cpp)
+    target_compile_features(test_fallback_llvm_native_math PRIVATE cxx_std_20)
+    target_link_libraries(test_fallback_llvm_native_math PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_fallback_llvm_native_math PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/fallback
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_fallback_llvm_native_math
+            COMMAND test_fallback_llvm_native_math)
+    set_tests_properties(test_fallback_llvm_native_math PROPERTIES
+            LABELS "unit;unit_fallback;unit_llvm;integration_fallback")
+
+    add_executable(test_simd_llvm_native_math
+            unit/simd/test_llvm_native_math.cpp
+            unit/simd/test_llvm_native_math_fast.cpp)
+    target_compile_features(test_simd_llvm_native_math PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_native_math PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_simd_llvm_native_math PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_native_math
+            COMMAND test_simd_llvm_native_math)
+    set_tests_properties(test_simd_llvm_native_math PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm;integration_simd")
+
+    add_executable(benchmark_llvm_native_math
+            unit/simd/benchmark_llvm_native_math.cpp)
+    target_compile_features(benchmark_llvm_native_math PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_llvm_native_math PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(benchmark_llvm_native_math PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+
+    add_executable(benchmark_simd_predicated_if
+            unit/simd/benchmark_predicated_if_conversion.cpp)
+    target_compile_features(benchmark_simd_predicated_if PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_simd_predicated_if PRIVATE
+            luisa-compute-simd-compiler)
+    target_include_directories(benchmark_simd_predicated_if PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+
+    add_executable(benchmark_simd_loop_unswitch
+            unit/simd/benchmark_loop_unswitch.cpp)
+    target_compile_features(benchmark_simd_loop_unswitch PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_simd_loop_unswitch PRIVATE
+            luisa-compute-simd-compiler)
+    target_include_directories(benchmark_simd_loop_unswitch PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+
+    add_executable(benchmark_simd_gemm_assembly
+            unit/simd/benchmark_simd_gemm_assembly.cpp)
+    target_compile_features(benchmark_simd_gemm_assembly PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_simd_gemm_assembly PRIVATE
+            luisa-compute-simd-compiler
+            luisa-compute-dsl)
+    target_include_directories(benchmark_simd_gemm_assembly PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd
+            ${LLVM_INCLUDE_DIRS})
+
+    luisa_compute_add_test(benchmark_simd_ray_query
+            unit/simd/benchmark_simd_ray_query.cpp)
+    luisa_compute_add_test(benchmark_simd_procedural_ray_query
+            unit/simd/benchmark_simd_procedural_ray_query.cpp)
+    luisa_compute_add_test(benchmark_ast2xir_inline_ray_query
+            unit/xir/benchmark_ast2xir_inline_ray_query.cpp)
+
+    add_executable(test_simd_llvm_value_layout
+            unit/simd/test_llvm_value_layout.cpp)
+    target_compile_features(test_simd_llvm_value_layout PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_value_layout PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_simd_llvm_value_layout PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_value_layout
+            COMMAND test_simd_llvm_value_layout)
+    set_tests_properties(test_simd_llvm_value_layout PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm")
+
+    add_executable(test_simd_llvm_warp_collectives
+            unit/simd/test_llvm_warp_collectives.cpp)
+    target_compile_features(test_simd_llvm_warp_collectives PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_warp_collectives PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_simd_llvm_warp_collectives PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/unit/simd
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_warp_collectives
+            COMMAND test_simd_llvm_warp_collectives)
+    set_tests_properties(test_simd_llvm_warp_collectives PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm")
+
+    add_executable(test_simd_llvm_schedule_codegen
+            unit/simd/test_llvm_schedule_codegen.cpp)
+    target_compile_features(test_simd_llvm_schedule_codegen PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_schedule_codegen PRIVATE
+            luisa-compute-simd-compiler
+            luisa-compute-dsl)
+    target_include_directories(test_simd_llvm_schedule_codegen PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_schedule_codegen
+            COMMAND test_simd_llvm_schedule_codegen)
+    set_tests_properties(test_simd_llvm_schedule_codegen PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm;integration_simd")
+endif ()
+
 # --- unit/core: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_basic_traits       unit/core/test_basic_traits.cpp       LABELS "unit;unit_core")
 luisa_compute_add_test(test_basic_types        unit/core/test_basic_types.cpp        LABELS "unit;unit_core")
@@ -320,6 +506,7 @@ luisa_compute_add_test(test_buffer_view         unit/runtime/test_buffer_view.cp
 luisa_compute_add_test(test_device_test         unit/runtime/test_device.cpp)
 luisa_compute_add_test(test_external_buffer     unit/runtime/test_external_buffer.cpp)
 luisa_compute_add_test(test_gemm                unit/runtime/test_gemm.cpp)
+luisa_compute_add_test(benchmark_simd_gemm      unit/simd/benchmark_simd_gemm.cpp)
 luisa_compute_add_test(test_hip_codegen_arithmetic unit/runtime/test_hip_codegen_arithmetic.cpp)
 luisa_compute_add_test(test_hip_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
 luisa_compute_add_test(test_hip_motion_instance_matrix unit/runtime/test_hip_motion_instance_matrix.cpp)
@@ -396,7 +583,8 @@ luisa_compute_add_test(test_coro_pipeline_3suspend unit/coro/test_coro_pipeline_
 luisa_compute_add_test(test_xir_pass_destructure_cfg unit/xir/test_xir_pass_destructure_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_simplify_cfg unit/xir/test_xir_pass_simplify_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_early_cse unit/xir/test_xir_pass_early_cse.cpp LABELS "unit;unit_xir")
-luisa_compute_add_test(test_xir_pass_lower_ray_query_loop unit/xir/test_xir_pass_lower_ray_query_loop.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_lower_ray_query_to_pipeline unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_reconstruct_ray_query_loop unit/xir/test_xir_pass_reconstruct_ray_query_loop.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_lower_irreducible_cfg unit/xir/test_xir_pass_lower_irreducible_cfg.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_fuse_consecutive_buffer_reads unit/xir/test_xir_pass_fuse_consecutive_buffer_reads.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_restructure_cfg unit/xir/test_xir_pass_restructure_cfg.cpp LABELS "unit;unit_xir")
@@ -480,3 +668,106 @@ luisa_compute_add_test(test_fp4                  unit/runtime/test_fp4.cpp)
 luisa_compute_add_test(test_fp4_quantization     unit/runtime/test_fp4_quantization.cpp)
 luisa_compute_add_test(test_fp8                  unit/runtime/test_fp8.cpp)
 luisa_compute_add_test(test_fp8_quantization     unit/runtime/test_fp8_quantization.cpp)
+
+# The SIMD backend is a host-only module, so its supported runtime conformance
+# subset is safe to run unattended without a GPU or driver installation.
+if (TARGET luisa-compute-backend-simd)
+    luisa_compute_add_test(test_simd_runtime_widths
+            unit/simd/test_simd_runtime_widths.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_local_memory
+            unit/simd/test_simd_local_memory.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_atomics
+            unit/simd/test_simd_atomics.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_bindless_buffers
+            unit/simd/test_simd_bindless_buffers.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_bindless_textures
+            unit/simd/test_simd_bindless_textures.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_arithmetic
+            unit/simd/test_simd_arithmetic.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_accel
+            unit/simd/test_simd_accel.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_curves
+            unit/simd/test_simd_curves.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_procedural
+            unit/simd/test_simd_procedural.cpp
+            LABELS integration_simd runtime_simd)
+    foreach (_simd_backend_test IN ITEMS
+            test_simd_runtime_widths
+            test_simd_local_memory
+            test_simd_atomics
+            test_simd_bindless_buffers
+            test_simd_bindless_textures
+            test_simd_arithmetic
+            test_simd_accel
+            test_simd_curves
+            test_simd_procedural)
+        add_dependencies(${_simd_backend_test}
+                luisa-compute-backend-simd)
+    endforeach ()
+    add_test(NAME test_simd_accel_incoherent_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_incoherent_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_COHERENT_W16_DIRECT_TRACE=1")
+    add_test(NAME test_simd_accel_surface_filter_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_surface_filter_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1")
+
+    foreach (_simd_runtime_test IN ITEMS
+            test_buffer
+            test_buffer_view
+            test_buffer_io
+            test_texture_io
+            test_direct_texture_sampling
+            test_accel_build_modes
+            test_accel_visibility
+            test_ray_query_world_ray
+            test_dsl_slp_vectorization
+            test_printer
+            test_printer_custom_callback
+            test_shared_mem
+            test_shared_memory
+            test_softmax
+            test_warp
+            test_warp_prefix_scan
+            test_warp_sparse_collectives)
+        add_dependencies(${_simd_runtime_test}
+                luisa-compute-backend-simd)
+        add_test(NAME simd_${_simd_runtime_test}
+                COMMAND $<TARGET_FILE:${_simd_runtime_test}> simd)
+        set_tests_properties(simd_${_simd_runtime_test} PROPERTIES
+                LABELS "integration_simd;runtime_simd")
+    endforeach ()
+    foreach (_simd_shared_width IN ITEMS 1 2 4 16)
+        foreach (_simd_shared_test IN ITEMS
+                test_shared_mem
+                test_shared_memory
+                test_softmax)
+            add_test(
+                    NAME simd_${_simd_shared_test}_w${_simd_shared_width}
+                    COMMAND $<TARGET_FILE:${_simd_shared_test}> simd)
+            set_tests_properties(
+                    simd_${_simd_shared_test}_w${_simd_shared_width}
+                    PROPERTIES
+                    LABELS "integration_simd;runtime_simd"
+                    ENVIRONMENT
+                    "LUISA_SIMD_WARP_WIDTH=${_simd_shared_width}")
+        endforeach ()
+    endforeach ()
+    add_dependencies(test_bindless_mip
+            luisa-compute-backend-simd)
+    add_test(NAME simd_test_bindless_mip
+            COMMAND $<TARGET_FILE:test_bindless_mip> simd)
+    set_tests_properties(simd_test_bindless_mip PROPERTIES
+            LABELS "integration_simd;runtime_simd")
+endif ()

@@ -91,7 +91,8 @@ inline void tensor_push_operand(luisa::vector<const Expression *> &args,
 }
 
 inline void tensor_emit(CallOp op, luisa::span<const Expression *const> args) noexcept {
-    FunctionBuilder::current()->call(Type::of<void>(), op, args);
+    static_cast<void>(
+        FunctionBuilder::current()->call(Type::of<void>(), op, args));
 }
 
 /// Validate the element-wise shape/dtype rules of plan.md §A.3.
@@ -253,7 +254,8 @@ inline void tensor_concat(const TensorOperand &dst, int dim,
             TensorDescriptor empty;
             empty.dtype = static_cast<TensorElementType>(0xFFu);
             empty.rank = 0u;
-            TensorOperand dummy{empty, detail::tensor_literal(0ull)};
+            TensorOperand dummy{
+                empty, detail::tensor_literal(uint64_t{0u})};
             detail::tensor_push_operand(args, dummy);
         }
     }

@@ -29,8 +29,10 @@ void test_warp_lane_id_multidimensional(Device &device) {
     expect(warp_size != 0u && warp_size % block_size_x == 0u) << "warp size must be a non-zero multiple of the test block width";
     if (warp_size == 0u || warp_size % block_size_x != 0u) { return; }
 
-    auto block_size_y = 2u * warp_size / block_size_x;
-    auto thread_count = block_size_x * block_size_y;
+    auto dispatch_size_y = 2u * warp_size / block_size_x;
+    auto block_thread_count = std::max(32u, 2u * warp_size);
+    auto block_size_y = block_thread_count / block_size_x;
+    auto thread_count = block_size_x * dispatch_size_y;
     auto lane_ids = device.create_buffer<uint>(thread_count);
     auto shader = device.compile<2>([=](BufferUInt output) noexcept {
         set_block_size(block_size_x, block_size_y, 1u);
@@ -41,7 +43,7 @@ void test_warp_lane_id_multidimensional(Device &device) {
 
     luisa::vector<uint> host_lane_ids(thread_count);
     auto stream = device.create_stream();
-    stream << shader(lane_ids).dispatch(block_size_x, block_size_y)
+    stream << shader(lane_ids).dispatch(block_size_x, dispatch_size_y)
            << lane_ids.copy_to(luisa::span{host_lane_ids})
            << synchronize();
 

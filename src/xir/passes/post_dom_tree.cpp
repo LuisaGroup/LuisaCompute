@@ -116,6 +116,11 @@ auto PostDomTree::immediate_post_dominator(BasicBlock *block) const noexcept -> 
 static const auto kUnknownDom = reinterpret_cast<BasicBlock *>(uintptr_t(-1));
 
 PostDomTree compute_post_dom_tree(Function *function) noexcept {
+    return compute_post_dom_tree(function, {});
+}
+
+PostDomTree compute_post_dom_tree(
+    Function *function, PostDomTreeOptions options) noexcept {
     auto definition =
         function == nullptr ? nullptr : function->definition();
     if (definition == nullptr || definition->body_block() == nullptr) {
@@ -181,7 +186,10 @@ PostDomTree compute_post_dom_tree(Function *function) noexcept {
         }
     }
     auto sinks = std::move(real_sinks);
-    sinks.insert(virtual_exit_sources.begin(), virtual_exit_sources.end());
+    if (options.account_for_infinite_paths) {
+        sinks.insert(
+            virtual_exit_sources.begin(), virtual_exit_sources.end());
+    }
 
     // compute postorder on reversed CFG (follow original predecessors)
     luisa::unordered_set<BasicBlock *> visited;

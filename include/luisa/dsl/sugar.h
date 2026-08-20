@@ -41,7 +41,8 @@ template<typename T>
 template<typename... Exports>
     requires(sizeof...(Exports) != 0u &&
              (std::same_as<std::remove_cvref_t<Exports>,
-                           CoroFrameExport> && ...))
+                           CoroFrameExport> &&
+              ...))
 inline void suspend_impl(const char *name, Exports &&...exports) {
     luisa::vector<CoroFrameExport> values;
     values.reserve(sizeof...(Exports));
@@ -53,7 +54,8 @@ inline void suspend_impl(const char *name, Exports &&...exports) {
 template<typename... Exports>
     requires(sizeof...(Exports) != 0u &&
              (std::same_as<std::remove_cvref_t<Exports>,
-                           CoroFrameExport> && ...))
+                           CoroFrameExport> &&
+              ...))
 inline void suspend_impl(uint32_t token, const char *name,
                          Exports &&...exports) {
     luisa::vector<CoroFrameExport> values;
@@ -179,11 +181,10 @@ inline void suspend_impl(uint32_t token, const char *name,
         [&]() noexcept -> void
 
 #define $while(...)                                                                 \
-    ::luisa::compute::detail::LoopStmtBuilder::create_with_comment(                 \
+    ::luisa::compute::detail::WhileStmtBuilder::create_with_comment(                \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) / \
-        [&]() noexcept -> void {                                                    \
-        $if (!(__VA_ARGS__)) { $break; };                                           \
-    } % [&]() noexcept -> void
+        [&]() noexcept { return (__VA_ARGS__); } %                                  \
+        [&]() noexcept -> void
 
 #define $autodiff                                                                   \
     ::luisa::compute::detail::AutoDiffStmtBuilder::create_with_comment(             \

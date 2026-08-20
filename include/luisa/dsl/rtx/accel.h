@@ -28,12 +28,16 @@ public:
     [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] InlineRayQueryAll query(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] InlineRayQueryAny query_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
 
     // motion blur versions: note that these overloads have significant overhead even if the accel is not actually built with motion blur
     [[nodiscard]] Var<SurfaceHit> intersect_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<bool> intersect_any_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAll traverse_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAny traverse_any_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] InlineRayQueryAll query_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] InlineRayQueryAny query_any_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
 
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
@@ -126,12 +130,16 @@ public:
     [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] InlineRayQueryAll query(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] InlineRayQueryAny query_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
 
     // motion blur versions: note that these overloads have significant overhead even if the accel is not actually built with motion blur
     [[nodiscard]] Var<SurfaceHit> intersect_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<bool> intersect_any_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAll traverse_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAny traverse_any_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] InlineRayQueryAll query_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] InlineRayQueryAny query_any_motion(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
 
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;

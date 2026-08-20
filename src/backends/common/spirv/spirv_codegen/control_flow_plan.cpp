@@ -645,7 +645,7 @@ ControlFlowPlan ControlFlowPlan::_create(
             case xir::DerivedInstructionTag::RAY_QUERY_LOOP:
                 if (reject_planning_precondition(
                         "SPIR-V control-flow plan rejected RayQueryLoopInst. "
-                        "lower_ray_query_loop_to_loop must run before codegen.")) {
+                        "lower_ray_query_to_loop must run before codegen.")) {
                     return plan;
                 }
             default: break;

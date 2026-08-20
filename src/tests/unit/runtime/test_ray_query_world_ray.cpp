@@ -196,6 +196,84 @@ void test_ray_query_commits_closest_surface(Device &device) {
     expect(host_results[0].w >= 1.0f);
 }
 
+void test_inline_ray_query_dsl(Device &device) {
+    auto stream = device.create_stream();
+
+    const std::array vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    const std::array triangles{Triangle{0u, 1u, 2u}};
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto accel = device.create_accel();
+    accel.emplace_back(
+        mesh, make_float4x4(1.0f), 0xffu, false);
+    accel.emplace_back(
+        mesh, translation(make_float3(0.0f, 0.0f, -2.0f)),
+        0xffu, false);
+
+    constexpr auto dispatch_size = 5u;
+    auto result_buffer = device.create_buffer<uint4>(dispatch_size);
+    Kernel1D trace = [](AccelVar accel, BufferUInt4 results) noexcept {
+        auto index = dispatch_x();
+        auto target = index & 1u;
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.0f, 10.0f);
+        auto query = accel.query(ray, {});
+        UInt callback_count = 0u;
+        $while (query.proceed()) {
+            $if (query.is_surface_candidate()) {
+                auto candidate = query.surface_candidate();
+                callback_count += 1u;
+                $if (candidate.hit()->inst == target) {
+                    candidate.commit();
+                };
+            }
+            $else {
+                // The scene has no procedural geometry. Keeping the explicit
+                // arm exercises the portable frontend normalization shape.
+                auto candidate = query.procedural_candidate();
+                $if (candidate.hit()->inst == ~0u) {
+                    candidate.terminate();
+                };
+            };
+        };
+        auto committed = query.committed_hit();
+        results.write(
+            index,
+            make_uint4(
+                committed->hit_type, committed->inst,
+                committed->prim, callback_count));
+    };
+
+    auto shader = device.compile(trace);
+    std::array<uint4, dispatch_size> host_results{};
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << shader(accel, result_buffer).dispatch(dispatch_size)
+           << result_buffer.copy_to(luisa::span{host_results})
+           << synchronize();
+
+    for (auto i = 0u; i < host_results.size(); i++) {
+        auto target = i & 1u;
+        expect(static_cast<bool>(
+            all(host_results[i] ==
+                make_uint4(
+                    static_cast<uint32_t>(HitType::Surface),
+                    target, 0u, target + 1u))))
+            << luisa::format(
+                   "inline ray-query mismatch at lane {}: got ({}, {}, {}, {})",
+                   i, host_results[i].x, host_results[i].y,
+                   host_results[i].z, host_results[i].w);
+    }
+}
+
 void test_negative_surface_barycentric_hit_type(Device &device) {
     auto stream = device.create_stream();
 
@@ -576,6 +654,7 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     test_ray_query_world_ray(dc->device);
     test_ray_query_commits_closest_surface(dc->device);
+    test_inline_ray_query_dsl(dc->device);
     test_negative_surface_barycentric_hit_type(dc->device);
     test_procedural_ray_query_world_ray(dc->device);
 }
