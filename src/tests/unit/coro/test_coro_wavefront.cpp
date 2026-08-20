@@ -314,6 +314,102 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         }
     };
 
+    "graph_wavefront_selective_hint_sort_preserves_queue_bijection"_test =
+        [options] {
+            constexpr uint N = 193u;
+            constexpr uint capacity = 32u;
+            constexpr uint hint_range = 64u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+            auto visits = device.create_buffer<uint>(N);
+            auto coroutine = Coroutine<void(Buffer<uint>, Buffer<uint>)>{
+                [](BufferUInt values, BufferUInt loop_visits) noexcept {
+                    auto tid = dispatch_x();
+                    auto value = tid * 17u + 5u;
+                    auto iteration = def(0u);
+                    auto iteration_count = tid % 5u + 1u;
+                    $while (iteration < iteration_count) {
+                        auto coro_hint =
+                            (tid * 13u + iteration * 7u) & 63u;
+                        $suspend(
+                            "sort_me",
+                            coro_frame_export("coro_hint", coro_hint));
+                        loop_visits.atomic(tid).fetch_add(1u);
+                        value = (value ^ (coro_hint + 1u)) + iteration * 3u;
+                        iteration += 1u;
+                    };
+                    $suspend("finish");
+                    values.write(tid, value);
+                }};
+
+            luisa::vector<uint> zeros(N);
+            stream << output.copy_from(luisa::span{zeros})
+                   << visits.copy_from(luisa::span{zeros}) << synchronize();
+            GraphWavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+                device, coroutine,
+                GraphWavefrontCoroSchedulerConfig{
+                    .thread_count = capacity,
+                    .global_memory_soa = true,
+                    .execution_block_size = 32u,
+                    .worker_count = 5u,
+                    .selective_scheduling = true,
+                    .counter_readback_batch_size = 1u,
+                    .counter_readback_pipeline_depth = 1u,
+                    .tail_megakernel_threshold = 0u,
+                    .report_stats = true,
+                    .hint_range = hint_range,
+                    .hint_fields = {"sort_me", "finish"}}};
+            expect(scheduler.config().hint_fields.size() == 1u)
+                << "small-range graph hint sorting is subgroup independent "
+                   "and must reject a target without the exported hint";
+            if (scheduler.config().hint_fields.size() == 1u) {
+                expect(scheduler.config().hint_fields.front() == "sort_me");
+            }
+            scheduler(output, visits).dispatch(N)(stream);
+
+            luisa::vector<uint> host_output(N);
+            luisa::vector<uint> host_visits(N);
+            stream << output.copy_to(luisa::span{host_output})
+                   << visits.copy_to(luisa::span{host_visits}) << synchronize();
+            auto exact = true;
+            auto expected_resumes = uint64_t{0u};
+            for (auto tid = 0u; tid < N; ++tid) {
+                auto expected = tid * 17u + 5u;
+                auto iteration_count = tid % 5u + 1u;
+                expected_resumes += iteration_count;
+                for (auto iteration = 0u; iteration < iteration_count;
+                     ++iteration) {
+                    auto hint = (tid * 13u + iteration * 7u) & 63u;
+                    expected = (expected ^ (hint + 1u)) + iteration * 3u;
+                }
+                exact &= host_output[tid] == expected;
+                exact &= host_visits[tid] == iteration_count;
+            }
+            expect(exact)
+                << "sorting stable frame-slot indices must neither omit, "
+                   "duplicate, nor cross-associate coroutine frames";
+
+            auto *sort_node = coroutine.graph().node_by_name("sort_me");
+            auto *finish_node = coroutine.graph().node_by_name("finish");
+            expect(sort_node != nullptr && finish_node != nullptr);
+            if (sort_node == nullptr || finish_node == nullptr) { return; }
+            auto &&stats = scheduler.last_dispatch_stats();
+            expect(stats.continuation_executed_count[sort_node->index] ==
+                   expected_resumes)
+                << "every loop self-edge must resume exactly once";
+            expect(stats.continuation_hint_sort_count[sort_node->index] != 0u);
+            expect(stats.continuation_hint_sort_count[sort_node->index] ==
+                   stats.continuation_dispatch_count[sort_node->index])
+                << "every selected hinted queue is sorted from its exact "
+                   "host-observed cardinality";
+            expect(stats.continuation_hint_sort_count[finish_node->index] ==
+                   0u)
+                << "unconfigured continuation queues must remain unsorted";
+        };
+
     "graph_wavefront_tail_megakernel_finishes_residual_frames"_test =
         [options] {
             constexpr uint N = 66u;
