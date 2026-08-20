@@ -3633,13 +3633,17 @@ on 2026-08-11. The repository now contains:
   motion traversal, curve classification and per-primitive front/back
   deduplication, a persistent 32-candidate speculative batch, W2-to-W4 padding,
   and exact W1/W2/W4/W8/W16 tail and 35-candidate continuation coverage;
-- a capture-free structured-query fast path at W2/W4/W8/W16 that preserves
-  `RayQueryPipelineInst`, lowers each candidate region to an internal
-  fixed-vector handler, passes exact sparse physical masks and one packed
-  state-pointer array, and advances all original lanes through the paired
-  status provider without entering the outer scheduler between candidates;
-  captured handlers and every explicit `proceed()` loop retain the ordinary
-  state-machine path, while W1 is performance-gated to that path by default;
+- a structured-query fast path that preserves `RayQueryPipelineInst`, lowers
+  each candidate region to an internal fixed-vector handler, passes exact
+  sparse physical masks and one packed state-pointer array, and advances all
+  original lanes through the paired status provider without entering the
+  outer scheduler between candidates; capture-free handlers use this route at
+  W2/W4/W8/W16, while the measured resource-using path additionally accepts up
+  to four captures at W4; private handler arguments preserve the caller's
+  `warp_uniform`/`cohort_uniform`/`varying` class, resource descriptors remain
+  scalar, and reference captures use per-lane local handles; W1, unprofitable
+  captured widths, and every explicit `proceed()` loop retain the ordinary
+  state-machine path;
 - a fail-closed W4/W8/W16 loop-route ray-query status sidecar, also required by
   the direct W2 path, colored with query scratch liveness, that keeps
   terminated/surface/procedural masks in one JIT scalar, publishes validity

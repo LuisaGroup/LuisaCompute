@@ -1,5 +1,6 @@
 #pragma once
 
+#include <span>
 #include <unordered_map>
 
 #include "schedule_ir.h"
@@ -34,7 +35,9 @@ private:
 
 public:
     void clear() noexcept;
-    void analyze(const xir::Function *function) noexcept;
+    void analyze(
+        const xir::Function *function,
+        std::span<const ValueClass> parameter_value_classes = {}) noexcept;
 
     [[nodiscard]] ValueClass classify(
         const xir::Value *value) const noexcept;

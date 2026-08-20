@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,11 @@ struct XIRToScheduleOptions {
     // machinery. Tests and diagnostic experiments may lower this threshold
     // without coupling the schedule projection to emitter-specific controls.
     uint32_t cohort_uniform_induction_min_loop_block_count{25u};
+    // Callable arguments are conservatively varying by default. Internal
+    // whole-operation lowering may preserve the caller-proven classes across
+    // a private callback boundary by supplying one class per source argument.
+    // This is deliberately backend-private: no public DSL ABI depends on it.
+    std::span<const ValueClass> parameter_value_classes{};
 };
 
 struct XIRToScheduleResult {

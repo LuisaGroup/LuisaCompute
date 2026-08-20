@@ -1952,17 +1952,30 @@ themselves are still evaluated only once and splat only at the state
 initialization stores. A copied query value is an internal pointer to that
 lane's record.
 
-SIMD has two control routes. A captured structured query or any explicit
-`proceed()` query is lowered to ordinary XIR loop/if control containing
-`PROCEED`, candidate-kind reads, and object writes; the cohort scheduler
-executes its divergent handlers without a second callback-side PC machine. At
-W2/W4/W8/W16, a `traverse(...).on_*().trace()` query with zero semantic input
-captures and zero live-outs is instead outlined to `RayQueryPipelineInst`
-before loop reconstruction. Constants, function operands, and special
-registers are not captures. Kernel arguments, resources, reference state, and
-live-outs are captures and force the loop route. A preliminary single-store
-local forwarding pass may remove only front-end callable argument/return
-scratch; it must not reclassify user-visible mutable state as capture-free.
+SIMD has two control routes. Any explicit `proceed()` query is lowered to
+ordinary XIR loop/if control containing `PROCEED`, candidate-kind reads, and
+object writes; the cohort scheduler executes its divergent handlers without a
+second callback-side PC machine. A structured
+`traverse(...).on_*().trace()` query may instead be outlined to
+`RayQueryPipelineInst` before loop reconstruction. Capture-free pipelines use
+the direct route at W2/W4/W8/W16. The measured captured specialization accepts
+at most four semantic captures at W4; other captured widths remain loops.
+Constants, function operands, and special registers are not captures. Kernel
+arguments, resources, reference state, and live-outs are captures. A
+preliminary single-store local forwarding pass may remove only front-end
+callable argument/return scratch; it must not reclassify user-visible mutable
+state as capture-free.
+
+Schedule IR keeps the query object followed by every captured argument as
+ordinary dependencies at the pipeline site. When outlining a private handler,
+the caller-proven `warp_uniform -> cohort_uniform -> varying` class seeds the
+handler's parameter analysis. A uniform kernel value or resource therefore
+stays scalar across this boundary; it is not splatted merely because it is a
+callback argument. A reference capture is a varying lane-local lvalue and uses
+the same base-vector plus byte-offset-vector handle as its caller. Mask/token
+classes, varying resource descriptors, non-data references, missing or
+duplicated operands, and any caller/handler type or count mismatch reject the
+compilation rather than changing semantics.
 
 The canonical `lower_ray_query_to_loop` spelling is a top-tested structured
 loop: prepare executes `PROCEED`, reads `IS_TERMINATED`, and enters the body
@@ -1986,13 +1999,17 @@ recreates omitted empty handlers.
 The direct route outlines surface and procedural handlers into internal LLVM
 functions with ABI
 `void(i32 lane_count, i64 active_mask_bits, ptr state_pointer_lanes,
-ptr launch_config)`. The lane count equals the fixed specialization width;
-the mask may be sparse; inactive pointer entries are null and must never be
-dereferenced. The only handler parameter is a varying reference to the query
-object backed by the corresponding state-pointer entry. Handler shared memory
-and block barriers are rejected. Special registers are reconstructed from the
-unchanged launch record and physical lane IDs. These functions have internal
-linkage and are not a public runtime, Embree, or DSL ABI.
+ptr launch_config, capture_0, capture_1, ...)`. The lane count equals the fixed
+specialization width; the mask may be sparse; inactive pointer entries are
+null and must never be dereferenced. Parameter zero in Schedule IR is a
+varying reference to the query object backed by the corresponding
+state-pointer entry. Remaining arguments are private, typed LLVM values:
+uniform/cohort data stays scalar, varying data keeps its fixed-vector/SoA
+representation, buffer/texture/bindless/accel descriptors stay scalar, and
+reference captures use lane-local handles. Handler shared memory and block
+barriers are rejected. Special registers are reconstructed from the unchanged
+launch record and physical lane IDs. These functions have internal linkage and
+are not a public runtime, Embree, or DSL ABI.
 
 The main packet materializes the null-sanitized state-pointer array once, then
 repeatedly invokes the construction-selected status provider for the remaining
@@ -2007,15 +2024,22 @@ visibility, opacity, sparse cohorts, and partial tails are otherwise identical
 to the loop oracle.
 
 W1 uses the explicit loop by default because seven real-renderer pairs showed
-a stable regression from the extra handler call. W2/W4/W8/W16 use the direct
-route for eligible handlers. `LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE=1`
-restores the loop oracle; `LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE=1` exists
-only to exercise the W1 handler ABI in tests. An explicit `query_all`/
+a stable regression from the extra handler call. Capture-free W2/W4/W8/W16
+pipelines use the direct route. For captured pipelines, twelve-pair renderer
+A/B tests support only W4, bounded to four captures by default; forced W2 is a
+regression and longer W8/W16 confidence intervals cross one.
+`LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE=1` restores the loop oracle for
+all pipelines, and `LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE=1` exists only
+to exercise the W1 handler ABI in tests.
+`LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE=1` retains captured loops while
+leaving capture-free direct pipelines enabled;
+`LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE=1` removes the width/count
+profitability gate for tests and experiments. An explicit `query_all`/
 `query_any` `proceed()` loop always remains on the state-machine route because
 each successful proceed is observable. Packet width and native traversal ABI
-are not DSL semantics. A future uniform/resource capture extension belongs to
-this internal handler ABI and must retain scalar uniform evaluation; it does
-not require new public DSL syntax.
+are not DSL semantics. The existing structured DSL already supplies the
+whole-query boundary and lexical captures, so no SIMD-specific public syntax
+is required.
 
 Distinct simultaneously live query objects also receive distinct records.
 Sequential construction sites may share the same per-lane scratch only after

@@ -546,9 +546,9 @@ struct SIMDLLVMPrintFormat {
     std::vector<const Type *> argument_types{};
 };
 
-// Internal, width-specialized callback pair for one capture-free
-// RayQueryPipelineInst. Each function uses the ray-query handler ABI described
-// below and remains inside the JIT module; this is not a public runtime ABI.
+// Internal, width-specialized callback pair for one RayQueryPipelineInst.
+// Each function uses the ray-query handler ABI described below and remains
+// inside the JIT module; this is not a public runtime ABI.
 struct LLVMSIMDRayQueryPipelineHandlers {
     ::llvm::Function *on_surface{nullptr};
     ::llvm::Function *on_procedural{nullptr};
@@ -695,12 +695,15 @@ struct LLVMScheduleCodegenResult {
 
 // Ray-query handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,
-//                ptr state_pointer_lanes, ptr launch_config)
+//                ptr state_pointer_lanes, ptr launch_config,
+//                capture_0, capture_1, ...)
 //
 // state_pointer_lanes points to specialization_width pointers, one per
-// physical lane. active_mask_bits may be sparse. The sole Schedule parameter
-// is a varying reference to LC_RayQueryAll/Any and is materialized as a
-// thread-local lvalue backed by this pointer array.
+// physical lane. active_mask_bits may be sparse. Parameter zero is a varying
+// reference to LC_RayQueryAll/Any and is materialized as a thread-local lvalue
+// backed by this pointer array. Remaining private arguments preserve the
+// caller-proven warp/cohort/varying class; captured references use the same
+// per-lane local-handle representation as the packet caller.
 [[nodiscard]] LLVMScheduleCodegenResult
 lower_ray_query_handler_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,

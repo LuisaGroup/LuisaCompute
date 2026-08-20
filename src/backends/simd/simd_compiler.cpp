@@ -2,8 +2,10 @@
 
 #include <array>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 
@@ -120,11 +122,58 @@ SIMDCompiledKernel compile_simd_kernel(
          pipeline_index++) {
         auto *pipeline =
             schedule_result.ray_query_pipelines[pipeline_index];
+        const schedule::Instruction *pipeline_instruction = nullptr;
+        for (auto &&block : schedule_result.function->blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode ==
+                        schedule::Opcode::ray_query_pipeline &&
+                    instruction.source_op &&
+                    *instruction.source_op ==
+                        static_cast<uint32_t>(pipeline_index)) {
+                    if (pipeline_instruction != nullptr) {
+                        result.diagnostics.emplace_back(
+                            "ray-query pipeline has duplicate Schedule IR sites");
+                        return result;
+                    }
+                    pipeline_instruction = &instruction;
+                }
+            }
+        }
+        if (pipeline_instruction == nullptr ||
+            pipeline_instruction->operands.size() !=
+                pipeline->captured_argument_count() + 1u) {
+            result.diagnostics.emplace_back(
+                "ray-query pipeline capture operands do not match its XIR ABI");
+            return result;
+        }
+        std::vector<schedule::ValueClass> parameter_value_classes;
+        parameter_value_classes.reserve(
+            pipeline_instruction->operands.size());
+        // The query object is always one lane-local reference. Captured
+        // arguments retain their caller-proven class so uniform resources and
+        // scalar expressions do not become gratuitous vectors in callbacks.
+        parameter_value_classes.emplace_back(
+            schedule::ValueClass::varying);
+        for (auto operand :
+             std::span{pipeline_instruction->operands}.subspan(1u)) {
+            auto *value = schedule_result.function->value(operand);
+            if (value == nullptr ||
+                value->value_class == schedule::ValueClass::mask ||
+                value->value_class == schedule::ValueClass::token) {
+                result.diagnostics.emplace_back(
+                    "ray-query pipeline capture has an invalid Schedule IR class");
+                return result;
+            }
+            parameter_value_classes.emplace_back(value->value_class);
+        }
         auto lower_handler = [&](const xir::Function *handler,
                                  std::string_view kind)
             -> std::optional<schedule::Function> {
+            auto handler_options = schedule_options;
+            handler_options.parameter_value_classes =
+                parameter_value_classes;
             auto lowered = schedule::lower_xir_to_schedule(
-                handler, schedule_options);
+                handler, handler_options);
             if (!lowered.succeeded()) {
                 for (auto &&diagnostic : lowered.diagnostics) {
                     result.diagnostics.emplace_back(
@@ -474,14 +523,25 @@ SIMDCompiledKernel compile_simd_kernel(
         (warp_width != 1u ||
          detail::env_flag(
              "LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE"))) {
+        auto force_captured_pipeline = detail::env_flag(
+            "LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE");
+        auto enable_captured_pipeline =
+            !detail::env_flag(
+                "LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE") &&
+            (warp_width == 4u || force_captured_pipeline);
         direct_ray_query_pipeline =
             xir::lower_ray_query_to_pipeline_pass_run_on_module(
                 module.get(), nullptr,
-                {.max_captured_argument_count = 0u});
+                {.max_captured_argument_count =
+                     enable_captured_pipeline ?
+                         (force_captured_pipeline ?
+                              std::numeric_limits<size_t>::max() :
+                              4u) :
+                         0u});
         if (!direct_ray_query_pipeline.succeeded()) {
             SIMDCompiledKernel result{.warp_width = warp_width};
             result.diagnostics.emplace_back(
-                "XIR capture-free ray-query pipeline lowering failed (errors=" +
+                "XIR direct ray-query pipeline lowering failed (errors=" +
                 std::to_string(
                     direct_ray_query_pipeline.error_count) +
                 ")");

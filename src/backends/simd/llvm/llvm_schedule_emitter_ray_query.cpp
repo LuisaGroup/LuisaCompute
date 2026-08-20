@@ -1138,7 +1138,7 @@ void ScheduleEmitter::_ray_query_update_status(
 
 void ScheduleEmitter::_ray_query_pipeline(
     const schedule::Instruction &instruction) {
-    if (!instruction.source_op || instruction.operands.size() != 1u ||
+    if (!instruction.source_op || instruction.operands.empty() ||
         *instruction.source_op >=
             _ray_query_pipeline_handlers.size()) {
         _fail("ray-query pipeline is malformed");
@@ -1202,6 +1202,16 @@ void ScheduleEmitter::_ray_query_pipeline(
     state_store->setAlignment(::llvm::Align{alignof(void *)});
 
     auto *outer_active_bits = _bindless_callback_mask(true);
+    auto handler_arguments = std::vector<::llvm::Value *>{
+        _builder.getInt32(_width), nullptr, scratch, _launch_config};
+    handler_arguments.reserve(instruction.operands.size() + 3u);
+    for (auto capture_index = size_t{1u};
+         capture_index < instruction.operands.size(); capture_index++) {
+        auto *capture = _load_value(
+            instruction.operands[capture_index]);
+        if (capture == nullptr) { return; }
+        handler_arguments.emplace_back(capture);
+    }
     auto *preheader = _builder.GetInsertBlock();
     auto *loop = ::llvm::BasicBlock::Create(
         context, "ray.query.pipeline.loop", _entry);
@@ -1272,8 +1282,6 @@ void ScheduleEmitter::_ray_query_pipeline(
         _builder.CreateICmpNE(surface, _builder.getInt64(0u)),
         surface_call, after_surface);
 
-    auto handler_arguments = std::array<::llvm::Value *, 4u>{
-        _builder.getInt32(_width), nullptr, scratch, _launch_config};
     _builder.SetInsertPoint(surface_call);
     handler_arguments[1u] = surface;
     _builder.CreateCall(

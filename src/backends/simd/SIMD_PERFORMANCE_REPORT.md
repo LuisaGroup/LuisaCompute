@@ -4530,3 +4530,101 @@ two-spp cutout images are byte-identical between direct and loop at each of all
 five widths. This closes the capture-free vertical slice, not general captured
 handlers: a later uniform/resource capture ABI must preserve scalar uniform
 evaluation and win a resource-using renderer before it is enabled.
+
+## Captured structured ray-query pipeline
+
+The real `examples/rendering/procedural.cpp` query is the first graphics
+vertical slice with semantic captures. After the front-end cleanup it retains
+four input captures, including the AABB buffer descriptor and mutable
+lane-local state used by the procedural handler. The public DSL already
+expresses the required whole-query boundary and lexical captures; the missing
+piece was the SIMD-private callback ABI, not a width- or Embree-specific DSL
+operation.
+
+Schedule IR now keeps the query plus captured arguments as pipeline
+dependencies. Outlined handlers receive the caller-proven
+`warp_uniform -> cohort_uniform -> varying` parameter classes: uniform values
+and resource descriptors remain scalar, varying data keeps fixed-vector/SoA
+form, and reference captures use the existing per-lane local handle. The LLVM
+handler ABI is privately extended from `void(i32, i64, ptr, ptr)` to
+`void(i32, i64, ptr, ptr, capture_0, ...)`. Both callbacks share the exact
+typed capture list, and count/type/class mismatches fail closed. No public DSL,
+XIR pass-info, runtime descriptor, Embree, or query-state ABI changes.
+
+The profitability sweep used the Ryzen 9 9950X3D's 16 physical cores
+(`taskset -c 0-15`, `LUISA_SIMD_WORKER_COUNT=16`) and alternated fresh
+processes. W2 used 12 pairs at 64 spp. W8/W16 use the longer 16-pair, 128-spp
+confirmation after their first 64-spp intervals crossed one. W4 is the final
+12-way rotated direct/loop/fallback run at 64 spp.
+
+| Width | direct median ms | loop median ms | direct/loop speedup | wins | 95% CI |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W2, forced | 481.794 | 477.278 | 0.9759x | 4/12 | [0.9461, 1.0067] |
+| W4 | 302.565 | 314.781 | 1.0290x | 9/12 | [1.0026, 1.0561] |
+| W8, forced | 449.127 | 447.358 | 0.9900x | 7/16 | [0.9748, 1.0053] |
+| W16, forced | 374.910 | 373.298 | 0.9932x | 8/16 | [0.9714, 1.0154] |
+
+Only W4 has repeatable positive evidence, so production enables captured
+pipelines only at W4 and only up to four captures. W2/W8/W16 retain the loop;
+W1 already retains it. `LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE=1`
+provides the W4 oracle, while
+`LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE=1` removes the width/count gate
+for tests and experiments. Capture-free W2/W4/W8/W16 policy is unchanged.
+
+The same 64-spp renderer gives the current production width comparison against
+fallback. Each non-W4 row has ten alternating pairs; W4 uses the twelve rotated
+triples above. Raw fallback medians drift between sweeps, so the paired ratio
+and interval are the comparison of record.
+
+| backend/width | SIMD median ms | paired fallback median ms | SIMD speedup vs fallback | 95% CI |
+| --- | ---: | ---: | ---: | ---: |
+| W1 | 534.403 | 269.245 | 0.5065x | [0.4975, 0.5157] |
+| W2 | 484.378 | 269.876 | 0.5639x | [0.5467, 0.5817] |
+| W4, captured direct | 302.565 | 296.201 | 0.9528x | [0.9214, 0.9852] |
+| W8 | 202.186 | 268.751 | 1.3308x | [1.3078, 1.3543] |
+| W16 | 173.141 | 275.108 | 1.5775x | [1.5504, 1.6052] |
+
+Thus captured direct lowering closes about three percent at W4 but does not
+make W4 beat fallback. The wider packet traversal is what changes the renderer
+result: the retained-loop W8 and W16 paths are respectively about 1.33x and
+1.58x faster than fallback. W1/W2 expose the opposite limit: packet query
+state, callbacks, and scattered candidate memory dominate before useful SIMD
+width amortizes them.
+
+At W4, the direct main schedule falls from 25 to 7 blocks, 8 to 2 convergence
+points, 22 to 6 state slots, and 15 to 4 instruction spills. Static assembly is
+not smaller: direct/loop report 3,147/3,023 instructions, 288/274 branches,
+709/749 stack references, 8,256/8,128 stack-allocation bytes, and three calls
+each; both report zero scalar-math calls. Five serial 256-spp `perf stat` runs
+show why it still wins dynamically:
+
+| counter | direct | loop | direct/loop |
+| --- | ---: | ---: | ---: |
+| cycles | 89,996,108,496 | 93,488,170,416 | 0.9626 |
+| instructions | 354,636,654,267 | 367,210,511,373 | 0.9658 |
+| branches | 44,116,384,290 | 44,452,322,492 | 0.9924 |
+| branch misses | 126,327,644 | 115,722,102 | 1.0916 |
+
+The direct route retires 3.42% fewer instructions and 3.74% fewer cycles even
+though its static body is larger and its branch misses increase. This
+quantifies reduced dynamic scheduler turnover rather than an LLVM inlining or
+code-size effect. Generic cache counters also show 0.512x cache references and
+0.955x misses, but those architecture-generic Zen events are retained only as
+directional evidence, not a cache-level traffic model.
+
+An explicit handler-`alwaysinline` experiment was rejected. On the W8 cutout
+renderer it removed two calls and both standalone handlers, but total text grew
+609 bytes, static instructions grew 64, stack references grew 71, and the main
+frame grew 1,216 bytes. Twelve alternating pairs gave 0.9871x with 95% CI
+[0.9776, 0.9967] and only 1/12 wins. The production `inlinehint` remains: fewer
+call instructions are not useful when they increase ray-query state pressure.
+
+Permanent coverage now includes capture projection, invalid override
+diagnostics, uniform parameter preservation, a scalar buffer descriptor, a
+varying output reference, exact sparse tail masks, provider-call counts, and
+candidate-versus-loop equality at W1/W2/W4/W8/W16. A compile-only DSL case
+also carries buffer, image, bindless, accel, and varying-index captures through
+one W8 handler. The forced W8 procedural
+image is byte-identical to its loop oracle; the default W4 image is likewise
+byte-identical, and its fallback reference comparison passes at 48.016 dB
+PSNR.

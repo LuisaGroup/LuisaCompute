@@ -1654,23 +1654,35 @@ void ScheduleEmitter::_build() {
     auto &context = _module.getContext();
     auto handler_entry =
         _entry_abi == ScheduleEntryABI::ray_query_handler;
+    auto parameter_types = std::vector<::llvm::Type *>{};
+    if (handler_entry) {
+        parameter_types = {
+            ::llvm::Type::getInt32Ty(context),
+            ::llvm::Type::getInt64Ty(context),
+            ::llvm::PointerType::getUnqual(context),
+            ::llvm::PointerType::getUnqual(context)};
+        parameter_types.reserve(3u + _parameters.size());
+        for (auto index = size_t{1u};
+             index < _parameters.size(); index++) {
+            auto *type = _handler_parameter_type(
+                *_parameters[index]);
+            if (type == nullptr) { return; }
+            parameter_types.emplace_back(type);
+        }
+    } else {
+        parameter_types = {
+            ::llvm::PointerType::getUnqual(context),
+            ::llvm::PointerType::getUnqual(context),
+            ::llvm::PointerType::getUnqual(context),
+            ::llvm::Type::getInt32Ty(context)};
+    }
     auto *function_type = ::llvm::FunctionType::get(
         !handler_entry && _cooperative_block ?
             static_cast<::llvm::Type *>(
                 ::llvm::PointerType::getUnqual(context)) :
             static_cast<::llvm::Type *>(
                 ::llvm::Type::getVoidTy(context)),
-        handler_entry ?
-            std::vector<::llvm::Type *>{
-                ::llvm::Type::getInt32Ty(context),
-                ::llvm::Type::getInt64Ty(context),
-                ::llvm::PointerType::getUnqual(context),
-                ::llvm::PointerType::getUnqual(context)} :
-            std::vector<::llvm::Type *>{
-                ::llvm::PointerType::getUnqual(context),
-                ::llvm::PointerType::getUnqual(context),
-                ::llvm::PointerType::getUnqual(context),
-                ::llvm::Type::getInt32Ty(context)},
+        parameter_types,
         false);
     if (_entry_name.empty()) {
         _entry_name = _source.name().empty() ? "simd_kernel" :
@@ -1703,6 +1715,10 @@ void ScheduleEmitter::_build() {
         _argument_buffer->setName("state_pointer_lanes");
         _launch_config = &*argument;
         _launch_config->setName("launch_config");
+        for (auto index = size_t{1u};
+             index < _parameters.size(); index++) {
+            (++argument)->setName("capture." + std::to_string(index - 1u));
+        }
         _return_buffer = ::llvm::ConstantPointerNull::get(
             ::llvm::PointerType::getUnqual(context));
     } else {

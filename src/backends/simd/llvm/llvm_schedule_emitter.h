@@ -115,6 +115,7 @@ private:
     std::vector<int32_t> _cooperative_loop_epoch_indices{};
     std::vector<::llvm::AllocaInst *> _cooperative_loop_epochs{};
     std::vector<::llvm::Value *> _external_values{};
+    std::vector<const schedule::Value *> _parameters{};
     std::vector<size_t> _parameter_offsets{};
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
     std::unordered_map<const schedule::Instruction *, uint64_t>
@@ -260,6 +261,12 @@ private:
         const Type *type, uint32_t index) noexcept;
     [[nodiscard]] ::llvm::Type *_data_type(
         const Type *type, bool varying);
+    [[nodiscard]] ::llvm::StructType *_buffer_view_type();
+    [[nodiscard]] ::llvm::StructType *_texture_view_type();
+    [[nodiscard]] ::llvm::StructType *_bindless_view_type();
+    [[nodiscard]] ::llvm::StructType *_accel_view_type();
+    [[nodiscard]] ::llvm::Type *_handler_parameter_type(
+        const schedule::Value &value);
     [[nodiscard]] ::llvm::Value *_extract_child(
         ::llvm::Value *aggregate, const Type *type, uint32_t index,
         bool varying);

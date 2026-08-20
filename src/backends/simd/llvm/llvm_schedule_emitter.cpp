@@ -204,6 +204,61 @@ void ScheduleEmitter::_fail(std::string message) {
     return result;
 }
 
+[[nodiscard]] ::llvm::StructType *ScheduleEmitter::_buffer_view_type() {
+    return ::llvm::StructType::get(
+        _module.getContext(),
+        {::llvm::PointerType::getUnqual(_module.getContext()),
+         _builder.getInt64Ty()});
+}
+
+[[nodiscard]] ::llvm::StructType *ScheduleEmitter::_texture_view_type() {
+    auto *pointer = ::llvm::PointerType::getUnqual(
+        _module.getContext());
+    return ::llvm::StructType::get(
+        _module.getContext(),
+        {pointer, pointer, pointer, pointer, pointer, pointer,
+         _builder.getInt32Ty(), _builder.getInt32Ty(), pointer});
+}
+
+[[nodiscard]] ::llvm::StructType *ScheduleEmitter::_bindless_view_type() {
+    auto *pointer = ::llvm::PointerType::getUnqual(
+        _module.getContext());
+    return ::llvm::StructType::get(
+        _module.getContext(),
+        {pointer, _builder.getInt64Ty(), pointer, pointer, pointer});
+}
+
+[[nodiscard]] ::llvm::StructType *ScheduleEmitter::_accel_view_type() {
+    auto *pointer = ::llvm::PointerType::getUnqual(
+        _module.getContext());
+    return ::llvm::StructType::get(
+        _module.getContext(),
+        {pointer, pointer, pointer, pointer, pointer, pointer});
+}
+
+[[nodiscard]] ::llvm::Type *ScheduleEmitter::_handler_parameter_type(
+    const schedule::Value &value) {
+    if (_is_local_lvalue(value.id)) {
+        return _local_handle_type();
+    }
+    if (is_indirect_dispatch_type(value.type) ||
+        (value.type != nullptr && value.type->is_buffer())) {
+        return _buffer_view_type();
+    }
+    if (value.type != nullptr && value.type->is_texture()) {
+        return _texture_view_type();
+    }
+    if (value.type != nullptr && value.type->is_bindless_array()) {
+        return _bindless_view_type();
+    }
+    if (value.type != nullptr && value.type->is_accel()) {
+        return _accel_view_type();
+    }
+    auto *type = _layout.expression_type(value);
+    if (type == nullptr) { _fail(_layout.error()); }
+    return type;
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_extract_child(
     ::llvm::Value *aggregate, const Type *type, uint32_t index,
     bool varying) {
@@ -391,11 +446,10 @@ void ScheduleEmitter::_analyze_local_lvalues() {
             }
             auto *metadata = std::get_if<
                 schedule::ParameterValueMetadata>(&value.metadata);
-            if (metadata != nullptr && metadata->index == 0u &&
+            if (metadata != nullptr &&
                 static_cast<xir::DerivedArgumentTag>(
                     metadata->argument_tag) ==
-                    xir::DerivedArgumentTag::REFERENCE &&
-                is_ray_query_type(value.type)) {
+                    xir::DerivedArgumentTag::REFERENCE) {
                 _local_lvalue_values[value.id.value] = 1u;
                 ready.emplace_back(PendingLValue{
                     .value = value.id,
@@ -635,7 +689,8 @@ void ScheduleEmitter::_preflight() {
         return;
     }
 
-    std::vector<const schedule::Value *> parameters;
+    _parameters.clear();
+    auto &parameters = _parameters;
     for (auto &&value : _source.values()) {
         if (value.origin == schedule::ValueOrigin::parameter) {
             auto *metadata = std::get_if<schedule::ParameterValueMetadata>(
@@ -665,14 +720,48 @@ void ScheduleEmitter::_preflight() {
                     _fail("packet ABI supports data, buffer, texture, bindless, accel, and indirect-dispatch arguments only");
                     return;
                 }
-            } else if (metadata->index != 0u ||
-                       argument_tag !=
-                           xir::DerivedArgumentTag::REFERENCE ||
-                       value.value_class !=
-                           schedule::ValueClass::varying ||
-                       !is_ray_query_type(value.type)) {
-                _fail("ray-query handler ABI requires one varying reference query parameter");
-                return;
+            } else {
+                if (metadata->index == 0u) {
+                    if (argument_tag !=
+                            xir::DerivedArgumentTag::REFERENCE ||
+                        value.value_class !=
+                            schedule::ValueClass::varying ||
+                        !is_ray_query_type(value.type)) {
+                        _fail("ray-query handler ABI requires a varying reference query as parameter zero");
+                        return;
+                    }
+                } else if (argument_tag ==
+                           xir::DerivedArgumentTag::REFERENCE) {
+                    if (value.value_class !=
+                            schedule::ValueClass::varying ||
+                        !_is_data(value.type)) {
+                        _fail("ray-query handler reference captures must be varying data lvalues");
+                        return;
+                    }
+                } else if (argument_tag ==
+                           xir::DerivedArgumentTag::VALUE) {
+                    if (!_is_data(value.type) ||
+                        value.value_class == schedule::ValueClass::mask ||
+                        value.value_class == schedule::ValueClass::token) {
+                        _fail("ray-query handler value capture has an unsupported type or class");
+                        return;
+                    }
+                } else if (argument_tag ==
+                           xir::DerivedArgumentTag::RESOURCE) {
+                    if (value.value_class !=
+                            schedule::ValueClass::warp_uniform ||
+                        value.type == nullptr ||
+                        (!value.type->is_buffer() &&
+                         !value.type->is_texture() &&
+                         !value.type->is_bindless_array() &&
+                         !value.type->is_accel())) {
+                        _fail("ray-query handler resource captures must be supported warp-uniform descriptors");
+                        return;
+                    }
+                } else {
+                    _fail("ray-query handler capture has an invalid argument tag");
+                    return;
+                }
             }
             if (parameters.size() <= metadata->index) {
                 parameters.resize(metadata->index + 1u, nullptr);
@@ -693,8 +782,8 @@ void ScheduleEmitter::_preflight() {
         }
     }
     if (_entry_abi == ScheduleEntryABI::ray_query_handler &&
-        parameters.size() != 1u) {
-        _fail("ray-query handler ABI requires exactly one query parameter");
+        parameters.empty()) {
+        _fail("ray-query handler ABI requires a query parameter");
         return;
     }
     _parameter_offsets.resize(parameters.size());
@@ -749,9 +838,43 @@ void ScheduleEmitter::_preflight() {
                     !instruction.source_op ||
                     *instruction.source_op >=
                         _ray_query_pipeline_handlers.size() ||
-                    instruction.operands.size() != 1u) {
-                    _fail("ray-query pipeline has no matching capture-free handler pair");
+                    instruction.operands.empty()) {
+                    _fail("ray-query pipeline has no matching handler pair");
                     return;
+                }
+                auto handlers = _ray_query_pipeline_handlers[*instruction.source_op];
+                auto expected_argument_count =
+                    instruction.operands.size() + 3u;
+                if (handlers.on_surface == nullptr ||
+                    handlers.on_procedural == nullptr ||
+                    handlers.on_surface->arg_size() !=
+                        expected_argument_count ||
+                    handlers.on_procedural->arg_size() !=
+                        expected_argument_count) {
+                    _fail("ray-query pipeline handler capture count does not match its Schedule operands");
+                    return;
+                }
+                for (auto capture_index = size_t{1u};
+                     capture_index < instruction.operands.size();
+                     capture_index++) {
+                    auto *capture = _source.value(
+                        instruction.operands[capture_index]);
+                    auto *capture_type = capture == nullptr ?
+                                             nullptr :
+                                             _handler_parameter_type(
+                                                 *capture);
+                    auto handler_index =
+                        static_cast<unsigned>(capture_index + 3u);
+                    if (capture_type == nullptr ||
+                        handlers.on_surface->getFunctionType()
+                                ->getParamType(handler_index) !=
+                            capture_type ||
+                        handlers.on_procedural->getFunctionType()
+                                ->getParamType(handler_index) !=
+                            capture_type) {
+                        _fail("ray-query pipeline handler capture type does not match its Schedule operand");
+                        return;
+                    }
                 }
             }
         }
@@ -919,19 +1042,7 @@ void ScheduleEmitter::_preflight() {
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_buffer_view(
     ::llvm::Value *base) {
-    auto *type = _layout.expression_type(schedule::Value{
-        .value_class = schedule::ValueClass::warp_uniform,
-        .type = Type::buffer(nullptr),
-    });
-    // The concrete buffer element type does not affect the descriptor.
-    // Some Type registries do not expose buffer<byte>, so fall back to the
-    // canonical literal LLVM descriptor when needed.
-    if (type == nullptr) {
-        type = ::llvm::StructType::get(
-            _module.getContext(),
-            {::llvm::PointerType::getUnqual(_module.getContext()),
-             _builder.getInt64Ty()});
-    }
+    auto *type = _buffer_view_type();
     auto *result = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(type));
     auto *pointer = _builder.CreateLoad(
@@ -949,11 +1060,7 @@ void ScheduleEmitter::_preflight() {
     ::llvm::Value *base) {
     auto &context = _module.getContext();
     auto *pointer_type = ::llvm::PointerType::getUnqual(context);
-    auto *type = ::llvm::StructType::get(
-        context,
-        {pointer_type, pointer_type, pointer_type, pointer_type,
-         pointer_type, pointer_type,
-         _builder.getInt32Ty(), _builder.getInt32Ty(), pointer_type});
+    auto *type = _texture_view_type();
     auto *result = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(type));
     constexpr std::array pointer_offsets{
@@ -993,10 +1100,7 @@ void ScheduleEmitter::_preflight() {
     ::llvm::Value *base) {
     auto &context = _module.getContext();
     auto *pointer_type = ::llvm::PointerType::getUnqual(context);
-    auto *type = ::llvm::StructType::get(
-        context,
-        {pointer_type, _builder.getInt64Ty(),
-         pointer_type, pointer_type, pointer_type});
+    auto *type = _bindless_view_type();
     auto *result = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(type));
     auto *slots = _builder.CreateLoad(
@@ -1027,10 +1131,7 @@ void ScheduleEmitter::_preflight() {
     ::llvm::Value *base) {
     auto &context = _module.getContext();
     auto *pointer_type = ::llvm::PointerType::getUnqual(context);
-    auto *type = ::llvm::StructType::get(
-        context,
-        {pointer_type, pointer_type, pointer_type,
-         pointer_type, pointer_type, pointer_type});
+    auto *type = _accel_view_type();
     auto *result = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(type));
     constexpr std::array offsets{
@@ -1197,11 +1298,17 @@ void ScheduleEmitter::_create_external_values() {
                     schedule::ParameterValueMetadata>(&value.metadata);
                 if (_entry_abi ==
                     ScheduleEntryABI::ray_query_handler) {
-                    auto *bases = _builder.CreateVectorSplat(
-                        _width, _argument_buffer);
-                    auto *offsets = _lane_offsets(
-                        _lane_ids(), sizeof(void *));
-                    llvm_value = _local_handle(bases, offsets);
+                    if (metadata->index == 0u) {
+                        auto *bases = _builder.CreateVectorSplat(
+                            _width, _argument_buffer);
+                        auto *offsets = _lane_offsets(
+                            _lane_ids(), sizeof(void *));
+                        llvm_value = _local_handle(bases, offsets);
+                    } else {
+                        llvm_value = _entry->getArg(
+                            static_cast<unsigned>(
+                                metadata->index + 3u));
+                    }
                     break;
                 }
                 auto offset = _parameter_offsets[metadata->index];

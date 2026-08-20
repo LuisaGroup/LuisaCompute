@@ -251,6 +251,26 @@ private:
                 "logical warp width must be symbolic or at most 128");
             return;
         }
+        if (!_options.parameter_value_classes.empty()) {
+            auto argument_count = size_t{0u};
+            for (auto *argument : _source->arguments()) {
+                static_cast<void>(argument);
+                argument_count++;
+            }
+            if (_options.parameter_value_classes.size() != argument_count ||
+                std::any_of(
+                    _options.parameter_value_classes.begin(),
+                    _options.parameter_value_classes.end(),
+                    [](ValueClass value_class) noexcept {
+                        return value_class == ValueClass::mask ||
+                               value_class == ValueClass::token;
+                    })) {
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::invalid_source,
+                    "parameter value-class override must provide one data class per source argument");
+                return;
+            }
+        }
         _definition = const_cast<xir::FunctionDefinition *>(
             _source->definition());
         _definition->traverse_basic_blocks(
@@ -353,15 +373,6 @@ private:
                     continue;
                 }
                 if (instruction->isa<xir::RayQueryPipelineInst>()) {
-                    auto *pipeline = static_cast<
-                        const xir::RayQueryPipelineInst *>(instruction);
-                    if (pipeline->captured_argument_count() != 0u) {
-                        _diagnose(
-                            XIRToScheduleDiagnosticCode::
-                                unsupported_instruction,
-                            "SIMD ray-query pipeline currently requires capture-free handlers",
-                            block, instruction);
-                    }
                     continue;
                 }
                 if (is_supported_non_terminator(instruction)) { continue; }
@@ -1225,15 +1236,31 @@ private:
                     source_instruction->parent_block(), source_instruction);
             }
         }
-        auto operand_uses = ray_query_pipeline == nullptr ?
-                                source_instruction->operand_uses() :
-                                source_instruction->operand_uses().subspan(
-                                    0u, 1u);
-        for (auto *operand_use : operand_uses) {
-            if (auto operand = _map_value(
-                    operand_use->value(),
-                    source_instruction->parent_block(), source_instruction)) {
-                instruction.operands.emplace_back(*operand);
+        if (ray_query_pipeline == nullptr) {
+            for (auto *operand_use : source_instruction->operand_uses()) {
+                if (auto operand = _map_value(
+                        operand_use->value(),
+                        source_instruction->parent_block(),
+                        source_instruction)) {
+                    instruction.operands.emplace_back(*operand);
+                }
+            }
+        } else {
+            // Function operands stay in the side table. The query object and
+            // every captured argument are ordinary Schedule dependencies so
+            // liveness/state placement and the private handler call ABI see
+            // their exact values at the pipeline site.
+            auto append_operand = [&](const xir::Value *value) noexcept {
+                if (auto operand = _map_value(
+                        value, source_instruction->parent_block(),
+                        source_instruction)) {
+                    instruction.operands.emplace_back(*operand);
+                }
+            };
+            append_operand(ray_query_pipeline->query_object());
+            for (auto *capture_use :
+                 ray_query_pipeline->captured_argument_uses()) {
+                append_operand(capture_use->value());
             }
         }
         if (source_instruction->operand_count() >= 2u) {
@@ -1623,7 +1650,8 @@ public:
         auto post_dom_tree = xir::compute_post_dom_tree(
             const_cast<xir::Function *>(_source),
             {.account_for_infinite_paths = false});
-        _uniformity.analyze(_source);
+        _uniformity.analyze(
+            _source, _options.parameter_value_classes);
 
         _create_function_and_blocks();
         _create_loops(natural_loops);

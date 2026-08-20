@@ -899,7 +899,7 @@ void register_ray_query_pipeline_tests() {
         expect(verify(*result.function).succeeded());
     };
 
-    "simd_xir_lowering_rejects_captured_ray_query_pipeline"_test = [] {
+    "simd_xir_lowering_preserves_ray_query_pipeline_captures"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
         auto *captured = kernel->create_value_argument(Type::of<int>());
@@ -920,20 +920,89 @@ void register_ray_query_pipeline_tests() {
         builder.set_insertion_point(entry);
         auto *query = builder.alloca_local(Type::of<RayQueryAll>());
         std::array<xir::Value *, 1u> captures{captured};
-        builder.ray_query_pipeline(
+        auto *pipeline = builder.ray_query_pipeline(
             query, surface, procedural, captures);
         builder.return_void();
 
         auto result = lower_xir_to_schedule(
             kernel, {.logical_warp_width = 8u});
-        expect(!result.succeeded());
-        expect(std::any_of(
-            result.diagnostics.cbegin(), result.diagnostics.cend(),
-            [](auto &&diagnostic) noexcept {
-                return diagnostic.code ==
-                       XIRToScheduleDiagnosticCode::
-                           unsupported_instruction;
-            }));
+        expect(result.succeeded()) << diagnostics_text(result);
+        if (!result.succeeded()) { return; }
+        expect(result.ray_query_pipelines.size() == 1u);
+        expect(result.ray_query_pipelines.front() == pipeline);
+        auto pipeline_count = size_t{0u};
+        for (auto &&block : result.function->blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode != Opcode::ray_query_pipeline) {
+                    continue;
+                }
+                pipeline_count++;
+                expect(instruction.source_op == 0u);
+                expect(instruction.operands.size() == 2u);
+                if (instruction.operands.size() == 2u) {
+                    auto *capture = result.function->value(
+                        instruction.operands[1u]);
+                    expect(capture != nullptr);
+                    if (capture != nullptr) {
+                        expect(capture->value_class ==
+                               ValueClass::warp_uniform);
+                    }
+                }
+            }
+        }
+        expect(pipeline_count == 1u);
+        expect(verify(*result.function).succeeded());
+    };
+
+    "simd_xir_lowering_validates_parameter_class_overrides"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        static_cast<void>(
+            callable->create_value_argument(Type::of<int>()));
+        auto *body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.return_void();
+
+        std::array classes{ValueClass::mask};
+        auto invalid_class = lower_xir_to_schedule(
+            callable,
+            {.logical_warp_width = 8u,
+             .parameter_value_classes = classes});
+        expect(!invalid_class.succeeded());
+        expect(!invalid_class.diagnostics.empty());
+
+        classes[0u] = ValueClass::warp_uniform;
+        auto preserved_class = lower_xir_to_schedule(
+            callable,
+            {.logical_warp_width = 8u,
+             .parameter_value_classes = classes});
+        expect(preserved_class.succeeded()) << diagnostics_text(preserved_class);
+        if (preserved_class.succeeded()) {
+            auto parameter_count = size_t{0u};
+            for (auto &&value : preserved_class.function->values()) {
+                if (value.origin != ValueOrigin::parameter) { continue; }
+                parameter_count++;
+                expect(value.value_class ==
+                       ValueClass::warp_uniform);
+            }
+            expect(parameter_count == 1u);
+        }
+
+        auto invalid_count = lower_xir_to_schedule(
+            callable,
+            {.logical_warp_width = 8u,
+             .parameter_value_classes =
+                 std::span<const ValueClass>{}});
+        expect(invalid_count.succeeded()) << diagnostics_text(invalid_count);
+        std::array<ValueClass, 2u> too_many{
+            ValueClass::varying, ValueClass::varying};
+        invalid_count = lower_xir_to_schedule(
+            callable,
+            {.logical_warp_width = 8u,
+             .parameter_value_classes = too_many});
+        expect(!invalid_count.succeeded());
+        expect(!invalid_count.diagnostics.empty());
     };
 }
 

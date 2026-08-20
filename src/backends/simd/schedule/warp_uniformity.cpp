@@ -68,7 +68,8 @@ WarpUniformityAnalysis::State WarpUniformityAnalysis::_state(
 }
 
 void WarpUniformityAnalysis::analyze(
-    const xir::Function *function) noexcept {
+    const xir::Function *function,
+    std::span<const ValueClass> parameter_value_classes) noexcept {
     clear();
     _function = function;
     if (function == nullptr || function->definition() == nullptr ||
@@ -109,12 +110,33 @@ void WarpUniformityAnalysis::analyze(
         ++argument_count;
     }
     _states.reserve(argument_count + instructions.size());
+    auto argument_index = size_t{0u};
     for (auto *argument : function->arguments()) {
+        auto state = function->isa<xir::KernelFunction>() ?
+                         State::warp_uniform :
+                         State::varying;
+        if (!parameter_value_classes.empty()) {
+            switch (parameter_value_classes[argument_index]) {
+                case ValueClass::warp_uniform:
+                    state = State::warp_uniform;
+                    break;
+                case ValueClass::cohort_uniform:
+                    state = State::cohort_uniform;
+                    break;
+                case ValueClass::varying:
+                    state = State::varying;
+                    break;
+                case ValueClass::mask:
+                case ValueClass::token:
+                    // Parameters cannot carry scheduler-only classes. The
+                    // lowering preflight rejects these before analysis.
+                    state = State::varying;
+                    break;
+            }
+        }
         _states.emplace(
-            argument,
-            function->isa<xir::KernelFunction>() ?
-                State::warp_uniform :
-                State::varying);
+            argument, state);
+        argument_index++;
     }
 
     auto join_state = [](State lhs, State rhs) noexcept {

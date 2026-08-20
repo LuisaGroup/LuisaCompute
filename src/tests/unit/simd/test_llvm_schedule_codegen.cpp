@@ -7261,6 +7261,8 @@ void ray_query_filter_plain_probe(
     };
 
     auto compile = [&](uint32_t width, bool disable) {
+        ScopedEnvironmentVariable retain_captured_loop{
+            "LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE", "1"};
         ScopedEnvironmentVariable force{
             "LUISA_SIMD_FORCE_RAY_QUERY_FILTER_PREDICATION",
             width != 1u && width != 8u ? "1" : nullptr};
@@ -7599,6 +7601,218 @@ void ray_query_filter_plain_probe(
         return false;
     }
     CHECK(reused_compiled.direct_ray_query_pipeline_count == 2u);
+    return true;
+}
+
+[[nodiscard]] bool run_ast_captured_direct_ray_query_pipeline() {
+    static constexpr auto count = uint32_t{13u};
+    Kernel1D kernel = [](
+                          AccelVar accel, BufferUInt accepted_instances,
+                          BufferUInt2 output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        UInt callback_count = 0u;
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [&](SurfaceCandidate &candidate) noexcept {
+                               callback_count += 1u;
+                               auto candidate_hit = candidate.hit();
+                               $if (accepted_instances.read(
+                                        candidate_hit.inst) != 0u) {
+                                   candidate.commit();
+                               }
+                               $else {
+                                   candidate.terminate();
+                               };
+                           })
+                       .on_procedural_candidate(
+                           [](ProceduralCandidate &) noexcept {})
+                       .trace();
+        output.write(
+            index, make_uint2(hit->inst, callback_count));
+    };
+
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        SIMDHostBufferView accepted_instances;
+        SIMDHostBufferView output;
+    };
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        ScopedEnvironmentVariable enable_captures{
+            "LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE", "1"};
+        ScopedEnvironmentVariable force_direct{
+            "LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE",
+            width == 1u ? "1" : nullptr};
+        auto candidate = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_captured_direct_ray_query_pipeline_w" +
+                std::to_string(width),
+            false, width == 8u);
+        SIMDCompiledKernel oracle;
+        {
+            ScopedEnvironmentVariable disable{
+                "LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE", "1"};
+            oracle = compile_simd_kernel(
+                kernel.function()->function(), width,
+                "simd_ast_captured_direct_ray_query_pipeline_oracle_w" +
+                    std::to_string(width));
+        }
+        if (!candidate.succeeded() || !oracle.succeeded()) {
+            for (auto *compiled : {&candidate, &oracle}) {
+                for (auto &&diagnostic : compiled->diagnostics) {
+                    std::cerr << diagnostic << '\n';
+                }
+            }
+            return false;
+        }
+        CHECK(candidate.direct_ray_query_pipeline_count == 1u);
+        CHECK(oracle.direct_ray_query_pipeline_count == 0u);
+        if (width == 8u) {
+            CHECK(candidate.schedule_block_count <
+                  oracle.schedule_block_count);
+            CHECK(candidate.convergence_point_count <
+                  oracle.convergence_point_count);
+        }
+
+        auto execute = [&](const SIMDCompiledKernel &compiled,
+                           std::array<uint2, 16u> &values) {
+            values.fill(make_uint2(0xdeadbeefu));
+            std::array<uint32_t, 128u> accepted{};
+            accepted.fill(1u);
+            accepted[5u] = 0u;
+            RayQueryFilterProbe probe{
+                .expected_lane_count = width,
+                .expected_proceed = ray_query_filter_plain_probe,
+            };
+            SIMDHostAccelInstanceTable instance_table{
+                .ray_query_proceed_status =
+                    ray_query_filter_status_probe,
+                .ray_query_proceed_wide_status =
+                    ray_query_filter_status_probe,
+            };
+            Arguments arguments{
+                .accel = {
+                    .accel = &probe,
+                    .instances = &instance_table,
+                    .ray_query_proceed =
+                        ray_query_filter_plain_probe,
+                    .ray_query_proceed_wide =
+                        ray_query_filter_plain_probe,
+                },
+                .accepted_instances = {accepted.data(), sizeof(accepted)},
+                .output = {values.data(), sizeof(values)},
+            };
+            CHECK(compiled.argument_buffer_size == sizeof(Arguments));
+            using Entry = void(
+                const void *, void *,
+                const SIMDPacketLaunchConfig *, uint32_t);
+            auto *entry = reinterpret_cast<Entry *>(compiled.entry);
+            CHECK(entry != nullptr);
+            auto config = launch_1d(count, 16u);
+            for (auto first = uint32_t{0u}; first < count;
+                 first += width) {
+                config.thread_index = first;
+                entry(&arguments, nullptr, &config,
+                      std::min(width, count - first));
+            }
+            CHECK(probe.valid);
+            CHECK(probe.calls ==
+                  2u * ((count + width - 1u) / width));
+            return true;
+        };
+
+        std::array<uint2, 16u> candidate_output{};
+        std::array<uint2, 16u> oracle_output{};
+        CHECK(execute(candidate, candidate_output));
+        CHECK(execute(oracle, oracle_output));
+        CHECK(std::memcmp(
+                  candidate_output.data(), oracle_output.data(),
+                  sizeof(candidate_output)) == 0);
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto instance = index % 3u == 0u ? 6u :
+                            index % 3u == 1u ? 5u :
+                                               99u;
+            CHECK(candidate_output[index].x ==
+                  (instance == 5u ? ~0u : instance));
+            CHECK(candidate_output[index].y == 1u);
+        }
+        for (auto index = count; index < candidate_output.size();
+             index++) {
+            CHECK(candidate_output[index].x == 0xdeadbeefu);
+            CHECK(candidate_output[index].y == 0xdeadbeefu);
+        }
+    }
+    auto w4_default = compile_simd_kernel(
+        kernel.function()->function(), 4u,
+        "simd_ast_captured_direct_ray_query_pipeline_default_w4");
+    auto w8_default = compile_simd_kernel(
+        kernel.function()->function(), 8u,
+        "simd_ast_captured_direct_ray_query_pipeline_default_w8");
+    SIMDCompiledKernel w4_disabled;
+    {
+        ScopedEnvironmentVariable disable_captures{
+            "LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE", "1"};
+        w4_disabled = compile_simd_kernel(
+            kernel.function()->function(), 4u,
+            "simd_ast_captured_direct_ray_query_pipeline_disabled_w4");
+    }
+    CHECK(w4_default.succeeded());
+    CHECK(w8_default.succeeded());
+    CHECK(w4_disabled.succeeded());
+    CHECK(w4_default.direct_ray_query_pipeline_count == 1u);
+    CHECK(w8_default.direct_ray_query_pipeline_count == 0u);
+    CHECK(w4_disabled.direct_ray_query_pipeline_count == 0u);
+
+    Kernel1D resource_captures = [](
+                                     AccelVar accel,
+                                     BufferFloat buffer,
+                                     ImageFloat image,
+                                     BindlessVar heap) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        static_cast<void>(
+            accel.traverse(ray, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        auto hit = candidate.hit();
+                        auto direct_value = buffer.read(index);
+                        auto image_value = image.read(
+                            make_uint2(index & 1u, 0u));
+                        auto bindless_value =
+                            heap->buffer<float>(0u).read(index);
+                        auto visibility =
+                            accel.instance_visibility_mask(hit.inst);
+                        $if (direct_value + image_value.x +
+                                 bindless_value +
+                                 cast<float>(visibility) >
+                             0.0f) {
+                            candidate.commit();
+                        }
+                        $else {
+                            candidate.terminate();
+                        };
+                    })
+                .trace());
+    };
+    SIMDCompiledKernel resource_compiled;
+    {
+        ScopedEnvironmentVariable force_captures{
+            "LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE", "1"};
+        resource_compiled = compile_simd_kernel(
+            resource_captures.function()->function(), 8u,
+            "simd_ast_resource_captured_ray_query_pipeline_w8");
+    }
+    if (!resource_compiled.succeeded()) {
+        for (auto &&diagnostic : resource_compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(resource_compiled.direct_ray_query_pipeline_count == 1u);
     return true;
 }
 
@@ -11589,6 +11803,8 @@ int main() {
          &run_ast_ray_query_filter_predication},
         {"AST capture-free direct ray-query pipeline",
          &run_ast_direct_ray_query_pipeline},
+        {"AST captured direct ray-query pipeline",
+         &run_ast_captured_direct_ray_query_pipeline},
         {"XIR ray-query status cache",
          &run_ray_query_status_cache_codegen},
         {"sequential ray-query scratch coloring",
