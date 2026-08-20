@@ -117,6 +117,7 @@ enum struct Opcode {
     resource_write,
     ray_query_read,
     ray_query_write,
+    ray_query_pipeline,
     warp_collective,
     edge_copy,
     print,

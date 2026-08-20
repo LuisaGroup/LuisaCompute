@@ -89,9 +89,10 @@ void ScheduleEmitter::_build_direct(::llvm::Value *initial_mask) {
     // changes that mask, so keep the seed in a register constant instead of
     // repeating first-active extraction in hot memory loops.
     auto lane_zero_is_active =
-        _width == 1u ||
-        (_static_block_size[0u] >= _width &&
-         _static_block_size[0u] % _width == 0u);
+        _entry_abi == ScheduleEntryABI::packet &&
+        (_width == 1u ||
+         (_static_block_size[0u] >= _width &&
+          _static_block_size[0u] % _width == 0u));
     _seed_lane = lane_zero_is_active ?
                      static_cast<::llvm::Value *>(
                          _builder.getInt32(0u)) :

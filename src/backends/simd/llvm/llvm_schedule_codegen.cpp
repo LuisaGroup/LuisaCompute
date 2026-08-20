@@ -681,7 +681,10 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
     bool enable_native_predicated_loop,
     bool enable_packet_batch_entry,
     bool enable_inlined_packet_batch,
-    bool enable_block_batch_entry) {
+    bool enable_block_batch_entry,
+    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+        ray_query_pipeline_handlers,
+    size_t print_format_id_base) {
     auto enable_linear_1d_packet_tail_narrowing =
         enable_packet_batch_entry &&
         specialization_width != 0u &&
@@ -725,7 +728,10 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         dispatch_worker_count,
         enable_native_predicated_loop,
         enable_packet_batch_entry,
-        enable_linear_1d_packet_tail_narrowing}
+        enable_linear_1d_packet_tail_narrowing,
+        detail::ScheduleEntryABI::packet,
+        ray_query_pipeline_handlers,
+        print_format_id_base}
                       .run();
     if (result.succeeded() && result.cooperative_block) {
         auto block_thread_count = uint64_t{1u};
@@ -813,6 +819,34 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         }
     }
     return result;
+}
+
+LLVMScheduleCodegenResult
+lower_ray_query_handler_schedule_to_llvm(
+    ::llvm::Module &module, const schedule::Function &function,
+    uint32_t specialization_width, std::string_view entry_name,
+    bool enable_fast_math,
+    std::array<uint32_t, 3u> static_block_size,
+    bool enable_uniform_buffer_broadcast,
+    bool enable_lane_affine_buffer,
+    bool enable_paired_leaf_gather,
+    uint32_t dispatch_worker_count,
+    bool enable_native_predicated_loop,
+    size_t print_format_id_base) {
+    return detail::ScheduleEmitter{
+        module, function, specialization_width, entry_name,
+        enable_fast_math, static_block_size,
+        enable_uniform_buffer_broadcast,
+        enable_lane_affine_buffer,
+        enable_paired_leaf_gather,
+        dispatch_worker_count,
+        enable_native_predicated_loop,
+        false,
+        false,
+        detail::ScheduleEntryABI::ray_query_handler,
+        {},
+        print_format_id_base}
+        .run();
 }
 
 }// namespace luisa::compute::simd

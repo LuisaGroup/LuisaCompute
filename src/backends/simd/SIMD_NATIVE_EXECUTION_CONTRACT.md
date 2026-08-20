@@ -1945,15 +1945,24 @@ Permanent coverage replaces one instance `mesh -> curve -> mesh` and checks
 classification after every rebuild at W1/W2/W4/W8/W16.
 
 Ray queries use the same width mapping, but retain state across candidate
-handlers. The AST `RayQueryLoop` is first lowered to ordinary XIR
-loop/if control containing `PROCEED`, candidate-kind reads, and object writes;
-the existing cohort scheduler therefore executes divergent handlers without a
-second callback-side PC machine. Query construction is always varying even
-when its accel, ray, time, and visibility inputs are uniform: each physical
-lane receives a distinct 16-byte-aligned fixed-size state record, while the
-uniform input expressions themselves are still evaluated only once and splat
-only at the state initialization stores. A copied query value is an internal
-pointer to that lane's record.
+handlers. Query construction is always varying even when its accel, ray, time,
+and visibility inputs are uniform: each physical lane receives a distinct
+16-byte-aligned fixed-size state record, while the uniform input expressions
+themselves are still evaluated only once and splat only at the state
+initialization stores. A copied query value is an internal pointer to that
+lane's record.
+
+SIMD has two control routes. A captured structured query or any explicit
+`proceed()` query is lowered to ordinary XIR loop/if control containing
+`PROCEED`, candidate-kind reads, and object writes; the cohort scheduler
+executes its divergent handlers without a second callback-side PC machine. At
+W2/W4/W8/W16, a `traverse(...).on_*().trace()` query with zero semantic input
+captures and zero live-outs is instead outlined to `RayQueryPipelineInst`
+before loop reconstruction. Constants, function operands, and special
+registers are not captures. Kernel arguments, resources, reference state, and
+live-outs are captures and force the loop route. A preliminary single-store
+local forwarding pass may remove only front-end callable argument/return
+scratch; it must not reclassify user-visible mutable state as capture-free.
 
 The canonical `lower_ray_query_to_loop` spelling is a top-tested structured
 loop: prepare executes `PROCEED`, reads `IS_TERMINATED`, and enters the body
@@ -1974,15 +1983,39 @@ external predecessors, and loop-carried SSA PHIs are rejected. Reconstruction
 retargets every handler exit, repairs merge PHIs, preserves metadata, and
 recreates omitted empty handlers.
 
-The higher-level DSL `traverse` form retains both complete handler scopes in
-`RayQueryLoopInst` and is therefore eligible for a backend that consumes a
-`RayQueryPipelineInst` directly. The current SIMD implementation does not yet
-exercise that route: it deliberately lowers the instruction to the explicit
-loop above. Any future direct route must be observationally equivalent for
-captured inputs and outputs, special registers, commit/terminate side effects,
-candidate order, sparse cohorts, and inactive tails. An explicit
-`query_all`/`query_any` `proceed()` loop remains on the state-machine route;
-packet width and native traversal ABI are not DSL semantics.
+The direct route outlines surface and procedural handlers into internal LLVM
+functions with ABI
+`void(i32 lane_count, i64 active_mask_bits, ptr state_pointer_lanes,
+ptr launch_config)`. The lane count equals the fixed specialization width;
+the mask may be sparse; inactive pointer entries are null and must never be
+dereferenced. The only handler parameter is a varying reference to the query
+object backed by the corresponding state-pointer entry. Handler shared memory
+and block barriers are rejected. Special registers are reconstructed from the
+unchanged launch record and physical lane IDs. These functions have internal
+linkage and are not a public runtime, Embree, or DSL ABI.
+
+The main packet materializes the null-sanitized state-pointer array once, then
+repeatedly invokes the construction-selected status provider for the remaining
+original lanes. Terminated lanes leave the loop; disjoint surface/procedural
+masks invoke their respective handlers; an unclassified live lane, overlapping
+candidate classifications, callback mismatch, null active state, width
+mismatch, or out-of-range mask traps. Handler commit/terminate writes become
+visible to the next provider call. The pipeline exits only after every original
+active lane terminates and publishes that terminal state through the existing
+status sidecar. Candidate order, query-all/query-any behavior, motion time,
+visibility, opacity, sparse cohorts, and partial tails are otherwise identical
+to the loop oracle.
+
+W1 uses the explicit loop by default because seven real-renderer pairs showed
+a stable regression from the extra handler call. W2/W4/W8/W16 use the direct
+route for eligible handlers. `LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE=1`
+restores the loop oracle; `LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE=1` exists
+only to exercise the W1 handler ABI in tests. An explicit `query_all`/
+`query_any` `proceed()` loop always remains on the state-machine route because
+each successful proceed is observable. Packet width and native traversal ABI
+are not DSL semantics. A future uniform/resource capture extension belongs to
+this internal handler ABI and must retain scalar uniform evaluation; it does
+not require new public DSL syntax.
 
 Distinct simultaneously live query objects also receive distinct records.
 Sequential construction sites may share the same per-lane scratch only after
@@ -2084,14 +2117,17 @@ ascending handler delivery before the final commit. This removes repeated
 traversal for the common bounded case without moving handler execution or its
 control flow into the runtime.
 
-At W4/W8/W16, an eligible query local may have one JIT-owned packed status
-sidecar. Bits `[0, 16)`, `[16, 32)`, and `[32, 48)` respectively represent
-terminated, surface-candidate, and procedural-candidate physical lanes;
+At W4/W8/W16, an eligible loop-route query local may have one JIT-owned packed
+status sidecar. A direct pipeline additionally requires that sidecar at W2
+(and at test-only forced W1). Bits `[0, 16)`, `[16, 32)`, and `[32, 48)`
+respectively represent terminated, surface-candidate, and
+procedural-candidate physical lanes;
 `[48, 64)` is the initialization-valid mask. These fields are independent.
 In particular, explicit terminate must not clear a still-observable candidate
-kind. W1/W2 and any query whose ownership, construction store, or aliasing is
-not proven continue to gather the authoritative fields from the 1216-byte
-state. Disabling query scratch coloring also disables this refinement.
+kind. Default W1, loop-route W2, and any query whose ownership, construction
+store, or aliasing is not proven continue to gather the authoritative fields
+from the 1216-byte state. Disabling query scratch coloring also disables this
+refinement.
 
 Construction may prepare state and callback data before the query pointer is
 stored, but it must not publish the sidecar valid bit until after that masked
@@ -2110,10 +2146,11 @@ Only after that masked store completes may lowering merge the written pointer
 into the cache under the current active mask. Every use checks that all active
 cached handles are non-null before passing a null-sanitized packet to the host
 callback. Lanes outside the current cohort may retain another definition's
-handle, but cannot be read or passed as active. W1/W2, an unproven query, a
-disabled status cache, or disabled scratch coloring must retain the original
-query-local gather path. The cache does not change the public state, accel
-descriptor, or Embree ABI. `LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1`
+handle, but cannot be read or passed as active. Default W1, loop-route W2, an
+unproven query, a disabled status cache, or disabled scratch coloring must
+retain the original query-local gather path. The cache does not change the
+public state, accel descriptor, or Embree ABI.
+`LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE=1`
 is its same-binary semantic/performance oracle.
 
 The status-aware host entry and the construction-selected plain callback form

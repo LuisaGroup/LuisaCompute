@@ -8,9 +8,11 @@
 #include <vector>
 
 #include <luisa/ast/type_registry.h>
+#include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dce.h>
 
@@ -854,6 +856,87 @@ void register_debug_instruction_tests() {
     };
 }
 
+void register_ray_query_pipeline_tests() {
+    "simd_xir_lowering_projects_capture_free_ray_query_pipeline"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *surface = module.create_callable(nullptr);
+        auto *procedural = module.create_callable(nullptr);
+        for (auto *callback : {surface, procedural}) {
+            static_cast<void>(callback->create_reference_argument(
+                Type::of<RayQueryAll>()));
+            auto *body = callback->create_body_block();
+            XIRBuilder callback_builder;
+            callback_builder.set_insertion_point(body);
+            callback_builder.return_void();
+        }
+        auto *entry = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *query = builder.alloca_local(Type::of<RayQueryAll>());
+        auto *pipeline = builder.ray_query_pipeline(
+            query, surface, procedural, {});
+        builder.return_void();
+
+        auto result = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 8u});
+        expect(result.succeeded()) << diagnostics_text(result);
+        if (!result.succeeded()) { return; }
+        expect(result.ray_query_pipelines.size() == 1u);
+        expect(result.ray_query_pipelines.front() == pipeline);
+        auto pipeline_count = size_t{0u};
+        for (auto &&block : result.function->blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode != Opcode::ray_query_pipeline) {
+                    continue;
+                }
+                ++pipeline_count;
+                expect(instruction.source_op == 0u);
+                expect(instruction.operands.size() == 1u);
+            }
+        }
+        expect(pipeline_count == 1u);
+        expect(verify(*result.function).succeeded());
+    };
+
+    "simd_xir_lowering_rejects_captured_ray_query_pipeline"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *captured = kernel->create_value_argument(Type::of<int>());
+        auto *surface = module.create_callable(nullptr);
+        auto *procedural = module.create_callable(nullptr);
+        for (auto *callback : {surface, procedural}) {
+            static_cast<void>(callback->create_reference_argument(
+                Type::of<RayQueryAll>()));
+            static_cast<void>(callback->create_value_argument(
+                Type::of<int>()));
+            auto *body = callback->create_body_block();
+            XIRBuilder callback_builder;
+            callback_builder.set_insertion_point(body);
+            callback_builder.return_void();
+        }
+        auto *entry = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *query = builder.alloca_local(Type::of<RayQueryAll>());
+        std::array<xir::Value *, 1u> captures{captured};
+        builder.ray_query_pipeline(
+            query, surface, procedural, captures);
+        builder.return_void();
+
+        auto result = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 8u});
+        expect(!result.succeeded());
+        expect(std::any_of(
+            result.diagnostics.cbegin(), result.diagnostics.cend(),
+            [](auto &&diagnostic) noexcept {
+                return diagnostic.code ==
+                       XIRToScheduleDiagnosticCode::
+                           unsupported_instruction;
+            }));
+    };
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -865,6 +948,7 @@ int main(int argc, char *argv[]) {
     register_reducible_cfg_tests();
     register_memory_layout_tests();
     register_debug_instruction_tests();
+    register_ray_query_pipeline_tests();
     register_diagnostic_tests();
     return 0;
 }

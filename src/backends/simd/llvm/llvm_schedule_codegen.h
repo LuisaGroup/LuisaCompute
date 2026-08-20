@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <span>
 #include <vector>
 
 namespace llvm {
@@ -545,6 +546,14 @@ struct SIMDLLVMPrintFormat {
     std::vector<const Type *> argument_types{};
 };
 
+// Internal, width-specialized callback pair for one capture-free
+// RayQueryPipelineInst. Each function uses the ray-query handler ABI described
+// below and remains inside the JIT module; this is not a public runtime ABI.
+struct LLVMSIMDRayQueryPipelineHandlers {
+    ::llvm::Function *on_surface{nullptr};
+    ::llvm::Function *on_procedural{nullptr};
+};
+
 // Packet ABI:
 //   void entry(ptr argument_buffer, ptr return_lanes,
 //              ptr launch_config, i32 active_lane_count)
@@ -679,6 +688,30 @@ struct LLVMScheduleCodegenResult {
     // block range. This requires a statically known packet count and keeps the
     // block-local packet wrapper internal. A guarded linear-1D refinement may
     // collapse a proven block-agnostic range into one packet loop.
-    bool enable_block_batch_entry = false);
+    bool enable_block_batch_entry = false,
+    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+        ray_query_pipeline_handlers = {},
+    size_t print_format_id_base = 0u);
+
+// Ray-query handler ABI:
+//   void handler(i32 lane_count, i64 active_mask_bits,
+//                ptr state_pointer_lanes, ptr launch_config)
+//
+// state_pointer_lanes points to specialization_width pointers, one per
+// physical lane. active_mask_bits may be sparse. The sole Schedule parameter
+// is a varying reference to LC_RayQueryAll/Any and is materialized as a
+// thread-local lvalue backed by this pointer array.
+[[nodiscard]] LLVMScheduleCodegenResult
+lower_ray_query_handler_schedule_to_llvm(
+    ::llvm::Module &module, const schedule::Function &function,
+    uint32_t specialization_width, std::string_view entry_name,
+    bool enable_fast_math = false,
+    std::array<uint32_t, 3u> static_block_size = {},
+    bool enable_uniform_buffer_broadcast = true,
+    bool enable_lane_affine_buffer = true,
+    bool enable_paired_leaf_gather = false,
+    uint32_t dispatch_worker_count = 1u,
+    bool enable_native_predicated_loop = true,
+    size_t print_format_id_base = 0u);
 
 }// namespace luisa::compute::simd

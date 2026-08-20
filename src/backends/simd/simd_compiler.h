@@ -65,6 +65,7 @@ struct SIMDCompiledKernel {
     size_t ray_query_scratch_bytes{0u};
     size_t ray_query_status_slot_count{0u};
     size_t ray_query_state_handle_slot_count{0u};
+    size_t direct_ray_query_pipeline_count{0u};
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};

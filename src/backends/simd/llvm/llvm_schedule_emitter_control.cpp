@@ -39,6 +39,9 @@ void ScheduleEmitter::_emit_instruction(
         case schedule::Opcode::ray_query_write:
             _ray_query_write(instruction);
             break;
+        case schedule::Opcode::ray_query_pipeline:
+            _ray_query_pipeline(instruction);
+            break;
         case schedule::Opcode::resource_read:
             value = _resource_read(
                 instruction, lane_affine_seed,
@@ -1649,16 +1652,25 @@ void ScheduleEmitter::_partition_state_residency() {
 
 void ScheduleEmitter::_build() {
     auto &context = _module.getContext();
+    auto handler_entry =
+        _entry_abi == ScheduleEntryABI::ray_query_handler;
     auto *function_type = ::llvm::FunctionType::get(
-        _cooperative_block ?
+        !handler_entry && _cooperative_block ?
             static_cast<::llvm::Type *>(
                 ::llvm::PointerType::getUnqual(context)) :
             static_cast<::llvm::Type *>(
                 ::llvm::Type::getVoidTy(context)),
-        {::llvm::PointerType::getUnqual(context),
-         ::llvm::PointerType::getUnqual(context),
-         ::llvm::PointerType::getUnqual(context),
-         ::llvm::Type::getInt32Ty(context)},
+        handler_entry ?
+            std::vector<::llvm::Type *>{
+                ::llvm::Type::getInt32Ty(context),
+                ::llvm::Type::getInt64Ty(context),
+                ::llvm::PointerType::getUnqual(context),
+                ::llvm::PointerType::getUnqual(context)} :
+            std::vector<::llvm::Type *>{
+                ::llvm::PointerType::getUnqual(context),
+                ::llvm::PointerType::getUnqual(context),
+                ::llvm::PointerType::getUnqual(context),
+                ::llvm::Type::getInt32Ty(context)},
         false);
     if (_entry_name.empty()) {
         _entry_name = _source.name().empty() ? "simd_kernel" :
@@ -1670,25 +1682,45 @@ void ScheduleEmitter::_build() {
         return;
     }
     _entry = ::llvm::Function::Create(
-        function_type, ::llvm::GlobalValue::ExternalLinkage,
+        function_type,
+        handler_entry ? ::llvm::GlobalValue::InternalLinkage :
+                        ::llvm::GlobalValue::ExternalLinkage,
         _entry_name, _module);
+    if (handler_entry) {
+        _entry->setDSOLocal(true);
+        _entry->addFnAttr(::llvm::Attribute::InlineHint);
+    }
     _result.schedule_block_count = _source.blocks().size();
     _result.convergence_point_count =
         _source.convergence_points().size();
     auto argument = _entry->arg_begin();
-    _argument_buffer = &*argument++;
-    _argument_buffer->setName("argument_buffer");
-    _return_buffer = &*argument++;
-    _return_buffer->setName("return_lanes");
-    _launch_config = &*argument++;
-    _launch_config->setName("launch_config");
-    _active_lane_count = &*argument;
-    _active_lane_count->setName("active_lane_count");
+    if (handler_entry) {
+        _active_lane_count = &*argument++;
+        _active_lane_count->setName("lane_count");
+        _handler_active_mask_bits = &*argument++;
+        _handler_active_mask_bits->setName("active_mask_bits");
+        _argument_buffer = &*argument++;
+        _argument_buffer->setName("state_pointer_lanes");
+        _launch_config = &*argument;
+        _launch_config->setName("launch_config");
+        _return_buffer = ::llvm::ConstantPointerNull::get(
+            ::llvm::PointerType::getUnqual(context));
+    } else {
+        _argument_buffer = &*argument++;
+        _argument_buffer->setName("argument_buffer");
+        _return_buffer = &*argument++;
+        _return_buffer->setName("return_lanes");
+        _launch_config = &*argument++;
+        _launch_config->setName("launch_config");
+        _active_lane_count = &*argument;
+        _active_lane_count->setName("active_lane_count");
+    }
     // The runtime owns launch_config separately from every resource and from
     // the packed descriptor buffer. The packet body only observes it. These
     // attributes let an inlined batch hoist immutable launch geometry across
     // packet iterations without changing the portable packet ABI.
-    if (!luisa::compute::detail::env_flag(
+    if (!handler_entry &&
+        !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES")) {
         _entry->addParamAttr(0u, ::llvm::Attribute::NoAlias);
         _entry->addParamAttr(0u, ::llvm::Attribute::ReadOnly);
@@ -1702,6 +1734,25 @@ void ScheduleEmitter::_build() {
     auto *prologue = ::llvm::BasicBlock::Create(
         context, "prologue", _entry);
     _builder.SetInsertPoint(prologue);
+    if (handler_entry) {
+        _entry->addParamAttr(2u, ::llvm::Attribute::NoAlias);
+        _entry->addParamAttr(2u, ::llvm::Attribute::NonNull);
+        _entry->addParamAttr(3u, ::llvm::Attribute::NoAlias);
+        _entry->addParamAttr(3u, ::llvm::Attribute::NonNull);
+        _entry->addParamAttr(3u, ::llvm::Attribute::ReadOnly);
+        _trap_if(
+            _builder.CreateICmpNE(
+                _active_lane_count, _builder.getInt32(_width)),
+            "ray.query.handler.width.mismatch");
+        auto lane_bits = (uint64_t{1u} << _width) - 1u;
+        _trap_if(
+            _builder.CreateICmpNE(
+                _builder.CreateAnd(
+                    _handler_active_mask_bits,
+                    _builder.getInt64(~lane_bits)),
+                _builder.getInt64(0u)),
+            "ray.query.handler.mask.out.of.range");
+    }
     if (_cooperative_block) {
         _begin_cooperative_coroutine();
         if (_failed()) { return; }
@@ -1719,9 +1770,19 @@ void ScheduleEmitter::_build() {
     if (_failed()) { return; }
 
     auto *lane_ids = _lane_ids();
-    auto *count = _builder.CreateVectorSplat(
-        _width, _active_lane_count);
-    auto *initial_mask = _builder.CreateICmpULT(lane_ids, count);
+    auto *initial_mask = static_cast<::llvm::Value *>(nullptr);
+    if (handler_entry) {
+        auto *packed_mask_type = ::llvm::IntegerType::get(
+            context, _width);
+        initial_mask = _builder.CreateBitCast(
+            _builder.CreateTrunc(
+                _handler_active_mask_bits, packed_mask_type),
+            _layout.mask_type(), "handler.active.mask");
+    } else {
+        auto *count = _builder.CreateVectorSplat(
+            _width, _active_lane_count);
+        initial_mask = _builder.CreateICmpULT(lane_ids, count);
+    }
     _ensure_launch_vectors();
     // Runtime block IDs are always drawn from ceil(dispatch_size / block_size)
     // in each dimension. A statically unit-sized dimension therefore has
@@ -1732,8 +1793,12 @@ void ScheduleEmitter::_build() {
     auto elide_unit_dimension_masks =
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_UNIT_DIMENSION_MASK_ELISION");
-    if (_enable_linear_1d_packet_tail_narrowing &&
-        !_cooperative_block) {
+    if (handler_entry) {
+        // The caller supplies the exact sparse physical-lane cohort. Dispatch
+        // geometry remains available to handler expressions but must not
+        // widen or narrow this semantic candidate mask.
+    } else if (_enable_linear_1d_packet_tail_narrowing &&
+               !_cooperative_block) {
         // The runtime-only packet wrapper narrows its final 1D packet to the
         // exact dispatch and block remainder, and skips packets with no live
         // lanes. The active-lane prefix above is therefore the complete

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <limits>
 
 #include <luisa/core/dll_export.h>
 
@@ -52,11 +53,39 @@ struct LowerRayQueryToPipelineInfo {
     [[nodiscard]] bool succeeded() const noexcept { return error_count == 0u; }
 };
 
+struct LowerRayQueryToPipelineOptions {
+    // The default preserves the established fallback/CUDA/HIP behavior. A
+    // backend may use zero to select only callbacks whose sole argument is
+    // the ray-query object itself, leaving captured loops in structured form
+    // for a different lowering.
+    size_t max_captured_argument_count{
+        std::numeric_limits<size_t>::max()};
+    // Optional output for callers using the selective overload. The pass
+    // resets this value to zero and reports structurally valid loops retained
+    // because their callback capture ABI exceeds the bound above. Keeping the
+    // counter here preserves the established LowerRayQueryToPipelineInfo ABI.
+    size_t *skipped_loop_count{nullptr};
+};
+
 // Every loop in a function is preflighted before outlining. Unsupported handler
 // shapes (for example, overlapping handlers, cross-handler PHIs, or nested
 // ray-query loops inside a handler) are reported through error_count/succeeded();
 // if any loop is rejected, the complete function is left unchanged.
-[[nodiscard]] LUISA_XIR_API LowerRayQueryToPipelineInfo lower_ray_query_to_pipeline_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API LowerRayQueryToPipelineInfo lower_ray_query_to_pipeline_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
+// Keep the established overloads as exported ABI entry points. The explicit
+// option overloads let selective consumers add a stricter capture policy
+// without changing existing source or binary callers.
+[[nodiscard]] LUISA_XIR_API LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_function(
+    Function *function) noexcept;
+[[nodiscard]] LUISA_XIR_API LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_function(
+    Function *function, LowerRayQueryToPipelineOptions options) noexcept;
+[[nodiscard]] LUISA_XIR_API LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_module(
+    Module *module, PassReport *report = nullptr) noexcept;
+[[nodiscard]] LUISA_XIR_API LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_module(
+    Module *module, PassReport *report,
+    LowerRayQueryToPipelineOptions options) noexcept;
 
 }// namespace luisa::compute::xir

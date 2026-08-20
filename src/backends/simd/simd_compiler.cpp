@@ -1,7 +1,9 @@
 #include "simd_compiler.h"
 
 #include <array>
+#include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -13,6 +15,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/destructure_cfg.h>
@@ -21,6 +24,7 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_ray_query_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/sroa.h>
@@ -82,17 +86,18 @@ SIMDCompiledKernel compile_simd_kernel(
     SIMDCompiledKernel result{
         .warp_width = warp_width,
     };
+    auto schedule_options = schedule::XIRToScheduleOptions{
+        .logical_warp_width = warp_width,
+        .enable_cohort_uniform_induction =
+            !detail::env_flag(
+                "LUISA_SIMD_DISABLE_COHORT_UNIFORM_INDUCTION"),
+        .cohort_uniform_induction_min_loop_block_count =
+            detail::env_flag(
+                "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP") ?
+                4u :
+                25u};
     auto schedule_result = schedule::lower_xir_to_schedule(
-        function,
-        {.logical_warp_width = warp_width,
-         .enable_cohort_uniform_induction =
-             !detail::env_flag(
-                 "LUISA_SIMD_DISABLE_COHORT_UNIFORM_INDUCTION"),
-         .cohort_uniform_induction_min_loop_block_count =
-             detail::env_flag(
-                 "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP") ?
-                 4u :
-                 25u});
+        function, schedule_options);
     if (!schedule_result.succeeded()) {
         result.diagnostics.reserve(schedule_result.diagnostics.size());
         for (auto &&diagnostic : schedule_result.diagnostics) {
@@ -102,6 +107,51 @@ SIMDCompiledKernel compile_simd_kernel(
         }
         return result;
     }
+    struct PipelineSchedules {
+        schedule::Function on_surface;
+        schedule::Function on_procedural;
+    };
+    std::vector<PipelineSchedules> pipeline_schedules;
+    pipeline_schedules.reserve(
+        schedule_result.ray_query_pipelines.size());
+    for (auto pipeline_index = size_t{0u};
+         pipeline_index <
+         schedule_result.ray_query_pipelines.size();
+         pipeline_index++) {
+        auto *pipeline =
+            schedule_result.ray_query_pipelines[pipeline_index];
+        auto lower_handler = [&](const xir::Function *handler,
+                                 std::string_view kind)
+            -> std::optional<schedule::Function> {
+            auto lowered = schedule::lower_xir_to_schedule(
+                handler, schedule_options);
+            if (!lowered.succeeded()) {
+                for (auto &&diagnostic : lowered.diagnostics) {
+                    result.diagnostics.emplace_back(
+                        "ray-query pipeline " +
+                        std::to_string(pipeline_index) + " " +
+                        std::string{kind} + ": " +
+                        std::string{schedule::to_string(
+                            diagnostic.code)} +
+                        ": " + diagnostic.message);
+                }
+                return std::nullopt;
+            }
+            return std::move(*lowered.function);
+        };
+        auto surface = lower_handler(
+            pipeline->on_surface_function(), "surface handler");
+        auto procedural = lower_handler(
+            pipeline->on_procedural_function(),
+            "procedural handler");
+        if (!surface || !procedural) { return result; }
+        pipeline_schedules.emplace_back(PipelineSchedules{
+            .on_surface = std::move(*surface),
+            .on_procedural = std::move(*procedural),
+        });
+    }
+    result.direct_ray_query_pipeline_count =
+        pipeline_schedules.size();
     auto jit = std::make_unique<LLVMJIT>(capture_assembly);
     if (!jit->succeeded()) {
         result.diagnostics.emplace_back(jit->error());
@@ -134,6 +184,66 @@ SIMDCompiledKernel compile_simd_kernel(
                         ->block_size();
         static_block_size = {size.x, size.y, size.z};
     }
+    std::vector<LLVMSIMDRayQueryPipelineHandlers>
+        pipeline_handlers;
+    pipeline_handlers.reserve(pipeline_schedules.size());
+    std::vector<SIMDLLVMPrintFormat> pipeline_print_formats;
+    auto handler_name_base = entry_name.empty() ?
+                                 std::string{"simd_kernel"} :
+                                 std::string{entry_name};
+    for (auto pipeline_index = size_t{0u};
+         pipeline_index < pipeline_schedules.size();
+         pipeline_index++) {
+        auto lower_handler = [&](const schedule::Function &handler,
+                                 std::string_view kind) {
+            auto name = handler_name_base + ".ray_query." +
+                        std::to_string(pipeline_index) + "." +
+                        std::string{kind} + ".simd_w" +
+                        std::to_string(warp_width);
+            return lower_ray_query_handler_schedule_to_llvm(
+                *module, handler, warp_width, name,
+                enable_fast_math, static_block_size,
+                enable_uniform_buffer_broadcast,
+                enable_lane_affine_buffer,
+                use_paired_leaf_gather,
+                dispatch_worker_count,
+                use_native_predicated_loop,
+                pipeline_print_formats.size());
+        };
+        auto surface = lower_handler(
+            pipeline_schedules[pipeline_index].on_surface,
+            "surface");
+        if (!surface.succeeded()) {
+            result.diagnostics.emplace_back(
+                "ray-query surface handler LLVM lowering failed: " +
+                surface.error);
+            return result;
+        }
+        auto *surface_entry = surface.entry;
+        pipeline_print_formats.insert(
+            pipeline_print_formats.end(),
+            std::make_move_iterator(surface.print_formats.begin()),
+            std::make_move_iterator(surface.print_formats.end()));
+        auto procedural = lower_handler(
+            pipeline_schedules[pipeline_index].on_procedural,
+            "procedural");
+        if (!procedural.succeeded()) {
+            result.diagnostics.emplace_back(
+                "ray-query procedural handler LLVM lowering failed: " +
+                procedural.error);
+            return result;
+        }
+        auto *procedural_entry = procedural.entry;
+        pipeline_print_formats.insert(
+            pipeline_print_formats.end(),
+            std::make_move_iterator(procedural.print_formats.begin()),
+            std::make_move_iterator(procedural.print_formats.end()));
+        pipeline_handlers.emplace_back(
+            LLVMSIMDRayQueryPipelineHandlers{
+                .on_surface = surface_entry,
+                .on_procedural = procedural_entry,
+            });
+    }
     auto llvm_result = lower_schedule_to_llvm(
         *module, *schedule_result.function, warp_width, entry_name,
         enable_fast_math, static_block_size,
@@ -144,13 +254,19 @@ SIMDCompiledKernel compile_simd_kernel(
         use_native_predicated_loop,
         enable_packet_batch_entry,
         use_inlined_packet_batch,
-        enable_block_batch_entry);
+        enable_block_batch_entry,
+        pipeline_handlers,
+        pipeline_print_formats.size());
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
     }
     result.argument_buffer_size = llvm_result.argument_buffer_size;
-    result.print_formats = std::move(llvm_result.print_formats);
+    result.print_formats = std::move(pipeline_print_formats);
+    result.print_formats.insert(
+        result.print_formats.end(),
+        std::make_move_iterator(llvm_result.print_formats.begin()),
+        std::make_move_iterator(llvm_result.print_formats.end()));
     result.schedule_block_count = llvm_result.schedule_block_count;
     result.convergence_point_count =
         llvm_result.convergence_point_count;
@@ -331,16 +447,6 @@ SIMDCompiledKernel compile_simd_kernel(
         result.diagnostics.emplace_back("AST to XIR translation failed");
         return result;
     }
-    auto inline_ray_query =
-        xir::reconstruct_ray_query_loop_pass_run_on_module(
-            module.get());
-    if (!inline_ray_query.succeeded()) {
-        SIMDCompiledKernel result{.warp_width = warp_width};
-        result.diagnostics.emplace_back(
-            "XIR explicit ray-query reconstruction failed (errors=" +
-            std::to_string(inline_ray_query.error_count) + ")");
-        return result;
-    }
     auto aggregate_promotion_info = xir::SROAInfo{};
     auto promote_aggregate_allocas = [&]() noexcept {
         if (detail::env_flag(
@@ -354,6 +460,44 @@ SIMDCompiledKernel compile_simd_kernel(
             info.inserted_alloca_count;
     };
 
+    // AST callable expansion may leave single-store handler-local scratch
+    // allocas in the kernel entry block. Forward those values before deciding
+    // whether a structured traversal has captures: otherwise private call ABI
+    // temporaries look like user-visible callback state and unnecessarily
+    // force the explicit proceed-loop path.
+    static_cast<void>(xir::local_store_forward_pass_run_on_module(module.get()));
+    static_cast<void>(xir::dce_pass_run_on_module(module.get()));
+    auto direct_ray_query_pipeline =
+        xir::LowerRayQueryToPipelineInfo{};
+    if (!detail::env_flag(
+            "LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE") &&
+        (warp_width != 1u ||
+         detail::env_flag(
+             "LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE"))) {
+        direct_ray_query_pipeline =
+            xir::lower_ray_query_to_pipeline_pass_run_on_module(
+                module.get(), nullptr,
+                {.max_captured_argument_count = 0u});
+        if (!direct_ray_query_pipeline.succeeded()) {
+            SIMDCompiledKernel result{.warp_width = warp_width};
+            result.diagnostics.emplace_back(
+                "XIR capture-free ray-query pipeline lowering failed (errors=" +
+                std::to_string(
+                    direct_ray_query_pipeline.error_count) +
+                ")");
+            return result;
+        }
+    }
+    auto inline_ray_query =
+        xir::reconstruct_ray_query_loop_pass_run_on_module(
+            module.get());
+    if (!inline_ray_query.succeeded()) {
+        SIMDCompiledKernel result{.warp_width = warp_width};
+        result.diagnostics.emplace_back(
+            "XIR explicit ray-query reconstruction failed (errors=" +
+            std::to_string(inline_ray_query.error_count) + ")");
+        return result;
+    }
     // Single-block callables can be folded before CFG legalization. A second
     // pass after destructuring handles multi-block callables without cloning
     // structured regions into the caller.

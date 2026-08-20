@@ -72,7 +72,8 @@ void ScheduleEmitter::_print(
     }
 
     auto [format_iter, inserted] = _print_format_ids.try_emplace(
-        &instruction, _result.print_formats.size());
+        &instruction,
+        _print_format_id_base + _result.print_formats.size());
     auto format_id = format_iter->second;
     if (inserted) {
         SIMDLLVMPrintFormat format{.format = *instruction.message};

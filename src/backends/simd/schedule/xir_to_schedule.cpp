@@ -136,6 +136,7 @@ struct CFGEdgeHash {
         case Tag::RESOURCE_WRITE:
         case Tag::RAY_QUERY_OBJECT_READ:
         case Tag::RAY_QUERY_OBJECT_WRITE:
+        case Tag::RAY_QUERY_PIPELINE:
         case Tag::CAST:
         case Tag::PRINT:
         case Tag::CLOCK:
@@ -348,6 +349,18 @@ private:
                             block,
                             static_cast<uint32_t>(
                                 _barrier_ids.size()));
+                    }
+                    continue;
+                }
+                if (instruction->isa<xir::RayQueryPipelineInst>()) {
+                    auto *pipeline = static_cast<
+                        const xir::RayQueryPipelineInst *>(instruction);
+                    if (pipeline->captured_argument_count() != 0u) {
+                        _diagnose(
+                            XIRToScheduleDiagnosticCode::
+                                unsupported_instruction,
+                            "SIMD ray-query pipeline currently requires capture-free handlers",
+                            block, instruction);
                     }
                     continue;
                 }
@@ -932,6 +945,7 @@ private:
             case Tag::RESOURCE_WRITE: return Opcode::resource_write;
             case Tag::RAY_QUERY_OBJECT_READ: return Opcode::ray_query_read;
             case Tag::RAY_QUERY_OBJECT_WRITE: return Opcode::ray_query_write;
+            case Tag::RAY_QUERY_PIPELINE: return Opcode::ray_query_pipeline;
             case Tag::CAST: return Opcode::cast;
             case Tag::PRINT: return Opcode::print;
             case Tag::CLOCK: return Opcode::clock;
@@ -1181,6 +1195,16 @@ private:
             .opcode = _opcode(source_instruction),
             .source_op = _source_op(source_instruction),
         };
+        auto *ray_query_pipeline =
+            source_instruction->isa<xir::RayQueryPipelineInst>() ?
+                static_cast<const xir::RayQueryPipelineInst *>(
+                    source_instruction) :
+                nullptr;
+        if (ray_query_pipeline != nullptr) {
+            instruction.source_op = static_cast<uint32_t>(
+                _result.ray_query_pipelines.size());
+            _result.ray_query_pipelines.emplace_back(ray_query_pipeline);
+        }
         if (source_instruction->isa<xir::PrintInst>()) {
             instruction.message = copy_string(
                 static_cast<const xir::PrintInst *>(source_instruction)
@@ -1201,7 +1225,11 @@ private:
                     source_instruction->parent_block(), source_instruction);
             }
         }
-        for (auto *operand_use : source_instruction->operand_uses()) {
+        auto operand_uses = ray_query_pipeline == nullptr ?
+                                source_instruction->operand_uses() :
+                                source_instruction->operand_uses().subspan(
+                                    0u, 1u);
+        for (auto *operand_use : operand_uses) {
             if (auto operand = _map_value(
                     operand_use->value(),
                     source_instruction->parent_block(), source_instruction)) {

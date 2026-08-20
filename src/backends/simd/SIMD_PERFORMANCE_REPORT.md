@@ -1,6 +1,6 @@
 # SIMD CPU backend performance report
 
-Snapshot date: 2026-08-16. This report covers the Release build after merging
+Snapshot date: 2026-08-20. This report covers the Release build after merging
 `origin/next@62b77df36b6dae05aff558d4db84e415b5e84e75` into
 `codex/simd-cpu-backend`, adding coherent direct-CFG lowering, completing the
 bindless gradient-sampling vertical slice, and eliminating curve-hit
@@ -32,6 +32,14 @@ aggregate extracts receive an independent bounds/type proof; query traversal,
 candidate payload reads, commits, termination, and memory remain under the
 ordinary scheduler. A broader whole-query-loop prototype and an extra select-
 factoring experiment were rejected by real-renderer measurements.
+The newest ray-query stage consumes the structured DSL boundary directly.
+Capture-free `traverse(...).on_*().trace()` regions remain
+`RayQueryPipelineInst` at W2/W4/W8/W16 and execute through internal
+fixed-vector handlers with exact sparse masks; captured callbacks and explicit
+`proceed()` loops retain the ordinary scheduler. Front-end callable
+argument/return scratch is forwarded before capture classification. W1 keeps
+the scalar loop by default after a stable renderer regression from the extra
+handler call.
 The newest memory stage independently applies ISPC's bounded-gather lesson to
 one much narrower Luisa pattern: eligible W8 direct typed-buffer vectors pack
 adjacent 32-bit leaves into legal 64-bit LLVM masked gathers. TargetTransformInfo
@@ -163,7 +171,7 @@ Speedup is always `fallback time / SIMD time`, or
 | voxel render, ms/iteration | 6.938 | 8.924 (0.776x) | 13.363 (0.517x) | 5.913 (1.168x) | 4.977 (1.393x) | 3.375 (2.047x) |
 | Spacex, ms/frame | 162.421 | 125.778 (1.289x) | 64.295 (2.517x) | 34.030 (4.783x) | 18.655 (8.668x) | 11.684 (13.738x) |
 | ordinary path tracing, synchronized 32-spp dispatch, FPS | 83.868 | 79.252 (0.955x) | 62.834 (0.748x) | 81.722 (0.982x) | 93.845 (1.126x) | 93.961 (1.132x) |
-| cutout path tracing, fixed 1 spp/dispatch, spp/s | 72.030 | 49.567 (0.692x) | 32.925 (0.465x) | 40.872 (0.575x) | 45.488 (0.642x) | 45.757 (0.642x) |
+| cutout path tracing, fixed 1 spp/dispatch, spp/s | 70.505 | 48.396 (0.678x) | 33.634 (0.497x) | 40.715 (0.605x) | 45.781 (0.680x) | 44.360 (0.659x) |
 | portable GEMM, GFLOP/s | 64.895 | 23.332 (0.360x) | 25.627 (0.395x) | 115.914 (1.786x) | 190.521 (2.936x) | 316.449 (4.876x) |
 
 The GEMM row is a compute diagnostic rather than a graphics result. It uses
@@ -210,13 +218,16 @@ through W16; their paired 95% log-space Student-t intervals are
 seven. Every width/backend retains one stable output hash across its seven
 processes, and separate gallery runs supply correctness conformance.
 
-The final-binary cutout row uses the same seven-pair method. It remains below
-fallback at every width: 0.6924x/0.4649x/0.5746x/0.6418x/0.6420x, with paired
-95% intervals [0.6821, 0.7029], [0.4532, 0.4769], [0.5631, 0.5863],
-[0.6258, 0.6582], and [0.6279, 0.6563]. The displayed throughput cells are
-process medians; the ratios are the preferred paired geometric means. Its
-JIT-side query payload crossings and sparse cohorts remain the dominant
-unresolved deficit.
+The final-binary cutout row uses seven paired rounds after the direct
+structured-query stage. W1 was repeated separately after its production gate;
+the other widths use one balanced six-configuration rotation. It remains below
+fallback at every width: 0.6779x/0.4973x/0.6045x/0.6800x/0.6587x, with paired
+95% intervals [0.6636, 0.6924], [0.4761, 0.5194], [0.5892, 0.6203],
+[0.6560, 0.7049], and [0.6320, 0.6864]. The displayed fallback cell is the
+pooled median of the two fallback sweeps; throughput cells are per-width
+process medians, while the ratios are the preferred paired geometric means.
+Direct handlers reduce query scheduling work but provider/Embree crossings and
+sparse cohorts remain the dominant unresolved deficit.
 
 ### Pre-schedule aggregate promotion
 
@@ -4439,10 +4450,83 @@ The five clean process medians give the current width comparison:
 | SIMD W16 | 47.2393 | 0.6689x |
 
 The specialization is therefore a real 1--2% renderer improvement, not a
-closure claim: callback-heavy cutout remains slower than fallback. The public
-DSL already provides the next useful semantic boundary. `traverse` retains a
-complete structured handler region that can become `RayQueryPipelineInst`,
-whereas explicit `query_all`/`query_any` exposes each `proceed()` and must stay
-on the loop route. SIMD currently lowers both to the latter. A direct packet
-pipeline needs a vector callback ABI with exact lane/subset mapping and
-capture spill/reload; it does not need W4/W8/W16 controls in the DSL.
+closure claim: callback-heavy cutout remains slower than fallback. At this
+checkpoint, the public DSL already provided the next useful semantic boundary.
+`traverse` retains a complete structured handler region that can become
+`RayQueryPipelineInst`, whereas explicit `query_all`/`query_any` exposes each
+`proceed()` and must stay on the loop route. The following stage consumes that
+boundary without adding W4/W8/W16 controls to the DSL.
+
+## Capture-free structured ray-query pipeline
+
+The SIMD front door now runs one early local-store-forwarding pass before it
+classifies a structured query. In the real cutout kernel this removes two
+front-end callable ABI temporaries per handler: one single-store/load
+`TriangleHit` argument alloca and one single-store/load Boolean return alloca.
+They are private compiler scratch, not `tall_inst`/`short_inst`, resource
+captures, or live-outs. Both cutout queries consequently report
+`direct_ray_query_pipelines=2`; the W8 main schedule falls from 53 to 31 blocks
+and from 31 to 28 instruction spills. A real captured value/resource or
+mutable live-out still fails the zero-capture selection and follows the prior
+loop implementation. An explicit DSL `proceed()` loop is a compile-tested
+negative control and also remains on that route.
+
+Each outlined handler has the internal width-specialized ABI
+`void(i32, i64, ptr, ptr)` for lane count, exact sparse mask, a null-sanitized
+array of lane state pointers, and the launch record. The main packet advances
+one status-provider loop until every original lane terminates and invokes the
+surface/procedural handler only for its classified subset. Width/mask mismatch,
+null or divergent callbacks, null active states, overlapping classifications,
+and unclassified live lanes fail closed. There is no public DSL, Embree, accel
+descriptor, or query-state ABI change.
+
+Same-binary cutout measurements compare the default with
+`LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE=1`. W2 uses the longer 128-spp
+confirmation sweep; the other rows use 64 spp. W1 was forced only for this
+ablation and is disabled in production after its stable regression.
+
+| Width | direct median spp/s | loop median spp/s | paired geomean | wins | 95% CI |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W1, forced | 47.4825 | 48.4208 | 0.9809x | 0/7 | [0.9755, 0.9862] |
+| W2 | 34.1090 | 32.8862 | 1.0341x | 6/7 | [1.0027, 1.0666] |
+| W4 | 40.4739 | 39.5092 | 1.0257x | 7/7 | [1.0141, 1.0374] |
+| W8 | 45.5710 | 44.6926 | 1.0196x | 10/10 | [1.0151, 1.0242] |
+| W16 | 44.3346 | 43.7513 | 1.0152x | 7/7 | [1.0023, 1.0282] |
+
+The final policy is therefore direct W2/W4/W8/W16 and loop W1. Seven fresh
+fallback-relative rounds still leave cutout below fallback at every width;
+the paired geometric means are 0.6779x/0.4973x/0.6045x/0.6800x/0.6587x from
+W1 through W16. W1's loop-gated median is 48.396 spp/s. The balanced
+W2/W4/W8/W16 sweep gives medians 33.634/40.715/45.781/44.360 spp/s; its
+fallback median is 66.615 spp/s. The W1-specific paired fallback median is
+71.830 spp/s. Because unrelated host work changed between sweeps, the paired
+ratios, rather than a pooled raw fallback value, are the comparison of record.
+
+At W8, the optimized main object changes from 29,203 to 22,995 text bytes,
+6,602 to 5,094 static instructions, 465 to 317 branches, 1,243 to 966 stack
+references, and a `0x4cc0` to `0x48c0` stack frame. The direct module also owns
+two identical 4,618-byte surface handlers, each with 1,138 instructions, 135
+branches, and 166 stack references. Thus total static text grows to 32,231
+bytes even while the hot main body shrinks; main callsites rise from five to
+seven. Both objects have no undefined symbols.
+
+Three alternating 256-spp `perf stat` pairs confirm a dynamic rather than
+source-size win. Direct/loop mean ratios are 0.9744 for cycles, 0.9658 for
+retired instructions, 0.9818 for branches, and 0.9743 for aggregate task
+clock. Branch misses increase 3.25%, so the gain comes from less total
+scheduler work rather than a universally better branch predictor outcome.
+A matching direct flat profile attributes 36.36% of cycles to JIT code, 36.28%
+to Embree, and 25.38% to the SIMD backend/runtime. The largest named backend
+sites are query proceed at 6.95%, the specialized triangle filter at 4.44%,
+batch installation at 4.03%, and status publication at 1.95%. The explicit
+loop profile remains close at 37.28% JIT, 35.41% Embree, and 24.93% backend;
+the dynamic counters provide the clearer scheduler delta.
+
+The permanent DSL/JIT regression covers W1/W2/W4/W8/W16, an inactive tail,
+exact candidate versus loop-oracle output, provider call count, front-end
+`Callable(TriangleHit)` argument/return scratch, an explicit-proceed negative
+control, and a structured-query callable inlined at two call sites. Real
+two-spp cutout images are byte-identical between direct and loop at each of all
+five widths. This closes the capture-free vertical slice, not general captured
+handlers: a later uniform/resource capture ABI must preserve scalar uniform
+evaluation and win a resource-using renderer before it is enabled.

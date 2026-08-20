@@ -397,6 +397,43 @@ void register_tests() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "capture_bound_selectively_retains_captured_loops"_test = [] {
+        Module m;
+        auto capture_free = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(capture_free.surface);
+        b.br(capture_free.dispatch);
+
+        auto captured = make_fixture(m);
+        auto *value =
+            captured.kernel->create_value_argument(Type::of<int>());
+        auto *state = [&] {
+            b.set_insertion_point(captured.body->instructions().front());
+            return b.alloca_local(Type::of<int>());
+        }();
+        b.set_insertion_point(captured.surface);
+        b.store(state, value);
+        b.br(captured.dispatch);
+
+        auto function_count = count_functions(m);
+        expect(xir_verify_module(&m).succeeded());
+        size_t skipped_loop_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, nullptr,
+            {.max_captured_argument_count = 0u,
+             .skipped_loop_count = &skipped_loop_count});
+        expect(info.succeeded());
+        expect(info.error_count == 0u);
+        expect(info.lowered_loop_count == 1u);
+        expect(skipped_loop_count == 1u);
+        expect(count_functions(m) == function_count + 2u);
+        expect(capture_free.body->terminator() == nullptr ||
+               !capture_free.body->terminator()->isa<RayQueryLoopInst>());
+        expect(captured.body->terminator() == captured.loop);
+        expect(captured.dispatch->terminator() == captured.dispatch_inst);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "multiple_handler_exits_are_outlined_to_returns"_test = [] {
         Module m;
         auto f = make_fixture(m);

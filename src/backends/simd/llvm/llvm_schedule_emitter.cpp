@@ -46,7 +46,11 @@ ScheduleEmitter::ScheduleEmitter(
     uint32_t dispatch_worker_count,
     bool enable_native_predicated_loop,
     bool enable_runtime_packet_geometry,
-    bool enable_linear_1d_packet_tail_narrowing)
+    bool enable_linear_1d_packet_tail_narrowing,
+    ScheduleEntryABI entry_abi,
+    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+        ray_query_pipeline_handlers,
+    size_t print_format_id_base)
     : _module{module},
       _source{source},
       _width{width},
@@ -61,6 +65,9 @@ ScheduleEmitter::ScheduleEmitter(
       _enable_runtime_packet_geometry{enable_runtime_packet_geometry},
       _enable_linear_1d_packet_tail_narrowing{
           enable_linear_1d_packet_tail_narrowing},
+      _entry_abi{entry_abi},
+      _ray_query_pipeline_handlers{ray_query_pipeline_handlers},
+      _print_format_id_base{print_format_id_base},
       _layout{module.getContext(), width},
       _collectives{width},
       _builder{module.getContext()} {}
@@ -377,6 +384,26 @@ void ScheduleEmitter::_analyze_local_lvalues() {
         bool shared{false};
     };
     std::vector<PendingLValue> ready;
+    if (_entry_abi == ScheduleEntryABI::ray_query_handler) {
+        for (auto &&value : _source.values()) {
+            if (value.origin != schedule::ValueOrigin::parameter) {
+                continue;
+            }
+            auto *metadata = std::get_if<
+                schedule::ParameterValueMetadata>(&value.metadata);
+            if (metadata != nullptr && metadata->index == 0u &&
+                static_cast<xir::DerivedArgumentTag>(
+                    metadata->argument_tag) ==
+                    xir::DerivedArgumentTag::REFERENCE &&
+                is_ray_query_type(value.type)) {
+                _local_lvalue_values[value.id.value] = 1u;
+                ready.emplace_back(PendingLValue{
+                    .value = value.id,
+                    .shared = false,
+                });
+            }
+        }
+    }
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
             if (instruction.opcode == schedule::Opcode::alloca) {
@@ -447,7 +474,8 @@ void ScheduleEmitter::_analyze_local_lvalues() {
                     return;
                 }
             } else if ((instruction.opcode == schedule::Opcode::ray_query_read ||
-                        instruction.opcode == schedule::Opcode::ray_query_write) &&
+                        instruction.opcode == schedule::Opcode::ray_query_write ||
+                        instruction.opcode == schedule::Opcode::ray_query_pipeline) &&
                        (instruction.operands.empty() ||
                         !_is_local_lvalue(instruction.operands.front()) ||
                         _is_shared_lvalue(instruction.operands.front()))) {
@@ -493,6 +521,12 @@ void ScheduleEmitter::_preflight_edge(const schedule::ControlEdge &edge,
 void ScheduleEmitter::_preflight() {
     if (_width == 0u || _width > 128u) {
         _fail("LLVM packet specialization width must be in [1, 128]");
+        return;
+    }
+    if (_entry_abi == ScheduleEntryABI::ray_query_handler &&
+        _width != 1u && _width != 2u && _width != 4u &&
+        _width != 8u && _width != 16u) {
+        _fail("ray-query handler width must be one of W1/W2/W4/W8/W16");
         return;
     }
     if (_source.logical_warp_width() != 0u &&
@@ -571,6 +605,11 @@ void ScheduleEmitter::_preflight() {
     }
     _cooperative_block = _has_block_barrier || _has_shared_memory;
     _result.cooperative_block = _cooperative_block;
+    if (_cooperative_block &&
+        _entry_abi == ScheduleEntryABI::ray_query_handler) {
+        _fail("ray-query handlers cannot contain shared memory or block barriers");
+        return;
+    }
     if (_cooperative_block) {
         auto block_thread_count = uint64_t{1u};
         for (auto size : _static_block_size) {
@@ -601,24 +640,38 @@ void ScheduleEmitter::_preflight() {
         if (value.origin == schedule::ValueOrigin::parameter) {
             auto *metadata = std::get_if<schedule::ParameterValueMetadata>(
                 &value.metadata);
-            if (metadata == nullptr ||
-                value.value_class != schedule::ValueClass::warp_uniform) {
-                _fail("packet parameters must be warp-uniform and carry argument metadata");
+            if (metadata == nullptr) {
+                _fail("Schedule IR parameter is missing argument metadata");
                 return;
             }
             auto argument_tag = static_cast<xir::DerivedArgumentTag>(
                 metadata->argument_tag);
-            if ((argument_tag == xir::DerivedArgumentTag::REFERENCE &&
-                 !is_indirect_dispatch_type(value.type)) ||
-                (argument_tag == xir::DerivedArgumentTag::VALUE &&
-                 !_is_data(value.type)) ||
-                (argument_tag == xir::DerivedArgumentTag::RESOURCE &&
-                 (value.type == nullptr ||
-                  (!value.type->is_buffer() &&
-                   !value.type->is_texture() &&
-                   !value.type->is_bindless_array() &&
-                   !value.type->is_accel())))) {
-                _fail("packet ABI supports data, buffer, texture, bindless, accel, and indirect-dispatch arguments only");
+            if (_entry_abi == ScheduleEntryABI::packet) {
+                if (value.value_class !=
+                    schedule::ValueClass::warp_uniform) {
+                    _fail("packet parameters must be warp-uniform");
+                    return;
+                }
+                if ((argument_tag == xir::DerivedArgumentTag::REFERENCE &&
+                     !is_indirect_dispatch_type(value.type)) ||
+                    (argument_tag == xir::DerivedArgumentTag::VALUE &&
+                     !_is_data(value.type)) ||
+                    (argument_tag == xir::DerivedArgumentTag::RESOURCE &&
+                     (value.type == nullptr ||
+                      (!value.type->is_buffer() &&
+                       !value.type->is_texture() &&
+                       !value.type->is_bindless_array() &&
+                       !value.type->is_accel())))) {
+                    _fail("packet ABI supports data, buffer, texture, bindless, accel, and indirect-dispatch arguments only");
+                    return;
+                }
+            } else if (metadata->index != 0u ||
+                       argument_tag !=
+                           xir::DerivedArgumentTag::REFERENCE ||
+                       value.value_class !=
+                           schedule::ValueClass::varying ||
+                       !is_ray_query_type(value.type)) {
+                _fail("ray-query handler ABI requires one varying reference query parameter");
                 return;
             }
             if (parameters.size() <= metadata->index) {
@@ -639,6 +692,11 @@ void ScheduleEmitter::_preflight() {
             return;
         }
     }
+    if (_entry_abi == ScheduleEntryABI::ray_query_handler &&
+        parameters.size() != 1u) {
+        _fail("ray-query handler ABI requires exactly one query parameter");
+        return;
+    }
     _parameter_offsets.resize(parameters.size());
     auto offset = size_t{0u};
     for (auto index = size_t{0u}; index < parameters.size(); index++) {
@@ -646,11 +704,13 @@ void ScheduleEmitter::_preflight() {
             _fail("Schedule IR parameter indices must be dense");
             return;
         }
-        auto *type = parameters[index]->type;
-        offset = _align_up(offset, 16u);
-        _parameter_offsets[index] = offset;
-        offset += _abi_size(type);
-        offset = _align_up(offset, 16u);
+        if (_entry_abi == ScheduleEntryABI::packet) {
+            auto *type = parameters[index]->type;
+            offset = _align_up(offset, 16u);
+            _parameter_offsets[index] = offset;
+            offset += _abi_size(type);
+            offset = _align_up(offset, 16u);
+        }
     }
     _result.argument_buffer_size = offset;
 
@@ -667,6 +727,7 @@ void ScheduleEmitter::_preflight() {
                 instruction.opcode != schedule::Opcode::resource_write &&
                 instruction.opcode != schedule::Opcode::ray_query_read &&
                 instruction.opcode != schedule::Opcode::ray_query_write &&
+                instruction.opcode != schedule::Opcode::ray_query_pipeline &&
                 instruction.opcode != schedule::Opcode::atomic &&
                 instruction.opcode != schedule::Opcode::warp_collective &&
                 instruction.opcode != schedule::Opcode::print &&
@@ -681,6 +742,17 @@ void ScheduleEmitter::_preflight() {
                 }
                 _fail(std::move(message));
                 return;
+            }
+            if (instruction.opcode ==
+                schedule::Opcode::ray_query_pipeline) {
+                if (_entry_abi != ScheduleEntryABI::packet ||
+                    !instruction.source_op ||
+                    *instruction.source_op >=
+                        _ray_query_pipeline_handlers.size() ||
+                    instruction.operands.size() != 1u) {
+                    _fail("ray-query pipeline has no matching capture-free handler pair");
+                    return;
+                }
             }
         }
         std::visit(
@@ -1123,6 +1195,15 @@ void ScheduleEmitter::_create_external_values() {
             case schedule::ValueOrigin::parameter: {
                 auto *metadata = std::get_if<
                     schedule::ParameterValueMetadata>(&value.metadata);
+                if (_entry_abi ==
+                    ScheduleEntryABI::ray_query_handler) {
+                    auto *bases = _builder.CreateVectorSplat(
+                        _width, _argument_buffer);
+                    auto *offsets = _lane_offsets(
+                        _lane_ids(), sizeof(void *));
+                    llvm_value = _local_handle(bases, offsets);
+                    break;
+                }
                 auto offset = _parameter_offsets[metadata->index];
                 auto *pointer = _builder.CreateGEP(
                     i8, _argument_buffer, _builder.getInt64(offset));

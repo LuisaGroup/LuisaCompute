@@ -155,6 +155,7 @@ const char *to_string(Opcode value) noexcept {
         case Opcode::resource_write: return "resource_write";
         case Opcode::ray_query_read: return "ray_query_read";
         case Opcode::ray_query_write: return "ray_query_write";
+        case Opcode::ray_query_pipeline: return "ray_query_pipeline";
         case Opcode::warp_collective: return "warp_collective";
         case Opcode::edge_copy: return "edge_copy";
         case Opcode::print: return "print";

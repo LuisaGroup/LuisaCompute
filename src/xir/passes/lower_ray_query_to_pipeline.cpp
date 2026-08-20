@@ -19,6 +19,12 @@
 
 namespace luisa::compute::xir {
 
+// This result is returned by the established exported overloads. Growing it
+// changes the platform return convention (for example, register return to
+// sret on x86-64), so new optional outputs belong in the options overload.
+static_assert(sizeof(LowerRayQueryToPipelineInfo) ==
+              2u * sizeof(size_t));
+
 namespace detail {
 
 struct RayQueryHandlerRegion {
@@ -481,6 +487,33 @@ static void collect_ray_query_loop_capture_list_in_inst(Instruction *inst, const
     return capture_list;
 }
 
+[[nodiscard]] static luisa::vector<RayQueryLoopInst *>
+select_ray_query_loops_by_capture_count(
+    luisa::span<RayQueryLoopInst *const> loops,
+    LowerRayQueryToPipelineOptions options) noexcept {
+    luisa::vector<RayQueryLoopInst *> selected;
+    selected.reserve(loops.size());
+    for (auto *loop : loops) {
+        auto subgraph = collect_ray_query_loop_subgraph(loop);
+        auto capture_list = collect_ray_query_loop_capture_list(subgraph);
+        auto capture_count = capture_list.in_values.size() +
+                             capture_list.out_values.size();
+        if (capture_count <= options.max_captured_argument_count) {
+            selected.emplace_back(loop);
+        } else {
+            LUISA_VERBOSE(
+                "lower_ray_query_to_pipeline: retaining loop with {} input and {} output captured argument(s) (limit={}).",
+                capture_list.in_values.size(),
+                capture_list.out_values.size(),
+                options.max_captured_argument_count);
+            if (options.skipped_loop_count != nullptr) {
+                ++*options.skipped_loop_count;
+            }
+        }
+    }
+    return selected;
+}
+
 class RayQueryLowerPassValueResolver final : public InstructionCloneValueResolver {
 
 private:
@@ -835,11 +868,14 @@ static void lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
 }
 
 static void run_lower_ray_query_to_pipeline_pass_on_function(
-    Function *function, LowerRayQueryToPipelineInfo &info) noexcept {
+    Function *function, LowerRayQueryToPipelineOptions options,
+    LowerRayQueryToPipelineInfo &info) noexcept {
     auto loops = collect_ray_query_loops(function);
     // Preflight the complete function before touching dispatch PHIs, hoisting
     // allocas, creating callbacks, or running function-wide DCE.
     if (!lower_ray_query_to_pipeline_preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
+    loops = select_ray_query_loops_by_capture_count(
+        luisa::span{loops}, options);
     lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
         function, luisa::span{loops}, info);
 }
@@ -848,16 +884,30 @@ static void run_lower_ray_query_to_pipeline_pass_on_function(
 
 LowerRayQueryToPipelineInfo
 lower_ray_query_to_pipeline_pass_run_on_function(
-    Function *function) noexcept {
+    Function *function, LowerRayQueryToPipelineOptions options) noexcept {
+    if (options.skipped_loop_count != nullptr) {
+        *options.skipped_loop_count = 0u;
+    }
     LowerRayQueryToPipelineInfo info;
     detail::run_lower_ray_query_to_pipeline_pass_on_function(
-        function, info);
+        function, options, info);
     return info;
 }
 
 LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_function(
+    Function *function) noexcept {
+    return lower_ray_query_to_pipeline_pass_run_on_function(
+        function, {});
+}
+
+LowerRayQueryToPipelineInfo
 lower_ray_query_to_pipeline_pass_run_on_module(
-    Module *module, PassReport *report) noexcept {
+    Module *module, PassReport *report,
+    LowerRayQueryToPipelineOptions options) noexcept {
+    if (options.skipped_loop_count != nullptr) {
+        *options.skipped_loop_count = 0u;
+    }
     LowerRayQueryToPipelineInfo info;
     struct FunctionWork {
         Function *function;
@@ -883,6 +933,10 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         }
         if (accepted) {
             for (auto &item : work) {
+                item.loops = detail::select_ray_query_loops_by_capture_count(
+                    luisa::span{item.loops}, options);
+            }
+            for (auto &item : work) {
                 detail::lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
                     item.function, luisa::span{item.loops}, info);
             }
@@ -894,6 +948,13 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         report->set("error", info.error_count);
     }
     return info;
+}
+
+LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_module(
+    Module *module, PassReport *report) noexcept {
+    return lower_ray_query_to_pipeline_pass_run_on_module(
+        module, report, {});
 }
 
 LowerRayQueryToPipelineInfo

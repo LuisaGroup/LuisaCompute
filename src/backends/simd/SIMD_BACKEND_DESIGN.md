@@ -213,16 +213,28 @@ lowering. The optional `reconstruct_ray_query_loop` adapter folds only that
 lowering's exact canonical proceed loop back to `RayQueryLoopInst`; it is not
 silently inserted into either production route.
 
-The DSL already preserves the distinction needed for a future SIMD pipeline
-path. `traverse(...).on_*().trace()` enters XIR as one structured
+The DSL already preserves the distinction needed by the SIMD pipeline path.
+`traverse(...).on_*().trace()` enters XIR as one structured
 `RayQueryLoopInst`, whose complete handler regions can be outlined into a
 `RayQueryPipelineInst`; `query_all`/`query_any` with explicit `proceed()` makes
 candidate publication observable and is normalized back to a loop only when
-its exact affine shell is proven. The current SIMD production route still
-lowers both forms to ordinary control flow. Retaining the former as a direct
-packet callback is therefore an XIR-to-SIMD callback-ABI task, not a reason to
-expose Embree or W4/W8/W16 policy in the public DSL. The explicit form must
-continue to use the loop route.
+its exact affine shell is proven. Before making that choice, SIMD forwards
+single-store callable argument/return scratch so front-end-private allocas do
+not masquerade as semantic callback captures.
+
+At W2/W4/W8/W16, a structured query with no captured input or live-out is now
+retained as `RayQueryPipelineInst`. Its surface and procedural regions become
+internal fixed-vector handler functions, and the main packet invokes them with
+the exact sparse candidate masks while one status-driven loop advances the
+native query provider. A callback that captures a kernel value/resource or
+exports mutable state remains on the ordinary scheduled-loop route. W1 also
+uses that route by default because the extra handler call measured slower than
+the already-scalar loop; a force control exists only for semantic regression.
+An explicit `proceed()` loop always stays on the loop route. This is therefore
+an XIR-to-SIMD callback-ABI specialization, not a reason to expose Embree or
+W4/W8/W16 policy in the public DSL. Supporting more structured callbacks in a
+later stage requires an internal uniform/resource capture ABI, not new DSL
+syntax.
 
 Callable inlining is a legalization requirement for this backend, not its
 generic cost heuristic. Immediately before the final inline-all pass, the
@@ -3621,10 +3633,18 @@ on 2026-08-11. The repository now contains:
   motion traversal, curve classification and per-primitive front/back
   deduplication, a persistent 32-candidate speculative batch, W2-to-W4 padding,
   and exact W1/W2/W4/W8/W16 tail and 35-candidate continuation coverage;
-- a fail-closed W4/W8/W16 ray-query status sidecar, colored with query scratch
-  liveness, that keeps terminated/surface/procedural masks in one JIT scalar,
-  publishes validity only after the owner-local pointer store, preserves
-  divergent cohort bits, and falls back to authoritative AoS gathers for W1/W2,
+- a capture-free structured-query fast path at W2/W4/W8/W16 that preserves
+  `RayQueryPipelineInst`, lowers each candidate region to an internal
+  fixed-vector handler, passes exact sparse physical masks and one packed
+  state-pointer array, and advances all original lanes through the paired
+  status provider without entering the outer scheduler between candidates;
+  captured handlers and every explicit `proceed()` loop retain the ordinary
+  state-machine path, while W1 is performance-gated to that path by default;
+- a fail-closed W4/W8/W16 loop-route ray-query status sidecar, also required by
+  the direct W2 path, colored with query scratch liveness, that keeps
+  terminated/surface/procedural masks in one JIT scalar, publishes validity
+  only after the owner-local pointer store, preserves divergent cohort bits,
+  and falls back to authoritative AoS gathers for default W1, loop-route W2,
   unknown aliases, copied handles, or disabled scratch coloring;
 - a state-handle packet cache under the same proof and colors, published by the
   authoritative masked local store and active-null-checked before use, which

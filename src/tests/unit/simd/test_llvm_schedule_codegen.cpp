@@ -7181,6 +7181,22 @@ void ray_query_filter_probe_impl(
                 SIMDHostRayQueryCandidateKind::none);
             continue;
         }
+        if (state->candidate_committed != 0u) {
+            state->committed = SIMDHostRayQueryCommittedHit{
+                .inst = state->candidate.inst,
+                .prim = state->candidate.prim,
+                .bary = {
+                    state->candidate.bary[0u],
+                    state->candidate.bary[1u]},
+                .kind = state->candidate_kind,
+                .t = state->candidate.t,
+            };
+            state->candidate_committed = 0u;
+            state->candidate_kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::none);
+            state->terminated = 1u;
+            continue;
+        }
         auto index = static_cast<uint32_t>(state->world_ray[0u]);
         probe->valid &= state->world_ray[0u] ==
                         static_cast<float>(index);
@@ -7383,6 +7399,206 @@ void ray_query_filter_plain_probe(
         "simd_ast_ray_query_filter_wrong_member");
     CHECK(wrong.succeeded());
     CHECK(wrong.predicated_ray_query_filter_diamond_count == 0u);
+    return true;
+}
+
+[[nodiscard]] bool run_ast_direct_ray_query_pipeline() {
+    static constexpr auto count = uint32_t{13u};
+    Callable filter_triangle_hit = [](
+                                       Var<TriangleHit> hit) noexcept {
+        Bool valid = def(true);
+        $if (hit.inst == 6u) {
+            valid = fract(6.0f * hit.bary.y) < 0.6f;
+        }
+        $elif (hit.inst == 5u) {
+            valid = fract(10.0f * hit.bary.x) < 0.5f;
+        };
+        return valid;
+    };
+    Kernel1D kernel = [&](AccelVar accel, BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [&](SurfaceCandidate &candidate) noexcept {
+                               $if (filter_triangle_hit(candidate.hit())) {
+                                   candidate.commit();
+                               }
+                               $else {
+                                   candidate.terminate();
+                               };
+                           })
+                       .on_procedural_candidate(
+                           [](ProceduralCandidate &) noexcept {})
+                       .trace();
+        output.write(index, hit->inst);
+    };
+
+    struct alignas(16) Arguments {
+        SIMDHostAccelView accel;
+        SIMDHostBufferView output;
+    };
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        ScopedEnvironmentVariable force_direct{
+            "LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE",
+            width == 1u ? "1" : nullptr};
+        auto candidate = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_direct_ray_query_pipeline_w" +
+                std::to_string(width));
+        SIMDCompiledKernel oracle;
+        {
+            ScopedEnvironmentVariable disable{
+                "LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE", "1"};
+            oracle = compile_simd_kernel(
+                kernel.function()->function(), width,
+                "simd_ast_direct_ray_query_pipeline_oracle_w" +
+                    std::to_string(width));
+        }
+        if (!candidate.succeeded() || !oracle.succeeded()) {
+            for (auto *compiled : {&candidate, &oracle}) {
+                for (auto &&diagnostic : compiled->diagnostics) {
+                    std::cerr << diagnostic << '\n';
+                }
+            }
+            return false;
+        }
+        CHECK(candidate.direct_ray_query_pipeline_count == 1u);
+        CHECK(oracle.direct_ray_query_pipeline_count == 0u);
+        auto execute = [&](const SIMDCompiledKernel &compiled,
+                           std::array<uint32_t, 16u> &values) {
+            values.fill(0xdeadbeefu);
+            RayQueryFilterProbe probe{
+                .expected_lane_count = width,
+                .expected_proceed = ray_query_filter_plain_probe,
+            };
+            SIMDHostAccelInstanceTable instance_table{
+                .ray_query_proceed_status =
+                    ray_query_filter_status_probe,
+                .ray_query_proceed_wide_status =
+                    ray_query_filter_status_probe,
+            };
+            Arguments arguments{
+                .accel = {
+                    .accel = &probe,
+                    .instances = &instance_table,
+                    .ray_query_proceed =
+                        ray_query_filter_plain_probe,
+                    .ray_query_proceed_wide =
+                        ray_query_filter_plain_probe,
+                },
+                .output = {values.data(), sizeof(values)},
+            };
+            using Entry = void(
+                const void *, void *,
+                const SIMDPacketLaunchConfig *, uint32_t);
+            auto *entry = reinterpret_cast<Entry *>(compiled.entry);
+            CHECK(entry != nullptr);
+            auto config = launch_1d(count, 16u);
+            for (auto first = uint32_t{0u}; first < count;
+                 first += width) {
+                config.thread_index = first;
+                entry(&arguments, nullptr, &config,
+                      std::min(width, count - first));
+            }
+            CHECK(probe.valid);
+            CHECK(probe.calls ==
+                  2u * ((count + width - 1u) / width));
+            return true;
+        };
+        std::array<uint32_t, 16u> candidate_output{};
+        std::array<uint32_t, 16u> oracle_output{};
+        CHECK(execute(candidate, candidate_output));
+        CHECK(execute(oracle, oracle_output));
+        CHECK(std::memcmp(
+                  candidate_output.data(), oracle_output.data(),
+                  sizeof(candidate_output)) == 0);
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto phase_even = ((index / 3u) & 1u) == 0u;
+            auto instance = index % 3u == 0u ? 6u :
+                            index % 3u == 1u ? 5u :
+                                               99u;
+            auto valid = instance == 6u ?
+                             (phase_even ? 0.3f : 0.9f) < 0.6f :
+                         instance == 5u ?
+                             (phase_even ? 0.4f : 0.8f) < 0.5f :
+                             true;
+            CHECK(candidate_output[index] ==
+                  (valid ? instance : ~0u));
+        }
+        for (auto index = count; index < candidate_output.size();
+             index++) {
+            CHECK(candidate_output[index] == 0xdeadbeefu);
+        }
+    }
+    auto scalar_default = compile_simd_kernel(
+        kernel.function()->function(), 1u,
+        "simd_ast_default_scalar_ray_query_loop_w1");
+    CHECK(scalar_default.succeeded());
+    CHECK(scalar_default.direct_ray_query_pipeline_count == 0u);
+    Kernel1D explicit_proceed = [](
+                                    AccelVar accel,
+                                    BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        auto query = accel.query_all(ray, {});
+        $while (query.proceed()) {
+            $if (query.is_surface_candidate()) {
+                query.terminate();
+            }
+            $else {
+                query.terminate();
+            };
+        };
+        output.write(index, query.committed_hit()->inst);
+    };
+    auto explicit_compiled = compile_simd_kernel(
+        explicit_proceed.function()->function(), 8u,
+        "simd_ast_explicit_proceed_stays_loop_w8");
+    if (!explicit_compiled.succeeded()) {
+        for (auto &&diagnostic : explicit_compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(explicit_compiled.direct_ray_query_pipeline_count == 0u);
+
+    Callable trace_callable = [](
+                                  AccelVar accel,
+                                  Var<Ray> ray) noexcept {
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate(
+                           [](SurfaceCandidate &candidate) noexcept {
+                               candidate.terminate();
+                           })
+                       .trace();
+        return hit->inst;
+    };
+    Kernel1D reused_callable = [&](
+                                   AccelVar accel,
+                                   BufferUInt output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        auto first = trace_callable(accel, ray);
+        auto second = trace_callable(accel, ray);
+        output.write(index, first + second);
+    };
+    auto reused_compiled = compile_simd_kernel(
+        reused_callable.function()->function(), 8u,
+        "simd_ast_reused_callable_direct_ray_query_pipeline_w8");
+    if (!reused_compiled.succeeded()) {
+        for (auto &&diagnostic : reused_compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
+        }
+        return false;
+    }
+    CHECK(reused_compiled.direct_ray_query_pipeline_count == 2u);
     return true;
 }
 
@@ -11371,6 +11587,8 @@ int main() {
         {"ray-query status packing", &run_ray_query_status_pack},
         {"AST ray-query filter predication",
          &run_ast_ray_query_filter_predication},
+        {"AST capture-free direct ray-query pipeline",
+         &run_ast_direct_ray_query_pipeline},
         {"XIR ray-query status cache",
          &run_ray_query_status_cache_codegen},
         {"sequential ray-query scratch coloring",

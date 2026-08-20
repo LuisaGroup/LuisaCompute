@@ -11,6 +11,7 @@ namespace luisa::compute::xir {
 class BasicBlock;
 class Function;
 class Instruction;
+class RayQueryPipelineInst;
 }// namespace luisa::compute::xir
 
 namespace luisa::compute::simd::schedule {
@@ -50,6 +51,10 @@ struct XIRToScheduleOptions {
 
 struct XIRToScheduleResult {
     std::optional<Function> function{};
+    // Stable side table for high-level operations whose function operands are
+    // intentionally not copied into dependency-light Schedule IR. The caller
+    // consumes these pointers while the source XIR module is still alive.
+    std::vector<const xir::RayQueryPipelineInst *> ray_query_pipelines{};
     std::vector<XIRToScheduleDiagnostic> diagnostics{};
 
     [[nodiscard]] bool succeeded() const noexcept {

@@ -37,6 +37,11 @@
 
 namespace luisa::compute::simd::detail {
 
+enum class ScheduleEntryABI {
+    packet,
+    ray_query_handler,
+};
+
 // Private implementation shared by the focused Schedule IR lowering units.
 // Keep the public codegen facade independent of these implementation details.
 class ScheduleEmitter {
@@ -55,6 +60,10 @@ private:
     bool _enable_native_predicated_loop{true};
     bool _enable_runtime_packet_geometry{false};
     bool _enable_linear_1d_packet_tail_narrowing{false};
+    ScheduleEntryABI _entry_abi{ScheduleEntryABI::packet};
+    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+        _ray_query_pipeline_handlers{};
+    size_t _print_format_id_base{0u};
     bool _use_scalar_frame_metadata{false};
     bool _direct_control_flow{false};
     bool _has_block_barrier{false};
@@ -70,6 +79,7 @@ private:
     ::llvm::Value *_return_buffer{nullptr};
     ::llvm::Value *_launch_config{nullptr};
     ::llvm::Value *_active_lane_count{nullptr};
+    ::llvm::Value *_handler_active_mask_bits{nullptr};
     ::llvm::BasicBlock *_scheduler_loop{nullptr};
     ::llvm::BasicBlock *_scheduler_dispatch_route{nullptr};
     ::llvm::PHINode *_scheduler_dispatch_pc{nullptr};
@@ -467,6 +477,8 @@ private:
         const schedule::Instruction &instruction);
     void _ray_query_write(
         const schedule::Instruction &instruction);
+    void _ray_query_pipeline(
+        const schedule::Instruction &instruction);
     [[nodiscard]] AccelInstanceAddress _accel_instance_address(
         ::llvm::Value *accel, schedule::ValueId index_id,
         bool varying);
@@ -626,7 +638,11 @@ public:
                     uint32_t dispatch_worker_count,
                     bool enable_native_predicated_loop,
                     bool enable_runtime_packet_geometry,
-                    bool enable_linear_1d_packet_tail_narrowing);
+                    bool enable_linear_1d_packet_tail_narrowing,
+                    ScheduleEntryABI entry_abi = ScheduleEntryABI::packet,
+                    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+                        ray_query_pipeline_handlers = {},
+                    size_t print_format_id_base = 0u);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 
