@@ -283,6 +283,16 @@ struct alignas(16) SIMDHostRayQueryState {
     float object_ray[8]{};
 };
 
+// A capture-free surface-filter pipeline touches only the prefix ending at the
+// committed hit. Keeping consecutive logical lanes at this aligned stride
+// reduces the hot working set without changing the complete-state ABI used by
+// the null-provider fallback.
+inline constexpr auto simd_host_ray_query_hot_state_stride =
+    (offsetof(SIMDHostRayQueryState, candidate_batch_count) +
+     alignof(SIMDHostRayQueryState) - 1u) /
+    alignof(SIMDHostRayQueryState) * alignof(SIMDHostRayQueryState);
+static_assert(simd_host_ray_query_hot_state_stride == 160u);
+
 // The proceed callback has already classified every active lane before it
 // returns. Carry that classification back across the host/JIT boundary so a
 // proven query owner can retain the three hot predicates in one scalar mask
@@ -634,6 +644,8 @@ struct SIMDPacketLaunchConfig {
     uint32_t enable_predicated_acyclic_surface_filter{1u};
     uint32_t reserved_runtime_flags{0u};
 };
+inline constexpr auto
+    simd_packet_launch_flag_compact_surface_filter_state = 1u << 0u;
 static_assert(
     offsetof(SIMDPacketLaunchConfig, reserved_runtime_flags) +
         sizeof(uint32_t) ==
@@ -713,6 +725,7 @@ struct LLVMScheduleCodegenResult {
     size_t ray_query_scratch_bytes{0u};
     size_t ray_query_status_slot_count{0u};
     size_t ray_query_state_handle_slot_count{0u};
+    size_t compact_surface_filter_state_count{0u};
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};

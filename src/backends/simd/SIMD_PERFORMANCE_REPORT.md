@@ -5428,3 +5428,84 @@ inventory independently. This includes all native-math and runtime-width
 tests, the Schedule/JIT and lower-ray-query regressions, all four accel oracle
 modes, graphics/image-processing, path tracing, voxel, and the complete XIR
 and coroutine pass suites.
+
+## Compact surface-filter query state
+
+The capture-free surface-filter proof now also selects a dense caller-side
+state packet at W4/W8/W16. The complete `SIMDHostRayQueryState` allocation and
+1,248-byte ABI remain unchanged, but the hot path addresses consecutive lanes
+at the 160-byte aligned prefix ending after `committed`. Candidate-object-ray
+and ordinary/procedural batch initialization remain behind one scalar cold
+branch. `LUISA_SIMD_DISABLE_COMPACT_SURFACE_FILTER_STATE=1` selects the full
+layout in the same generated module; a null provider and all unproven sites do
+the same.
+
+Fresh processes used the system/TBB build, physical CPUs 0--15, sixteen
+workers, 64 spp, and one spp per dispatch. Orders alternated within each pair,
+and a 50-ms process monitor rejected groups containing the known compiler or
+Psycles workloads. No reported group was contaminated. Every image was
+byte-identical to its paired full-layout oracle:
+
+| width | compact median FPS | full-state median FPS | compact / full | wins | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 40.1263 | 39.3632 | **1.0134x** | 5/7 | [0.9905, 1.0369] |
+| W8 | 43.3292 | 42.8671 | **1.0101x** | 9/10 | [0.9993, 1.0210] |
+| W16 | 45.0224 | 44.5339 | **1.0151x** | 7/7 | **[1.0029, 1.0274]** |
+
+The effect is deliberately reported as a 1--1.5% full-process refinement:
+W16 is individually conclusive, while the shorter W4 sample and W8 interval
+still overlap one. Three additional alternating W8 pairs at 256 spp produced
+the following candidate/oracle geometric ratios:
+
+| counter | compact / full-state oracle |
+| --- | ---: |
+| throughput | **1.0133x** |
+| user cycles | **0.9852x** |
+| instructions | 0.9985x |
+| branches | 1.0003x |
+| branch misses | 1.0028x |
+| cache references | 1.0056x |
+| cache misses | 1.0404x |
+
+All three throughput and cycle pairs agree in direction. Retired instructions
+and branches are nearly unchanged, so the gain is primarily reduced execution
+stall rather than deleted scalar work. The generic cache events are noisy and
+do not support a cache-miss claim.
+
+A fresh seven-round equal-core rotation gives the current complete cutout
+comparison below. W1/W2 and fallback were measured in one three-way rotation;
+W4/W8/W16 and fallback were measured in a separate four-way rotation, hence
+the small difference between the two fallback medians:
+
+| width | SIMD median FPS | fallback median FPS | SIMD / fallback | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: |
+| W1 | 32.6661 | 47.7702 | 0.6833x | [0.6752, 0.6913] |
+| W2 | 27.9055 | 47.7702 | 0.5823x | [0.5604, 0.6051] |
+| W4 | 39.9817 | 47.5172 | 0.8404x | [0.8300, 0.8509] |
+| W8 | 44.1541 | 47.5172 | **0.9216x** | [0.9077, 0.9357] |
+| W16 | 45.1968 | 47.5172 | **0.9432x** | [0.9296, 0.9570] |
+
+W16 remains the best width and is 5.7% behind equal-core fallback on this
+ray-query-heavy workload. W1/W2 deliberately retain the full state and do not
+benefit from this specialization.
+
+The W8 compact and full runtime processes emit the same main JIT object
+(SHA-256 `8ee93f9db6831345cdd5a09bd0a409ddad95ea86b1efd5e93acaeb54d943313e`).
+Its `.text` is 33,987 bytes, the complete object sections total 37,307 bytes,
+and the full 18,688-byte stack reservation remains present. Disassembly shows
+the full-only callback and batch-gate scatters behind the cold branch; no
+varying `sinf`/`cosf`/`tanf`/`expf`/`logf`/`powf` symbol is unresolved.
+
+The Schedule/JIT regression checks W2/W4/W8/W16, direct and state-backed
+handlers, a null provider, a disabled launch bit, inactive tails, and exact
+pointer strides. Captured, reused, resource-using, mutated, and candidate
+object-space-ray cases must reject the compact form. A permanent CTest runs
+the complete accel suite with the same-module full-layout oracle selected.
+
+Finally, independent W1/W2/W4/W8/W16 1,024-spp cutout renders all pass the
+checked-in fallback reference without regenerating it. Their RGB PSNR values
+are 42.930016/46.208391/45.900175/45.529821/45.150873 dB. Both maintained
+Release trees pass the complete 168/168 CTest inventory, including native
+math, Schedule/JIT, lower-ray-query and reconstruction passes, runtime widths,
+all accel/oracle modes, graphics, image processing, voxel, path tracing, and
+the XIR/coroutine suites.

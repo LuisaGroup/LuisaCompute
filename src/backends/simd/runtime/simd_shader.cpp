@@ -303,6 +303,9 @@ SIMDShader::SIMDShader(
     _enable_predicated_acyclic_surface_filter =
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_ACYCLIC_SURFACE_FILTER_PREDICATION");
+    _enable_compact_surface_filter_state =
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_COMPACT_SURFACE_FILTER_STATE");
     auto *assembly_directory =
         std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR");
     auto capture_assembly =
@@ -396,6 +399,7 @@ SIMDShader::SIMDShader(
             "ray_query_scratch_slots={}, "
             "ray_query_scratch_bytes={}, ray_query_status_slots={}, "
             "ray_query_state_handle_slots={}, "
+            "compact_surface_filter_states={}, "
             "uniform_buffer_broadcasts={}, contiguous_buffer_reads={}, "
             "contiguous_buffer_writes={}, transposed_buffer_reads={}, "
             "transposed_buffer_writes={}, paired_leaf_gathers={}.",
@@ -473,6 +477,7 @@ SIMDShader::SIMDShader(
             _compiled.ray_query_scratch_bytes,
             _compiled.ray_query_status_slot_count,
             _compiled.ray_query_state_handle_slot_count,
+            _compiled.compact_surface_filter_state_count,
             _compiled.uniform_buffer_broadcast_count,
             _compiled.contiguous_buffer_read_count,
             _compiled.contiguous_buffer_write_count,
@@ -634,6 +639,10 @@ void SIMDShader::_dispatch_once(
             config.kernel_id = kernel_id;
             config.enable_predicated_acyclic_surface_filter =
                 _enable_predicated_acyclic_surface_filter;
+            if (_enable_compact_surface_filter_state) {
+                config.reserved_runtime_flags |=
+                    simd_packet_launch_flag_compact_surface_filter_state;
+            }
             config.debug_context = &debug_context;
             config.print_callback = simd_print_callback;
             config.assert_fail_callback = simd_assert_fail_callback;

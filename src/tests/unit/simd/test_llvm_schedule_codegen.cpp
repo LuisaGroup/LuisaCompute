@@ -7163,6 +7163,7 @@ struct RayQueryFilterProbe {
     uint32_t direct_surface_pipeline_calls{0u};
     uint32_t expected_lane_count{0u};
     SIMDHostAccelRayQueryProceed *expected_proceed{nullptr};
+    size_t expected_state_stride{sizeof(SIMDHostRayQueryState)};
     uint64_t surface_pipeline_candidate_mask{0u};
     bool valid{true};
 };
@@ -7385,6 +7386,7 @@ void ray_query_surface_filter_pipeline_probe_impl(
     probe->direct_surface_pipeline_calls +=
         use_direct_surface_candidate;
     probe->valid &= lane_count == probe->expected_lane_count;
+    SIMDHostRayQueryState *previous_state = nullptr;
     probe->valid &= lane_count == 2u ?
                         ray_packet == nullptr :
                         ray_packet != nullptr;
@@ -7439,6 +7441,14 @@ void ray_query_surface_filter_pipeline_probe_impl(
             continue;
         }
         auto *state = states[lane];
+        if (previous_state != nullptr) {
+            auto previous_address = reinterpret_cast<uintptr_t>(
+                previous_state);
+            auto state_address = reinterpret_cast<uintptr_t>(state);
+            probe->valid &= state_address - previous_address ==
+                            probe->expected_state_stride;
+        }
+        previous_state = state;
         auto valid_state =
             state != nullptr && state->accel == probe &&
             state->proceed == probe->expected_proceed &&
@@ -7826,10 +7836,12 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
         }
         CHECK(candidate.direct_ray_query_pipeline_count == 1u);
         CHECK(candidate.surface_filter_ray_query_pipeline_count == 0u);
+        CHECK(candidate.compact_surface_filter_state_count == 0u);
         CHECK(candidate.resident_ray_query_pipeline_count ==
               (width == 1u ? 1u : 0u));
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
         CHECK(oracle.surface_filter_ray_query_pipeline_count == 0u);
+        CHECK(oracle.compact_surface_filter_state_count == 0u);
         CHECK(oracle.resident_ray_query_pipeline_count == 0u);
         auto execute = [&](const SIMDCompiledKernel &compiled,
                            std::array<uint32_t, 16u> &values) {
@@ -8119,6 +8131,7 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
     }
     CHECK(reused_compiled.direct_ray_query_pipeline_count == 2u);
     CHECK(reused_compiled.surface_filter_ray_query_pipeline_count == 0u);
+    CHECK(reused_compiled.compact_surface_filter_state_count == 0u);
     return true;
 }
 
@@ -8222,12 +8235,19 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
         }
         CHECK(candidate.direct_ray_query_pipeline_count == 1u);
         CHECK(candidate.surface_filter_ray_query_pipeline_count == 1u);
+        CHECK(candidate.compact_surface_filter_state_count ==
+              (width >= 4u ? 1u : 0u));
         CHECK(candidate.predicated_acyclic_surface_filter_handler_count ==
               (width >= 4u ? 1u : 0u));
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
         CHECK(oracle.surface_filter_ray_query_pipeline_count == 0u);
+        CHECK(oracle.compact_surface_filter_state_count == 0u);
         CHECK(oracle.predicated_acyclic_surface_filter_handler_count == 0u);
         if (width == 8u) {
+            CHECK(candidate.llvm_ir.find("ray.query.full.state.init") !=
+                  std::string::npos);
+            CHECK(candidate.llvm_ir.find("ray.query.full.state.mask") ==
+                  std::string::npos);
             auto symbol =
                 "simd_ast_surface_filter_ray_query_pipeline_w8.ray_query.0.surface_filter.simd_w8";
             auto symbol_position = candidate.llvm_ir.find(symbol);
@@ -8290,12 +8310,18 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
                            bool enable_surface_pipeline,
                            bool direct_surface_candidate,
                            std::array<uint32_t, 16u> &values,
-                           bool enable_predicated_acyclic = true) {
+                           bool enable_predicated_acyclic = true,
+                           bool enable_compact_state = false) {
             values.fill(0xdeadbeefu);
             RayQueryFilterProbe probe{
                 .expected_lane_count = width,
                 .expected_proceed =
                     ray_query_surface_filter_plain_probe,
+                .expected_state_stride =
+                    enable_compact_state && enable_surface_pipeline &&
+                            width >= 4u ?
+                        simd_host_ray_query_hot_state_stride :
+                        sizeof(SIMDHostRayQueryState),
             };
             SIMDHostAccelInstanceTable instance_table{
                 .ray_query_proceed_status =
@@ -8333,6 +8359,9 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
             auto config = launch_1d(count, 16u);
             config.enable_predicated_acyclic_surface_filter =
                 enable_predicated_acyclic;
+            config.reserved_runtime_flags = enable_compact_state ?
+                                                simd_packet_launch_flag_compact_surface_filter_state :
+                                                0u;
             for (auto first = uint32_t{0u}; first < count;
                  first += width) {
                 config.thread_index = first;
@@ -8364,23 +8393,30 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
         };
 
         std::array<uint32_t, 16u> pipeline_output{};
+        std::array<uint32_t, 16u> full_state_output{};
         std::array<uint32_t, 16u> scheduler_direct_output{};
         std::array<uint32_t, 16u> state_pipeline_output{};
         std::array<uint32_t, 16u> null_provider_output{};
         std::array<uint32_t, 16u> oracle_output{};
         CHECK(execute(
-            candidate, true, width >= 4u, pipeline_output));
+            candidate, true, width >= 4u, pipeline_output,
+            true, width >= 4u));
+        CHECK(execute(
+            candidate, true, width >= 4u, full_state_output));
         if (width >= 4u) {
             CHECK(execute(
                 candidate, true, true,
-                scheduler_direct_output, false));
+                scheduler_direct_output, false, true));
             CHECK(pipeline_output == scheduler_direct_output);
         }
         CHECK(execute(
-            candidate, true, false, state_pipeline_output));
+            candidate, true, false, state_pipeline_output,
+            true, width >= 4u));
         CHECK(execute(
-            candidate, false, false, null_provider_output));
+            candidate, false, false, null_provider_output,
+            true, width >= 4u));
         CHECK(execute(oracle, false, false, oracle_output));
+        CHECK(pipeline_output == full_state_output);
         CHECK(pipeline_output == state_pipeline_output);
         CHECK(pipeline_output == null_provider_output);
         CHECK(pipeline_output == oracle_output);
@@ -8438,6 +8474,7 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
     }
     CHECK(switch_compiled.succeeded());
     CHECK(switch_compiled.surface_filter_ray_query_pipeline_count == 1u);
+    CHECK(switch_compiled.compact_surface_filter_state_count == 1u);
     CHECK(switch_compiled.predicated_acyclic_surface_filter_handler_count ==
           1u);
     CHECK(switch_compiled.llvm_ir.find("predicated.acyclic") !=
@@ -8478,6 +8515,7 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
     }
     CHECK(loop_compiled.succeeded());
     CHECK(loop_compiled.surface_filter_ray_query_pipeline_count == 1u);
+    CHECK(loop_compiled.compact_surface_filter_state_count == 1u);
     CHECK(loop_compiled.predicated_acyclic_surface_filter_handler_count ==
           0u);
     return true;
@@ -8545,10 +8583,12 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
         }
         CHECK(candidate.direct_ray_query_pipeline_count == 1u);
         CHECK(candidate.surface_filter_ray_query_pipeline_count == 0u);
+        CHECK(candidate.compact_surface_filter_state_count == 0u);
         CHECK(candidate.resident_ray_query_pipeline_count ==
               (width == 1u ? 1u : 0u));
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
         CHECK(oracle.surface_filter_ray_query_pipeline_count == 0u);
+        CHECK(oracle.compact_surface_filter_state_count == 0u);
         CHECK(oracle.resident_ray_query_pipeline_count == 0u);
         if (width == 8u) {
             CHECK(candidate.schedule_block_count <
@@ -8711,6 +8751,7 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
     }
     CHECK(resource_compiled.direct_ray_query_pipeline_count == 1u);
     CHECK(resource_compiled.surface_filter_ray_query_pipeline_count == 0u);
+    CHECK(resource_compiled.compact_surface_filter_state_count == 0u);
     return true;
 }
 

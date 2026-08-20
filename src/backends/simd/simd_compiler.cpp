@@ -646,6 +646,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.ray_query_status_slot_count;
     result.ray_query_state_handle_slot_count =
         llvm_result.ray_query_state_handle_slot_count;
+    result.compact_surface_filter_state_count =
+        llvm_result.compact_surface_filter_state_count;
     result.uniform_buffer_broadcast_count =
         llvm_result.uniform_buffer_broadcast_count;
     result.contiguous_buffer_read_count =

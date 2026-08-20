@@ -42,6 +42,7 @@ private:
     bool _enable_packet_batch_entry{false};
     bool _enable_block_batch_entry{false};
     bool _enable_predicated_acyclic_surface_filter{true};
+    bool _enable_compact_surface_filter_state{true};
     uint3 _block_size{1u, 1u, 1u};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     luisa::vector<Usage> _argument_usages;

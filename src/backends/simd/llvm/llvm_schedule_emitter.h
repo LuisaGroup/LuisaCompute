@@ -113,6 +113,7 @@ private:
     std::vector<uint32_t> _ray_query_scratch_slots{};
     std::vector<::llvm::AllocaInst *> _ray_query_scratch_storage{};
     std::vector<uint32_t> _ray_query_status_slots{};
+    std::vector<uint8_t> _ray_query_compact_surface_filter_state{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_callback_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_pipeline_callback_storage{};

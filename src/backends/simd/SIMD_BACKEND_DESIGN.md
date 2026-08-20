@@ -3463,6 +3463,39 @@ sparse sanitization remain present on both sides. W1 and W2 do not consult this
 control. Their five cutout JIT assembly files and object files are byte-for-byte
 identical to the pre-change binaries.
 
+The same compiler proof also permits a denser caller-side query-state layout.
+For each W4/W8/W16 construction, the Schedule audit requires exactly one safe
+surface-filter pipeline, no caller-side query write, no candidate object-space
+ray read, and a proven status/provider slot. The full
+`SIMDHostRayQueryState` allocation remains reserved, but active logical lanes
+use a 160-byte aligned stride covering only `accel` through `committed`, rather
+than the complete 1,248-byte stride. Common construction fields are written
+through that selected packet. The candidate-object-ray callback and ordinary
+batch gates move behind one scalar cold branch and are never touched by the
+compact path. Thus this refinement reduces the hot address span without
+changing the complete-state ABI or the scratch-coloring bound.
+
+Selection is fail-closed at dispatch time as well as compile time. A non-null
+surface-filter provider and the launch-record enable bit are both required;
+otherwise the same JIT module selects the complete 1,248-byte layout and
+initializes every ordinary-only field. W1, W2, captured/resource-using
+pipelines, caller-side mutation, candidate object-space-ray access, and an
+unproven status cache always retain the complete layout.
+`LUISA_SIMD_DISABLE_COMPACT_SURFACE_FILTER_STATE=1` is the same-module runtime
+oracle, and `compact_surface_filter_states` reports accepted construction
+sites. The runtime surface-filter provider must continue to access only the
+audited prefix; it may not reuse this route for a provider that enters the
+ordinary batch/procedural/object-ray machinery.
+
+Alternating fresh-process 64-spp measurements against that same-module oracle
+give paired geometric means of 1.0134x at W4 (5/7 wins), 1.0101x at W8 (9/10),
+and 1.0151x at W16 (7/7, 95% interval 1.0029x--1.0274x). Three W8 256-spp
+counter pairs measure 1.0133x throughput and 0.9852x user cycles while retired
+instructions remain at 0.9985x. The current equal-core fallback ratios are
+0.6833x/0.5823x/0.8404x/0.9216x/0.9432x for W1/W2/W4/W8/W16. W16 is therefore
+the best cutout width and remains 5.7% behind fallback; the performance report
+records the complete methodology and intervals.
+
 The audited W4/W8/W16 surface filter has a second, narrower JIT handler that
 removes the remaining candidate AoS round trip. Its private five-argument ABI
 is `(width, physical_candidate_mask, embree_ray_packet, embree_hit_packet,
@@ -3526,10 +3559,11 @@ the executed direct functions contain zero gather/scatter instructions. This
 bounded duplication is restricted to already eligible capture-free filters.
 
 Permanent coverage compares direct-candidate, state-handler, null-provider,
-and direct-loop results at W2/W4/W8/W16, including all five candidate fields,
-an exact sparse candidate mask, deliberately acceptable inactive operands,
-and a thirteen-item tail. The W8 IR gate requires fixed-vector packet loads
-and pre-ALU selects and rejects masked gather/scatter or target intrinsics.
+compact/full state layout, and direct-loop results at W2/W4/W8/W16, including
+all five candidate fields, an exact sparse candidate mask, deliberately
+acceptable inactive operands, and a thirteen-item tail. The W8 IR gate
+requires fixed-vector packet loads and pre-ALU selects and rejects masked
+gather/scatter or target intrinsics.
 Runtime coverage exercises closest and any queries, reject-near/
 commit-far behavior, misses, opacity, visibility, motion time, buffer-only
 committed-scene state, a thirty-five-lane tail, and the disabled-provider CTest

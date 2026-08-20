@@ -2424,6 +2424,27 @@ rays through a lane-by-lane state-pointer loop. The diagnostic
 and sanitization while selecting the state-unpack runtime, so measurements
 isolate this boundary without changing the generated module.
 
+An independently guarded W4/W8/W16 refinement may pack consecutive logical
+query states at a 160-byte stride, equal to the aligned prefix ending after
+`committed`. It is legal only when the compiler proves one safe surface-filter
+pipeline for that query variable, no caller-side query write, no candidate
+object-space-ray read, and a valid status/provider sidecar. The full
+width-times-1,248-byte backing allocation remains present. This is a hot-layout
+selection, not a change to `SIMDHostRayQueryState`, its alignment, or the ABI
+of any ordinary provider.
+
+The compact address packet may be selected only when the launch enable bit is
+set and the cached surface-filter provider is non-null. Common fields from
+`accel` through `committed` may be accessed normally. The provider and either
+direct or state-backed surface handler must not read or write
+`candidate_batch_count` or any later field. Candidate-object-ray callback
+storage and all ordinary/procedural batch gates must be initialized only on
+the complete-layout branch. A null provider, W1/W2, an unproven query use, or
+`LUISA_SIMD_DISABLE_COMPACT_SURFACE_FILTER_STATE=1` must select that complete
+branch in the same generated module. Inactive lanes remain masked before every
+store on either branch; selecting the compact path does not permit an inactive
+or out-of-prefix access.
+
 For a compiler-audited capture-free surface filter at W4/W8/W16, the runtime
 may invoke a separate direct handler with exactly five arguments `(width,
 physical_candidate_mask, ray_packet, hit_packet, commit_mask_out)`. That ABI
