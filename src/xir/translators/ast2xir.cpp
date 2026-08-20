@@ -917,6 +917,49 @@ private:
             case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE:
             case CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
             case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+            case CallOp::COOPERATIVE_VECTOR_DOT:
+            case CallOp::COOPERATIVE_VECTOR_ABS:
+            case CallOp::COOPERATIVE_VECTOR_SIGN:
+            case CallOp::COOPERATIVE_VECTOR_FLOOR:
+            case CallOp::COOPERATIVE_VECTOR_CEIL:
+            case CallOp::COOPERATIVE_VECTOR_FRACT:
+            case CallOp::COOPERATIVE_VECTOR_TRUNC:
+            case CallOp::COOPERATIVE_VECTOR_ROUND:
+            case CallOp::COOPERATIVE_VECTOR_RINT:
+            case CallOp::COOPERATIVE_VECTOR_SQRT:
+            case CallOp::COOPERATIVE_VECTOR_RSQRT:
+            case CallOp::COOPERATIVE_VECTOR_EXP2:
+            case CallOp::COOPERATIVE_VECTOR_EXP10:
+            case CallOp::COOPERATIVE_VECTOR_LOG2:
+            case CallOp::COOPERATIVE_VECTOR_LOG10:
+            case CallOp::COOPERATIVE_VECTOR_SATURATE:
+            case CallOp::COOPERATIVE_VECTOR_ISINF:
+            case CallOp::COOPERATIVE_VECTOR_ISNAN:
+            case CallOp::COOPERATIVE_VECTOR_SIN:
+            case CallOp::COOPERATIVE_VECTOR_COS:
+            case CallOp::COOPERATIVE_VECTOR_TAN:
+            case CallOp::COOPERATIVE_VECTOR_ASIN:
+            case CallOp::COOPERATIVE_VECTOR_ACOS:
+            case CallOp::COOPERATIVE_VECTOR_SINH:
+            case CallOp::COOPERATIVE_VECTOR_COSH:
+            case CallOp::COOPERATIVE_VECTOR_ASINH:
+            case CallOp::COOPERATIVE_VECTOR_ACOSH:
+            case CallOp::COOPERATIVE_VECTOR_ATANH:
+            case CallOp::COOPERATIVE_VECTOR_MIX:
+            case CallOp::COOPERATIVE_VECTOR_LERP:
+            case CallOp::COOPERATIVE_VECTOR_POW:
+            case CallOp::COOPERATIVE_VECTOR_STEP:
+            case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+            case CallOp::COOPERATIVE_VECTOR_ADD:
+            case CallOp::COOPERATIVE_VECTOR_SUB:
+            case CallOp::COOPERATIVE_VECTOR_MUL:
+            case CallOp::COOPERATIVE_VECTOR_DIV:
+            case CallOp::COOPERATIVE_VECTOR_LESS:
+            case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+            case CallOp::COOPERATIVE_VECTOR_GREATER:
+            case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+            case CallOp::COOPERATIVE_VECTOR_EQUAL:
+            case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
                 return _translate_cooperative_call(b, expr);
             // Runtime tensor operators (plan.md §1.4): these ops carry raw
             // device addresses plus host-side descriptor constants and are
@@ -1083,6 +1126,139 @@ private:
                 // (shared_array, index, value)
                 return b.call(ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE,
                               {base(0), value(1), value(2)}, bindless_access);
+            // Future cooperative-vector element-wise operations. These lower to
+            // pure-value ResourceReadOps (no resource operands); every backend
+            // currently rejects them with a placeholder assertion.
+            case CallOp::COOPERATIVE_VECTOR_DOT:
+                // (a, b) -> scalar
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_DOT,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ABS:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ABS,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SIGN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SIGN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_FLOOR:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_FLOOR,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_CEIL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_CEIL,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_FRACT:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_FRACT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_TRUNC:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_TRUNC,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ROUND:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ROUND,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_RINT:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_RINT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SQRT:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SQRT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_RSQRT:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_RSQRT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_EXP2:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_EXP2,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_EXP10:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_EXP10,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LOG2:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LOG2,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LOG10:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LOG10,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SATURATE:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SATURATE,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ISINF:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ISINF,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ISNAN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ISNAN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SIN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SIN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_COS:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_COS,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_TAN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_TAN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ASIN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ASIN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ACOS:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ACOS,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SINH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SINH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_COSH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_COSH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ASINH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ASINH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ACOSH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ACOSH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ATANH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ATANH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_MIX:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_MIX,
+                              {value(0), value(1), value(2)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LERP:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LERP,
+                              {value(0), value(1), value(2)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_POW:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_POW,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_STEP:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_STEP,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP,
+                              {value(0), value(1), value(2)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ADD:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ADD,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SUB:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SUB,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_MUL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_MUL,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_DIV:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_DIV,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LESS:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LESS,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_GREATER:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_GREATER,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_EQUAL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_EQUAL,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL,
+                              {value(0), value(1)}, bindless_access);
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Unexpected cooperative operation {}.",

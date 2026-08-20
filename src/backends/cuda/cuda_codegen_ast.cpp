@@ -1225,6 +1225,52 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ")";
         }
             return;
+        // Future cooperative-vector element-wise operations (native IR operators
+        // reserved for backend implementation — TODO: implement in CUDA AST codegen).
+        case CallOp::COOPERATIVE_VECTOR_DOT:
+        case CallOp::COOPERATIVE_VECTOR_ABS:
+        case CallOp::COOPERATIVE_VECTOR_SIGN:
+        case CallOp::COOPERATIVE_VECTOR_FLOOR:
+        case CallOp::COOPERATIVE_VECTOR_CEIL:
+        case CallOp::COOPERATIVE_VECTOR_FRACT:
+        case CallOp::COOPERATIVE_VECTOR_TRUNC:
+        case CallOp::COOPERATIVE_VECTOR_ROUND:
+        case CallOp::COOPERATIVE_VECTOR_RINT:
+        case CallOp::COOPERATIVE_VECTOR_SQRT:
+        case CallOp::COOPERATIVE_VECTOR_RSQRT:
+        case CallOp::COOPERATIVE_VECTOR_EXP2:
+        case CallOp::COOPERATIVE_VECTOR_EXP10:
+        case CallOp::COOPERATIVE_VECTOR_LOG2:
+        case CallOp::COOPERATIVE_VECTOR_LOG10:
+        case CallOp::COOPERATIVE_VECTOR_SATURATE:
+        case CallOp::COOPERATIVE_VECTOR_ISINF:
+        case CallOp::COOPERATIVE_VECTOR_ISNAN:
+        case CallOp::COOPERATIVE_VECTOR_SIN:
+        case CallOp::COOPERATIVE_VECTOR_COS:
+        case CallOp::COOPERATIVE_VECTOR_TAN:
+        case CallOp::COOPERATIVE_VECTOR_ASIN:
+        case CallOp::COOPERATIVE_VECTOR_ACOS:
+        case CallOp::COOPERATIVE_VECTOR_SINH:
+        case CallOp::COOPERATIVE_VECTOR_COSH:
+        case CallOp::COOPERATIVE_VECTOR_ASINH:
+        case CallOp::COOPERATIVE_VECTOR_ACOSH:
+        case CallOp::COOPERATIVE_VECTOR_ATANH:
+        case CallOp::COOPERATIVE_VECTOR_MIX:
+        case CallOp::COOPERATIVE_VECTOR_LERP:
+        case CallOp::COOPERATIVE_VECTOR_POW:
+        case CallOp::COOPERATIVE_VECTOR_STEP:
+        case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case CallOp::COOPERATIVE_VECTOR_ADD:
+        case CallOp::COOPERATIVE_VECTOR_SUB:
+        case CallOp::COOPERATIVE_VECTOR_MUL:
+        case CallOp::COOPERATIVE_VECTOR_DIV:
+        case CallOp::COOPERATIVE_VECTOR_LESS:
+        case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_GREATER:
+        case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+            LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the CUDA AST backend yet.");
         // not supported
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL: [[fallthrough]];
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD: [[fallthrough]];

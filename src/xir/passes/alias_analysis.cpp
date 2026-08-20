@@ -197,7 +197,52 @@ static size_t get_global_index_count(Instruction *inst) noexcept {
                 case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
                 case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
                 case ResourceReadOp::COOPERATIVE_VECTOR_CAST:
-                case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return 0u;
+                case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+                // future cooperative-vector element-wise ops are pure value
+                // operations and therefore do not alias any resource.
+                case ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+                case ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+                case ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+                case ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+                case ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+                case ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+                case ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+                case ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+                case ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+                case ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+                case ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+                case ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+                case ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+                case ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+                case ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+                case ResourceReadOp::COOPERATIVE_VECTOR_COS:
+                case ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+                case ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+                case ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ATANH:
+                case ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+                case ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+                case ResourceReadOp::COOPERATIVE_VECTOR_POW:
+                case ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+                case ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+                case ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+                case ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+                case ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+                case ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+                case ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+                case ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+                case ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+                case ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+                case ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+                case ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL: return 0u;
             }
             break;
         }

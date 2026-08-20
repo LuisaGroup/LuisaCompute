@@ -510,6 +510,49 @@ luisa::string_view to_string(ResourceReadOp op) noexcept {
         case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT: return "cooperative_vector_splat"sv;
         case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return "cooperative_vector_cast"sv;
         case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return "cooperative_vector_workgroup_load"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_DOT: return "cooperative_vector_dot"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ABS: return "cooperative_vector_abs"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_SIGN: return "cooperative_vector_sign"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_FLOOR: return "cooperative_vector_floor"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_CEIL: return "cooperative_vector_ceil"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_FRACT: return "cooperative_vector_fract"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_TRUNC: return "cooperative_vector_trunc"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ROUND: return "cooperative_vector_round"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_RINT: return "cooperative_vector_rint"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_SQRT: return "cooperative_vector_sqrt"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_RSQRT: return "cooperative_vector_rsqrt"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_EXP2: return "cooperative_vector_exp2"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_EXP10: return "cooperative_vector_exp10"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOG2: return "cooperative_vector_log2"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOG10: return "cooperative_vector_log10"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_SATURATE: return "cooperative_vector_saturate"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ISINF: return "cooperative_vector_isinf"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ISNAN: return "cooperative_vector_isnan"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_SIN: return "cooperative_vector_sin"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_COS: return "cooperative_vector_cos"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_TAN: return "cooperative_vector_tan"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ASIN: return "cooperative_vector_asin"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ACOS: return "cooperative_vector_acos"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_SINH: return "cooperative_vector_sinh"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_COSH: return "cooperative_vector_cosh"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ASINH: return "cooperative_vector_asinh"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ACOSH: return "cooperative_vector_acosh"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ATANH: return "cooperative_vector_atanh"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_MIX: return "cooperative_vector_mix"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_LERP: return "cooperative_vector_lerp"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_POW: return "cooperative_vector_pow"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_STEP: return "cooperative_vector_step"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP: return "cooperative_vector_smoothstep"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ADD: return "cooperative_vector_add"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_SUB: return "cooperative_vector_sub"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_MUL: return "cooperative_vector_mul"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_DIV: return "cooperative_vector_div"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_LESS: return "cooperative_vector_less"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL: return "cooperative_vector_less_equal"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_GREATER: return "cooperative_vector_greater"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL: return "cooperative_vector_greater_equal"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_EQUAL: return "cooperative_vector_equal"sv;
+        case ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL: return "cooperative_vector_not_equal"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown resource_read operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -539,6 +582,49 @@ ResourceReadOp resource_read_op_from_string(luisa::string_view name) noexcept {
         {"cooperative_vector_splat"sv, ResourceReadOp::COOPERATIVE_VECTOR_SPLAT},
         {"cooperative_vector_cast"sv, ResourceReadOp::COOPERATIVE_VECTOR_CAST},
         {"cooperative_vector_workgroup_load"sv, ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD},
+        {"cooperative_vector_dot"sv, ResourceReadOp::COOPERATIVE_VECTOR_DOT},
+        {"cooperative_vector_abs"sv, ResourceReadOp::COOPERATIVE_VECTOR_ABS},
+        {"cooperative_vector_sign"sv, ResourceReadOp::COOPERATIVE_VECTOR_SIGN},
+        {"cooperative_vector_floor"sv, ResourceReadOp::COOPERATIVE_VECTOR_FLOOR},
+        {"cooperative_vector_ceil"sv, ResourceReadOp::COOPERATIVE_VECTOR_CEIL},
+        {"cooperative_vector_fract"sv, ResourceReadOp::COOPERATIVE_VECTOR_FRACT},
+        {"cooperative_vector_trunc"sv, ResourceReadOp::COOPERATIVE_VECTOR_TRUNC},
+        {"cooperative_vector_round"sv, ResourceReadOp::COOPERATIVE_VECTOR_ROUND},
+        {"cooperative_vector_rint"sv, ResourceReadOp::COOPERATIVE_VECTOR_RINT},
+        {"cooperative_vector_sqrt"sv, ResourceReadOp::COOPERATIVE_VECTOR_SQRT},
+        {"cooperative_vector_rsqrt"sv, ResourceReadOp::COOPERATIVE_VECTOR_RSQRT},
+        {"cooperative_vector_exp2"sv, ResourceReadOp::COOPERATIVE_VECTOR_EXP2},
+        {"cooperative_vector_exp10"sv, ResourceReadOp::COOPERATIVE_VECTOR_EXP10},
+        {"cooperative_vector_log2"sv, ResourceReadOp::COOPERATIVE_VECTOR_LOG2},
+        {"cooperative_vector_log10"sv, ResourceReadOp::COOPERATIVE_VECTOR_LOG10},
+        {"cooperative_vector_saturate"sv, ResourceReadOp::COOPERATIVE_VECTOR_SATURATE},
+        {"cooperative_vector_isinf"sv, ResourceReadOp::COOPERATIVE_VECTOR_ISINF},
+        {"cooperative_vector_isnan"sv, ResourceReadOp::COOPERATIVE_VECTOR_ISNAN},
+        {"cooperative_vector_sin"sv, ResourceReadOp::COOPERATIVE_VECTOR_SIN},
+        {"cooperative_vector_cos"sv, ResourceReadOp::COOPERATIVE_VECTOR_COS},
+        {"cooperative_vector_tan"sv, ResourceReadOp::COOPERATIVE_VECTOR_TAN},
+        {"cooperative_vector_asin"sv, ResourceReadOp::COOPERATIVE_VECTOR_ASIN},
+        {"cooperative_vector_acos"sv, ResourceReadOp::COOPERATIVE_VECTOR_ACOS},
+        {"cooperative_vector_sinh"sv, ResourceReadOp::COOPERATIVE_VECTOR_SINH},
+        {"cooperative_vector_cosh"sv, ResourceReadOp::COOPERATIVE_VECTOR_COSH},
+        {"cooperative_vector_asinh"sv, ResourceReadOp::COOPERATIVE_VECTOR_ASINH},
+        {"cooperative_vector_acosh"sv, ResourceReadOp::COOPERATIVE_VECTOR_ACOSH},
+        {"cooperative_vector_atanh"sv, ResourceReadOp::COOPERATIVE_VECTOR_ATANH},
+        {"cooperative_vector_mix"sv, ResourceReadOp::COOPERATIVE_VECTOR_MIX},
+        {"cooperative_vector_lerp"sv, ResourceReadOp::COOPERATIVE_VECTOR_LERP},
+        {"cooperative_vector_pow"sv, ResourceReadOp::COOPERATIVE_VECTOR_POW},
+        {"cooperative_vector_step"sv, ResourceReadOp::COOPERATIVE_VECTOR_STEP},
+        {"cooperative_vector_smoothstep"sv, ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP},
+        {"cooperative_vector_add"sv, ResourceReadOp::COOPERATIVE_VECTOR_ADD},
+        {"cooperative_vector_sub"sv, ResourceReadOp::COOPERATIVE_VECTOR_SUB},
+        {"cooperative_vector_mul"sv, ResourceReadOp::COOPERATIVE_VECTOR_MUL},
+        {"cooperative_vector_div"sv, ResourceReadOp::COOPERATIVE_VECTOR_DIV},
+        {"cooperative_vector_less"sv, ResourceReadOp::COOPERATIVE_VECTOR_LESS},
+        {"cooperative_vector_less_equal"sv, ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL},
+        {"cooperative_vector_greater"sv, ResourceReadOp::COOPERATIVE_VECTOR_GREATER},
+        {"cooperative_vector_greater_equal"sv, ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL},
+        {"cooperative_vector_equal"sv, ResourceReadOp::COOPERATIVE_VECTOR_EQUAL},
+        {"cooperative_vector_not_equal"sv, ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown resource_read operation: {}.", name);

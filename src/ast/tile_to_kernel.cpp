@@ -1051,10 +1051,10 @@ private:
     // statements are emitted).  Called once per kernel, reused by every
     // access site.
     /*
-     * _emit_batch_prologue pseudo-code:
+     * _emit_batch_prologue pseudo-code (luisa-dsl):
      *
-     *   batch_index = block_id().z * B_z + thread_id().z
-     *   batch_valid = batch_index < dispatch_size().z
+     *   UInt batch_index = block_id().z * B_z + thread_id().z;
+     *   Bool batch_valid = batch_index < dispatch_size().z;
      *
      * These two expressions are cached and reused by every global access and
      * every guarded write so idle z-threads of the tail batch-block never
@@ -1480,8 +1480,17 @@ private:
     }
 
     // ---- loop helpers ---------------------------------------------------------
-
     // each element exactly once across the block (Global / Shared targets)
+    /*
+     * _partition_loop(t, body) pseudo-code (luisa-dsl):
+     *
+     *   UInt total = product(extent of t);      // logical tile element count
+     *   UInt iters = ceildiv(total, block_size().x);
+     *   $for (i, 0u, iters) {
+     *       UInt idx = i * block_size().x + thread_id().x;  // linear lane
+     *       $if (idx < total) { body(decompose(idx)); };    // row-major coords
+     *   };
+     */
     template<typename Body>
     void _partition_loop(const TensorExpr *t, Body &&body) {
         auto total = tile_element_count(t);
@@ -1499,6 +1508,12 @@ private:
     }
 
     // every thread processes the whole tile (replicated Fragment layout)
+    /*
+     * _full_loop(t, body) pseudo-code (luisa-dsl):
+     *
+     *   UInt total = product(extent of t);
+     *   $for (i, 0u, total) { body(decompose(i)); };
+     */
     template<typename Body>
     void _full_loop(const TensorExpr *t, Body &&body) {
         auto total = tile_element_count(t);
@@ -1511,7 +1526,8 @@ private:
     // ---------------------------------------------------------------------------
 
     /*
-     * _emit_all(stmts) pseudo-code:
+     * _emit_all(stmts) pseudo-code (host-side statement walk; each emitted
+     * device body is luisa-dsl, see _partition_loop and the _emit_* helpers):
      *
      *   i = 0
      *   while i < len(stmts):
@@ -1558,11 +1574,14 @@ private:
     /*
      * _emit_pipelined(p, body) pseudo-code:
      *
+     *   // host-side: emit a device $for over the pipeline steps, then run the
+     *   // body statements under the pipeline context
      *   count = p->count()
-     *   for ko = 0 .. count-1:
+     *   $for (ko, 0u, count) {
      *       _pipeline_var = ko            // drives per-axis base offset
      *       for each stmt in body:
      *           _emit(stmt)
+     *   };
      *   _pipeline_var = null
      */
     void _emit_pipelined(const PipelinedStmt *p,
@@ -1695,7 +1714,8 @@ private:
     }
 
     /*
-     * _emit(stmt) pseudo-code:
+     * _emit(stmt) pseudo-code (host-side dispatch; each _emit_* below emits
+     * luisa-dsl device code):
      *
      *   switch stmt->op():
      *       ALLOC       -> _emit_alloc(stmt)
@@ -1723,6 +1743,8 @@ private:
      *       FAST_MATH   -> _emit_fast_math(stmt)
      *       IEEE_MATH   -> _emit_ieee_math(stmt)
      *       metadata ops -> no-op
+     *   // barrier discipline: sync after every statement that touches shared
+     *   // memory (never inside a thread-divergent branch)
      *   if stmt touches shared memory:
      *       sync_block()
      */
@@ -1796,20 +1818,20 @@ private:
      *   switch t->scope():
      *     case Global:
      *         // one Buffer<T> kernel argument per Global tensor
-     *         st.buffer = Buffer<half/float/int/byte/fp8>()
+     *         st.buffer = Buffer<half/float/int/byte/fp8>()   // kernel arg
      *     case Shared:
      *         n = product(extent)
      *         alloc_n = batching ? n * B_z : n
-     *         st.shared = Shared<T>[alloc_n]
+     *         st.shared = Shared<T> s{alloc_n}                // block-shared
      *     case Fragment:
      *         n = product(extent)
      *         alloc_n = batching ? n * B_z : n
      *         if n >= kFragmentSharedThreshold:
      *             // large fragment: back with block-shared array
-     *             st.shared = Shared<T>[alloc_n]
+     *             st.shared = Shared<T> s{alloc_n}            // B_z slices
      *         else:
      *             // small fragment: per-thread replicated local array
-     *             st.fragment = Local<T>[n]
+     *             st.fragment = Local<T> v[n]                 // per-thread
      *   record storage by pointer / name / layout
      */
     void _emit_alloc(const AllocStmt *s) {
@@ -1881,14 +1903,14 @@ private:
     }
 
     /*
-     * _emit_clear(s) pseudo-code:
+     * _emit_clear(s) pseudo-code (luisa-dsl):
      *
      *   t = s->t()
      *   zero = literal 0 of t's dtype
-     *   if t is Fragment and not shared-backed:
-     *       _full_loop(t, c => _write_to(t, c, zero))
-     *   else:
-     *       _partition_loop(t, c => _write_to(t, c, zero))
+     *   if t is Fragment and not shared-backed:   // replicated per-thread tile
+     *       _full_loop(t, c => _write_to(t, c, zero))       // $for (i, 0u, total)
+     *   else:                                     // Global / Shared / shared-backed
+     *       _partition_loop(t, c => _write_to(t, c, zero))  // strided $for + $if
      */
     void _emit_clear(const ClearStmt *s) {
         auto *t = s->t();
@@ -1904,19 +1926,19 @@ private:
   }
 
     /*
-     * _emit_copy(s) pseudo-code:
+     * _emit_copy(s) pseudo-code (luisa-dsl):
      *
      *   ext = operand with fully known extent (dst preferred, then src)
      *   if inside a pipeline:
      *       _pipeline_axis = axis with smallest extent of ext
-     *   body(c) = _write_to(dst, c, _value_at(src, c))
+     *   body(c) = dst[c] = src[c]     // _write_to/_value_at resolve the storage
      *   if dst is Fragment and not shared-backed:
      *       if src is Global:
      *           // coalesced global -> fragment through shared staging
-     *           staging = _staging_for(dst)
+     *           staging = _staging_for(dst)                 // Shared<T> staging{n}
      *           sync_block()
-     *           _partition_loop(ext, c => staging[_staging_index(dst,c)] = _value_at(src,c))
-     *           _replicate_from_staging(dst, staging)
+     *           _partition_loop(ext, c => staging[_staging_index(dst, c)] = src[c])
+     *           _replicate_from_staging(dst, staging)       // every thread refills dst
      *       else:
      *           _full_loop(ext, body)
      *   else:
@@ -1961,15 +1983,15 @@ private:
     }
 
     /*
-     * _emit_store(s) pseudo-code:
+     * _emit_store(s) pseudo-code (luisa-dsl):
      *
      *   lhs = s->lhs()
      *   ext = operand with known extent (lhs preferred, then rhs_tensor)
      *   body(c):
-     *       rhs = value from rhs_tensor / rhs_literal / (error on rhs_ref)
+     *       rhs = rhs_tensor[c] / rhs_literal / (error on rhs_ref)
      *       if s->op() == 1:          // row-broadcast scale
-     *           rhs = _value_at(lhs,c) * cast(rhs, elem_t)
-     *       _write_to(lhs, c, rhs)
+     *           rhs = lhs[c] * cast(rhs, elem_t)
+     *       lhs[c] = rhs
      *   if lhs is Fragment and not shared-backed:
      *       _full_loop(ext, body)
      *   else:
@@ -2010,24 +2032,24 @@ private:
     }
 
     /*
-     * _emit_binary(s) pseudo-code:
+     * _emit_binary(s) pseudo-code (luisa-dsl):
      *
      *   elem_t = dtype of lhs
      *   temp = TileFunctionBuilder::temp_output(s)
-     *   _temps[temp] = lambda(c):
-     *       l = _value_at(lhs, c)
-     *       r = value from rhs_tensor / rhs_literal / (error on rhs_ref)
+     *   _temps[temp] = lambda(c):      // expression inlined at the consumer
+     *       l = lhs[c]
+     *       r = rhs_tensor[c] / rhs_literal / (error on rhs_ref)
      *       r = cast(r, elem_t)
      *       switch op:
-     *           ADD -> l + r
-     *           SUB -> l - r
-     *           MUL -> l * r
-     *           DIV -> l / r
-     *           MOD -> l % r
-     *           BIT_AND -> l & r
-     *           BIT_OR  -> l | r
-     *           BIT_XOR -> l ^ r
-     *           default -> error
+     *           ADD      -> l + r
+     *           SUB      -> l - r
+     *           MUL      -> l * r
+     *           DIV      -> l / r
+     *           MOD      -> l % r
+     *           BIT_AND  -> l & r
+     *           BIT_OR   -> l | r
+     *           BIT_XOR  -> l ^ r
+     *           default  -> error
      */
     void _emit_binary(const TileBinaryStmt *s) {
         auto *lhs = s->lhs();
@@ -2068,11 +2090,11 @@ private:
     }
 
     /*
-     * _emit_max(s) pseudo-code:
+     * _emit_max(s) pseudo-code (luisa-dsl):
      *
      *   temp = temp_output(s)
      *   _temps[temp] = lambda(c):
-     *       return max(_value_at(a, c), cast(literal b, elem_t))
+     *       return max(a[c], cast(b_literal, elem_t))
      */
     void _emit_max(const MaxStmt *s) {
         auto *a = s->a();
@@ -2087,11 +2109,11 @@ private:
     }
 
     /*
-     * _emit_rsqrt(s) pseudo-code:
+     * _emit_rsqrt(s) pseudo-code (luisa-dsl):
      *
      *   temp = temp_output(s)
      *   _temps[temp] = lambda(c):
-     *       return rsqrt(_value_at(a, c))
+     *       return rsqrt(a[c])
      */
     void _emit_rsqrt(const RsqrtStmt *s) {
         auto *a = s->a();
@@ -2156,11 +2178,11 @@ private:
     }
 
     /*
-     * _emit_fast_math(s) pseudo-code:
+     * _emit_fast_math(s) pseudo-code (luisa-dsl):
      *
      *   temp = temp_output(s)
      *   _temps[temp] = lambda(c):
-     *       x = _value_at(a, c)
+     *       x = a[c]
      *       switch op:
      *           EXP   -> exp(x)
      *           EXP10 -> exp10(x)
@@ -2200,15 +2222,15 @@ private:
     }
 
     /*
-     * _emit_ieee_math(s) pseudo-code:
+     * _emit_ieee_math(s) pseudo-code (luisa-dsl):
      *
      *   result_dtype = (op == CAST) ? cast_dtype : a->dtype()
      *   temp = temp_output(s)
      *   _temps[temp] = lambda(c):
-     *       x = _value_at(a, c)
+     *       x = a[c]
      *       switch op:
      *           SQRT/FSQRT -> sqrt(x)
-     *           POW        -> pow(x, _value_at(b, c))
+     *           POW        -> pow(x, b[c])
      *           CEIL       -> ceil(x)
      *           FLOOR      -> floor(x)
      *           ROUND      -> round(x)
@@ -2276,36 +2298,39 @@ private:
     // Fragment outputs (replicated layout) are published through a shared
     // staging tile and then re-replicated into every thread's local copy.
     /*
-     * _emit_tile_reduce(x, y, dim, op) pseudo-code:
+     * _emit_tile_reduce(x, y, dim, op) pseudo-code (luisa-dsl):
      *
      *   reduce_len = extent of x along dim
      *   out_count  = product of x's extents except dim
-     *   lane = warp_lane_id(); lanes = warp_lane_count()
-     *   warp = slice-local warp id; nw = warps per slice
-     *   k_iters = ceil(reduce_len / lanes)
-     *   o_iters = ceil(out_count / nw)
+     *   UInt lane = warp_lane_id(); UInt lanes = warp_lane_count()
+     *   UInt warp = slice-local warp id; UInt nw = warps per slice
+     *   UInt k_iters = ceildiv(reduce_len, lanes)
+     *   UInt o_iters = ceildiv(out_count, nw)
      *   if y is Fragment:
-     *       staging = _staging_for(y)
+     *       staging = _staging_for(y)               // Shared<T> staging{n}
      *       sync_block()
-     *   for oi = 0 .. o_iters-1:
-     *       o = oi * nw + warp
-     *       if o < out_count:
-     *           decompose o -> coords for all axes except dim
-     *           acc = identity(op)
-     *           for ki = 0 .. k_iters-1:
-     *               k = ki * lanes + lane
-     *               v = identity(op)
-     *               if k < reduce_len:
-     *                   xc[dim] = k
-     *                   v = _value_at(x, xc)
-     *                   if op is ABS_SUM/ABS_MAX: v = abs(v)
-     *               acc = combine(op, acc, v)
-     *           total = _warp_reduce(op, acc)     // XOR butterfly over lanes
-     *           if lane == 0:
-     *               if y is Fragment:
-     *                   staging[_staging_index(y, yc)] = cast(total, out_t)
-     *               else:
-     *                   _write_to(y, yc, total)
+     *   $for (oi, 0u, o_iters) {
+     *       UInt o = oi * nw + warp;
+     *       $if (o < out_count) {
+     *           // decompose o -> coords for all axes except dim
+     *           acc = identity(op);
+     *           $for (ki, 0u, k_iters) {
+     *               UInt k = ki * lanes + lane;
+     *               v = identity(op);
+     *               $if (k < reduce_len) {
+     *                   xc[dim] = k;
+     *                   v = _value_at(x, xc);
+     *                   $if (op is ABS_SUM/ABS_MAX) { v = abs(v); };
+     *               };
+     *               acc = combine(op, acc, v);
+     *           };
+     *           total = _warp_reduce(op, acc);      // XOR butterfly over lanes
+     *           $if (lane == 0) {
+     *               $if (y is Fragment) { staging[_staging_index(y, yc)] = cast(total, out_t); };
+     *               $else { _write_to(y, yc, total); };
+     *           };
+     *       };
+     *   };
      *   if y is Fragment:
      *       _replicate_from_staging(y, staging)
      */
@@ -2400,26 +2425,25 @@ private:
     }
 
     /*
-     * _emit_gemm(s) pseudo-code (SIMT fallback):
+     * _emit_gemm(s) pseudo-code (luisa-dsl, SIMT fallback):
      *
      *   if use_cooperative:
      *       return _emit_gemm_cooperative(s)
      *   a, b, c = operands
      *   K = extent of a along axis 1
      *   _current_extent = c
-     *   compute_acc(cc):
-     *       r = cc[0]; n = cc[1]
-     *       acc = (clear_accum ? 0.f : cast(_value_at(c, cc), float))
-     *       for k = 0 .. K-1:
-     *           resolve ac, bc according to trans_a / trans_b
-     *           av = cast(_value_at(a, ac), float)
-     *           bv = cast(_value_at(b, bc), float)
-     *           acc = fma(av, bv, acc)
-     *       return acc
+     *   compute_acc(cc):               // per-thread register accumulator
+     *       UInt r = cc[0]; UInt n = cc[1];
+     *       Float acc = clear_accum ? 0.f : cast(c[cc], float);
+     *       $for (k, 0u, K) {
+     *           // resolve ac, bc according to trans_a / trans_b
+     *           acc = fma(cast(a[ac], float), cast(b[bc], float), acc);
+     *       };
+     *       return acc;
      *   if c is Fragment and not shared-backed:
      *       staging = _staging_for(c)
      *       sync_block()
-     *       _partition_loop(c, cc => staging[_staging_index(c,cc)] = cast(compute_acc(cc), c_dtype))
+     *       _partition_loop(c, cc => staging[_staging_index(c, cc)] = cast(compute_acc(cc), c_dtype))
      *       _replicate_from_staging(c, staging)
      *   else:
      *       _partition_loop(c, cc => _write_to(c, cc, compute_acc(cc)))
@@ -2514,24 +2538,26 @@ private:
     // current backends, and COOPERATIVE_VECTOR_LOAD/_STORE require a byte
     // buffer, which a shared/fragment tile is not).
     /*
-     * _emit_gemm_cooperative(s) pseudo-code:
+     * _emit_gemm_cooperative(s) pseudo-code (luisa-dsl):
      *
      *   assert rank-2, F16/F32, non-transposed, shared/fragment operands only
      *   M, N, K = C rows, C cols, A inner dim
-     *   for r = 0 .. M-1:                     // uniform row loop
-     *       acc = cooperative_vector<float,N>(0)
+     *   $for (r, 0u, M) {                  // uniform row loop (block-wide)
+     *       CoopVector<float> acc{N};      // cooperative_vector<float, N>
      *       if not clear_accum:
-     *           for i = 0 .. N-1:
-     *               acc[i] = cast(_value_at(c, (r,i)), float)
-     *       for k = 0 .. K-1:
-     *           a_scalar = cast(_value_at(a, (r,k)), float)
-     *           a_vec = splat(a_scalar)         // cooperative vector
-     *           for i = 0 .. N-1:
-     *               b_vec[i] = _value_at(b, (k,i))
-     *           for i = 0 .. N-1:
+     *           for i = 0 .. N-1:          // host-unrolled load of C row
+     *               acc[i] = cast(c[r][i], float)
+     *       $for (k, 0u, K) {
+     *           Float a_scalar = cast(a[r][k], float);
+     *           a_vec = cooperative_vector_splat<float>(a_scalar, N);
+     *           for i = 0 .. N-1:          // host-unrolled B row -> b_vec
+     *               b_vec[i] = b[k][i]
+     *           for i = 0 .. N-1:          // host-unrolled FMA expansion
      *               acc[i] = fma(a_vec[i], cast(b_vec[i], float), acc[i])
-     *       for i = 0 .. N-1:
+     *       };
+     *       for i = 0 .. N-1:              // host-unrolled store of C row
      *           _write_to(c, (r,i), cast(acc[i], c_dtype))
+     *   };
      */
     void _emit_gemm_cooperative(const GemmStmt *s) {
         auto *a = s->a();
@@ -2652,14 +2678,15 @@ private:
     }
 
     /*
-     * _emit_print(s) pseudo-code:
+     * _emit_print(s) pseudo-code (luisa-dsl):
      *
-     *   cond = (thread_id().x == 0)
+     *   Bool cond = (thread_id().x == 0);
      *   if batching:
-     *       cond = cond && batch_valid
-     *   if cond:
-     *       v = _value_at(t, origin)
-     *       print_("[tile] msg tile[0] = {}", v)
+     *       cond = cond && batch_valid;
+     *   $if (cond) {
+     *       v = _value_at(t, origin);
+     *       print_("[tile] msg tile[0] = {}", v);
+     *   };
      */
     void _emit_print(const TilePrintStmt *s) {
         auto *t = s->t();
@@ -2681,14 +2708,14 @@ private:
     }
 
     /*
-     * _emit_fill(s) pseudo-code:
+     * _emit_fill(s) pseudo-code (luisa-dsl):
      *
      *   buf = s->buf()
      *   value = value_literal (error on R3 ref)
      *   if buf is Fragment and not shared-backed:
-     *       _full_loop(buf, c => _write_to(buf, c, value))
+     *       _full_loop(buf, c => buf[c] = value)
      *   else:
-     *       _partition_loop(buf, c => _write_to(buf, c, value))
+     *       _partition_loop(buf, c => buf[c] = value)
      */
     void _emit_fill(const FillStmt *s) {
         auto *buf = s->buf();
@@ -2709,12 +2736,12 @@ private:
     }
 
     /*
-     * _emit_transpose(s) pseudo-code:
+     * _emit_transpose(s) pseudo-code (luisa-dsl):
      *
      *   ext = operand with known extent
      *   body(cd):
      *       cs = (cd[1], cd[0])   // swap row/col
-     *       _write_to(dst, cd, _value_at(src, cs))
+     *       dst[cd] = src[cs]
      *   if dst is Fragment and not shared-backed:
      *       _full_loop(ext, body)
      *   else:
@@ -2741,14 +2768,14 @@ private:
     }
 
     /*
-     * _emit_clamp(s) pseudo-code:
+     * _emit_clamp(s) pseudo-code (luisa-dsl):
      *
      *   dst = s->dst()
      *   body(c):
-     *       v = _value_at(dst, c)
+     *       v = dst[c]
      *       if lo_literal exists: v = max(v, cast(lo, elem_t))
      *       if hi_literal exists: v = min(v, cast(hi, elem_t))
-     *       _write_to(dst, c, v)
+     *       dst[c] = v
      *   if dst is Fragment and not shared-backed:
      *       _full_loop(dst, body)
      *   else:
@@ -2779,21 +2806,21 @@ private:
     }
 
     /*
-     * _emit_atomic(s) pseudo-code:
+     * _emit_atomic(s) pseudo-code (luisa-dsl):
      *
      *   dst = s->dst()
-     *   value = value_tensor / value_literal (error on R3 ref)
+     *   value = value_tensor[origin] / value_literal (error on R3 ref)
      *   value = cast(value, elem_t) if present
      *   _partition_loop(dst, c):
-     *       idx = global_index(dst, c)
+     *       UInt idx = global_index(dst, c)
      *       if batching: guard body with _batch_valid
      *       switch op:
-     *           ADD  -> tmp = atomic_fetch_add(buffer, idx, value)
-     *           MAX  -> tmp = atomic_fetch_max(buffer, idx, value)
-     *           MIN  -> tmp = atomic_fetch_min(buffer, idx, value)
-     *           OR   -> tmp = atomic_fetch_or (buffer, idx, value)
-     *           LOAD -> tmp = buffer_volatile_read(buffer, idx)
-     *           STORE-> buffer_volatile_write(buffer, idx, value)
+     *           ADD  -> tmp = buf.atomic(idx).fetch_add(value)
+     *           MAX  -> tmp = buf.atomic(idx).fetch_max(value)
+     *           MIN  -> tmp = buf.atomic(idx).fetch_min(value)
+     *           OR   -> tmp = buf.atomic(idx).fetch_or(value)
+     *           LOAD -> tmp = buf.volatile_read(idx)
+     *           STORE-> buf.volatile_write(idx, value)
      *           default -> error
      */
     void _emit_atomic(const AtomicStmt *s) {
@@ -2889,42 +2916,45 @@ private:
     // carry stitches the chunks together.  Replaces the previous O(n^2)
     // per-element re-accumulation.
     /*
-     * _emit_scan(src, dst, dim, reverse, is_max) pseudo-code:
+     * _emit_scan(src, dst, dim, reverse, is_max) pseudo-code (luisa-dsl):
      *
      *   scan_len = extent of src along dim
      *   line_count = product of src's extents except dim
-     *   lane = warp_lane_id(); lanes = warp_lane_count()
-     *   warp = slice-local warp id; nw = warps per slice
-     *   chunks = ceil(scan_len / lanes)
-     *   line_iters = ceil(line_count / nw)
+     *   UInt lane = warp_lane_id(); UInt lanes = warp_lane_count()
+     *   UInt warp = slice-local warp id; UInt nw = warps per slice
+     *   UInt chunks = ceildiv(scan_len, lanes)
+     *   UInt line_iters = ceildiv(line_count, nw)
      *   if dst is Fragment:
      *       staging = _staging_for(dst); sync_block()
-     *   for li = 0 .. line_iters-1:
-     *       line = li * nw + warp
-     *       if line < line_count:
-     *           decompose line -> coords for all axes except dim
-     *           carry = identity(op)
-     *           for ch = 0 .. chunks-1:
-     *               off = ch * lanes + lane
-     *               pos = reverse ? (scan_len-1 - off) : off
-     *               v = identity(op)
-     *               if off < scan_len:
-     *                   cc[dim] = pos
-     *                   v = cast(_value_at(src, cc), elem_t)
-     *               // inclusive scan within warp via WARP_READ_LANE butterfly
-     *               incl = v
+     *   $for (li, 0u, line_iters) {
+     *       UInt line = li * nw + warp;
+     *       $if (line < line_count) {
+     *           // decompose line -> coords for all axes except dim
+     *           carry = identity(op);
+     *           $for (ch, 0u, chunks) {
+     *               UInt off = ch * lanes + lane;
+     *               UInt pos = reverse ? (scan_len - 1u - off) : off;
+     *               v = identity(op);
+     *               $if (off < scan_len) {
+     *                   cc[dim] = pos;
+     *                   v = cast(src[cc], elem_t);
+     *               };
+     *               // inclusive scan within warp via warp_read_lane butterfly
+     *               incl = v;
      *               for d = 1,2,4,... while d < lanes:
-     *                   peer = lane - min(lane, d)
-     *                   other = WARP_READ_LANE(incl, peer)
-     *                   if lane >= d: incl = combine(op, incl, other)
-     *               total = WARP_READ_LANE(incl, lanes-1)
-     *               res = combine(op, carry, incl)
-     *               if off < scan_len:
-     *                   if dst is Fragment:
-     *                       staging[_staging_index(dst, cc)] = cast(res, out_t)
-     *                   else:
-     *                       _write_to(dst, cc, res)
-     *               carry = combine(op, carry, total)
+     *                   UInt peer = lane - min(lane, d);
+     *                   other = warp_read_lane(incl, peer);
+     *                   $if (lane >= d) { incl = combine(op, incl, other); };
+     *               total = warp_read_lane(incl, lanes - 1u);
+     *               res = combine(op, carry, incl);
+     *               $if (off < scan_len) {
+     *                   $if (dst is Fragment) { staging[_staging_index(dst, cc)] = cast(res, out_t); };
+     *                   $else { _write_to(dst, cc, res); };
+     *               };
+     *               carry = combine(op, carry, total);
+     *           };
+     *       };
+     *   };
      *   if dst is Fragment:
      *       _replicate_from_staging(dst, staging)
      */
@@ -3055,15 +3085,14 @@ private:
     // no consumer in the tile IR, so it is folded into a throw-away local
     // (the same pattern as WARP_REDUCE).
     /*
-     * _emit_any_all(buf, is_all) pseudo-code:
+     * _emit_any_all(buf, is_all) pseudo-code (luisa-dsl):
      *
-     *   acc = is_all ? true : false
+     *   Bool acc = is_all ? true : false;
      *   _full_loop(buf, c):
-     *       v = _value_at(buf, c)
-     *       truth = (v != 0)
-     *       acc = is_all ? (acc && truth) : (acc || truth)
-     *   voted = is_all ? WARP_ACTIVE_ALL(acc) : WARP_ACTIVE_ANY(acc)
-     *   tmp = voted   // keep the call alive
+     *       Bool truth = (buf[c] != 0);
+     *       acc = is_all ? (acc && truth) : (acc || truth);
+     *   Bool voted = is_all ? warp_active_all(acc) : warp_active_any(acc);
+     *   tmp = voted;   // keep the call alive
      */
     void _emit_any_all(const TensorExpr *buf, bool is_all) {
         auto elem_t = tensor_element_type(buf->dtype());
@@ -3089,16 +3118,16 @@ private:
     // warp shuffle of a fragment scalar: T.shfl_xor / shfl_up / shfl_down
     // (emulated with WARP_READ_LANE at the computed peer lane).
     /*
-     * _emit_shuffle(s) pseudo-code:
+     * _emit_shuffle(s) pseudo-code (luisa-dsl):
      *
-     *   v = _value_at(value_tensor, origin)
-     *   lane = warp_lane_id()
-     *   delta = s->delta()
+     *   v = value_tensor[origin]
+     *   UInt lane = warp_lane_id()
+     *   UInt delta = s->delta()
      *   switch op:
      *       XOR  -> peer = lane ^ delta
      *       UP   -> peer = lane - delta
      *       DOWN -> peer = lane + delta
-     *   tmp = WARP_READ_LANE(v, peer)
+     *   tmp = warp_read_lane(v, peer);
      */
     void _emit_shuffle(const ShuffleStmt *s) {
         auto *v = s->value_tensor();
@@ -3134,11 +3163,11 @@ private:
     }
 
     /*
-     * _emit_min(s) pseudo-code:
+     * _emit_min(s) pseudo-code (luisa-dsl):
      *
      *   temp = temp_output(s)
      *   _temps[temp] = lambda(c):
-     *       return min(_value_at(a, c), cast(literal b, elem_t))
+     *       return min(a[c], cast(b_literal, elem_t))
      */
     void _emit_min(const MinStmt *s) {
         auto *a = s->a();
@@ -3153,11 +3182,11 @@ private:
     }
 
     /*
-     * _emit_abs(s) pseudo-code:
+     * _emit_abs(s) pseudo-code (luisa-dsl):
      *
      *   temp = temp_output(s)
      *   _temps[temp] = lambda(c):
-     *       return abs(_value_at(a, c))
+     *       return abs(a[c])
      */
     void _emit_abs(const AbsStmt *s) {
         auto *a = s->a();
@@ -3170,15 +3199,15 @@ private:
     }
 
     /*
-     * _emit_warp_reduce(s) pseudo-code:
+     * _emit_warp_reduce(s) pseudo-code (luisa-dsl):
      *
-     *   v = _value_at(value, origin)
+     *   v = value[origin]
      *   tmp = switch op:
-     *           SUM     -> WARP_ACTIVE_SUM(v)
-     *           MAX     -> WARP_ACTIVE_MAX(v)
-     *           MIN     -> WARP_ACTIVE_MIN(v)
-     *           BIT_AND -> WARP_ACTIVE_BIT_AND(v)
-     *           BIT_OR  -> WARP_ACTIVE_BIT_OR(v)
+     *           SUM     -> warp_active_sum(v)
+     *           MAX     -> warp_active_max(v)
+     *           MIN     -> warp_active_min(v)
+     *           BIT_AND -> warp_active_bit_and(v)
+     *           BIT_OR  -> warp_active_bit_or(v)
      */
     void _emit_warp_reduce(const WarpReduceStmt *s) {
         // register-level warp reduction; the IR has no consumer, so the value

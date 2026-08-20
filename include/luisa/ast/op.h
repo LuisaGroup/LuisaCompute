@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef LUISA_AST_OP_H
+#define LUISA_AST_OP_H
+
 #include <bitset>
 
 #include <luisa/core/stl/iterator.h>
@@ -512,6 +515,54 @@ enum struct CallOp : uint32_t {
     COOPERATIVE_VECTOR_WORKGROUP_LOAD,  // coop_vec<T,N> (shared_buf: array<T>, index: uint)
     COOPERATIVE_VECTOR_WORKGROUP_STORE, // void (shared_buf: array<T>, index: uint, coop_vec<T,N>)
 
+    // Future cooperative-vector element-wise operations. These are native IR
+    // operators reserved for backend implementations; the DSL frontend must NOT
+    // decompose them into per-element scalar math (see plan.md §cooperative-vector
+    // operators). All backends currently reject them with placeholder assertions.
+    COOPERATIVE_VECTOR_DOT,             // scalar (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ABS,             // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SIGN,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_FLOOR,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_CEIL,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_FRACT,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_TRUNC,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ROUND,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_RINT,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SQRT,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_RSQRT,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_EXP2,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_EXP10,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LOG2,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LOG10,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SATURATE,        // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ISINF,           // coop_vec<bool,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ISNAN,           // coop_vec<bool,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SIN,             // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_COS,             // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_TAN,             // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ASIN,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ACOS,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SINH,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_COSH,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ASINH,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ACOSH,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ATANH,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_MIX,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LERP,            // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_POW,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_STEP,            // coop_vec<T,N> (coop_vec<T,N> edge, coop_vec<T,N> x) — future
+    COOPERATIVE_VECTOR_SMOOTHSTEP,      // coop_vec<T,N> (coop_vec<T,N> e0, coop_vec<T,N> e1, coop_vec<T,N> x) — future
+    COOPERATIVE_VECTOR_ADD,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SUB,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_MUL,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_DIV,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LESS,            // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LESS_EQUAL,      // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_GREATER,         // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_GREATER_EQUAL,   // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_EQUAL,           // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_NOT_EQUAL,       // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+
     // Async group copy
     ASYNC_COPY,/// [(uint scope, ref dst, ref src, uint elem_bytes, uint num, uint stride, uint event) -> uint]: async group copy
 
@@ -841,7 +892,50 @@ public:
                test(CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE) ||
                test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE) ||
                test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD) ||
-               test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE);
+               test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE) ||
+               test(CallOp::COOPERATIVE_VECTOR_DOT) ||
+               test(CallOp::COOPERATIVE_VECTOR_ABS) ||
+               test(CallOp::COOPERATIVE_VECTOR_SIGN) ||
+               test(CallOp::COOPERATIVE_VECTOR_FLOOR) ||
+               test(CallOp::COOPERATIVE_VECTOR_CEIL) ||
+               test(CallOp::COOPERATIVE_VECTOR_FRACT) ||
+               test(CallOp::COOPERATIVE_VECTOR_TRUNC) ||
+               test(CallOp::COOPERATIVE_VECTOR_ROUND) ||
+               test(CallOp::COOPERATIVE_VECTOR_RINT) ||
+               test(CallOp::COOPERATIVE_VECTOR_SQRT) ||
+               test(CallOp::COOPERATIVE_VECTOR_RSQRT) ||
+               test(CallOp::COOPERATIVE_VECTOR_EXP2) ||
+               test(CallOp::COOPERATIVE_VECTOR_EXP10) ||
+               test(CallOp::COOPERATIVE_VECTOR_LOG2) ||
+               test(CallOp::COOPERATIVE_VECTOR_LOG10) ||
+               test(CallOp::COOPERATIVE_VECTOR_SATURATE) ||
+               test(CallOp::COOPERATIVE_VECTOR_ISINF) ||
+               test(CallOp::COOPERATIVE_VECTOR_ISNAN) ||
+               test(CallOp::COOPERATIVE_VECTOR_SIN) ||
+               test(CallOp::COOPERATIVE_VECTOR_COS) ||
+               test(CallOp::COOPERATIVE_VECTOR_TAN) ||
+               test(CallOp::COOPERATIVE_VECTOR_ASIN) ||
+               test(CallOp::COOPERATIVE_VECTOR_ACOS) ||
+               test(CallOp::COOPERATIVE_VECTOR_SINH) ||
+               test(CallOp::COOPERATIVE_VECTOR_COSH) ||
+               test(CallOp::COOPERATIVE_VECTOR_ASINH) ||
+               test(CallOp::COOPERATIVE_VECTOR_ACOSH) ||
+               test(CallOp::COOPERATIVE_VECTOR_ATANH) ||
+               test(CallOp::COOPERATIVE_VECTOR_MIX) ||
+               test(CallOp::COOPERATIVE_VECTOR_LERP) ||
+               test(CallOp::COOPERATIVE_VECTOR_POW) ||
+               test(CallOp::COOPERATIVE_VECTOR_STEP) ||
+               test(CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP) ||
+               test(CallOp::COOPERATIVE_VECTOR_ADD) ||
+               test(CallOp::COOPERATIVE_VECTOR_SUB) ||
+               test(CallOp::COOPERATIVE_VECTOR_MUL) ||
+               test(CallOp::COOPERATIVE_VECTOR_DIV) ||
+               test(CallOp::COOPERATIVE_VECTOR_LESS) ||
+               test(CallOp::COOPERATIVE_VECTOR_LESS_EQUAL) ||
+               test(CallOp::COOPERATIVE_VECTOR_GREATER) ||
+               test(CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL) ||
+               test(CallOp::COOPERATIVE_VECTOR_EQUAL) ||
+               test(CallOp::COOPERATIVE_VECTOR_NOT_EQUAL);
     }
     [[nodiscard]] auto uses_cluster_launch_control() const noexcept {
         return test(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL) ||
@@ -864,6 +958,8 @@ public:
     }
 };
 
-}// namespace luisa::compute
+  };// namespace luisa::compute
 
-LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, CLOCK)
+  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, CLOCK)
+
+#endif// LUISA_AST_OP_H

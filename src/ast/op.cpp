@@ -353,9 +353,114 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
             }
             auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
             if (!(return_type->dimension() == matrix_dimension.y &&          // output is N
-                  args[2]->type()->dimension() == matrix_dimension.x         // input is K
+                  args[3]->type()->dimension() == matrix_dimension.x         // input is K
                   )) [[unlikely]] {
                 LUISA_ERROR("Cooperative-Mul call dimension mismatch.");
+            }
+            break;
+        }
+        // Future cooperative-vector element-wise operations. These validate only
+        // the general operand shape; every backend currently rejects them with a
+        // placeholder assertion until native support lands.
+        case CallOp::COOPERATIVE_VECTOR_DOT: {
+            if (!(return_type->is_scalar() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Dot call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_ABS:
+        case CallOp::COOPERATIVE_VECTOR_SIGN:
+        case CallOp::COOPERATIVE_VECTOR_FLOOR:
+        case CallOp::COOPERATIVE_VECTOR_CEIL:
+        case CallOp::COOPERATIVE_VECTOR_FRACT:
+        case CallOp::COOPERATIVE_VECTOR_TRUNC:
+        case CallOp::COOPERATIVE_VECTOR_ROUND:
+        case CallOp::COOPERATIVE_VECTOR_RINT:
+        case CallOp::COOPERATIVE_VECTOR_SQRT:
+        case CallOp::COOPERATIVE_VECTOR_RSQRT:
+        case CallOp::COOPERATIVE_VECTOR_EXP2:
+        case CallOp::COOPERATIVE_VECTOR_EXP10:
+        case CallOp::COOPERATIVE_VECTOR_LOG2:
+        case CallOp::COOPERATIVE_VECTOR_LOG10:
+        case CallOp::COOPERATIVE_VECTOR_SATURATE:
+        case CallOp::COOPERATIVE_VECTOR_SIN:
+        case CallOp::COOPERATIVE_VECTOR_COS:
+        case CallOp::COOPERATIVE_VECTOR_TAN:
+        case CallOp::COOPERATIVE_VECTOR_ASIN:
+        case CallOp::COOPERATIVE_VECTOR_ACOS:
+        case CallOp::COOPERATIVE_VECTOR_SINH:
+        case CallOp::COOPERATIVE_VECTOR_COSH:
+        case CallOp::COOPERATIVE_VECTOR_ASINH:
+        case CallOp::COOPERATIVE_VECTOR_ACOSH:
+        case CallOp::COOPERATIVE_VECTOR_ATANH: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 1u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector unary call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_ISINF:
+        case CallOp::COOPERATIVE_VECTOR_ISNAN: {
+            if (!(return_type->is_cooperative_vector() &&
+                  return_type->element()->is_bool() &&
+                  args.size() == 1u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-IsInf/IsNan call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_POW:
+        case CallOp::COOPERATIVE_VECTOR_STEP:
+        case CallOp::COOPERATIVE_VECTOR_ADD:
+        case CallOp::COOPERATIVE_VECTOR_SUB:
+        case CallOp::COOPERATIVE_VECTOR_MUL:
+        case CallOp::COOPERATIVE_VECTOR_DIV: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector binary call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_LESS:
+        case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_GREATER:
+        case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL: {
+            if (!(return_type->is_cooperative_vector() &&
+                  return_type->element()->is_bool() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector relational call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_MIX:
+        case CallOp::COOPERATIVE_VECTOR_LERP:
+        case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 3u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[2]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension() &&
+                  args[0]->type()->dimension() == args[2]->type()->dimension() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector ternary call argument type mismatch.");
             }
             break;
         }

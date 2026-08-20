@@ -4323,6 +4323,52 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
         }
         case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
             LUISA_NOT_IMPLEMENTED();
+        // Future cooperative-vector element-wise operations (native IR operators
+        // reserved for backend implementation — TODO: implement in SPIR-V codegen).
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ATANH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_POW:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+            LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the SPIR-V backend yet.");
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit resource read.");
     _value_map.emplace(inst, id);
