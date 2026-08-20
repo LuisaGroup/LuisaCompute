@@ -472,6 +472,41 @@ void register_tests() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "large_handler_scratch_ignores_unrelated_instruction_volume"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *seed = f.kernel->create_value_argument(Type::of<int>());
+        auto *large_type = Type::array(Type::of<int>(), 4096u);
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(large_type);
+        scratch->set_name("large_surface_invocation_scratch");
+
+        b.set_insertion_point(f.surface);
+        b.store(scratch, m.create_constant_zero(large_type));
+        b.load(large_type, scratch);
+        // This is a complexity regression, not dead-code decoration: the
+        // scratch proof runs before the lowering pass's DCE. Instructions
+        // unrelated to `scratch` denote the identity path effect and must not
+        // allocate or clear two 4096-bit aggregate masks apiece.
+        Value *noise = seed;
+        auto *one = m.create_constant_one(Type::of<int>());
+        for (auto i = 0u; i < 8192u; ++i) {
+            noise = b.call(
+                Type::of<int>(), ArithmeticOp::BINARY_ADD,
+                {noise, one});
+        }
+        static_cast<void>(noise);
+        b.br(f.dispatch);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(info.localized_alloca_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "independently_initialized_cross_handler_scratch_is_duplicated"_test = [] {
         Module m;
         auto f = make_fixture(m);

@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
@@ -555,12 +556,17 @@ struct RayQueryHandlerPointerResolveResult {
 };
 
 struct RayQueryHandlerScratchEffect {
-    AggregateFieldBitmask need;
-    AggregateFieldBitmask define;
+    const Type *type;
+    luisa::optional<AggregateFieldBitmask> need;
+    luisa::optional<AggregateFieldBitmask> define;
     bool valid{true};
 
     explicit RayQueryHandlerScratchEffect(const Type *type) noexcept
-        : need{type}, define{type} {}
+        : type{type} {}
+
+    [[nodiscard]] bool needs_input() const noexcept {
+        return need && need->access().any();
+    }
 };
 
 // Candidate-local scratch is a path effect over primitive aggregate leaves.
@@ -569,16 +575,33 @@ struct RayQueryHandlerScratchEffect {
 //   define = A.define union B.define.
 // At a CFG join, need is path union and define is path intersection. These are
 // the exact transfer/join operations for "may read before a must definition".
-[[nodiscard]] static RayQueryHandlerScratchEffect
-compose_handler_scratch_effects(
-    const RayQueryHandlerScratchEffect &first,
+static void union_mask(
+    luisa::optional<AggregateFieldBitmask> &target,
+    const AggregateFieldBitmask &incoming) noexcept {
+    if (target) {
+        *target |= incoming;
+    } else {
+        target.emplace(incoming);
+    }
+}
+
+static void append_handler_scratch_effect(
+    RayQueryHandlerScratchEffect &first,
     const RayQueryHandlerScratchEffect &second) noexcept {
-    RayQueryHandlerScratchEffect result{first.need.type()};
-    result.valid = first.valid && second.valid;
-    result.need = second.need & ~first.define;
-    result.need |= first.need;
-    result.define = first.define | second.define;
-    return result;
+    LUISA_DEBUG_ASSERT(first.type == second.type, "Type mismatch.");
+    first.valid &= second.valid;
+    if (!first.valid) { return; }
+    if (second.need) {
+        if (first.define) {
+            auto uncovered = *second.need & ~*first.define;
+            if (uncovered.access().any()) {
+                union_mask(first.need, uncovered);
+            }
+        } else {
+            union_mask(first.need, *second.need);
+        }
+    }
+    if (second.define) { union_mask(first.define, *second.define); }
 }
 
 struct RayQueryHandlerScratchBlockState {
@@ -599,8 +622,8 @@ private:
         const Value *value,
         const RayQueryHandlerPointerEnvironment &environment,
         luisa::unordered_map<const Value *,
-                             RayQueryHandlerPointerResolveResult> &cache,
-        luisa::unordered_set<const Value *> &active) const noexcept {
+                             RayQueryHandlerPointerResolveResult> &cache)
+        const noexcept {
         if (value == nullptr || !value->is_lvalue()) { return {}; }
         if (auto iter = cache.find(value); iter != cache.end()) {
             return iter->second;
@@ -613,16 +636,19 @@ private:
             cache.emplace(value, result);
             return result;
         }
-        if (!active.emplace(value).second) {
-            RayQueryHandlerPointerResolveResult result;
-            result.valid = false;
-            return result;
-        }
+        // A pessimistic cache entry is the DFS gray state. Encountering it
+        // through a malformed cyclic GEP chain returns invalid; successful
+        // resolution overwrites it with the black-state summary below.
+        RayQueryHandlerPointerResolveResult visiting;
+        visiting.valid = false;
+        auto [cache_iter, inserted] = cache.emplace(value, visiting);
+        LUISA_DEBUG_ASSERT(inserted, "Duplicate pointer-resolution state.");
+        static_cast<void>(cache_iter);
         RayQueryHandlerPointerResolveResult result;
         if (value->isa<GEPInst>()) {
             auto *gep = static_cast<const GEPInst *>(value);
             result = resolve_pointer(
-                gep->base(), environment, cache, active);
+                gep->base(), environment, cache);
             if (result.valid && result.related) {
                 for (auto i = 0u; i < gep->index_count(); ++i) {
                     auto *index = gep->index(i);
@@ -647,19 +673,11 @@ private:
                 }
             }
         }
-        active.erase(value);
-        cache.emplace(value, result);
+        auto resolved_iter = cache.find(value);
+        LUISA_DEBUG_ASSERT(resolved_iter != cache.end(),
+                           "Lost pointer-resolution state.");
+        resolved_iter->second = result;
         return result;
-    }
-
-    [[nodiscard]] RayQueryHandlerPointerResolveResult resolve_pointer(
-        const Value *value,
-        const RayQueryHandlerPointerEnvironment &environment,
-        luisa::unordered_map<const Value *,
-                             RayQueryHandlerPointerResolveResult> &cache)
-        const noexcept {
-        luisa::unordered_set<const Value *> active;
-        return resolve_pointer(value, environment, cache, active);
     }
 
     [[nodiscard]] RayQueryHandlerScratchEffect access_effect(
@@ -671,8 +689,10 @@ private:
             effect.valid = false;
             return effect;
         }
-        if (read) { effect.need = mask; }
-        if (write && view.precise) { effect.define = mask; }
+        if (read) { effect.need.emplace(mask); }
+        if (write && view.precise) {
+            effect.define.emplace(std::move(mask));
+        }
         return effect;
     }
 
@@ -711,18 +731,27 @@ private:
             effect.valid = false;
             return effect;
         }
-        luisa::vector<bool> handled(instruction->operand_count(), false);
+        auto require_unrelated_operand = [&](size_t index) noexcept {
+            auto *operand = instruction->operand(index);
+            if (operand == nullptr || !operand->is_lvalue()) { return; }
+            auto resolved = resolve_pointer(
+                operand, environment, cache);
+            effect.valid &= resolved.valid && !resolved.related;
+        };
         switch (instruction->derived_instruction_tag()) {
             case DerivedInstructionTag::GEP: {
                 if (instruction->operand_count() == 0u) {
                     effect.valid = false;
                     break;
                 }
-                handled[0u] = true;
                 auto resolved = resolve_pointer(
                     static_cast<const GEPInst *>(instruction)->base(),
                     environment, cache);
                 effect.valid &= resolved.valid;
+                for (auto i = 1u;
+                     effect.valid && i < instruction->operand_count(); ++i) {
+                    require_unrelated_operand(i);
+                }
                 break;
             }
             case DerivedInstructionTag::LOAD: {
@@ -730,7 +759,6 @@ private:
                     effect.valid = false;
                     break;
                 }
-                handled[0u] = true;
                 auto resolved = resolve_pointer(
                     static_cast<const LoadInst *>(instruction)->variable(),
                     environment, cache);
@@ -745,7 +773,6 @@ private:
                     effect.valid = false;
                     break;
                 }
-                handled[0u] = true;
                 auto resolved = resolve_pointer(
                     static_cast<const StoreInst *>(instruction)->variable(),
                     environment, cache);
@@ -753,6 +780,7 @@ private:
                 if (resolved.related) {
                     effect = access_effect(resolved.view, false, true);
                 }
+                if (effect.valid) { require_unrelated_operand(1u); }
                 break;
             }
             case DerivedInstructionTag::CALL: {
@@ -763,15 +791,16 @@ private:
                     effect.valid = false;
                     break;
                 }
-                handled[CallInst::operand_index_callee] = true;
                 RayQueryHandlerPointerEnvironment callee_environment;
                 auto formal = callee->arguments().begin();
                 for (auto i = 0u; i < call->argument_count(); ++i, ++formal) {
-                    auto resolved = resolve_pointer(
-                        call->argument(i), environment, cache);
+                    auto *argument = call->argument(i);
+                    auto resolved =
+                        argument == nullptr || !argument->is_lvalue() ?
+                            RayQueryHandlerPointerResolveResult{} :
+                            resolve_pointer(argument, environment, cache);
                     effect.valid &= resolved.valid;
                     if (!resolved.related) { continue; }
-                    handled[CallInst::operand_index_argument_offset + i] = true;
                     if (!(*formal)->is_reference() ||
                         !callee_environment.emplace(*formal,
                                                     std::move(resolved.view))
@@ -787,15 +816,11 @@ private:
                 }
                 break;
             }
-            default: break;
-        }
-        if (!effect.valid) { return effect; }
-        for (auto i = 0u; i < instruction->operand_count(); ++i) {
-            if (handled[i]) { continue; }
-            auto resolved = resolve_pointer(
-                instruction->operand(i), environment, cache);
-            if (!resolved.valid || resolved.related) {
-                effect.valid = false;
+            default: {
+                for (auto i = 0u;
+                     effect.valid && i < instruction->operand_count(); ++i) {
+                    require_unrelated_operand(i);
+                }
                 break;
             }
         }
@@ -810,11 +835,21 @@ private:
             target.effect = incoming;
             return true;
         }
+        LUISA_DEBUG_ASSERT(target.effect.type == incoming.type,
+                           "Type mismatch.");
         auto previous_need = target.effect.need;
         auto previous_define = target.effect.define;
         auto previous_valid = target.effect.valid;
-        target.effect.need |= incoming.need;
-        target.effect.define &= incoming.define;
+        if (incoming.need) {
+            union_mask(target.effect.need, *incoming.need);
+        }
+        if (target.effect.define) {
+            if (incoming.define) {
+                *target.effect.define &= *incoming.define;
+            } else {
+                target.effect.define.reset();
+            }
+        }
         target.effect.valid &= incoming.valid;
         return target.effect.need != previous_need ||
                target.effect.define != previous_define ||
@@ -859,7 +894,7 @@ private:
                 auto next = instruction_effect(
                     instruction, environment, pointer_cache,
                     active_functions);
-                current = compose_handler_scratch_effects(current, next);
+                append_handler_scratch_effect(current, next);
                 if (!current.valid) { return current; }
             }
             auto successor_count = 0u;
@@ -949,7 +984,7 @@ find_handler_local_allocas(
                 auto summary =
                     RayQueryHandlerScratchAnalyzer{alloca->type()}
                         .summarize(alloca, entry, region);
-                return summary.valid && summary.need.access().none();
+                return summary.valid && !summary.needs_input();
             };
         auto surface_is_local =
             !uses.used_by_surface ||
