@@ -1,7 +1,7 @@
 // Exact SIMD procedural-primitive and ray-query packet coverage.
 //
 // This exercises W1/W2/W4/W8/W16, inactive tails, direct-trace rejection,
-// query-all/query-any commit/reject/terminate behavior, ordered continuation
+// query/query-any commit/reject/terminate behavior, ordered continuation
 // scans, mixed triangle/procedural traversal, visibility, primitive motion,
 // motion instances, and mesh/procedural provider refresh after accel rebuild.
 
@@ -643,10 +643,19 @@ int main(int argc, char *argv[]) {
     for (auto width : std::array{1u, 2u, 4u, 8u}) {
         run_width(width);
     }
+    // W2/W4 generic acceleration structures publish packed status during the
+    // provider's existing advance/install passes. Keep the preceding generic
+    // wrapper as a same-binary semantic oracle.
+    {
+        ScopedEnvironmentVariable disable_narrow_shared_status{
+            "LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS", "1"};
+        run_width(2u);
+        run_width(4u);
+    }
     // The W16 procedural status provider fuses status publication into the
     // candidate advance/install passes. Keep the original provider as an
     // executable semantic oracle: both paths must survive inactive tails,
-    // divergent query-all/query-any control, commits, explicit termination,
+    // divergent query/query-any control, commits, explicit termination,
     // continuation scans, and mixed procedural/surface rebuilds.
     run_width(16u);
     {

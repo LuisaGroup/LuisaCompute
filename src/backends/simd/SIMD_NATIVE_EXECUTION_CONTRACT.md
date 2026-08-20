@@ -640,6 +640,9 @@ predicate gathers for eligible ray queries.
 sidecar but restores the query-local pointer gathers.
 `LUISA_SIMD_DISABLE_RAY_QUERY_STATUS_CALLBACK_PAIRING=1` keeps both caches but
 restores the JIT-side plain-callback gather and cohort check.
+`LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS=1` restores the generic
+plain-provider-plus-status-pack wrapper for W2/W4 acceleration structures that
+cannot use the triangle-only provider.
 `LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK=1` disables W16 procedural
 status specialization entirely;
 `LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS=1` retains that specialization
@@ -2265,6 +2268,19 @@ previous paired-call-plus-pack implementation as a same-binary semantic and
 performance oracle. The permanent procedural regression executes W16 with
 both entries, including an inactive tail, divergent commit/reject/terminate,
 and a continuation beyond the 32-candidate batch.
+
+W2/W4 acceleration structures containing procedural or curve instances use the
+same status-publication refinement through one shared narrow provider core.
+The plain entry calls that core without publication; the status entry calls it
+with publication and accumulates the existing three-bit lane classification in
+the advance pass or immediately after a grouped scan. There is exactly one
+scan-heavy provider body: production must not duplicate it merely to specialize
+the publication flag. The active mask is width-bounded before any state access,
+and only active states participate in status packing. The dedicated
+triangle-only provider remains selected when applicable. W1 retains its old
+scalar wrapper because a forced loop/status benchmark rejects the shared core;
+normal selected W1 pipelines use the separate resident ABI. The diagnostic
+oracle is `LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS=1`.
 
 The fused installer may bias its already-ascending batch path only while the
 builder invariant `heapified => !ascending` holds. The non-ascending edge must

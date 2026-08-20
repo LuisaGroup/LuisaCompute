@@ -1541,6 +1541,9 @@ SIMDAccel::SIMDAccel(
               "LUISA_SIMD_DISABLE_COHERENT_W16_DIRECT_TRACE")},
       _enable_triangle_only_ray_query{
           triangle_ray_query::triangle_only_ray_query_enabled()},
+      _enable_narrow_shared_status{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS")},
       _enable_procedural_dense_status{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_STATUS_PACK")},
@@ -1703,8 +1706,17 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                        static_cast<uint8_t>(
                            SIMDHostAccelGeometryKind::procedural);
             });
+        auto use_triangle_only_provider =
+            !_has_procedural_instances && !_has_curve_instances &&
+            _enable_triangle_only_ray_query;
+        auto use_narrow_shared_status =
+            !use_triangle_only_provider &&
+            (_warp_width == 2u || _warp_width == 4u) &&
+            _enable_narrow_shared_status;
         _instance_table.ray_query_proceed_status =
-            simd_host_ray_query_proceed_status;
+            use_narrow_shared_status ?
+                _ray_query_proceed_status :
+                simd_host_ray_query_proceed_status;
         _instance_table.ray_query_proceed_wide_status =
             simd_host_ray_query_use_procedural_wide_status(
                 _warp_width,
@@ -2191,9 +2203,10 @@ void SIMDAccel::_ray_query_pipeline_w1(
     state->terminated = 1u;
 }
 
-void SIMDAccel::_ray_query_proceed(
+LUISA_NEVER_INLINE uint64_t SIMDAccel::_ray_query_proceed_narrow_shared(
     uint32_t lane_count, uint64_t active_mask_bits,
-    SIMDHostRayQueryState *const *states) noexcept {
+    SIMDHostRayQueryState *const *states,
+    bool publish_status) noexcept {
     LUISA_ASSERT(
         states != nullptr &&
             (lane_count == 1u || lane_count == 2u ||
@@ -2203,9 +2216,10 @@ void SIMDAccel::_ray_query_proceed(
     auto lane_mask = lane_count == 64u ? ~uint64_t{0u} :
                                          (uint64_t{1u} << lane_count) - 1u;
     active_mask_bits &= lane_mask;
-    if (active_mask_bits == 0u) { return; }
+    if (active_mask_bits == 0u) { return 0u; }
 
     auto pending = uint64_t{0u};
+    auto status = uint64_t{0u};
     for (auto lane = 0u; lane < lane_count; lane++) {
         auto bit = uint64_t{1u} << lane;
         if ((active_mask_bits & bit) == 0u) { continue; }
@@ -2249,13 +2263,18 @@ void SIMDAccel::_ray_query_proceed(
                 state->terminated = 1u;
             }
         }
+        auto advanced = RayQueryCandidateAdvance::terminated;
         if (state->terminated == 0u) {
             auto *self = static_cast<SIMDAccel *>(state->accel);
-            auto advanced = advance_ray_query_candidate(
+            advanced = advance_ray_query_candidate(
                 *state, self->_instance_table);
             if (advanced == RayQueryCandidateAdvance::needs_scan) {
                 pending |= bit;
             }
+        }
+        if (publish_status &&
+            advanced != RayQueryCandidateAdvance::needs_scan) {
+            status |= ray_query_lane_status(*state, bit);
         }
     }
 
@@ -2310,8 +2329,27 @@ void SIMDAccel::_ray_query_proceed(
                 break;
             default: break;
         }
+        if (publish_status) {
+            status |= simd_host_ray_query_pack_status(
+                lane_count, group, states);
+        }
         pending &= ~group;
     }
+    return status;
+}
+
+void SIMDAccel::_ray_query_proceed(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    static_cast<void>(_ray_query_proceed_narrow_shared(
+        lane_count, active_mask_bits, states, false));
+}
+
+uint64_t SIMDAccel::_ray_query_proceed_status(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states) noexcept {
+    return _ray_query_proceed_narrow_shared(
+        lane_count, active_mask_bits, states, true);
 }
 
 LUISA_FORCE_INLINE void SIMDAccel::_ray_query_proceed_wide_lane(

@@ -4861,7 +4861,7 @@ W1/W2/W4/W8/W16; the five-lane wide runs include inactive tails. Changed C++
 and header files pass clang-format's dry-run check, and the complete diff passes
 Git whitespace validation.
 
-## Rejected narrow-packet status fusion
+## Rejected cloned/prepass narrow-packet status fusion
 
 A fresh W4 procedural rejection-chain profile attributed 20.27% of sampled
 cycles to `_ray_query_proceed` and another 7.57% to the generic status wrapper
@@ -4890,10 +4890,73 @@ and 0.9507x across five W4 pairs, with 1 win at each width. The eligibility
 pass itself is overhead when most real calls need an initial or continuation
 Embree scan.
 
-Both variants were therefore rejected. The final source retains the original
-narrow provider and generic status wrapper; after rebuilding, the SIMD backend
-shared object was byte-identical to the pre-experiment binary (SHA-256
+Both variants were therefore rejected. At that checkpoint the source retained
+the original narrow provider and generic status wrapper; after rebuilding, the
+SIMD backend shared object was byte-identical to the pre-experiment binary (SHA-256
 `3cd40152e3ed0f041715895f95769fb46762cd4d8402cee441780e3f97096087`).
 The result narrows future work: a useful register/SoA query-state design must
 avoid both the post-provider state pass and a speculative pre-provider
 eligibility pass, while keeping the scan-heavy path compact.
+
+## Accepted shared-core W2/W4 status fusion
+
+A third implementation meets that constraint without changing the public
+query-state ABI. Plain and status-aware W2/W4 generic entries call one
+`LUISA_NEVER_INLINE` provider core with a publication flag. The status entry
+packs terminal/surface/procedural bits during the existing candidate advance
+pass and immediately after each grouped scan. The plain entry suppresses those
+writes. This removes the generic wrapper's second AoS state scan without
+cloning the scan-heavy body. Triangle-only acceleration structures keep their
+dedicated provider, W8/W16 keep their prior policies, and a measured W1
+rejection keeps W1 on its old scalar wrapper. The same-binary control is
+`LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS=1`.
+
+The final object has one 10,938-byte shared core plus 7-byte plain and 10-byte
+status wrappers. Its `.text` is 3,412,176 bytes, only 448 bytes above the exact
+3,411,728-byte pre-experiment object; there is no second roughly 11 KiB
+provider. The final backend SHA-256 is
+`4ffe67b1475fc24ef6489655e246716f4499d83f3464554bda645579dda0f03d`.
+
+Seven process pairs of the 16-candidate procedural rejection chain compare the
+new status entry with its same-binary wrapper oracle. W2 wins 7/7 at 1.0909x
+[1.0811, 1.1008]; W4 wins 7/7 at 1.0456x [1.0357, 1.0556]. Because that oracle
+also enters the new shared core with publication disabled, these numbers
+isolate fused publication but are not substituted for the true old binary.
+
+The real 1280x720, 1024-spp mixed procedural renderer was therefore run from
+two isolated runtime directories containing the exact old and candidate
+backend objects, pinned to physical CPUs 0--15 with sixteen workers and
+alternating order. W4 wins all fifteen primary pairs at 1.0833x [1.0705,
+1.0962]; every image has SHA-256
+`d95cbe53b1cf7c573953986e2f64516494bfa7870536dbd2e37f98b2feb49036`.
+After excluding W1 from the final policy and rebuilding, five additional W4
+pairs confirm 5/5 wins at 1.0936x [1.0682, 1.1196]. Three final W4 counter pairs
+measure 1.0830x wall-time speedup and the following candidate/old ratios:
+
+| counter | candidate / old |
+|---|---:|
+| cycles | 0.9150x |
+| instructions | 0.9900x |
+| branches | 0.9901x |
+| branch misses | 0.9597x |
+
+W2 is more exposed to unrelated host work because one render lasts roughly
+eight seconds. Fourteen final alternating pairs have a positive 1.0272x point
+estimate, 11/14 wins, and a 1.0366x median, but their ordinary t interval
+[0.9880, 1.0680] remains inconclusive after large scheduling outliers on both
+sides. Three paired `perf stat` runs are internally consistent: wall time wins
+3/3 at 1.0255x and cycles fall to 0.9667x, while instructions and branches are
+1.0025x/1.0036x because the shared runtime flag costs more than the removed
+two-lane pack loop. The stable 1.0909x synthetic result plus the 3.3% real
+cycle reduction retain W2, without claiming a converged whole-process
+wall-time interval.
+
+Two negative/control gates bound the policy. A forced W1 loop/status chain
+regresses 14/14 at 0.9450x [0.9346, 0.9556], so W1 does not select the shared
+entry. The W4 triangle-only chain is neutral across fifteen pairs at 1.0003x
+[0.9884, 1.0123], proving that the dedicated provider remains selected. A
+non-query 128-spp W4 path trace is likewise neutral across ten pairs at 1.0023x
+[0.9971, 1.0074], with identical image hashes. The procedural semantic gate
+runs production W1/W2/W4/W8, wrapper-oracle W2/W4, and production/oracle W16:
+all 1,576 assertions pass, including inactive tails, divergent commit/reject/
+terminate, continuation scans, and surface/procedural provider rebuilds.

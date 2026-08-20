@@ -9,7 +9,10 @@ independently implemented precise and fast tiers for twenty f32 operations:
 the initial twelve unary operations, binary `atan2` and `pow`, and six
 hyperbolic/inverse-hyperbolic operations. Static, vertex-motion, and
 instance-motion triangle traversal now includes both closest/any traces and
-stateful query-all/query-any handlers at W1/W2/W4/W8/W16. W16 acceleration
+stateful `query`/`query_any` handlers at W1/W2/W4/W8/W16. Generic W2/W4
+acceleration structures publish packed query status during their existing
+candidate advance/install passes through one shared provider body;
+triangle-only structures and W1 retain their prior providers. W16 acceleration
 structures containing procedural instances additionally use a measured dense
 full-cohort status pack while retaining the sparse inactive-safe path.
 Acceleration instance-buffer-only updates now publish metadata and primitive
@@ -3034,6 +3037,21 @@ iteration, while a full cohort retains fixed sequential iteration. The public
 1216-byte state, status bit layout, status-color ownership proof, and Embree
 packet ABI are unchanged. `LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS=1`
 selects the exact previous provider/packer pair for same-binary A/B.
+
+For W2/W4 generic acceleration structures containing procedural or curve
+instances, plain `PROCEED` and status-aware `PROCEED` now enter one
+`LUISA_NEVER_INLINE` provider core. The status-aware entry accumulates terminal,
+surface, and procedural bits in the core's existing per-lane advance pass and
+after each grouped scan; it therefore removes the generic wrapper's second AoS
+state pass without cloning the roughly 11 KiB scan-heavy provider. Inactive
+lanes are removed from the bounded mask before any state dereference, and the
+grouping, Embree packet selection, candidate order, commit, terminate, and
+continuation semantics are unchanged. Triangle-only acceleration structures
+continue to select their dedicated provider. W1 retains the old scalar wrapper:
+the shared core regressed a forced loop/status rejection chain there, while the
+normal structured W1 path already uses the resident pipeline.
+`LUISA_SIMD_DISABLE_NARROW_SHARED_STATUS=1` restores the generic status wrapper
+for W2/W4 same-binary semantic and performance checks.
 
 The public rejection-chain benchmark uses 65,536 rays per dispatch, 128 timed
 dispatches per sample, and seven samples per process. On the shared 9950X3D

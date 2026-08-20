@@ -74,6 +74,7 @@ private:
     uint32_t _warp_width{8u};
     bool _enable_coherent_w16_direct_trace{true};
     bool _enable_triangle_only_ray_query{true};
+    bool _enable_narrow_shared_status{true};
     bool _enable_procedural_dense_status{true};
     bool _enable_procedural_fused_status{true};
 
@@ -84,6 +85,10 @@ private:
         SIMDHostRayQueryState *const *states) noexcept;
 
 private:
+    [[nodiscard]] static uint64_t _ray_query_proceed_narrow_shared(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        SIMDHostRayQueryState *const *states,
+        bool publish_status) noexcept;
     static void _trace_closest(
         void *accel, uint32_t lane_count,
         void *ray_hit_packet) noexcept;
@@ -91,6 +96,9 @@ private:
         void *accel, uint32_t lane_count,
         void *ray_packet) noexcept;
     static void _ray_query_proceed(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        SIMDHostRayQueryState *const *states) noexcept;
+    [[nodiscard]] static uint64_t _ray_query_proceed_status(
         uint32_t lane_count, uint64_t active_mask_bits,
         SIMDHostRayQueryState *const *states) noexcept;
     static void _ray_query_proceed_wide(
