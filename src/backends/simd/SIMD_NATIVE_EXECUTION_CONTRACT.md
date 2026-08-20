@@ -1956,10 +1956,13 @@ SIMD has two control routes. A query retained as ordinary XIR loop/if control
 contains `PROCEED`, candidate-kind reads, and object writes; the cohort
 scheduler executes its divergent handlers without a second callback-side PC
 machine. A structured `traverse(...).on_*().trace()` query may instead be
-outlined to `RayQueryPipelineInst` before reconstruction. Afterward, the exact
-canonical inline `$while (query.proceed())` plus immediate candidate dispatch
-may be reconstructed and offered to the same selective pipeline pass. This is
-legal only because reconstruction preserves every successful candidate
+outlined to `RayQueryPipelineInst`. A live DSL AST additionally records the
+original `$while` condition as non-semantic provenance while retaining the
+historical explicit guard. AST-to-XIR preflights the complete function and may
+emit the exact canonical `$while (query.proceed())` plus immediate candidate
+dispatch as `RayQueryLoopInst` directly. A provenance-free or serialized AST
+uses the generic loop and the same fail-closed reconstruction proof before a
+second selective pipeline pass. Both paths preserve every successful candidate
 observation and handler ordering; arbitrary uses of the Boolean result or
 query payload remain loops or reject a ray-query-shaped near-match. The
 measured captured specializations accept at most four semantic captures at W1
@@ -1988,17 +1991,19 @@ triangle/procedural selection. A handler containing only the backedge is
 bypassed, and two such handlers remove the candidate-kind read entirely. The
 inverse `reconstruct_ray_query_loop` is semantics-preserving only for this
 complete shape. It accepts either the canonical `LoopInst` produced by the
-lowering or the canonical pre-mem2reg `SimpleLoopInst` emitted by the native DSL
-`$while (query.proceed())` form. The DSL form must immediately dispatch the
-same query with a surface/procedural if/else and may contain handler-local
-structured control. It must not infer a ray-query domain from an arbitrary
-loop: ordinary loops are ignored, while a loop containing `PROCEED` but
-failing any query-object, predecessor, exit, or shell-shape check rejects the
-complete function/module before mutation. In particular, shared payload around
-the dispatch, nested `PROCEED`, escaping guard temporaries, cross-shell exits,
-external predecessors, and loop-carried SSA PHIs are rejected. Reconstruction
-retargets every handler exit, repairs merge PHIs, preserves metadata, and
-recreates omitted empty handlers.
+lowering or the canonical pre-mem2reg `SimpleLoopInst` emitted when native DSL
+while provenance is unavailable or explicitly disabled for diagnostics. The
+DSL form must immediately dispatch the same query with a surface/procedural
+if/else and may contain handler-local structured control. The AST preflight
+uses the same transactional boundary: one malformed marked query leaves every
+marked loop in that function explicit. Neither layer may infer a ray-query
+domain from an arbitrary loop: ordinary loops are ignored, while a loop whose
+condition contains `PROCEED` but fails any query-object, predecessor, exit, or
+shell-shape check rejects the complete function/module before mutation. In
+particular, shared payload around the dispatch, nested `PROCEED`, escaping guard
+temporaries, cross-shell exits, external predecessors, and loop-carried SSA
+PHIs are rejected. Reconstruction retargets every handler exit, repairs merge
+PHIs, preserves metadata, and recreates omitted empty handlers.
 
 The direct route outlines surface and procedural handlers into internal LLVM
 functions with ABI
@@ -2053,7 +2058,10 @@ its two handler regions contain at least 24 XIR instructions or its function
 contains at least two ABI-eligible query loops. Counting is per function and
 performed before mutation, so two small sequential sites are batched by one
 stable decision. A selected second-pass loop increments
-`post_reconstruction_ray_query_pipelines`; this counter may also include an
+`post_reconstruction_ray_query_pipelines`; a live canonical DSL query preserved
+by AST-to-XIR is eligible in the first pass and therefore does not increment
+that counter. The counter remains useful for serialized/provenance-free ASTs,
+manual XIR, and a diagnostic legacy-route oracle; it may also include an
 original structured loop revisited after reconstruction makes the function's
 multi-query condition true.
 `LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE=1` restores the loop oracle for
@@ -2064,14 +2072,15 @@ leaving capture-free direct pipelines enabled;
 profitability gate for tests and experiments.
 `LUISA_SIMD_DISABLE_RAY_QUERY_PIPELINE_PROFITABILITY=1` preserves the ABI and
 capture checks but bypasses the handler-size/query-count gate as a same-binary
-performance oracle. Non-canonical explicit `query_all`/`query_any` control
-remains on the state-machine route. Packet width and native traversal ABI are
-not DSL semantics. The existing structured DSL and the proven canonical inline
-form already supply the whole-query boundary and lexical captures, so no
-SIMD-specific public syntax is required. A future front-end representation may
-retain this boundary directly, together with audited effect/capture facts, to
-avoid reconstruction; it must not expose backend width policy or weaken the
-same fail-closed shape proof.
+performance oracle.
+`LUISA_SIMD_DISABLE_FRONTEND_RAY_QUERY_PRESERVATION=1` is a diagnostic
+compile/code-shape oracle that retains the historical generic-loop plus
+reconstruction route; it does not change the public AST or runtime contract.
+Non-canonical explicit `query_all`/`query_any` control remains on the
+state-machine route. Packet width and native traversal ABI are not DSL
+semantics. The target-independent frontend supplies only a proven whole-query
+boundary and lexical handlers; it does not expose backend width policy or
+weaken the same fail-closed shape proof.
 
 Distinct simultaneously live query objects also receive distinct records.
 Sequential construction sites may share the same per-lane scratch only after

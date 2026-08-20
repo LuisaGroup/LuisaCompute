@@ -32,15 +32,19 @@ aggregate extracts receive an independent bounds/type proof; query traversal,
 candidate payload reads, commits, termination, and memory remain under the
 ordinary scheduler. A broader whole-query-loop prototype and an extra select-
 factoring experiment were rejected by real-renderer measurements.
-The newest ray-query stage also consumes canonical inline DSL traversal.
-After fail-closed reconstruction of an exact `$while (query.proceed())` plus
-candidate dispatch, SIMD runs the same selective pipeline lowering a second
-time. W1/W2 accept every capture-eligible handler; W4/W8/W16 require either 24
-handler instructions or two eligible query sites in the function. This keeps
-small single-query handlers on the scheduler while preserving the real W4
-procedural and W8 two-query cutout pipelines. W1 uses the resident provider.
-Front-end callable argument/return scratch is forwarded before capture
-classification, and non-canonical explicit control remains an ordinary loop.
+The newest ray-query stage also consumes canonical inline DSL traversal without
+first constructing generic XIR CFG. The `$while` frontend retains its original
+condition as non-semantic provenance alongside the historical explicit guard;
+AST-to-XIR transactionally proves an exact `$while (query.proceed())` plus
+candidate dispatch and emits `RayQueryLoopInst` directly. Serialized,
+provenance-free, and diagnostic-oracle ASTs retain fail-closed reconstruction.
+SIMD then applies the same selective pipeline lowering: W1/W2 accept every
+capture-eligible handler; W4/W8/W16 require either 24 handler instructions or
+two eligible query sites in the function. This keeps small single-query
+handlers on the scheduler while preserving the real W4 procedural and W8
+two-query cutout pipelines. W1 uses the resident provider. Front-end callable
+argument/return scratch is forwarded before capture classification, and
+non-canonical explicit control remains an ordinary loop.
 The newest memory stage independently applies ISPC's bounded-gather lesson to
 one much narrower Luisa pattern: eligible W8 direct typed-buffer vectors pack
 adjacent 32-bit leaves into legal 64-bit LLVM masked gathers. TargetTransformInfo
@@ -4791,19 +4795,64 @@ The final selection preserves both established graphics paths exactly.
 Default and profitability-bypassed optimized assembly hashes match for all
 three W4 procedural renderer modules and all five W8 cutout modules. Their
 two-spp PNGs are byte-identical as well. The optimization report adds
-`post_reconstruction_ray_query_pipelines`; W1 explicit counted reports one
-resident second-pass pipeline, W2 capture-free reports one packet pipeline,
-one small W8 explicit query reports zero, two small W8 queries report two, the
-real W4 procedural renderer reports one, and the real W8 cutout renderer
-reports two.
+`post_reconstruction_ray_query_pipelines`; at this historical checkpoint W1
+explicit counted reported one resident second-pass pipeline, W2 capture-free
+reported one packet pipeline, one small W8 explicit query reported zero, two
+small W8 queries reported two, the real W4 procedural renderer reported one,
+and the real W8 cutout renderer reported two.
 
-The current DSL is therefore semantically sufficient for this stage. A future
-front-end refinement can emit `RayQueryLoopInst` directly for the canonical
-inline spelling and attach audited effect/capture facts, avoiding CFG pattern
-reconstruction and improving diagnostics. It must remain backend-neutral:
-packet width, the 24-instruction threshold, Embree entry points, and the choice
-between resident, packet, and scheduler routes stay private to the SIMD
-compiler.
+## Frontend-preserved inline ray queries
+
+The frontend refinement is now implemented without adding a semantic AST
+statement or a backend-specific DSL feature. `LoopStmt` carries an optional
+original `$while` condition, while the body retains the same explicit guard.
+AST-to-XIR preflights every marked query loop in a function before preserving
+any of them. It accepts only the exact same-query `PROCEED` guard, immediate
+surface/procedural split, and handler-local structured control; shared shell
+payload, outer exits, nested query/proceed, or one malformed marked candidate
+leaves the complete function on the legacy route. Ordinary enclosing loops are
+not confused with their nested canonical queries. Function duplication keeps
+the hint, while callable serialization may deliberately omit it because the
+explicit guard remains a complete reconstruction oracle.
+
+`benchmark_ast2xir_inline_ray_query` records a four-query DSL kernel. On the
+Ryzen 9 9950X3D host, five independent runs used 500 translations per batch,
+11 alternating rounds, and all 32 logical CPUs available. This final-state
+repeat immediately followed both complete builds; the post-run load average
+was 12.80/14.30/9.73. The table reports the median of the five per-run medians;
+the speedup column is the median paired speedup:
+
+| compile slice | direct median | legacy median | direct speedup |
+| --- | ---: | ---: | ---: |
+| AST-to-XIR translation | 47.080 us | 53.296 us | **1.1320x** |
+| translation + reconstruction | 47.486 us | 59.978 us | **1.2638x** |
+| translation + two verifications + reconstruction | 125.161 us | 154.760 us | **1.2363x** |
+
+Before normalization, direct preservation produces 29 blocks and 373
+instructions versus 45 blocks and 417 instructions for the legacy route: 16
+fewer blocks (35.6%) and 44 fewer instructions (10.6%). Both normalize to the
+same 29-block/373-instruction XIR, and the permanent regression requires their
+complete normalized XIR text, including loop/dispatch comment ownership, to be
+identical. A W2 compiler oracle additionally disables frontend preservation,
+runs the legacy reconstruction and the full SIMD pipeline, and requires the
+captured final assembly to equal the direct route exactly. Consequently this
+stage claims compile-time and diagnostic simplification only, not a runtime
+speedup. The explicit Embree world-ray test passes all 48 assertions on both
+SIMD and fallback after the change.
+
+The analyzer is skipped by the function's existing direct-CallOp bitset when
+`RAY_QUERY_PROCEED` is absent. A second four-ordinary-loop kernel (33 blocks,
+304 instructions) measured 36.687 us with preservation enabled versus 36.684
+us disabled, a paired 0.9987x ratio across the same five runs. This is within
+measurement noise and prevents the query proof from becoming a general DSL
+compile-time tax.
+
+Live canonical DSL queries are now eligible in the first pipeline-selection
+pass and report zero `post_reconstruction_ray_query_pipelines`. That counter is
+retained for serialized/provenance-free ASTs, manual XIR, and the diagnostic
+`LUISA_SIMD_DISABLE_FRONTEND_RAY_QUERY_PRESERVATION=1` oracle. Packet width,
+the 24-instruction threshold, Embree entry points, and resident versus packet
+versus scheduler selection remain private to the SIMD compiler.
 
 Final validation passes the complete configured suite 162/162 in both the
 default Release build and the TBB/system-parallel-for Release build. The

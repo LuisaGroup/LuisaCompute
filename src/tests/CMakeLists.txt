@@ -171,6 +171,8 @@ if (TARGET luisa-compute-simd-llvm)
             unit/simd/benchmark_simd_ray_query.cpp)
     luisa_compute_add_test(benchmark_simd_procedural_ray_query
             unit/simd/benchmark_simd_procedural_ray_query.cpp)
+    luisa_compute_add_test(benchmark_ast2xir_inline_ray_query
+            unit/xir/benchmark_ast2xir_inline_ray_query.cpp)
 
     add_executable(test_simd_llvm_value_layout
             unit/simd/test_llvm_value_layout.cpp)

@@ -209,22 +209,26 @@ Ray-query representation changes are named by their destination. Fallback,
 CUDA, HIP, and coroutine normalization use `lower_ray_query_to_pipeline` to
 outline candidate callbacks. Native SPIR-V uses `lower_ray_query_to_loop` so
 candidate control remains visible to its CFG lowering. SIMD first selects
-profitable structured queries for pipeline lowering, reconstructs only proven
-canonical inline `proceed()` loops, selects profitable reconstructed queries a
-second time, and finally lowers every retained query to an ordinary loop. The
-second selection is therefore an explicit SIMD production boundary, not a
-generic implicit insertion of the inverse adapter.
+profitable structured queries for pipeline lowering, reconstructs any proven
+legacy/provenance-free inline `proceed()` loops, selects profitable newly
+reconstructed queries a second time, and finally lowers every retained query
+to an ordinary loop. The second selection is therefore an explicit SIMD
+production boundary, not a generic implicit insertion of the inverse adapter.
 
 The DSL already preserves the distinction needed by the SIMD pipeline path.
 `traverse(...).on_*().trace()` enters XIR as one structured
 `RayQueryLoopInst`, whose complete handler regions can be outlined into a
-`RayQueryPipelineInst`; `query_all`/`query_any` with explicit `proceed()` makes
-candidate publication observable, but its canonical immediate candidate
-dispatch can be reconstructed into the same structured instruction without
-changing the sequence of handler observations. Any non-canonical use remains
-an ordinary loop or rejects a ray-query-shaped near-match. Before making that
-choice, SIMD forwards single-store callable argument/return scratch so
-front-end-private allocas do not masquerade as semantic callback captures.
+`RayQueryPipelineInst`. The `$while` DSL also retains its original condition as
+non-semantic provenance while leaving the historical explicit guard in the
+AST. AST-to-XIR transactionally proves a canonical `query_all`/`query_any`
+`proceed()` plus immediate candidate dispatch and emits the same
+`RayQueryLoopInst` directly. A malformed marked query in the function disables
+all direct preservation, and provenance-free/serialized ASTs retain the old
+generic-loop plus fail-closed reconstruction path. Any non-canonical use
+remains an ordinary loop or rejects a ray-query-shaped near-match. Before
+pipeline selection, SIMD forwards single-store callable argument/return
+scratch so front-end-private allocas do not masquerade as semantic callback
+captures.
 
 A selected query's surface and procedural regions become internal fixed-vector
 handler functions, and the main packet invokes them with exact sparse
@@ -236,16 +240,15 @@ At W4/W8/W16, one small handler pair remains on the scheduler route unless it
 contains at least 24 XIR instructions or its function has at least two
 capture-eligible query sites. This measured gate retains the small synthetic
 loop where outlining regresses while preserving the two-query cutout and the
-108-instruction procedural renderer handler. Both original structured queries
-and reconstructed canonical `proceed()` loops use this policy.
+108-instruction procedural renderer handler. Original structured queries,
+front-end-preserved canonical loops, and reconstructed legacy loops all use
+this policy.
 
 This is an XIR-to-SIMD callback-ABI specialization, not a reason to expose
-Embree, packet width, or profitability controls in the public DSL. A future
-front-end extension may emit the structured ray-query node directly for the
-canonical inline spelling and retain an audited effect/capture summary. That
-would avoid reconstructing generic CFG and improve diagnostics, but is not a
-semantic prerequisite: the existing DSL already supplies a complete boundary
-whenever the proof succeeds.
+Embree, packet width, or profitability controls in the public DSL. The
+front-end preservation is target-independent and records no packet policy;
+capture analysis, width selection, handler-cost thresholds, and resident versus
+packet execution remain private to each backend.
 
 Callable inlining is a legalization requirement for this backend, not its
 generic cost heuristic. Immediately before the final inline-all pass, the
@@ -2915,8 +2918,9 @@ claimed stable end-to-end speedup.
 to return to the high-level instruction after an explicit loop phase. It
 recognizes both the canonical `LoopInst` shell produced by
 `lower_ray_query_to_loop` and the pre-mem2reg `SimpleLoopInst` emitted by the
-native DSL `$while (query.proceed())` form. The latter must immediately split
-the same query on surface/procedural candidate kind. Both forms require the
+native DSL `$while (query.proceed())` form when its optional provenance was not
+available to AST-to-XIR. The latter must immediately split the same query on
+surface/procedural candidate kind. Both forms require the
 exact `PROCEED`, termination test, canonical latch, and candidate-dispatch
 shell, but permit nested structured control and multiple Branch exits inside
 either handler. The pass preflights every candidate in the whole
@@ -2929,7 +2933,8 @@ SSA PHIs are rejected rather than guessed. Ordinary loops are ignored.
 The DSL exposes this form through affine `query_all`/`query_any` objects, with
 motion variants, explicit `proceed`, candidate-kind tests, typed surface and
 procedural candidate views, termination, world-ray access, and committed-hit
-access. The normalization runs at every XIR backend boundary before aggregate
+access. Live DSL ASTs preserve the proven form directly; the compatibility
+normalization still runs at every XIR backend boundary before aggregate
 promotion or mem2reg: fallback, CUDA, HIP, coroutine, SIMD, native SPIR-V, and
 XIR-to-AST. The existing `traverse` callback builder remains the preferred
 surface when explicit traversal state is unnecessary.
@@ -3662,7 +3667,8 @@ on 2026-08-11. The repository now contains:
   scalar, and reference captures use per-lane local handles; unprofitable
   captured W2/W8/W16 pipelines and non-canonical explicit `proceed()` loops
   retain the ordinary state-machine path, while canonical inline loops are
-  reconstructed and pass through the same selection policy;
+  preserved directly for live DSL ASTs or reconstructed for legacy ASTs, then
+  pass through the same selection policy;
 - a fail-closed W4/W8/W16 loop-route ray-query status sidecar, also required by
   the direct W2 path, colored with query scratch liveness, that keeps
   terminated/surface/procedural masks in one JIT scalar, publishes validity

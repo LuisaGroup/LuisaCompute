@@ -77,13 +77,16 @@ namespace detail {
 ///
 /// Unlike RayQueryProxy, constructing this object does not append a
 /// RayQueryStmt. The caller advances it explicitly with proceed(). This is
-/// useful for frontends and optimizers that need the candidate loop to remain
-/// visible before XIR ray-query normalization. The portable control-flow form
-/// is `$while (query.proceed())` with an immediate if/else split on
-/// is_surface_candidate() or is_procedural_candidate() for the same query.
-/// Payload outside those two arms is deliberately rejected by backends that
-/// reconstruct callback pipelines; use the higher-level traverse() builder
-/// when explicit traversal state is not required.
+/// useful when the candidate loop must remain explicit in the DSL. The
+/// portable control-flow form is `$while (query.proceed())` with an immediate
+/// if/else split on is_surface_candidate() or is_procedural_candidate() for the
+/// same query. The DSL retains the ordinary explicit guard and also records a
+/// non-semantic while-condition hint; AST-to-XIR may prove the complete shape
+/// transactionally and emit RayQueryLoopInst directly. Consumers that ignore
+/// or serialize away the hint still see the historical loop and can use the
+/// fail-closed XIR reconstruction pass. Payload outside the two candidate arms
+/// is deliberately rejected by structured lowering; use the higher-level
+/// traverse() builder when explicit traversal state is not required.
 template<bool terminate_on_first>
 class LUISA_DSL_API InlineRayQuery {
 

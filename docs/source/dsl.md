@@ -966,6 +966,16 @@ builder-pattern `traverse()` API when explicit traversal state is unnecessary;
 unlike that structured form, every successful `proceed()` is observable and
 must not be silently fused across user code.
 
+The `$while` DSL records its original condition as optimization provenance
+while retaining the same explicit guard in the AST. AST-to-XIR preflights all
+marked query loops in a function before changing representation. If every
+candidate has the exact shape above, it emits `RayQueryLoopInst` directly; a
+malformed or unsupported candidate leaves the complete function on the
+ordinary-loop route. Serialized ASTs and other producers may omit the hint:
+the explicit guard remains authoritative and the fail-closed XIR
+reconstruction pass provides the compatibility path. This frontend boundary
+does not encode SIMD width, Embree ABI, or backend profitability policy.
+
 ## Runtime Polymorphism
 
 `Polymorphic<T>` provides tag-based runtime dispatch, enabling virtual-function-like behavior in GPU kernels. Since GPUs don't support C++ virtual dispatch, `Polymorphic<T>` generates a `$switch` over integer tags at kernel tracing time, routing each tag to its registered implementation.

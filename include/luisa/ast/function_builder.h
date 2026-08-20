@@ -442,6 +442,12 @@ public:
     [[nodiscard]] IfStmt *if_(const Expression *cond) noexcept;
     /// Add loop statement
     [[nodiscard]] LoopStmt *loop_() noexcept;
+    /// Record the original condition of a loop created by the DSL $while
+    /// spelling. This is optimization provenance only; the loop body must
+    /// still contain the ordinary explicit guard.
+    void mark_loop_as_while(LoopStmt *loop,
+                            const Expression *condition,
+                            size_t condition_statement_count) noexcept;
     /// Add switch statement
     [[nodiscard]] SwitchStmt *switch_(const Expression *expr) noexcept;
     /// Add case statement

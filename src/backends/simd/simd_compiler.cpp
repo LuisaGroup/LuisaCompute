@@ -603,7 +603,10 @@ SIMDCompiledKernel compile_simd_kernel(
     uint32_t dispatch_worker_count,
     bool enable_packet_batch_entry,
     bool enable_block_batch_entry) {
-    auto *translation = xir::ast_to_xir_translate_begin({});
+    auto *translation = xir::ast_to_xir_translate_begin(
+        {.preserve_inline_ray_query_loops =
+             !detail::env_flag(
+                 "LUISA_SIMD_DISABLE_FRONTEND_RAY_QUERY_PRESERVATION")});
     auto *xir_kernel = xir::ast_to_xir_translate_add_function(
         translation, kernel);
     auto module = xir::ast_to_xir_translate_finalize(translation);

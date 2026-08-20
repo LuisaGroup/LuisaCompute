@@ -18,6 +18,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
 
 using namespace luisa;
@@ -762,7 +763,7 @@ void register_tests() {
         expect_frontend_round_trip(std::move(module), 2u, 1u);
     };
 
-    "frontend_dsl_inline_query_exposes_explicit_proceed_loop"_test = [] {
+    "frontend_dsl_inline_query_preserves_structured_loop"_test = [] {
         Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
             auto index = dispatch_x();
             auto ray = make_ray(
@@ -790,6 +791,18 @@ void register_tests() {
             output.write(
                 index, callback_weight + committed->prim);
         };
+        const LoopStmt *marked_loop = nullptr;
+        for (auto statement :
+             kernel.function()->function().body()->statements()) {
+            if (statement->tag() == Statement::Tag::LOOP) {
+                marked_loop = static_cast<const LoopStmt *>(statement);
+                break;
+            }
+        }
+        expect(marked_loop != nullptr);
+        if (marked_loop != nullptr) {
+            expect(marked_loop->while_condition() != nullptr);
+        }
         auto module = ast_to_xir_translate(
             kernel.function()->function(), {});
         expect(module != nullptr);
@@ -801,10 +814,10 @@ void register_tests() {
         auto *definition = translated_kernel->definition();
         expect(count_terminators(
                    definition,
-                   DerivedInstructionTag::SIMPLE_LOOP) == 1u);
+                   DerivedInstructionTag::SIMPLE_LOOP) == 0u);
         expect(count_terminators(
                    definition,
-                   DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 1u);
         auto proceed_count = 0u;
         definition->traverse_instructions(
             [&](Instruction *instruction) noexcept {
@@ -816,14 +829,14 @@ void register_tests() {
                     ++proceed_count;
                 }
             });
-        expect(proceed_count == 1u);
+        expect(proceed_count == 0u);
 
         auto reconstruct =
             reconstruct_ray_query_loop_pass_run_on_function(
                 translated_kernel);
         expect(reconstruct.succeeded());
         expect(reconstruct.error_count == 0u);
-        expect(reconstruct.reconstructed_ray_query_loop_count == 1u);
+        expect(reconstruct.reconstructed_ray_query_loop_count == 0u);
         expect(count_terminators(
                    definition,
                    DerivedInstructionTag::SIMPLE_LOOP) == 0u);
@@ -831,6 +844,32 @@ void register_tests() {
                    definition,
                    DerivedInstructionTag::RAY_QUERY_LOOP) == 1u);
         expect(xir_verify_module(module.get()).succeeded());
+
+        auto legacy_module = ast_to_xir_translate(
+            kernel.function()->function(),
+            {.preserve_inline_ray_query_loops = false});
+        expect(legacy_module != nullptr);
+        auto *legacy_kernel = find_kernel(legacy_module.get());
+        expect(legacy_kernel != nullptr);
+        if (legacy_kernel != nullptr) {
+            auto *legacy_definition = legacy_kernel->definition();
+            expect(count_terminators(
+                       legacy_definition,
+                       DerivedInstructionTag::SIMPLE_LOOP) == 1u);
+            expect(count_terminators(
+                       legacy_definition,
+                       DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+            auto legacy_reconstruct =
+                reconstruct_ray_query_loop_pass_run_on_function(
+                    legacy_kernel);
+            expect(legacy_reconstruct.succeeded());
+            expect(legacy_reconstruct.error_count == 0u);
+            expect(legacy_reconstruct.reconstructed_ray_query_loop_count ==
+                   1u);
+            expect(xir_verify_module(legacy_module.get()).succeeded());
+            expect(xir_to_text_translate(module.get(), false) ==
+                   xir_to_text_translate(legacy_module.get(), false));
+        }
 
         auto lower = lower_ray_query_to_loop_pass_run_on_function(
             translated_kernel);
@@ -879,11 +918,17 @@ void register_tests() {
         if (translated_kernel == nullptr) { return; }
         expect(xir_verify_module(module.get()).succeeded());
 
+        expect(count_terminators(
+                   translated_kernel->definition(),
+                   DerivedInstructionTag::SIMPLE_LOOP) == 0u);
+        expect(count_terminators(
+                   translated_kernel->definition(),
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 1u);
         auto reconstruct =
             reconstruct_ray_query_loop_pass_run_on_function(
                 translated_kernel);
         expect(reconstruct.succeeded());
-        expect(reconstruct.reconstructed_ray_query_loop_count == 1u);
+        expect(reconstruct.reconstructed_ray_query_loop_count == 0u);
         auto saw_query_any = false;
         translated_kernel->definition()->traverse_instructions(
             [&](Instruction *instruction) noexcept {
@@ -906,6 +951,81 @@ void register_tests() {
                    translated_kernel->definition(),
                    DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
         expect(xir_verify_module(module.get()).succeeded());
+    };
+
+    "frontend_dsl_inline_query_nested_in_ordinary_while_is_preserved"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f));
+            UInt outer_iteration = 0u;
+            UInt result = 0u;
+            $while (outer_iteration < 2u) {
+                auto query = accel.query_all(ray, {});
+                $while (query.proceed()) {
+                    $if (query.is_surface_candidate()) {
+                        auto candidate = query.surface_candidate();
+                        for (auto inner : dynamic_range(2u)) {
+                            result += candidate.hit()->prim + inner;
+                        }
+                        candidate.commit();
+                    }
+                    $else {
+                        auto candidate = query.procedural_candidate();
+                        result += candidate.hit()->prim;
+                        candidate.commit(1.0f);
+                    };
+                };
+                result += query.committed_hit()->prim;
+                outer_iteration += 1u;
+            };
+            output.write(index, result);
+        };
+
+        auto direct = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto legacy = ast_to_xir_translate(
+            kernel.function()->function(),
+            {.preserve_inline_ray_query_loops = false});
+        expect(direct != nullptr);
+        expect(legacy != nullptr);
+        if (direct == nullptr || legacy == nullptr) { return; }
+        auto *direct_kernel = find_kernel(direct.get());
+        auto *legacy_kernel = find_kernel(legacy.get());
+        expect(direct_kernel != nullptr);
+        expect(legacy_kernel != nullptr);
+        if (direct_kernel == nullptr || legacy_kernel == nullptr) { return; }
+
+        expect(count_terminators(
+                   direct_kernel->definition(),
+                   DerivedInstructionTag::SIMPLE_LOOP) == 1u);
+        expect(count_terminators(
+                   direct_kernel->definition(),
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 1u);
+        expect(count_terminators(
+                   legacy_kernel->definition(),
+                   DerivedInstructionTag::SIMPLE_LOOP) == 2u);
+        expect(count_terminators(
+                   legacy_kernel->definition(),
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+
+        auto direct_reconstruct =
+            reconstruct_ray_query_loop_pass_run_on_function(
+                direct_kernel);
+        auto legacy_reconstruct =
+            reconstruct_ray_query_loop_pass_run_on_function(
+                legacy_kernel);
+        expect(direct_reconstruct.succeeded());
+        expect(direct_reconstruct.reconstructed_ray_query_loop_count ==
+               0u);
+        expect(legacy_reconstruct.succeeded());
+        expect(legacy_reconstruct.reconstructed_ray_query_loop_count ==
+               1u);
+        expect(xir_verify_module(direct.get()).succeeded());
+        expect(xir_verify_module(legacy.get()).succeeded());
+        expect(xir_to_text_translate(direct.get(), false) ==
+               xir_to_text_translate(legacy.get(), false));
     };
 
     "frontend_dsl_inline_query_without_candidate_split_rejects_atomically"_test = [] {
@@ -966,8 +1086,15 @@ void register_tests() {
                 };
             };
             auto malformed = accel.query_any(ray, {});
-            $while (malformed.proceed()) {
-                result += 1u;
+            $while (malformed.proceed() & (index == index)) {
+                $if (malformed.is_surface_candidate()) {
+                    result += 1u;
+                    malformed.surface_candidate().terminate();
+                }
+                $else {
+                    result += 2u;
+                    malformed.procedural_candidate().terminate();
+                };
             };
             output.write(
                 index,

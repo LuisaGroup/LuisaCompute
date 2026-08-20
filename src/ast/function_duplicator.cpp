@@ -430,7 +430,16 @@ private:
             case Statement::Tag::LOOP: {
                 auto s = static_cast<const LoopStmt *>(stmt);
                 auto loop = fb->loop_();
+                auto condition = s->while_condition();
+                auto duplicated_condition = condition == nullptr ?
+                                                nullptr :
+                                                _dup_expr(condition);
                 _dup_scope(s->body(), loop->body());
+                if (duplicated_condition != nullptr) {
+                    fb->mark_loop_as_while(
+                        loop, duplicated_condition,
+                        s->while_condition_statement_count());
+                }
                 break;
             }
             case Statement::Tag::EXPR: {

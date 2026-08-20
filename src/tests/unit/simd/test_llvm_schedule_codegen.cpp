@@ -7603,11 +7603,33 @@ void ray_query_filter_pipeline_w1_probe(
     CHECK(explicit_compiled.resident_ray_query_pipeline_count == 0u);
     auto explicit_compiled_w2 = compile_simd_kernel(
         explicit_proceed.function()->function(), 2u,
-        "simd_ast_explicit_proceed_reconstructed_pipeline_w2");
+        "simd_ast_explicit_proceed_preserved_pipeline_w2");
     CHECK(explicit_compiled_w2.succeeded());
     CHECK(explicit_compiled_w2.direct_ray_query_pipeline_count == 1u);
-    CHECK(explicit_compiled_w2.post_reconstruction_ray_query_pipeline_count == 1u);
+    CHECK(explicit_compiled_w2.post_reconstruction_ray_query_pipeline_count == 0u);
     CHECK(explicit_compiled_w2.resident_ray_query_pipeline_count == 0u);
+    auto direct_assembly = compile_simd_kernel(
+        explicit_proceed.function()->function(), 2u,
+        "simd_ast_explicit_proceed_assembly_oracle_w2",
+        false, true);
+    SIMDCompiledKernel legacy_assembly;
+    {
+        ScopedEnvironmentVariable disable_frontend_preservation{
+            "LUISA_SIMD_DISABLE_FRONTEND_RAY_QUERY_PRESERVATION",
+            "1"};
+        legacy_assembly = compile_simd_kernel(
+            explicit_proceed.function()->function(), 2u,
+            "simd_ast_explicit_proceed_assembly_oracle_w2",
+            false, true);
+    }
+    CHECK(direct_assembly.succeeded());
+    CHECK(legacy_assembly.succeeded());
+    CHECK(direct_assembly.post_reconstruction_ray_query_pipeline_count ==
+          0u);
+    CHECK(legacy_assembly.post_reconstruction_ray_query_pipeline_count ==
+          1u);
+    CHECK(!direct_assembly.assembly.empty());
+    CHECK(direct_assembly.assembly == legacy_assembly.assembly);
 
     Kernel1D two_explicit_queries = [](
                                         AccelVar accel,
@@ -7645,10 +7667,10 @@ void ray_query_filter_pipeline_w1_probe(
     };
     auto two_explicit_compiled = compile_simd_kernel(
         two_explicit_queries.function()->function(), 8u,
-        "simd_ast_two_explicit_reconstructed_pipelines_w8");
+        "simd_ast_two_explicit_preserved_pipelines_w8");
     CHECK(two_explicit_compiled.succeeded());
     CHECK(two_explicit_compiled.direct_ray_query_pipeline_count == 2u);
-    CHECK(two_explicit_compiled.post_reconstruction_ray_query_pipeline_count == 2u);
+    CHECK(two_explicit_compiled.post_reconstruction_ray_query_pipeline_count == 0u);
 
     Kernel1D explicit_captured = [](
                                      AccelVar accel,
@@ -7682,7 +7704,7 @@ void ray_query_filter_pipeline_w1_probe(
     CHECK(explicit_captured_w1.succeeded());
     CHECK(explicit_captured_w4.succeeded());
     CHECK(explicit_captured_w1.direct_ray_query_pipeline_count == 1u);
-    CHECK(explicit_captured_w1.post_reconstruction_ray_query_pipeline_count == 1u);
+    CHECK(explicit_captured_w1.post_reconstruction_ray_query_pipeline_count == 0u);
     CHECK(explicit_captured_w1.resident_ray_query_pipeline_count == 1u);
     CHECK(explicit_captured_w4.direct_ray_query_pipeline_count == 0u);
     CHECK(explicit_captured_w4.post_reconstruction_ray_query_pipeline_count == 0u);
@@ -7723,7 +7745,7 @@ void ray_query_filter_pipeline_w1_probe(
         "simd_ast_explicit_complex_captured_pipeline_w4");
     CHECK(explicit_complex_w4.succeeded());
     CHECK(explicit_complex_w4.direct_ray_query_pipeline_count == 1u);
-    CHECK(explicit_complex_w4.post_reconstruction_ray_query_pipeline_count == 1u);
+    CHECK(explicit_complex_w4.post_reconstruction_ray_query_pipeline_count == 0u);
 
     Callable trace_callable = [](
                                   AccelVar accel,
