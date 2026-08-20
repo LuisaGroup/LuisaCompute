@@ -47,8 +47,6 @@ if (LUISA_COMPUTE_HIP_LINKED_LLVM)
             hip_callable_abi.cpp
             hip_private_memory.h
             hip_private_memory.cpp
-            hip_callable_inline_graph.h
-            hip_callable_inline_graph.cpp
             hip_codegen_llvm_impl_inst.cpp
             hip_codegen_llvm_impl_cflow.cpp
             hip_codegen_llvm_impl_arith.cpp
