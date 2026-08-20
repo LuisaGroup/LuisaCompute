@@ -33,6 +33,7 @@
 #include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/reassociate.h>
@@ -364,8 +365,19 @@ void verify_xir_or_error(
 }
 
 void add_lower_ray_query_to_loop(xir::PassPipeline &pipeline) noexcept {
+    pipeline.add("reconstruct-ray-query-loop", [](xir::Module *m,
+                                                  xir::PassReport &r) {
+        auto i = xir::reconstruct_ray_query_loop_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "SPIR-V XIR legalization rejected {} malformed explicit "
+                "ray-query loop(s).",
+                i.error_count);
+        }
+        return i.changed();
+    });
     pipeline.add("lower-ray-query-to-loop", [](xir::Module *m,
-                                                    xir::PassReport &r) {
+                                               xir::PassReport &r) {
         auto i = xir::lower_ray_query_to_loop_pass_run_on_module(m, &r);
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(

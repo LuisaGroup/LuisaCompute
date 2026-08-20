@@ -2879,12 +2879,26 @@ claimed stable end-to-end speedup.
 
 `reconstruct_ray_query_loop` provides a fail-closed inverse for tools that need
 to return to the high-level instruction after an explicit loop phase. It
-requires the exact `PROCEED`, termination test, canonical latch, and
-candidate-dispatch shell, but permits nested structured control and multiple
-Branch exits inside either handler. It preflights every candidate in the whole
+recognizes both the canonical `LoopInst` shell produced by
+`lower_ray_query_to_loop` and the pre-mem2reg `SimpleLoopInst` emitted by the
+native DSL `$while (query.proceed())` form. The latter must immediately split
+the same query on surface/procedural candidate kind. Both forms require the
+exact `PROCEED`, termination test, canonical latch, and candidate-dispatch
+shell, but permit nested structured control and multiple Branch exits inside
+either handler. The pass preflights every candidate in the whole
 function/module before retargeting an edge, repairs the merge PHI predecessor,
 preserves loop/dispatch metadata, synthesizes omitted no-op handlers, and
-rejects a ray-like near-match atomically. Ordinary loops are ignored.
+rejects a ray-like near-match atomically. Shared shell payload, nested
+`PROCEED`, escaping guard temporaries, external predecessors, and loop-carried
+SSA PHIs are rejected rather than guessed. Ordinary loops are ignored.
+
+The DSL exposes this form through affine `query_all`/`query_any` objects, with
+motion variants, explicit `proceed`, candidate-kind tests, typed surface and
+procedural candidate views, termination, world-ray access, and committed-hit
+access. The normalization runs at every XIR backend boundary before aggregate
+promotion or mem2reg: fallback, CUDA, HIP, coroutine, SIMD, native SPIR-V, and
+XIR-to-AST. The existing `traverse` callback builder remains the preferred
+surface when explicit traversal state is unnecessary.
 
 The exact device regression covers surface reject/commit, query-any automatic
 termination, explicit termination, immediate world-ray `t_max` update,

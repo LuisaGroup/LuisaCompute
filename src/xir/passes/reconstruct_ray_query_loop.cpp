@@ -7,10 +7,13 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reconstruct_ray_query_loop.h>
@@ -80,6 +83,23 @@ collect_instructions(BasicBlock *block) noexcept {
     return use_count == 1u;
 }
 
+[[nodiscard]] static bool has_exactly_two_uses_by(
+    Value *value, Instruction *first,
+    Instruction *second) noexcept {
+    auto first_count = 0u;
+    auto second_count = 0u;
+    for (auto *use : value->use_list()) {
+        if (use->user() == first) {
+            ++first_count;
+        } else if (use->user() == second) {
+            ++second_count;
+        } else {
+            return false;
+        }
+    }
+    return first_count == 1u && second_count == 1u;
+}
+
 struct ReconstructHandlerRegion {
     luisa::unordered_set<BasicBlock *> blocks;
     luisa::vector<BranchInst *> exits;
@@ -87,6 +107,7 @@ struct ReconstructHandlerRegion {
 
 struct ReconstructCandidate {
     LoopInst *loop{nullptr};
+    SimpleLoopInst *inline_loop{nullptr};
     BasicBlock *parent{nullptr};
     BasicBlock *prepare{nullptr};
     BasicBlock *body{nullptr};
@@ -100,6 +121,8 @@ struct ReconstructCandidate {
     bool procedural_empty{false};
     ReconstructHandlerRegion surface_region;
     ReconstructHandlerRegion procedural_region;
+    BasicBlock *inline_break{nullptr};
+    BasicBlock *inline_relay{nullptr};
 };
 
 enum class ReconstructMatch {
@@ -393,6 +416,288 @@ enum class ReconstructMatch {
     return ReconstructMatch::accepted;
 }
 
+[[nodiscard]] static ReconstructMatch
+match_frontend_inline_ray_query_loop(
+    SimpleLoopInst *loop, ReconstructCandidate &candidate,
+    luisa::string_view &reason) noexcept {
+    if (loop == nullptr) { return ReconstructMatch::ignored; }
+    auto *loop_body = loop->body_block();
+    if (!block_contains_ray_query_proceed(loop_body)) {
+        return ReconstructMatch::ignored;
+    }
+    auto reject = [&](luisa::string_view message) noexcept {
+        reason = message;
+        return ReconstructMatch::rejected;
+    };
+    auto *parent = loop->parent_block();
+    auto *merge = loop->merge_block();
+    if (parent == nullptr || loop_body == nullptr || merge == nullptr) {
+        return reject("frontend ray-query loop has a null structural block");
+    }
+    auto *function = parent->parent_function();
+    if (function == nullptr || loop_body->parent_function() != function ||
+        merge->parent_function() != function || parent == loop_body ||
+        parent == merge || loop_body == merge) {
+        return reject("frontend ray-query loop has invalid block ownership");
+    }
+
+    // The native DSL `$while (query.proceed())` guard translates to:
+    //
+    //   PROCEED(query)
+    //   terminated = IS_TERMINATED(query)
+    //   active = !terminated
+    //   should_break = !active
+    //   if (should_break) break
+    //
+    // Algebraic cleanup may remove both NOTs, so accept either zero or two,
+    // but never one: one NOT would invert the loop termination semantics.
+    auto loop_body_instructions = collect_instructions(loop_body);
+    if (loop_body_instructions.size() < 3u ||
+        !is_ray_query_write(
+            loop_body_instructions[0u],
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED)) {
+        return reject("frontend ray-query loop guard is not canonical");
+    }
+    auto *query = loop_body_instructions[0u]->operand(0u);
+    if (!is_ray_query_object(query) ||
+        !is_ray_query_read(
+            loop_body_instructions[1u],
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
+            query)) {
+        return reject("frontend ray-query guard does not use one valid query object");
+    }
+    auto *guard_value = loop_body_instructions[1u];
+    auto guard_value_index = 2u;
+    auto not_count = 0u;
+    while (guard_value_index + 1u < loop_body_instructions.size() &&
+           loop_body_instructions[guard_value_index]
+               ->isa<ArithmeticInst>()) {
+        auto *not_inst = static_cast<ArithmeticInst *>(
+            loop_body_instructions[guard_value_index]);
+        if (not_inst->op() != ArithmeticOp::UNARY_BIT_NOT ||
+            not_inst->operand_count() != 1u ||
+            not_inst->operand(0u) != guard_value ||
+            not_inst->type() != Type::of<bool>() ||
+            !has_exactly_one_use_by(guard_value, not_inst)) {
+            break;
+        }
+        guard_value = not_inst;
+        ++guard_value_index;
+        ++not_count;
+    }
+    if (not_count != 0u && not_count != 2u) {
+        return reject("frontend ray-query loop termination test is not canonical");
+    }
+    // The generic DSL unary operator materializes its result as a temporary
+    // Var<bool>. Match that one private store/load pair, but require the local
+    // to have no other users so deleting the shell cannot alter user state.
+    if (guard_value_index + 2u < loop_body_instructions.size() &&
+        loop_body_instructions[guard_value_index]->isa<StoreInst>() &&
+        loop_body_instructions[guard_value_index + 1u]->isa<LoadInst>()) {
+        auto *store = static_cast<StoreInst *>(
+            loop_body_instructions[guard_value_index]);
+        auto *load = static_cast<LoadInst *>(
+            loop_body_instructions[guard_value_index + 1u]);
+        if (store->value() != guard_value ||
+            load->variable() != store->variable() ||
+            load->type() != Type::of<bool>() ||
+            !has_exactly_one_use_by(guard_value, store) ||
+            !has_exactly_two_uses_by(
+                store->variable(), store, load)) {
+            return reject("frontend ray-query loop guard temporary escapes its shell");
+        }
+        guard_value = load;
+        guard_value_index += 2u;
+    }
+    if (guard_value_index + 1u != loop_body_instructions.size() ||
+        !loop_body_instructions[guard_value_index]->isa<IfInst>()) {
+        return reject("frontend ray-query loop termination test is not canonical");
+    }
+    auto *guard_if = static_cast<IfInst *>(
+        loop_body_instructions[guard_value_index]);
+    if (guard_if->condition() != guard_value ||
+        !has_exactly_one_use_by(guard_value, guard_if)) {
+        return reject("frontend ray-query loop guard condition escapes its shell");
+    }
+
+    auto *break_block = guard_if->true_block();
+    auto *relay_block = guard_if->false_block();
+    auto *candidate_block = guard_if->merge_block();
+    if (break_block == nullptr || relay_block == nullptr ||
+        candidate_block == nullptr) {
+        return reject("frontend ray-query loop guard has a null branch or merge");
+    }
+    auto break_instructions = collect_instructions(break_block);
+    auto relay_instructions = collect_instructions(relay_block);
+    if (break_instructions.size() != 1u ||
+        !break_instructions.front()->isa<BreakInst>() ||
+        static_cast<BreakInst *>(break_instructions.front())
+                ->target_block() != merge ||
+        relay_instructions.size() != 1u ||
+        !relay_instructions.front()->isa<BranchInst>() ||
+        static_cast<BranchInst *>(relay_instructions.front())
+                ->target_block() != candidate_block) {
+        return reject("frontend ray-query loop guard is not break/relay canonical");
+    }
+
+    // The loop body must dispatch the published candidate exactly once. Both
+    // public predicates are accepted, as is one explicit logical negation.
+    auto candidate_instructions = collect_instructions(candidate_block);
+    if (candidate_instructions.size() < 2u ||
+        candidate_instructions.size() > 3u ||
+        !candidate_instructions.front()->isa<RayQueryObjectReadInst>()) {
+        return reject("frontend ray-query candidate dispatch is not canonical");
+    }
+    auto *candidate_read = static_cast<RayQueryObjectReadInst *>(
+        candidate_instructions.front());
+    if (candidate_read->operand_count() != 1u ||
+        candidate_read->operand(0u) != query ||
+        candidate_read->type() != Type::of<bool>() ||
+        (candidate_read->op() != RayQueryObjectReadOp::
+                                     RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE &&
+         candidate_read->op() != RayQueryObjectReadOp::
+                                     RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE)) {
+        return reject("frontend candidate predicate uses a different query object");
+    }
+    auto *candidate_condition = static_cast<Instruction *>(candidate_read);
+    auto candidate_if_index = 1u;
+    auto candidate_negated = false;
+    if (candidate_instructions.size() == 3u) {
+        if (!candidate_instructions[1u]->isa<ArithmeticInst>()) {
+            return reject("frontend candidate predicate negation is malformed");
+        }
+        auto *not_inst = static_cast<ArithmeticInst *>(
+            candidate_instructions[1u]);
+        if (not_inst->op() != ArithmeticOp::UNARY_BIT_NOT ||
+            not_inst->operand_count() != 1u ||
+            not_inst->operand(0u) != candidate_read ||
+            not_inst->type() != Type::of<bool>() ||
+            !has_exactly_one_use_by(candidate_read, not_inst)) {
+            return reject("frontend candidate predicate negation is malformed");
+        }
+        candidate_condition = not_inst;
+        candidate_if_index = 2u;
+        candidate_negated = true;
+    }
+    if (!candidate_instructions[candidate_if_index]->isa<IfInst>()) {
+        return reject("frontend candidate predicate does not terminate in an IfInst");
+    }
+    auto *candidate_if = static_cast<IfInst *>(
+        candidate_instructions[candidate_if_index]);
+    if (candidate_if->condition() != candidate_condition ||
+        !has_exactly_one_use_by(candidate_condition, candidate_if)) {
+        return reject("frontend candidate predicate escapes its dispatch shell");
+    }
+    auto *latch = candidate_if->merge_block();
+    auto *true_entry = candidate_if->true_block();
+    auto *false_entry = candidate_if->false_block();
+    if (latch == nullptr || true_entry == nullptr || false_entry == nullptr) {
+        return reject("frontend candidate dispatch has a null branch or merge");
+    }
+    auto true_is_surface =
+        candidate_read->op() == RayQueryObjectReadOp::
+                                    RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE;
+    true_is_surface ^= candidate_negated;
+    auto *surface_entry = true_is_surface ? true_entry : false_entry;
+    auto *procedural_entry = true_is_surface ? false_entry : true_entry;
+
+    auto latch_instructions = collect_instructions(latch);
+    if (latch_instructions.size() != 1u ||
+        !latch_instructions.front()->isa<BranchInst>() ||
+        static_cast<BranchInst *>(latch_instructions.front())
+                ->target_block() != loop_body) {
+        return reject("frontend ray-query loop latch is not canonical");
+    }
+
+    std::array shell_blocks{
+        parent, loop_body, break_block, relay_block,
+        candidate_block, latch, merge};
+    for (auto i = 0u; i < shell_blocks.size(); i++) {
+        if (shell_blocks[i] == nullptr ||
+            shell_blocks[i]->parent_function() != function) {
+            return reject("frontend ray-query shell crosses a function boundary");
+        }
+        for (auto j = i + 1u; j < shell_blocks.size(); j++) {
+            if (shell_blocks[i] == shell_blocks[j]) {
+                return reject("frontend ray-query shell aliases structural blocks");
+            }
+        }
+    }
+
+    ReconstructHandlerRegion surface_region;
+    ReconstructHandlerRegion procedural_region;
+    if (!collect_handler_region(
+            surface_entry, candidate_block, latch,
+            surface_region, reason) ||
+        !collect_handler_region(
+            procedural_entry, candidate_block, latch,
+            procedural_region, reason)) {
+        return ReconstructMatch::rejected;
+    }
+    if (handler_regions_overlap(surface_region, procedural_region)) {
+        return reject("frontend surface and procedural handler regions overlap");
+    }
+    for (auto *block : surface_region.blocks) {
+        if (block_contains_ray_query_proceed(block)) {
+            return reject("frontend surface handler contains a nested PROCEED");
+        }
+    }
+    for (auto *block : procedural_region.blocks) {
+        if (block_contains_ray_query_proceed(block)) {
+            return reject("frontend procedural handler contains a nested PROCEED");
+        }
+    }
+
+    std::array loop_body_predecessors{parent, latch};
+    std::array guard_arm_predecessors{loop_body};
+    std::array candidate_predecessors{relay_block};
+    if (!predecessors_are_subset_of(
+            loop_body, luisa::span{loop_body_predecessors}) ||
+        !predecessors_are_subset_of(
+            break_block, luisa::span{guard_arm_predecessors}) ||
+        !predecessors_are_subset_of(
+            relay_block, luisa::span{guard_arm_predecessors}) ||
+        !predecessors_are_subset_of(
+            candidate_block, luisa::span{candidate_predecessors})) {
+        return reject("frontend ray-query shell has an external predecessor");
+    }
+    luisa::vector<BasicBlock *> latch_predecessors;
+    for (auto *exit : surface_region.exits) {
+        latch_predecessors.emplace_back(exit->parent_block());
+    }
+    for (auto *exit : procedural_region.exits) {
+        latch_predecessors.emplace_back(exit->parent_block());
+    }
+    if (!predecessors_are_subset_of(
+            latch, luisa::span{latch_predecessors})) {
+        return reject("frontend ray-query latch has an external predecessor");
+    }
+    std::array merge_predecessors{break_block};
+    if (!predecessors_are_subset_of(
+            merge, luisa::span{merge_predecessors})) {
+        return reject("frontend ray-query merge has an external predecessor");
+    }
+
+    candidate = ReconstructCandidate{
+        .inline_loop = loop,
+        .parent = parent,
+        .prepare = loop_body,
+        .body = candidate_block,
+        .update = latch,
+        .merge = merge,
+        .query = query,
+        .candidate_dispatch = candidate_if,
+        .surface_entry = surface_entry,
+        .procedural_entry = procedural_entry,
+        .surface_empty = false,
+        .procedural_empty = false,
+        .surface_region = std::move(surface_region),
+        .procedural_region = std::move(procedural_region),
+        .inline_break = break_block,
+        .inline_relay = relay_block};
+    return ReconstructMatch::accepted;
+}
+
 static void replace_phi_predecessor(
     BasicBlock *block, BasicBlock *old_predecessor,
     BasicBlock *new_predecessor) noexcept {
@@ -412,10 +717,19 @@ static void reconstruct_candidate(
     ReconstructCandidate &candidate,
     ReconstructRayQueryLoopInfo &info) noexcept {
     XIRBuilder builder;
-    auto removed_loop = candidate.loop->remove_self();
-    builder.set_insertion_point(candidate.parent);
-    auto *ray_query_loop = builder.ray_query_loop();
-    clone_metadata(*removed_loop, *ray_query_loop);
+    auto is_inline = candidate.inline_loop != nullptr;
+    RayQueryLoopInst *ray_query_loop = nullptr;
+    if (is_inline) {
+        auto removed_loop = candidate.inline_loop->remove_self();
+        builder.set_insertion_point(candidate.parent);
+        ray_query_loop = builder.ray_query_loop();
+        clone_metadata(*removed_loop, *ray_query_loop);
+    } else {
+        auto removed_loop = candidate.loop->remove_self();
+        builder.set_insertion_point(candidate.parent);
+        ray_query_loop = builder.ray_query_loop();
+        clone_metadata(*removed_loop, *ray_query_loop);
+    }
     ray_query_loop->set_merge_block(candidate.merge);
     auto *dispatch_block = ray_query_loop->create_dispatch_block();
     builder.set_insertion_point(dispatch_block);
@@ -453,18 +767,25 @@ static void reconstruct_candidate(
     retarget_exits(candidate.surface_region);
     retarget_exits(candidate.procedural_region);
     replace_phi_predecessor(
-        candidate.merge, candidate.prepare, dispatch_block);
+        candidate.merge,
+        is_inline ?
+            candidate.inline_break :
+            candidate.prepare,
+        dispatch_block);
 
-    removed_loop = nullptr;
-    // Detach all users before unlinking the three generated shell blocks.
-    for (auto *block : {
-             candidate.prepare, candidate.body, candidate.update}) {
+    luisa::vector<BasicBlock *> shell_blocks{
+        candidate.prepare, candidate.body, candidate.update};
+    if (is_inline) {
+        shell_blocks.emplace_back(candidate.inline_break);
+        shell_blocks.emplace_back(candidate.inline_relay);
+    }
+    // Detach all users before unlinking the generated shell blocks.
+    for (auto *block : shell_blocks) {
         while (!block->instructions().empty()) {
             block->instructions().back()->remove_self();
         }
     }
-    for (auto *block : {
-             candidate.prepare, candidate.body, candidate.update}) {
+    for (auto *block : shell_blocks) {
         block->remove_self();
     }
     ++info.reconstructed_ray_query_loop_count;
@@ -480,19 +801,25 @@ static void preflight_function(
     ReconstructRayQueryLoopInfo &info) noexcept {
     work.function = function;
     if (function == nullptr || function->definition() == nullptr) { return; }
-    luisa::vector<LoopInst *> loops;
+    luisa::vector<Instruction *> loops;
     for (auto *block : function->definition()->basic_blocks()) {
         if (block->is_terminated() &&
-            block->terminator()->isa<LoopInst>()) {
-            loops.emplace_back(
-                static_cast<LoopInst *>(block->terminator()));
+            (block->terminator()->isa<LoopInst>() ||
+             block->terminator()->isa<SimpleLoopInst>())) {
+            loops.emplace_back(block->terminator());
         }
     }
     for (auto *loop : loops) {
         ReconstructCandidate candidate;
         luisa::string_view reason;
-        switch (match_canonical_ray_query_loop(
-            loop, candidate, reason)) {
+        auto match = loop->isa<LoopInst>() ?
+                         match_canonical_ray_query_loop(
+                             static_cast<LoopInst *>(loop),
+                             candidate, reason) :
+                         match_frontend_inline_ray_query_loop(
+                             static_cast<SimpleLoopInst *>(loop),
+                             candidate, reason);
+        switch (match) {
             case ReconstructMatch::ignored:
                 ++info.ignored_loop_count;
                 break;

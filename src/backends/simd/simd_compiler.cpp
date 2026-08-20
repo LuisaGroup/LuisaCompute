@@ -21,6 +21,7 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_ray_query_to_loop.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/translators/ast2xir.h>
@@ -328,6 +329,16 @@ SIMDCompiledKernel compile_simd_kernel(
     if (module == nullptr || xir_kernel == nullptr) {
         SIMDCompiledKernel result{.warp_width = warp_width};
         result.diagnostics.emplace_back("AST to XIR translation failed");
+        return result;
+    }
+    auto inline_ray_query =
+        xir::reconstruct_ray_query_loop_pass_run_on_module(
+            module.get());
+    if (!inline_ray_query.succeeded()) {
+        SIMDCompiledKernel result{.warp_width = warp_width};
+        result.diagnostics.emplace_back(
+            "XIR explicit ray-query reconstruction failed (errors=" +
+            std::to_string(inline_ray_query.error_count) + ")");
         return result;
     }
     auto aggregate_promotion_info = xir::SROAInfo{};

@@ -924,6 +924,41 @@ Callable shadow_test = [&](Var<Accel> accel, Var<Ray> ray,
 
 You can register handlers in any order — either `.on_surface_candidate()` first or `.on_procedural_candidate()` first. You may also omit a handler entirely if your scene only contains triangles or only procedural geometry.
 
+### Explicit Query Loops
+
+The lower-level `query_all()` and `query_any()` APIs expose the traversal state
+when an algorithm needs to spell out `proceed()` explicitly. Motion variants
+are available as `query_all_motion()` and `query_any_motion()`.
+
+```cpp
+auto query = accel.query_all(ray, AccelTraceOptions{});
+$while (query.proceed()) {
+    $if (query.is_surface_candidate()) {
+        auto candidate = query.surface_candidate();
+        $if (accept_surface(candidate.hit())) {
+            candidate.commit();
+        };
+    }
+    $else {
+        auto candidate = query.procedural_candidate();
+        Float distance = intersect_procedural(candidate.ray(), candidate.hit());
+        $if (distance >= 0.0f) {
+            candidate.commit(distance);
+        };
+    };
+};
+auto hit = query.committed_hit();
+```
+
+Explicit query objects are affine and cannot be copied. For portable backend
+lowering, the loop must use the exact `$while (query.proceed())` guard and
+immediately split the published candidate with an if/else on
+`is_surface_candidate()` or `is_procedural_candidate()` for that same query.
+Candidate work belongs in those two arms. A shared payload before or after the
+split, a cross-boundary `break`/`continue`/`return`, or a nested `proceed()` is
+rejected instead of being assigned backend-dependent semantics. Prefer the
+builder-pattern `traverse()` API when explicit traversal state is unnecessary.
+
 ## Runtime Polymorphism
 
 `Polymorphic<T>` provides tag-based runtime dispatch, enabling virtual-function-like behavior in GPU kernels. Since GPUs don't support C++ virtual dispatch, `Polymorphic<T>` generates a `$switch` over integer tags at kernel tracing time, routing each tag to its registered implementation.

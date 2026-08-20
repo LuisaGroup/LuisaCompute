@@ -22,11 +22,16 @@ struct ReconstructRayQueryLoopInfo {
     }
 };
 
-// Reconstructs RayQueryLoopInst from the canonical structured proceed loop
-// produced by lower_ray_query_to_loop. Ordinary loops are ignored. A loop
-// containing RAY_QUERY_OBJECT_PROCEED but not satisfying the complete canonical
-// shape is treated as a malformed near-match and rejected without mutation.
-// Every candidate in the function/module is preflighted before the first edit.
+// Reconstructs RayQueryLoopInst from either the canonical LoopInst proceed shell
+// produced by lower_ray_query_to_loop or the canonical pre-mem2reg SimpleLoopInst
+// emitted for the native DSL `$while (query.proceed())` form. The frontend form
+// must immediately dispatch the same query with a surface/procedural if/else;
+// break/continue, shared post-dispatch payload, nested PROCEED, escaped guard
+// temporaries, and SSA loop-carried PHIs are rejected rather than guessed.
+// Ordinary loops are ignored. Any loop containing RAY_QUERY_OBJECT_PROCEED but
+// not satisfying a complete supported shape is a malformed near-match and is
+// rejected without mutation. Every candidate in the function/module is
+// preflighted before the first edit.
 [[nodiscard]] LUISA_XIR_API ReconstructRayQueryLoopInfo
 reconstruct_ray_query_loop_pass_run_on_function(
     Function *function) noexcept;

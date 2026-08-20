@@ -3,7 +3,7 @@
 #include "ut/ut.hpp"
 
 #include <luisa/ast/type_registry.h>
-#include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/dsl/sugar.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -14,7 +14,10 @@
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reconstruct_ray_query_loop.h>
+#include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/verifier.h>
 
 using namespace luisa;
@@ -44,6 +47,71 @@ namespace {
         }
     });
     return count;
+}
+
+[[nodiscard]] KernelFunction *find_kernel(Module *module) noexcept {
+    if (module == nullptr) { return nullptr; }
+    for (auto *function : module->function_list()) {
+        if (function->isa<KernelFunction>()) {
+            return static_cast<KernelFunction *>(function);
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] uint64_t report_value(
+    const PassReport &report, luisa::string_view key) noexcept {
+    for (auto &&entry : report.entries()) {
+        if (entry.key == key) { return entry.value; }
+    }
+    return ~uint64_t{0u};
+}
+
+void expect_frontend_round_trip(
+    luisa::unique_ptr<Module> module,
+    size_t query_count,
+    size_t ordinary_loop_count) {
+    expect(module != nullptr);
+    if (module == nullptr) { return; }
+    expect(xir_verify_module(module.get()).succeeded());
+    auto *kernel = find_kernel(module.get());
+    expect(kernel != nullptr);
+    if (kernel == nullptr) { return; }
+    auto *definition = kernel->definition();
+    expect(count_terminators(
+               definition,
+               DerivedInstructionTag::RAY_QUERY_LOOP) == query_count);
+    expect(count_terminators(
+               definition,
+               DerivedInstructionTag::LOOP) == ordinary_loop_count);
+
+    auto lower =
+        lower_ray_query_to_loop_pass_run_on_function(kernel);
+    expect(lower.succeeded());
+    expect(lower.lowered_ray_query_loop_count == query_count);
+    expect(count_terminators(
+               definition,
+               DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+    expect(count_terminators(
+               definition,
+               DerivedInstructionTag::LOOP) ==
+           query_count + ordinary_loop_count);
+    expect(xir_verify_module(module.get()).succeeded());
+
+    auto reconstruct =
+        reconstruct_ray_query_loop_pass_run_on_function(kernel);
+    expect(reconstruct.succeeded());
+    expect(reconstruct.error_count == 0u);
+    expect(reconstruct.reconstructed_ray_query_loop_count ==
+           query_count);
+    expect(reconstruct.ignored_loop_count == ordinary_loop_count);
+    expect(count_terminators(
+               definition,
+               DerivedInstructionTag::RAY_QUERY_LOOP) == query_count);
+    expect(count_terminators(
+               definition,
+               DerivedInstructionTag::LOOP) == ordinary_loop_count);
+    expect(xir_verify_module(module.get()).succeeded());
 }
 
 }// namespace
@@ -597,6 +665,464 @@ void register_tests() {
         expect(body->terminator() == lowered_loop);
         expect(escaped_use->operand(0u) == active);
         expect(xir_verify_module(&module).succeeded());
+    };
+
+    "frontend_dsl_query_all_with_both_handlers_round_trips"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+            UInt callback_weight = 0u;
+            auto committed =
+                accel.traverse(ray, {})
+                    .on_surface_candidate(
+                        [&](SurfaceCandidate &candidate) noexcept {
+                            auto hit = candidate.hit();
+                            $if (hit->inst != ~0u) {
+                                $if ((hit->prim & 1u) == 0u) {
+                                    callback_weight += 1u;
+                                    candidate.commit();
+                                }
+                                $else {
+                                    candidate.terminate();
+                                };
+                            };
+                        })
+                    .on_procedural_candidate(
+                        [&](ProceduralCandidate &candidate) noexcept {
+                            auto hit = candidate.hit();
+                            $if (hit->prim < 4u) {
+                                callback_weight += 2u;
+                                candidate.commit(1.0f);
+                            };
+                        })
+                    .trace();
+            output.write(
+                index, callback_weight + committed->prim);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect_frontend_round_trip(std::move(module), 1u, 0u);
+    };
+
+    "frontend_dsl_query_any_with_empty_handlers_round_trips"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f));
+            auto committed = accel.traverse_any(ray, {}).trace();
+            output.write(index, committed->prim);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto *translated_kernel = find_kernel(module.get());
+        expect(translated_kernel != nullptr);
+        auto saw_query_any = false;
+        if (translated_kernel != nullptr) {
+            translated_kernel->definition()->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    if (instruction->isa<RayQueryDispatchInst>()) {
+                        auto *dispatch =
+                            static_cast<RayQueryDispatchInst *>(instruction);
+                        saw_query_any |= dispatch->query_object()->type() ==
+                                         Type::of<RayQueryAny>();
+                    }
+                });
+        }
+        expect(saw_query_any);
+        expect_frontend_round_trip(std::move(module), 1u, 0u);
+    };
+
+    "frontend_dsl_two_queries_inside_loop_round_trip"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f));
+            UInt result = 0u;
+            for (auto iteration : dynamic_range(2u)) {
+                auto all = accel.traverse(ray, {}).trace();
+                auto any =
+                    accel.traverse_any(ray, {})
+                        .on_surface_candidate(
+                            [&](SurfaceCandidate &candidate) noexcept {
+                                $if (iteration == 1u) {
+                                    candidate.commit();
+                                };
+                            })
+                        .trace();
+                result += all->prim + any->prim + iteration;
+            }
+            output.write(index, result);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect_frontend_round_trip(std::move(module), 2u, 1u);
+    };
+
+    "frontend_dsl_inline_query_exposes_explicit_proceed_loop"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+            auto query = accel.query_all(ray, {});
+            UInt callback_weight = 0u;
+            $while (query.proceed()) {
+                $if (query.is_surface_candidate()) {
+                    auto candidate = query.surface_candidate();
+                    auto hit = candidate.hit();
+                    callback_weight += hit->prim;
+                    $if ((hit->prim & 1u) == 0u) {
+                        candidate.commit();
+                    };
+                }
+                $else {
+                    auto candidate = query.procedural_candidate();
+                    auto hit = candidate.hit();
+                    callback_weight += hit->prim + 1u;
+                    candidate.commit(1.0f);
+                };
+            };
+            auto committed = query.committed_hit();
+            output.write(
+                index, callback_weight + committed->prim);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        if (module == nullptr) { return; }
+        expect(xir_verify_module(module.get()).succeeded());
+        auto *translated_kernel = find_kernel(module.get());
+        expect(translated_kernel != nullptr);
+        if (translated_kernel == nullptr) { return; }
+        auto *definition = translated_kernel->definition();
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::SIMPLE_LOOP) == 1u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+        auto proceed_count = 0u;
+        definition->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                if (instruction->isa<RayQueryObjectWriteInst>() &&
+                    static_cast<RayQueryObjectWriteInst *>(instruction)
+                            ->op() ==
+                        RayQueryObjectWriteOp::
+                            RAY_QUERY_OBJECT_PROCEED) {
+                    ++proceed_count;
+                }
+            });
+        expect(proceed_count == 1u);
+
+        auto reconstruct =
+            reconstruct_ray_query_loop_pass_run_on_function(
+                translated_kernel);
+        expect(reconstruct.succeeded());
+        expect(reconstruct.error_count == 0u);
+        expect(reconstruct.reconstructed_ray_query_loop_count == 1u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::SIMPLE_LOOP) == 0u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 1u);
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto lower = lower_ray_query_to_loop_pass_run_on_function(
+            translated_kernel);
+        expect(lower.succeeded());
+        expect(lower.lowered_ray_query_loop_count == 1u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::LOOP) == 1u);
+        expect(xir_verify_module(module.get()).succeeded());
+    };
+
+    "frontend_dsl_inline_query_any_motion_reconstructs_to_pipeline"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f));
+            auto query = accel.query_any_motion(ray, 0.5f, {});
+            UInt callback_weight = 0u;
+            $while (query.proceed()) {
+                $if (query.is_procedural_candidate()) {
+                    auto candidate = query.procedural_candidate();
+                    callback_weight += candidate.hit()->prim;
+                    candidate.commit(1.0f);
+                }
+                $else {
+                    auto candidate = query.surface_candidate();
+                    callback_weight += candidate.hit()->prim + 1u;
+                    candidate.commit();
+                    query.terminate();
+                };
+            };
+            output.write(
+                index,
+                callback_weight + query.committed_hit()->prim);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        if (module == nullptr) { return; }
+        auto *translated_kernel = find_kernel(module.get());
+        expect(translated_kernel != nullptr);
+        if (translated_kernel == nullptr) { return; }
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto reconstruct =
+            reconstruct_ray_query_loop_pass_run_on_function(
+                translated_kernel);
+        expect(reconstruct.succeeded());
+        expect(reconstruct.reconstructed_ray_query_loop_count == 1u);
+        auto saw_query_any = false;
+        translated_kernel->definition()->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                if (instruction->isa<RayQueryDispatchInst>()) {
+                    auto *dispatch = static_cast<RayQueryDispatchInst *>(
+                        instruction);
+                    saw_query_any |= dispatch->query_object()->type() ==
+                                     Type::of<RayQueryAny>();
+                }
+            });
+        expect(saw_query_any);
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto pipeline =
+            lower_ray_query_to_pipeline_pass_run_on_function(
+                translated_kernel);
+        expect(pipeline.succeeded());
+        expect(pipeline.lowered_loop_count == 1u);
+        expect(count_terminators(
+                   translated_kernel->definition(),
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+        expect(xir_verify_module(module.get()).succeeded());
+    };
+
+    "frontend_dsl_inline_query_without_candidate_split_rejects_atomically"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f));
+            auto query = accel.query_all(ray, {});
+            UInt candidate_count = 0u;
+            $while (query.proceed()) {
+                candidate_count += 1u;
+            };
+            output.write(index, candidate_count);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        if (module == nullptr) { return; }
+        auto *translated_kernel = find_kernel(module.get());
+        expect(translated_kernel != nullptr);
+        if (translated_kernel == nullptr) { return; }
+        expect(xir_verify_module(module.get()).succeeded());
+        auto *definition = translated_kernel->definition();
+        auto info = reconstruct_ray_query_loop_pass_run_on_function(
+            translated_kernel);
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.reconstructed_ray_query_loop_count == 0u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::SIMPLE_LOOP) == 1u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+        expect(xir_verify_module(module.get()).succeeded());
+    };
+
+    "frontend_dsl_inline_queries_preflight_atomically"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f));
+            UInt result = 0u;
+            auto valid = accel.query_all(ray, {});
+            $while (valid.proceed()) {
+                $if (valid.is_surface_candidate()) {
+                    auto candidate = valid.surface_candidate();
+                    for (auto iteration : dynamic_range(2u)) {
+                        result += iteration;
+                    }
+                    candidate.commit();
+                }
+                $else {
+                    auto candidate = valid.procedural_candidate();
+                    candidate.commit(1.0f);
+                };
+            };
+            auto malformed = accel.query_any(ray, {});
+            $while (malformed.proceed()) {
+                result += 1u;
+            };
+            output.write(
+                index,
+                result + valid.committed_hit()->prim +
+                    malformed.committed_hit()->prim);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        if (module == nullptr) { return; }
+        auto *translated_kernel = find_kernel(module.get());
+        expect(translated_kernel != nullptr);
+        if (translated_kernel == nullptr) { return; }
+        expect(xir_verify_module(module.get()).succeeded());
+        auto *definition = translated_kernel->definition();
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::SIMPLE_LOOP) == 2u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::LOOP) == 1u);
+
+        auto info = reconstruct_ray_query_loop_pass_run_on_function(
+            translated_kernel);
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.reconstructed_ray_query_loop_count == 0u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::SIMPLE_LOOP) == 2u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+        expect(count_terminators(
+                   definition,
+                   DerivedInstructionTag::LOOP) == 1u);
+        expect(xir_verify_module(module.get()).succeeded());
+    };
+
+    "same_function_late_malformed_loop_rejects_atomically"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f));
+            auto first = accel.traverse(ray, {}).trace();
+            auto second = accel.traverse_any(ray, {}).trace();
+            output.write(index, first->prim + second->prim);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto *translated_kernel = find_kernel(module.get());
+        expect(translated_kernel != nullptr);
+        if (translated_kernel == nullptr) { return; }
+        auto lower = lower_ray_query_to_loop_pass_run_on_function(
+            translated_kernel);
+        expect(lower.succeeded());
+        expect(lower.lowered_ray_query_loop_count == 2u);
+        luisa::vector<LoopInst *> lowered_loops;
+        translated_kernel->definition()->traverse_basic_blocks(
+            [&](BasicBlock *block) noexcept {
+                if (block->is_terminated() &&
+                    block->terminator()->isa<LoopInst>()) {
+                    lowered_loops.emplace_back(
+                        static_cast<LoopInst *>(block->terminator()));
+                }
+            });
+        expect(lowered_loops.size() == 2u);
+        if (lowered_loops.size() != 2u) { return; }
+        auto *first_loop = lowered_loops.front();
+        auto *malformed_loop = lowered_loops.back();
+        auto *prepare = malformed_loop->prepare_block();
+        auto *active = prepare->terminator()->prev();
+        expect(active->isa<ArithmeticInst>());
+        XIRBuilder builder;
+        builder.set_insertion_point(active);
+        builder.call(
+            Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT, {active});
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto info = reconstruct_ray_query_loop_pass_run_on_function(
+            translated_kernel);
+        expect(!info.succeeded());
+        expect(info.error_count == 1u);
+        expect(info.reconstructed_ray_query_loop_count == 0u);
+        expect(first_loop->parent_block()->terminator() == first_loop);
+        expect(malformed_loop->parent_block()->terminator() ==
+               malformed_loop);
+        expect(count_terminators(
+                   translated_kernel->definition(),
+                   DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
+        expect(count_terminators(
+                   translated_kernel->definition(),
+                   DerivedInstructionTag::LOOP) == 2u);
+        expect(xir_verify_module(module.get()).succeeded());
+    };
+
+    "module_report_null_and_idempotence_are_stable"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto index = dispatch_x();
+            auto ray = make_ray(
+                make_float3(cast<float>(index), 0.0f, 0.0f),
+                make_float3(0.0f, 0.0f, 1.0f));
+            auto committed = accel.traverse(ray, {}).trace();
+            output.write(index, committed->prim);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto lower = lower_ray_query_to_loop_pass_run_on_module(
+            module.get());
+        expect(lower.succeeded());
+        expect(lower.lowered_ray_query_loop_count == 1u);
+
+        PassReport first_report;
+        auto first = reconstruct_ray_query_loop_pass_run_on_module(
+            module.get(), &first_report);
+        expect(first.succeeded());
+        expect(first.reconstructed_ray_query_loop_count == 1u);
+        expect(first_report.entries().size() == 3u);
+        expect(report_value(
+                   first_report,
+                   "reconstructed_ray_query_loop") == 1u);
+        expect(report_value(first_report, "ignored_loop") == 0u);
+        expect(report_value(first_report, "error") == 0u);
+        expect(xir_verify_module(module.get()).succeeded());
+
+        PassReport second_report;
+        auto second = reconstruct_ray_query_loop_pass_run_on_module(
+            module.get(), &second_report);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(second_report.entries().size() == 3u);
+        expect(report_value(
+                   second_report,
+                   "reconstructed_ray_query_loop") == 0u);
+        expect(report_value(second_report, "ignored_loop") == 0u);
+        expect(report_value(second_report, "error") == 0u);
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto null_function =
+            reconstruct_ray_query_loop_pass_run_on_function(nullptr);
+        expect(null_function.succeeded());
+        expect(!null_function.changed());
+        PassReport null_report;
+        auto null_module =
+            reconstruct_ray_query_loop_pass_run_on_module(
+                nullptr, &null_report);
+        expect(null_module.succeeded());
+        expect(!null_module.changed());
+        expect(null_report.entries().size() == 3u);
+        expect(report_value(
+                   null_report,
+                   "reconstructed_ray_query_loop") == 0u);
+        expect(report_value(null_report, "ignored_loop") == 0u);
+        expect(report_value(null_report, "error") == 0u);
     };
 }
 

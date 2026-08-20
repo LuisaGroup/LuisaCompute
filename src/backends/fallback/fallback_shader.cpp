@@ -37,6 +37,7 @@
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -582,6 +583,16 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     if (!option.name.empty()) { xir_module->set_location(option.name); }
     verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
+
+    auto inline_ray_query_info =
+        xir::reconstruct_ray_query_loop_pass_run_on_module(
+            xir_module.get());
+    if (!inline_ray_query_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Fallback XIR rejected {} malformed explicit ray-query loop(s).",
+            inline_ray_query_info.error_count);
+    }
+    verify_xir_or_error(xir_module.get(), "explicit ray-query reconstruction");
 
     if (kernel.requires_autodiff()) {
         auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());

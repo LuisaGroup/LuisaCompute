@@ -1961,11 +1961,18 @@ only while active; update branches back to prepare and is also the merge of the
 triangle/procedural selection. A handler containing only the backedge is
 bypassed, and two such handlers remove the candidate-kind read entirely. The
 inverse `reconstruct_ray_query_loop` is semantics-preserving only for this
-complete shape. It must not infer a ray-query domain from an arbitrary loop:
-ordinary loops are ignored, while a loop containing `PROCEED` but failing any
-query-object, predecessor, exit, or shell-shape check rejects the complete
-function/module before mutation. Reconstruction retargets every handler exit,
-repairs merge PHIs, preserves metadata, and recreates omitted empty handlers.
+complete shape. It accepts either the canonical `LoopInst` produced by the
+lowering or the canonical pre-mem2reg `SimpleLoopInst` emitted by the native DSL
+`$while (query.proceed())` form. The DSL form must immediately dispatch the
+same query with a surface/procedural if/else and may contain handler-local
+structured control. It must not infer a ray-query domain from an arbitrary
+loop: ordinary loops are ignored, while a loop containing `PROCEED` but
+failing any query-object, predecessor, exit, or shell-shape check rejects the
+complete function/module before mutation. In particular, shared payload around
+the dispatch, nested `PROCEED`, escaping guard temporaries, cross-shell exits,
+external predecessors, and loop-carried SSA PHIs are rejected. Reconstruction
+retargets every handler exit, repairs merge PHIs, preserves metadata, and
+recreates omitted empty handlers.
 
 Distinct simultaneously live query objects also receive distinct records.
 Sequential construction sites may share the same per-lane scratch only after

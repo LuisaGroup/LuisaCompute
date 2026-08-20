@@ -51,6 +51,7 @@
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_irreducible_cfg.h>
 #include <luisa/xir/passes/lower_ray_query_to_loop.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/post_dom_tree.h>
@@ -1688,6 +1689,16 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     // full source-coroutine ownership belongs to compile_coroutine_pipeline.
     auto preserve_generated_coro_continuations = false;
     PassPipeline pipeline;
+    pipeline.add("reconstruct-ray-query-loop", [](Module *m, PassReport &r) {
+        auto i = reconstruct_ray_query_loop_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "XIR-to-AST normalization rejected {} malformed explicit "
+                "ray-query loop(s).",
+                i.error_count);
+        }
+        return i.changed();
+    });
     pipeline.add_sequence("phase-A", create_basic_optimization_pipeline());
     pipeline.add("inline-all", [](Module *m, PassReport &r) {
         auto i = inline_all_pass_run_on_module(m, &r);
