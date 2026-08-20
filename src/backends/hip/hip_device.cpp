@@ -31,7 +31,7 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -1208,7 +1208,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
         {
             xir::PassReport report;
             auto ray_query_info =
-                xir::lower_ray_query_loop_pass_run_on_module(
+                xir::lower_ray_query_to_pipeline_pass_run_on_module(
                     xir_module.get(), &report);
             if (!ray_query_info.succeeded()) {
                 LUISA_ERROR_WITH_LOCATION(

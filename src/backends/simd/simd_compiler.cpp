@@ -20,7 +20,7 @@
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
-#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/translators/ast2xir.h>
@@ -352,7 +352,7 @@ SIMDCompiledKernel compile_simd_kernel(
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));
 
     auto ray_query =
-        xir::lower_ray_query_loop_to_loop_pass_run_on_module(module.get());
+        xir::lower_ray_query_to_loop_pass_run_on_module(module.get());
     if (!ray_query.succeeded()) {
         SIMDCompiledKernel result{.warp_width = warp_width};
         result.diagnostics.emplace_back(

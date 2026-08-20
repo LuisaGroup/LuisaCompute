@@ -12,7 +12,7 @@
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/verifier.h>
 
 using namespace luisa;
@@ -85,7 +85,8 @@ void register_tests() {
         surface_exit->set_name("source_surface_exit");
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info =
+            lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(info.lowered_loop_count == 1u);
         expect(info.error_count == 0u);
         expect(info.succeeded());
@@ -167,7 +168,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
 
         expect(!info.succeeded());
         expect(info.error_count == 1u);
@@ -205,7 +206,7 @@ void register_tests() {
         b.return_void();
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
         expect(info.succeeded());
         expect(info.error_count == 0u);
         expect(info.lowered_loop_count == 1u);
@@ -255,7 +256,7 @@ void register_tests() {
         exit->set_name("surface_join_exit");
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(info.succeeded());
         expect(info.lowered_loop_count == 1u);
 
@@ -304,7 +305,7 @@ void register_tests() {
         auto valid_block_count = count_blocks(valid.kernel->definition());
         auto invalid_block_count = count_blocks(invalid.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_module(&m);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(&m);
         expect(info.lowered_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());
@@ -320,9 +321,9 @@ void register_tests() {
 
     "null_module_and_function_are_noops"_test = [] {
         auto function_info =
-            lower_ray_query_loop_pass_run_on_function(nullptr);
+            lower_ray_query_to_pipeline_pass_run_on_function(nullptr);
         auto module_info =
-            lower_ray_query_loop_pass_run_on_module(nullptr);
+            lower_ray_query_to_pipeline_pass_run_on_module(nullptr);
         expect(function_info.lowered_loop_count == 0u);
         expect(function_info.error_count == 0u);
         expect(module_info.lowered_loop_count == 0u);
@@ -355,7 +356,7 @@ void register_tests() {
         b.return_void();
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
         expect(info.succeeded());
         expect(info.lowered_loop_count == 1u);
         expect(info.error_count == 0u);
@@ -396,7 +397,7 @@ void register_tests() {
         expect(xir_verify_module(&m).succeeded());
     };
 
-    "multiple_handler_exits_are_rejected_atomically"_test = [] {
+    "multiple_handler_exits_are_outlined_to_returns"_test = [] {
         Module m;
         auto f = make_fixture(m);
         auto *cond = f.kernel->create_value_argument(Type::of<bool>());
@@ -404,25 +405,35 @@ void register_tests() {
         auto *right = f.kernel->create_basic_block();
         XIRBuilder b;
         b.set_insertion_point(f.surface);
-        auto *split = b.cond_br(cond, left, right);
+        b.cond_br(cond, left, right);
         b.set_insertion_point(left);
-        auto *left_exit = b.br(f.dispatch);
+        b.br(f.dispatch);
         b.set_insertion_point(right);
-        auto *right_exit = b.br(f.dispatch);
+        b.br(f.dispatch);
         auto function_count = count_functions(m);
-        auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
-        expect(info.lowered_loop_count == 0u);
-        expect(info.error_count == 1u);
-        expect(!info.succeeded());
-        expect(count_functions(m) == function_count);
-        expect(count_blocks(f.kernel->definition()) == block_count);
-        expect(f.body->terminator() == f.loop);
-        expect(f.dispatch->terminator() == f.dispatch_inst);
-        expect(f.surface->terminator() == split);
-        expect(left->terminator() == left_exit);
-        expect(right->terminator() == right_exit);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
+        expect(info.lowered_loop_count == 1u);
+        expect(info.error_count == 0u);
+        expect(info.succeeded());
+        expect(count_functions(m) == function_count + 2u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline == nullptr) { return; }
+        auto *surface_callback = pipeline->on_surface_function();
+        expect(surface_callback->arguments().count_size() == 2u);
+        size_t return_count = 0u;
+        surface_callback->definition()->traverse_instructions(
+            [&](Instruction *inst) noexcept {
+                return_count += inst->isa<ReturnInst>() ? 1u : 0u;
+            });
+        expect(return_count == 2u);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "shared_handler_tail_with_phi_is_rejected_before_outlining"_test = [] {
@@ -446,7 +457,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(info.lowered_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());
@@ -486,8 +497,9 @@ void register_tests() {
         b.set_insertion_point(procedural0);
         auto *procedural_exit0 = b.br(dispatch0);
 
-        // The later loop has two surface exits and must reject the complete
-        // function before the first callback or alloca move is created.
+        // The later loop bypasses candidate dispatch and reaches the loop
+        // merge directly. It must reject the complete function before the
+        // first callback or alloca move is created.
         b.set_insertion_point(merge0);
         auto *query1 = b.alloca_local(Type::of<RayQueryAll>());
         auto *loop1 = b.ray_query_loop();
@@ -506,7 +518,7 @@ void register_tests() {
         b.set_insertion_point(left);
         auto *left_exit = b.br(dispatch1);
         b.set_insertion_point(right);
-        auto *right_exit = b.br(dispatch1);
+        auto *right_exit = b.br(merge1);
         b.set_insertion_point(procedural1);
         auto *procedural_exit1 = b.br(dispatch1);
         b.set_insertion_point(merge1);
@@ -514,7 +526,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
         expect(info.lowered_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());
@@ -555,7 +567,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
 
         expect(info.lowered_loop_count == 0u);
         expect(info.error_count == 1u);
@@ -579,7 +591,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(!info.succeeded());
         expect(info.error_count == 1u);
         expect(info.lowered_loop_count == 0u);
@@ -601,7 +613,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(!info.succeeded());
         expect(info.error_count == 1u);
         expect(info.lowered_loop_count == 0u);
@@ -623,7 +635,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
 
         expect(!info.succeeded());
         expect(info.error_count == 1u);

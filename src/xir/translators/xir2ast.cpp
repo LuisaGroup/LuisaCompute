@@ -50,7 +50,7 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_irreducible_cfg.h>
-#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/post_dom_tree.h>
@@ -1694,8 +1694,8 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
         return i.changed();
     });
     pipeline.add_sequence("post-inline-cleanup", create_post_inline_cleanup_pipeline());
-    pipeline.add("lower-ray-query-loop-to-loop", [](Module *m, PassReport &r) {
-        auto i = lower_ray_query_loop_to_loop_pass_run_on_module(m, &r);
+    pipeline.add("lower-ray-query-to-loop", [](Module *m, PassReport &r) {
+        auto i = lower_ray_query_to_loop_pass_run_on_module(m, &r);
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "XIR-to-AST normalization rejected {} unsupported ray-query loop(s); "

@@ -10,6 +10,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
 #include <algorithm>
@@ -91,8 +92,8 @@ static void clone_metadata(const MetadataListMixin &source,
             return false;
         }
     }
-    if (region.dispatch_exit_count != 1u) {
-        reason = "candidate handler does not have exactly one exit to dispatch";
+    if (region.dispatch_exit_count == 0u) {
+        reason = "candidate handler has no exit to dispatch";
         return false;
     }
     // Raw structured merge markers are not CFG operands and therefore are not
@@ -110,7 +111,7 @@ static void clone_metadata(const MetadataListMixin &source,
     return true;
 }
 
-[[nodiscard]] static bool lower_ray_query_loop_handler_regions_overlap(
+[[nodiscard]] static bool lower_ray_query_to_pipeline_handler_regions_overlap(
     const RayQueryHandlerRegion &lhs,
     const RayQueryHandlerRegion &rhs) noexcept {
     auto *smaller = &lhs.blocks;
@@ -122,7 +123,7 @@ static void clone_metadata(const MetadataListMixin &source,
     return false;
 }
 
-[[nodiscard]] static bool lower_ray_query_loop_handler_region_has_external_predecessor(
+[[nodiscard]] static bool lower_ray_query_to_pipeline_handler_region_has_external_predecessor(
     BasicBlock *entry, BasicBlock *dispatch,
     const RayQueryHandlerRegion &handler) noexcept {
     for (auto *block : handler.blocks) {
@@ -304,7 +305,7 @@ static void clone_metadata(const MetadataListMixin &source,
                                             procedural_region, reason)) {
         return false;
     }
-    if (lower_ray_query_loop_handler_regions_overlap(surface_region, procedural_region)) {
+    if (lower_ray_query_to_pipeline_handler_regions_overlap(surface_region, procedural_region)) {
         reason = "surface and procedural candidate handler regions overlap";
         return false;
     }
@@ -320,8 +321,8 @@ static void clone_metadata(const MetadataListMixin &source,
         reason = "ray-query dispatch has a predecessor outside the loop";
         return false;
     }
-    if (lower_ray_query_loop_handler_region_has_external_predecessor(surface, dispatch_block, surface_region) ||
-        lower_ray_query_loop_handler_region_has_external_predecessor(procedural, dispatch_block, procedural_region)) {
+    if (lower_ray_query_to_pipeline_handler_region_has_external_predecessor(surface, dispatch_block, surface_region) ||
+        lower_ray_query_to_pipeline_handler_region_has_external_predecessor(procedural, dispatch_block, procedural_region)) {
         reason = "candidate handler has a predecessor outside its outline region";
         return false;
     }
@@ -356,15 +357,15 @@ collect_ray_query_loops(Function *function) noexcept {
     return loops;
 }
 
-[[nodiscard]] static bool lower_ray_query_loop_preflight_ray_query_loops(
+[[nodiscard]] static bool lower_ray_query_to_pipeline_preflight_ray_query_loops(
     luisa::span<RayQueryLoopInst *const> loops,
-    RayQueryLoopLowerInfo &info) noexcept {
+    LowerRayQueryToPipelineInfo &info) noexcept {
     auto rejected = false;
     for (auto *loop : loops) {
         luisa::string_view reason;
         if (!can_lower_ray_query_loop(loop, reason)) {
             LUISA_WARNING_WITH_LOCATION(
-                "lower_ray_query_loop: rejecting loop: {}", reason);
+                "lower_ray_query_to_pipeline: rejecting loop: {}", reason);
             ++info.error_count;
             rejected = true;
         }
@@ -565,6 +566,16 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
         auto in_arg = function->create_argument(in_value->type(), in_value->is_lvalue());
         resolver.emplace(in_value, in_arg);
     }
+    // Both callbacks share the RayQueryPipeline capture ABI. Materialize every
+    // output argument once, then write it at each outlined return. Creating
+    // output arguments while visiting returns accidentally encoded a
+    // single-exit restriction into the function signature.
+    luisa::vector<Value *> out_args;
+    out_args.reserve(capture_list.out_values.size());
+    for (auto out_value : capture_list.out_values) {
+        out_args.emplace_back(
+            function->create_reference_argument(out_value->type()));
+    }
     // create blocks for the function
     for (auto block : subgraph.reverse_post_order) {
         auto local_block = function->create_basic_block();
@@ -573,21 +584,25 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
     // set function body
     function->set_body_block(static_cast<BasicBlock *>(resolver.resolve(branch)));
     // duplicate the blocks
-    auto already_returned = false;
+    luisa::vector<BasicBlock *> return_blocks;
     luisa::vector<std::pair<const PhiInst *, PhiInst *>> phi_nodes;
     for (auto block : subgraph.reverse_post_order) {
         if (auto bb = duplicate_basic_block_for_ray_query_loop_dispatch_branch(block, dispatch, phi_nodes, resolver);
             bb->terminator()->isa<ReturnInst>()) {
-            LUISA_ASSERT(!already_returned, "Multiple return instructions in the branch block.");
-            already_returned = true;
-            // generate store instructions for out values
-            XIRBuilder b;
-            b.set_insertion_point(bb->terminator()->prev());
-            for (auto out_value : capture_list.out_values) {
-                auto out_arg = function->create_reference_argument(out_value->type());
-                if (auto resolved = resolver.resolve_or_null(out_value)) {
-                    b.store(out_arg, resolved);
-                }
+            return_blocks.emplace_back(bb);
+        }
+    }
+    LUISA_DEBUG_ASSERT(!return_blocks.empty(),
+                       "Outlined ray-query handler has no return block.");
+    // Generate output stores only after every block has been cloned, so an
+    // output resolver entry never depends on reverse-post-order visitation.
+    for (auto *return_block : return_blocks) {
+        XIRBuilder b;
+        b.set_insertion_point(return_block->terminator()->prev());
+        for (auto i = 0u; i < capture_list.out_values.size(); i++) {
+            if (auto resolved = resolver.resolve_or_null(
+                    capture_list.out_values[i])) {
+                b.store(out_args[i], resolved);
             }
         }
     }
@@ -605,7 +620,9 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
     return function;
 }
 
-static void lower_ray_query_loop(Function *function, RayQueryLoopInst *loop, RayQueryLoopLowerInfo &info) noexcept {
+static void lower_ray_query_to_pipeline(
+    Function *function, RayQueryLoopInst *loop,
+    LowerRayQueryToPipelineInfo &info) noexcept {
     auto subgraph = collect_ray_query_loop_subgraph(loop);
     auto capture_list = collect_ray_query_loop_capture_list(subgraph);
     auto dispatch = static_cast<RayQueryDispatchInst *>(subgraph.reverse_post_order.front()->terminator());
@@ -796,16 +813,16 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
     }
 }
 
-static void lower_ray_query_loop_lower_preflighted_ray_query_loops(
+static void lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
     Function *function, luisa::span<RayQueryLoopInst *const> loops,
-    RayQueryLoopLowerInfo &info) noexcept {
+    LowerRayQueryToPipelineInfo &info) noexcept {
     auto *def = function == nullptr ? nullptr : function->definition();
     if (def == nullptr) { return; }
     auto lowered_before = info.lowered_loop_count;
     for (auto *loop : loops) {
         lower_phi_nodes_in_loop_dispatch_block(def, loop);
         hoist_alloca_instructions_to_entry_block(def);
-        lower_ray_query_loop(function, loop, info);
+        lower_ray_query_to_pipeline(function, loop, info);
     }
     // Remove dead code after lowering using the DCE pass.
     if (info.lowered_loop_count != lowered_before) {
@@ -817,26 +834,31 @@ static void lower_ray_query_loop_lower_preflighted_ray_query_loops(
     }
 }
 
-static void run_lower_ray_query_loop_pass_on_function(
-    Function *function, RayQueryLoopLowerInfo &info) noexcept {
+static void run_lower_ray_query_to_pipeline_pass_on_function(
+    Function *function, LowerRayQueryToPipelineInfo &info) noexcept {
     auto loops = collect_ray_query_loops(function);
     // Preflight the complete function before touching dispatch PHIs, hoisting
     // allocas, creating callbacks, or running function-wide DCE.
-    if (!lower_ray_query_loop_preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
-    lower_ray_query_loop_lower_preflighted_ray_query_loops(
+    if (!lower_ray_query_to_pipeline_preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
+    lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
         function, luisa::span{loops}, info);
 }
 
 }// namespace detail
 
-RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_function(Function *function) noexcept {
-    RayQueryLoopLowerInfo info;
-    detail::run_lower_ray_query_loop_pass_on_function(function, info);
+LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_function(
+    Function *function) noexcept {
+    LowerRayQueryToPipelineInfo info;
+    detail::run_lower_ray_query_to_pipeline_pass_on_function(
+        function, info);
     return info;
 }
 
-RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, PassReport *report) noexcept {
-    RayQueryLoopLowerInfo info;
+LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_module(
+    Module *module, PassReport *report) noexcept {
+    LowerRayQueryToPipelineInfo info;
     struct FunctionWork {
         Function *function;
         luisa::vector<RayQueryLoopInst *> loops;
@@ -856,21 +878,33 @@ RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, Pa
         // alloca, pipeline, or DCE mutation is created.
         auto accepted = true;
         for (auto &item : work) {
-            accepted &= detail::lower_ray_query_loop_preflight_ray_query_loops(
+            accepted &= detail::lower_ray_query_to_pipeline_preflight_ray_query_loops(
                 luisa::span{item.loops}, info);
         }
         if (accepted) {
             for (auto &item : work) {
-                detail::lower_ray_query_loop_lower_preflighted_ray_query_loops(
+                detail::lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
                     item.function, luisa::span{item.loops}, info);
             }
         }
     }
     if (report != nullptr) {
-        report->set("lowered_loop", info.lowered_loop_count);
+        report->set(
+            "lowered_ray_query_to_pipeline", info.lowered_loop_count);
         report->set("error", info.error_count);
     }
     return info;
+}
+
+LowerRayQueryToPipelineInfo
+lower_ray_query_loop_pass_run_on_function(Function *function) noexcept {
+    return lower_ray_query_to_pipeline_pass_run_on_function(function);
+}
+
+LowerRayQueryToPipelineInfo
+lower_ray_query_loop_pass_run_on_module(
+    Module *module, PassReport *report) noexcept {
+    return lower_ray_query_to_pipeline_pass_run_on_module(module, report);
 }
 
 }// namespace luisa::compute::xir

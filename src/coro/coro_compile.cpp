@@ -29,7 +29,7 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_irreducible_cfg.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -545,7 +545,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
     // query loop (native SPIR-V). The transform is module-transactional, so a
     // rejected handler shape cannot leave a partially outlined module.
     auto ray_query_info =
-        xir::lower_ray_query_loop_pass_run_on_module(module.get());
+        xir::lower_ray_query_to_pipeline_pass_run_on_module(
+            module.get());
     if (!ray_query_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Coroutine ray-query normalization rejected {} unsupported "

@@ -1955,6 +1955,18 @@ uniform input expressions themselves are still evaluated only once and splat
 only at the state initialization stores. A copied query value is an internal
 pointer to that lane's record.
 
+The canonical `lower_ray_query_to_loop` spelling is a top-tested structured
+loop: prepare executes `PROCEED`, reads `IS_TERMINATED`, and enters the body
+only while active; update branches back to prepare and is also the merge of the
+triangle/procedural selection. A handler containing only the backedge is
+bypassed, and two such handlers remove the candidate-kind read entirely. The
+inverse `reconstruct_ray_query_loop` is semantics-preserving only for this
+complete shape. It must not infer a ray-query domain from an arbitrary loop:
+ordinary loops are ignored, while a loop containing `PROCEED` but failing any
+query-object, predecessor, exit, or shell-shape check rejects the complete
+function/module before mutation. Reconstruction retargets every handler exit,
+repairs merge PHIs, preserves metadata, and recreates omitted empty handlers.
+
 Distinct simultaneously live query objects also receive distinct records.
 Sequential construction sites may share the same per-lane scratch only after
 a fail-closed Schedule-IR analysis proves that each construction result is

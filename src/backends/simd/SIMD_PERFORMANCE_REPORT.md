@@ -4284,3 +4284,72 @@ samples. The current official ISPC claim therefore remains scoped to the
 matched five-workload compiler suite above: its geomean is 1.24489x at W8 and
 1.24922x at W16 in Luisa's favor, while no matched ISPC implementation of the
 complete Embree renderer exists.
+
+## Ray-query representation compaction and reconstruction
+
+The two shared XIR lowerings now name their destination explicitly:
+`lower_ray_query_to_pipeline` outlines callbacks for fallback/CUDA/HIP/coroutine
+consumers, while `lower_ray_query_to_loop` exposes structured loop/if control
+for SIMD and native SPIR-V. Deprecated forwarding headers and exported symbols
+retain the two former public spellings. Pipeline outlining now accepts multiple
+Branch exits from a handler and writes captured outputs at every outlined
+return. Loop lowering reuses the update block as the candidate-selection merge,
+bypasses exact no-op arms, and removes the obsolete dispatch shell immediately.
+
+The new `reconstruct_ray_query_loop` pass folds only the complete canonical
+`PROCEED -> IS_TERMINATED -> candidate dispatch -> update` form back into
+`RayQueryLoopInst`/`RayQueryDispatchInst`. It preserves the query object,
+surface/procedural regions, merge PHIs, and loop/dispatch metadata; nested
+structured handler loops and multiple handler exits remain legal. Ordinary
+loops are ignored. A loop containing `PROCEED` that is only a near-match is an
+error, and all function/module candidates are preflighted before the first
+mutation. The round-trip, nested-handler, malformed-late-module, multi-exit,
+and no-op-arm cases are permanent regressions.
+
+For the W8 four-candidate triangle query, a retained pre-change executable and
+the new executable report the same five state slots, three instruction spills,
+three convergence points, native predicated loop, and 9,728-byte query scratch.
+The only structural change is `schedule_blocks=11 -> 9`. Five alternating
+old/new process pairs had process-median times of 16.5007 and 16.4047 ms, a
+nominal 1.0059x ratio whose direction reversed in two pairs. This is not a
+stable throughput result; the accepted result is the two-state reduction.
+
+The shared host was concurrently loaded (observed load average 9.42--12.62), so
+the following figures use medians of independent processes, each of which
+already reports the median of seven warmed samples. The 16-candidate triangle
+query has five processes per entry; throughput is fallback time divided by SIMD
+time:
+
+| backend/width | process-median seconds | throughput vs fallback |
+| --- | ---: | ---: |
+| fallback | 0.056885 | 1.0000x |
+| SIMD W1 | 0.073426 | 0.7747x |
+| SIMD W2 | 0.082601 | 0.6887x |
+| SIMD W4 | 0.070602 | 0.8057x |
+| SIMD W8 | 0.064673 | 0.8796x |
+| SIMD W16 | 0.067580 | 0.8417x |
+
+The 16-candidate procedural query has three rotated-order processes per entry:
+
+| backend/width | process-median seconds | throughput vs fallback |
+| --- | ---: | ---: |
+| fallback | 0.075036 | 1.0000x |
+| SIMD W1 | 0.148389 | 0.5057x |
+| SIMD W2 | 0.131992 | 0.5685x |
+| SIMD W4 | 0.092807 | 0.8085x |
+| SIMD W8 | 0.073920 | **1.0151x** |
+| SIMD W16 | 0.062829 | **1.1943x** |
+
+Thus compaction does not cure the triangle rejection chain, whose Embree and
+stateful-callback boundary still favors fallback. The compute-heavier
+procedural path amortizes that machinery and reaches parity at W8 and a 1.19x
+process-median lead at W16. These are workload-specific measurements, not a
+general ray-query speedup claim.
+
+Validation passes 150/150 in the compiler-focused Release tree and 162/162 in
+each maintained fallback+SIMD/Embree Release tree. The three focused lowering
+tests also pass under Clang ASan with leak detection. The reconstruct suite has
+9 tests/117 assertions, pipeline lowering 14/177, destructure 35/246, and the
+combined XIR pass suite 392/2,445. A fresh W8 1024-spp ordinary Embree path trace
+accepts the checked-in gallery reference at 39.219284 dB RGB PSNR and reports
+native Embree 4.4.1 W4/W8/W16 packet support.

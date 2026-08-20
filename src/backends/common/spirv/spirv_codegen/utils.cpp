@@ -30,7 +30,7 @@
 #include <luisa/xir/passes/licm.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
-#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/phi_cleanup.h>
@@ -363,10 +363,10 @@ void verify_xir_or_error(
     return pipeline;
 }
 
-void add_lower_ray_query_loop_to_loop(xir::PassPipeline &pipeline) noexcept {
-    pipeline.add("lower-ray-query-loop-to-loop", [](xir::Module *m,
+void add_lower_ray_query_to_loop(xir::PassPipeline &pipeline) noexcept {
+    pipeline.add("lower-ray-query-to-loop", [](xir::Module *m,
                                                     xir::PassReport &r) {
-        auto i = xir::lower_ray_query_loop_to_loop_pass_run_on_module(m, &r);
+        auto i = xir::lower_ray_query_to_loop_pass_run_on_module(m, &r);
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "SPIR-V XIR legalization rejected {} ray-query loop(s).",
@@ -585,7 +585,7 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
     auto optimization_options = xir::OptimizationPipelineOptions{
         .enable_fast_math = option.enable_fast_math};
     xir::PassPipeline pipeline;
-    add_lower_ray_query_loop_to_loop(pipeline);
+    add_lower_ray_query_to_loop(pipeline);
     add_destructure_cfg(pipeline);
 
     // Autodiff requires a whole-program body. Multi-block callables are only
@@ -656,7 +656,7 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
 
     // Everything outside the `optimize` blocks is part of the SPIR-V input
     // language contract and therefore cannot be disabled for debugging.
-    add_lower_ray_query_loop_to_loop(pipeline);
+    add_lower_ray_query_to_loop(pipeline);
     add_promote_readonly_ref_args(pipeline);
     if (optimize) {
         pipeline.add("licm", [](xir::Module *m, xir::PassReport &r) {

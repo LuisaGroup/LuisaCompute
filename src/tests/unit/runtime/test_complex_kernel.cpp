@@ -1509,8 +1509,8 @@ void test_cfg_tiny_diamond_if_conversion(Device &device) {
 
 // ---------------------------------------------------------------------------
 // New structured-lowering corner tests
-// Passes exercised: lower_break_continue, lower_ray_query_loop,
-//                   lower_ray_query_loop_to_loop, early_return_elimination, phi_cleanup
+// Passes exercised: lower_break_continue, lower_ray_query_to_pipeline,
+//                   lower_ray_query_to_loop, early_return_elimination, phi_cleanup
 // ---------------------------------------------------------------------------
 void test_structured_break_continue(Device &device) {
     auto stream = device.create_stream();

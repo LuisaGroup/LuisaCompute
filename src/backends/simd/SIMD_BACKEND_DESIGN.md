@@ -205,6 +205,14 @@ The intended initial XIR pipeline is:
    analyses;
 7. build and verify Schedule IR.
 
+Ray-query representation changes are named by their destination. Fallback,
+CUDA, HIP, and coroutine normalization use `lower_ray_query_to_pipeline` to
+outline candidate callbacks. SIMD and native SPIR-V use
+`lower_ray_query_to_loop` so candidate control remains visible to their CFG
+lowering. The optional `reconstruct_ray_query_loop` adapter folds only that
+lowering's exact canonical proceed loop back to `RayQueryLoopInst`; it is not
+silently inserted into either production route.
+
 Callable inlining is a legalization requirement for this backend, not its
 generic cost heuristic. Immediately before the final inline-all pass, the
 SIMD front door removes only diagnostic name/location/comment metadata from
@@ -2859,6 +2867,24 @@ constructor operands are uniform. Each `PROCEED` gathers active state pointers
 into one packet scratch and makes one host callback for the cohort. The runtime
 groups compatible states by accel and query mode and selects W1 scalar, W2
 padded W4, or matching W4/W8/W16 Embree traversal.
+
+The explicit loop lowering uses its loop-update block as the candidate
+selection merge. An exact no-op surface or procedural handler branches directly
+there; if both handlers are no-ops, the candidate-kind read and selection are
+elided entirely. This removes two Schedule-IR states from the representative W8
+ray-query benchmark (11 to 9) without changing its five state slots, three
+spills, or three convergence points. Repeated wall-time samples remain within
+host-noise range, so this is a static control-state reduction rather than a
+claimed stable end-to-end speedup.
+
+`reconstruct_ray_query_loop` provides a fail-closed inverse for tools that need
+to return to the high-level instruction after an explicit loop phase. It
+requires the exact `PROCEED`, termination test, canonical latch, and
+candidate-dispatch shell, but permits nested structured control and multiple
+Branch exits inside either handler. It preflights every candidate in the whole
+function/module before retargeting an edge, repairs the merge PHI predecessor,
+preserves loop/dispatch metadata, synthesizes omitted no-op handlers, and
+rejects a ray-like near-match atomically. Ordinary loops are ignored.
 
 The exact device regression covers surface reject/commit, query-any automatic
 termination, explicit termination, immediate world-ray `t_max` update,

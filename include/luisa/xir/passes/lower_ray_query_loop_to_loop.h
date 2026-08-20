@@ -1,28 +1,25 @@
 #pragma once
 
-#include <luisa/core/dll_export.h>
-#include <luisa/core/stl/vector.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 
 namespace luisa::compute::xir {
 
-class PassReport;
+// Compatibility surface for code written before the pass was named after its
+// output representation. New code should include lower_ray_query_to_loop.h.
+using LowerRayQueryLoopToLoopInfo [[deprecated(
+    "Use LowerRayQueryToLoopInfo instead.")]] =
+    LowerRayQueryToLoopInfo;
 
-class Module;
-class Function;
+[[nodiscard, deprecated(
+                 "Use lower_ray_query_to_loop_pass_run_on_function instead.")]]
+LUISA_XIR_API LowerRayQueryToLoopInfo
+lower_ray_query_loop_to_loop_pass_run_on_function(
+    Function *function) noexcept;
 
-struct LowerRayQueryLoopToLoopInfo {
-    size_t lowered_ray_query_loop_count{0u};
-    size_t error_count{0u};
-    [[nodiscard]] bool succeeded() const noexcept { return error_count == 0u; }
-};
-
-// This is a structured-to-structured lowering. Inputs whose dispatch/handler
-// entry contains PHI nodes, whose surface/procedural handler regions overlap,
-// or whose handler exits/merge markers cannot be retargeted without changing
-// structured semantics are rejected before any mutation. Every loop in a
-// function is preflighted first; one rejection leaves the complete function
-// unchanged and is reported through error_count/succeeded().
-[[nodiscard]] LUISA_XIR_API LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
+[[nodiscard, deprecated(
+                 "Use lower_ray_query_to_loop_pass_run_on_module instead.")]]
+LUISA_XIR_API LowerRayQueryToLoopInfo
+lower_ray_query_loop_to_loop_pass_run_on_module(
+    Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

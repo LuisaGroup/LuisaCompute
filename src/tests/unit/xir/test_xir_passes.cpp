@@ -41,8 +41,9 @@
 #include <luisa/xir/passes/loop_unswitch.h>
 #include <luisa/xir/passes/loop_vectorization.h>
 #include <luisa/xir/passes/lower_break_continue.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
-#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/outline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -283,11 +284,15 @@ void reg_pass_entry_totality() {
                 nullptr, report);
         });
         check_zero_report(2u, [](PassReport *report) noexcept {
-            (void)lower_ray_query_loop_pass_run_on_module(
+            (void)lower_ray_query_to_pipeline_pass_run_on_module(
                 nullptr, report);
         });
         check_zero_report(2u, [](PassReport *report) noexcept {
-            (void)lower_ray_query_loop_to_loop_pass_run_on_module(
+            (void)lower_ray_query_to_loop_pass_run_on_module(
+                nullptr, report);
+        });
+        check_zero_report(3u, [](PassReport *report) noexcept {
+            (void)reconstruct_ray_query_loop_pass_run_on_module(
                 nullptr, report);
         });
         check_zero_report(4u, [](PassReport *report) noexcept {
@@ -411,8 +416,9 @@ void reg_pass_entry_totality() {
         (void)loop_fusion_pass_run_on_function(declaration);
         (void)loop_vectorization_pass_run_on_function(declaration);
         (void)lower_break_continue_pass_run_on_function(declaration);
-        (void)lower_ray_query_loop_pass_run_on_function(declaration);
-        (void)lower_ray_query_loop_to_loop_pass_run_on_function(
+        (void)lower_ray_query_to_pipeline_pass_run_on_function(
+            declaration);
+        (void)lower_ray_query_to_loop_pass_run_on_function(
             declaration);
         (void)mem2reg_pass_run_on_function(declaration);
         (void)phi_cleanup_pass_run_on_function(declaration);

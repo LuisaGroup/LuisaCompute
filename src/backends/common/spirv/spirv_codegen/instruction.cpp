@@ -5283,13 +5283,13 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
 void SpirvCodegenEntry::_emit_ray_query_loop_inst(const xir::RayQueryLoopInst *) noexcept {
     LUISA_ERROR_WITH_LOCATION(
         "SPIR-V codegen received RayQueryLoopInst after control-flow planning. "
-        "lower_ray_query_loop_to_loop must run before codegen.");
+        "lower_ray_query_to_loop must run before codegen.");
 }
 
 void SpirvCodegenEntry::_emit_ray_query_dispatch_inst(const xir::RayQueryDispatchInst *) noexcept {
     LUISA_ERROR_WITH_LOCATION(
         "SPIR-V codegen received RayQueryDispatchInst after control-flow planning. "
-        "lower_ray_query_loop_to_loop must run before codegen.");
+        "lower_ray_query_to_loop must run before codegen.");
 }
 
 void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObjectReadInst *inst) noexcept {
