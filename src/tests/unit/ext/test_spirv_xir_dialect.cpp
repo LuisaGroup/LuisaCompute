@@ -239,9 +239,10 @@ int main(int argc, char *argv[]) {
             luisa::compute::xir::CastOp::BITWISE_CAST, 0u);
         expect_complete_matrix(
             ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR, 6u);
-        expect_complete_matrix(ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD, 2u);
         expect_complete_matrix(
-            ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE, 5u);
+            ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL, 44u);
+        expect_complete_matrix(
+            ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE, 3u);
         expect_complete_matrix(ThreadGroupOp::SYNCHRONIZE_BLOCK, 2u, 1u);
         expect_complete_matrix(
             RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, 0u);

@@ -4321,10 +4321,23 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
                 type, operands);
             break;
         }
-        case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
-            LUISA_NOT_IMPLEMENTED();
-        // Future cooperative-vector element-wise operations (native IR operators
-        // reserved for backend implementation — TODO: implement in SPIR-V codegen).
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: {
+            // OpCooperativeVectorLoadNV accepts Workgroup pointers (the shared
+            // allocation is already an OpTypeArray), so a cooperative-vector
+            // workgroup load lowers to the same NV load instruction.
+            auto pointer = _emit_value(inst->operand(0));
+            auto offset = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            std::vector<spv::IdImmediate> operands;
+            operands.emplace_back(true, pointer);
+            operands.emplace_back(true, offset);
+            id = _builder.createOp(spv::Op::OpCooperativeVectorLoadNV, type, operands);
+            break;
+        }
+        // The remaining cooperative-vector element-wise operations have no
+        // builtin SPIR-V instruction in the vendored SPIRV-Tools grammar: only
+        // load/store, matrix multiply/add, outer-product accumulate, and
+        // reduce-sum accumulate exist. Keep them fail-closed until a native
+        // cooperative-vector per-element instruction is available.
         case xir::ResourceReadOp::COOPERATIVE_VECTOR_DOT:
         case xir::ResourceReadOp::COOPERATIVE_VECTOR_ABS:
         case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
@@ -4368,7 +4381,13 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
         case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
         case xir::ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
         case xir::ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL:
-            LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the SPIR-V backend yet.");
+            LUISA_ASSERT(
+                false,
+                "Cooperative-vector element-wise operation '{}' has no builtin "
+                "SPIR-V instruction support and is not implemented in the "
+                "native XIR-to-SPIR-V backend.",
+                xir::to_string(inst->op()));
+            break;
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit resource read.");
     _value_map.emplace(inst, id);
@@ -4545,9 +4564,44 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
                 spv::Op::OpCooperativeVectorReduceSumAccumulateNV, operands);
             break;
         }
-        case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
-        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
-            LUISA_NOT_IMPLEMENTED();
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: {
+            // OpCooperativeVectorStoreNV accepts Workgroup pointers, so a
+            // cooperative-vector workgroup store lowers to the same NV store.
+            auto pointer = _emit_value(inst->operand(0));
+            auto offset = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto object = _emit_value(inst->operand(2));
+            std::vector<spv::IdImmediate> operands;
+            operands.emplace_back(true, pointer);
+            operands.emplace_back(true, offset);
+            operands.emplace_back(true, object);
+            _builder.createNoResultOp(spv::Op::OpCooperativeVectorStoreNV, operands);
+            break;
+        }
+        case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: {
+            // ResultMatrix += A * transpose(B); training-only NV instruction.
+            _builder.addCapability(spv::Capability::CooperativeVectorTrainingNV);
+            auto pointer = _emit_cooperative_array_pointer(
+                _emit_value(inst->operand(0)));
+            auto offset = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto a = _emit_value(inst->operand(2));
+            auto b = _emit_value(inst->operand(3));
+            std::vector<spv::IdImmediate> operands;
+            operands.emplace_back(true, pointer);
+            operands.emplace_back(true, offset);
+            operands.emplace_back(true, a);
+            operands.emplace_back(true, b);
+            // MemoryLayout follows the existing cooperative-matrix convention
+            // (InferencingOptimalNV); MatrixInterpretation is the constant
+            // appended by ast2xir from the matrix reference component type.
+            operands.emplace_back(
+                true, _builder.makeIntConstant(2));// InferencingOptimalNV
+            operands.emplace_back(
+                true, spirv_cooperative_component_type_constant(
+                          _builder, inst->operand(4)));
+            _builder.createNoResultOp(
+                spv::Op::OpCooperativeVectorOuterProductAccumulateNV, operands);
+            break;
+        }
         case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: {
             LUISA_ASSERT(
                 inst->operand_count() == 2u &&

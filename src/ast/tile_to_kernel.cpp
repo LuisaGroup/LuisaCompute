@@ -82,12 +82,23 @@ barriers/atomics where TileLang's passes would inject them).
         };
     };
 
-  For 2D tiles prefer the 2D partition:
-    $for (r, thread_id().y, rows, block_size().y)
-      $for (c, thread_id().x, cols, block_size().x) { body(r, c) };
+  For 2D tiles use the explicit 2D partition helper `_partition_loop_2d`
+  (the block is 1D in x only, so the linear thread id is decomposed into a
+  (r0, c0) start ONCE per thread and both axes are strided):
+    UInt tid = thread_id().x;
+    UInt tw  = min(threads, cols);            // threads along the fast axis
+    UInt th  = ceildiv(threads, tw);          // threads along the slow axis
+    UInt r0  = tid / tw;  UInt c0 = tid % tw; // hoisted, not per element
+    $for (r, r0, rows, th)
+      $for (c, c0, cols, tw) { body(r, c) }; // coalesced along c
+  This removes the per-element div/mod decomposition (`_decompose`) for
+  rank-2 tiles.  The 1D helper skips its `$if (idx < total)` guard when
+  total % threads == 0 (compile-time known extents).  GEMM additionally
+  partitions the C tile into TM x TN register micro-tiles (2.4).
   Vectorized (coalesced) variants iterate chunks of
   block_size().x * vector_width and use float4/half2 stores (see
-  TileLang vectorize_loop + SelectMinPaddingVectorSize in op/parallel.cc).
+  TileLang vectorize_loop + SelectMinPaddingVectorSize in op/parallel.cc);
+  vectorization remains a documented future refinement (not emitted yet).
 
 1.4 Barrier discipline (mirrors TileLang ThreadSync / LoopUnswitching).
   - sync_block() = __syncthreads: emitted after shared stores before any
@@ -133,24 +144,34 @@ barriers/atomics where TileLang's passes would inject them).
 --- 2.4 GEMM (T.gemm(a, b, c)) and the GEMM family -------------------------
   TileLang: MMA/wgmma/tcgen05 tensor-core path when available, else SIMT
   fallback. Luisa has no tensor-core DSL except Vulkan cooperative vectors,
-  so the REGULAR-kernel implementation is a software shared-memory GEMM
-  (the test_warp.cpp / test_softmax.cpp pattern):
+  so the REGULAR-kernel implementation is a software shared-memory GEMM with
+  REGISTER TILING (the test_warp.cpp / test_softmax.cpp pattern, optimized):
     1. copy A/B tiles (or slices) into Shared (2.3);
     2. sync_block();
-    3. per-thread micro-tile: each thread owns an (tm, tn) fragment of C
-       (row/col partition over the C tile, e.g. 4x4 per thread with 128
-       threads → 32x16 C tile), loop over K in chunks:
-           acc += A_sh[r][k] * B_sh[k][c];   // unrolled inner K
-    4. optionally accumulate in Float for F16 inputs (AccType rule from
+    3. per-thread TM x TN register micro-tile of C (e.g. 4x4 per thread):
+       the C tile is partitioned into a grid of micro-tiles; each thread
+       owns one (TM x TN) micro-tile per iteration and accumulates it in
+       registers, so per k-step it loads TM A values + TN B values and
+       issues TM*TN FMAs (2 LDS loads per FMA becomes (TM+TN)/(TM*TN));
+    4. K loop with k_pack unrolling:
+           $for (kk, 0, ceildiv(K, k_pack)) {
+               $for (u, 0, k_pack) {           // host-unrolled
+                   k = kk*k_pack + u; $if (k < K) {
+                       acc[i][j] = fma(A_sh[r+i][k], B_sh[k][c+j], acc[i][j]);
+                   };
+               };
+           };
+    5. optionally accumulate in Float for F16 inputs (AccType rule from
        tl_templates/cuda/reduce.h);
-    5. T.clear(c) (clear_accum) is emitted as CLEAR first (2.2);
-    6. copy fragment C back to global C tile (2.3).
+    6. T.clear(c) (clear_accum) is emitted as CLEAR first (2.2);
+    7. copy the register tile back to C (staging for replicated fragments).
+  Thread → micro-tile mapping honors GemmWarpPolicy (Square = both dims
+  split, FullRow = rows of C split across threads with the full N strip,
+  FullCol = columns of C split across threads with the full M strip).
   Knobs:
-    trans_a/trans_b -> swap indexing in step 3;
-    GemmWarpPolicy   -> partition the C tile across warps: Square = both dims
-      split, FullRow = all warps along M, FullCol = along N (mirrors
-      TileLang GemmWarpPolicy);
-    k_pack           -> unroll factor for the inner K loop;
+    trans_a/trans_b -> swap indexing in step 4;
+    GemmWarpPolicy   -> the micro-tile mapping above;
+    k_pack           -> unroll factor for the inner K loop (step 4);
     mbar (Blackwell mbarrier input) -> ignore in the SIMT fallback (the
       wait is implied by sync_block) or keep for the async path (2.14).
   WGGMA_GEMM / TCGEN05_GEMM / TCGEN05_GEMM_BLOCKSCALED: same SIMT fallback
@@ -161,6 +182,9 @@ barriers/atomics where TileLang's passes would inject them).
       let the caller pre-decompress); the metadata E layout determines the
       K-groups of 4 with 2 non-zeros;
     - otherwise identical to GEMM with A replaced by the decompressed tile.
+  Deferred (documented, not implemented in this pass): true multi-buffered
+  async pipelining of the K loop (2.16), lane-mapped fragment layouts (1.2),
+  tensor-core/WGMMA paths (section 4 gap list).
 
 --- 2.5 REDUCE_SUM / REDUCE (T.reduce_sum / T.reduce family) ---------------
   TileLang ReduceLowerer: thread-local reduction, then tl::AllReduce
@@ -183,6 +207,16 @@ barriers/atomics where TileLang's passes would inject them).
     independent channels sharing one barrier/workspace
     (tl::AllReduce::run_batch, workspace_stride = block size).
   REDUCE_SUM is REDUCE with op=SUM, dim given, clear=1.
+  Optimization (implemented): when the OUTPUT space is tiny (fewer output
+  elements than warps, e.g. a full-tile 1D reduction where out_count == 1),
+  the default warp-per-output partition would leave most warps idle.  Use
+  the two-level BLOCK reduction instead:
+    - every warp reduces its own strided slice of the reduce axis with a
+      warp collective (no barrier);
+    - lane 0 of each warp writes its partial to a Shared<T> slot [warp];
+    - sync_block();
+    - warp 0 (or one warp) reduces the num_warps partials and writes out.
+  This keeps the whole block busy for full-tile / few-output reductions.
 
 --- 2.6 FINALIZE_REDUCER (T.finalize_reducer(reducer, batch)) --------------
   TileLang finalize_reducer: after T.reduce with clear=0 accumulated into a
@@ -224,7 +258,7 @@ barriers/atomics where TileLang's passes would inject them).
 --- 2.10 STORE / BINARY / MAX / RSQRT (whole-tile elementwise ops) ---------
   TileLang lowers these through T.Parallel-style loops (op/parallel.cc:
   PartitionLoop + vectorize + predicate). Luisa: partitioned element loop
-  (1.3):
+  (1.3); rank-2 tiles use `_partition_loop_2d` to avoid per-element div/mod:
     STORE op=0:  dst = rhs  (rhs_tensor / rhs_literal / rhs_ref);
     STORE op=1:  dst *= rhs (row-broadcast scale: rhs indexed by row only);
     BINARY:      temp = lhs OP rhs (OP = BinaryOp: +,-,*,/,min,max,...),
@@ -262,11 +296,16 @@ barriers/atomics where TileLang's passes would inject them).
     int8→int32 dot via Luisa vector ops if the backend has a dot intrinsic.
   LOOP_BREAK: break_ inside the innermost lowered $for/$loop (TileLang
     loop_break → break).
-  ANY_OF / ALL_OF: tile → scalar boolean. Partition the tile across threads,
-    reduce with warp_active_any/all + Shared/sync_block for the block part,
-    lane 0 writes the boolean temp:
+  ANY_OF / ALL_OF: tile → scalar boolean. For Global/Shared tiles the
+  lowering partitions the tile across threads (one element per thread), each
+  thread keeps a register `acc` (OR for any_of / AND for all_of), then the
+  two-level block reduction reduces the per-thread partials (warp collective
+  → Shared → block), so global buffers are read once per element instead of
+  once per thread:
       any_of: local = any(elem != 0) then block-any;
       all_of: local = all(elem != 0) then block-all.
+  Replicated Fragment tiles keep the per-thread `_full_loop` (each thread
+  already owns the whole tile), followed by the warp vote.
 
 --- 2.13 SYNC / BARRIER / MBARRIER / WARP_VOTE / SHUFFLE / SYNC_THREADS_VOTE
   SYNC:
@@ -570,6 +609,17 @@ barriers/atomics where TileLang's passes would inject them).
   - IEEE rounding modes rz/ru/rd and the fast-intrinsic variants have no
     (or partial) DSL exposure — see 2.18/2.19 gap notes.
 
+  Optimization pass notes (implemented in this file):
+  - GEMM uses TM x TN register micro-tiles + k_pack unroll + GemmWarpPolicy
+    mapping (2.4); rank-2 elementwise loops use the div/mod-free
+    `_partition_loop_2d`; REDUCE uses a block-wide two-level reduction for
+    few-output reductions; ANY_OF/ALL_OF partition Global/Shared tiles;
+    TRANSPOSE stages through Shared for Global operands.
+  - Deferred (correct today, not optimized): true async multi-buffered
+    PIPELINED (2.16), vectorized float4/half2 chunks (1.3), lane-mapped
+    fragment layouts (1.2), tensor-core/WGMMA/TCGEN05 paths, packed
+    addx2/addx4 atomics, per-thread atomic aggregation.
+
 =============================================================================
 */
 
@@ -586,7 +636,8 @@ barriers/atomics where TileLang's passes would inject them).
 //
 // Layout model (SIMD->SIMT):
 //   * Global  tiles  -> partitioned element loops; each element is produced
-//                       by exactly one thread.
+//                       by exactly one thread.  Rank-2 tiles use
+//                       `_partition_loop_2d` (strided r/c loops, no div/mod).
 //   * Shared  tiles  -> partitioned element loops + sync_block() after every
 //                       statement that touches shared memory (never inside a
 //                       thread-divergent branch).
@@ -596,6 +647,9 @@ barriers/atomics where TileLang's passes would inject them).
 //                       "replicate" fragment layout of TileLang — simple and
 //                       correct; a lane-mapped layout (warp_lane_id
 //                       partitioning) is future work (plan 1.2).
+//   * GEMM (2.4) partitions the C tile into TM x TN register micro-tiles
+//     instead of single elements, so each thread reuses A/B loads across a
+//     TM x TN FMA block.
 //   * Value temporaries (BINARY / MAX / RSQRT outputs) are NOT materialized:
 //     the lowering records an *expression evaluator* and inlines it at the
 //     consuming statement (STORE / COPY / ...), so no register staging and no
@@ -1481,30 +1535,84 @@ private:
 
     // ---- loop helpers ---------------------------------------------------------
     // each element exactly once across the block (Global / Shared targets)
+    // 2D partition over a host-known (rows, cols) grid using the 1D block:
+    // decompose the linear thread id once into (r0, c0), then stride both axes.
+    // (plan 1.3: removes the per-element div/mod for rank-2 tiles.)
+    template<typename Body>
+    void _partition_2d(uint32_t rows, uint32_t cols, Body &&body) {
+        auto tid = _tid_x();
+        auto tw = std::min(_threads, cols);// threads along the fast axis
+        auto th = (_threads + tw - 1u) / tw;// threads along the slow axis
+        auto r0 = _fb->binary(Type::of<uint>(), BinaryOp::DIV, tid, _literal_u(tw));
+        auto c0 = _fb->binary(Type::of<uint>(), BinaryOp::MOD, tid, _literal_u(tw));
+        // $for (r, r0, rows, th) { $if (r < rows) { $for (c, c0, cols, tw) { body(r, c); } } }
+        _for_range(r0, _literal_u(rows), _literal_u(th), [&](const Expression *r) {
+            auto emit_cols = [&] {
+                _for_range(c0, _literal_u(cols), _literal_u(tw), [&](const Expression *c) {
+                    body(r, c);
+                });
+            };
+            if (rows % th != 0u) {// some threads start at r0 >= rows
+                _if(_fb->binary(Type::of<bool>(), BinaryOp::LESS, r, _literal_u(rows)), emit_cols);
+            } else {
+                emit_cols();
+            }
+        });
+    }
+
+    // rank-2 partition loop: adapts the Coord-based body used everywhere else.
+    template<typename Body>
+    void _partition_loop_2d(const TensorExpr *t, Body &&body) {
+        LUISA_ASSERT(t->rank() == 2u, "tile_to_kernel: _partition_loop_2d requires a rank-2 tile.");
+        auto rows = static_cast<uint32_t>(axis_extent(t, 0u));
+        auto cols = static_cast<uint32_t>(axis_extent(t, 1u));
+        _partition_2d(rows, cols, [&](const Expression *r, const Expression *c) {
+            Coord cc = _zero_coord();
+            cc[0] = r;
+            cc[1] = c;
+            body(cc);
+        });
+    }
+
     /*
      * _partition_loop(t, body) pseudo-code (luisa-dsl):
      *
-     *   UInt total = product(extent of t);      // logical tile element count
-     *   UInt iters = ceildiv(total, block_size().x);
-     *   $for (i, 0u, iters) {
-     *       UInt idx = i * block_size().x + thread_id().x;  // linear lane
-     *       $if (idx < total) { body(decompose(idx)); };    // row-major coords
-     *   };
+     * UInt total = product(extent of t); // logical tile element count
+     * UInt iters = ceildiv(total, block_size().x);
+     * $for (i, 0u, iters) {
+     * UInt idx = i * block_size().x + thread_id().x;  // linear lane
+     * $if (idx < total) { body(decompose(idx)); }; // row-major coords
+     * };
+     *
+     * Optimization: when total % block_size().x == 0 the guard is always
+     * true and is omitted (compile-time known extents).  Rank-2 tiles use
+     * _partition_loop_2d instead (no per-element div/mod).
      */
     template<typename Body>
     void _partition_loop(const TensorExpr *t, Body &&body) {
         auto total = tile_element_count(t);
         auto iters = (total + _threads - 1u) / _threads;
         auto tid = _vec_comp(_fb->thread_id(), 0u);
-        _for_range(_literal_u(0u), _literal_u(iters), _literal_u(1u),
-                   [&](const Expression *i) {
-                       auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                             i, _literal_u(_threads));
-                       auto idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, tid);
-                       auto cond = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                               idx, _literal_u(total));
-                       _if(cond, [&] { body(_decompose(t, idx)); });
-                   });
+        auto emit_body = [&](const Expression *idx) { body(_decompose(t, idx)); };
+        if (total % _threads != 0u) {
+            _for_range(_literal_u(0u), _literal_u(iters), _literal_u(1u),
+                       [&](const Expression *i) {
+                           auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                                 i, _literal_u(_threads));
+                           auto idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, tid);
+                           auto cond = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                                   idx, _literal_u(total));
+                           _if(cond, [&] { emit_body(idx); });
+                       });
+        } else {
+            _for_range(_literal_u(0u), _literal_u(iters), _literal_u(1u),
+                       [&](const Expression *i) {
+                           auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                                 i, _literal_u(_threads));
+                           auto idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, tid);
+                           emit_body(idx);
+                       });
+        }
     }
 
     // every thread processes the whole tile (replicated Fragment layout)
@@ -1513,6 +1621,9 @@ private:
      *
      *   UInt total = product(extent of t);
      *   $for (i, 0u, total) { body(decompose(i)); };
+     *
+     * Used only for replicated per-thread Fragment tiles; a lane-mapped
+     * fragment layout (future work, plan 1.2) would remove most call sites.
      */
     template<typename Body>
     void _full_loop(const TensorExpr *t, Body &&body) {
@@ -1910,7 +2021,7 @@ private:
      *   if t is Fragment and not shared-backed:   // replicated per-thread tile
      *       _full_loop(t, c => _write_to(t, c, zero))       // $for (i, 0u, total)
      *   else:                                     // Global / Shared / shared-backed
-     *       _partition_loop(t, c => _write_to(t, c, zero))  // strided $for + $if
+     *       rank==2 ? _partition_loop_2d(t, body) : _partition_loop(t, body)
      */
     void _emit_clear(const ClearStmt *s) {
         auto *t = s->t();
@@ -1919,6 +2030,8 @@ private:
         auto zero = _zero_of(t->dtype());
       if (t->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(t)) {
           _full_loop(t, [&](const Coord &c) { _write_to(t, c, zero); });
+      } else if (t->rank() == 2u) {
+          _partition_loop_2d(t, [&](const Coord &c) { _write_to(t, c, zero); });
       } else {
           _partition_loop(t, [&](const Coord &c) { _write_to(t, c, zero); });
       }
@@ -1942,7 +2055,7 @@ private:
      *       else:
      *           _full_loop(ext, body)
      *   else:
-     *       _partition_loop(ext, body)
+     *       rank==2 ? _partition_loop_2d(ext, body) : _partition_loop(ext, body)
      */
     void _emit_copy(const CopyStmt *s) {
         auto *src = s->src();
@@ -1975,6 +2088,8 @@ private:
               } else {
                   _full_loop(ext, body);
               }
+          } else if (ext->rank() == 2u) {
+              _partition_loop_2d(ext, body);
           } else {
               _partition_loop(ext, body);
           }
@@ -1995,7 +2110,7 @@ private:
      *   if lhs is Fragment and not shared-backed:
      *       _full_loop(ext, body)
      *   else:
-     *       _partition_loop(ext, body)
+     *       rank==2 ? _partition_loop_2d(ext, body) : _partition_loop(ext, body)
      */
     void _emit_store(const TileStoreStmt *s) {
         auto *lhs = s->lhs();
@@ -2025,6 +2140,8 @@ private:
         };
           if (lhs->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(lhs)) {
               _full_loop(ext, body);
+          } else if (ext->rank() == 2u) {
+              _partition_loop_2d(ext, body);
           } else {
               _partition_loop(ext, body);
           }
@@ -2300,39 +2417,59 @@ private:
     /*
      * _emit_tile_reduce(x, y, dim, op) pseudo-code (luisa-dsl):
      *
-     *   reduce_len = extent of x along dim
-     *   out_count  = product of x's extents except dim
-     *   UInt lane = warp_lane_id(); UInt lanes = warp_lane_count()
-     *   UInt warp = slice-local warp id; UInt nw = warps per slice
-     *   UInt k_iters = ceildiv(reduce_len, lanes)
-     *   UInt o_iters = ceildiv(out_count, nw)
-     *   if y is Fragment:
-     *       staging = _staging_for(y)               // Shared<T> staging{n}
-     *       sync_block()
-     *   $for (oi, 0u, o_iters) {
-     *       UInt o = oi * nw + warp;
-     *       $if (o < out_count) {
-     *           // decompose o -> coords for all axes except dim
-     *           acc = identity(op);
-     *           $for (ki, 0u, k_iters) {
-     *               UInt k = ki * lanes + lane;
-     *               v = identity(op);
-     *               $if (k < reduce_len) {
-     *                   xc[dim] = k;
-     *                   v = _value_at(x, xc);
-     *                   $if (op is ABS_SUM/ABS_MAX) { v = abs(v); };
-     *               };
-     *               acc = combine(op, acc, v);
-     *           };
-     *           total = _warp_reduce(op, acc);      // XOR butterfly over lanes
-     *           $if (lane == 0) {
-     *               $if (y is Fragment) { staging[_staging_index(y, yc)] = cast(total, out_t); };
-     *               $else { _write_to(y, yc, total); };
-     *           };
-     *       };
+     * reduce_len = extent of x along dim
+     * out_count  = product of x's extents except dim
+     * UInt lane = warp_lane_id(); UInt lanes = warp_lane_count()
+     * UInt warp = slice-local warp id; UInt nw = warps per slice
+     * UInt k_iters = ceildiv(reduce_len, lanes)
+     * UInt o_iters = ceildiv(out_count, nw)
+     * if y is Fragment:
+     * staging = _staging_for(y) // Shared<T> staging{n}
+     * sync_block()
+     *
+     * if out_count < nw:            // FEW OUTPUTS -> BLOCK-WIDE reduction
+     *   // every warp reduces a strided slice of the reduce axis, then the
+     *   // per-warp partials are combined through Shared (lc_optimize 4.5):
+     *   workspace = Shared<T> workspace{nw}   // one slot per warp
+     *   $for (ki, 0u, k_iters) {              // k = ki*lanes + lane (same as below)
+     *       v = identity(op); $if (k < reduce_len) { xc[dim]=k; v = _value_at(x, xc); };
+     *       acc = combine(op, acc, v);
      *   };
-     *   if y is Fragment:
-     *       _replicate_from_staging(y, staging)
+     *   total = _warp_reduce(op, acc);
+     *   $if (lane == 0) { workspace[warp] = total; };
+     *   sync_block();
+     *   $if (warp == 0) {                     // warp 0 reduces the partials
+     *       block = identity(op);
+     *       $for (w, lane, nw, lanes) { block = combine(op, block, workspace[w]); };
+     *       block = _warp_reduce(op, block);
+     *       $if (lane == 0) { write y[yc] = block; };  // single output
+     *   };
+     * else:                          // NORMAL warp-per-output partition
+     *   $for (oi, 0u, o_iters) {
+     *   UInt o = oi * nw + warp;
+     *   $if (o < out_count) {
+     *   // decompose o -> coords for all axes except dim
+     *   acc = identity(op);
+     *   $for (ki, 0u, k_iters) {
+     *   UInt k = ki * lanes + lane;
+     *   v = identity(op);
+     *   $if (k < reduce_len) {
+     *   xc[dim] = k;
+     *   v = _value_at(x, xc);
+     *   $if (op is ABS_SUM/ABS_MAX) { v = abs(v); };
+     *   };
+     *   acc = combine(op, acc, v);
+     *   };
+     *   total = _warp_reduce(op, acc); // XOR butterfly over lanes
+     *   $if (lane == 0) {
+     *   $if (y is Fragment) { staging[_staging_index(y, yc)] = cast(total, out_t); };
+     *   $else { _write_to(y, yc, total); };
+     *   };
+     *   };
+     *   };
+     * }
+     * if y is Fragment:
+     * _replicate_from_staging(y, staging)
      */
     void _emit_tile_reduce(const TensorExpr *x, const TensorExpr *y,
                            uint32_t dim, TileReduceOp op) {
@@ -2357,6 +2494,87 @@ private:
         auto out_t = tensor_element_type(y->dtype());
         const RefExpr *staging = frag_out ? _staging_for(y, out_t) : nullptr;
         if (frag_out) { _sync_block(); }// staging write-after-read hazard
+        // Block-wide two-level reduction (plan 2.5 / lc_optimize 4.5): when
+        // the output space is smaller than the warp count, the default
+        // warp-per-output partition would leave most warps idle.  Instead
+        // every warp reduces its own strided slice of the reduce axis, lane 0
+        // publishes the per-warp partial into a shared workspace, and warp 0
+        // combines the partials and writes the output.
+        const uint32_t nw_est = _threads / 32u;// host, upper bound for warps
+        if (out_count < nw_est && !_batching) {
+            auto workspace = _fb->shared(Type::array(elem_t, nw_est));
+            auto block_k_iters = (reduce_len + _threads - 1u) / _threads;
+            for (uint32_t o = 0u; o < out_count; ++o) {// out_count is small
+                // decompose host-constant o -> coords for all axes except dim
+                Coord xc = _zero_coord();
+                Coord yc = _zero_coord();
+                auto rem = o;
+                for (int32_t i = static_cast<int32_t>(x->rank()) - 1; i >= 0; --i) {
+                    auto ui = static_cast<uint32_t>(i);
+                    if (ui == dim) { continue; }
+                    auto e = static_cast<uint32_t>(axis_extent(x, ui));
+                    auto ci = rem % e;
+                    rem /= e;
+                    xc[ui] = _literal_u(ci);
+                    yc[ui < dim ? ui : ui - 1u] = _literal_u(ci);
+                }
+                // per-thread partial over the whole slice's strided reduce axis
+                auto acc = _fb->local(elem_t);
+                _fb->assign(acc, _reduce_identity(op, x->dtype()));
+                _for_range(_literal_u(0u), _literal_u(block_k_iters), _literal_u(1u),
+                           [&](const Expression *ki) {
+                    auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                          ki, _literal_u(_threads));
+                    auto k = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, _tid_x());
+                    auto v = _fb->local(elem_t);
+                    _fb->assign(v, _reduce_identity(op, x->dtype()));
+                    auto k_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                               k, _literal_u(reduce_len));
+                    _if(k_valid, [&] {
+                        xc[dim] = k;
+                        auto xv = _maybe_cast(_value_at(x, xc), elem_t);
+                        if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
+                            xv = _fb->call(elem_t, CallOp::ABS, {xv});
+                        }
+                        _fb->assign(v, xv);
+                    });
+                    _fb->assign(acc, _reduce_combine(op, elem_t, acc, v));
+                });
+                // warp-level combine, lane 0 publishes to the workspace
+                auto total = _warp_reduce(op, elem_t, acc);
+                auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                            lane, _literal_u(0u));
+                _if(is_lane0, [&] {
+                    _fb->assign(_fb->access(elem_t, workspace, warp), total);
+                });
+                _sync_block();// publish workspace before warp 0 reads it
+                // warp 0 reduces the per-warp partials and writes the output
+                auto is_warp0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                            warp, _literal_u(0u));
+                _if(is_warp0, [&] {
+                    auto val = _fb->local(elem_t);
+                    _fb->assign(val, _reduce_identity(op, x->dtype()));
+                    auto lane_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                                  lane, nw);
+                    _if(lane_valid, [&] {
+                        _fb->assign(val, _fb->access(elem_t, workspace, lane));
+                    });
+                    auto block = _warp_reduce(op, elem_t, val);
+                    auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                                lane, _literal_u(0u));
+                    _if(is_lane0, [&] {
+                        if (frag_out) {
+                            _fb->assign(_fb->access(out_t, staging, _staging_index(y, yc)),
+                                        _maybe_cast(block, out_t));
+                        } else {
+                            _write_to(y, yc, block);
+                        }
+                    });
+                });
+                _sync_block();// avoid WAR on workspace before the next o iteration
+            }
+        } else {
+        // ---- normal warp-per-output partition (existing path) ----
         _for_range(_literal_u(0u), o_iters, _literal_u(1u),
                    [&](const Expression *oi) {
             auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, oi, nw);
@@ -2411,6 +2629,7 @@ private:
                 });
             });
         });
+        }
         if (frag_out) { _replicate_from_staging(y, out_t, staging); }
         _current_extent = saved;
     }
@@ -2425,28 +2644,47 @@ private:
     }
 
     /*
-     * _emit_gemm(s) pseudo-code (luisa-dsl, SIMT fallback):
+     * _emit_gemm(s) pseudo-code (luisa-dsl, SIMT fallback, register-tiled):
      *
      *   if use_cooperative:
      *       return _emit_gemm_cooperative(s)
      *   a, b, c = operands
      *   K = extent of a along axis 1
      *   _current_extent = c
-     *   compute_acc(cc):               // per-thread register accumulator
-     *       UInt r = cc[0]; UInt n = cc[1];
-     *       Float acc = clear_accum ? 0.f : cast(c[cc], float);
-     *       $for (k, 0u, K) {
-     *           // resolve ac, bc according to trans_a / trans_b
-     *           acc = fma(cast(a[ac], float), cast(b[bc], float), acc);
+     *   // ---- per-thread TM x TN register micro-tile (lc_optimize: GEMM) --
+     *   // C is partitioned into a grid of micro-tiles (MT = ceil(M/TM),
+     *   // NT = ceil(N/TN)); each thread owns one micro-tile per iteration.
+     *   // Thread -> micro-tile mapping honors GemmWarpPolicy:
+     *   //   Square   -> 2D strided partition over (MT, NT)
+     *   //   FullRow  -> rows split across threads, each thread walks NT cols
+     *   //   FullCol  -> cols split across threads, each thread walks MT rows
+     *   // TM/TN default to 4x4; 1x1 fallback for tiny tiles (M<2 || N<2).
+     *   compute_acc(r, c):               // r,c = micro-tile top-left coord
+     *       Float acc[TM][TN] = clear_accum ? 0.f : cast(c[r+i][c+j], float);
+     *       $for (kk, 0u, ceildiv(K, k_pack)) {          // k_pack unroll
+     *           $for (u, 0u, k_pack) {                    // host-unrolled
+     *               k = kk * k_pack + u;
+     *               $if (k < K) {
+     *                   // resolve ac, bc according to trans_a / trans_b
+     *                   a_row[i] = cast(a[ac_i][k], float);  // TM loads
+     *                   b_col[j] = cast(b[k][bc_j], float);  // TN loads
+     *                   acc[i][j] = fma(a_row[i], b_col[j], acc[i][j]); // TM*TN FMA
+     *               };
+     *           };
      *       };
      *       return acc;
+     *   emit_micro_tile(r, c):           // write back the TM x TN tile
+     *       if c is Fragment and not shared-backed:
+     *           staging[_staging_index(c, (r+i, c+j))] = cast(acc[i][j], c_dtype)
+     *       else:
+     *           _write_to(c, (r+i, c+j), acc[i][j])
      *   if c is Fragment and not shared-backed:
      *       staging = _staging_for(c)
-     *       sync_block()
-     *       _partition_loop(c, cc => staging[_staging_index(c, cc)] = cast(compute_acc(cc), c_dtype))
+     *       sync_block()                                  // staging write-after-read
+     *       partition micro-tiles; for each: compute_acc + write staging
      *       _replicate_from_staging(c, staging)
      *   else:
-     *       _partition_loop(c, cc => _write_to(c, cc, compute_acc(cc)))
+     *       partition micro-tiles; for each: compute_acc + _write_to(c, ...)
      */
     void _emit_gemm(const GemmStmt *s) {
         if (_use_cooperative) {
@@ -2457,68 +2695,172 @@ private:
         auto *b = s->b();
         auto *c = s->c();
         auto wide_t = Type::of<float>();// f16 inputs accumulate in f32
-        auto bk = static_cast<uint32_t>(axis_extent(a, 1u));// K extent
+        auto out_t = tensor_element_type(c->dtype());
         auto saved = _current_extent;
         _current_extent = c;
-        // SIMT partition (lc_optimize): each thread owns a strided slice of the
-        // C tile and accumulates it in a register; the K-loop reads the
-        // (usually shared) A/B tiles.  Previously every thread redundantly
-        // computed the WHOLE C tile (_full_loop), i.e. threads x more work.
-        auto compute_acc = [&](const Coord &cc) -> const Expression * {
-            auto r = cc[0];
-            auto n = cc[1];
-            auto acc = _fb->local(wide_t);
-            if (s->clear_accum() != 0) {
-                _fb->assign(acc, _fb->literal(wide_t, 0.f));
-            } else {
-                _fb->assign(acc, _maybe_cast(_value_at(c, cc), wide_t));
+        // ---- per-thread TM x TN register micro-tile (plan 2.4 / lc_optimize) ---
+        // C is partitioned into a grid of MT x NT micro-tiles of TM x TN
+        // elements; each thread owns one micro-tile per iteration, so each
+        // k-step issues only TM + TN A/B loads for TM*TN FMAs.
+        auto M = static_cast<uint32_t>(axis_extent(c, 0u));
+        auto N = static_cast<uint32_t>(axis_extent(c, 1u));
+        auto K = static_cast<uint32_t>(axis_extent(a, 1u));
+        // largest of {4, 2, 1} that divides M/N (1x1 fallback for primes)
+        auto TM = (M % 4u == 0u) ? 4u : ((M % 2u == 0u) ? 2u : 1u);
+        auto TN = (N % 4u == 0u) ? 4u : ((N % 2u == 0u) ? 2u : 1u);
+        auto MT = M / TM;// micro-tile grid (exact division)
+        auto NT = N / TN;
+        // clamp k_pack into [1, K]; a degenerate K == 0 tile keeps k_pack = 1
+        // so k_iters = 0 (the K loop is skipped, exactly like the old lowering)
+        auto k_pack = static_cast<uint32_t>(std::min(std::max(s->k_pack(), 1),
+                                                     static_cast<int32_t>(std::max(K, 1u))));
+        auto k_iters = (K + k_pack - 1u) / k_pack;
+        const bool frag = c->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(c);
+        const RefExpr *staging = nullptr;
+        // compute one TM x TN micro-tile with top-left (r, c) = rt*TM, ct*TN
+        // (r/c are runtime expressions; TM/TN/MT/NT are host constants).
+        auto micro_tile = [&](const Expression *rt, const Expression *ct) {
+            auto r = _fb->binary(Type::of<uint>(), BinaryOp::MUL, rt, _literal_u(TM));
+            auto c0 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, ct, _literal_u(TN));
+            // TM*TN f32 accumulator locals (max 4x4 = 16; TM/TN are runtime
+            // host values, so use the fixed upper bound and index i*TN+j)
+            std::array<const Expression *, 16> acc{};
+            for (uint32_t i = 0u; i < TM; ++i) {
+                for (uint32_t j = 0u; j < TN; ++j) {
+                    auto *a_acc = _fb->local(wide_t);
+                    if (s->clear_accum() != 0) {
+                        _fb->assign(a_acc, _fb->literal(wide_t, 0.f));
+                    } else {
+                        Coord cc = _zero_coord();
+                        cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
+                        cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, c0, _literal_u(j));
+                        _fb->assign(a_acc, _maybe_cast(_value_at(c, cc), wide_t));
+                    }
+                    acc[i * TN + j] = a_acc;
+                }
             }
-            _for_range(_literal_u(0u), _literal_u(bk), _literal_u(1u),
-                       [&](const Expression *k) {
-                auto ac = _zero_coord();
-                auto bc = _zero_coord();
-                if (s->trans_a() != 0) {
-                    ac[0] = k;
-                    ac[1] = r;
-                } else {
-                    ac[0] = r;
-                    ac[1] = k;
+            // K loop with k_pack host unrolling; tail guarded when K % k_pack != 0
+            _for_range(_literal_u(0u), _literal_u(k_iters), _literal_u(1u),
+                       [&](const Expression *kk) {
+                for (uint32_t u = 0u; u < k_pack; ++u) {
+                    auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
+                                          kk, _literal_u(k_pack));
+                    auto k = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
+                                         t1, _literal_u(u));
+                    auto emit_k = [&] {
+                        // TM A loads + TN B loads, then TM*TN FMAs
+                        std::array<const Expression *, 16> a_row{};
+                        for (uint32_t i = 0u; i < TM; ++i) {
+                            Coord ac = _zero_coord();
+                            auto ri = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
+                                                  r, _literal_u(i));
+                            if (s->trans_a() != 0) {
+                                ac[0] = k;
+                                ac[1] = ri;
+                            } else {
+                                ac[0] = ri;
+                                ac[1] = k;
+                            }
+                            auto *a_local = _fb->local(wide_t);
+                            _fb->assign(a_local, _maybe_cast(_value_at(a, ac), wide_t));
+                            a_row[i] = a_local;
+                        }
+                        std::array<const Expression *, 16> b_col{};
+                        for (uint32_t j = 0u; j < TN; ++j) {
+                            Coord bc = _zero_coord();
+                            auto cj = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
+                                                  c0, _literal_u(j));
+                            if (s->trans_b() != 0) {
+                                bc[0] = cj;
+                                bc[1] = k;
+                            } else {
+                                bc[0] = k;
+                                bc[1] = cj;
+                            }
+                            auto *b_local = _fb->local(wide_t);
+                            _fb->assign(b_local, _maybe_cast(_value_at(b, bc), wide_t));
+                            b_col[j] = b_local;
+                        }
+                        for (uint32_t i = 0u; i < TM; ++i) {
+                            for (uint32_t j = 0u; j < TN; ++j) {
+                                auto *a_acc = acc[i * TN + j];
+                                _fb->assign(a_acc, _fb->call(wide_t, CallOp::FMA,
+                                                             {a_row[i], b_col[j], a_acc}));
+                            }
+                        }
+                    };
+                    if (K % k_pack != 0u) {// k may run past K on the last kk
+                        _if(_fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                        k, _literal_u(K)), emit_k);
+                    } else {
+                        emit_k();
+                    }
                 }
-                if (s->trans_b() != 0) {
-                    bc[0] = n;
-                    bc[1] = k;
-                } else {
-                    bc[0] = k;
-                    bc[1] = n;
-                }
-                auto av = _maybe_cast(_value_at(a, ac), wide_t);
-                auto bv = _maybe_cast(_value_at(b, bc), wide_t);
-                _fb->assign(acc, _fb->call(wide_t, CallOp::FMA, {av, bv, acc}));
             });
-            return acc;
+            // write-back the micro-tile
+            for (uint32_t i = 0u; i < TM; ++i) {
+                for (uint32_t j = 0u; j < TN; ++j) {
+                    Coord cc = _zero_coord();
+                    cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
+                    cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, c0, _literal_u(j));
+                    if (frag) {
+                        _fb->assign(_fb->access(out_t, staging, _staging_index(c, cc)),
+                                    _maybe_cast(acc[i * TN + j], out_t));
+                    } else {
+                        _write_to(c, cc, acc[i * TN + j]);
+                    }
+                }
+            }
         };
-      if (c->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(c)) {
-          // fragment C is replicated: publish the partitioned results through
-          // a shared staging tile, then refresh every thread's replica
-          auto out_t = tensor_element_type(c->dtype());
-          auto staging = _staging_for(c, out_t);
-          _sync_block();// staging write-after-read hazard vs. previous use
-          _partition_loop(c, [&](const Coord &cc) {
-              auto acc = compute_acc(cc);
-              _fb->assign(_fb->access(out_t, staging, _staging_index(c, cc)),
-                          _maybe_cast(acc, out_t));
-          });
-          _replicate_from_staging(c, out_t, staging);
-      } else {
-          // global C, or a large shared-backed fragment C: each element is
-          // written exactly once across the block (the A/B tiles were staged
-          // in shared memory and published by the copies' trailing barriers;
-          // this statement's own writes are published by _accesses_shared's
-          // trailing _sync_block() in _emit).
-          _partition_loop(c, [&](const Coord &cc) {
-              _write_to(c, cc, compute_acc(cc));
-          });
-      }
+        // Thread -> micro-tile mapping honors GemmWarpPolicy (plan 2.4):
+        //   Square  -> 2D strided partition over (MT, NT)
+        //   FullRow -> rows split across threads, each thread walks NT cols
+        //   FullCol -> cols split across threads, each thread walks MT rows
+        auto gemm_partition = [&](auto &&body) {
+            switch (s->policy()) {
+                case GemmWarpPolicy::FullRow: {
+                    _for_range(_tid_x(), _literal_u(MT), _literal_u(_threads),
+                               [&](const Expression *rt) {
+                        for (uint32_t ct = 0u; ct < NT; ++ct) {
+                            body(rt, _literal_u(ct));
+                        }
+                    });
+                    break;
+                }
+                case GemmWarpPolicy::FullCol: {
+                    _for_range(_tid_x(), _literal_u(NT), _literal_u(_threads),
+                               [&](const Expression *ct) {
+                        for (uint32_t rt = 0u; rt < MT; ++rt) {
+                            body(_literal_u(rt), ct);
+                        }
+                    });
+                    break;
+                }
+                default: {// Square
+                    _partition_2d(MT, NT, body);
+                    break;
+                }
+            }
+        };
+        if (frag) {
+            // fragment C is replicated: publish the partitioned results through
+            // a shared staging tile, then refresh every thread's replica
+            staging = _staging_for(c, out_t);
+            _sync_block();// staging write-after-read hazard vs. previous use
+            gemm_partition([&](const Expression *rt, const Expression *ct) {
+                micro_tile(rt, ct);
+            });
+            _replicate_from_staging(c, out_t, staging);
+        } else {
+            // global C, or a large shared-backed fragment C: each element is
+            // written exactly once across the block (the A/B tiles were staged
+            // in shared memory and published by the copies' trailing barriers;
+            // this statement's own writes are published by _accesses_shared's
+            // trailing _sync_block() in _emit).
+            gemm_partition([&](const Expression *rt, const Expression *ct) {
+                micro_tile(rt, ct);
+            });
+        }
         _current_extent = saved;
     }
 
@@ -2729,9 +3071,11 @@ private:
         }
       if (buf->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(buf)) {
           _full_loop(buf, [&](const Coord &c) { _write_to(buf, c, value); });
+      } else if (buf->rank() == 2u) {
+          _partition_loop_2d(buf, [&](const Coord &c) { _write_to(buf, c, value); });
       } else {
           _partition_loop(buf, [&](const Coord &c) { _write_to(buf, c, value); });
-        }
+      }
         _current_extent = saved;
     }
 
@@ -2744,8 +3088,15 @@ private:
      *       dst[cd] = src[cs]
      *   if dst is Fragment and not shared-backed:
      *       _full_loop(ext, body)
+     *   else if src or dst is Global and tile is not tiny:
+     *       // shared-staged tiled transpose: coalesced read -> shared ->
+     *       // coalesced write, instead of strided global read/write
+     *       staging = Shared<T> staging{product(extent)}
+     *       _partition_loop(ext, c => staging[idx(c)] = src[c])  // coalesced read
+     *       sync_block()
+     *       _partition_loop(ext, c => dst[transpose(c)] = staging[idx(transpose(c))])
      *   else:
-     *       _partition_loop(ext, body)
+     *       rank==2 ? _partition_loop_2d(ext, body) : _partition_loop(ext, body)
      */
     void _emit_transpose(const TransposeStmt *s) {
         auto *src = s->src();
@@ -2761,6 +3112,35 @@ private:
         };
         if (dst->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(dst)) {
             _full_loop(ext, body);
+        } else if ((src->scope() == TensorScope::Global || dst->scope() == TensorScope::Global) &&
+                   tile_element_count(ext) >= 64u &&
+                   _pipeline_var == nullptr && !_batching) {
+            // Staged tiled transpose (plan 2.14): coalesced read of the src
+            // tile into a shared staging tile, sync, then coalesced write of
+            // the transposed tile to dst.  This replaces the strided global
+            // read/write pattern for non-tiny Global operands.  The internal
+            // sync covers the staging hazard; cross-statement hazards are
+            // covered by _emit's trailing barrier logic via the operand scopes.
+            auto elem_t = tensor_element_type(ext->dtype());
+            auto n = tile_element_count(ext);
+            auto staging = _fb->shared(Type::array(elem_t, n));
+            // pass 1: coalesced read of src into staging
+            auto pass1 = [&](const Coord &c) {
+                _fb->assign(_fb->access(elem_t, staging, _local_index(ext, c)),
+                            _maybe_cast(_value_at(src, c), elem_t));
+            };
+            if (ext->rank() == 2u) { _partition_loop_2d(ext, pass1); } else { _partition_loop(ext, pass1); }
+            _sync_block();
+            // pass 2: coalesced write of dst from the transposed staging index
+            auto pass2 = [&](const Coord &cd) {
+                Coord cs = _zero_coord();
+                cs[0] = cd[1];
+                cs[1] = cd[0];
+                _write_to(dst, cd, _fb->access(elem_t, staging, _local_index(ext, cs)));
+            };
+            if (ext->rank() == 2u) { _partition_loop_2d(ext, pass2); } else { _partition_loop(ext, pass2); }
+        } else if (ext->rank() == 2u) {
+            _partition_loop_2d(ext, body);
         } else {
             _partition_loop(ext, body);
         }
@@ -2779,7 +3159,7 @@ private:
      *   if dst is Fragment and not shared-backed:
      *       _full_loop(dst, body)
      *   else:
-     *       _partition_loop(dst, body)
+     *       rank==2 ? _partition_loop_2d(dst, body) : _partition_loop(dst, body)
      */
     void _emit_clamp(const ClampStmt *s) {
         auto *dst = s->dst();
@@ -2799,6 +3179,8 @@ private:
         };
         if (dst->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(dst)) {
             _full_loop(dst, body);
+        } else if (dst->rank() == 2u) {
+            _partition_loop_2d(dst, body);
         } else {
             _partition_loop(dst, body);
         }
@@ -2811,7 +3193,7 @@ private:
      *   dst = s->dst()
      *   value = value_tensor[origin] / value_literal (error on R3 ref)
      *   value = cast(value, elem_t) if present
-     *   _partition_loop(dst, c):
+     *   rank==2 ? _partition_loop_2d(dst, body) : _partition_loop(dst, body):
      *       UInt idx = global_index(dst, c)
      *       if batching: guard body with _batch_valid
      *       switch op:
@@ -2822,6 +3204,7 @@ private:
      *           LOAD -> tmp = buf.volatile_read(idx)
      *           STORE-> buf.volatile_write(idx, value)
      *           default -> error
+     *   (per-thread aggregation / packed addx2/addx4 remain documented gaps.)
      */
     void _emit_atomic(const AtomicStmt *s) {
         auto *dst = s->dst();
@@ -2874,7 +3257,11 @@ private:
             // validity predicate so idle tz threads never touch batch 0.
             if (_batching) { _if(_batch_valid, emit_body); } else { emit_body(); }
         };
-        _partition_loop(dst, body);
+        if (dst->rank() == 2u) {
+            _partition_loop_2d(dst, body);
+        } else {
+            _partition_loop(dst, body);
+        }
         _current_extent = saved;
     }
 
@@ -3087,11 +3474,21 @@ private:
     /*
      * _emit_any_all(buf, is_all) pseudo-code (luisa-dsl):
      *
-     *   Bool acc = is_all ? true : false;
-     *   _full_loop(buf, c):
-     *       Bool truth = (buf[c] != 0);
-     *       acc = is_all ? (acc && truth) : (acc || truth);
-     *   Bool voted = is_all ? warp_active_all(acc) : warp_active_any(acc);
+     *   if buf is Fragment (replicated):        // each thread owns the whole tile
+     *       Bool acc = is_all ? true : false;
+     *       _full_loop(buf, c):
+     *           Bool truth = (buf[c] != 0);
+     *           acc = is_all ? (acc && truth) : (acc || truth);
+     *       Bool voted = is_all ? warp_active_all(acc) : warp_active_any(acc);
+     *   else:                                   // Global / Shared: partition once
+     *       Bool acc = is_all ? true : false;
+     *       _partition_loop(buf, c):            // one element per thread
+     *           Bool truth = (buf[c] != 0);
+     *           acc = is_all ? (acc && truth) : (acc || truth);
+     *       // two-level block reduction (warp -> Shared -> block)
+     *       warp_acc = is_all ? warp_active_all(acc) : warp_active_any(acc);
+     *       $if (lane == 0) { workspace[warp] = warp_acc; };  sync_block();
+     *       $if (warp == 0) { block = identity; for w: combine; voted = warp vote; };
      *   tmp = voted;   // keep the call alive
      */
     void _emit_any_all(const TensorExpr *buf, bool is_all) {
@@ -3100,18 +3497,57 @@ private:
         _current_extent = buf;
         auto acc = _fb->local(Type::of<bool>());
         _fb->assign(acc, _fb->literal(Type::of<bool>(), is_all));
-        _full_loop(buf, [&](const Coord &c) {
+        auto truth_at = [&](const Coord &c) {
             auto v = _value_at(buf, c);
             auto truth = _fb->binary(Type::of<bool>(), BinaryOp::NOT_EQUAL,
                                      v, _maybe_cast(_zero_of(buf->dtype()), elem_t));
             _fb->assign(acc, _fb->binary(Type::of<bool>(),
                                          is_all ? BinaryOp::AND : BinaryOp::OR, acc, truth));
-        });
-        // block-level vote keeps the folded value alive on every lane
-        auto voted = _fb->call(Type::of<bool>(),
-                               is_all ? CallOp::WARP_ACTIVE_ALL : CallOp::WARP_ACTIVE_ANY, {acc});
-        auto tmp = _fb->local(Type::of<bool>());
-        _fb->assign(tmp, voted);
+        };
+        if (buf->scope() == TensorScope::Fragment || _batching) {
+            // Replicated Fragment tiles keep the per-thread _full_loop (each
+            // thread already owns the whole tile), and batched kernels keep
+            // this path for correctness (plan 2.12).
+            _full_loop(buf, truth_at);
+            // block-level vote keeps the folded value alive on every lane
+            auto voted = _fb->call(Type::of<bool>(),
+                                   is_all ? CallOp::WARP_ACTIVE_ALL : CallOp::WARP_ACTIVE_ANY, {acc});
+            auto tmp = _fb->local(Type::of<bool>());
+            _fb->assign(tmp, voted);
+        } else {
+            // Global / Shared tiles: partition the tile across threads (one
+            // element per thread), then combine the per-thread partials with a
+            // two-level block reduction (warp collective -> Shared -> block),
+            // so the buffer is read once per element (plan 2.12).
+            if (buf->rank() == 2u) { _partition_loop_2d(buf, truth_at); } else { _partition_loop(buf, truth_at); }
+            auto warp_acc = _fb->call(Type::of<bool>(),
+                                      is_all ? CallOp::WARP_ACTIVE_ALL : CallOp::WARP_ACTIVE_ANY, {acc});
+            auto nw_est = std::max(1u, _threads / 32u);// host, upper bound for warps
+            auto workspace = _fb->shared(Type::array(Type::of<bool>(), nw_est));
+            auto lane = _lane();
+            auto warp = _slice_warp();
+            auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                        lane, _literal_u(0u));
+            _if(is_lane0, [&] {
+                _fb->assign(_fb->access(Type::of<bool>(), workspace, warp), warp_acc);
+            });
+            _sync_block();// publish workspace before warp 0 reads it
+            auto is_warp0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                        warp, _literal_u(0u));
+            _if(is_warp0, [&] {
+                auto val = _fb->local(Type::of<bool>());
+                _fb->assign(val, _fb->literal(Type::of<bool>(), is_all));
+                auto lane_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                              lane, _num_warps());
+                _if(lane_valid, [&] {
+                    _fb->assign(val, _fb->access(Type::of<bool>(), workspace, lane));
+                });
+                auto voted = _fb->call(Type::of<bool>(),
+                                       is_all ? CallOp::WARP_ACTIVE_ALL : CallOp::WARP_ACTIVE_ANY, {val});
+                auto tmp = _fb->local(Type::of<bool>());
+                _fb->assign(tmp, voted);
+            });
+        }
         _current_extent = saved;
     }
 
