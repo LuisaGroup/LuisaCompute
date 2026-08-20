@@ -28,6 +28,8 @@
 #include <luisa/runtime/stream.h>
 
 #include <string>
+#include <cmath>
+#include <limits>
 
 constexpr auto LuisaTensor = luisa::compute::tile::language::dsl;
 using luisa::compute::tile::language::Tensor;
@@ -43,13 +45,43 @@ Tensor<tile_f16, 2> bench_gemm(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> B) {
     constexpr tile_i32 M = 512, N = 512, K = 512;
     constexpr tile_i32 block_M = 16, block_N = 16, block_K = 32;
     constexpr tile_i32 threads = 256;
-    constexpr tile_i32 num_stages = 2;
+    constexpr tile_i32 num_stages = 1;
 
     Tensor<tile_f16, 2> C = LuisaTensor.empty(LuisaTensor.shape(M, N), tile_f16{});
 
     for (auto [bx, by] : LuisaTensor.Kernel(LuisaTensor.ceildiv(N, block_N), LuisaTensor.ceildiv(M, block_M), threads)) {
         auto A_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(block_M, block_K), tile_f16{});
         auto B_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(block_K, block_N), tile_f16{});
+        auto C_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(block_M, block_N), tile_f32{});
+
+        LuisaTensor.clear(C_local);
+        for (auto ko : LuisaTensor.Pipelined(LuisaTensor.ceildiv(K, block_K), num_stages)) {
+            LuisaTensor.copy(A(by * block_M, ko * block_K), A_shared(block_M, block_K));
+            LuisaTensor.copy(B(ko * block_K, bx * block_N), B_shared(block_K, block_N));
+            LuisaTensor.gemm(A_shared(block_M, block_K), B_shared(block_K, block_N), C_local(block_M, block_N));
+        }
+        LuisaTensor.copy(C_local(block_M, block_N), C(by * block_M, bx * block_N));
+    }
+    return C;
+}
+
+// =============================================================================
+// 1b. Large GEMM: C = A @ B (4096 x 4096 x 4096, f32)
+//     Exercises the warp-K-split path in tile_to_kernel: block_K = 256 hits
+//     the K >= 256 gate, the 16x16 C tile gives MT*NT = 16 < threads = 32,
+//     and C_local is a small fragment -> single-warp barrier-free write-back.
+// =============================================================================
+Tensor<tile_f32, 2> bench_gemm_4096(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
+    constexpr tile_i32 M = 4096, N = 4096, K = 4096;
+    constexpr tile_i32 block_M = 8, block_N = 8, block_K = 512;
+    constexpr tile_i32 threads = 32;
+    constexpr tile_i32 num_stages = 1;
+
+    Tensor<tile_f32, 2> C = LuisaTensor.empty(LuisaTensor.shape(M, N), tile_f32{});
+
+    for (auto [bx, by] : LuisaTensor.Kernel(LuisaTensor.ceildiv(N, block_N), LuisaTensor.ceildiv(M, block_M), threads)) {
+        auto A_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(block_M, block_K), tile_f32{});
+        auto B_shared = LuisaTensor.alloc_shared(LuisaTensor.shape(block_K, block_N), tile_f32{});
         auto C_local = LuisaTensor.alloc_fragment(LuisaTensor.shape(block_M, block_N), tile_f32{});
 
         LuisaTensor.clear(C_local);
@@ -148,12 +180,12 @@ int main(int argc, char *argv[]) {
     Stream stream = device.create_stream();
     luisa::Clock clock;
 
-    auto report = [&](luisa::string_view name, double ms, double gflops) {
+    auto report = [&](luisa::string_view name, double ms, double gflops, uint32_t count) {
         if (gflops > 0.0) {
             LUISA_INFO("[tile-bench] {} : {:.3f} ms/iter ({:.2f} GFLOP/s, {} iters)",
-                       name, ms, gflops, iters);
+                       name, ms, gflops, count);
         } else {
-            LUISA_INFO("[tile-bench] {} : {:.3f} ms/iter ({} iters)", name, ms, iters);
+            LUISA_INFO("[tile-bench] {} : {:.3f} ms/iter ({} iters)", name, ms, count);
         }
     };
     auto check = [](luisa::string_view name, float err, float tol) {
@@ -198,7 +230,80 @@ int main(int argc, char *argv[]) {
         }
         stream << synchronize();
         auto ms = clock.toc() / iters;
-        report("bench_gemm", ms, 2.0 * M * N * K / (ms * 1e6));
+        report("bench_gemm", ms, 2.0 * M * N * K / (ms * 1e6), iters);
+    }
+
+    // ---- bench_gemm_4096 -----------------------------------------------------
+    // 4096x4096x4096 f32 GEMM. This config hits the warp-K-split path in
+    // tile_to_kernel (block_K = 256, MT*NT = 16 < threads = 32, small fragment
+    // C_local -> single-warp barrier-free write-back). Correctness is checked
+    // against a double-precision host reference on sampled points; performance
+    // is reported in GFLOP/s. Default iteration count is capped to keep the
+    // benchmark fast (each iteration is ~137 GFLOP).
+    {
+        constexpr uint32_t M = 4096u, N = 4096u, K = 4096u;
+        auto kernel = luisa::compute::tile::jit(bench_gemm_4096).compile();
+        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto bufA = device.create_buffer<float>(M * K);
+        auto bufB = device.create_buffer<float>(K * N);
+        auto bufC = device.create_buffer<float>(M * N);
+        luisa::vector<float> hA(M * K), hB(K * N), hC(M * N);
+        for (auto i = 0u; i < M * K; ++i) {
+            auto x = (i * 2654435761u) >> 13u;
+            hA[i] = static_cast<float>(x & 0x3FFu) / 512.0f - 1.0f;// [-1, 1)
+        }
+        for (auto i = 0u; i < K * N; ++i) {
+            auto x = (i * 40503u) >> 11u;
+            hB[i] = static_cast<float>(x & 0x3FFu) / 512.0f - 1.0f;// [-1, 1)
+        }
+        stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
+
+        kernel.validate(bufA, bufB, bufC);
+        auto typed = kernel.to_kernel<2>();
+        auto sh = device.compile(typed);
+        // warmup + verify
+        stream << sh(bufA, bufB, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+               << bufC.copy_to(luisa::span{hC}) << synchronize();
+        // err = max over checked points of (|device - double_reference| / tol),
+        // tol = 2e-3 + 1e-5*|ref| (f32 accumulation of 4096 terms).
+        auto err = 0.0f;
+        luisa::vector<luisa::string> mismatches;
+        auto check_point = [&](uint32_t r, uint32_t c) {
+            if (!std::isfinite(hC[r * N + c])) {
+                if (mismatches.size() < 8u) { mismatches.emplace_back(luisa::format("({},{}) non-finite {}", r, c, hC[r * N + c])); }
+                err = 1e9f; return; }
+            double acc = 0.0;
+            for (auto k = 0u; k < K; ++k) {
+                acc += static_cast<double>(hA[r * K + k]) * static_cast<double>(hB[k * N + c]);
+            }
+            auto diff = std::abs(static_cast<double>(hC[r * N + c]) - acc);
+            auto tol = 2e-3 + 1e-5 * std::abs(acc);
+            if (diff > tol && mismatches.size() < 8u) {
+                mismatches.emplace_back(luisa::format("({},{}) dev={} ref={} diff={} tol={}",
+                                                       r, c, hC[r * N + c], static_cast<float>(acc),
+                                                       diff, tol));
+            }
+            err = luisa::max(err, static_cast<float>(diff / tol));
+        };
+        // two columns per row (every row covered) + four full rows
+        for (auto r = 0u; r < M; ++r) {
+            check_point(r, (r * 2654435761u) % N);
+            check_point(r, ((r * 2654435761u) + 2047u) % N);
+        }
+        for (auto r : {0u, M / 4u, M / 2u, 3u * M / 4u}) {
+            for (auto c = 0u; c < N; ++c) { check_point(r, c); }
+        }
+        for (auto &m : mismatches) { LUISA_WARNING("[bench_gemm_4096] mismatch: {}", m); }
+        check("bench_gemm_4096", err, 1.0f);
+
+        auto iters_4096 = iters < 5u ? iters : 5u;
+        clock.tic();
+        for (auto i = 0u; i < iters_4096; ++i) {
+            stream << sh(bufA, bufB, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y);
+        }
+        stream << synchronize();
+        auto ms = clock.toc() / iters_4096;
+        report("bench_gemm_4096", ms, 2.0 * M * N * K / (ms * 1e6), iters_4096);
     }
 
     // ---- bench_rms_norm ------------------------------------------------------
@@ -233,7 +338,7 @@ int main(int argc, char *argv[]) {
             stream << sh(bufA, bufB).dispatch(result.dispatch_size.x);
         }
         stream << synchronize();
-        report("bench_rms_norm", clock.toc() / iters, 0.0);
+        report("bench_rms_norm", clock.toc() / iters, 0.0, iters);
     }
 
     // ---- bench_scan ----------------------------------------------------------
@@ -267,7 +372,7 @@ int main(int argc, char *argv[]) {
             stream << sh(bufA, bufS).dispatch(result.dispatch_size.x);
         }
         stream << synchronize();
-        report("bench_scan", clock.toc() / iters, 0.0);
+        report("bench_scan", clock.toc() / iters, 0.0, iters);
     }
 
     // ---- bench_add -----------------------------------------------------------
@@ -302,7 +407,7 @@ int main(int argc, char *argv[]) {
         }
         stream << synchronize();
         auto ms = clock.toc() / iters;
-        report("bench_add", ms, static_cast<double>(M) * N / (ms * 1e6));
+        report("bench_add", ms, static_cast<double>(M) * N / (ms * 1e6), iters);
     }
 
     LUISA_INFO("[tile-bench] all benchmarks passed on backend '{}'.", backend);

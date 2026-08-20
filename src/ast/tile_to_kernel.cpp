@@ -174,6 +174,29 @@ barriers/atomics where TileLang's passes would inject them).
     k_pack           -> unroll factor for the inner K loop (step 4);
     mbar (Blackwell mbarrier input) -> ignore in the SIMT fallback (the
       wait is implied by sync_block) or keep for the async path (2.14).
+  Warp-level GEMM path (implemented; lc_optimize §2.1/§2.6):
+    When the per-thread mapping would leave lanes idle — the micro-tile
+    grid is smaller than the block (MT*NT < threads), threads >= 32, the
+    GEMM is not batched/cooperative, and K is large enough to amortize
+    the reduction (K >= 256) — switch to a WARP-K-SPLIT:
+      - each WARP owns one micro-tile at a time (warp-level 2D strided
+        partition of the MT x NT grid with warp_id/num_warps);
+      - lane l accumulates the TM x TN partial over its strided K-slice
+        k = kk*lanes + l (tail-guarded when K % lanes != 0);
+     *   // after the K loop ONE scalar warp_active_sum per micro-tile element
+     *   // gives every lane the finished tile (no barrier, no shared memory for
+     *   // the reduction). A packed vector warp_active_sum was prototyped but
+     *   // hits a CUDA XIR codegen issue (make_vector prints as lc_make_ulong4),
+     *   // so the portable per-component reduce is used (like _emit_warp_reduce).
+      - write-back: non-fragment C -> lane 0 writes the TM x TN tile
+        (each element once); fragment C with a single-warp block -> every
+        lane writes the tile into its OWN replica (barrier-free, §3.7);
+        fragment C with several warps -> lane 0 publishes into the shared
+        staging tile + sync_block, as before (cross-warp exchange must
+        stay in shared memory, §3.7 rule 5).
+    k_pack is ignored in the warp path (the lane-strided K loop already
+    gives each lane a strided sequence; documented — the old path keeps
+    honoring k_pack).
   WGGMA_GEMM / TCGEN05_GEMM / TCGEN05_GEMM_BLOCKSCALED: same SIMT fallback
   (hardware WGMMA/TCGEN05 require new DSL builtins; see section 4 gap list).
   GEMM_SP / WGGMA_GEMM_SP / TCGEN05_GEMM_SP: TileLang sparse GEMM works on
@@ -611,10 +634,15 @@ barriers/atomics where TileLang's passes would inject them).
 
   Optimization pass notes (implemented in this file):
   - GEMM uses TM x TN register micro-tiles + k_pack unroll + GemmWarpPolicy
-    mapping (2.4); rank-2 elementwise loops use the div/mod-free
-    `_partition_loop_2d`; REDUCE uses a block-wide two-level reduction for
-    few-output reductions; ANY_OF/ALL_OF partition Global/Shared tiles;
-    TRANSPOSE stages through Shared for Global operands.
+    mapping (2.4); when the micro-tile grid is smaller than the block
+    (MT*NT < threads), threads >= 32 and K >= 256 it switches to a
+    warp-K-split GEMM: every lane of a warp accumulates a K-slice of a
+    micro-tile and a scalar warp_active_sum all-reduce finishes the tile
+    (no barrier; fragment single-warp blocks write replicas directly).
+  - rank-2 elementwise loops use the div/mod-free `_partition_loop_2d`;
+    REDUCE uses a block-wide two-level reduction for few-output
+    reductions; ANY_OF/ALL_OF partition Global/Shared tiles; TRANSPOSE
+    stages through Shared for Global operands.
   - Deferred (correct today, not optimized): true async multi-buffered
     PIPELINED (2.16), vectorized float4/half2 chunks (1.3), lane-mapped
     fragment layouts (1.2), tensor-core/WGMMA/TCGEN05 paths, packed
@@ -647,9 +675,12 @@ barriers/atomics where TileLang's passes would inject them).
 //                       "replicate" fragment layout of TileLang — simple and
 //                       correct; a lane-mapped layout (warp_lane_id
 //                       partitioning) is future work (plan 1.2).
-//   * GEMM (2.4) partitions the C tile into TM x TN register micro-tiles
-//     instead of single elements, so each thread reuses A/B loads across a
-//     TM x TN FMA block.
+  // * GEMM (2.4) partitions the C tile into TM x TN register micro-tiles
+  // * instead of single elements, so each thread reuses A/B loads across a
+  // * TM x TN FMA block; when the micro-tile grid is smaller than the
+  // * block it additionally switches to a warp-K-split (every lane of a
+  // * warp accumulates a K-slice and scalar warp_active_sum all-reduces
+  // * finish each micro-tile — see 2.4).
 //   * Value temporaries (BINARY / MAX / RSQRT outputs) are NOT materialized:
 //     the lowering records an *expression evaluator* and inlines it at the
 //     consuming statement (STORE / COPY / ...), so no register staging and no
@@ -892,6 +923,11 @@ private:
     const Expression *_pipeline_var = nullptr;
     uint32_t _pipeline_count = 0u;
     uint32_t _pipeline_axis = 0u;
+    // per-copy pipeline axis for GEMM-style pipelined copies (A: MxK, B: KxN
+    // share the K extent); set by _emit_pipelined, consumed by _emit_copy.  The
+    // fallback _min_extent_axis heuristic breaks when block_K > block_M, so the
+    // K-extent pair inference is the primary path for pipelined GEMM copies.
+    luisa::unordered_map<const CopyStmt *, uint32_t> _pipeline_copy_axes;
     // the effective op extent of the statement being emitted (global views
     // carry no extent of their own; the op extent comes from the other
     // operand / the loop target)
@@ -1700,11 +1736,39 @@ private:
         auto count = static_cast<uint32_t>(p->count());
         if (count == 0u) { return; }
         _pipeline_count = count;
+        // GEMM-style pipelined copies (A: MxK, B: KxN) share the K extent across
+        // their two rank-2 shared-tile destinations.  Record each copy's pipeline
+        // axis from that shared extent — robust to block_K being larger OR
+        // smaller than block_M/block_N, unlike the _min_extent_axis heuristic
+        // (which breaks when block_K > block_M, e.g. the 4096^3 f32 GEMM
+        // benchmark with block_M = block_N = 16, block_K = 128).
+        _pipeline_copy_axes.clear();
+        luisa::vector<const CopyStmt *> copies;
+        for (auto *s : body) {
+            if (s->op() == TileOpKind::COPY) {
+                copies.emplace_back(static_cast<const CopyStmt *>(s));
+            }
+        }
+        for (auto i = 0u; i < copies.size() && _pipeline_copy_axes.empty(); ++i) {
+            auto *di = copies[i]->dst();
+            if (di == nullptr || di->rank() != 2u || di->scope() != TensorScope::Shared) { continue; }
+            auto ai0 = static_cast<uint32_t>(axis_extent(di, 0u));
+            auto ai1 = static_cast<uint32_t>(axis_extent(di, 1u));
+            for (auto j = i + 1u; j < copies.size(); ++j) {
+                auto *dj = copies[j]->dst();
+                if (dj == nullptr || dj->rank() != 2u || dj->scope() != TensorScope::Shared) { continue; }
+                auto bj0 = static_cast<uint32_t>(axis_extent(dj, 0u));
+                auto bj1 = static_cast<uint32_t>(axis_extent(dj, 1u));
+                if (ai1 == bj0) { _pipeline_copy_axes[copies[i]] = 1u; _pipeline_copy_axes[copies[j]] = 0u; break; }
+                if (ai0 == bj1) { _pipeline_copy_axes[copies[i]] = 0u; _pipeline_copy_axes[copies[j]] = 1u; break; }
+            }
+        }
         _for_range(_literal_u(0u), _literal_u(count), _literal_u(1u),
                    [&](const Expression *ko) {
                        _pipeline_var = ko;
                        for (auto *s : body) { _emit(s); }
                    });
+        _pipeline_copy_axes.clear();
         _pipeline_var = nullptr;
         _pipeline_count = 0u;
     }
@@ -2065,9 +2129,15 @@ private:
         auto saved_axis = _pipeline_axis;
         _current_extent = ext;
         if (_pipeline_var != nullptr) {
-            // per-copy pipeline axis: the axis with the smallest tile extent
-            // (the K axis of a GEMM-style pipelined copy)
-            _pipeline_axis = _min_extent_axis(ext);
+            // per-copy pipeline axis: GEMM-style copies use the K axis recorded
+            // by _emit_pipelined (robust for block_K > block_M); the fallback is
+            // the smallest-extent heuristic (the K axis of a GEMM-style copy
+            // when block_K < block_M).
+            if (auto it = _pipeline_copy_axes.find(s); it != _pipeline_copy_axes.end()) {
+                _pipeline_axis = it->second;
+            } else {
+                _pipeline_axis = _min_extent_axis(ext);
+            }
         }
         auto body = [&](const Coord &c) {
             _write_to(dst, c, _value_at(src, c));
@@ -2644,13 +2714,57 @@ private:
     }
 
     /*
-     * _emit_gemm(s) pseudo-code (luisa-dsl, SIMT fallback, register-tiled):
+     * _emit_gemm(s) pseudo-code (luisa-dsl, SIMT fallback):
+     *   register-tiled per-thread micro-tiles, or warp-K-split when the
+     *   per-thread mapping would leave lanes idle (lc_optimize 2.1/2.6).
      *
      *   if use_cooperative:
      *       return _emit_gemm_cooperative(s)
      *   a, b, c = operands
      *   K = extent of a along axis 1
      *   _current_extent = c
+     *   TM/TN = largest of {4,2,1} dividing M/N; MT = M/TM; NT = N/TN
+     *
+     *   // ---- warp-K-split path (lc_optimize 2.1/2.6) --------------------
+     *   // Active when !cooperative && !batching && threads >= 32 &&
+     * // MT*NT < threads (idle-lane case) && K >= 256 (reduction amortized).
+     *   if use_warp_gemm:
+     *       lane = warp_lane_id(); lanes = warp_lane_count()
+     *       wid = _warp_id(); nw = _num_warps()
+     *       // warp-level 2D strided partition of the MT x NT micro-tile grid
+     *       tw = min(nw, NT); th = ceildiv(nw, tw)
+     *       r0 = wid / tw; c0 = wid % tw
+     *       $for (r, r0, MT, th) {
+     *         $for (c, c0, NT, tw) {
+     *           Float acc[TM][TN] = 0.f;                // per-lane K-slice partial
+     *           $for (kk, 0u, ceildiv(K, lanes)) {      // lane-strided K
+     *               k = kk * lanes + lane;
+     *               $if (k < K) {                       // only when K % lanes != 0
+     *                   // resolve ac, bc according to trans_a / trans_b
+     *                   a_row[i] = cast(a[ac_i][k], float);   // TM loads
+     *                   b_col[j] = cast(b[k][bc_j], float);   // TN loads
+     *                   acc[i][j] = fma(a_row[i], b_col[j], acc[i][j]);
+     *               };
+     *           };
+     *           for i in 0..TM: {
+     *               for j in 0..TN: {                   // scalar all-reduce
+     *                   acc[i][j] = warp_active_sum(acc[i][j])  // every lane gets the tile
+     *               }
+     *           }
+     *           if !clear_accum: acc[i][j] += cast(c[r+i][c+j], float)
+     *           // write-back
+     *           if frag && nw == 1:                     // single-warp block
+     *               _write_to(c, (r+i, c+j), acc[i][j]) // each lane's OWN replica
+     *           else:
+     *               $if (lane == 0u) {
+     *                   if frag: staging[_staging_index(c, (r+i,c+j))] = cast(acc[i][j], c_dtype)
+     *                   else:   _write_to(c, (r+i, c+j), acc[i][j])
+     *               };
+     *         };
+     *       };
+     *       if frag && nw > 1: { sync_block(); _replicate_from_staging(c, staging); }
+     *       return
+     *
      *   // ---- per-thread TM x TN register micro-tile (lc_optimize: GEMM) --
      *   // C is partitioned into a grid of micro-tiles (MT = ceil(M/TM),
      *   // NT = ceil(N/TN)); each thread owns one micro-tile per iteration.
@@ -2717,6 +2831,194 @@ private:
         auto k_iters = (K + k_pack - 1u) / k_pack;
         const bool frag = c->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(c);
         const RefExpr *staging = nullptr;
+        // ---- warp-K-split path (lc_optimize 2.1/2.6) ------------------------
+        // Active when !cooperative && !batching && threads >= 32 &&
+        // MT*NT < threads (idle-lane case) && K >= 256 (reduction amortized).
+        // Measured on the 4096^3 f32 CUDA benchmark: ~5% faster than the
+        // per-thread path at block_K = 256 (K = 256 >= the gate) and a clear
+        // regression below it, hence the K >= 256 threshold.
+        // Each warp walks a warp-strided slice of the MT x NT micro-tile grid;
+        // every lane accumulates a K-slice of one micro-tile and the per-row
+        // partials are finished by a vector WARP_ACTIVE_SUM all-reduce (no
+        // shared memory, no barrier inside the warp path).
+        auto host_nw = _threads / 32u;// warp size is pinned to 32
+        auto use_warp = !_use_cooperative && !_batching &&
+                        _threads >= 32u &&
+                        (MT * NT) < _threads &&
+                        K >= 256u;
+        if (use_warp) {
+            auto lanes = _lane_count();// runtime expr
+            auto lane = _lane();       // warp_lane_id()
+            auto wid = _warp_id();     // runtime expr; batching disabled here
+            // warp-level 2D strided partition of the MT x NT micro-tile grid
+            auto tw = std::min(host_nw, NT);
+            auto th = (host_nw + tw - 1u) / tw;
+            auto r0 = _fb->binary(Type::of<uint>(), BinaryOp::DIV, wid, _literal_u(tw));
+            auto c0 = _fb->binary(Type::of<uint>(), BinaryOp::MOD, wid, _literal_u(tw));
+            // per-micro-tile, per-lane: K-slice partials + vector all-reduce
+            auto warp_micro_tile = [&](const Expression *rt, const Expression *ct) {
+                auto r = _fb->binary(Type::of<uint>(), BinaryOp::MUL, rt, _literal_u(TM));
+                auto ct0 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, ct, _literal_u(TN));
+                // TM*TN f32 accumulator locals; always start from 0.f because
+                // the per-lane partial covers only a K-slice (clear_accum==0
+                // C-addition happens after the all-reduce below)
+                std::array<const Expression *, 16> acc{};
+                for (uint32_t i = 0u; i < TM; ++i) {
+                    for (uint32_t j = 0u; j < TN; ++j) {
+                        auto *a_acc = _fb->local(wide_t);
+                        _fb->assign(a_acc, _fb->literal(wide_t, 0.f));
+                        acc[i * TN + j] = a_acc;
+                    }
+                }
+                // lane-strided K loop (lanes pinned to 32); the tail guard only
+                // wraps the loads/FMAs, so every lane still reaches the reduce
+                auto k_iters_w = (K + 32u - 1u) / 32u;
+                _for_range(_literal_u(0u), _literal_u(k_iters_w), _literal_u(1u),
+                           [&](const Expression *kk) {
+                    auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, kk, lanes);
+                    auto k = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, lane);
+                    auto emit_k = [&] {
+                        // TM A loads + TN B loads, then TM*TN FMAs (same
+                        // trans_a/trans_b indexing as the per-thread path)
+                        std::array<const Expression *, 16> a_row{};
+                        for (uint32_t i = 0u; i < TM; ++i) {
+                            Coord ac = _zero_coord();
+                            auto ri = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
+                                                  r, _literal_u(i));
+                            if (s->trans_a() != 0) {
+                                ac[0] = k;
+                                ac[1] = ri;
+                            } else {
+                                ac[0] = ri;
+                                ac[1] = k;
+                            }
+                            auto *a_local = _fb->local(wide_t);
+                            _fb->assign(a_local, _maybe_cast(_value_at(a, ac), wide_t));
+                            a_row[i] = a_local;
+                        }
+                        std::array<const Expression *, 16> b_col{};
+                        for (uint32_t j = 0u; j < TN; ++j) {
+                            Coord bc = _zero_coord();
+                            auto cj = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
+                                                  ct0, _literal_u(j));
+                            if (s->trans_b() != 0) {
+                                bc[0] = cj;
+                                bc[1] = k;
+                            } else {
+                                bc[0] = k;
+                                bc[1] = cj;
+                            }
+                            auto *b_local = _fb->local(wide_t);
+                            _fb->assign(b_local, _maybe_cast(_value_at(b, bc), wide_t));
+                            b_col[j] = b_local;
+                        }
+                        for (uint32_t i = 0u; i < TM; ++i) {
+                            for (uint32_t j = 0u; j < TN; ++j) {
+                                auto *a_acc = acc[i * TN + j];
+                                _fb->assign(a_acc, _fb->call(wide_t, CallOp::FMA,
+                                                             {a_row[i], b_col[j], a_acc}));
+                            }
+                        }
+                    };
+                    if (K % 32u != 0u) {// k may run past K on the last kk
+                        _if(_fb->binary(Type::of<bool>(), BinaryOp::LESS,
+                                        k, _literal_u(K)), emit_k);
+                    } else {
+                        emit_k();
+                    }
+                });
+                // scalar all-reduce per micro-tile element: every lane receives
+                // the full TM x TN tile (uniform; no sync_block inside a $if).
+                // A packed vector WARP_ACTIVE_SUM would cut the reduction cost
+                // ~4x, but the CUDA XIR codegen currently prints the float4
+                // make_vector AGGREGATE with the wrong element type (lc_make_uint4
+                // -> NVRTC mismatch), so the portable per-component reduce is used
+                // (like _emit_warp_reduce).  The warp path still wins when the
+                // per-lane K-slice is long enough to amortize the reductions
+                // (K >= ~256 at 8x8 blocks / 32 threads).
+                for (uint32_t i = 0u; i < TM; ++i) {
+                    for (uint32_t j = 0u; j < TN; ++j) {
+                        auto *a_acc = acc[i * TN + j];
+                        auto red = _fb->local(wide_t);
+                        _fb->assign(red, _fb->call(wide_t, CallOp::WARP_ACTIVE_SUM,
+                                                   {a_acc}));
+                        _fb->assign(a_acc, red);
+                    }
+                }
+                // clear_accum == 0: every lane adds the existing C element to
+                // its (now full) tile; a uniform add, no divergence issue
+                if (s->clear_accum() == 0) {
+                    for (uint32_t i = 0u; i < TM; ++i) {
+                        for (uint32_t j = 0u; j < TN; ++j) {
+                            Coord cc = _zero_coord();
+                            cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
+                            cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, ct0, _literal_u(j));
+                            _fb->assign(acc[i * TN + j],
+                                        _fb->binary(wide_t, BinaryOp::ADD,
+                                                    acc[i * TN + j],
+                                                    _maybe_cast(_value_at(c, cc), wide_t)));
+                        }
+                    }
+                }
+                // write-back
+                if (frag && host_nw == 1u) {
+                    // single-warp block (fragment C not shared-backed): every
+                    // lane writes the tile into its OWN replica; no staging, no
+                    // barrier in the warp path
+                    for (uint32_t i = 0u; i < TM; ++i) {
+                        for (uint32_t j = 0u; j < TN; ++j) {
+                            Coord cc = _zero_coord();
+                            cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
+                            cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, ct0, _literal_u(j));
+                            _write_to(c, cc, _maybe_cast(acc[i * TN + j], out_t));
+                        }
+                    }
+                } else {
+                    auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
+                                                lane, _literal_u(0u));
+                    _if(is_lane0, [&] {
+                        for (uint32_t i = 0u; i < TM; ++i) {
+                            for (uint32_t j = 0u; j < TN; ++j) {
+                                Coord cc = _zero_coord();
+                                cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
+                                cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, ct0, _literal_u(j));
+                                if (frag) {
+                                    _fb->assign(_fb->access(out_t, staging, _staging_index(c, cc)),
+                                                _maybe_cast(acc[i * TN + j], out_t));
+                                } else {
+                                    _write_to(c, cc, _maybe_cast(acc[i * TN + j], out_t));
+                                }
+                            }
+                        }
+                    });
+                }
+            };
+            // staging/barrier setup for the warp path (outside the partition
+            // loops): fragment C with a multi-warp block publishes through the
+            // shared staging tile and refreshes every replica afterwards
+            if (frag && host_nw > 1u) {
+                staging = _staging_for(c, out_t);
+                _sync_block();// staging write-after-read hazard vs. previous use
+            }
+            // warp-level 2D partition of the MT x NT micro-tile grid
+            _for_range(r0, _literal_u(MT), _literal_u(th), [&](const Expression *r) {
+                auto emit_cols = [&] {
+                    _for_range(c0, _literal_u(NT), _literal_u(tw), [&](const Expression *c) {
+                        warp_micro_tile(r, c);
+                    });
+                };
+                if (MT % th != 0u) {// some warps start at r0 >= MT
+                    _if(_fb->binary(Type::of<bool>(), BinaryOp::LESS, r, _literal_u(MT)), emit_cols);
+                } else {
+                    emit_cols();
+                }
+            });
+            if (frag && host_nw > 1u) {
+                _replicate_from_staging(c, out_t, staging);
+            }
+            _current_extent = saved;
+            return;
+        }
         // compute one TM x TN micro-tile with top-left (r, c) = rt*TM, ct*TN
         // (r/c are runtime expressions; TM/TN/MT/NT are host constants).
         auto micro_tile = [&](const Expression *rt, const Expression *ct) {
