@@ -114,6 +114,39 @@ function(luisa_compute_link_llvm_into_backend backend)
         return()
     endif ()
 
+    # FindZLIB can resolve Apple's SDK copy and publish
+    # <SDK>/usr/include through ZLIB::ZLIB. Propagating that directory as an
+    # ordinary -isystem argument breaks non-Apple Clang toolchains on macOS:
+    # it is searched before Clang's libc++ overlay headers and mixes two SDK
+    # header stacks (for example, <cstddef> then reports a missing size_t).
+    # SDK headers are already part of the compiler's implicit/sysroot search,
+    # so keep the link dependency but remove only this redundant include.
+    if (APPLE AND TARGET ZLIB::ZLIB)
+        get_target_property(_luisa_zlib_include_dirs
+                ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)
+        if (_luisa_zlib_include_dirs)
+            set(_luisa_zlib_filtered_include_dirs "")
+            set(_luisa_zlib_removed_sdk_include FALSE)
+            foreach (_luisa_zlib_include_dir IN LISTS _luisa_zlib_include_dirs)
+                if (_luisa_zlib_include_dir MATCHES
+                        "\\.sdk[/\\\\]usr[/\\\\]include[/\\\\]?$")
+                    set(_luisa_zlib_removed_sdk_include TRUE)
+                else ()
+                    list(APPEND _luisa_zlib_filtered_include_dirs
+                            "${_luisa_zlib_include_dir}")
+                endif ()
+            endforeach ()
+            if (_luisa_zlib_removed_sdk_include)
+                set_property(TARGET ZLIB::ZLIB PROPERTY
+                        INTERFACE_INCLUDE_DIRECTORIES
+                        "${_luisa_zlib_filtered_include_dirs}")
+                message(STATUS
+                        "Removed redundant Apple SDK include directory from "
+                        "LLVM's ZLIB dependency")
+            endif ()
+        endif ()
+    endif ()
+
     include(HandleLLVMOptions)
 
     message(STATUS "Linking LLVM to target ${LUISA_LINK_LLVM_TARGET} with components: ${LUISA_LINK_LLVM_COMPONENTS}")
