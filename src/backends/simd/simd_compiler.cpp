@@ -196,9 +196,11 @@ void strip_debug_call_metadata_for_legalization(
 
 // Embree may visit accepted candidates in a provider-defined order. Running a
 // JIT handler from that filter is therefore legal only when the handler cannot
-// observe ordering or communicate across candidates: it has no captures, may
-// read only the current triangle hit, performs pure SSA/control work, and may
-// only commit that same hit. Stateful handlers retain the ordered batch path.
+// observe ordering or communicate across candidates: it has no captures, is
+// empty or may read only the current triangle hit, performs pure SSA/control
+// work, and may only commit that same hit. An empty handler rejects every
+// non-opaque triangle while the runtime still auto-commits opaque triangles,
+// exactly matching the ordered query loop. Stateful handlers retain that loop.
 [[nodiscard]] bool ray_query_surface_filter_is_order_independent(
     const xir::RayQueryPipelineInst *pipeline) noexcept {
     if (pipeline == nullptr ||
@@ -211,6 +213,7 @@ void strip_debug_call_metadata_for_legalization(
     auto *definition = surface == nullptr ? nullptr :
                                             surface->definition();
     if (definition == nullptr) { return false; }
+    auto surface_is_empty = ray_query_handler_is_empty(surface);
     auto argument_count = size_t{0u};
     for ([[maybe_unused]] auto *argument : surface->arguments()) {
         argument_count++;
@@ -254,7 +257,7 @@ void strip_debug_call_metadata_for_legalization(
                 default: valid = false; break;
             }
         });
-    return valid && saw_commit;
+    return valid && (surface_is_empty || saw_commit);
 }
 
 }// namespace

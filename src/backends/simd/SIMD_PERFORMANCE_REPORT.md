@@ -5509,3 +5509,83 @@ Release trees pass the complete 168/168 CTest inventory, including native
 math, Schedule/JIT, lower-ray-query and reconstruction passes, runtime widths,
 all accel/oracle modes, graphics, image processing, voxel, path tracing, and
 the XIR/coroutine suites.
+
+## Empty-handler direct ray-query pipeline
+
+An empty `traverse(...).trace()` or `traverse_any(...).trace()` handler had
+previously missed the candidate-local proof because it contained no explicit
+triangle commit. That forced the full `proceed`/packed-status state machine even
+though the handler cannot observe candidate order: opaque triangles commit in
+the runtime and non-opaque triangles are rejected. The compiler now accepts
+this exact empty case under the existing capture-free, empty-procedural,
+triangle-only proof. Unknown instructions, captures, curves/procedurals, and a
+null packet provider still select the ordered loop.
+
+Fresh system/TBB processes used physical CPUs 0--15, sixteen workers, 64 spp,
+and one spp per dispatch. Candidate and
+`LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1` oracle order alternated in
+each of seven pairs. The oracle changes only runtime provider publication: all
+five candidate/oracle JIT objects are pairwise byte-identical, including the
+main W8 object at SHA-256
+`4c64c407e12e00c860b8f1e99e592b64393c6d2ed0ae64c0ac030490b5631245`.
+
+| width | direct median FPS | ordered-loop median FPS | direct / loop | wins | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 43.9814 | 36.8847 | **1.1609x** | 6/7 | [1.0581, 1.2737] |
+| W8 | 48.8436 | 41.9935 | **1.1602x** | 7/7 | **[1.1345, 1.1864]** |
+| W16 | 47.2117 | 41.4031 | **1.1644x** | 7/7 | **[1.1409, 1.1884]** |
+
+The W4 interval is deliberately wide: its first candidate process fell to
+34.23 FPS and is retained rather than discarded. W8 and W16 establish the
+full-process improvement independently.
+
+Three additional alternating W8 pairs at 256 spp record events without
+multiplexing. Candidate/oracle geometric ratios are:
+
+| counter | direct / ordered-loop oracle |
+| --- | ---: |
+| throughput | **1.1579x** |
+| task-clock | **0.8649x** |
+| cycles | **0.8635x** |
+| instructions | **0.8155x** |
+| branches | **0.7634x** |
+| branch misses | 1.1003x |
+
+The optimization therefore deletes real state-machine work rather than relying
+on timing noise or different LLVM output. A separate W8 128-spp profile moves
+the SIMD runtime share from 23.27% to 16.55%; aggregate Embree/JIT/runtime
+shares are 40.77%/32.99%/23.27% for the oracle and
+42.23%/37.85%/16.55% for the direct route. Percentages are sample shares, not
+independent speedups.
+
+A fresh seven-round four-way rotation measures the resulting production route
+against equal-core fallback under the same 64-spp configuration:
+
+| width | SIMD median FPS | fallback median FPS | SIMD / fallback | wins | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 43.3331 | 51.6375 | 0.8331x | 0/7 | [0.8093, 0.8577] |
+| W8 | 48.7323 | 51.6375 | **0.9416x** | 0/7 | [0.9331, 0.9501] |
+| W16 | 49.4024 | 51.6375 | **0.9556x** | 0/7 | [0.9317, 0.9800] |
+
+Thus W16 is now the best width for this opaque-query workload and is 4.4%
+behind fallback; no crossover is claimed. The exact W8 main object has no
+undefined symbol, its four empty surface/direct-filter handlers are each 21
+bytes, and disassembly contains no scalar math or per-lane Embree call. The
+backend library retains scalar Embree entry points for the separately supported
+W1 path.
+
+The packet and ordered Embree providers are not byte-for-byte rendering
+oracles because provider traversal order may change an equal-distance winner.
+Their 64-spp images differ by only 2.99e-5 normalized RMSE (90.48 dB PSNR), and
+both have identical quality metrics against the checked-in gallery at that
+sample count. Exact runtime regressions instead mutate alternating instance
+opacity after shader compilation and require empty-handler closest and any
+queries to auto-commit opaque instances, reject non-opaque instances, preserve
+inactive tails, and pass at W1/W2/W4/W8/W16. The Schedule/JIT regression also
+executes packet, null-provider, and explicit-loop paths at W4/W8/W16 and checks
+identical results plus the compact 160-byte state stride.
+
+After this change, both maintained Release trees pass the complete 168/168
+CTest inventory independently. Fresh W1/W2/W4/W8/W16 1,024-spp non-coroutine
+cutout renders also pass the checked-in fallback gallery without regenerating
+it, at 39.100980/40.178515/40.098347/39.996424/39.885689 dB RGB PSNR.

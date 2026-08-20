@@ -8518,6 +8518,135 @@ void ray_query_surface_filter_packet_pipeline_oracle_probe(
     CHECK(loop_compiled.compact_surface_filter_state_count == 1u);
     CHECK(loop_compiled.predicated_acyclic_surface_filter_handler_count ==
           0u);
+
+    // Empty handlers are still semantic filters: opaque triangles commit
+    // automatically, while non-opaque triangles are rejected. They neither
+    // observe nor communicate candidate order, so the triangle-only packet
+    // provider can execute them without the explicit proceed/status loop.
+    Kernel1D empty_handlers = [](AccelVar accel,
+                                 BufferUInt2 output) noexcept {
+        auto index = dispatch_x();
+        auto ray = make_ray(
+            make_float3(cast<float>(index), 0.0f, 0.0f),
+            make_float3(0.0f, 0.0f, 1.0f), 0.0f, 100.0f);
+        auto closest = accel.traverse(ray, {}).trace();
+        auto any = accel.traverse_any(ray, {}).trace();
+        output.write(index, make_uint2(closest->inst, any->inst));
+    };
+    for (auto width : {4u, 8u, 16u}) {
+        auto candidate = compile_simd_kernel(
+            empty_handlers.function()->function(), width,
+            "simd_ast_empty_surface_filter_pipeline_w" +
+                std::to_string(width));
+        SIMDCompiledKernel oracle;
+        {
+            ScopedEnvironmentVariable disable{
+                "LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE", "1"};
+            oracle = compile_simd_kernel(
+                empty_handlers.function()->function(), width,
+                "simd_ast_empty_surface_filter_pipeline_oracle_w" +
+                    std::to_string(width));
+        }
+        if (!candidate.succeeded() || !oracle.succeeded()) {
+            for (auto *compiled : {&candidate, &oracle}) {
+                for (auto &&diagnostic : compiled->diagnostics) {
+                    std::cerr << diagnostic << '\n';
+                }
+            }
+            return false;
+        }
+        CHECK(candidate.direct_ray_query_pipeline_count == 2u);
+        CHECK(candidate.surface_filter_ray_query_pipeline_count == 2u);
+        CHECK(candidate.compact_surface_filter_state_count == 2u);
+        CHECK(oracle.direct_ray_query_pipeline_count == 0u);
+        CHECK(oracle.surface_filter_ray_query_pipeline_count == 0u);
+        CHECK(oracle.compact_surface_filter_state_count == 0u);
+
+        auto execute = [&](const SIMDCompiledKernel &compiled,
+                           bool enable_surface_pipeline,
+                           std::array<uint2, 16u> &values) {
+            values.fill(make_uint2(0xdeadbeefu));
+            RayQueryFilterProbe probe{
+                .expected_lane_count = width,
+                .expected_proceed =
+                    ray_query_surface_filter_plain_probe,
+                .expected_state_stride =
+                    enable_surface_pipeline ?
+                        simd_host_ray_query_hot_state_stride :
+                        sizeof(SIMDHostRayQueryState),
+            };
+            SIMDHostAccelInstanceTable instance_table{
+                .ray_query_proceed_status =
+                    ray_query_surface_filter_status_probe,
+                .ray_query_proceed_wide_status =
+                    ray_query_surface_filter_status_probe,
+            };
+            if (enable_surface_pipeline) {
+                instance_table.ray_query_surface_filter_packet_pipeline =
+                    ray_query_surface_filter_packet_pipeline_probe;
+            }
+            Arguments arguments{
+                .accel = {
+                    .accel = &probe,
+                    .instances = &instance_table,
+                    .ray_query_proceed =
+                        ray_query_surface_filter_plain_probe,
+                    .ray_query_proceed_wide =
+                        ray_query_surface_filter_plain_probe,
+                },
+                .output = {values.data(), sizeof(values)},
+            };
+            using Entry = void(
+                const void *, void *,
+                const SIMDPacketLaunchConfig *, uint32_t);
+            auto *entry = reinterpret_cast<Entry *>(compiled.entry);
+            CHECK(entry != nullptr);
+            auto config = launch_1d(count, 16u);
+            config.reserved_runtime_flags =
+                simd_packet_launch_flag_compact_surface_filter_state;
+            for (auto first = uint32_t{0u}; first < count;
+                 first += width) {
+                config.thread_index = first;
+                entry(&arguments, nullptr, &config,
+                      std::min(width, count - first));
+            }
+            CHECK(probe.valid);
+            if (enable_surface_pipeline) {
+                CHECK(probe.calls == 0u);
+                CHECK(probe.surface_pipeline_calls ==
+                      2u * ((count + width - 1u) / width));
+                CHECK(probe.direct_surface_pipeline_calls ==
+                      probe.surface_pipeline_calls);
+            } else {
+                CHECK(probe.calls != 0u);
+                CHECK(probe.surface_pipeline_calls == 0u);
+            }
+            return true;
+        };
+        std::array<uint2, 16u> pipeline_output{};
+        std::array<uint2, 16u> null_provider_output{};
+        std::array<uint2, 16u> oracle_output{};
+        CHECK(execute(candidate, true, pipeline_output));
+        CHECK(execute(candidate, false, null_provider_output));
+        CHECK(execute(oracle, false, oracle_output));
+        CHECK(std::memcmp(
+                  pipeline_output.data(),
+                  null_provider_output.data(),
+                  sizeof(pipeline_output)) == 0);
+        CHECK(std::memcmp(
+                  pipeline_output.data(), oracle_output.data(),
+                  sizeof(pipeline_output)) == 0);
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            CHECK(static_cast<bool>(
+                all(pipeline_output[index] == make_uint2(~0u))));
+        }
+        for (auto index = count; index < pipeline_output.size();
+             index++) {
+            CHECK(static_cast<bool>(
+                all(pipeline_output[index] ==
+                    make_uint2(0xdeadbeefu))));
+        }
+    }
     return true;
 }
 

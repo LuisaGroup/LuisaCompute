@@ -2347,11 +2347,22 @@ an XIR audit proves a candidate-local surface predicate. The surface handler
 must be capture-free, take exactly its query object, read only that object's
 current triangle candidate, contain only pure branch/PHI/arithmetic/cast
 instructions, and write only `COMMIT_TRIANGLE` to that same object. It must
-contain a commit. The procedural handler must be empty. Calls, memory or
-resource access, another query object, current world-ray or committed-hit
-reads, explicit termination, procedural access, and unknown instructions make
-the pipeline ineligible. Eligibility is a compiler optimization property and
-must never extend the accepted device-function domain.
+either be empty or contain a commit. The procedural handler must be empty.
+Calls, memory or resource access, another query object, current world-ray or
+committed-hit reads, explicit termination, procedural access, and unknown
+instructions make the pipeline ineligible. Eligibility is a compiler
+optimization property and must never extend the accepted device-function
+domain.
+
+An empty surface handler rejects every non-opaque triangle and performs no
+candidate-order-visible action. The in-filter pipeline may therefore use it
+with a fixed-vector direct handler that returns an empty commit mask. The
+runtime may invoke that handler once for a packet of non-opaque candidates, but
+must preserve the ordinary opacity rule: opaque triangles auto-commit and
+non-opaque triangles remain uncommitted. The triangle-only capability,
+empty-procedural-handler proof, and all null-provider fallbacks remain
+mandatory. Instance opacity is runtime accel state; a rebuild may change the
+result without recompiling the shader.
 
 An eligible W2/W4/W8/W16 construction may cache the stable instance table's
 surface-filter provider in its proven status color. All active lanes must agree

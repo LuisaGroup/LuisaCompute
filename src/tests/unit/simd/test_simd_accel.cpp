@@ -1653,7 +1653,8 @@ int main(int argc, char *argv[]) {
         };
         Kernel1D trace_opacity = [width](
                                      AccelVar scene,
-                                     BufferUInt4 metadata) noexcept {
+                                     BufferUInt4 metadata,
+                                     BufferUInt2 empty_metadata) noexcept {
             set_block_size(32u, 1u, 1u);
             set_warp_size(static_cast<uint8_t>(width));
             auto index = dispatch_x();
@@ -1692,21 +1693,37 @@ int main(int argc, char *argv[]) {
                 make_uint4(
                     closest->inst, closest_callback_count,
                     any->inst, any_callback_count));
+            // Empty handlers must preserve opacity semantics through the
+            // in-filter packet path: opaque triangles auto-commit and
+            // non-opaque triangles remain uncommitted.
+            auto empty_closest = scene.traverse(ray, options).trace();
+            auto empty_any = scene.traverse_any(ray, options).trace();
+            empty_metadata.write(
+                index,
+                make_uint2(
+                    empty_closest->inst, empty_any->inst));
         };
         auto mutate_opacity_shader = device.compile(mutate_opacity);
         auto trace_opacity_shader = device.compile(trace_opacity);
         auto opacity_metadata =
             device.create_buffer<uint4>(thread_count);
+        auto empty_opacity_metadata =
+            device.create_buffer<uint2>(thread_count);
         std::array<uint4, thread_count> host_opacity_metadata{};
+        std::array<uint2, thread_count>
+            host_empty_opacity_metadata{};
         stream << mutate_opacity_shader(opacity_accel)
                       .dispatch(thread_count)
                << opacity_accel.build(
                       Accel::BuildRequest::PREFER_UPDATE)
                << trace_opacity_shader(
-                      opacity_accel, opacity_metadata)
+                      opacity_accel, opacity_metadata,
+                      empty_opacity_metadata)
                       .dispatch(thread_count)
                << opacity_metadata.copy_to(
                       luisa::span{host_opacity_metadata})
+               << empty_opacity_metadata.copy_to(
+                      luisa::span{host_empty_opacity_metadata})
                << synchronize();
         for (auto i = 0u; i < thread_count; i++) {
             auto expected_callback_count = i & 1u;
@@ -1717,6 +1734,14 @@ int main(int argc, char *argv[]) {
                         i, expected_callback_count))))
                 << luisa::format(
                        "device opacity mutation mismatch at width {} lane {}",
+                       width, i);
+            auto expected_empty_instance =
+                (i & 1u) == 0u ? i : ~0u;
+            expect(static_cast<bool>(
+                all(host_empty_opacity_metadata[i] ==
+                    make_uint2(expected_empty_instance))))
+                << luisa::format(
+                       "empty-handler opacity mismatch at width {} lane {}",
                        width, i);
         }
     }

@@ -3387,13 +3387,15 @@ The remaining cutout boundary was a deliberate consequence of preserving a
 globally sorted candidate stream: Embree filled a bounded host batch, the host
 published one candidate, the JIT ran the surface handler, and the cycle
 repeated. A stricter compiler proof now permits one narrower route. An eligible
-pipeline must have no captures, an empty procedural handler, exactly one query
-argument, and at least one triangle commit. Its surface handler may contain
-only branch/PHI, arithmetic, cast, a read of that query's current triangle
-candidate, and a commit of the same query. Memory or resource access, another
-query object, committed/world-ray reads, termination, calls, and every unknown
-instruction reject the route. This classification is fail-closed and is
-recorded as `surface_filter_ray_query_pipelines` in the optimization report.
+pipeline must have no captures, an empty procedural handler, and exactly one
+query argument. Its surface handler may either be empty, or contain only
+branch/PHI, arithmetic, cast, a read of that query's current triangle
+candidate, and at least one commit of the same query. The empty case is still
+a semantic filter: opaque triangles auto-commit while non-opaque triangles are
+rejected. Memory or resource access, another query object, committed/world-ray
+reads, termination, calls, and every unknown instruction reject the route.
+This classification is fail-closed and is recorded as
+`surface_filter_ray_query_pipelines` in the optimization report.
 
 For an eligible query, construction caches one private provider pointer in the
 same proven status color as the query state. A null pointer falls through to
@@ -3425,6 +3427,17 @@ tracing does not define an equal-distance primitive order. Stateful handlers
 that could observe order remain on the sorted path. The diagnostic
 `LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1` restores that path without
 recompiling the shader.
+
+Empty surface handlers use the same route at W4/W8/W16. Their fixed-vector
+direct handler has no candidate-visible work and returns an empty commit mask;
+the runtime may still call that handler once for a packet of non-opaque
+candidates. The existing opacity rule remains active: an opaque triangle stays
+valid and commits, while each non-opaque triangle is left uncommitted and Embree
+continues traversal. The proof still requires an empty procedural handler and
+the triangle-only provider, so curves, procedurals, captures, or any later side
+effect fail closed to the ordered `proceed`/status loop. Opacity is resolved
+from the committed accel view at dispatch time; changing instance opacity and
+rebuilding does not require shader recompilation.
 
 W4/W8/W16 construction additionally retains Embree's twelve-field `RTCRayW`
 input as component-major fixed vectors in the query's proven status color.
