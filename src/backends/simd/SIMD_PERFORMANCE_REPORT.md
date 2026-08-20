@@ -4628,3 +4628,82 @@ one W8 handler. The forced W8 procedural
 image is byte-identical to its loop oracle; the default W4 image is likewise
 byte-identical, and its fallback reference comparison passes at 48.016 dB
 PSNR.
+
+## W1 resident structured ray-query pipeline
+
+The earlier W1 direct experiment lost because it reused the packet status loop
+and added a handler call without amortizing useful width. The replacement keeps
+the complete ordered advance/scan/commit loop resident in the runtime for one
+structured W1 query. The JIT enters it once and supplies one stable
+opaque-capture callback target; that thunk validates the candidate kind and
+dispatches the surface or procedural handler. LLVM inlines both typed handlers
+into the thunk. The runtime still owns candidate collection and sorting.
+
+An attempted Embree-filter streaming implementation was rejected before this
+design was accepted. Three overlapping procedural AABBs form the minimal
+counterexample: Embree delivered callback order `2, 1, ...`, whereas the
+existing SIMD loop oracle publishes deterministic order `0, 1, 2`. Calling the
+DSL handler from that filter would therefore change observable callback state.
+The resident path instead reuses the same candidate batches, cursors,
+continuation scans, opacity, and query-any rules as `PROCEED`.
+
+No public DSL extension was necessary. The high-level
+`traverse(...).on_*().trace()` API already creates an AST `RayQueryStmt`, and
+AST-to-XIR directly creates `RayQueryLoopInst`. The pipeline pass consumes that
+structured node before the later reconstruct pass considers a user-written
+inline `proceed()` loop. This stage extends only the private JIT/runtime ABI;
+explicit `proceed()` remains observable and stays on the loop route.
+
+The profitability run pinned the Ryzen 9 9950X3D's 16 physical cores and used
+16 SIMD workers. Each row alternated fresh resident and loop-oracle processes;
+the interval is a 95% interval over paired log speedups. The synthetic benchmark
+runs 8,388,608 rays per internal sample.
+
+| workload | resident median | loop median | paired geomean | wins | 95% CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 procedural candidate | 28.381 ms | 32.813 ms | **1.1538x** | 9/9 | [1.1430, 1.1647] |
+| 16 rejected/committed candidates | 151.953 ms | 184.753 ms | **1.2086x** | 9/9 | [1.1930, 1.2244] |
+| real procedural renderer, 128 spp | 1089.026 ms | 1096.349 ms | **1.0099x** | 17/24 | [1.0019, 1.0180] |
+
+Five additional 256-spp `perf stat` pairs quantify the final path. Ratios below
+are resident divided by loop, so values below one are reductions.
+
+| counter | resident/loop |
+| --- | ---: |
+| cycles | 0.9925 |
+| retired instructions | 0.9429 |
+| branches | 0.8842 |
+| branch misses | 0.9942 |
+| aggregate task clock | 0.9875 |
+
+The resident path therefore removes 5.71% of dynamic instructions and 11.58%
+of dynamic branches, while its IPC falls from 2.916 to 2.771 across the
+unavoidable runtime-to-JIT callback. The ordinary 24-pair renderer sweep is the
+throughput result of record; the instrumented five-pair wall-clock mean was
+1.0300x. The final optimized renderer object is 20,056 bytes with 519 static
+instructions, 27 branches, 69 stack references, and a 1,464-byte frame. Its
+loop oracle is 21,193 bytes, 507 instructions, 28 branches, 83 stack references,
+and a 1,480-byte frame. Both have three calls and no scalar math symbols. The
+dynamic win is scheduler turnover, not a claim that fewer static instructions
+alone predict throughput.
+
+Production now enables capture-free W1 pipelines and captured W1 pipelines up
+to four semantic captures. `LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE=1`
+remains the same-binary loop oracle; disabling captured pipelines remains an
+independent control. The optimization report exposes
+`resident_ray_query_pipelines`, and the permanent W1 regression exercises the
+opaque capture ABI, both candidate kinds, commit/terminate state, and the loop
+oracle. A real two-spp image is byte-identical between the two paths.
+
+For context, a fresh 128-spp production-policy sweep gives the following
+fallback-relative throughput. W1 has nine paired runs; W2/W4/W8 have seven
+completed rotated rounds; W16 has nine paired runs. The W1 result shows that
+removing scalar scheduler overhead does not substitute for packet traversal.
+
+| backend/width | median SIMD ms | median fallback ms | SIMD/fallback geomean | wins | 95% CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W1 resident | 1170.301 | 586.417 | 0.5043x | 0/9 | [0.4967, 0.5121] |
+| W2 | 1056.247 | 591.011 | 0.5550x | 0/7 | [0.5432, 0.5670] |
+| W4 captured direct | 617.162 | 591.011 | 0.9425x | 0/7 | [0.9164, 0.9695] |
+| W8 | 453.357 | 591.011 | **1.2764x** | 7/7 | [1.2313, 1.3231] |
+| W16 | 360.214 | 575.357 | **1.6033x** | 9/9 | [1.5676, 1.6398] |

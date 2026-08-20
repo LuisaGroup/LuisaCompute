@@ -184,12 +184,25 @@ inline constexpr auto simd_host_ray_query_procedural_status_shift = 32u;
 inline constexpr auto simd_host_ray_query_valid_status_shift = 48u;
 
 struct SIMDHostRayQueryState;
+struct SIMDPacketLaunchConfig;
 using SIMDHostAccelRayQueryProceed = void(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states);
 using SIMDHostAccelRayQueryProceedStatus = uint64_t(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states);
+// The structured W1 pipeline keeps its ordered advance/handler loop resident
+// inside one runtime call. The opaque capture layout belongs exclusively to
+// the JIT module: its internal thunk reconstructs the existing typed handler
+// ABI, so neither the runtime nor the public DSL gains a second convention.
+using SIMDHostRayQueryPipelineHandlerW1 = void(
+    SIMDHostRayQueryState *state, const void *capture,
+    const SIMDPacketLaunchConfig *launch_config,
+    uint32_t candidate_kind);
+using SIMDHostAccelRayQueryPipelineW1 = void(
+    SIMDHostRayQueryState *state, const void *capture,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQueryPipelineHandlerW1 *on_candidate);
 
 // One fixed-size state belongs to each logical lane and simultaneously live
 // query object. Noninterfering construction sites may share storage after a
@@ -379,6 +392,7 @@ struct alignas(16) SIMDHostAccelInstanceTable {
     size_t size{0u};
     SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_status{nullptr};
     SIMDHostAccelRayQueryProceedStatus *ray_query_proceed_wide_status{nullptr};
+    SIMDHostAccelRayQueryPipelineW1 *ray_query_pipeline_w1{nullptr};
     // Geometry classification belongs to the last committed Embree scene,
     // not necessarily to the desired public table above. A buffer-only
     // primitive replacement or resize must not reinterpret stale BVH hits
@@ -431,7 +445,7 @@ static_assert(offsetof(SIMDHostAccelInstance, geometry_kind) == 55u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_frames) == 64u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_keyframe_count) == 72u);
 static_assert(offsetof(SIMDHostAccelInstance, motion_mode) == 76u);
-static_assert(sizeof(SIMDHostAccelInstanceTable) == 48u);
+static_assert(sizeof(SIMDHostAccelInstanceTable) == 64u);
 static_assert(offsetof(SIMDHostAccelInstanceTable, data) == 0u);
 static_assert(offsetof(SIMDHostAccelInstanceTable, size) == sizeof(void *));
 static_assert(offsetof(
@@ -442,10 +456,13 @@ static_assert(offsetof(
                   ray_query_proceed_wide_status) == 3u * sizeof(void *));
 static_assert(offsetof(
                   SIMDHostAccelInstanceTable,
-                  committed_instances) == 4u * sizeof(void *));
+                  ray_query_pipeline_w1) == 4u * sizeof(void *));
 static_assert(offsetof(
                   SIMDHostAccelInstanceTable,
-                  committed_size) == 5u * sizeof(void *));
+                  committed_instances) == 5u * sizeof(void *));
+static_assert(offsetof(
+                  SIMDHostAccelInstanceTable,
+                  committed_size) == 6u * sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, accel) == 0u);
 static_assert(offsetof(SIMDHostAccelView, trace_closest) == sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));
@@ -552,6 +569,11 @@ struct SIMDLLVMPrintFormat {
 struct LLVMSIMDRayQueryPipelineHandlers {
     ::llvm::Function *on_surface{nullptr};
     ::llvm::Function *on_procedural{nullptr};
+    // W1-only opaque-capture thunk used by the resident runtime loop. One
+    // stable indirect target dispatches both candidate kinds to keep the
+    // host/JIT boundary friendly to indirect-branch prediction. Wider
+    // pipelines keep this null and retain packet handlers.
+    ::llvm::Function *on_candidate_w1{nullptr};
 };
 
 // Packet ABI:

@@ -10,6 +10,7 @@
 #include <utility>
 
 #include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
 
 #include <luisa/ast/function.h>
@@ -42,6 +43,106 @@
 namespace luisa::compute::simd {
 
 namespace {
+
+[[nodiscard]] ::llvm::Function *build_w1_ray_query_handler_thunk(
+    ::llvm::Module &module, ::llvm::Function *on_surface,
+    ::llvm::Function *on_procedural,
+    std::string_view name) {
+    if (on_surface == nullptr || on_procedural == nullptr ||
+        on_surface->arg_size() < 4u ||
+        on_surface->arg_size() != on_procedural->arg_size() ||
+        !on_surface->getReturnType()->isVoidTy() ||
+        !on_procedural->getReturnType()->isVoidTy()) {
+        return nullptr;
+    }
+    for (auto i = 0u; i < on_surface->arg_size(); i++) {
+        if (on_surface->getFunctionType()->getParamType(i) !=
+            on_procedural->getFunctionType()->getParamType(i)) {
+            return nullptr;
+        }
+    }
+    auto &context = module.getContext();
+    auto *pointer_type = ::llvm::PointerType::getUnqual(context);
+    auto *wrapper_type = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(context),
+        {pointer_type, pointer_type, pointer_type,
+         ::llvm::Type::getInt32Ty(context)},
+        false);
+    auto *wrapper = ::llvm::Function::Create(
+        wrapper_type, ::llvm::GlobalValue::InternalLinkage,
+        name, module);
+    wrapper->setDSOLocal(true);
+    wrapper->addParamAttr(0u, ::llvm::Attribute::NonNull);
+    wrapper->addParamAttr(2u, ::llvm::Attribute::NonNull);
+
+    auto argument = wrapper->arg_begin();
+    auto *state = &*argument++;
+    state->setName("state");
+    auto *capture = &*argument++;
+    capture->setName("capture");
+    auto *launch_config = &*argument++;
+    launch_config->setName("launch_config");
+    auto *candidate_kind = &*argument;
+    candidate_kind->setName("candidate_kind");
+
+    auto *entry = ::llvm::BasicBlock::Create(
+        context, "entry", wrapper);
+    ::llvm::IRBuilder<> builder{entry};
+    auto *state_pointer = builder.CreateAlloca(
+        pointer_type, nullptr, "state.pointer");
+    state_pointer->setAlignment(::llvm::Align{alignof(void *)});
+    auto *state_store = builder.CreateStore(state, state_pointer);
+    state_store->setAlignment(::llvm::Align{alignof(void *)});
+
+    auto call_arguments = std::vector<::llvm::Value *>{
+        builder.getInt32(1u), builder.getInt64(1u),
+        state_pointer, launch_config};
+    auto capture_count = on_surface->arg_size() - 4u;
+    call_arguments.reserve(on_surface->arg_size());
+    if (capture_count != 0u) {
+        auto capture_types = std::vector<::llvm::Type *>{};
+        capture_types.reserve(capture_count);
+        for (auto i = 0u; i < capture_count; i++) {
+            capture_types.emplace_back(
+                on_surface->getFunctionType()->getParamType(i + 4u));
+        }
+        auto *capture_type = ::llvm::StructType::get(
+            context, capture_types, false);
+        auto *captured = builder.CreateLoad(
+            capture_type, capture, "captures");
+        captured->setAlignment(::llvm::Align{1u});
+        for (auto i = 0u; i < capture_count; i++) {
+            call_arguments.emplace_back(
+                builder.CreateExtractValue(captured, {i}));
+        }
+    }
+    auto *surface_block = ::llvm::BasicBlock::Create(
+        context, "surface", wrapper);
+    auto *procedural_block = ::llvm::BasicBlock::Create(
+        context, "procedural", wrapper);
+    auto *invalid_block = ::llvm::BasicBlock::Create(
+        context, "invalid", wrapper);
+    auto *dispatch = builder.CreateSwitch(
+        candidate_kind, invalid_block, 2u);
+    dispatch->addCase(
+        builder.getInt32(static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::surface)),
+        surface_block);
+    dispatch->addCase(
+        builder.getInt32(static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::procedural)),
+        procedural_block);
+
+    builder.SetInsertPoint(surface_block);
+    builder.CreateCall(on_surface, call_arguments);
+    builder.CreateRetVoid();
+    builder.SetInsertPoint(procedural_block);
+    builder.CreateCall(on_procedural, call_arguments);
+    builder.CreateRetVoid();
+    builder.SetInsertPoint(invalid_block);
+    builder.CreateUnreachable();
+    return wrapper;
+}
 
 void strip_debug_call_metadata_for_legalization(
     xir::Module *module) noexcept {
@@ -201,6 +302,8 @@ SIMDCompiledKernel compile_simd_kernel(
     }
     result.direct_ray_query_pipeline_count =
         pipeline_schedules.size();
+    result.resident_ray_query_pipeline_count =
+        warp_width == 1u ? pipeline_schedules.size() : 0u;
     auto jit = std::make_unique<LLVMJIT>(capture_assembly);
     if (!jit->succeeded()) {
         result.diagnostics.emplace_back(jit->error());
@@ -287,10 +390,23 @@ SIMDCompiledKernel compile_simd_kernel(
             pipeline_print_formats.end(),
             std::make_move_iterator(procedural.print_formats.begin()),
             std::make_move_iterator(procedural.print_formats.end()));
+        auto *candidate_w1 = static_cast<::llvm::Function *>(nullptr);
+        if (warp_width == 1u) {
+            candidate_w1 = build_w1_ray_query_handler_thunk(
+                *module, surface_entry, procedural_entry,
+                surface_entry->getName().str() +
+                    ".candidate.callback");
+            if (candidate_w1 == nullptr) {
+                result.diagnostics.emplace_back(
+                    "failed to build W1 ray-query handler callback thunk");
+                return result;
+            }
+        }
         pipeline_handlers.emplace_back(
             LLVMSIMDRayQueryPipelineHandlers{
                 .on_surface = surface_entry,
                 .on_procedural = procedural_entry,
+                .on_candidate_w1 = candidate_w1,
             });
     }
     auto llvm_result = lower_schedule_to_llvm(
@@ -519,16 +635,14 @@ SIMDCompiledKernel compile_simd_kernel(
     auto direct_ray_query_pipeline =
         xir::LowerRayQueryToPipelineInfo{};
     if (!detail::env_flag(
-            "LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE") &&
-        (warp_width != 1u ||
-         detail::env_flag(
-             "LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE"))) {
+            "LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE")) {
         auto force_captured_pipeline = detail::env_flag(
             "LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE");
         auto enable_captured_pipeline =
             !detail::env_flag(
                 "LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE") &&
-            (warp_width == 4u || force_captured_pipeline);
+            (warp_width == 1u || warp_width == 4u ||
+             force_captured_pipeline);
         direct_ray_query_pipeline =
             xir::lower_ray_query_to_pipeline_pass_run_on_module(
                 module.get(), nullptr,

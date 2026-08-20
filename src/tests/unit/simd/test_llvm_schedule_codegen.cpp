@@ -7235,6 +7235,32 @@ void ray_query_filter_plain_probe(
         lane_count, active_mask_bits, states);
 }
 
+void ray_query_filter_pipeline_w1_probe(
+    SIMDHostRayQueryState *state, const void *capture,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQueryPipelineHandlerW1 *on_candidate) noexcept {
+    if (state == nullptr || launch_config == nullptr ||
+        on_candidate == nullptr) {
+        std::abort();
+    }
+    std::array states{state};
+    // Reuse the explicit-loop oracle's two state transitions: the first
+    // publishes one candidate, the JIT callback handles it synchronously,
+    // and the second commits or observes termination. This proves that the
+    // opaque capture thunk is behaviorally identical without teaching the
+    // host probe its layout.
+    ray_query_filter_probe_impl(1u, 1u, states.data());
+    on_candidate(
+        state, capture, launch_config,
+        static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::surface));
+    ray_query_filter_probe_impl(1u, 1u, states.data());
+    state->candidate_kind = static_cast<uint32_t>(
+        SIMDHostRayQueryCandidateKind::none);
+    state->candidate_committed = 0u;
+    state->terminated = 1u;
+}
+
 [[nodiscard]] bool run_ast_ray_query_filter_predication() {
     static constexpr auto count = uint32_t{13u};
     Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
@@ -7443,9 +7469,6 @@ void ray_query_filter_plain_probe(
         SIMDHostBufferView output;
     };
     for (auto width : {1u, 2u, 4u, 8u, 16u}) {
-        ScopedEnvironmentVariable force_direct{
-            "LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE",
-            width == 1u ? "1" : nullptr};
         auto candidate = compile_simd_kernel(
             kernel.function()->function(), width,
             "simd_ast_direct_ray_query_pipeline_w" +
@@ -7468,7 +7491,10 @@ void ray_query_filter_plain_probe(
             return false;
         }
         CHECK(candidate.direct_ray_query_pipeline_count == 1u);
+        CHECK(candidate.resident_ray_query_pipeline_count ==
+              (width == 1u ? 1u : 0u));
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
+        CHECK(oracle.resident_ray_query_pipeline_count == 0u);
         auto execute = [&](const SIMDCompiledKernel &compiled,
                            std::array<uint32_t, 16u> &values) {
             values.fill(0xdeadbeefu);
@@ -7481,6 +7507,8 @@ void ray_query_filter_plain_probe(
                     ray_query_filter_status_probe,
                 .ray_query_proceed_wide_status =
                     ray_query_filter_status_probe,
+                .ray_query_pipeline_w1 =
+                    ray_query_filter_pipeline_w1_probe,
             };
             Arguments arguments{
                 .accel = {
@@ -7537,9 +7565,10 @@ void ray_query_filter_plain_probe(
     }
     auto scalar_default = compile_simd_kernel(
         kernel.function()->function(), 1u,
-        "simd_ast_default_scalar_ray_query_loop_w1");
+        "simd_ast_default_scalar_ray_query_pipeline_w1");
     CHECK(scalar_default.succeeded());
-    CHECK(scalar_default.direct_ray_query_pipeline_count == 0u);
+    CHECK(scalar_default.direct_ray_query_pipeline_count == 1u);
+    CHECK(scalar_default.resident_ray_query_pipeline_count == 1u);
     Kernel1D explicit_proceed = [](
                                     AccelVar accel,
                                     BufferUInt output) noexcept {
@@ -7642,9 +7671,6 @@ void ray_query_filter_plain_probe(
     for (auto width : {1u, 2u, 4u, 8u, 16u}) {
         ScopedEnvironmentVariable enable_captures{
             "LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE", "1"};
-        ScopedEnvironmentVariable force_direct{
-            "LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE",
-            width == 1u ? "1" : nullptr};
         auto candidate = compile_simd_kernel(
             kernel.function()->function(), width,
             "simd_ast_captured_direct_ray_query_pipeline_w" +
@@ -7668,7 +7694,10 @@ void ray_query_filter_plain_probe(
             return false;
         }
         CHECK(candidate.direct_ray_query_pipeline_count == 1u);
+        CHECK(candidate.resident_ray_query_pipeline_count ==
+              (width == 1u ? 1u : 0u));
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
+        CHECK(oracle.resident_ray_query_pipeline_count == 0u);
         if (width == 8u) {
             CHECK(candidate.schedule_block_count <
                   oracle.schedule_block_count);
@@ -7691,6 +7720,8 @@ void ray_query_filter_plain_probe(
                     ray_query_filter_status_probe,
                 .ray_query_proceed_wide_status =
                     ray_query_filter_status_probe,
+                .ray_query_pipeline_w1 =
+                    ray_query_filter_pipeline_w1_probe,
             };
             Arguments arguments{
                 .accel = {
@@ -7744,25 +7775,39 @@ void ray_query_filter_plain_probe(
             CHECK(candidate_output[index].y == 0xdeadbeefu);
         }
     }
+    auto w1_default = compile_simd_kernel(
+        kernel.function()->function(), 1u,
+        "simd_ast_captured_direct_ray_query_pipeline_default_w1");
     auto w4_default = compile_simd_kernel(
         kernel.function()->function(), 4u,
         "simd_ast_captured_direct_ray_query_pipeline_default_w4");
     auto w8_default = compile_simd_kernel(
         kernel.function()->function(), 8u,
         "simd_ast_captured_direct_ray_query_pipeline_default_w8");
+    SIMDCompiledKernel w1_disabled;
     SIMDCompiledKernel w4_disabled;
     {
         ScopedEnvironmentVariable disable_captures{
             "LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE", "1"};
+        w1_disabled = compile_simd_kernel(
+            kernel.function()->function(), 1u,
+            "simd_ast_captured_direct_ray_query_pipeline_disabled_w1");
         w4_disabled = compile_simd_kernel(
             kernel.function()->function(), 4u,
             "simd_ast_captured_direct_ray_query_pipeline_disabled_w4");
     }
+    CHECK(w1_default.succeeded());
     CHECK(w4_default.succeeded());
     CHECK(w8_default.succeeded());
+    CHECK(w1_disabled.succeeded());
     CHECK(w4_disabled.succeeded());
+    CHECK(w1_default.direct_ray_query_pipeline_count == 1u);
+    CHECK(w1_default.resident_ray_query_pipeline_count == 1u);
     CHECK(w4_default.direct_ray_query_pipeline_count == 1u);
+    CHECK(w4_default.resident_ray_query_pipeline_count == 0u);
     CHECK(w8_default.direct_ray_query_pipeline_count == 0u);
+    CHECK(w1_disabled.direct_ray_query_pipeline_count == 0u);
+    CHECK(w1_disabled.resident_ray_query_pipeline_count == 0u);
     CHECK(w4_disabled.direct_ray_query_pipeline_count == 0u);
 
     Kernel1D resource_captures = [](

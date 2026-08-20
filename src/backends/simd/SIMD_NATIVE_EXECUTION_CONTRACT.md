@@ -1958,8 +1958,9 @@ object writes; the cohort scheduler executes its divergent handlers without a
 second callback-side PC machine. A structured
 `traverse(...).on_*().trace()` query may instead be outlined to
 `RayQueryPipelineInst` before loop reconstruction. Capture-free pipelines use
-the direct route at W2/W4/W8/W16. The measured captured specialization accepts
-at most four semantic captures at W4; other captured widths remain loops.
+the direct route at W1/W2/W4/W8/W16. The measured captured specializations
+accept at most four semantic captures at W1 and W4; other captured widths
+remain loops.
 Constants, function operands, and special registers are not captures. Kernel
 arguments, resources, reference state, and live-outs are captures. A
 preliminary single-store local forwarding pass may remove only front-end
@@ -2011,26 +2012,42 @@ barriers are rejected. Special registers are reconstructed from the unchanged
 launch record and physical lane IDs. These functions have internal linkage and
 are not a public runtime, Embree, or DSL ABI.
 
-The main packet materializes the null-sanitized state-pointer array once, then
-repeatedly invokes the construction-selected status provider for the remaining
-original lanes. Terminated lanes leave the loop; disjoint surface/procedural
-masks invoke their respective handlers; an unclassified live lane, overlapping
-candidate classifications, callback mismatch, null active state, width
-mismatch, or out-of-range mask traps. Handler commit/terminate writes become
-visible to the next provider call. The pipeline exits only after every original
-active lane terminates and publishes that terminal state through the existing
-status sidecar. Candidate order, query-all/query-any behavior, motion time,
-visibility, opacity, sparse cohorts, and partial tails are otherwise identical
-to the loop oracle.
+For W2/W4/W8/W16, the main packet materializes the null-sanitized state-pointer
+array once, then repeatedly invokes the construction-selected status provider
+for the remaining original lanes. Terminated lanes leave the loop; disjoint
+surface/procedural masks invoke their respective handlers; an unclassified live
+lane, overlapping candidate classifications, callback mismatch, null active
+state, width mismatch, or out-of-range mask traps. Handler commit/terminate
+writes become visible to the next provider call. The pipeline exits only after
+every original active lane terminates and publishes that terminal state through
+the existing status sidecar.
 
-W1 uses the explicit loop by default because seven real-renderer pairs showed
-a stable regression from the extra handler call. Capture-free W2/W4/W8/W16
-pipelines use the direct route. For captured pipelines, twelve-pair renderer
-A/B tests support only W4, bounded to four captures by default; forced W2 is a
-regression and longer W8/W16 confidence intervals cross one.
+W1 uses a private resident provider instead of the packet status loop. The JIT
+packs semantic captures into an opaque, synchronously live stack object and
+calls the provider once with the query state, launch record, and one callback
+pointer. The private handler ABI is
+`void(ptr state, ptr captures, ptr launch, i32 candidate_kind)` and the provider
+ABI is `void(ptr state, ptr captures, ptr launch, ptr handler)`; neither is a
+public DSL, runtime-extension, or Embree ABI. The runtime executes the same
+ordered batch advance, scan, commit,
+query-any termination, and continuation rules as `PROCEED`; for each published
+candidate it calls the single stable thunk with the validated candidate kind.
+The thunk reconstructs the typed handler ABI and dispatches surface versus
+procedural code inside the JIT. LLVM may inline both outlined handlers into
+that thunk, but the runtime never interprets capture storage. Invoking handlers
+directly from Embree filter callbacks is forbidden: an overlapping-procedural
+counterexample proves that Embree callback order differs from the deterministic
+sorted candidate order exposed by the current backend. Candidate order,
+query-all/query-any behavior, motion time, visibility, opacity, sparse cohorts,
+and partial tails remain identical to the loop oracle.
+
+Capture-free pipelines use the direct route at every width. Captured pipelines
+are bounded to four captures at W1 and W4 by default; forced W2 is a regression
+and longer W8/W16 confidence intervals cross one. W1's resident route is the
+measured exception: it removes repeated scheduler/status turnover without
+changing callback order.
 `LUISA_SIMD_DISABLE_DIRECT_RAY_QUERY_PIPELINE=1` restores the loop oracle for
-all pipelines, and `LUISA_SIMD_FORCE_DIRECT_RAY_QUERY_PIPELINE=1` exists only
-to exercise the W1 handler ABI in tests.
+all pipelines.
 `LUISA_SIMD_DISABLE_CAPTURED_RAY_QUERY_PIPELINE=1` retains captured loops while
 leaving capture-free direct pipelines enabled;
 `LUISA_SIMD_FORCE_CAPTURED_RAY_QUERY_PIPELINE=1` removes the width/count

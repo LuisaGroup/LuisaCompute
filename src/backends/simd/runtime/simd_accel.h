@@ -96,6 +96,10 @@ private:
     static void _ray_query_proceed_wide(
         uint32_t lane_count, uint64_t active_mask_bits,
         SIMDHostRayQueryState *const *states) noexcept;
+    static void _ray_query_pipeline_w1(
+        SIMDHostRayQueryState *state, const void *capture,
+        const SIMDPacketLaunchConfig *launch_config,
+        SIMDHostRayQueryPipelineHandlerW1 *on_candidate) noexcept;
     static LUISA_FORCE_INLINE void _ray_query_proceed_wide_lane(
         SIMDHostRayQueryState *state, uint32_t lane,
         uint64_t bit, uint64_t &pending) noexcept;

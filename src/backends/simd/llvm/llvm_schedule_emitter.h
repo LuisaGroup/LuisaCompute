@@ -108,6 +108,7 @@ private:
     std::vector<uint32_t> _ray_query_status_slots{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_callback_storage{};
+    std::vector<::llvm::AllocaInst *> _ray_query_pipeline_callback_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_state_handle_storage{};
     // Dense indices exist only for natural loops enclosing at least one
     // static block barrier. Each slot is a per-lane epoch vector retained in

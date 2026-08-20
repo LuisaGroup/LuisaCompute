@@ -386,6 +386,7 @@ SIMDShader::SIMDShader(
             "instruction_spills={}, cold_slots={}, "
             "stack_pinned_slots={}, "
             "ray_queries={}, direct_ray_query_pipelines={}, "
+            "resident_ray_query_pipelines={}, "
             "ray_query_scratch_slots={}, "
             "ray_query_scratch_bytes={}, ray_query_status_slots={}, "
             "ray_query_state_handle_slots={}, "
@@ -458,6 +459,7 @@ SIMDShader::SIMDShader(
             _compiled.stack_pinned_state_slot_count,
             _compiled.ray_query_count,
             _compiled.direct_ray_query_pipeline_count,
+            _compiled.resident_ray_query_pipeline_count,
             _compiled.ray_query_scratch_slot_count,
             _compiled.ray_query_scratch_bytes,
             _compiled.ray_query_status_slot_count,

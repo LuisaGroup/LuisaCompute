@@ -1547,6 +1547,8 @@ SIMDAccel::SIMDAccel(
       _enable_procedural_fused_status{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_PROCEDURAL_WIDE_FUSED_STATUS")} {
+    _instance_table.ray_query_pipeline_w1 =
+        _ray_query_pipeline_w1;
     simd_accel_set_flags(_scene, option);
 }
 
@@ -2092,6 +2094,101 @@ void SIMDAccel::_trace_any(
             LUISA_ERROR_WITH_LOCATION(
                 "Unsupported SIMD Embree packet width {}.", lane_count);
     }
+}
+
+void SIMDAccel::_ray_query_pipeline_w1(
+    SIMDHostRayQueryState *state, const void *capture,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQueryPipelineHandlerW1 *on_candidate) noexcept {
+    LUISA_ASSERT(
+        state != nullptr && state->accel != nullptr &&
+            launch_config != nullptr && on_candidate != nullptr,
+        "Invalid SIMD W1 resident ray-query pipeline invocation.");
+    auto *self = static_cast<SIMDAccel *>(state->accel);
+    LUISA_ASSERT(
+        self->_instance_table.ray_query_pipeline_w1 ==
+            _ray_query_pipeline_w1,
+        "SIMD W1 ray-query state selected a mismatched pipeline provider.");
+    std::array states{state};
+    auto invoke_handler = [&]() noexcept {
+        auto kind = static_cast<SIMDHostRayQueryCandidateKind>(
+            state->candidate_kind);
+        if (kind == SIMDHostRayQueryCandidateKind::surface) {
+            on_candidate(
+                state, capture, launch_config,
+                static_cast<uint32_t>(kind));
+        } else if (
+            kind == SIMDHostRayQueryCandidateKind::procedural) {
+            on_candidate(
+                state, capture, launch_config,
+                static_cast<uint32_t>(kind));
+        } else {
+            LUISA_ERROR_WITH_LOCATION(
+                "SIMD W1 resident ray query published an invalid candidate kind.");
+        }
+    };
+    for (;;) {
+        // Match the ordinary proceed provider exactly, but keep its state
+        // transition and the selected JIT handler resident inside one host
+        // call. Candidate batching, deterministic ordering, continuation
+        // scans, and commit/terminate semantics therefore remain unchanged.
+        if (state->candidate_committed != 0u) {
+            auto kind = static_cast<SIMDHostRayQueryCandidateKind>(
+                state->candidate_kind);
+            LUISA_ASSERT(
+                kind == SIMDHostRayQueryCandidateKind::surface ||
+                    kind == SIMDHostRayQueryCandidateKind::procedural,
+                "SIMD W1 resident ray query committed an invalid candidate kind.");
+            state->committed = SIMDHostRayQueryCommittedHit{
+                .inst = state->candidate.inst,
+                .prim = state->candidate.prim,
+                .bary = {
+                    state->candidate.bary[0u],
+                    state->candidate.bary[1u]},
+                .kind = static_cast<uint32_t>(kind),
+                .t = state->candidate.t,
+            };
+            auto procedural_candidates_remain =
+                state->procedural_batch_index <
+                    state->procedural_batch_count ||
+                state->procedural_batch_has_more != 0u;
+            state->procedural_batch_count = 0u;
+            state->procedural_batch_index = 0u;
+            state->procedural_batch_has_more =
+                procedural_candidates_remain ? 1u : 0u;
+            state->procedural_batch_initialized = 1u;
+            state->candidate_committed = 0u;
+            if (state->terminate_on_first != 0u) {
+                state->terminated = 1u;
+            }
+        }
+        if (state->terminated != 0u) { break; }
+        auto advanced = advance_ray_query_candidate(
+            *state, self->_instance_table);
+        switch (advanced) {
+            case RayQueryCandidateAdvance::published:
+                invoke_handler();
+                break;
+            case RayQueryCandidateAdvance::needs_scan:
+                scan_ray_query_scalar(
+                    self->_scene, self->_instance_table, 1u,
+                    states.data(),
+                    state->terminate_on_first != 0u);
+                // Batch installation publishes the first candidate before
+                // returning, just like the ordinary proceed provider. Handle
+                // it here instead of advancing past the batch head.
+                if (state->terminated == 0u) {
+                    invoke_handler();
+                }
+                break;
+            case RayQueryCandidateAdvance::terminated:
+                break;
+        }
+    }
+    state->candidate_kind = static_cast<uint32_t>(
+        SIMDHostRayQueryCandidateKind::none);
+    state->candidate_committed = 0u;
+    state->terminated = 1u;
 }
 
 void SIMDAccel::_ray_query_proceed(

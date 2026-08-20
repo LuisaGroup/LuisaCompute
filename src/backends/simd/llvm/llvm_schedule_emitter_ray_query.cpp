@@ -88,6 +88,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     _ray_query_status_slots.assign(value_count, invalid);
     _ray_query_status_storage.clear();
     _ray_query_status_callback_storage.clear();
+    _ray_query_pipeline_callback_storage.clear();
     _ray_query_state_handle_storage.clear();
 
     std::vector<schedule::ValueId> constructions;
@@ -670,6 +671,10 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         }
         _ray_query_status_storage.assign(status_slot_count, nullptr);
         _ray_query_status_callback_storage.assign(status_slot_count, nullptr);
+        if (_width == 1u && has_pipeline) {
+            _ray_query_pipeline_callback_storage.assign(
+                status_slot_count, nullptr);
+        }
         _result.ray_query_status_slot_count = status_slot_count;
         // The status proof already establishes one published local owner per
         // active lane and non-overlapping lifetimes per color. Reuse that
@@ -817,6 +822,11 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         _ray_query_status_slot(*instruction.result) != nullptr;
     auto *null_pointer = ::llvm::ConstantPointerNull::get(pointer_type);
     auto *status_proceed = static_cast<::llvm::Value *>(nullptr);
+    auto *pipeline_w1 = static_cast<::llvm::Value *>(nullptr);
+    auto cache_pipeline_w1 =
+        _width == 1u && cache_status &&
+        _ray_query_status_slots[instruction.result->value] <
+            _ray_query_pipeline_callback_storage.size();
     if (cache_status) {
         auto *instances = _builder.CreateExtractValue(accel, {3u});
         _trap_if(
@@ -835,6 +845,19 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
             "accel.ray.query.status.callback");
         proceed_load->setAlignment(::llvm::Align{alignof(void *)});
         status_proceed = proceed_load;
+        if (cache_pipeline_w1) {
+            auto *pipeline_pointer = _byte_pointer(
+                instances,
+                offsetof(
+                    SIMDHostAccelInstanceTable,
+                    ray_query_pipeline_w1));
+            auto *pipeline_load = _builder.CreateLoad(
+                pointer_type, pipeline_pointer,
+                "accel.ray.query.pipeline.w1.callback");
+            pipeline_load->setAlignment(
+                ::llvm::Align{alignof(void *)});
+            pipeline_w1 = pipeline_load;
+        }
     }
     auto *missing_callback = _builder.CreateOr(
         _builder.CreateICmpEQ(object, null_pointer),
@@ -843,6 +866,11 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         missing_callback = _builder.CreateOr(
             missing_callback,
             _builder.CreateICmpEQ(status_proceed, null_pointer));
+    }
+    if (cache_pipeline_w1) {
+        missing_callback = _builder.CreateOr(
+            missing_callback,
+            _builder.CreateICmpEQ(pipeline_w1, null_pointer));
     }
     _trap_if(
         _builder.CreateAnd(
@@ -865,6 +893,20 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 old_callbacks),
             _ray_query_status_callback_storage[status_slot],
             ::llvm::Align{alignof(void *)});
+        if (cache_pipeline_w1) {
+            auto *old_pipelines = _builder.CreateAlignedLoad(
+                pointer_lanes,
+                _ray_query_pipeline_callback_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+            _builder.CreateAlignedStore(
+                _builder.CreateSelect(
+                    _active_mask,
+                    _builder.CreateVectorSplat(
+                        _width, pipeline_w1),
+                    old_pipelines),
+                _ray_query_pipeline_callback_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+        }
     }
 
     auto *zero_offsets = ::llvm::Constant::getNullValue(
@@ -1164,6 +1206,99 @@ void ScheduleEmitter::_ray_query_pipeline(
     auto *pointer_lanes = ::llvm::FixedVectorType::get(
         pointer_type, _width);
     auto status_index = _ray_query_status_slots[object_id.value];
+
+    if (_width == 1u) {
+        if (handler_pair.on_candidate_w1 == nullptr ||
+            status_index >=
+                _ray_query_pipeline_callback_storage.size()) {
+            _fail("W1 ray-query pipeline has no resident callback ABI");
+            return;
+        }
+        auto *pipeline_callbacks = _builder.CreateAlignedLoad(
+            pointer_lanes,
+            _ray_query_pipeline_callback_storage[status_index],
+            ::llvm::Align{alignof(void *)},
+            "ray.query.pipeline.w1.callbacks");
+        auto *pipeline_callback = _builder.CreateExtractElement(
+            pipeline_callbacks, _safe_first_lane(_active_mask));
+        auto *null_pointer =
+            ::llvm::ConstantPointerNull::get(pointer_type);
+        _trap_if(
+            _builder.CreateICmpEQ(
+                pipeline_callback, null_pointer),
+            "ray.query.pipeline.w1.callback.null");
+        auto *callback_mismatch = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                pipeline_callbacks,
+                _builder.CreateVectorSplat(
+                    _width, pipeline_callback)));
+        _trap_if(
+            _builder.CreateOrReduce(callback_mismatch),
+            "ray.query.pipeline.w1.callback.mismatch");
+
+        auto capture_count = instruction.operands.size() - 1u;
+        auto *capture_pointer = static_cast<::llvm::Value *>(
+            null_pointer);
+        if (capture_count != 0u) {
+            auto capture_types = std::vector<::llvm::Type *>{};
+            auto capture_values = std::vector<::llvm::Value *>{};
+            capture_types.reserve(capture_count);
+            capture_values.reserve(capture_count);
+            for (auto capture_index = size_t{0u};
+                 capture_index < capture_count; capture_index++) {
+                auto *capture = _load_value(
+                    instruction.operands[capture_index + 1u]);
+                if (capture == nullptr) { return; }
+                auto *expected = handler_pair.on_surface
+                                     ->getFunctionType()
+                                     ->getParamType(
+                                         static_cast<unsigned>(
+                                             capture_index + 4u));
+                if (capture->getType() != expected) {
+                    _fail("W1 ray-query pipeline capture type mismatch");
+                    return;
+                }
+                capture_types.emplace_back(expected);
+                capture_values.emplace_back(capture);
+            }
+            auto *capture_type = ::llvm::StructType::get(
+                context, capture_types, false);
+            auto *capture_storage = _entry_scratch(
+                capture_type,
+                "ray.query.pipeline.w1.captures." +
+                    std::to_string(*instruction.source_op));
+            capture_storage->setAlignment(::llvm::Align{1u});
+            auto *captured = static_cast<::llvm::Value *>(
+                ::llvm::PoisonValue::get(capture_type));
+            for (auto capture_index = size_t{0u};
+                 capture_index < capture_count; capture_index++) {
+                captured = _builder.CreateInsertValue(
+                    captured, capture_values[capture_index],
+                    {static_cast<unsigned>(capture_index)});
+            }
+            auto *capture_store = _builder.CreateStore(
+                captured, capture_storage);
+            capture_store->setAlignment(::llvm::Align{1u});
+            capture_pointer = capture_storage;
+        }
+
+        auto *state = _builder.CreateExtractElement(
+            states, _safe_first_lane(_active_mask));
+        auto *pipeline_type = ::llvm::FunctionType::get(
+            _builder.getVoidTy(),
+            {pointer_type, pointer_type, pointer_type,
+             pointer_type},
+            false);
+        _builder.CreateCall(
+            pipeline_type, pipeline_callback,
+            {state, capture_pointer, _launch_config,
+             handler_pair.on_candidate_w1});
+        auto *outer_active_bits = _bindless_callback_mask(true);
+        _ray_query_update_status(object_id, outer_active_bits);
+        return;
+    }
+
     if (status_index >= _ray_query_status_callback_storage.size()) {
         _fail("ray-query pipeline status callback slot is invalid");
         return;

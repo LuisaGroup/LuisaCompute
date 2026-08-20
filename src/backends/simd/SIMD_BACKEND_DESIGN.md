@@ -3637,18 +3637,22 @@ on 2026-08-11. The repository now contains:
   each candidate region to an internal fixed-vector handler, passes exact
   sparse physical masks and one packed state-pointer array, and advances all
   original lanes through the paired status provider without entering the
-  outer scheduler between candidates; capture-free handlers use this route at
-  W2/W4/W8/W16, while the measured resource-using path additionally accepts up
-  to four captures at W4; private handler arguments preserve the caller's
+  outer scheduler between candidates; W1 instead enters one resident runtime
+  advance/scan loop per structured query and invokes one stable opaque-capture
+  JIT callback target that dispatches both candidate kinds, preserving the
+  existing sorted-batch order rather than exposing Embree callback order;
+  capture-free handlers use the direct route at every width, while the measured
+  resource-using path accepts up to four captures at W1 and W4; private handler
+  arguments preserve the caller's
   `warp_uniform`/`cohort_uniform`/`varying` class, resource descriptors remain
-  scalar, and reference captures use per-lane local handles; W1, unprofitable
-  captured widths, and every explicit `proceed()` loop retain the ordinary
-  state-machine path;
+  scalar, and reference captures use per-lane local handles; unprofitable
+  captured W2/W8/W16 pipelines and every explicit `proceed()` loop retain the
+  ordinary state-machine path;
 - a fail-closed W4/W8/W16 loop-route ray-query status sidecar, also required by
   the direct W2 path, colored with query scratch liveness, that keeps
   terminated/surface/procedural masks in one JIT scalar, publishes validity
   only after the owner-local pointer store, preserves divergent cohort bits,
-  and falls back to authoritative AoS gathers for default W1, loop-route W2,
+  and falls back to authoritative AoS gathers for loop-route W1/W2,
   unknown aliases, copied handles, or disabled scratch coloring;
 - a state-handle packet cache under the same proof and colors, published by the
   authoritative masked local store and active-null-checked before use, which
