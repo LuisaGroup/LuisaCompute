@@ -250,10 +250,12 @@ private:
         luisa::string_view stage) noexcept {
         _shader_structure_hashes.emplace_back(
             kernel.function()->function().hash());
-        return device.compile(
-            kernel,
-            detail::coro_scheduler_shader_option(
-                _config.shader_option, stage));
+        return detail::coro_scheduler_label_shader(
+            device.compile(
+                kernel,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option, stage)),
+            stage);
     }
 
     void _create_shaders(Device &device, const Coro &coro) {

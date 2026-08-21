@@ -53,10 +53,12 @@ private:
                 std::move(dispatch).default_([] {});
             };
         };
-        _shader = device.compile(
-            kernel,
-            detail::coro_scheduler_shader_option(
-                config.shader_option, "state_machine"));
+        _shader = detail::coro_scheduler_label_shader(
+            device.compile(
+                kernel,
+                detail::coro_scheduler_shader_option(
+                    config.shader_option, "state_machine")),
+            "state_machine");
     }
 
     void _dispatch(Stream &stream, uint3 dispatch_size,
