@@ -703,12 +703,17 @@ private:
         auto main_shader_option =
             detail::coro_scheduler_shader_option(
                 _config.shader_option, "persistent_main");
-        _pt_shader = device.compile(main_kernel, main_shader_option);
+        _pt_shader = detail::coro_scheduler_label_shader(
+            device.compile(main_kernel, main_shader_option),
+            "persistent_main");
 
-        _clear_shader = device.compile<1>([](BufferUInt g) {
-            g.write(dispatch_x(), 0u);
-        },
-                                          detail::coro_scheduler_shader_option(_config.shader_option, "persistent_clear"));
+        _clear_shader = detail::coro_scheduler_label_shader(
+            device.compile<1>([](BufferUInt g) {
+                g.write(dispatch_x(), 0u);
+            },
+                              detail::coro_scheduler_shader_option(
+                                  _config.shader_option, "persistent_clear")),
+            "persistent_clear");
     }
 
     void _dispatch(

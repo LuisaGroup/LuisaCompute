@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <type_traits>
 
 #include <luisa/core/basic_types.h>
@@ -33,6 +34,19 @@ namespace detail {
         result.name = luisa::format("{}_{}", result.name, stage);
     }
     return result;
+}
+
+// ShaderOption::name selects the AOT/cache identity and therefore cannot be
+// used merely to make scheduler stages visible in backend profilers. Apply a
+// runtime resource label after compilation instead. Keep this diagnostic-only
+// so ordinary scheduler dispatches do not pay backend encoder-label overhead.
+template<typename Shader>
+[[nodiscard]] inline Shader coro_scheduler_label_shader(
+    Shader shader, luisa::string_view stage) noexcept {
+    if (std::getenv("LUISA_CORO_SHADER_MAP") != nullptr) {
+        shader.set_name(stage);
+    }
+    return shader;
 }
 
 template<typename... Args>

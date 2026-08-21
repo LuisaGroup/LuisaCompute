@@ -221,7 +221,9 @@ private:
         _shader_infos.emplace_back(WavefrontCoroShaderInfo{
             .stage = std::move(stage),
             .structural_hash = structural_hash});
-        return device.compile(kernel, std::move(option));
+        return detail::coro_scheduler_label_shader(
+            device.compile(kernel, std::move(option)),
+            _shader_infos.back().stage);
     }
 
     void _create_shader(Device &device, const Coro &coro) {
