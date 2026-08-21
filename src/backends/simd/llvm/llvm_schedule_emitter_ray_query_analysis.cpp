@@ -661,28 +661,31 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         if (_width != 1u && has_surface_filter_pipeline) {
             _ray_query_surface_filter_pipeline_callback_storage.assign(
                 status_slot_count, nullptr);
-            if (_width >= 4u) {
+            if (_width >= 4u ||
+                (_width == 2u &&
+                 (has_output_only_empty_surface_filter_pipeline ||
+                  has_direct_output_surface_filter_pipeline))) {
                 _ray_query_surface_filter_ray_packet_storage.assign(
                     status_slot_count, nullptr);
                 _ray_query_surface_filter_ray_packet_call_storage.assign(
                     status_slot_count, nullptr);
             }
         }
-        if (_width >= 4u &&
+        if (_width >= 2u &&
             has_output_only_empty_surface_filter_pipeline) {
             _ray_query_empty_surface_filter_pipeline_callback_storage.assign(
                 status_slot_count, nullptr);
             _ray_query_empty_surface_filter_accel_storage.assign(
                 status_slot_count, nullptr);
         }
-        if (_width >= 4u &&
+        if (_width >= 2u &&
             has_direct_output_surface_filter_pipeline) {
             _ray_query_direct_output_surface_filter_pipeline_callback_storage.assign(
                 status_slot_count, nullptr);
             _ray_query_direct_output_surface_filter_accel_storage.assign(
                 status_slot_count, nullptr);
         }
-        if (_width >= 4u &&
+        if (_width >= 2u &&
             (has_output_only_empty_surface_filter_pipeline ||
              has_direct_output_surface_filter_pipeline)) {
             _ray_query_output_packet_storage.assign(
@@ -691,8 +694,9 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         _result.ray_query_status_slot_count = status_slot_count;
         // The status proof already establishes one published local owner per
         // active lane and non-overlapping lifetimes per color. Reuse that
-        // proof for a contiguous packet of state handles; unproven queries and
-        // W1/W2 retain their authoritative local gathers.
+        // proof for a contiguous packet of state handles. Unproven queries,
+        // W1, and ordinary W2 queries retain their authoritative local
+        // gathers; output-only W2 may also use the logical ray packet below.
         if (!luisa::compute::detail::env_flag(
                 "LUISA_SIMD_DISABLE_RAY_QUERY_STATE_HANDLE_CACHE")) {
             _ray_query_state_handle_storage.assign(
@@ -709,7 +713,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     // one runtime call and touches no batch/object-ray fields. Prove that fact
     // per query variable rather than per function: a module may contain both
     // eligible and ordinary query sites sharing the same acceleration table.
-    if (_width >= 4u &&
+    if (_width >= 2u &&
         !_ray_query_surface_filter_pipeline_callback_storage.empty()) {
         std::vector<uint8_t> eligible(
             variable_count, uint8_t{1u});
@@ -802,7 +806,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 construction.value < _ray_query_status_slots.size() ?
                     _ray_query_status_slots[construction.value] :
                     invalid;
-            if (eligible[variable] != 0u &&
+            if (_width >= 4u && eligible[variable] != 0u &&
                 pipeline_count[variable] == 1u &&
                 status_slot != invalid &&
                 status_slot <

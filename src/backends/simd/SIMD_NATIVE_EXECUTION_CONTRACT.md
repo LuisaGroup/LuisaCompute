@@ -2393,14 +2393,17 @@ ordering is promised. Any handler capable of observing order remains on the
 sorted pipeline. `LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1` is the
 required same-binary semantic and performance oracle.
 
-The surface-filter callback has two width-disjoint internal ABIs. W2 retains
-the original five arguments `(width, mask, states, launch, handler)` and must
-receive no ray-packet operand. W4/W8/W16 use seven arguments by inserting one
-opaque ray-packet pointer between `states` and `launch`, then passing both the
-general state-backed handler and the direct candidate handler. Since device
-width is fixed, the instance table may store these alternatives in one
-pointer-sized union slot; code generated for one width must never invoke the
-other type. W1 does not use either surface-filter ABI.
+The general state-backed surface-filter callback has two width-disjoint
+internal ABIs. W2 retains the original five arguments `(width, mask, states,
+launch, handler)` and must receive no ray-packet operand. W4/W8/W16 use seven
+arguments by inserting one opaque ray-packet pointer between `states` and
+`launch`, then passing both the general state-backed handler and the direct
+candidate handler. Since device width is fixed, the instance table may store
+these alternatives in one pointer-sized union slot; code generated for one
+width must never invoke the other type. W1 does not use either surface-filter
+ABI. The terminal output-only providers below may nevertheless use the direct
+candidate handler at W2 after padding the traversal to Embree W4; this does
+not enable the general W2 packet/state callback.
 
 For W4/W8/W16 the pointed-to input is exactly twelve component-major vectors
 matching the target Embree `RTCRay4/8/16` layout and alignment. Fields are
@@ -2411,6 +2414,17 @@ value moves one representable value toward negative infinity; if that result
 has subnormal magnitude it becomes negative minimum-normal. Thus `+0`, `-0`,
 and either-sign subnormals all map to negative minimum-normal. This is an
 interval-conserving implementation detail, not a domain extension.
+
+For a terminal output-only W2 query, JIT storage instead contains the same
+twelve fields as twelve logical `<2 x i32>` vectors with an eight-byte field
+stride. The JIT applies the same inactive-lane sanitizer before the provider
+call. The runtime may read only active logical lanes, expands them into
+physical lanes zero and one of a fully initialized `RTCRay4`, and sets physical
+lanes two and three to invalid benign rays with `dir_z = 1.0f`. A direct W2
+candidate handler receives Embree's physical W4 ray/hit packets, so every
+field has a sixteen-byte stride even though each LLVM load returns only the
+first two elements. Treating the compact JIT packet itself as `RTCRay4`, or
+using an eight-byte candidate-field stride, is an ABI violation.
 
 Packet storage is status-colored per lane. Construction may update only active
 lanes because an inactive lane can hold another live query in the same color.
@@ -2456,7 +2470,7 @@ branch in the same generated module. Inactive lanes remain masked before every
 store on either branch; selecting the compact path does not permit an inactive
 or out-of-prefix access.
 
-An additional W4/W8/W16 provider ABI is legal only for a query variable proven
+An additional W2/W4/W8/W16 provider ABI is legal only for a query variable proven
 to have exactly one capture-free empty surface handler, an empty procedural
 handler, triangle-only surface-filter eligibility, no caller-side query write,
 and no caller read other than committed hit or termination. Its signature is
@@ -2475,8 +2489,9 @@ stores and may leave every `SIMDHostRayQueryState` field uninitialized. The
 provider must not receive, reconstruct, or diagnostically inspect a query-state
 pointer.
 
-The provider must invoke exactly the matching `rtcIntersect4/8/16` or
-`rtcOccluded4/8/16` packet entry, never a per-lane scalar Embree call. Its
+The provider must invoke `rtcIntersect4`/`rtcOccluded4` for W2, and the exactly
+matching `rtcIntersect4/8/16` or `rtcOccluded4/8/16` entry for wider widths,
+never a per-lane scalar Embree call. Its
 filter validates IDs and the original inclusive interval, writes an opaque
 surface hit directly to the packet's committed fields, and rejects every
 non-opaque triangle.
@@ -2488,7 +2503,7 @@ remain identical to the ordinary empty-handler surface-filter route.
 
 `LUISA_SIMD_DISABLE_OUTPUT_ONLY_EMPTY_SURFACE_FILTER=1` must select the
 ordinary route by publishing a null provider without changing generated LLVM
-IR or object code. W1, W2, curves/procedurals, captures, multiple pipelines,
+IR or object code. W1, curves/procedurals, captures, multiple pipelines,
 query mutation, or any additional query-object read must never use this ABI.
 The JIT must test the callback before constructing a state-pointer packet,
 reading the status callback, publishing scratch state, or materializing
@@ -2544,10 +2559,11 @@ own submask and combined with fixed-vector selects. A lane outside a source
 submask must be sanitized before any gather, load, or address calculation.
 
 Closest and query-any traversal must use only matching
-`rtcIntersect4/8/16` and `rtcOccluded4/8/16` entries. Sparse masks, partial
+`rtcIntersect4/8/16` and `rtcOccluded4/8/16` entries, except that logical W2
+must use the sanitized W4 packet described above. Sparse masks, partial
 tails, original inclusive intervals, dynamic opacity, miss output, and the
 post-call terminal sidecar must match the ordinary state-provider route.
-W1/W2, curves/procedurals, captures/resources, explicit termination, multiple
+W1, curves/procedurals, captures/resources, explicit termination, multiple
 pipelines, query mutation, any other query read, missing packet/direct
 capability, or a null provider must select the ordinary path.
 `LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1` is the required

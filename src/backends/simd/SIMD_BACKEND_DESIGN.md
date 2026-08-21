@@ -3510,12 +3510,12 @@ the best cutout width and remains 5.7% behind fallback; the performance report
 records the complete methodology and intervals.
 
 An empty surface handler admits a still narrower caller/provider boundary at
-W4/W8/W16. The Schedule audit requires exactly one empty, capture-free,
+W2/W4/W8/W16. The Schedule audit requires exactly one empty, capture-free,
 triangle-only surface-filter pipeline for the query variable, no query-object
 write, and no caller read except committed hit or termination. Construction
 caches a second provider pointer and the scalar accel object in the proven
 status color. A null provider clears those lane sidecars and selects the
-ordinary compact/full-state path in the same JIT module; W1/W2 and every
+ordinary compact/full-state path in the same JIT module; W1 and every
 unproven use never publish this callback.
 
 The non-null path treats the colored ray packet as the complete traversal
@@ -3541,8 +3541,9 @@ and state-backed lanes without reading either source outside its submask.
 callback without recompiling the shader. The compiler report field
 `output_only_empty_surface_filter_states` counts accepted construction sites.
 Runtime publication additionally requires the committed scene to be
-triangle-only, packet input to be enabled, and the exact W4/W8/W16 Embree
-entry point to exist.
+triangle-only and packet input to be enabled. Logical W2 expands its compact
+twelve-by-two JIT packet into a fully sanitized Embree W4 packet; W4/W8/W16
+retain their exact native packet entry points. Neither path uses scalar Embree.
 
 Seven clean alternating 64-spp `opaque-query` pairs measure the shared
 field-major boundary against its same-module state-provider oracle at
@@ -3566,7 +3567,7 @@ surface-filter pipeline, its procedural handler must be empty, the caller may
 not write the query, and its only reads may be the terminal committed hit or
 termination predicate. The handler must already satisfy the audited direct
 Embree packet ABI; empty handlers continue to use the cheaper callback-free
-provider above. W1/W2, captures, explicit termination, resources, another
+provider above. W1, captures, explicit termination, resources, another
 query read/write, multiple pipelines, and a null provider fail closed.
 
 Construction caches a third provider and accel packet in the status color and
@@ -3606,8 +3607,9 @@ inactive source before any address-dependent operation.
 
 `LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1` publishes a null provider
 without recompiling the JIT module. Runtime publication additionally requires
-the triangle-only provider, packet input, direct candidate handling, and an
-exact W4/W8/W16 Embree packet entry. The optimization report field
+the triangle-only provider, packet input, and direct candidate handling. W2
+uses the padded W4 entry, while W4/W8/W16 require their exact Embree packet
+entry. The optimization report field
 `direct_output_surface_filter_states` counts statically accepted
 constructions. The implementation lives beside the empty-provider route, so
 the two ABIs and their independent runtime oracles remain reviewable.
@@ -3624,7 +3626,7 @@ equal-core cutout sweep now measures SIMD/fallback at
 stable crossovers. The performance report records the contamination rejection
 rule, intervals, exact-old control, hardware counters, and assembly audit.
 
-The audited W4/W8/W16 surface filter has a second, narrower JIT handler that
+The audited W2/W4/W8/W16 surface filter has a second, narrower JIT handler that
 removes the remaining candidate AoS round trip. Its private five-argument ABI
 is `(width, physical_candidate_mask, embree_ray_packet, embree_hit_packet,
 commit_mask_out)`: it has no state-pointer packet, launch configuration, or
@@ -3634,6 +3636,17 @@ immediately after each load, and runs the same Schedule-IR CFG. A triangle
 commit ORs the current execution mask into one 64-bit result. There are no
 masked gathers/scatters, target intrinsics, per-lane calls, or scalar libm
 calls in this handler.
+
+At W2 the traversal packet is physically W4. The JIT handler therefore loads
+`<2 x i32>` values from the first two physical elements with a sixteen-byte
+field stride; the caller-side ray packet remains twelve compact `<2 x i32>`
+fields and is expanded only inside the runtime. Physical lanes two and three
+are initialized to benign invalid rays before Embree, so an inactive logical
+lane or padding lane can never carry stale or poison data into traversal.
+W2 is retained as a correctness and compatibility width rather than a primary
+performance target: the padding conversion is deliberately localized to these
+proven terminal providers, while ordinary W2 queries keep the simpler general
+ABI.
 
 Small acyclic direct handlers have a more compact Schedule refinement than the
 general independent-PC machine. The compiler accepts only a nonempty reachable
@@ -3674,8 +3687,11 @@ commit bits back through that ID before updating the authoritative committed
 hit. Rejected candidates never enter the state AoS. Accepted candidates are
 re-read from the still-live Embree packet, avoiding a second candidate scratch
 array and avoiding stores for the usually more numerous rejected candidates.
-W2 retains the state-backed handler because its padded `RTCRay4` layout cannot
-be consumed as a two-lane fixed vector.
+The general in-filter W2 route retains the state-backed handler because its
+padded `RTCRay4` layout cannot be consumed through that route's logical
+two-lane packet ABI. The terminal direct-output refinement below is narrower:
+its handler consumes only the first two physical W4 elements with the physical
+four-element field stride, so it can safely avoid state at W2 as well.
 
 The general state-backed handler remains in the same JIT module as a semantic
 and performance oracle. `LUISA_SIMD_DISABLE_DIRECT_SURFACE_FILTER_CANDIDATE=1`

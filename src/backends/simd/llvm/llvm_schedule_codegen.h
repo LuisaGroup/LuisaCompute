@@ -175,7 +175,7 @@ struct alignas(8) SIMDHostRayQueryCommittedHit {
 
 // Provider-private, field-major packet for a terminal output-only triangle
 // query. A fixed sixteen-lane capacity keeps the C++ ABI typed while the JIT
-// accesses one native W4/W8/W16 vector at the beginning of every field. The
+// accesses one native W2/W4/W8/W16 vector at the beginning of every field. The
 // two inclusive source bounds retain Luisa's exact candidate domain after the
 // Embree-facing tnear value has been stepped outward. No operational cursor,
 // callback, candidate, or batch state is present.
@@ -236,8 +236,10 @@ using SIMDHostRayQuerySurfaceFilterHandler = void(
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
     const SIMDPacketLaunchConfig *launch_config);
-// Specialized W4/W8/W16 form for an audited capture-free surface filter.
-// ray_packet and hit_packet point at Embree's native SoA packet fields;
+// Specialized W2/W4/W8/W16 form for an audited capture-free surface filter.
+// ray_packet and hit_packet point at Embree's native SoA packet fields. W2 is
+// physically carried by Embree W4 packets and therefore uses a four-element
+// field stride while consuming only physical lanes zero and one;
 // committed_mask_bits is OR-ed with the physical packet lanes that executed a
 // triangle commit. Keeping this separate from the general handler ABI lets the
 // runtime retain the latter as an exact same-module oracle.
@@ -258,8 +260,9 @@ using SIMDHostAccelRayQuerySurfaceFilterPacketPipeline = void(
     SIMDHostRayQuerySurfaceFilterHandler *on_surface,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct);
 // An audited empty surface handler needs no candidate callback or mutable
-// query input. The packet provider receives the accel and sanitized Embree ray
-// packet directly. The field-major output packet provides the original
+// query input. The packet provider receives the accel and sanitized logical
+// ray packet directly; W2 expands that packet to Embree W4 inside the runtime.
+// The field-major output packet provides the original
 // world-ray interval and terminal committed-hit storage; no operational query
 // state is materialized when this provider is selected.
 using SIMDHostAccelRayQueryEmptySurfaceFilterPacketPipeline = void(

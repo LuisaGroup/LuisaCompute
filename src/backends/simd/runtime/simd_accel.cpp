@@ -1766,7 +1766,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                     _enable_surface_filter_pipeline &&
                     _enable_surface_filter_ray_packet &&
                     _enable_output_only_empty_surface_filter &&
-                    _warp_width >= 4u ?
+                    _warp_width >= 2u ?
                 triangle_ray_query::
                     ray_query_empty_surface_filter_packet_pipeline_triangle_only :
                 nullptr;
@@ -1776,7 +1776,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                     _enable_surface_filter_ray_packet &&
                     _enable_direct_surface_filter_candidate &&
                     _enable_direct_output_surface_filter &&
-                    _warp_width >= 4u ?
+                    _warp_width >= 2u ?
                 triangle_ray_query::
                     ray_query_direct_output_surface_filter_packet_pipeline_triangle_only :
                 nullptr;

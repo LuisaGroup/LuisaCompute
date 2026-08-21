@@ -5996,3 +5996,59 @@ wins and 95% intervals of [1.1157, 1.1394], [1.1538, 1.1737], and
 renderer, and external path-tracing activity rather than admitting those
 samples. Both 171-test inventories and all five gallery widths were rerun
 after the merge.
+
+## W2 terminal ray-query providers through padded Embree W4
+
+W2 now shares the state-free empty and nonempty direct-output providers used by
+the wider packet widths without inventing a scalar traversal path. The JIT
+stores a compact twelve-by-two logical ray packet and sanitizes inactive
+logical lanes before the call. The runtime reads only active source lanes,
+expands them into physical lanes zero and one of an initialized `RTCRay4`, and
+fills lanes two and three with benign invalid rays. A direct candidate handler
+loads `<2 x i32>` values from Embree's physical packet with a sixteen-byte
+field stride. Ordinary W2 surface-filter queries remain on the established
+state-backed callback ABI.
+
+The system/TBB collection used CPUs 0--15, sixteen SIMD workers, 64 spp, one
+spp per dispatch, alternating fresh processes, and the same 200-ms unrelated-
+process rejection rule as the preceding sections. Independent compiler and
+Psycles work left four clean three-way `opaque-query` rounds out of fifteen;
+the limited result is reported explicitly rather than promoted to the usual
+seven-pair gate:
+
+| W2 comparison | candidate median FPS | control median FPS | paired geometric ratio | wins | provisional 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| padded-W4 output provider / state provider | 35.3214 | 30.5712 | **1.1656x** | 4/4 | **[1.1330, 1.1992]** |
+| padded-W4 output provider / equal-core fallback | 35.3214 | 50.7929 | 0.6960x | 0/4 | [0.6862, 0.7060] |
+
+The independently configured self-pool tree supplies a longer provider-only
+confirmation: seven clean pairs measure 1.1849x for `opaque-query` and 1.2039x
+for `cutout-query`, both with 7/7 wins. Those ratios isolate the provider
+boundary but are not mixed with the system/TBB fallback comparison. Thus W2
+gains roughly 16--20% over its previous state-provider route on these two
+ray-query examples, but remains substantially slower than fallback. It stays a
+correctness and compatibility width; production performance work continues to
+focus on W4/W8/W16.
+
+Two micro-optimizations were measured and rejected. Removing the JIT W2 call-
+packet sanitizer, relying only on the runtime active-lane copy, measured
+1.0176x over twelve exact-binary pairs with a 95% interval of
+[0.9903, 1.0456], crossing one. Forcing the W2 padding helper inline was also
+neutral and duplicated code. The final implementation retains the explicit
+pre-call sanitizer and the shared out-of-line W4 expansion.
+
+Disassembly of the final backend shows both W2 provider switch cases reaching
+`trace_group<true, 4>`; that specialization calls only `rtcIntersect4` and
+`rtcOccluded4`. Scalar Embree imports remain solely for the separate W1 path.
+The permanent JIT gate checks the physical W4 field offsets, absence of state
+handles/status setup in the selected branch, and absence of gathers/scatters
+in the W2 direct handler. Real Embree coverage includes closest/any, sparse
+masks, a 35-lane tail, dynamic opacity, null-provider fallback, and ordinary
+state-backed W2 queries.
+
+Both maintained Release configurations pass the complete 171/171 CTest
+inventory independently (342/342 total). A fresh system/TBB W2 1,024-spp
+non-coroutine cutout render passes the checked-in reference at 46.208391 dB
+RGB PSNR and 0.999632 luminance correlation; the reference was not regenerated.
+This section supersedes the W2 portion of the earlier statements that described
+W1/W2 together as state-backed controls. W1 remains unchanged.

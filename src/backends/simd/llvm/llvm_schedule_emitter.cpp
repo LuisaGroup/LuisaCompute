@@ -587,8 +587,9 @@ void ScheduleEmitter::_preflight() {
         return;
     }
     if (_is_surface_filter_handler_entry() &&
-        _width != 4u && _width != 8u && _width != 16u) {
-        _fail("direct surface-filter handler width must be W4/W8/W16");
+        _width != 2u && _width != 4u &&
+        _width != 8u && _width != 16u) {
+        _fail("direct surface-filter handler width must be W2/W4/W8/W16");
         return;
     }
     if (_source.logical_warp_width() != 0u &&
@@ -892,14 +893,14 @@ void ScheduleEmitter::_preflight() {
                     return;
                 }
                 if (handlers.embree_surface_filter_safe &&
-                    _width >= 4u &&
+                    _width >= 2u &&
                     (handlers.on_surface_filter == nullptr ||
                      handlers.on_surface_filter->arg_size() != 5u)) {
                     _fail("ray-query surface-filter specialization has an invalid ABI");
                     return;
                 }
                 if ((!handlers.embree_surface_filter_safe ||
-                     _width < 4u) &&
+                     _width < 2u) &&
                     handlers.on_surface_filter != nullptr) {
                     _fail("ray-query pipeline has an unsafe surface-filter specialization");
                     return;
@@ -911,7 +912,7 @@ void ScheduleEmitter::_preflight() {
                 }
                 if (handlers.on_surface_filter_scheduler_oracle != nullptr &&
                     (!handlers.embree_surface_filter_safe ||
-                     _width < 4u ||
+                     _width < 2u ||
                      handlers.on_surface_filter == nullptr ||
                      handlers.on_surface_filter_scheduler_oracle->arg_size() !=
                          5u)) {

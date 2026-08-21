@@ -172,7 +172,7 @@ void ScheduleEmitter::_ray_query_pipeline(
         static_cast<::llvm::Value *>(nullptr);
     if (handler_pair.embree_surface_filter_safe &&
         !handler_pair.surface_handler_empty &&
-        handler_pair.on_surface_filter != nullptr && _width >= 4u &&
+        handler_pair.on_surface_filter != nullptr && _width >= 2u &&
         status_index <
             _ray_query_direct_output_surface_filter_pipeline_callback_storage
                 .size() &&
@@ -233,7 +233,7 @@ void ScheduleEmitter::_ray_query_pipeline(
     auto *empty_surface_filter_accel =
         static_cast<::llvm::Value *>(nullptr);
     if (handler_pair.embree_surface_filter_safe &&
-        handler_pair.surface_handler_empty && _width >= 4u &&
+        handler_pair.surface_handler_empty && _width >= 2u &&
         status_index <
             _ray_query_empty_surface_filter_pipeline_callback_storage.size() &&
         status_index <

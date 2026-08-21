@@ -510,7 +510,9 @@ namespace {
     visibility = _builder.CreateSelect(
         _active_mask, visibility, zero_i32,
         "ray.query.safe.visibility");
-    if (!_store_ray_query_surface_filter_ray_packet(
+    if ((_width >= 4u || output_only_eligible ||
+         direct_output_eligible) &&
+        !_store_ray_query_surface_filter_ray_packet(
             *ray_value, ray, safe_time, visibility, status_index)) {
         return nullptr;
     }

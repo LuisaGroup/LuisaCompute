@@ -7686,14 +7686,22 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
     auto packet_word = [&](uint32_t field, uint32_t lane) noexcept {
         return packet_words[field * lane_count + lane];
     };
+    auto physical_packet_width = lane_count == 2u ? 4u : lane_count;
     std::array<uint32_t,
                simd_host_accel_ray_packet_field_count * 16u>
         candidate_ray_packet{};
     std::array<uint32_t, 8u * 16u> candidate_hit_packet{};
-    std::memcpy(
-        candidate_ray_packet.data(), ray_packet,
-        simd_host_accel_ray_packet_field_count * lane_count *
-            sizeof(uint32_t));
+    for (auto lane = uint32_t{0u}; lane < physical_packet_width; lane++) {
+        candidate_ray_packet[6u * physical_packet_width + lane] =
+            std::bit_cast<uint32_t>(1.0f);
+    }
+    for (auto field = uint32_t{0u};
+         field < simd_host_accel_ray_packet_field_count; field++) {
+        for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+            candidate_ray_packet[field * physical_packet_width + lane] =
+                packet_word(field, lane);
+        }
+    }
     auto candidates = uint64_t{0u};
     for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
         auto active =
@@ -7723,14 +7731,15 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                         static_cast<float>(dispatch_index);
         if ((dispatch_index & 1u) != 0u) { continue; }
         candidates |= uint64_t{1u} << lane;
-        candidate_ray_packet[simd_host_accel_ray_tfar_field * lane_count + lane] =
+        candidate_ray_packet[simd_host_accel_ray_tfar_field * physical_packet_width + lane] =
             std::bit_cast<uint32_t>(1.0f);
-        candidate_hit_packet[3u * lane_count + lane] =
+        candidate_hit_packet[3u * physical_packet_width + lane] =
             std::bit_cast<uint32_t>(0.04f);
-        candidate_hit_packet[4u * lane_count + lane] =
+        candidate_hit_packet[4u * physical_packet_width + lane] =
             std::bit_cast<uint32_t>(0.05f);
-        candidate_hit_packet[5u * lane_count + lane] = dispatch_index;
-        candidate_hit_packet[7u * lane_count + lane] = 6u;
+        candidate_hit_packet[5u * physical_packet_width + lane] =
+            dispatch_index;
+        candidate_hit_packet[7u * physical_packet_width + lane] = 6u;
     }
     probe->surface_pipeline_candidate_mask |= candidates;
     auto committed = uint64_t{0u};
@@ -7745,7 +7754,8 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
     while (remaining != 0u) {
         auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
         remaining &= remaining - 1u;
-        auto dispatch_index = candidate_hit_packet[5u * lane_count + lane];
+        auto dispatch_index =
+            candidate_hit_packet[5u * physical_packet_width + lane];
         outputs->committed_inst[lane] = 6u;
         outputs->committed_prim[lane] = dispatch_index;
         outputs->committed_bary_x[lane] = 0.04f;
@@ -8371,7 +8381,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             kernel.function()->function(), width,
             "simd_ast_surface_filter_ray_query_pipeline_w" +
                 std::to_string(width),
-            false, width == 8u);
+            false, width == 2u || width == 8u);
         SIMDCompiledKernel oracle;
         {
             ScopedEnvironmentVariable disable{
@@ -8394,7 +8404,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         CHECK(candidate.compact_surface_filter_state_count ==
               (width >= 4u ? 1u : 0u));
         CHECK(candidate.direct_output_surface_filter_state_count ==
-              (width >= 4u ? 1u : 0u));
+              1u);
         CHECK(candidate.predicated_acyclic_surface_filter_handler_count ==
               (width >= 4u ? 1u : 0u));
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
@@ -8402,6 +8412,60 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         CHECK(oracle.compact_surface_filter_state_count == 0u);
         CHECK(oracle.direct_output_surface_filter_state_count == 0u);
         CHECK(oracle.predicated_acyclic_surface_filter_handler_count == 0u);
+        if (width == 2u) {
+            CHECK(candidate.llvm_ir.find(
+                      "ray.query.surface.filter.ray.packet.slot") !=
+                  std::string::npos);
+            CHECK(candidate.llvm_ir.find(
+                      "ray.query.output.packet.slot") !=
+                  std::string::npos);
+            auto symbol =
+                "simd_ast_surface_filter_ray_query_pipeline_w2.ray_query.0.surface_filter.simd_w2";
+            auto symbol_position = candidate.llvm_ir.find(symbol);
+            CHECK(symbol_position != std::string::npos);
+            auto function_begin = candidate.llvm_ir.rfind(
+                "define internal void", symbol_position);
+            auto function_end = candidate.llvm_ir.find(
+                "\n}", symbol_position);
+            CHECK(function_begin != std::string::npos);
+            CHECK(function_end != std::string::npos);
+            auto direct_ir = std::string_view{candidate.llvm_ir}.substr(
+                function_begin,
+                function_end + 2u - function_begin);
+            CHECK(count_occurrences(
+                      direct_ir, "load <2 x i32>") >= 5u);
+            CHECK(direct_ir.find(
+                      "getelementptr i8, ptr %ray_packet, i64 128") !=
+                  std::string_view::npos);
+            CHECK(direct_ir.find(
+                      "getelementptr i8, ptr %hit_packet, i64 48") !=
+                  std::string_view::npos);
+            CHECK(direct_ir.find("llvm.masked.gather") ==
+                  std::string_view::npos);
+            CHECK(direct_ir.find("llvm.masked.scatter") ==
+                  std::string_view::npos);
+            CHECK(direct_ir.find("state_pointer_lanes") ==
+                  std::string_view::npos);
+
+            auto direct_call_begin = candidate.llvm_ir.find(
+                "ray.query.pipeline.direct.output:");
+            auto direct_call_end = candidate.llvm_ir.find(
+                "ray.query.pipeline.direct.output.regular:",
+                direct_call_begin);
+            CHECK(direct_call_begin != std::string::npos);
+            CHECK(direct_call_end != std::string::npos);
+            auto direct_call_ir = std::string_view{candidate.llvm_ir}.substr(
+                direct_call_begin,
+                direct_call_end - direct_call_begin);
+            CHECK(direct_call_ir.find("store <2 x ptr>") ==
+                  std::string_view::npos);
+            CHECK(direct_call_ir.find(
+                      "ray.query.cached.state.handles") ==
+                  std::string_view::npos);
+            CHECK(direct_call_ir.find(
+                      "ray.query.pipeline.status.callbacks") ==
+                  std::string_view::npos);
+        }
         if (width == 8u) {
             CHECK(candidate.llvm_ir.find("ray.query.full.state.init") !=
                   std::string::npos);
@@ -8661,7 +8725,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         std::array<uint32_t, 16u> null_provider_output{};
         std::array<uint32_t, 16u> oracle_output{};
         CHECK(execute(
-            candidate, true, width >= 4u, width >= 4u,
+            candidate, true, true, true,
             direct_output,
             true, width >= 4u));
         CHECK(execute(
@@ -8670,10 +8734,10 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         CHECK(execute(
             candidate, true, width >= 4u, false,
             full_state_output));
-        if (width >= 4u) {
+        if (width >= 2u) {
             CHECK(execute(
                 candidate, true, true, true,
-                scheduler_direct_output, false, true));
+                scheduler_direct_output, false, width >= 4u));
             CHECK(direct_output == scheduler_direct_output);
         }
         CHECK(execute(
@@ -8807,12 +8871,12 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         };
         output.write(index, query_result);
     };
-    for (auto width : {4u, 8u, 16u}) {
+    for (auto width : {2u, 4u, 8u, 16u}) {
         auto candidate = compile_simd_kernel(
             empty_handlers.function()->function(), width,
             "simd_ast_empty_surface_filter_pipeline_w" +
                 std::to_string(width),
-            false, width == 8u);
+            false, width == 2u || width == 8u);
         SIMDCompiledKernel oracle;
         {
             ScopedEnvironmentVariable disable{
@@ -8832,7 +8896,8 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         }
         CHECK(candidate.direct_ray_query_pipeline_count == 2u);
         CHECK(candidate.surface_filter_ray_query_pipeline_count == 2u);
-        CHECK(candidate.compact_surface_filter_state_count == 2u);
+        CHECK(candidate.compact_surface_filter_state_count ==
+              (width >= 4u ? 2u : 0u));
         CHECK(candidate.output_only_empty_surface_filter_state_count == 2u);
         CHECK(candidate.direct_output_surface_filter_state_count == 0u);
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
@@ -8840,6 +8905,35 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         CHECK(oracle.compact_surface_filter_state_count == 0u);
         CHECK(oracle.output_only_empty_surface_filter_state_count == 0u);
         CHECK(oracle.direct_output_surface_filter_state_count == 0u);
+        if (width == 2u) {
+            CHECK(candidate.llvm_ir.find(
+                      "ray.query.surface.filter.ray.packet.slot") !=
+                  std::string::npos);
+            CHECK(candidate.llvm_ir.find(
+                      "ray.query.output.packet.slot") !=
+                  std::string::npos);
+            auto output_call_begin = candidate.llvm_ir.find(
+                "ray.query.pipeline.empty.output:");
+            auto output_call_end = candidate.llvm_ir.find(
+                "ray.query.pipeline.empty.output.regular:",
+                output_call_begin);
+            CHECK(output_call_begin != std::string::npos);
+            CHECK(output_call_end != std::string::npos);
+            auto output_call_ir =
+                std::string_view{candidate.llvm_ir}.substr(
+                    output_call_begin,
+                    output_call_end - output_call_begin);
+            CHECK(output_call_ir.find("store <2 x ptr>") ==
+                  std::string_view::npos);
+            CHECK(output_call_ir.find(
+                      "ray.query.cached.state.handles") ==
+                  std::string_view::npos);
+            CHECK(output_call_ir.find(
+                      "ray.query.pipeline.status.callbacks") ==
+                  std::string_view::npos);
+            CHECK(output_call_ir.find("ray.query.pipeline.packet") ==
+                  std::string_view::npos);
+        }
         if (width == 8u) {
             CHECK(candidate.llvm_ir.find(
                       "ray.query.output.packet.slot") !=
@@ -8913,7 +9007,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 .expected_proceed =
                     ray_query_surface_filter_plain_probe,
                 .expected_state_stride =
-                    enable_surface_pipeline ?
+                    enable_surface_pipeline && width >= 4u ?
                         simd_host_ray_query_hot_state_stride :
                         sizeof(SIMDHostRayQueryState),
             };
@@ -8924,8 +9018,13 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                     ray_query_surface_filter_status_probe,
             };
             if (enable_surface_pipeline) {
-                instance_table.ray_query_surface_filter_packet_pipeline =
-                    ray_query_surface_filter_packet_pipeline_probe;
+                if (width >= 4u) {
+                    instance_table.ray_query_surface_filter_packet_pipeline =
+                        ray_query_surface_filter_packet_pipeline_probe;
+                } else {
+                    instance_table.ray_query_surface_filter_pipeline =
+                        ray_query_surface_filter_pipeline_probe;
+                }
             }
             if (enable_output_only_pipeline) {
                 instance_table
@@ -8974,7 +9073,9 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 CHECK(probe.calls == 0u);
                 CHECK(probe.surface_pipeline_calls == expected_packet_count);
                 CHECK(probe.direct_surface_pipeline_calls ==
-                      probe.surface_pipeline_calls);
+                      (width >= 4u ?
+                           probe.surface_pipeline_calls :
+                           0u));
                 CHECK(probe.output_only_surface_pipeline_calls == 0u);
             } else {
                 CHECK(probe.calls != 0u);

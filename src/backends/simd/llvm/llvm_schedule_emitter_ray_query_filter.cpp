@@ -47,12 +47,16 @@ namespace {
         _builder.getInt32Ty(), _width);
     auto *float_lanes = ::llvm::FixedVectorType::get(
         _builder.getFloatTy(), _width);
+    // Embree has no W2 traversal ABI. A logical W2 provider pads to a native
+    // W4 packet, so candidate fields retain a four-element physical stride
+    // even though the handler consumes only lanes zero and one.
+    auto physical_packet_width = _width == 2u ? 4u : _width;
     auto load_field = [&](::llvm::Value *packet,
                           uint32_t field) noexcept {
         auto *pointer = _builder.CreateGEP(
             _builder.getInt8Ty(), packet,
             _builder.getInt64(
-                static_cast<uint64_t>(field) * _width *
+                static_cast<uint64_t>(field) * physical_packet_width *
                 sizeof(uint32_t)));
         auto *value = _builder.CreateAlignedLoad(
             i32_lanes, pointer, ::llvm::Align{alignof(uint32_t)});

@@ -109,7 +109,7 @@ ScheduleEmitter::_ray_query_surface_filter_ray_packet_for_call(
     ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
     ::llvm::Value *active_mask_bits) {
     if (ray_packet == nullptr || call_packet == nullptr ||
-        active_mask_bits == nullptr || _width < 4u) {
+        active_mask_bits == nullptr || _width < 2u) {
         _fail("surface-filter call packet has no analyzed storage");
         return nullptr;
     }

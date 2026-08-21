@@ -521,7 +521,7 @@ SIMDCompiledKernel compile_simd_kernel(
             static_cast<::llvm::Function *>(nullptr);
         auto *surface_filter_scheduler_oracle_entry =
             static_cast<::llvm::Function *>(nullptr);
-        if (warp_width >= 4u &&
+        if (warp_width >= 2u &&
             pipeline_schedules[pipeline_index]
                 .embree_surface_filter_safe) {
             auto name = handler_name_base + ".ray_query." +

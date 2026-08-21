@@ -3,6 +3,7 @@
 
 #include <array>
 #include <bit>
+#include <cstddef>
 #include <cstring>
 #include <cstdlib>
 #include <limits>
@@ -364,6 +365,63 @@ void initialize_valid_packet(
 }
 
 template<size_t packet_width, typename RayPacket>
+void initialize_ray_packet_from_logical_packet(
+    RayPacket &ray, uint32_t lane_count,
+    uint64_t active_mask_bits, const void *source_packet) noexcept {
+    LUISA_ASSERT(
+        source_packet != nullptr && lane_count == 2u &&
+            packet_width == 4u,
+        "Invalid SIMD logical W{} to Embree W{} ray packet expansion.",
+        lane_count, packet_width);
+    auto *source = static_cast<const std::byte *>(source_packet);
+    auto load_word = [&](uint32_t field,
+                         uint32_t lane) noexcept {
+        auto value = uint32_t{0u};
+        auto offset =
+            (static_cast<size_t>(field) * lane_count + lane) *
+            sizeof(uint32_t);
+        std::memcpy(&value, source + offset, sizeof(value));
+        return value;
+    };
+    auto load_float = [&](uint32_t field,
+                          uint32_t lane) noexcept {
+        return std::bit_cast<float>(load_word(field, lane));
+    };
+    auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
+    auto active = active_mask_bits & lane_mask;
+    for (auto lane = uint32_t{0u}; lane < packet_width; lane++) {
+        if (lane >= lane_count ||
+            (active & (uint64_t{1u} << lane)) == 0u) {
+            ray.org_x[lane] = 0.0f;
+            ray.org_y[lane] = 0.0f;
+            ray.org_z[lane] = 0.0f;
+            ray.tnear[lane] = 0.0f;
+            ray.dir_x[lane] = 0.0f;
+            ray.dir_y[lane] = 0.0f;
+            ray.dir_z[lane] = 1.0f;
+            ray.time[lane] = 0.0f;
+            ray.tfar[lane] = 0.0f;
+            ray.mask[lane] = 0u;
+            ray.id[lane] = 0u;
+            ray.flags[lane] = 0u;
+            continue;
+        }
+        ray.org_x[lane] = load_float(0u, lane);
+        ray.org_y[lane] = load_float(1u, lane);
+        ray.org_z[lane] = load_float(2u, lane);
+        ray.tnear[lane] = load_float(3u, lane);
+        ray.dir_x[lane] = load_float(4u, lane);
+        ray.dir_y[lane] = load_float(5u, lane);
+        ray.dir_z[lane] = load_float(6u, lane);
+        ray.time[lane] = load_float(7u, lane);
+        ray.tfar[lane] = load_float(8u, lane);
+        ray.mask[lane] = load_word(9u, lane);
+        ray.id[lane] = load_word(10u, lane);
+        ray.flags[lane] = load_word(11u, lane);
+    }
+}
+
+template<size_t packet_width, typename RayPacket>
 void occluded_packet(
     RTCScene scene, SurfaceFilterPipelineContext &context,
     std::array<int, packet_width> &valid,
@@ -493,9 +551,17 @@ void trace_group(
     }
     if (terminate_on_first) {
         if constexpr (packet_input) {
-            auto *packet = static_cast<RayPacket *>(ray_packet);
-            occluded_packet<packet_width>(
-                scene, context, valid, *packet);
+            if (lane_count == packet_width) {
+                auto *packet = static_cast<RayPacket *>(ray_packet);
+                occluded_packet<packet_width>(
+                    scene, context, valid, *packet);
+            } else {
+                alignas(64) RayPacket packet{};
+                initialize_ray_packet_from_logical_packet<packet_width>(
+                    packet, lane_count, active_mask_bits, ray_packet);
+                occluded_packet<packet_width>(
+                    scene, context, valid, packet);
+            }
         } else {
             alignas(64) RayPacket packet{};
             initialize_ray_packet<packet_width>(
@@ -507,9 +573,15 @@ void trace_group(
     } else {
         alignas(64) RayHitPacket packet{};
         if constexpr (packet_input) {
-            std::memcpy(
-                &packet.ray, ray_packet,
-                sizeof(RayPacket));
+            if (lane_count == packet_width) {
+                std::memcpy(
+                    &packet.ray, ray_packet,
+                    sizeof(RayPacket));
+            } else {
+                initialize_ray_packet_from_logical_packet<packet_width>(
+                    packet.ray, lane_count,
+                    active_mask_bits, ray_packet);
+            }
         } else {
             initialize_ray_packet<packet_width>(
                 packet.ray, valid, lane_count,
@@ -691,7 +763,7 @@ void ray_query_empty_surface_filter_packet_pipeline_triangle_only(
     void *ray_packet, uint32_t terminate_on_first) noexcept {
     LUISA_ASSERT(
         accel != nullptr && outputs != nullptr && ray_packet != nullptr &&
-            (lane_count == 4u || lane_count == 8u ||
+            (lane_count == 2u || lane_count == 4u || lane_count == 8u ||
              lane_count == 16u) &&
             terminate_on_first <= 1u,
         "Invalid SIMD output-only empty surface-filter invocation at W{}.",
@@ -703,6 +775,7 @@ void ray_query_empty_surface_filter_packet_pipeline_triangle_only(
     auto &instances =
         SurfaceFilterPipelineAccelAccess::instances(simd_accel);
     switch (lane_count) {
+        case 2u:
         case 4u:
             trace_group<true, 4u, RTCRayHit4, RTCRay4>(
                 scene, instances, lane_count, active, nullptr,
@@ -733,7 +806,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_triangle_only(
     LUISA_ASSERT(
         accel != nullptr && outputs != nullptr && ray_packet != nullptr &&
             on_surface_direct != nullptr &&
-            (lane_count == 4u || lane_count == 8u ||
+            (lane_count == 2u || lane_count == 4u || lane_count == 8u ||
              lane_count == 16u) &&
             terminate_on_first <= 1u,
         "Invalid SIMD direct-output surface-filter invocation at W{}.",
@@ -745,6 +818,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_triangle_only(
     auto &instances =
         SurfaceFilterPipelineAccelAccess::instances(simd_accel);
     switch (lane_count) {
+        case 2u:
         case 4u:
             trace_group<true, 4u, RTCRayHit4, RTCRay4>(
                 scene, instances, lane_count, active, nullptr, outputs,
