@@ -57,6 +57,7 @@ private:
     bool _enable_uniform_buffer_broadcast{true};
     bool _enable_lane_affine_buffer{true};
     bool _enable_paired_leaf_gather{false};
+    bool _enable_biased_narrow_buffer_gather{false};
     bool _enable_interleaved_scalar_buffer_reads{true};
     uint32_t _dispatch_worker_count{1u};
     bool _enable_native_predicated_loop{true};
@@ -753,7 +754,8 @@ public:
                     std::span<const LLVMSIMDRayQueryPipelineHandlers>
                         ray_query_pipeline_handlers = {},
                     size_t print_format_id_base = 0u,
-                    bool enable_predicated_acyclic_control_flow = true);
+                    bool enable_predicated_acyclic_control_flow = true,
+                    bool enable_biased_narrow_buffer_gather = false);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

@@ -71,6 +71,11 @@ public:
     // remains available when this returns false.
     [[nodiscard]] bool supports_native_paired_leaf_gather(
         uint32_t width) const noexcept;
+    // Exact-W8 profitability gate for biased 32-bit typed-buffer indices.
+    // The portable IR remains valid without this capability; unsupported
+    // targets keep the established pointer-width gather lowering.
+    [[nodiscard]] bool supports_native_biased_narrow_buffer_gather(
+        uint32_t width) const noexcept;
     // The bounded predicated-loop policy is measured only for host targets
     // with native 512-bit fixed vectors and legal masked gathers. Other hosts
     // retain the same portable IR backend through the generic scheduler.

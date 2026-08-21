@@ -1026,6 +1026,42 @@ void ScheduleEmitter::_store_contiguous_vector_data(
             operand_sanitization_mask, index,
             ::llvm::Constant::getNullValue(index->getType()));
     }
+    auto biased_narrow_gather =
+        _enable_biased_narrow_buffer_gather && _width == 8u &&
+        op == xir::ResourceReadOp::BUFFER_READ &&
+        (index_value->type->is_int32() ||
+         index_value->type->is_uint32()) &&
+        _is_scalar_data(result_value->type) &&
+        !result_value->type->is_bool() &&
+        result_value->type->size() == sizeof(uint32_t) &&
+        buffer_value->type->element() == result_value->type &&
+        result_value->defining_block &&
+        _innermost_loop_containing(
+            *result_value->defining_block) != nullptr;
+    if (biased_narrow_gather) {
+        constexpr auto sign_bias = uint32_t{1u} << 31u;
+        auto *biased_base = _builder.CreateGEP(
+            _builder.getInt8Ty(), base,
+            _builder.getInt64(
+                static_cast<uint64_t>(sign_bias) * stride),
+            "buffer.narrow.gather.biased.base");
+        auto *biased_index = _builder.CreateXor(
+            index,
+            _builder.CreateVectorSplat(
+                _width, _builder.getInt32(sign_bias)),
+            "buffer.narrow.gather.biased.index");
+        auto *element = _data_type(result_value->type, false);
+        auto *pointers = _builder.CreateGEP(
+            element, biased_base, biased_index,
+            "buffer.narrow.gather.pointers");
+        auto *lanes = ::llvm::FixedVectorType::get(element, _width);
+        auto *gathered = _builder.CreateMaskedGather(
+            lanes, pointers, ::llvm::Align{1u}, _active_mask,
+            ::llvm::Constant::getNullValue(lanes),
+            "buffer.narrow.gather");
+        _result.biased_narrow_buffer_gather_count++;
+        return gathered;
+    }
     auto *offsets = _lane_offsets(index, stride);
     auto paired_vector = _enable_paired_leaf_gather && _width == 8u &&
                          op == xir::ResourceReadOp::BUFFER_READ &&

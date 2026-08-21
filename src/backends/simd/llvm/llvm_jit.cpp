@@ -231,6 +231,44 @@ bool LLVMJIT::supports_native_paired_leaf_gather(
            !target.forceScalarizeMaskedGather(type, ::llvm::Align{1u});
 }
 
+bool LLVMJIT::supports_native_biased_narrow_buffer_gather(
+    uint32_t width) const noexcept {
+    // W8 is the measured policy. W16's single 16-lane i32-index gather is
+    // legal on the reference host but consistently slower than the existing
+    // pair of i64-index gathers, so legality alone must not enable it.
+    if (!succeeded() || width != 8u) { return false; }
+    ::llvm::LLVMContext context;
+    ::llvm::Module module{"simd-biased-narrow-gather-probe", context};
+    auto data_layout = _target_machine->createDataLayout();
+    // The address identity used by the rewrite is deliberately audited in
+    // the backend's 64-bit host ABI. Do not silently generalize it to a
+    // target with a different pointer-index width.
+    if (data_layout.getPointerSizeInBits() != 64u ||
+        data_layout.getIndexSizeInBits(0u) != 64u) {
+        return false;
+    }
+    module.setDataLayout(data_layout);
+#if LLVM_VERSION_MAJOR >= 21
+    module.setTargetTriple(_target_machine->getTargetTriple());
+#else
+    module.setTargetTriple(_target_machine->getTargetTriple().str());
+#endif
+    auto *function_type = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(context), false);
+    auto *function = ::llvm::Function::Create(
+        function_type, ::llvm::GlobalValue::PrivateLinkage,
+        "simd_biased_narrow_gather_probe", module);
+    auto target = _target_machine->getTargetTransformInfo(*function);
+    auto fixed_register_bits = target.getRegisterBitWidth(
+        ::llvm::TargetTransformInfo::RGK_FixedWidthVector);
+    auto *gather_type = ::llvm::FixedVectorType::get(
+        ::llvm::Type::getInt32Ty(context), width);
+    auto alignment = ::llvm::Align{1u};
+    return fixed_register_bits.getKnownMinValue() >= 512u &&
+           target.isLegalMaskedGather(gather_type, alignment) &&
+           !target.forceScalarizeMaskedGather(gather_type, alignment);
+}
+
 bool LLVMJIT::supports_native_predicated_loop(
     uint32_t width) const noexcept {
     if (!succeeded() || (width != 8u && width != 16u)) {

@@ -52,7 +52,8 @@ ScheduleEmitter::ScheduleEmitter(
     std::span<const LLVMSIMDRayQueryPipelineHandlers>
         ray_query_pipeline_handlers,
     size_t print_format_id_base,
-    bool enable_predicated_acyclic_control_flow)
+    bool enable_predicated_acyclic_control_flow,
+    bool enable_biased_narrow_buffer_gather)
     : _module{module},
       _source{source},
       _width{width},
@@ -62,6 +63,8 @@ ScheduleEmitter::ScheduleEmitter(
       _enable_uniform_buffer_broadcast{enable_uniform_buffer_broadcast},
       _enable_lane_affine_buffer{enable_lane_affine_buffer},
       _enable_paired_leaf_gather{enable_paired_leaf_gather},
+      _enable_biased_narrow_buffer_gather{
+          enable_biased_narrow_buffer_gather},
       _enable_interleaved_scalar_buffer_reads{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_INTERLEAVED_SCALAR_BUFFER_READS")},

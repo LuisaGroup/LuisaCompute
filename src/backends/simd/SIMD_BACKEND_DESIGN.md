@@ -4416,3 +4416,35 @@ assertions in both configurations. Fresh W8/W16 image-processing references
 pass at 89.251953 dB; fresh W8/W16 Voxel references pass at 82.834519 dB.
 Voxel remains a correctness confirmation because this optimization does not
 match its buffer-based DDA hot path.
+
+### Exact biased narrow W8 loop-buffer gathers
+
+The Voxel DDA profile identified the first dependent instruction after a
+`vpgatherqd` as the dominant JIT sample site. Scalar lane loads were a severe
+regression, while LLVM 22 rejects a vector-of-pointers argument to
+`llvm.prefetch`; an ordinary per-lane prefetch path would also violate the
+fixed-vector production contract. The accepted refinement instead changes the
+index representation without changing the accessed address.
+
+For a direct nonvolatile scalar 32-bit typed-buffer read in an innermost loop,
+W8 may bias the scalar base by `2^31 * 4` bytes and xor each 32-bit index with
+`0x80000000`. LLVM sign-extends the resulting GEP index, making
+`biased_base + sext(index xor 0x80000000) * 4` exactly equal to the previous
+`base + zext(index) * 4` for all source bit patterns. Indices are sanitized
+before the transform, the gather keeps the original mask, and both GEPs are
+non-`inbounds`. No target intrinsic or address-domain assumption is introduced.
+
+Selection is fail-closed through the host JIT's 64-bit pointer/index layout,
+native 512-bit fixed-vector register, and nonscalarized masked-gather proofs.
+It is then restricted to measured W8 profitability. W16's apparently legal
+single narrow gather regressed against two wide-index gathers, so W16 remains
+unchanged; W1/W2/W4 likewise retain their established paths. W2 is used for
+correctness, ABI, and tail-mask coverage, not as a performance target.
+
+`LUISA_SIMD_DISABLE_BIASED_NARROW_BUFFER_GATHER=1` selects the prior lowering,
+and the optimization report exposes `biased_narrow_buffer_gathers`. The
+permanent JIT regression checks high-bit address algebra, LLVM IR shape,
+candidate/oracle execution with a thirteen-thread tail, W16 rejection, and
+final x86 `vpgatherdd` versus `vpgatherqd` when the host capability gate is
+true. On the current Voxel kernel only W8 accepts one site; image processing,
+Spacex, non-coroutine SDF, and ordinary Embree path tracing accept none.

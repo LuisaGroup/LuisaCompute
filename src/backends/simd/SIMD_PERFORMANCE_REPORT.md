@@ -6355,3 +6355,69 @@ passes its complete case list, and SIMD/fallback counted-local-array runs pass
 references pass at 89.251953 dB. Explicit W8/W16 Voxel references pass at
 82.834519 dB, but Voxel accepts no BYTE4 packet optimization in its varying
 buffer-based DDA and therefore has no performance claim in this section.
+
+## Exact biased narrow W8 loop-buffer gather
+
+Sampling the W8 Voxel DDA before this change placed 30.51% of JIT samples on
+the first dependent instruction after its hot `vpgatherqd`. A multiplexed
+counter probe reported only about 0.27% L1D load misses, so the evidence points
+to gather throughput/dependency latency rather than cold-DRAM traffic. A
+scalarized lane-load prototype regressed from roughly 5.2 to 26.5 ms per
+render, and LLVM 22 rejects the vector-of-pointers form of `llvm.prefetch`.
+Neither rejected route is present in production.
+
+The accepted W8-only transform preserves the full unsigned 32-bit address
+domain with an exact base-bias/xor identity and lets LLVM select
+`vpgatherdd`. A naive W16 extension was rejected after nine pairs measured
+0.95831x throughput with a [0.94349, 0.97337] interval and 0/9 wins. The final
+host gate additionally requires a 64-bit pointer-index layout, native 512-bit
+fixed vectors, and a legal nonscalarized `<8 x i32>` masked gather.
+
+The primary final-code gate used 512 Voxel renders per fresh process, fifteen
+workers pinned to CPUs `0-7,9-15`, and alternating candidate/oracle order. CPU
+8 was excluded because an unrelated two-thread Psycles test was active. Every
+image passed the checked-in reference at 82.834519 dB:
+
+| W8 Voxel | median ms | paired throughput | 95% paired CI | wins |
+| --- | ---: | ---: | ---: | ---: |
+| biased narrow gather | 5.800 | **1.02286x** | **[1.01492, 1.03086]** | **9/9** |
+| pointer-width oracle | 5.972 | -- | -- | -- |
+
+A separate nine-round three-way rotation used 256 renders, sixteen workers,
+and CPUs 0--15 while that external task was intermittently active. No sample,
+including a slow final oracle, was removed. Candidate/oracle was 1.04175x
+[1.00731, 1.07737] with 8/9 wins; candidate/fallback was **1.33518x**
+[1.29434, 1.37732] with 9/9 wins. Medians were 5.179, 5.420, and 6.834 ms for
+candidate, oracle, and fallback. Because system load visibly drifted, the
+isolated 15-worker result above is the primary causal estimate.
+
+Five nonmultiplexed 256-render `perf stat` pairs on the isolated CPU set give:
+
+| counter | candidate / pointer-width oracle | 95% paired CI |
+| --- | ---: | ---: |
+| cycles | **0.98158x** | [0.98056, 0.98260] |
+| instructions | 1.01119x | [1.01119, 1.01120] |
+| branches | 1.00009x | [1.00009, 1.00010] |
+| branch misses | **0.99618x** | [0.99588, 0.99649] |
+
+Thus this is not a scheduler-state reduction: the bias/xor adds about 1.12%
+retired instructions, while the narrower gather reduces cycles by about 1.84%.
+The final candidate/oracle assembly is 116,290/114,341 bytes, 2,304/2,262
+instructions, 1,192/1,155 vector instructions, 225/224 branches, 587/580 stack
+references, and the same 3,712-byte frame. Candidate contains one
+`vpgatherdd`; oracle contains one `vpgatherqd`. Their sole unresolved math
+symbol is uniform scalar `sincosf` for camera rotation, not a varying lane
+loop.
+
+Production applicability at W1/W2/W4/W8/W16 is respectively 0/0/0/1/0 sites.
+All five Voxel widths pass their references. W8 image processing and Spacex
+also pass and report zero sites. Formal 1024-spp non-coroutine SDF and ordinary
+Embree path tracing pass at 63.129346 dB and 39.219305 dB respectively and
+report zero sites, so their generated hot paths and performance are not
+claimed to change at this checkpoint.
+
+After a complete rebuild (required to avoid mixing pre-merge test executables
+with the current XIR shared library), the compiler-focused Release tree passes
+161/161 CTest cases and the fallback+SIMD+Embree graphics Release tree passes
+173/173. The Clang ASan/LSan/UBSan Schedule/JIT executable independently
+passes its complete case list, including the new gather regression.

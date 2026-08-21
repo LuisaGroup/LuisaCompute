@@ -1417,6 +1417,47 @@ equality. Runtime reports all accepted accesses in `contiguous_buffer_reads`/
 `LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER=1` is the same-binary A/B oracle for
 both scalar and lane/value refinements.
 
+### 4.8.1 Exact W8 narrow-index loop gather
+
+A direct nonvolatile typed `BUFFER_READ` inside an innermost natural loop may
+retain a 32-bit gather index at W8 when the index is `int32`/`uint32`, the
+declared buffer element and result are the same non-Boolean 32-bit scalar, and
+the host proof reports a 64-bit pointer-index ABI, a native fixed-vector width
+of at least 512 bits, and a legal nonscalarized `<8 x i32>` masked gather. All
+other widths and shapes retain the established pointer-width-index lowering.
+
+LLVM GEP treats an `i32` vector index as signed. The lowering therefore does
+not simply truncate the old zero-extended address. Let `u` be the original
+32-bit index bit pattern, `B = 2^31`, and `s = 4` be the element stride. It
+forms the following non-`inbounds` address:
+
+```text
+biased_base  = base + B * s
+biased_index = signed_i32(u xor B)
+address      = biased_base + sext(biased_index) * s
+             = base + zext(u) * s
+```
+
+The equality holds for every 32-bit bit pattern, including `0x80000000` and
+`0xffffffff`; the rewrite neither narrows the buffer-address domain nor
+extends a source-domain access. An inactive index is sanitized to zero before
+the xor, and the original active mask is passed to `llvm.masked.gather`, so a
+masked lane performs no memory access. Production IR uses only generic
+arithmetic, GEP, and masked gather operations and contains no target intrinsic.
+
+The selection policy is deliberately measured rather than inferred from LLVM
+legality. W8 is enabled on the audited AVX-512 host, where final code changes
+from `vpgatherqd` to `vpgatherdd`; W16 remains on the wide form because the
+narrow experiment was a stable regression. W1/W2/W4 are unchanged, with W2
+serving as a correctness/ABI width. Target-independent callers default to the
+wide path. `LUISA_SIMD_DISABLE_BIASED_NARROW_BUFFER_GATHER=1` is the same-binary
+oracle, and `biased_narrow_buffer_gathers` reports accepted sites.
+
+Permanent coverage proves the address identity at both sign boundaries,
+checks fixed-vector IR and absence of target intrinsics, audits final x86
+`vpgatherdd`/`vpgatherqd` selection when the host proof succeeds, rejects W16,
+and executes candidate and oracle over a thirteen-thread inactive tail.
+
 ### 4.9 Complete verifier-legal arithmetic lowering
 
 For every `ArithmeticOp` and operand/result shape accepted by the XIR verifier,

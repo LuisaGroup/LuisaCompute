@@ -853,6 +853,7 @@ struct LLVMScheduleCodegenResult {
     size_t transposed_buffer_read_count{0u};
     size_t transposed_buffer_write_count{0u};
     size_t paired_leaf_gather_count{0u};
+    size_t biased_narrow_buffer_gather_count{0u};
     size_t interleaved_scalar_buffer_read_group_count{0u};
     size_t interleaved_scalar_buffer_read_count{0u};
     size_t interleaved_scalar_buffer_read_alias_guard_count{0u};
@@ -950,7 +951,8 @@ struct LLVMScheduleCodegenResult {
     std::span<const LLVMSIMDRayQueryPipelineHandlers>
         ray_query_pipeline_handlers = {},
     size_t print_format_id_base = 0u,
-    bool enable_native_vector_compress = false);
+    bool enable_native_vector_compress = false,
+    bool enable_biased_narrow_buffer_gather = false);
 
 // Ray-query handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,

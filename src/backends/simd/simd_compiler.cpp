@@ -418,6 +418,10 @@ SIMDCompiledKernel compile_simd_kernel(
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_PAIRED_LEAF_GATHER") &&
         jit->supports_native_paired_leaf_gather(warp_width);
+    auto use_biased_narrow_buffer_gather =
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_BIASED_NARROW_BUFFER_GATHER") &&
+        jit->supports_native_biased_narrow_buffer_gather(warp_width);
     auto use_native_predicated_loop =
         jit->supports_native_predicated_loop(warp_width);
     auto use_inlined_packet_batch =
@@ -707,7 +711,8 @@ SIMDCompiledKernel compile_simd_kernel(
         enable_block_batch_entry,
         pipeline_handlers,
         pipeline_print_formats.size(),
-        use_native_vector_compress);
+        use_native_vector_compress,
+        use_biased_narrow_buffer_gather);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
@@ -761,6 +766,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.transposed_buffer_write_count;
     result.paired_leaf_gather_count =
         llvm_result.paired_leaf_gather_count;
+    result.biased_narrow_buffer_gather_count =
+        llvm_result.biased_narrow_buffer_gather_count;
     result.interleaved_scalar_buffer_read_group_count =
         llvm_result.interleaved_scalar_buffer_read_group_count;
     result.interleaved_scalar_buffer_read_count =

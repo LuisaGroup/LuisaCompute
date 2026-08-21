@@ -78,6 +78,7 @@ struct SIMDCompiledKernel {
     size_t transposed_buffer_read_count{0u};
     size_t transposed_buffer_write_count{0u};
     size_t paired_leaf_gather_count{0u};
+    size_t biased_narrow_buffer_gather_count{0u};
     size_t interleaved_scalar_buffer_read_group_count{0u};
     size_t interleaved_scalar_buffer_read_count{0u};
     size_t interleaved_scalar_buffer_read_alias_guard_count{0u};

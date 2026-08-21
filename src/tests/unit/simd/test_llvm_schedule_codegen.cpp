@@ -5281,6 +5281,254 @@ template<size_t Width>
     return true;
 }
 
+[[nodiscard]] bool run_biased_narrow_buffer_gather_ir() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 13u;
+    static constexpr auto input_count = 64u;
+    static constexpr auto sign_bias = uint32_t{1u} << 31u;
+    for (auto index : std::array{
+             0u, 1u, sign_bias - 1u, sign_bias,
+             sign_bias + 1u, std::numeric_limits<uint32_t>::max()}) {
+        auto biased = static_cast<int64_t>(
+            static_cast<int32_t>(index ^ sign_bias));
+        CHECK(static_cast<uint64_t>(
+                  static_cast<int64_t>(sign_bias) + biased) == index);
+        CHECK(static_cast<uint64_t>(
+                  static_cast<int64_t>(sign_bias) * 4 + biased * 4) ==
+              static_cast<uint64_t>(index) * 4u);
+    }
+
+    xir::Module xir_module;
+    auto *kernel = xir_module.create_kernel();
+    kernel->set_name("biased_narrow_buffer_gather");
+    kernel->set_block_size(luisa::make_uint3(64u, 1u, 1u));
+    auto *buffer_type = Type::buffer(Type::of<uint32_t>());
+    auto *input = kernel->create_resource_argument(buffer_type);
+    auto *output = kernel->create_resource_argument(buffer_type);
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *body = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    entry->set_name("entry");
+    header->set_name("gather_loop_header");
+    body->set_name("gather_loop_body");
+    exit->set_name("exit");
+    auto *dispatch_id = xir_module.create_dispatch_id();
+    auto *zero = xir_module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = xir_module.create_constant_one(Type::of<uint32_t>());
+    auto make_u32 = [&](uint32_t value) {
+        return xir_module.create_constant(
+            Type::of<uint32_t>(), &value);
+    };
+    auto *three = make_u32(3u);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *dispatch_x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *base_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MUL,
+        {dispatch_x, three});
+    builder.br(header);
+
+    builder.set_insertion_point(header);
+    auto *iteration = builder.phi(Type::of<uint32_t>());
+    auto *sum = builder.phi(Type::of<uint32_t>());
+    auto *keep_going = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {iteration, three});
+    builder.cond_br(keep_going, body, exit);
+
+    builder.set_insertion_point(body);
+    auto *read_index = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {base_index, iteration});
+    auto *read = builder.call(
+        Type::of<uint32_t>(), xir::ResourceReadOp::BUFFER_READ,
+        {input, read_index});
+    auto *next_sum = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {sum, read});
+    auto *next_iteration = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {iteration, one});
+    builder.br(header);
+
+    builder.set_insertion_point(exit);
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, dispatch_x, sum});
+    builder.return_void();
+    iteration->add_incoming(zero, entry);
+    iteration->add_incoming(next_iteration, body);
+    sum->add_incoming(zero, entry);
+    sum->add_incoming(next_sum, body);
+
+    auto make_schedule = [&](uint32_t logical_width)
+        -> std::optional<schedule::Function> {
+        auto lowered = schedule::lower_xir_to_schedule(
+            kernel, {.logical_warp_width = logical_width});
+        if (!lowered.succeeded()) {
+            std::cerr << diagnostics_text(lowered);
+            return std::nullopt;
+        }
+        return std::move(*lowered.function);
+    };
+    auto schedule_w8 = make_schedule(width);
+    auto schedule_w16 = make_schedule(16u);
+    CHECK(schedule_w8.has_value());
+    CHECK(schedule_w16.has_value());
+
+    struct ModuleBundle {
+        std::unique_ptr<::llvm::LLVMContext> context;
+        std::unique_ptr<::llvm::Module> module;
+        LLVMScheduleCodegenResult codegen;
+        std::string name;
+    };
+    auto compile = [&](const schedule::Function &source,
+                       uint32_t logical_width, bool enabled,
+                       std::string name) {
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(name, *context);
+        auto codegen = lower_schedule_to_llvm(
+            *module, source, logical_width, name, false,
+            {64u, 1u, 1u}, true, true, false, 1u, true,
+            false, false, false, {}, 0u, false, enabled);
+        return ModuleBundle{
+            std::move(context), std::move(module),
+            std::move(codegen), std::move(name)};
+    };
+    auto candidate = compile(
+        *schedule_w8, width, true,
+        "simd_biased_narrow_buffer_gather_w8");
+    auto oracle = compile(
+        *schedule_w8, width, false,
+        "simd_wide_buffer_gather_w8");
+    auto rejected_w16 = compile(
+        *schedule_w16, 16u, true,
+        "simd_biased_narrow_buffer_gather_w16_rejected");
+    CHECK(candidate.codegen.succeeded());
+    CHECK(oracle.codegen.succeeded());
+    CHECK(rejected_w16.codegen.succeeded());
+    CHECK(candidate.codegen.biased_narrow_buffer_gather_count == 1u);
+    CHECK(oracle.codegen.biased_narrow_buffer_gather_count == 0u);
+    CHECK(rejected_w16.codegen.biased_narrow_buffer_gather_count == 0u);
+    CHECK(!::llvm::verifyModule(*candidate.module, &::llvm::errs()));
+    CHECK(!::llvm::verifyModule(*oracle.module, &::llvm::errs()));
+    CHECK(!::llvm::verifyModule(*rejected_w16.module, &::llvm::errs()));
+
+    auto module_ir = [](const ::llvm::Module &module) {
+        std::string ir;
+        ::llvm::raw_string_ostream stream{ir};
+        module.print(stream, nullptr);
+        stream.flush();
+        return ir;
+    };
+    auto candidate_ir = module_ir(*candidate.module);
+    auto oracle_ir = module_ir(*oracle.module);
+    auto rejected_w16_ir = module_ir(*rejected_w16.module);
+    CHECK(candidate_ir.find("buffer.narrow.gather.biased.base") !=
+          std::string::npos);
+    CHECK(candidate_ir.find("buffer.narrow.gather.biased.index") !=
+          std::string::npos);
+    CHECK(candidate_ir.find("i64 8589934592") != std::string::npos);
+    CHECK(candidate_ir.find("<8 x i32>") != std::string::npos);
+    CHECK(candidate_ir.find("@llvm.masked.gather.v8i32") !=
+          std::string::npos);
+    CHECK(candidate_ir.find("llvm.x86.") == std::string::npos);
+    CHECK(oracle_ir.find("buffer.narrow.gather") == std::string::npos);
+    CHECK(oracle_ir.find("zext <8 x i32>") != std::string::npos);
+    CHECK(rejected_w16_ir.find("buffer.narrow.gather") ==
+          std::string::npos);
+
+    LLVMJIT assembly_target;
+    CHECK(assembly_target.succeeded());
+    CHECK(!assembly_target.supports_native_biased_narrow_buffer_gather(
+        1u));
+    CHECK(!assembly_target.supports_native_biased_narrow_buffer_gather(
+        2u));
+    CHECK(!assembly_target.supports_native_biased_narrow_buffer_gather(
+        4u));
+    CHECK(!assembly_target.supports_native_biased_narrow_buffer_gather(
+        16u));
+    auto candidate_assembly =
+        assembly_target.emit_assembly_copy(*candidate.module);
+    auto oracle_assembly =
+        assembly_target.emit_assembly_copy(*oracle.module);
+    CHECK(!candidate_assembly.empty());
+    CHECK(!oracle_assembly.empty());
+    if (assembly_target.target_triple().starts_with("x86_64") &&
+        assembly_target.supports_native_biased_narrow_buffer_gather(
+            width)) {
+        std::ranges::transform(
+            candidate_assembly, candidate_assembly.begin(),
+            [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+        std::ranges::transform(
+            oracle_assembly, oracle_assembly.begin(),
+            [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+        CHECK(candidate_assembly.find("vpgatherdd") !=
+              std::string::npos);
+        CHECK(candidate_assembly.find("vpgatherqd") ==
+              std::string::npos);
+        CHECK(oracle_assembly.find("vpgatherqd") !=
+              std::string::npos);
+    }
+
+    std::array<uint32_t, input_count> input_values{};
+    std::array<uint32_t, count> candidate_output{};
+    std::array<uint32_t, count> oracle_output{};
+    for (auto i = uint32_t{0u}; i < input_count; i++) {
+        input_values[i] = i * 17u + 5u;
+    }
+    candidate_output.fill(0xdeadbeefu);
+    oracle_output.fill(0xdeadbeefu);
+    auto execute = [&](ModuleBundle &bundle,
+                       std::array<uint32_t, count> &result) {
+        LLVMJIT jit;
+        if (!jit.succeeded() ||
+            !jit.add_module(
+                std::move(bundle.module),
+                std::move(bundle.context))) {
+            return false;
+        }
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto function = reinterpret_cast<Entry *>(
+            jit.lookup(bundle.name));
+        if (function == nullptr) { return false; }
+        alignas(16) std::array<SIMDHostBufferView, 2u> arguments{
+            SIMDHostBufferView{
+                input_values.data(), sizeof(input_values)},
+            SIMDHostBufferView{result.data(), sizeof(result)},
+        };
+        auto config = launch_1d(count, 64u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += width) {
+            config.thread_index = first;
+            auto active = std::min(width, count - first);
+            function(
+                arguments.data(), nullptr, &config, active);
+        }
+        return true;
+    };
+    CHECK(execute(candidate, candidate_output));
+    CHECK(execute(oracle, oracle_output));
+    for (auto i = uint32_t{0u}; i < count; i++) {
+        auto expected = input_values[i * 3u] +
+                        input_values[i * 3u + 1u] +
+                        input_values[i * 3u + 2u];
+        CHECK(candidate_output[i] == expected);
+        CHECK(oracle_output[i] == expected);
+    }
+    return true;
+}
+
 [[nodiscard]] float pow_integer_reference(
     float base, int32_t exponent) noexcept {
     auto negative = exponent < 0;
@@ -14107,6 +14355,8 @@ int main() {
          &run_sparse_lane_value_transpose_codegen},
         {"paired direct-buffer leaf gather",
          &run_paired_leaf_gather_ir},
+        {"biased narrow loop buffer gather",
+         &run_biased_narrow_buffer_gather_ir},
         {"XIR integer rotate and pow_int fixed-vector arithmetic",
          &run_integer_rotate_and_pow_codegen},
         {"XIR faceforward fixed-vector arithmetic",
