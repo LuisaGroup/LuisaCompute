@@ -921,6 +921,21 @@ void ScheduleEmitter::_preflight() {
                     _fail("ray-query surface-filter scheduler oracle has an invalid ABI");
                     return;
                 }
+                auto has_narrow_w4 =
+                    handlers.on_surface_filter_w4 != nullptr;
+                auto has_narrow_w8 =
+                    handlers.on_surface_filter_w8 != nullptr;
+                if (has_narrow_w4 != has_narrow_w8 ||
+                    (has_narrow_w4 &&
+                     (_width != 16u ||
+                      !handlers.embree_surface_filter_safe ||
+                      handlers.surface_handler_empty ||
+                      handlers.on_surface_filter == nullptr ||
+                      handlers.on_surface_filter_w4->arg_size() != 5u ||
+                      handlers.on_surface_filter_w8->arg_size() != 5u))) {
+                    _fail("ray-query narrow surface-filter specialization has an invalid ABI");
+                    return;
+                }
                 for (auto capture_index = size_t{1u};
                      capture_index < instruction.operands.size();
                      capture_index++) {

@@ -304,17 +304,48 @@ void ScheduleEmitter::_ray_query_pipeline(
             _fail("direct-output surface-filter packet has no analyzed storage or handler");
             return;
         }
-        auto *ray_packet =
-            _ray_query_surface_filter_ray_packet_for_call(
+        auto *narrowing_eligible = static_cast<::llvm::Value *>(
+            _builder.getFalse());
+        if (_width == 16u &&
+            handler_pair.on_surface_filter_w4 != nullptr &&
+            handler_pair.on_surface_filter_w8 != nullptr) {
+            // A retained scheduler oracle has only the logical-W16 ABI. Keep
+            // its same-module control exact-width even if the narrowing flag
+            // was supplied manually by a diagnostic caller.
+            narrowing_eligible = _builder.CreateICmpEQ(
+                surface_filter_handler,
+                handler_pair.on_surface_filter,
+                "ray.query.direct.packet.compact.handler");
+        }
+        auto [ray_packet, ray_packet_width] =
+            _ray_query_output_surface_filter_ray_packet_for_call(
                 surface_filter_ray_packet,
                 surface_filter_call_ray_packet,
-                outer_active_bits);
-        if (ray_packet == nullptr) { return; }
+                outer_active_bits,
+                simd_packet_launch_flag_w16_sparse_direct_output_surface_filter_packet_narrowing,
+                narrowing_eligible, "direct");
+        if (ray_packet == nullptr || ray_packet_width == nullptr) { return; }
+        auto *physical_surface_filter_handler =
+            surface_filter_handler;
+        if (_width == 16u &&
+            handler_pair.on_surface_filter_w4 != nullptr &&
+            handler_pair.on_surface_filter_w8 != nullptr) {
+            physical_surface_filter_handler = _builder.CreateSelect(
+                _builder.CreateICmpEQ(
+                    ray_packet_width, _builder.getInt32(4u)),
+                handler_pair.on_surface_filter_w4,
+                _builder.CreateSelect(
+                    _builder.CreateICmpEQ(
+                        ray_packet_width, _builder.getInt32(8u)),
+                    handler_pair.on_surface_filter_w8,
+                    surface_filter_handler),
+                "ray.query.direct.packet.handler");
+        }
         auto *pipeline_type = ::llvm::FunctionType::get(
             _builder.getVoidTy(),
-            {_builder.getInt32Ty(), _builder.getInt64Ty(),
-             pointer_type, pointer_type, pointer_type,
-             _builder.getInt32Ty(), pointer_type},
+            {_builder.getInt32Ty(), _builder.getInt32Ty(),
+             _builder.getInt64Ty(), pointer_type, pointer_type,
+             pointer_type, _builder.getInt32Ty(), pointer_type},
             false);
         auto *query_object = _source.value(object_id);
         auto query_any =
@@ -322,12 +353,13 @@ void ScheduleEmitter::_ray_query_pipeline(
             query_object->type == Type::custom("LC_RayQueryAny");
         _builder.CreateCall(
             pipeline_type, direct_output_surface_filter_callback,
-            {_builder.getInt32(_width), outer_active_bits,
+            {_builder.getInt32(_width), ray_packet_width,
+             outer_active_bits,
              direct_output_surface_filter_accel,
              _ray_query_output_packet_storage[status_index],
              ray_packet,
              _builder.getInt32(query_any ? 1u : 0u),
-             surface_filter_handler});
+             physical_surface_filter_handler});
         _builder.CreateBr(exit);
         _builder.SetInsertPoint(regular);
     }
@@ -351,10 +383,12 @@ void ScheduleEmitter::_ray_query_pipeline(
             return;
         }
         auto [ray_packet, ray_packet_width] =
-            _ray_query_empty_surface_filter_ray_packet_for_call(
+            _ray_query_output_surface_filter_ray_packet_for_call(
                 surface_filter_ray_packet,
                 surface_filter_call_ray_packet,
-                outer_active_bits);
+                outer_active_bits,
+                simd_packet_launch_flag_w16_sparse_empty_surface_filter_packet_narrowing,
+                _builder.getTrue(), "empty");
         if (ray_packet == nullptr || ray_packet_width == nullptr) { return; }
         auto *pipeline_type = ::llvm::FunctionType::get(
             _builder.getVoidTy(),

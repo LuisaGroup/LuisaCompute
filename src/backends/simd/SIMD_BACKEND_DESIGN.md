@@ -23,9 +23,11 @@ pipeline. The accel summary publishes this route only for a committed
 triangle-only TLAS, so buffer-only metadata changes cannot reinterpret the
 stale Embree scene.
 On a target with native 512-bit fixed vectors and legal masked compression, a
-sparse W16 output-only empty-handler packet is formed directly as W4 or W8.
-Logical W8, nonempty handlers, and targets without that proof retain their
-established exact-width routes.
+sparse W16 output-only packet is formed directly as W4 or W8. Empty handlers
+need no callback; an eligible nonempty handler is independently specialized at
+the selected physical width while `ray.id` retains logical-lane identity.
+Logical W8, scheduler-backed handlers, and targets without that proof retain
+their established exact-width routes.
 Acceleration instance-buffer-only updates now publish metadata and primitive
 bindings without mutating the committed Embree scene; a later ordinary build
 reconciles the deferred state even after the originating modification command
@@ -3563,10 +3565,11 @@ physical suffix is initialized before traversal (`dir_z = 1`, every other
 field zero) and its Embree valid entries are clear. The runtime therefore does
 not repack or scan the twelve fields a second time.
 
-This policy is deliberately W16-only and output-only-empty-only. Logical W8
-keeps its native W8 packet, and nonempty direct handlers keep the packet width
-matching their compiled candidate ABI. A target without proven native masked
-compression emits only the established full-width path.
+This launch bit is deliberately W16-only and output-only-empty-only. Logical
+W8 keeps its native W8 packet. The independently guarded nonempty direct-output
+specialization below may use the same physical packets only together with a
+matching physical-width candidate handler. A target without proven native
+masked compression emits only the established full-width path.
 `LUISA_SIMD_DISABLE_W16_SPARSE_EMPTY_SURFACE_FILTER_PACKET_NARROWING=1`
 clears the launch bit and selects that full W16 branch without recompiling.
 This switch is independent of the provider-selection oracle: disabling the
@@ -3607,9 +3610,10 @@ result; no committed-hit scatter or operational-state initialization is
 needed. The separate twelve-vector ray packet retains the existing sparse-tail
 sanitizer.
 
-The provider ABI is `(width, mask, accel, output_packet, ray_packet,
-terminate_on_first, direct_surface_handler)` and contains no query-state
-pointer. Opaque triangles write the field-major committed output directly.
+The provider ABI is `(logical_width, ray_packet_width, mask, accel,
+output_packet, ray_packet, terminate_on_first, direct_surface_handler)` and
+contains no query-state pointer. Opaque triangles write the field-major
+committed output directly.
 Non-opaque candidate lanes enter the existing five-argument direct JIT handler
 with Embree packet pointers and a physical commit mask; accepted hits alone
 write the output packet, while rejected hits clear Embree's valid bit. Neither
@@ -3635,8 +3639,8 @@ inactive source before any address-dependent operation.
 `LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1` publishes a null provider
 without recompiling the JIT module. Runtime publication additionally requires
 the triangle-only provider, packet input, and direct candidate handling. W2
-uses the padded W4 entry, while W4/W8/W16 require their exact Embree packet
-entry. The optimization report field
+uses the padded W4 entry, W4/W8 remain exact-width, and an eligible sparse W16
+packet may select the W4/W8 refinement below. The optimization report field
 `direct_output_surface_filter_states` counts statically accepted
 constructions. The implementation lives beside the empty-provider route, so
 the two ABIs and their independent runtime oracles remain reviewable.
@@ -3705,6 +3709,38 @@ the independent-PC handler instead. For exact same-module differential tests,
 the launch record chooses between them once for the dispatch. The oracle is
 diagnostic-only because it is substantially larger and would otherwise add
 cold instruction-cache footprint to every eligible shader.
+
+For a logical W16 direct-output query, that compact acyclic proof also permits
+two physical-width variants of the same handler XIR. The compiler lowers the
+handler independently at W4 and W8, rather than calling a W16 ABI with a
+shorter packet. When the host target information proves native W16 masked
+compression, one through four active logical rays compress directly into a W4
+packet and call the W4 handler; five through eight use W8; nine through sixteen
+retain W16. Each variant receives a physical candidate mask and fixed-vector
+packet fields at its own stride, while the compressed `ray.id` maps accepted
+hits back to the original logical W16 output slot. The unused physical suffix
+is initialized to benign values and disabled in Embree's valid array before
+any traversal or callback.
+
+This refinement fails closed independently at compile and dispatch time. A
+looping, scheduler-backed, captured, resource-using, empty, or otherwise
+unproven handler receives no narrow variants. A retained scheduler oracle has
+only the W16 ABI, so a runtime handler-pointer equality check forces its packet
+back to W16 even if a diagnostic caller sets the narrowing bit manually.
+`LUISA_SIMD_DISABLE_W16_SPARSE_DIRECT_OUTPUT_SURFACE_FILTER_PACKET_NARROWING=1`
+clears only the launch bit and selects the full-W16 branch in the same JIT
+object. W1/W2/W4/W8 and a target without the native compression proof are
+unchanged.
+
+Thirty-one retained 128-spp same-binary cutout pairs measure 1.00757x paired
+geometric throughput with 21/31 wins and a 95% interval of
+[1.00167, 1.01351]. Three 256-spp counter pairs reduce retired instructions to
+0.97911x and cycles to 0.99281x. A seven-round equal-core comparison measures
+the resulting W16 route at 1.10242x fallback with 7/7 wins. The complete
+performance report records both execution-order strata, the noisier independent
+batch, stable output hashes, profile attribution, and final object audit. Both
+maintained Release configurations pass the complete 173/173 CTest inventory
+independently after the provider-ABI change.
 
 The runtime validates distance and IDs and auto-commits opaque instances as
 before. For a non-opaque packet it calls the direct handler on Embree's own

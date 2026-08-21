@@ -33,6 +33,7 @@ namespace {
 struct SurfaceFilterPipelineContext {
     RayQueryRTCContext rtc{};
     uint32_t lane_count{0u};
+    uint32_t surface_filter_handler_lane_count{0u};
     const SIMDHostAccelInstanceTable *instances{nullptr};
     std::array<SIMDHostRayQueryState *, 16u> states{};
     SIMDHostRayQueryOutputPacket *outputs{nullptr};
@@ -219,7 +220,8 @@ void surface_filter_pipeline(
     auto committed_packet_lanes = uint64_t{0u};
     if (context->use_direct_surface_candidate) {
         context->on_surface_direct(
-            context->lane_count, packet_candidates,
+            context->surface_filter_handler_lane_count,
+            packet_candidates,
             arguments->ray, arguments->hit,
             &committed_packet_lanes);
         LUISA_ASSERT(
@@ -494,8 +496,13 @@ void initialize_context(
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct,
     bool use_direct_surface_candidate,
     bool output_only_empty_surface_filter = false,
-    bool output_only_direct_surface_filter = false) noexcept {
+    bool output_only_direct_surface_filter = false,
+    uint32_t surface_filter_handler_lane_count = 0u) noexcept {
     context.lane_count = lane_count;
+    context.surface_filter_handler_lane_count =
+        surface_filter_handler_lane_count == 0u ?
+            lane_count :
+            surface_filter_handler_lane_count;
     context.instances = &instances;
     context.outputs = outputs;
     context.launch_config = launch_config;
@@ -523,21 +530,24 @@ void initialize_context(
 }
 
 template<size_t packet_width, typename RayHitPacket, typename RayPacket>
-void trace_precompacted_empty_group(
+void trace_precompacted_output_group(
     RTCScene scene, const SIMDHostAccelInstanceTable &instances,
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryOutputPacket *outputs,
-    bool terminate_on_first, void *ray_packet) noexcept {
+    bool terminate_on_first, void *ray_packet,
+    SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct) noexcept {
     LUISA_ASSERT(
         lane_count == 16u && packet_width < lane_count &&
-            outputs != nullptr && ray_packet != nullptr,
+            outputs != nullptr && ray_packet != nullptr &&
+            (on_surface_direct == nullptr || packet_width >= 4u),
         "Invalid precompacted SIMD W{} ray packet for logical W{} query.",
         packet_width, lane_count);
     alignas(64) SurfaceFilterPipelineContext context{};
+    auto direct_output = on_surface_direct != nullptr;
     initialize_context(
         context, instances, lane_count, active_mask_bits,
-        nullptr, outputs, nullptr, nullptr, nullptr,
-        false, true, false);
+        nullptr, outputs, nullptr, nullptr, on_surface_direct,
+        direct_output, !direct_output, direct_output, packet_width);
     auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
     auto active_count = static_cast<uint32_t>(
         std::popcount(active_mask_bits & lane_mask));
@@ -814,15 +824,15 @@ void ray_query_empty_surface_filter_packet_pipeline_triangle_only(
     auto &instances =
         SurfaceFilterPipelineAccelAccess::instances(simd_accel);
     if (lane_count == 16u && ray_packet_width == 4u) {
-        trace_precompacted_empty_group<4u, RTCRayHit4, RTCRay4>(
+        trace_precompacted_output_group<4u, RTCRayHit4, RTCRay4>(
             scene, instances, lane_count, active, outputs,
-            terminate_on_first != 0u, ray_packet);
+            terminate_on_first != 0u, ray_packet, nullptr);
         return;
     }
     if (lane_count == 16u && ray_packet_width == 8u) {
-        trace_precompacted_empty_group<8u, RTCRayHit8, RTCRay8>(
+        trace_precompacted_output_group<8u, RTCRayHit8, RTCRay8>(
             scene, instances, lane_count, active, outputs,
-            terminate_on_first != 0u, ray_packet);
+            terminate_on_first != 0u, ray_packet, nullptr);
         return;
     }
     LUISA_ASSERT(
@@ -854,7 +864,8 @@ void ray_query_empty_surface_filter_packet_pipeline_triangle_only(
 }
 
 void ray_query_direct_output_surface_filter_packet_pipeline_triangle_only(
-    uint32_t lane_count, uint64_t active_mask_bits,
+    uint32_t lane_count, uint32_t ray_packet_width,
+    uint64_t active_mask_bits,
     void *accel, SIMDHostRayQueryOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct) noexcept {
@@ -872,7 +883,25 @@ void ray_query_direct_output_surface_filter_packet_pipeline_triangle_only(
     auto scene = SurfaceFilterPipelineAccelAccess::scene(simd_accel);
     auto &instances =
         SurfaceFilterPipelineAccelAccess::instances(simd_accel);
-    switch (lane_count) {
+    if (lane_count == 16u && ray_packet_width == 4u) {
+        trace_precompacted_output_group<4u, RTCRayHit4, RTCRay4>(
+            scene, instances, lane_count, active, outputs,
+            terminate_on_first != 0u, ray_packet,
+            on_surface_direct);
+        return;
+    }
+    if (lane_count == 16u && ray_packet_width == 8u) {
+        trace_precompacted_output_group<8u, RTCRayHit8, RTCRay8>(
+            scene, instances, lane_count, active, outputs,
+            terminate_on_first != 0u, ray_packet,
+            on_surface_direct);
+        return;
+    }
+    LUISA_ASSERT(
+        ray_packet_width == lane_count,
+        "Invalid SIMD direct-output surface-filter packet width {} for logical W{}.",
+        ray_packet_width, lane_count);
+    switch (ray_packet_width) {
         case 2u:
         case 4u:
             trace_group<true, 4u, RTCRayHit4, RTCRay4>(

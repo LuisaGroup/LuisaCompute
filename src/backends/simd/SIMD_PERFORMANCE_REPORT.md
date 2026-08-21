@@ -6116,3 +6116,91 @@ Both maintained Release configurations pass the complete 172/172 CTest
 inventory independently (344/344 total), including the registered same-binary
 W16 full-packet oracle. LLVM 22.1.8 `clang-format --dry-run --Werror` and
 `git diff --check` also pass for the final source tree.
+
+## W16 sparse nonempty direct-output ray packets
+
+The nonempty direct-output provider has a physical callback ABI, so the empty
+handler's W16 packet narrowing could not be reused by merely passing it a
+shorter ray packet. The compiler now independently lowers an eligible bounded
+acyclic handler XIR at W4 and W8 in addition to its logical-W16 form. With the
+same native-compression target proof as the empty route, one through four live
+logical rays use the W4 packet and handler, five through eight use W8, and nine
+through sixteen remain W16. Compressed `ray.id` values retain the logical output
+index. A scheduler oracle has no narrow ABI and is dynamically forced back to
+W16. Loops, captures, resources, unproven handlers, logical W1/W2/W4/W8, and
+targets without the proof are unchanged.
+
+`LUISA_SIMD_DISABLE_W16_SPARSE_DIRECT_OUTPUT_SURFACE_FILTER_PACKET_NARROWING=1`
+is the same-binary full-W16 oracle. The performance collection used the
+system/TBB build, physical CPUs `0-7,9-15`, fifteen SIMD workers, W16, 128 spp,
+and one spp per dispatch in `cutout-query` mode. Core 8 and its CPU24 SMT
+sibling were excluded because an unrelated Psycles job occupied CPU24 during
+the first batch. Candidate/oracle order alternated for the first 24 pairs; a
+second seven-round batch rotated candidate, oracle, and fallback through the
+execution order after that job completed. No adverse sample was removed. The
+paired result across all 31 candidate/oracle rounds is:
+
+| W16 comparison | paired geometric ratio | wins | 95% log-space Student-t CI | candidate/oracle median FPS |
+| --- | ---: | ---: | ---: | ---: |
+| sparse W4/W8 packet + handler / full W16 | **1.00757x** | **21/31** | **[1.00167, 1.01351]** | 48.8605 / 48.8124 |
+
+Candidate-before-oracle and oracle-before-candidate strata are independently
+positive at 1.00571x and 1.00956x. The later seven-round batch alone is 1.00742x
+with 4/7 wins and a wider [0.99323, 1.02182] interval; it is reported rather
+than hidden even though the complete retained paired population is positive.
+Candidate and full-W16 oracle images are byte-identical in all seven
+hashed rounds at SHA-256
+`fd537458ebd3a092dabca6c15ee38045bdf69eac3605de246cd299d49bcf96f8`.
+
+Those same seven rounds give a fresh equal-core fallback comparison:
+
+| W16 cutout-query | median FPS | paired SIMD / fallback | wins | 95% paired CI |
+| --- | ---: | ---: | ---: | ---: |
+| narrowed SIMD | 49.5115 | **1.10242x** | **7/7** | **[1.07823, 1.12715]** |
+| fallback | 44.5955 | -- | -- | -- |
+
+Fallback produces its own stable image hash,
+`0f73c2356d12d19358bf31132cbbdd94a012e345af2764b6ddaeba15b2cf0547`.
+Thus the current W16 nonempty cutout-query path is about 10.2% faster than the
+equal-core fallback in this configuration. This remains a workload-specific
+ray-query result, not a blanket graphics or ordinary-trace claim.
+
+Three alternating 256-spp `perf stat` pairs collected one non-multiplexed
+cycles/instructions/branches/branch-misses group:
+
+| counter | narrow / full-W16 oracle |
+| --- | ---: |
+| throughput | **1.01306x** |
+| cycles | **0.99281x** |
+| instructions | **0.97911x** |
+| branches | **0.99505x** |
+| branch misses | 1.01371x |
+
+Retired instructions fall by 2.09% and cycles by 0.72%; the small branch-miss
+increase does not erase the gain. A following pair of 256-spp `perf record`
+runs captured 371.67 billion approximate candidate cycles and 381.23 billion
+oracle cycles with zero lost samples. Multiplying sample shares by those totals
+gives approximate candidate/oracle ratios of 0.9545x in Embree, 0.9973x in JIT
+code, and 1.0145x in the SIMD runtime. The runtime compression/dispatch cost
+therefore rises slightly, while the saved wide Embree work is larger. The
+candidate profile executes all three filter widths: W16, W4, and W8 account for
+4.12%, 1.29%, and 0.85% of samples respectively; the oracle executes only W16,
+at 5.97% in that run.
+
+The captured main JIT object has 51,127 bytes of `.text`, SHA-256
+`d0dec082fd49cf8db10c4418e2ca0f8185c5c0716c26e4f3d94d997a491c7295`,
+and no undefined symbol. Its annotated assembly reports 9,740 instructions,
+5,220 vector instructions, 902 branches, 26 calls, 1,738 stack references, a
+35,072-byte frame, and zero scalar-math calls. Two direct-output query sites
+produce four named narrow handlers and 48 final `vpcompressd` instructions.
+Disassembly of the runtime's two precompacted helpers shows only
+`rtcIntersect4`/`rtcOccluded4` or `rtcIntersect8`/`rtcOccluded8` respectively;
+the separate W1 implementation remains the only reason the complete backend
+object imports scalar Embree entry points.
+
+Both maintained Release configurations were completely rebuilt after the
+provider ABI change and pass 173/173 CTest cases independently (346/346 total).
+This includes native math, all five runtime widths, Schedule/JIT, the complete
+XIR and coroutine pass suites, every accel oracle, graphics, path tracing,
+image processing, fire, voxel, and the remaining tutorial gates. LLVM 22.1.8
+`clang-format --dry-run --Werror` and `git diff --check` pass on the final tree.

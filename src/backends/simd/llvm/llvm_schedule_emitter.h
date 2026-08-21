@@ -513,9 +513,11 @@ private:
         ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
         ::llvm::Value *active_mask_bits);
     [[nodiscard]] std::pair<::llvm::Value *, ::llvm::Value *>
-    _ray_query_empty_surface_filter_ray_packet_for_call(
+    _ray_query_output_surface_filter_ray_packet_for_call(
         ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
-        ::llvm::Value *active_mask_bits);
+        ::llvm::Value *active_mask_bits, uint32_t runtime_flag,
+        ::llvm::Value *narrowing_eligible,
+        std::string_view label);
     [[nodiscard]] ::llvm::Value *_ray_query_state_handles(
         schedule::ValueId object_id);
     [[nodiscard]] ::llvm::AllocaInst *_ray_query_status_slot(

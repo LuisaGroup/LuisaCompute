@@ -309,6 +309,9 @@ SIMDShader::SIMDShader(
     _enable_w16_sparse_empty_surface_filter_packet_narrowing =
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_W16_SPARSE_EMPTY_SURFACE_FILTER_PACKET_NARROWING");
+    _enable_w16_sparse_direct_output_surface_filter_packet_narrowing =
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_W16_SPARSE_DIRECT_OUTPUT_SURFACE_FILTER_PACKET_NARROWING");
     auto *assembly_directory =
         std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR");
     auto capture_assembly =
@@ -653,6 +656,11 @@ void SIMDShader::_dispatch_once(
             if (_enable_w16_sparse_empty_surface_filter_packet_narrowing) {
                 config.reserved_runtime_flags |=
                     simd_packet_launch_flag_w16_sparse_empty_surface_filter_packet_narrowing;
+            }
+            if (_enable_predicated_acyclic_surface_filter &&
+                _enable_w16_sparse_direct_output_surface_filter_packet_narrowing) {
+                config.reserved_runtime_flags |=
+                    simd_packet_launch_flag_w16_sparse_direct_output_surface_filter_packet_narrowing;
             }
             config.debug_context = &debug_context;
             config.print_callback = simd_print_callback;

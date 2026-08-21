@@ -297,6 +297,8 @@ SIMDCompiledKernel compile_simd_kernel(
     struct PipelineSchedules {
         schedule::Function on_surface;
         schedule::Function on_procedural;
+        const xir::Function *on_surface_xir{nullptr};
+        std::vector<schedule::ValueClass> parameter_value_classes{};
         bool embree_surface_filter_safe{false};
         bool surface_handler_empty{false};
     };
@@ -386,6 +388,9 @@ SIMDCompiledKernel compile_simd_kernel(
         pipeline_schedules.emplace_back(PipelineSchedules{
             .on_surface = std::move(*surface),
             .on_procedural = std::move(*procedural),
+            .on_surface_xir = pipeline->on_surface_function(),
+            .parameter_value_classes =
+                std::move(parameter_value_classes),
             .embree_surface_filter_safe =
                 embree_surface_filter_safe,
             .surface_handler_empty =
@@ -523,6 +528,10 @@ SIMDCompiledKernel compile_simd_kernel(
             static_cast<::llvm::Function *>(nullptr);
         auto *surface_filter_scheduler_oracle_entry =
             static_cast<::llvm::Function *>(nullptr);
+        auto *surface_filter_w4_entry =
+            static_cast<::llvm::Function *>(nullptr);
+        auto *surface_filter_w8_entry =
+            static_cast<::llvm::Function *>(nullptr);
         if (warp_width >= 2u &&
             pipeline_schedules[pipeline_index]
                 .embree_surface_filter_safe) {
@@ -551,6 +560,77 @@ SIMDCompiledKernel compile_simd_kernel(
             surface_filter_entry = surface_filter.entry;
             result.predicated_acyclic_surface_filter_handler_count +=
                 surface_filter.predicated_acyclic_control_flow;
+            // A sparse logical W16 direct-output query may call Embree W4/W8
+            // only when its candidate handler uses the same physical width.
+            // Compile those two capture-free variants from the already-audited
+            // handler XIR. Empty handlers need no callback, and general
+            // handlers that did not select the bounded acyclic lowering retain
+            // exact-width W16 traversal to avoid speculative code growth.
+            if (warp_width == 16u && use_native_vector_compress &&
+                !pipeline_schedules[pipeline_index]
+                     .surface_handler_empty &&
+                surface_filter.predicated_acyclic_control_flow) {
+                auto lower_narrow_surface_filter =
+                    [&](uint32_t physical_width) {
+                        auto narrow_options = schedule_options;
+                        narrow_options.logical_warp_width =
+                            physical_width;
+                        narrow_options.parameter_value_classes =
+                            pipeline_schedules[pipeline_index]
+                                .parameter_value_classes;
+                        auto narrow_schedule =
+                            schedule::lower_xir_to_schedule(
+                                pipeline_schedules[pipeline_index]
+                                    .on_surface_xir,
+                                narrow_options);
+                        if (!narrow_schedule.succeeded()) {
+                            LLVMScheduleCodegenResult failed{};
+                            failed.error =
+                                "narrow Schedule IR lowering failed";
+                            if (!narrow_schedule.diagnostics.empty()) {
+                                failed.error += ": " +
+                                                narrow_schedule
+                                                    .diagnostics.front()
+                                                    .message;
+                            }
+                            return failed;
+                        }
+                        auto narrow_name =
+                            handler_name_base + ".ray_query." +
+                            std::to_string(pipeline_index) +
+                            ".surface_filter.narrow.simd_w" +
+                            std::to_string(physical_width) +
+                            "_for_w16";
+                        return lower_ray_query_surface_filter_handler_schedule_to_llvm(
+                            *module,
+                            *narrow_schedule.function,
+                            physical_width, narrow_name,
+                            enable_fast_math, static_block_size,
+                            enable_uniform_buffer_broadcast,
+                            enable_lane_affine_buffer,
+                            use_paired_leaf_gather,
+                            dispatch_worker_count,
+                            use_native_predicated_loop,
+                            pipeline_print_formats.size(), true);
+                    };
+                auto surface_filter_w4 =
+                    lower_narrow_surface_filter(4u);
+                auto surface_filter_w8 =
+                    lower_narrow_surface_filter(8u);
+                if (!surface_filter_w4.succeeded() ||
+                    !surface_filter_w8.succeeded() ||
+                    !surface_filter_w4.print_formats.empty() ||
+                    !surface_filter_w8.print_formats.empty()) {
+                    result.diagnostics.emplace_back(
+                        "narrow direct surface-filter handler LLVM lowering failed: " +
+                        (!surface_filter_w4.error.empty() ?
+                             surface_filter_w4.error :
+                             surface_filter_w8.error));
+                    return result;
+                }
+                surface_filter_w4_entry = surface_filter_w4.entry;
+                surface_filter_w8_entry = surface_filter_w8.entry;
+            }
             if (surface_filter.predicated_acyclic_control_flow &&
                 retain_acyclic_surface_filter_scheduler_oracle) {
                 auto oracle_name = handler_name_base + ".ray_query." +
@@ -603,6 +683,8 @@ SIMDCompiledKernel compile_simd_kernel(
                 .on_surface_filter = surface_filter_entry,
                 .on_surface_filter_scheduler_oracle =
                     surface_filter_scheduler_oracle_entry,
+                .on_surface_filter_w4 = surface_filter_w4_entry,
+                .on_surface_filter_w8 = surface_filter_w8_entry,
                 .on_candidate_w1 = candidate_w1,
                 .embree_surface_filter_safe =
                     pipeline_schedules[pipeline_index]

@@ -2536,10 +2536,12 @@ pipeline for the query variable, an empty procedural handler, no caller-side
 query write, and no caller read other than committed hit or termination. The
 surface handler must have the audited five-argument direct packet ABI below;
 an empty handler must remain on the callback-free provider. Its signature is
-`(width, physical_mask, accel, output_packet, ray_packet,
-terminate_on_first, direct_surface_handler)`. Cached provider and accel values
-must agree across all active lanes, and a non-null provider requires a non-null
-direct handler.
+`(logical_width, ray_packet_width, physical_mask, accel, output_packet,
+ray_packet, terminate_on_first, direct_surface_handler)`. Cached provider and
+accel values must agree across all active lanes, and a non-null provider
+requires a non-null direct handler. Normally `ray_packet_width` equals
+`logical_width`; logical W2 is subsequently padded to physical W4 by the
+runtime.
 
 `output_packet` points to a 64-byte-aligned, 512-byte
 `SIMDHostRayQueryOutputPacket`. It is shared by the empty and nonempty
@@ -2561,6 +2563,30 @@ Embree hit to the output packet; a rejected lane clears the corresponding
 valid entry. The provider must not publish candidate/status fields or run a
 status-packing pass.
 
+An independently guarded logical-W16 call may set `ray_packet_width` to four
+for one through four active logical rays or eight for five through eight. This
+is legal only when all of the following hold:
+
+- target transform information proves native 512-bit fixed vectors and legal
+  `<16 x i32>` masked compression;
+- the nonempty direct handler already selected the bounded acyclic predicated
+  lowering and has the capture-free five-argument packet ABI;
+- the compiler has independently lowered that same handler XIR at both W4 and
+  W8; and
+- the runtime-selected handler is the compact production handler, not a
+  retained logical-W16 scheduler oracle.
+
+The JIT must compress all twelve input fields directly into initialized
+physical packet storage. `ray.id` must preserve the original logical lane; the
+runtime uses it for inclusive-interval checks and output-packet writes. The
+unused physical suffix must contain benign initialized rays and clear Embree
+valid entries before traversal. The direct handler receives its physical width
+and physical candidate mask, so a W4/W8 packet must never call the logical-W16
+handler. Conversely, the logical-W16 scheduler oracle must force a full W16
+packet even when a diagnostic launch record sets the narrowing bit manually.
+No runtime field-by-field repack, per-active-lane scalar traversal, or scalar
+handler loop is permitted.
+
 The JIT must test the cached provider before constructing a state-pointer
 packet, reading proceed/status callbacks, publishing scratch state, or setting
 up captures and ordinary handlers. A non-null call must therefore make no
@@ -2578,15 +2604,22 @@ own submask and combined with fixed-vector selects. A lane outside a source
 submask must be sanitized before any gather, load, or address calculation.
 
 Closest and query-any traversal must use only matching
-`rtcIntersect4/8/16` and `rtcOccluded4/8/16` entries, except that logical W2
-must use the sanitized W4 packet described above. Sparse masks, partial
-tails, original inclusive intervals, dynamic opacity, miss output, and the
-post-call terminal sidecar must match the ordinary state-provider route.
+`rtcIntersect4/8/16` and `rtcOccluded4/8/16` entries for
+`ray_packet_width`, except that logical W2 must use the sanitized W4 packet
+described above. Sparse masks, partial tails, original inclusive intervals,
+dynamic opacity, miss output, and the post-call terminal sidecar must match the
+ordinary state-provider route.
 W1, curves/procedurals, captures/resources, explicit termination, multiple
 pipelines, query mutation, any other query read, missing packet/direct
 capability, or a null provider must select the ordinary path.
 `LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1` is the required
 same-module runtime oracle.
+`LUISA_SIMD_DISABLE_W16_SPARSE_DIRECT_OUTPUT_SURFACE_FILTER_PACKET_NARROWING=1`
+must clear only the nonempty narrowing launch bit and select the already-emitted
+full-W16 packet and W16 handler. It must not alter provider selection, generated
+LLVM IR/object code, the independent empty-handler narrowing policy, or any
+non-W16 path. A target for which the native compression proof fails must not
+emit the nonempty compression branches or W4/W8 handler variants.
 
 For a compiler-audited capture-free surface filter at W4/W8/W16, the runtime
 may invoke a separate direct handler with exactly five arguments `(width,

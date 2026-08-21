@@ -165,10 +165,15 @@ ScheduleEmitter::_ray_query_surface_filter_ray_packet_for_call(
 }
 
 std::pair<::llvm::Value *, ::llvm::Value *>
-ScheduleEmitter::_ray_query_empty_surface_filter_ray_packet_for_call(
+ScheduleEmitter::_ray_query_output_surface_filter_ray_packet_for_call(
     ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
-    ::llvm::Value *active_mask_bits) {
+    ::llvm::Value *active_mask_bits, uint32_t runtime_flag,
+    ::llvm::Value *narrowing_eligible,
+    std::string_view label) {
 #if LLVM_VERSION_MAJOR < 18
+    static_cast<void>(runtime_flag);
+    static_cast<void>(narrowing_eligible);
+    static_cast<void>(label);
     auto *packet = _ray_query_surface_filter_ray_packet_for_call(
         ray_packet, call_packet, active_mask_bits);
     return {packet, packet == nullptr ? nullptr : _builder.getInt32(_width)};
@@ -180,7 +185,7 @@ ScheduleEmitter::_ray_query_empty_surface_filter_ray_packet_for_call(
     }
     if (ray_packet == nullptr || call_packet == nullptr ||
         active_mask_bits == nullptr) {
-        _fail("empty surface-filter call packet has no analyzed storage");
+        _fail("output-only surface-filter call packet has no analyzed storage");
         return {nullptr, nullptr};
     }
 
@@ -189,10 +194,14 @@ ScheduleEmitter::_ray_query_empty_surface_filter_ray_packet_for_call(
     auto *narrowing_enabled = _builder.CreateICmpNE(
         _builder.CreateAnd(
             runtime_flags,
-            _builder.getInt32(
-                simd_packet_launch_flag_w16_sparse_empty_surface_filter_packet_narrowing)),
+            _builder.getInt32(runtime_flag)),
         _builder.getInt32(0u),
-        "ray.query.empty.packet.narrowing.enabled");
+        std::string{"ray.query."} + std::string{label} +
+            ".packet.narrowing.enabled");
+    narrowing_enabled = _builder.CreateAnd(
+        narrowing_enabled, narrowing_eligible,
+        std::string{"ray.query."} + std::string{label} +
+            ".packet.narrowing.eligible");
     auto lane_mask = (uint64_t{1u} << _width) - 1u;
     auto *active_count = _builder.CreateIntrinsic(
         _builder.getInt64Ty(), ::llvm::Intrinsic::ctpop,
@@ -202,15 +211,20 @@ ScheduleEmitter::_ray_query_empty_surface_filter_ray_packet_for_call(
 
     auto &context = _module.getContext();
     auto *narrow4 = ::llvm::BasicBlock::Create(
-        context, "ray.query.empty.packet.w4", _entry);
+        context, std::string{"ray.query."} + std::string{label} + ".packet.w4",
+        _entry);
     auto *narrow8 = ::llvm::BasicBlock::Create(
-        context, "ray.query.empty.packet.w8", _entry);
+        context, std::string{"ray.query."} + std::string{label} + ".packet.w8",
+        _entry);
     auto *check8 = ::llvm::BasicBlock::Create(
-        context, "ray.query.empty.packet.check.w8", _entry);
+        context, std::string{"ray.query."} + std::string{label} + ".packet.check.w8",
+        _entry);
     auto *wide = ::llvm::BasicBlock::Create(
-        context, "ray.query.empty.packet.wide", _entry);
+        context, std::string{"ray.query."} + std::string{label} + ".packet.wide",
+        _entry);
     auto *ready = ::llvm::BasicBlock::Create(
-        context, "ray.query.empty.packet.ready", _entry);
+        context, std::string{"ray.query."} + std::string{label} + ".packet.ready",
+        _entry);
     auto *use4 = _builder.CreateAnd(
         narrowing_enabled,
         _builder.CreateICmpULE(active_count, _builder.getInt64(4u)));
@@ -302,10 +316,11 @@ ScheduleEmitter::_ray_query_empty_surface_filter_ray_packet_for_call(
     _builder.SetInsertPoint(ready);
     auto *packet = _builder.CreatePHI(
         ray_packet->getType(), 3u,
-        "ray.query.empty.packet");
+        std::string{"ray.query."} + std::string{label} + ".packet");
     auto *packet_width = _builder.CreatePHI(
         _builder.getInt32Ty(), 3u,
-        "ray.query.empty.packet.width");
+        std::string{"ray.query."} + std::string{label} +
+            ".packet.width");
     packet->addIncoming(packet4, narrow4_exit);
     packet_width->addIncoming(_builder.getInt32(4u), narrow4_exit);
     packet->addIncoming(packet8, narrow8_exit);

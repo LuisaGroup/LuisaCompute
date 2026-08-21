@@ -274,13 +274,17 @@ using SIMDHostAccelRayQueryEmptySurfaceFilterPacketPipeline = void(
     void *accel, SIMDHostRayQueryOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first);
 // A nonempty audited direct handler may bypass the operational query state
-// when the caller observes only the terminal result. The callback consumes
-// Embree's native packet candidate and returns physical commit bits. The
-// provider writes accepted hits to one contiguous committed-output packet;
-// that packet also retains the original inclusive ray interval, so this ABI
-// does not receive or inspect SIMDHostRayQueryState.
+// when the caller observes only the terminal result. ray_packet_width is the
+// physical field stride supplied to Embree and to on_surface_direct. It equals
+// lane_count in the ordinary path (with logical W2 still padded by the runtime
+// to Embree W4), while an audited sparse logical W16 packet may carry W4/W8
+// fields and a correspondingly specialized callback. Compressed ray.id fields
+// retain logical lane identity. The callback returns physical commit bits and
+// the provider writes accepted hits to their logical lanes in one contiguous
+// committed-output packet; no SIMDHostRayQueryState is materialized.
 using SIMDHostAccelRayQueryDirectOutputSurfaceFilterPacketPipeline = void(
-    uint32_t lane_count, uint64_t active_mask_bits,
+    uint32_t lane_count, uint32_t ray_packet_width,
+    uint64_t active_mask_bits,
     void *accel, SIMDHostRayQueryOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct);
@@ -729,6 +733,9 @@ inline constexpr auto
 inline constexpr auto
     simd_packet_launch_flag_w16_sparse_empty_surface_filter_packet_narrowing =
         1u << 1u;
+inline constexpr auto
+    simd_packet_launch_flag_w16_sparse_direct_output_surface_filter_packet_narrowing =
+        1u << 2u;
 static_assert(
     offsetof(SIMDPacketLaunchConfig, reserved_runtime_flags) +
         sizeof(uint32_t) ==
@@ -753,6 +760,12 @@ struct LLVMSIMDRayQueryPipelineHandlers {
     // the general independent-PC scheduler. This remains null when the
     // compact acyclic lowering was ineligible.
     ::llvm::Function *on_surface_filter_scheduler_oracle{nullptr};
+    // Optional physical-width variants of a logical W16 direct filter. These
+    // remain null unless the same audited acyclic handler lowers cleanly at W4
+    // and W8. They are used only together with a JIT-compressed W16 packet;
+    // ray.id preserves the logical output mapping at the runtime boundary.
+    ::llvm::Function *on_surface_filter_w4{nullptr};
+    ::llvm::Function *on_surface_filter_w8{nullptr};
     // W1-only opaque-capture thunk used by the resident runtime loop. One
     // stable indirect target dispatches both candidate kinds to keep the
     // host/JIT boundary friendly to indirect-branch prediction. Wider

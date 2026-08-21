@@ -748,6 +748,11 @@ if (TARGET luisa-compute-backend-simd)
     set_tests_properties(test_simd_accel_w16_sparse_empty_packet_oracle PROPERTIES
             LABELS "integration_simd;runtime_simd"
             ENVIRONMENT "LUISA_SIMD_DISABLE_W16_SPARSE_EMPTY_SURFACE_FILTER_PACKET_NARROWING=1")
+    add_test(NAME test_simd_accel_w16_sparse_direct_output_packet_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_w16_sparse_direct_output_packet_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_WARP_WIDTH=16;LUISA_SIMD_DISABLE_W16_SPARSE_DIRECT_OUTPUT_SURFACE_FILTER_PACKET_NARROWING=1")
     add_test(NAME test_simd_accel_direct_output_surface_filter_oracle
             COMMAND $<TARGET_FILE:test_simd_accel>)
     set_tests_properties(test_simd_accel_direct_output_surface_filter_oracle PROPERTIES

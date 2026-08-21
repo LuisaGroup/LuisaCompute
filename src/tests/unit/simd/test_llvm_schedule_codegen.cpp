@@ -7169,6 +7169,7 @@ struct RayQueryFilterProbe {
     uint32_t direct_output_any_calls{0u};
     uint32_t expected_lane_count{0u};
     SIMDHostAccelRayQueryProceed *expected_proceed{nullptr};
+    uint32_t expected_direct_output_packet_width{0u};
     size_t expected_state_stride{sizeof(SIMDHostRayQueryState)};
     uint64_t surface_pipeline_candidate_mask{0u};
     bool valid{true};
@@ -7689,7 +7690,8 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
 }
 
 void ray_query_direct_output_surface_filter_packet_pipeline_probe(
-    uint32_t lane_count, uint64_t active_mask_bits,
+    uint32_t lane_count, uint32_t ray_packet_width,
+    uint64_t active_mask_bits,
     void *accel, SIMDHostRayQueryOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct) noexcept {
@@ -7702,11 +7704,21 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
     probe->direct_output_closest_calls += terminate_on_first == 0u;
     probe->direct_output_any_calls += terminate_on_first != 0u;
     probe->valid &= lane_count == probe->expected_lane_count;
+    probe->valid &=
+        probe->expected_direct_output_packet_width == 0u ||
+        ray_packet_width ==
+            probe->expected_direct_output_packet_width;
+    probe->valid &= ray_packet_width == lane_count ||
+                    (lane_count == 16u &&
+                     (ray_packet_width == 4u ||
+                      ray_packet_width == 8u));
     auto *packet_words = static_cast<uint32_t *>(ray_packet);
-    auto packet_word = [&](uint32_t field, uint32_t lane) noexcept {
-        return packet_words[field * lane_count + lane];
+    auto packet_word = [&](uint32_t field,
+                           uint32_t packet_lane) noexcept {
+        return packet_words[field * ray_packet_width + packet_lane];
     };
-    auto physical_packet_width = lane_count == 2u ? 4u : lane_count;
+    auto physical_packet_width =
+        ray_packet_width == 2u ? 4u : ray_packet_width;
     std::array<uint32_t,
                simd_host_accel_ray_packet_field_count * 16u>
         candidate_ray_packet{};
@@ -7717,25 +7729,42 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
     }
     for (auto field = uint32_t{0u};
          field < simd_host_accel_ray_packet_field_count; field++) {
-        for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
-            candidate_ray_packet[field * physical_packet_width + lane] =
-                packet_word(field, lane);
+        for (auto packet_lane = uint32_t{0u};
+             packet_lane < ray_packet_width; packet_lane++) {
+            candidate_ray_packet[field * physical_packet_width + packet_lane] =
+                packet_word(field, packet_lane);
         }
     }
+    auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
+    auto expected_mask = active_mask_bits & lane_mask;
+    auto active_count = static_cast<uint32_t>(
+        std::popcount(expected_mask));
+    auto compact = ray_packet_width < lane_count;
     auto candidates = uint64_t{0u};
-    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
-        auto active =
-            (active_mask_bits & (uint64_t{1u} << lane)) != 0u;
+    auto logical_candidates = uint64_t{0u};
+    auto observed_mask = uint64_t{0u};
+    for (auto packet_lane = uint32_t{0u};
+         packet_lane < ray_packet_width; packet_lane++) {
+        auto active = compact ? packet_lane < active_count :
+                                (expected_mask &
+                                 (uint64_t{1u} << packet_lane)) != 0u;
         if (!active) {
             for (auto field = uint32_t{0u};
                  field < simd_host_accel_ray_packet_field_count;
                  field++) {
                 auto safe_bits = field == 6u ? 0x3f800000u : 0u;
-                probe->valid &= packet_word(field, lane) == safe_bits;
+                probe->valid &=
+                    packet_word(field, packet_lane) == safe_bits;
             }
             continue;
         }
-        probe->valid &= packet_word(3u, lane) ==
+        auto lane = packet_word(10u, packet_lane);
+        probe->valid &= lane < lane_count &&
+                        (expected_mask & (uint64_t{1u} << lane)) != 0u &&
+                        (observed_mask & (uint64_t{1u} << lane)) == 0u;
+        if (lane >= lane_count) { continue; }
+        observed_mask |= uint64_t{1u} << lane;
+        probe->valid &= packet_word(3u, packet_lane) ==
                         embree_tnear_bits_for_probe(
                             outputs->t_min[lane]);
         probe->valid &= outputs->t_max[lane] == 100.0f;
@@ -7745,37 +7774,44 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         probe->valid &= outputs->committed_bary_y[lane] == 0.0f;
         probe->valid &= outputs->committed_kind[lane] == 0u;
         probe->valid &= outputs->committed_t[lane] == 0.0f;
-        auto origin_x = std::bit_cast<float>(packet_word(0u, lane));
+        auto origin_x = std::bit_cast<float>(
+            packet_word(0u, packet_lane));
         auto dispatch_index = static_cast<uint32_t>(origin_x);
         probe->valid &= origin_x ==
                         static_cast<float>(dispatch_index);
         if ((dispatch_index & 1u) != 0u) { continue; }
-        candidates |= uint64_t{1u} << lane;
-        candidate_ray_packet[simd_host_accel_ray_tfar_field * physical_packet_width + lane] =
+        candidates |= uint64_t{1u} << packet_lane;
+        logical_candidates |= uint64_t{1u} << lane;
+        candidate_ray_packet[simd_host_accel_ray_tfar_field * physical_packet_width + packet_lane] =
             std::bit_cast<uint32_t>(1.0f);
-        candidate_hit_packet[3u * physical_packet_width + lane] =
+        candidate_hit_packet[3u * physical_packet_width + packet_lane] =
             std::bit_cast<uint32_t>(0.04f);
-        candidate_hit_packet[4u * physical_packet_width + lane] =
+        candidate_hit_packet[4u * physical_packet_width + packet_lane] =
             std::bit_cast<uint32_t>(0.05f);
-        candidate_hit_packet[5u * physical_packet_width + lane] =
+        candidate_hit_packet[5u * physical_packet_width + packet_lane] =
             dispatch_index;
-        candidate_hit_packet[7u * physical_packet_width + lane] = 6u;
+        candidate_hit_packet[7u * physical_packet_width + packet_lane] = 6u;
     }
-    probe->surface_pipeline_candidate_mask |= candidates;
+    probe->valid &= observed_mask == expected_mask;
+    probe->surface_pipeline_candidate_mask |= logical_candidates;
     auto committed = uint64_t{0u};
     if (candidates != 0u) {
         on_surface_direct(
-            lane_count, candidates,
+            ray_packet_width, candidates,
             candidate_ray_packet.data(), candidate_hit_packet.data(),
             &committed);
     }
     probe->valid &= (committed & ~candidates) == 0u;
     auto remaining = committed;
     while (remaining != 0u) {
-        auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
+        auto packet_lane = static_cast<uint32_t>(
+            std::countr_zero(remaining));
         remaining &= remaining - 1u;
+        auto lane = candidate_ray_packet[10u * physical_packet_width + packet_lane];
+        probe->valid &= lane < lane_count;
+        if (lane >= lane_count) { continue; }
         auto dispatch_index =
-            candidate_hit_packet[5u * physical_packet_width + lane];
+            candidate_hit_packet[5u * physical_packet_width + packet_lane];
         outputs->committed_inst[lane] = 6u;
         outputs->committed_prim[lane] = dispatch_index;
         outputs->committed_bary_x[lane] = 0.04f;
@@ -8390,6 +8426,11 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         output.write(index, hit->inst);
     };
 
+    LLVMJIT vector_compress_probe;
+    CHECK(vector_compress_probe.succeeded());
+    auto native_w16_vector_compress =
+        vector_compress_probe.supports_native_vector_compress(16u);
+
     struct alignas(16) Arguments {
         SIMDHostAccelView accel;
         SIMDHostBufferView output;
@@ -8401,7 +8442,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             kernel.function()->function(), width,
             "simd_ast_surface_filter_ray_query_pipeline_w" +
                 std::to_string(width),
-            false, width == 2u || width == 8u);
+            false, width == 2u || width >= 8u);
         SIMDCompiledKernel oracle;
         {
             ScopedEnvironmentVariable disable{
@@ -8432,6 +8473,26 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         CHECK(oracle.compact_surface_filter_state_count == 0u);
         CHECK(oracle.direct_output_surface_filter_state_count == 0u);
         CHECK(oracle.predicated_acyclic_surface_filter_handler_count == 0u);
+        if (width == 16u) {
+            auto has_vector_compress = candidate.llvm_ir.find(
+                                           "llvm.masked.compressstore") !=
+                                       std::string::npos;
+            CHECK(has_vector_compress == native_w16_vector_compress);
+            if (native_w16_vector_compress) {
+                CHECK(candidate.llvm_ir.find(
+                          ".surface_filter.narrow.simd_w4_for_w16") !=
+                      std::string::npos);
+                CHECK(candidate.llvm_ir.find(
+                          ".surface_filter.narrow.simd_w8_for_w16") !=
+                      std::string::npos);
+                CHECK(candidate.llvm_ir.find(
+                          "ray.query.direct.packet.w4") !=
+                      std::string::npos);
+                CHECK(candidate.llvm_ir.find(
+                          "ray.query.direct.packet.w8") !=
+                      std::string::npos);
+            }
+        }
         if (width == 2u) {
             CHECK(candidate.llvm_ir.find(
                       "ray.query.surface.filter.ray.packet.slot") !=
@@ -8634,12 +8695,17 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                            bool enable_direct_output_pipeline,
                            std::array<uint32_t, 16u> &values,
                            bool enable_predicated_acyclic = true,
-                           bool enable_compact_state = false) {
+                           bool enable_compact_state = false,
+                           uint32_t execution_count = 13u,
+                           bool enable_sparse_w16_narrowing = true,
+                           uint32_t expected_packet_width = 0u) {
             values.fill(0xdeadbeefu);
             RayQueryFilterProbe probe{
                 .expected_lane_count = width,
                 .expected_proceed =
                     ray_query_surface_filter_plain_probe,
+                .expected_direct_output_packet_width =
+                    expected_packet_width,
                 .expected_state_stride =
                     enable_compact_state && enable_surface_pipeline &&
                             width >= 4u ?
@@ -8684,17 +8750,21 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 const SIMDPacketLaunchConfig *, uint32_t);
             auto *entry = reinterpret_cast<Entry *>(compiled.entry);
             CHECK(entry != nullptr);
-            auto config = launch_1d(count, 16u);
+            auto config = launch_1d(execution_count, 16u);
             config.enable_predicated_acyclic_surface_filter =
                 enable_predicated_acyclic;
             config.reserved_runtime_flags = enable_compact_state ?
                                                 simd_packet_launch_flag_compact_surface_filter_state :
                                                 0u;
-            for (auto first = uint32_t{0u}; first < count;
+            if (enable_sparse_w16_narrowing) {
+                config.reserved_runtime_flags |=
+                    simd_packet_launch_flag_w16_sparse_direct_output_surface_filter_packet_narrowing;
+            }
+            for (auto first = uint32_t{0u}; first < execution_count;
                  first += width) {
                 config.thread_index = first;
                 entry(&arguments, nullptr, &config,
-                      std::min(width, count - first));
+                      std::min(width, execution_count - first));
             }
             CHECK(probe.valid);
             if (enable_direct_output_pipeline) {
@@ -8702,13 +8772,13 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 CHECK(probe.surface_pipeline_calls == 0u);
                 CHECK(probe.direct_surface_pipeline_calls == 0u);
                 CHECK(probe.direct_output_surface_pipeline_calls ==
-                      (count + width - 1u) / width);
+                      (execution_count + width - 1u) / width);
                 CHECK(probe.direct_output_closest_calls ==
                       probe.direct_output_surface_pipeline_calls);
                 CHECK(probe.direct_output_any_calls == 0u);
                 auto expected_mask = uint64_t{0u};
                 for (auto lane = uint32_t{0u};
-                     lane < std::min(width, count); lane += 2u) {
+                     lane < std::min(width, execution_count); lane += 2u) {
                     expected_mask |= uint64_t{1u} << lane;
                 }
                 CHECK(probe.surface_pipeline_candidate_mask ==
@@ -8716,14 +8786,14 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             } else if (enable_surface_pipeline) {
                 CHECK(probe.calls == 0u);
                 CHECK(probe.surface_pipeline_calls ==
-                      (count + width - 1u) / width);
+                      (execution_count + width - 1u) / width);
                 CHECK(probe.direct_surface_pipeline_calls ==
                       (direct_surface_candidate ?
                            probe.surface_pipeline_calls :
                            0u));
                 auto expected_mask = uint64_t{0u};
                 for (auto lane = uint32_t{0u};
-                     lane < std::min(width, count); lane += 2u) {
+                     lane < std::min(width, execution_count); lane += 2u) {
                     expected_mask |= uint64_t{1u} << lane;
                 }
                 CHECK(probe.surface_pipeline_candidate_mask ==
@@ -8772,6 +8842,32 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         CHECK(pipeline_output == state_pipeline_output);
         CHECK(pipeline_output == null_provider_output);
         CHECK(pipeline_output == oracle_output);
+        if (width == 16u && native_w16_vector_compress) {
+            std::array<uint32_t, 16u> narrow_w4_output{};
+            std::array<uint32_t, 16u> full_w16_w4_oracle{};
+            std::array<uint32_t, 16u> scheduler_w16_output{};
+            CHECK(execute(
+                candidate, true, true, true, narrow_w4_output,
+                true, true, 3u, true, 4u));
+            CHECK(execute(
+                candidate, true, true, true, full_w16_w4_oracle,
+                true, true, 3u, false, 16u));
+            CHECK(execute(
+                candidate, true, true, true, scheduler_w16_output,
+                false, true, 3u, true, 16u));
+            CHECK(narrow_w4_output == full_w16_w4_oracle);
+            CHECK(narrow_w4_output == scheduler_w16_output);
+
+            std::array<uint32_t, 16u> narrow_w8_output{};
+            std::array<uint32_t, 16u> full_w16_w8_oracle{};
+            CHECK(execute(
+                candidate, true, true, true, narrow_w8_output,
+                true, true, 7u, true, 8u));
+            CHECK(execute(
+                candidate, true, true, true, full_w16_w8_oracle,
+                true, true, 7u, false, 16u));
+            CHECK(narrow_w8_output == full_w16_w8_oracle);
+        }
         for (auto index = uint32_t{0u}; index < count; index++) {
             CHECK(pipeline_output[index] ==
                   ((index & 3u) == 0u ? 6u : ~0u));
@@ -8891,10 +8987,6 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         };
         output.write(index, query_result);
     };
-    LLVMJIT vector_compress_probe;
-    CHECK(vector_compress_probe.succeeded());
-    auto native_w16_vector_compress =
-        vector_compress_probe.supports_native_vector_compress(16u);
     for (auto width : {2u, 4u, 8u, 16u}) {
         auto candidate = compile_simd_kernel(
             empty_handlers.function()->function(), width,

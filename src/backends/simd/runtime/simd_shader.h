@@ -44,6 +44,7 @@ private:
     bool _enable_predicated_acyclic_surface_filter{true};
     bool _enable_compact_surface_filter_state{true};
     bool _enable_w16_sparse_empty_surface_filter_packet_narrowing{true};
+    bool _enable_w16_sparse_direct_output_surface_filter_packet_narrowing{true};
     uint3 _block_size{1u, 1u, 1u};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     luisa::vector<Usage> _argument_usages;
