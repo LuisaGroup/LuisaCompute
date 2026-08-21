@@ -27,24 +27,24 @@ namespace luisa::compute::xir::detail {
 
 namespace {
 
-struct InstructionLocation {
+struct PrefixInstructionLocation {
     size_t block_id;
     size_t ordinal;
 };
 
-using InstructionLocationMap =
-    luisa::unordered_map<Instruction *, InstructionLocation>;
+using PrefixInstructionLocationMap =
+    luisa::unordered_map<Instruction *, PrefixInstructionLocation>;
 
-[[nodiscard]] InstructionLocationMap make_instruction_locations(
+[[nodiscard]] PrefixInstructionLocationMap make_prefix_instruction_locations(
     FunctionDefinition *definition,
     const CoroSemanticGraph &graph) noexcept {
-    InstructionLocationMap locations;
+    PrefixInstructionLocationMap locations;
     for (auto *block : definition->basic_blocks()) {
         auto ordinal = size_t{0u};
         for (auto *instruction : block->instructions()) {
             locations.emplace(
                 instruction,
-                InstructionLocation{
+                PrefixInstructionLocation{
                     graph.block_id(block), ordinal++});
         }
     }
@@ -145,7 +145,7 @@ struct ActiveSlice {
 
 [[nodiscard]] bool instruction_precedes(
     Instruction *before, Instruction *after,
-    const InstructionLocationMap &locations) noexcept {
+    const PrefixInstructionLocationMap &locations) noexcept {
     if (before == nullptr || after == nullptr) { return false; }
     auto before_iter = locations.find(before);
     auto after_iter = locations.find(after);
@@ -162,7 +162,7 @@ struct ScalarSlotInfo {
 
 class ScalarCopyResolver {
 private:
-    const InstructionLocationMap &_locations;
+    const PrefixInstructionLocationMap &_locations;
     mutable luisa::unordered_map<AllocaInst *, ScalarSlotInfo> _slots;
 
 private:
@@ -205,7 +205,7 @@ private:
 
 public:
     explicit ScalarCopyResolver(
-        const InstructionLocationMap &locations) noexcept
+        const PrefixInstructionLocationMap &locations) noexcept
         : _locations{locations} {}
 
     // A single-store scalar local is an exact snapshot only within the same
@@ -287,7 +287,7 @@ public:
 
 [[nodiscard]] bool has_store_between(
     AllocaInst *slot, Instruction *before, Instruction *after,
-    const InstructionLocationMap &locations) noexcept {
+    const PrefixInstructionLocationMap &locations) noexcept {
     if (slot == nullptr || before == nullptr || after == nullptr ||
         before->parent_block() != after->parent_block()) {
         return true;
@@ -319,7 +319,7 @@ public:
 [[nodiscard]] bool is_current_slot_snapshot(
     Value *value, AllocaInst *slot, Instruction *use,
     const ScalarCopyResolver &resolver,
-    const InstructionLocationMap &locations) noexcept {
+    const PrefixInstructionLocationMap &locations) noexcept {
     value = resolver.resolve(value, use);
     if (value == nullptr || !value->isa<LoadInst>()) { return false; }
     auto *load = static_cast<LoadInst *>(value);
@@ -332,7 +332,7 @@ public:
 [[nodiscard]] bool same_scalar_snapshot(
     Value *lhs, Value *rhs, Instruction *use,
     const ScalarCopyResolver &resolver,
-    const InstructionLocationMap &locations,
+    const PrefixInstructionLocationMap &locations,
     size_t depth = 0u) noexcept {
     if (depth >= 16u) { return false; }
     lhs = resolver.resolve(lhs, use);
@@ -393,7 +393,7 @@ public:
 [[nodiscard]] AllocaInst *counter_from_full_element_store(
     StoreInst *store, AllocaInst *array,
     const ScalarCopyResolver &resolver,
-    const InstructionLocationMap &locations) noexcept {
+    const PrefixInstructionLocationMap &locations) noexcept {
     auto *gep = top_array_gep(store->variable(), array);
     if (gep == nullptr || store->variable() != gep ||
         gep->base() != array ||
@@ -555,7 +555,7 @@ void define_pointer(Value *pointer, FactState &facts,
     Value *condition, bool truth, Value *index,
     AllocaInst *counter, Instruction *read,
     const ScalarCopyResolver &resolver,
-    const InstructionLocationMap &locations) noexcept {
+    const PrefixInstructionLocationMap &locations) noexcept {
     condition = strip_boolean_wrappers(
         condition, truth, read, resolver);
     if (!truth || condition == nullptr ||
@@ -589,7 +589,7 @@ void define_pointer(Value *pointer, FactState &facts,
     const FactState &facts, const FactLayout &layout,
     const CoroFrameAtomDomain &domain,
     const ScalarCopyResolver &resolver,
-    const InstructionLocationMap &locations,
+    const PrefixInstructionLocationMap &locations,
     size_t depth = 0u) noexcept {
     if (depth >= 8u) { return false; }
     if (static_array_element_is_defined(
@@ -627,7 +627,7 @@ void define_pointer(Value *pointer, FactState &facts,
 [[nodiscard]] bool match_counter_increment(
     Value *value, AllocaInst *counter, StoreInst *store,
     const ScalarCopyResolver &resolver,
-    const InstructionLocationMap &locations) noexcept {
+    const PrefixInstructionLocationMap &locations) noexcept {
     value = resolver.resolve(value, store);
     if (value == nullptr || !value->isa<ArithmeticInst>()) {
         return false;
@@ -692,7 +692,7 @@ struct PrefixState {
 [[nodiscard]] bool full_element_store_at_current_counter(
     StoreInst *store, AllocaInst *array, AllocaInst *counter,
     const ScalarCopyResolver &resolver,
-    const InstructionLocationMap &locations) noexcept {
+    const PrefixInstructionLocationMap &locations) noexcept {
     auto *gep = top_array_gep(store->variable(), array);
     return gep != nullptr && store->variable() == gep &&
            gep->base() == array &&
@@ -710,7 +710,7 @@ struct CandidateContext {
     const FactLayout &layout;
     const CoroFrameAtomDomain &domain;
     const ScalarCopyResolver &resolver;
-    const InstructionLocationMap &locations;
+    const PrefixInstructionLocationMap &locations;
 };
 
 [[nodiscard]] bool process_instruction(
@@ -797,7 +797,7 @@ struct CandidateContext {
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain,
     const ScalarCopyResolver &resolver,
-    const InstructionLocationMap &locations) noexcept {
+    const PrefixInstructionLocationMap &locations) noexcept {
     CoroInitializedPrefixProofResult result;
     if (!resolver.scalar_slot_has_only_direct_accesses(counter)) {
         return result;
@@ -924,7 +924,7 @@ prove_initialized_prefix_fresh_lifetime(
                            nullptr :
                            parent_function->definition();
     if (definition == nullptr) { return result; }
-    auto locations = make_instruction_locations(definition, graph);
+    auto locations = make_prefix_instruction_locations(definition, graph);
     auto region = collect_array_use_region(array, definition, graph);
     auto slice = make_active_slice(target, region, graph);
     if (!slice.valid) { return result; }
