@@ -5984,3 +5984,15 @@ inventory independently (342/342 total). A fresh read-only W1/W2/W4/W8/W16
 1,024-spp non-coroutine cutout sweep also passes the checked-in fallback
 gallery at 42.930016/46.208391/45.900175/45.529821/45.150873 dB RGB PSNR,
 respectively; the reference image was not regenerated.
+
+After merging the concurrent `next` ray-query handler-analysis change at
+`41d676501`, the final combined tree was rebuilt and remeasured with the same
+pairing and contamination policy. The field-major/state-provider paired
+geometric speedups are 1.1275x/1.1637x/1.2133x for W4/W8/W16, all with 7/7
+wins and 95% intervals of [1.1157, 1.1394], [1.1538, 1.1737], and
+[1.2009, 1.2259]. A separate equal-core crossover confirmation measures W8 at
+1.0826x (7/7, [1.0663, 1.0992]) and W16 at 1.1468x (7/7,
+[1.1389, 1.1547]) versus fallback. The monitor rejected concurrent compiler,
+renderer, and external path-tracing activity rather than admitting those
+samples. Both 171-test inventories and all five gallery widths were rerun
+after the merge.
