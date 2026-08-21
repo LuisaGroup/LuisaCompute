@@ -74,6 +74,25 @@ ScheduleEmitter::_native_texture_packet_info(
     info.guard = _builder.CreateAnd(
         common_guard, storage_matches,
         "texture.native.packet.guard");
+    if (!floating) {
+        auto *capabilities = _builder.CreateExtractValue(
+            texture, {14u});
+        auto *has_int1_capability = _builder.CreateICmpNE(
+            _builder.CreateAnd(
+                capabilities,
+                _builder.getInt32(
+                    simd_host_texture_capability_int1_packet)),
+            _builder.getInt32(0u));
+        auto *int1_storage = _builder.CreateICmpEQ(
+            storage,
+            _builder.getInt32(static_cast<uint32_t>(
+                PixelStorage::INT1)));
+        auto *int1_guard = _builder.CreateAnd(
+            common_guard, has_int1_capability);
+        info.int1_guard = _builder.CreateAnd(
+            int1_guard, int1_storage,
+            "texture.int1.packet.guard");
+    }
     if (allow_byte4_write && floating) {
         auto *capabilities = _builder.CreateExtractValue(
             texture, {14u});
@@ -232,6 +251,15 @@ ScheduleEmitter::_native_texture_packet_info(
     auto &context = _module.getContext();
     auto *fast_block = ::llvm::BasicBlock::Create(
         context, "texture.read.native", _entry);
+    auto *int1_route_block = native.int1_guard == nullptr ?
+                                 nullptr :
+                                 ::llvm::BasicBlock::Create(
+                                     context,
+                                     "texture.read.int1.route", _entry);
+    auto *int1_block = native.int1_guard == nullptr ?
+                           nullptr :
+                           ::llvm::BasicBlock::Create(
+                               context, "texture.read.int1", _entry);
     auto *callback_block = ::llvm::BasicBlock::Create(
         context, "texture.read.callback", _entry);
     auto enable_gathered_native_read =
@@ -247,10 +275,21 @@ ScheduleEmitter::_native_texture_packet_info(
                                    nullptr;
     auto *merge_block = ::llvm::BasicBlock::Create(
         context, "texture.read.merge", _entry);
+    auto *non_native_block = int1_route_block != nullptr ?
+                                 int1_route_block :
+                             gather_route_block != nullptr ?
+                                 gather_route_block :
+                                 callback_block;
     _builder.CreateCondBr(
-        native.guard, fast_block,
-        gather_route_block == nullptr ? callback_block :
-                                        gather_route_block);
+        native.guard, fast_block, non_native_block);
+
+    if (int1_route_block != nullptr) {
+        _builder.SetInsertPoint(int1_route_block);
+        _builder.CreateCondBr(
+            native.int1_guard, int1_block,
+            gather_route_block == nullptr ? callback_block :
+                                            gather_route_block);
+    }
 
     _builder.SetInsertPoint(fast_block);
     auto *i64 = _builder.getInt64Ty();
@@ -286,6 +325,38 @@ ScheduleEmitter::_native_texture_packet_info(
     }
     auto *fast_exit = _builder.GetInsertBlock();
     _builder.CreateBr(merge_block);
+
+    ::llvm::Value *int1_pixels = nullptr;
+    ::llvm::BasicBlock *int1_exit = nullptr;
+    if (int1_block != nullptr) {
+        _builder.SetInsertPoint(int1_block);
+        auto *int1_pixel_index = _builder.CreateAdd(
+            _builder.CreateMul(
+                _builder.CreateZExt(native.y, i64),
+                _builder.CreateZExt(native.width, i64)),
+            _builder.CreateZExt(native.x, i64));
+        auto *int1_byte_offset = _builder.CreateShl(
+            int1_pixel_index, _builder.getInt64(2u));
+        auto *int1_pointer = _builder.CreateGEP(
+            _builder.getInt8Ty(), native.data, int1_byte_offset,
+            "texture.read.int1.pointer");
+        auto *int1_loaded = _builder.CreateAlignedLoad(
+            lane_type, int1_pointer, ::llvm::Align{1u},
+            "texture.read.int1.lanes");
+        auto *zero_lanes = ::llvm::Constant::getNullValue(lane_type);
+        int1_pixels = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(result_type));
+        int1_pixels = _insert_child(
+            int1_pixels, int1_loaded, result->type, 0u, true);
+        for (auto component = uint32_t{1u}; component < 4u;
+             component++) {
+            int1_pixels = _insert_child(
+                int1_pixels, zero_lanes, result->type,
+                component, true);
+        }
+        int1_exit = _builder.GetInsertBlock();
+        _builder.CreateBr(merge_block);
+    }
 
     ::llvm::Value *gathered_pixels = nullptr;
     ::llvm::BasicBlock *gather_exit = nullptr;
@@ -352,9 +423,14 @@ ScheduleEmitter::_native_texture_packet_info(
 
     _builder.SetInsertPoint(merge_block);
     auto *pixels = _builder.CreatePHI(
-        result_type, gather_exit == nullptr ? 2u : 3u,
+        result_type,
+        2u + static_cast<uint32_t>(int1_exit != nullptr) +
+            static_cast<uint32_t>(gather_exit != nullptr),
         "texture.read.packet");
     pixels->addIncoming(native_pixels, fast_exit);
+    if (int1_exit != nullptr) {
+        pixels->addIncoming(int1_pixels, int1_exit);
+    }
     if (gather_exit != nullptr) {
         pixels->addIncoming(gathered_pixels, gather_exit);
     }
@@ -362,6 +438,9 @@ ScheduleEmitter::_native_texture_packet_info(
     _result.guarded_native_texture_read_count++;
     if (gather_exit != nullptr) {
         _result.guarded_gathered_native_texture_read_count++;
+    }
+    if (int1_exit != nullptr) {
+        _result.guarded_int1_texture_read_count++;
     }
     return pixels;
 }
@@ -533,6 +612,15 @@ void ScheduleEmitter::_texture_write(
     auto &context = _module.getContext();
     auto *fast_block = ::llvm::BasicBlock::Create(
         context, "texture.write.native", _entry);
+    auto *int1_route_block = native.int1_guard == nullptr ?
+                                 nullptr :
+                                 ::llvm::BasicBlock::Create(
+                                     context,
+                                     "texture.write.int1.route", _entry);
+    auto *int1_block = native.int1_guard == nullptr ?
+                           nullptr :
+                           ::llvm::BasicBlock::Create(
+                               context, "texture.write.int1", _entry);
     auto *byte4_route_block = native.byte4_guard == nullptr ?
                                   nullptr :
                                   ::llvm::BasicBlock::Create(
@@ -557,10 +645,20 @@ void ScheduleEmitter::_texture_write(
             _builder.CreateZExt(native.y, i64),
             _builder.CreateZExt(native.width, i64)),
         _builder.CreateZExt(native.x, i64));
+    auto *non_native_block = int1_route_block != nullptr ?
+                                 int1_route_block :
+                             byte4_route_block != nullptr ?
+                                 byte4_route_block :
+                                 callback_block;
     _builder.CreateCondBr(
-        native.guard, fast_block,
-        byte4_route_block == nullptr ? callback_block :
-                                       byte4_route_block);
+        native.guard, fast_block, non_native_block);
+    if (int1_route_block != nullptr) {
+        _builder.SetInsertPoint(int1_route_block);
+        _builder.CreateCondBr(
+            native.int1_guard, int1_block,
+            byte4_route_block == nullptr ? callback_block :
+                                           byte4_route_block);
+    }
     if (byte4_route_block != nullptr) {
         _builder.SetInsertPoint(byte4_route_block);
         _builder.CreateCondBr(
@@ -599,6 +697,18 @@ void ScheduleEmitter::_texture_write(
     _builder.CreateAlignedStore(
         stored, pixel_pointer, ::llvm::Align{1u});
     _builder.CreateBr(merge_block);
+
+    if (int1_block != nullptr) {
+        _builder.SetInsertPoint(int1_block);
+        auto *int1_byte_offset = _builder.CreateShl(
+            pixel_index, _builder.getInt64(2u));
+        auto *int1_pointer = _builder.CreateGEP(
+            _builder.getInt8Ty(), native.data, int1_byte_offset,
+            "texture.write.int1.pointer");
+        _builder.CreateAlignedStore(
+            components[0u], int1_pointer, ::llvm::Align{1u});
+        _builder.CreateBr(merge_block);
+    }
 
     if (byte4_block != nullptr) {
         _builder.SetInsertPoint(byte4_block);
@@ -655,6 +765,9 @@ void ScheduleEmitter::_texture_write(
     _result.guarded_native_texture_write_count++;
     if (native.byte4_guard != nullptr) {
         _result.guarded_byte4_texture_write_count++;
+    }
+    if (native.int1_guard != nullptr) {
+        _result.guarded_int1_texture_write_count++;
     }
 }
 

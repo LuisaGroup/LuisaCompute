@@ -14,6 +14,7 @@ private:
     bool _enable_direct_native_packets{true};
     bool _enable_direct_byte4_packets{true};
     bool _enable_gathered_native_reads{true};
+    bool _enable_direct_int1_packets{true};
 
 private:
     static void _read_float(

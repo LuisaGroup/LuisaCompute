@@ -6490,3 +6490,84 @@ The permanent JIT regression covers IR, host assembly, object symbols,
 seven-lane inactive tail, active out-of-bounds zero, coordinates near
 `UINT32_MAX`, and callback/capability fallback. The runtime-width suite covers
 the independent capability oracle while continuing to execute W1/W2/W4/W8/W16.
+
+## Guarded JIT-native INT1 texture packets
+
+The path tracers store their per-pixel RNG state in a linear `INT1` image. The
+previous varying read/write path always crossed the packet callback even when a
+complete cohort addressed one consecutive row. A pre-change ordinary profile
+put W8/W16 at 68.44%/66.75% Embree, 29.76%/30.43% JIT, and only 0.79%/1.71%
+SIMD runtime. The cutout profile was more boundary-heavy: W8/W16 spent
+45.72%/45.77% in Embree, 34.62%/34.55% in JIT, and 16.82%/16.24% in the SIMD
+runtime. The named integer packet/pixel read and write helpers accounted for
+several percentage points of the cutout samples.
+
+W8/W16 integer texture lowering now uses a separate descriptor capability for
+exact `INT1` storage. After proving a nonnull 2D mip pointer, a fully active
+cohort, consecutive x lanes, one y row, and a complete in-bounds span, the read
+issues one alignment-one `<W x i32>` load and supplies zero y/z/w components;
+the write stores only the x vector. The operation is bit-exact for signed and
+unsigned values. Any failed proof executes the original callback.
+`LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS=1` clears only the capability,
+so candidate and oracle use the same generated object. W1/W2/W4 do not contain
+the arm; W2 is retained only as a correctness, ABI, exact-bit, and tail gate.
+
+The primary same-object cutout collection used 128 spp, one spp per dispatch,
+sixteen workers, CPUs 0--15, and alternating fresh processes. An unrelated
+Psycles renderer started during the W16 rounds and reduced both sides' absolute
+throughput; no point is removed. Ratios are paired geometric means with
+log-space Student-t 95% intervals:
+
+| cutout-query width | candidate median FPS | callback median FPS | candidate / callback | wins | 95% CI |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W8 | 52.1824 | 50.0848 | **1.04223x** | **7/7** | **[1.03469, 1.04982]** |
+| W16 | 52.0554 | 50.5958 | **1.02676x** | **7/7** | **[1.01308, 1.04063]** |
+
+Ordinary tracing is much less callback-bound. Eleven 256-spp W8 pairs used
+fifteen workers on CPUs `0-7,9-15`, excluding the physical core used by the
+intermittent external renderer. They measured 70.3127/70.0974 median spp/s and
+1.00177x [0.99545, 1.00812] throughput with 7/11 wins: neutral, not a claimed
+speedup. Nine W16 pairs at sixteen workers measured 82.9200/82.6007 spp/s and
+**1.00577x** [1.00104, 1.01052] with 7/9 wins. The final two pairs include a
+short external render on both sides and are retained.
+
+A fresh complete-backend comparison used the system/TBB build, fifteen equal
+physical cores (`0-7,9-15`), seven alternating process pairs, 256 spp for
+ordinary tracing, and 128 spp for cutout. This is the current SIMD/fallback
+result after all preceding ray-query and texture work, not the isolated effect
+of INT1 lowering:
+
+| workload | width | SIMD median FPS or spp/s | fallback median | SIMD / fallback | wins | 95% CI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ordinary | W8 | 70.3157 | 55.2591 | **1.26605x** | **7/7** | **[1.24491, 1.28755]** |
+| ordinary | W16 | 76.9580 | 55.2463 | **1.38796x** | **7/7** | **[1.36151, 1.41493]** |
+| cutout-query | W8 | 48.3543 | 44.1533 | **1.09407x** | **7/7** | **[1.08497, 1.10324]** |
+| cutout-query | W16 | 50.4792 | 43.8196 | **1.14340x** | **7/7** | **[1.12972, 1.15724]** |
+
+Five nonmultiplexed W8 cutout `perf stat` pairs on the 15-core set quantify the
+removed boundary:
+
+| counter | candidate / callback oracle | 95% paired CI |
+| --- | ---: | ---: |
+| throughput | **1.04432x** | **[1.02051, 1.06870]** |
+| cycles | **0.95667x** | **[0.94164, 0.97195]** |
+| instructions | **0.95585x** | **[0.95571, 0.95599]** |
+| branches | **0.92786x** | **[0.92752, 0.92820]** |
+| branch misses | 1.00204x | [0.99476, 1.00937] |
+
+The deterministic 4.42% instruction and 7.21% branch reductions identify
+scratch/callback removal rather than scheduler or Embree changes. All five W8
+JIT objects are byte-identical between capability states and have zero undefined
+symbols; the main object SHA-256 is
+`a67f783695b9f252f8d272da841d847dc8359c97e3930c96e66f322027bafcde`.
+Annotated W8 assembly shows a single `vmovdqu` YMM load/store in the accepted
+blocks; W16 uses `vmovdqu64` ZMM. The callback blocks remain reachable and keep
+their scratch stores and indirect call. These are LLVM 22.1.8 results for the
+Ryzen 9 9950X3D, not an AVX-512 guarantee implied by logical W8.
+
+The final compiler-focused Release tree passes 161/161 CTest cases, and the
+graphics/fallback/SIMD/Embree Release tree passes 173/173. The Clang
+ASan/LSan/UBSan Schedule/JIT executable independently passes its complete case
+list. The runtime-width test exercises W1/W2/W4/W8/W16 and both W8/W16
+capability states; the JIT test checks exact values, inactive tail behavior,
+portable fixed-vector IR shape, assembly generation, and object materialization.

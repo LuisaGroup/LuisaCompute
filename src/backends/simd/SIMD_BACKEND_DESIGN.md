@@ -4440,6 +4440,67 @@ pass at 89.251953 dB; fresh W8/W16 Voxel references pass at 82.834519 dB.
 Voxel remains a correctness confirmation because this optimization does not
 match its buffer-based DDA hot path.
 
+### Guarded JIT-native INT1 packets
+
+Ordinary and cutout path tracing retain their RNG seed image in linear `INT1`.
+The previous packet callback therefore built coordinate/value scratch, crossed
+the JIT/runtime boundary, and iterated lanes even for a complete consecutive
+row. A pre-change W8 cutout profile attributed about 3.4% of total cycles to the
+named integer packet read/write and fallback pixel helpers; at W16 the directly
+named integer packet helpers contributed about 1.6%, with additional samples in
+their generic pixel helpers. This is independent of Embree traversal and
+scheduler continuation state.
+
+W8/W16 integer texture lowering now adds an independently capability-gated
+`INT1` arm after the existing `INT4` arm. It reuses the fully active,
+consecutive, same-row, complete-span proof, requires exact `INT1` storage, and
+forms no pointer before that proof succeeds. A read is one alignment-one
+`<W x i32>` load plus three zero component vectors; a write stores only the x
+component with one alignment-one `<W x i32>` store. The transform is exact for
+all signed or unsigned 32-bit patterns. It introduces no target intrinsic,
+gather/scatter, conversion, or lane extract/call/insert loop. Every tail,
+cross-row, out-of-bounds, 3D, mismatched-storage, null-data, or missing-
+capability case keeps the packet callback.
+
+`LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS=1` clears only the descriptor
+bit, so the performance oracle executes the same generated object. The
+optimization report separately counts guarded INT1 reads and writes. Permanent
+JIT coverage checks W2/W4 rejection, W8/W16 acceptance, high-bit input values,
+zero y/z/w read components, x-only writes, the disabled capability, and an
+inactive tail. The runtime-width suite executes a 33-by-3 `INT1` image through
+both direct and callback routes. W2 remains a correctness/ABI/tail width; this
+optimization has no W2 performance acceptance criterion.
+
+On the Ryzen 9 9950X3D with LLVM 22.1.8, seven 128-spp same-object cutout pairs
+at sixteen workers measured 1.04223x W8 throughput
+([1.03469, 1.04982], 7/7) and 1.02676x W16
+([1.01308, 1.04063], 7/7). An external Psycles render began during the W16
+population and reduced both sides' absolute FPS; all points are retained and
+the paired interval remains above one. Ordinary path tracing is less callback
+bound: eleven W8 pairs on the isolated 15-core set measured a statistically
+neutral 1.00177x [0.99545, 1.00812], while nine W16 pairs measured 1.00577x
+[1.00104, 1.01052].
+
+A fresh system/TBB equal-core sweep used CPUs `0-7,9-15`, fifteen SIMD workers,
+and seven pairs. Current W8/W16 ordinary path tracing reaches 1.26605x
+[1.24491, 1.28755] and 1.38796x [1.36151, 1.41493] fallback throughput.
+Cutout-query reaches 1.09407x [1.08497, 1.10324] and 1.14340x
+[1.12972, 1.15724], respectively. The last two comparisons measure the complete
+current backend, not the isolated contribution of this one texture arm.
+
+Five nonmultiplexed W8 cutout counter pairs put candidate/oracle cycles at
+0.95667x, instructions at 0.95585x, branches at 0.92786x, and branch misses at
+1.00204x. The corresponding throughput ratio is 1.04432x. Candidate and oracle
+produce byte-identical JIT objects; all five cutout objects have zero undefined
+symbols. The W8/W16 direct blocks lower on this host to one `vmovdqu` YMM or
+`vmovdqu64` ZMM load/store. These mnemonics audit this target's machine code and
+do not make AVX-512 part of the logical-width contract.
+
+After the final code and documentation update, the compiler-focused Release
+tree passes 161/161 CTest cases and the graphics/fallback/SIMD/Embree Release
+tree passes 173/173. The Clang ASan/LSan/UBSan Schedule/JIT executable also
+passes its complete case list, including the new INT1 differential.
+
 ### Exact biased narrow W8 loop-buffer gathers
 
 The Voxel DDA profile identified the first dependent instruction after a

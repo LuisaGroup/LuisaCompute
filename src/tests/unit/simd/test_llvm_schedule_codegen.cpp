@@ -6405,10 +6405,67 @@ struct Byte4TexturePacketProbe {
     uint32_t write_calls{0u};
 };
 
+struct Int1TexturePacketProbe {
+    bool valid{true};
+    uint32_t expected_width{0u};
+    uint32_t read_calls{0u};
+    uint32_t write_calls{0u};
+    uint64_t read_mask{0u};
+    uint64_t write_mask{0u};
+    uint32_t *pixels{nullptr};
+};
+
 struct alignas(16) Byte4TexturePacketArguments {
     SIMDHostBufferView source;
     SIMDHostTextureView texture;
 };
+
+struct alignas(16) Int1TexturePacketArguments {
+    SIMDHostTextureView texture;
+    SIMDHostBufferView output;
+};
+
+void int1_texture_packet_read_probe(
+    void *texture, uint32_t level, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *x,
+    const uint32_t *y, const uint32_t *, void *values) {
+    auto *probe = static_cast<Int1TexturePacketProbe *>(texture);
+    probe->read_calls++;
+    probe->read_mask = active_mask_bits;
+    probe->valid &= level == 0u && lane_count == probe->expected_width;
+    auto *components = static_cast<uint32_t *>(values);
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        probe->valid &= x[lane] < probe->expected_width && y[lane] == 0u;
+        components[lane] = probe->pixels[x[lane]];
+        components[lane_count + lane] = 0u;
+        components[2u * lane_count + lane] = 0u;
+        components[3u * lane_count + lane] = 0u;
+    }
+}
+
+void int1_texture_packet_write_probe(
+    void *texture, uint32_t level, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *x,
+    const uint32_t *y, const uint32_t *, const void *values) {
+    auto *probe = static_cast<Int1TexturePacketProbe *>(texture);
+    probe->write_calls++;
+    probe->write_mask = active_mask_bits;
+    probe->valid &= level == 0u && lane_count == probe->expected_width;
+    auto *components = static_cast<const uint32_t *>(values);
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        probe->valid &= x[lane] < probe->expected_width && y[lane] == 0u;
+        probe->valid &= components[lane_count + lane] == 2u;
+        probe->valid &= components[2u * lane_count + lane] == 3u;
+        probe->valid &= components[3u * lane_count + lane] == 4u;
+        probe->pixels[x[lane]] = components[lane];
+    }
+}
 
 void byte4_texture_packet_write_probe(
     void *texture, uint32_t level, uint32_t lane_count,
@@ -7030,6 +7087,193 @@ void texture_packet_sample_probe(
                 args.texture.native_storage =
                     static_cast<uint32_t>(PixelStorage::BYTE4_SRGB);
             }));
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_int1_texture_packet_codegen() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_name("int1_texture_packet");
+        auto *texture = kernel->create_resource_argument(
+            Type::texture(Type::of<uint32_t>(), 2u));
+        auto *output = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint4>()));
+        auto *entry_block = kernel->create_body_block();
+        auto *dispatch_id = module.create_dispatch_id();
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        auto *one = module.create_constant_one(Type::of<uint32_t>());
+        auto delta_value = make_uint4(1u, 2u, 3u, 4u);
+        auto *delta = module.create_constant(
+            Type::of<uint4>(), &delta_value);
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(entry_block);
+        auto *x = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+            {dispatch_id, zero});
+        auto *y = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+            {dispatch_id, one});
+        auto *coordinate = builder.call(
+            Type::of<uint2>(), xir::ArithmeticOp::AGGREGATE,
+            {x, y});
+        auto *pixel = builder.call(
+            Type::of<uint4>(), xir::ResourceReadOp::TEXTURE2D_READ,
+            {texture, coordinate});
+        builder.call(
+            xir::ResourceWriteOp::BUFFER_WRITE,
+            {output, x, pixel});
+        auto *updated = builder.call(
+            Type::of<uint4>(), xir::ArithmeticOp::BINARY_ADD,
+            {pixel, delta});
+        builder.call(
+            xir::ResourceWriteOp::TEXTURE2D_WRITE,
+            {texture, coordinate, updated});
+        builder.return_void();
+
+        auto lowered = schedule::lower_xir_to_schedule(
+            kernel, {.logical_warp_width = width});
+        if (!lowered.succeeded()) {
+            std::cerr << diagnostics_text(lowered);
+            return false;
+        }
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto llvm_module = std::make_unique<::llvm::Module>(
+            "simd-int1-texture-packet", *context);
+        auto name = "simd_int1_texture_packet_w" +
+                    std::to_string(width);
+        auto codegen = lower_schedule_to_llvm(
+            *llvm_module, *lowered.function, width, name);
+        if (!codegen.succeeded()) {
+            std::cerr << codegen.error << '\n';
+            return false;
+        }
+        auto expect_native = width == 8u || width == 16u;
+        CHECK(codegen.argument_buffer_size ==
+              sizeof(Int1TexturePacketArguments));
+        CHECK(codegen.guarded_native_texture_read_count ==
+              static_cast<size_t>(expect_native));
+        CHECK(codegen.guarded_int1_texture_read_count ==
+              static_cast<size_t>(expect_native));
+        CHECK(codegen.guarded_native_texture_write_count ==
+              static_cast<size_t>(expect_native));
+        CHECK(codegen.guarded_int1_texture_write_count ==
+              static_cast<size_t>(expect_native));
+        CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+        std::string ir;
+        ::llvm::raw_string_ostream stream{ir};
+        llvm_module->print(stream, nullptr);
+        stream.flush();
+        CHECK((ir.find("texture.read.int1.lanes") !=
+               std::string::npos) == expect_native);
+        CHECK((ir.find("texture.write.int1.pointer") !=
+               std::string::npos) == expect_native);
+        CHECK((ir.find("texture.int1.packet.guard") !=
+               std::string::npos) == expect_native);
+        CHECK(ir.find("texture.read.lane") == std::string::npos);
+        CHECK(ir.find("texture.write.lane") == std::string::npos);
+
+        LLVMJIT jit{true};
+        CHECK(jit.succeeded());
+        auto assembly = jit.emit_assembly_copy(*llvm_module);
+        CHECK(!assembly.empty());
+        CHECK(assembly.find("sinf") == std::string::npos);
+        CHECK(assembly.find("cosf") == std::string::npos);
+        CHECK(assembly.find("powf") == std::string::npos);
+        CHECK(jit.add_module(
+            std::move(llvm_module), std::move(context)));
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+        CHECK(function != nullptr);
+        CHECK(!jit.object().empty());
+
+        luisa::vector<uint32_t> pixels(width);
+        luisa::vector<uint4> output_values(width);
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            pixels[lane] = 0x81234567u + lane * 0x01020305u;
+        }
+        auto original = pixels;
+        constexpr auto output_sentinel =
+            make_uint4(0xdeadbeefu);
+        Int1TexturePacketProbe probe{
+            .expected_width = width,
+            .pixels = pixels.data()};
+        Int1TexturePacketArguments arguments{
+            .texture = SIMDHostTextureView{
+                .texture = &probe,
+                .read_uint = int1_texture_packet_read_probe,
+                .write_uint = int1_texture_packet_write_probe,
+                .level = 0u,
+                .dimension = 2u,
+                .native_data = pixels.data(),
+                .native_width = width,
+                .native_height = 1u,
+                .native_depth = 1u,
+                .native_storage = static_cast<uint32_t>(
+                    PixelStorage::INT1),
+                .native_capabilities =
+                    simd_host_texture_capability_int1_packet,
+            },
+            .output = SIMDHostBufferView{output_values.data(), output_values.size() * sizeof(uint4)},
+        };
+        auto reset = [&] {
+            pixels = original;
+            std::fill(
+                output_values.begin(), output_values.end(),
+                output_sentinel);
+            probe = {
+                .expected_width = width,
+                .pixels = pixels.data()};
+            arguments.texture.native_data = pixels.data();
+            arguments.texture.native_width = width;
+            arguments.texture.native_capabilities =
+                simd_host_texture_capability_int1_packet;
+        };
+        auto check_values = [&](uint32_t active_lanes) -> bool {
+            CHECK(probe.valid);
+            for (auto lane = uint32_t{0u}; lane < active_lanes; lane++) {
+                CHECK(all(output_values[lane] ==
+                          make_uint4(original[lane], 0u, 0u, 0u)));
+                CHECK(pixels[lane] == original[lane] + 1u);
+            }
+            for (auto lane = active_lanes; lane < width; lane++) {
+                CHECK(all(output_values[lane] == output_sentinel));
+                CHECK(pixels[lane] == original[lane]);
+            }
+            return true;
+        };
+
+        reset();
+        auto config = launch_1d(width, width);
+        function(&arguments, nullptr, &config, width);
+        CHECK(probe.read_calls == static_cast<uint32_t>(!expect_native));
+        CHECK(probe.write_calls == static_cast<uint32_t>(!expect_native));
+        CHECK(check_values(width));
+
+        if (expect_native) {
+            reset();
+            arguments.texture.native_capabilities = 0u;
+            function(&arguments, nullptr, &config, width);
+            CHECK(probe.read_calls == 1u);
+            CHECK(probe.write_calls == 1u);
+            CHECK(probe.read_mask == ((uint64_t{1u} << width) - 1u));
+            CHECK(probe.write_mask == ((uint64_t{1u} << width) - 1u));
+            CHECK(check_values(width));
+
+            reset();
+            auto active_lanes = width - 1u;
+            function(&arguments, nullptr, &config, active_lanes);
+            CHECK(probe.read_calls == 1u);
+            CHECK(probe.write_calls == 1u);
+            CHECK(probe.read_mask ==
+                  ((uint64_t{1u} << active_lanes) - 1u));
+            CHECK(probe.write_mask ==
+                  ((uint64_t{1u} << active_lanes) - 1u));
+            CHECK(check_values(active_lanes));
+        }
     }
     return true;
 }
@@ -14458,6 +14702,8 @@ int main() {
          &run_native_texture_packet_codegen},
         {"XIR BYTE4 texture packet",
          &run_byte4_texture_packet_codegen},
+        {"XIR INT1 texture packet",
+         &run_int1_texture_packet_codegen},
         {"XIR direct texture sample callback",
          &run_direct_texture_sample_codegen},
         {"XIR accel instance metadata",

@@ -662,6 +662,8 @@ inline constexpr uint32_t
     simd_host_texture_capability_byte4_float_write = 1u << 0u;
 inline constexpr uint32_t
     simd_host_texture_capability_gathered_native_read = 1u << 1u;
+inline constexpr uint32_t
+    simd_host_texture_capability_int1_packet = 1u << 2u;
 
 struct alignas(16) SIMDHostTextureView {
     void *texture{nullptr};
@@ -679,7 +681,8 @@ struct alignas(16) SIMDHostTextureView {
     // Direct native packet metadata for the fixed-vector JIT fast path. The
     // data pointer addresses this descriptor's mip level. A null pointer
     // disables the fast path and preserves the callback ABI as the semantic
-    // fallback. Only native four-channel storage is consumed directly.
+    // fallback. Native four-channel storage and separately capability-gated
+    // INT1 packets are consumed directly.
     void *native_data{nullptr};
     uint32_t native_width{0u};
     uint32_t native_height{0u};
@@ -861,8 +864,10 @@ struct LLVMScheduleCodegenResult {
     size_t interleaved_scalar_buffer_read_alias_guard_count{0u};
     size_t guarded_native_texture_read_count{0u};
     size_t guarded_gathered_native_texture_read_count{0u};
+    size_t guarded_int1_texture_read_count{0u};
     size_t guarded_native_texture_write_count{0u};
     size_t guarded_byte4_texture_write_count{0u};
+    size_t guarded_int1_texture_write_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
     size_t local_predicated_diamond_count{0u};

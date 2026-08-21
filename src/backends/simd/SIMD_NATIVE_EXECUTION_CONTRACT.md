@@ -1938,6 +1938,29 @@ all contiguous texture packets clears the capability as well. W2 coverage is
 mandatory for semantics, ABI, and inactive-tail regression, but W2 performance
 is not an acceptance target.
 
+The same 32-bit descriptor word may publish
+`simd_host_texture_capability_int1_packet`. At W8/W16, an integer 2D texture
+read or write may use this capability only after the complete active,
+consecutive, same-row, in-bounds packet proof above and an exact
+`PixelStorage::INT1` storage check. Reads issue one alignment-one `<W x i32>`
+load, preserve every bit in component x, and construct components y/z/w as
+integer zero. Writes issue one alignment-one `<W x i32>` store of component x
+and do not inspect or store the other components. These rules are identical for
+signed and unsigned integer texture types and cover all 32-bit patterns,
+including the sign bit.
+
+No pointer is formed before the complete packet guard succeeds. Partial tails,
+row crossings, active out-of-bounds coordinates, 3D resources, other integer
+storage formats, a null mip pointer, and a missing capability execute the
+unchanged packet callback. The accepted arm contains only integer arithmetic,
+compare/select, GEP, fixed-vector load/store, and aggregate assembly; it has no
+target intrinsic or extract/call/insert lane loop.
+`LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS=1` clears only this capability,
+so candidate and oracle execute the same JIT object. Disabling direct-native or
+all contiguous packets clears it as well. W1/W2/W4 always use the callback;
+W2 remains a correctness, ABI, exact-bit, and inactive-tail gate rather than a
+performance target.
+
 Bindless arrays extend the same packet boundary with a runtime-owned dense
 slot table. Each slot contains independent buffer, 2D-texture, and 3D-texture
 descriptors; a texture descriptor stores the resolved `SIMDTexture` plus a

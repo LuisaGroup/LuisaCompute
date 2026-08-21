@@ -452,6 +452,7 @@ private:
         ::llvm::Value *guard{nullptr};
         ::llvm::Value *access_guard{nullptr};
         ::llvm::Value *byte4_guard{nullptr};
+        ::llvm::Value *int1_guard{nullptr};
         ::llvm::Value *data{nullptr};
         ::llvm::Value *width{nullptr};
         ::llvm::Value *x{nullptr};

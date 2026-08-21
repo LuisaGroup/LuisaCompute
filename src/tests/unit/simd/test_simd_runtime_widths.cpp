@@ -580,6 +580,31 @@ int main(int argc, char *argv[]) {
                 << "SIMD contiguous INT4 packet mismatch";
         }
 
+        auto check_int1_image = [&](const char *failure_message) noexcept {
+            auto image = device.create_image<uint>(
+                PixelStorage::INT1, image_size);
+            luisa::vector<uint> image_input(image_size.x * image_size.y);
+            luisa::vector<uint> image_output(image_input.size());
+            for (auto i = size_t{0u}; i < image_input.size(); i++) {
+                image_input[i] =
+                    0x81234567u + static_cast<uint32_t>(i) * 0x01020305u;
+            }
+            stream << image.copy_from(luisa::span{image_input})
+                   << uint_image_shader(image).dispatch(image_size)
+                   << image.copy_to(luisa::span{image_output})
+                   << synchronize();
+            for (auto i = size_t{0u}; i < image_input.size(); i++) {
+                expect(image_output[i] == image_input[i] + 5u)
+                    << failure_message;
+            }
+        };
+        check_int1_image("SIMD direct INT1 packet mismatch");
+        if (width == 8u || width == 16u) {
+            ScopedEnvironmentVariable disable_direct_int1_packets{
+                "LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS", "1"};
+            check_int1_image("SIMD callback INT1 packet mismatch");
+        }
+
         // Indirect dispatch uses a backend-owned header/record ABI. Author
         // more records than the capacity to exercise masked out-of-range
         // lanes and an inactive packet tail at every supported width. A zero
