@@ -949,12 +949,19 @@ SIMDCompiledKernel compile_simd_kernel(
         return result;
     }
     auto aggregate_promotion_info = xir::SROAInfo{};
+    auto decompose_vector_allocas =
+        warp_width >= 4u &&
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_VECTOR_ALLOCA_PROMOTION");
     auto promote_aggregate_allocas = [&]() noexcept {
         if (detail::env_flag(
                 "LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION")) {
             return;
         }
-        auto info = xir::sroa_pass_run_on_module(module.get());
+        auto info = xir::sroa_pass_run_on_module(
+            module.get(),
+            {.decompose_vectors = decompose_vector_allocas,
+             .single_block_vectors_only = true});
         aggregate_promotion_info.decomposed_alloca_count +=
             info.decomposed_alloca_count;
         aggregate_promotion_info.inserted_alloca_count +=

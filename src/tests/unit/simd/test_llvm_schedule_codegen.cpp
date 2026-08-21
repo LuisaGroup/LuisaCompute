@@ -13034,6 +13034,96 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_ast_single_block_vector_promotion() {
+    static constexpr auto count = 13u;
+    Kernel1D kernel = [](BufferFloat4 output) noexcept {
+        auto index = dispatch_id().x;
+        auto x = cast<float>(index);
+        Var<float3> scratch = make_float3(
+            x + 0.25f, x * 2.0f + 0.5f,
+            x * 3.0f + 0.75f);
+        scratch.x += 1.0f;
+        scratch.y -= scratch.x * 0.25f;
+        output.write(
+            index,
+            make_float4(scratch, cast<float>(index + 1u)));
+    };
+
+    auto compile = [&](uint32_t width, bool disable) {
+        ScopedEnvironmentVariable setting{
+            "LUISA_SIMD_DISABLE_VECTOR_ALLOCA_PROMOTION",
+            disable ? "1" : "0"};
+        return compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_single_block_vector_promotion", false, true);
+    };
+    auto execute = [&](const SIMDCompiledKernel &compiled,
+                       uint32_t width,
+                       std::array<luisa::float4, count + 3u> &output) {
+        output.fill(luisa::make_float4(-999.0f));
+        alignas(16) SIMDHostBufferView argument{
+            output.data(), sizeof(output)};
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto *entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += width) {
+            config.thread_index = first;
+            entry(&argument, nullptr, &config, width);
+        }
+        return true;
+    };
+
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        auto candidate = compile(width, false);
+        auto oracle = compile(width, true);
+        CHECK(candidate.succeeded());
+        CHECK(oracle.succeeded());
+        if (width >= 4u) {
+            CHECK(candidate.decomposed_aggregate_alloca_count >
+                  oracle.decomposed_aggregate_alloca_count);
+            CHECK(candidate.inserted_aggregate_leaf_alloca_count >
+                  oracle.inserted_aggregate_leaf_alloca_count);
+        } else {
+            CHECK(candidate.decomposed_aggregate_alloca_count ==
+                  oracle.decomposed_aggregate_alloca_count);
+            CHECK(candidate.inserted_aggregate_leaf_alloca_count ==
+                  oracle.inserted_aggregate_leaf_alloca_count);
+            CHECK(candidate.assembly == oracle.assembly);
+        }
+
+        std::array<luisa::float4, count + 3u> candidate_output{};
+        std::array<luisa::float4, count + 3u> oracle_output{};
+        CHECK(execute(candidate, width, candidate_output));
+        CHECK(execute(oracle, width, oracle_output));
+        for (auto index = uint32_t{0u};
+             index < candidate_output.size(); index++) {
+            CHECK(luisa::all(
+                candidate_output[index] == oracle_output[index]));
+        }
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto x = static_cast<float>(index);
+            auto expected_x = x + 1.25f;
+            auto expected = luisa::make_float4(
+                expected_x,
+                x * 2.0f + 0.5f - expected_x * 0.25f,
+                x * 3.0f + 0.75f,
+                static_cast<float>(index + 1u));
+            CHECK(luisa::all(candidate_output[index] == expected));
+        }
+        for (auto index = count; index < candidate_output.size();
+             index++) {
+            CHECK(luisa::all(
+                candidate_output[index] ==
+                luisa::make_float4(-999.0f)));
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_uniform_loop_buffer_broadcast_width(
     uint32_t width, uint64_t expected_broadcast_count) {
     static constexpr auto count = 13u;
@@ -15441,6 +15531,8 @@ int main() {
          &run_ast_linear_1d_block_coalescing},
         {"AST aggregate local promotion",
          &run_ast_aggregate_promotion},
+        {"AST single-block vector promotion",
+         &run_ast_single_block_vector_promotion},
         {"AST uniform-loop buffer broadcast",
          &run_ast_uniform_loop_buffer_broadcast},
         {"AST coherent-loop direct control",

@@ -69,6 +69,7 @@ static void collect_elem_types(const Type *type, luisa::vector<const Type *> &el
 
     luisa::vector<const Instruction *> work_list;
     luisa::unordered_set<const Instruction *> visited;
+    auto *single_vector_use_block = static_cast<const BasicBlock *>(nullptr);
     for (auto &&use : alloca->use_list()) {
         if (auto user = use->user(); user != nullptr && user->isa<Instruction>()) {
             work_list.push_back(static_cast<const Instruction *>(user));
@@ -78,6 +79,15 @@ static void collect_elem_types(const Type *type, luisa::vector<const Type *> &el
         auto u = work_list.back();
         work_list.pop_back();
         if (!visited.emplace(u).second) continue;
+        if (type->is_vector() && options.single_block_vectors_only) {
+            auto *block = u->parent_block();
+            if (block == nullptr) { return false; }
+            if (single_vector_use_block == nullptr) {
+                single_vector_use_block = block;
+            } else if (single_vector_use_block != block) {
+                return false;
+            }
+        }
         if (u->isa<LoadInst>() || u->isa<StoreInst>()) continue;
         if (u->isa<GEPInst>()) {
             auto gep = static_cast<const GEPInst *>(u);

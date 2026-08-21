@@ -894,8 +894,11 @@ the shared XIR SROA pass after ray-query lowering and again after CFG
 destructuring/inlining, with `mem2reg` and DCE after each stage. The pass
 decomposes one struct/array level at a time, so the two pipeline positions can
 expose nested or newly inlined storage without teaching the scheduler a
-backend-specific aggregate transform. Vector and matrix allocas are not split
-by this policy.
+backend-specific aggregate transform. W4/W8/W16 additionally split vector
+allocas only when the complete transitive load/store/GEP use set is contained
+in one basic block. This bounded case exposes short-lived component forwarding
+to `mem2reg` without widening loop-carried Schedule state. W1/W2 retain
+byte-identical vector storage, and matrix allocas are not split by this policy.
 
 This is the first implemented lane/value-layout conversion: a lane-private
 aggregate that would otherwise cross blocks as an AoS alloca becomes disjoint
@@ -905,15 +908,19 @@ only `LOCAL` storage whose complete use chain is loads, stores, or GEPs with a
 constant top-level index. A dynamic top-level index, an escaping/unknown use,
 or one-index GEP metadata that has no unique replacement rejects the whole
 alloca before mutation; dynamic indices below a proven constant member remain
-legal. This deliberately does not transpose external memory, ray-query state,
-or arbitrary tile axes.
+legal. The vector policy likewise rejects a missing parent block or the first
+use in a second block before inserting any replacement. This deliberately does
+not transpose external memory, ray-query state, or arbitrary tile axes.
 
 `LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION=1` restores the pre-promotion pipeline
-for same-binary measurement. The optimization report exposes both decomposed
-aggregate and inserted leaf-allocation counts. A permanent W1/W2/W4/W8/W16
-test uses partial field updates across a varying branch, a loop, and a
-13-thread inactive tail and compares promoted execution with the disabled
-oracle.
+for same-binary measurement. The narrower
+`LUISA_SIMD_DISABLE_VECTOR_ALLOCA_PROMOTION=1` retains struct/array promotion
+and restores only unsplit vector scratch. The optimization report exposes both
+decomposed aggregate and inserted leaf-allocation counts, including accepted
+vectors. One permanent W1/W2/W4/W8/W16 test uses partial field updates across
+a varying branch, a loop, and a 13-thread inactive tail; a second exercises
+single-block vector scratch and requires W1/W2 assembly identity with the
+vector-disabled oracle.
 
 Scheduled PHI versions are logical SSA state, not a requirement for distinct
 LLVM allocas. Before emitting any block, codegen builds the verified Schedule
@@ -4039,9 +4046,10 @@ on 2026-08-11. The repository now contains:
   buffer-read continuation transform before Schedule emission, plus a
   fail-closed Schedule-emitter predicated direct-buffer-read diamond; each
   retains a same-binary disable control and inactive-tail proof;
-- two-stage, fail-closed local struct/array SROA before scheduling, followed by
-  `mem2reg`, so constant-member aggregate state can cross blocks as independent
-  SoA SSA leaves rather than lane-private AoS round trips;
+- two-stage, fail-closed local struct/array SROA before scheduling plus bounded
+  W4/W8/W16 single-block vector-scratch decomposition, followed by `mem2reg`,
+  so constant-member aggregate state and short-lived component forwarding can
+  remain independent SoA SSA leaves rather than lane-private AoS round trips;
 - per-kernel cold/hot suspension-state partitioning that keeps frequently
   accessed slots promotable to registers while preventing a cold-slot majority
   from inflating global dispatcher PHIs and physical register spills;

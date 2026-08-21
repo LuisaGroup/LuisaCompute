@@ -1,6 +1,6 @@
 # SIMD CPU backend performance report
 
-Snapshot date: 2026-08-21. This report covers the Release build after merging
+Snapshot date: 2026-08-22. This report covers the Release build after merging
 `origin/next@62b77df36b6dae05aff558d4db84e415b5e84e75` into
 `codex/simd-cpu-backend`, adding coherent direct-CFG lowering, completing the
 bindless gradient-sampling vertical slice, and eliminating curve-hit
@@ -141,6 +141,11 @@ The latest scheduling refinement then replaces the general independent-PC
 machine inside bounded acyclic W4/W8/W16 surface handlers with one topological
 mask-propagation pass. It wins 1.3--2.0% against a byte-identical same-module
 scheduler oracle and moves the fair W16 cutout result to 0.9223x fallback.
+The newest register-residency stage decomposes only W4/W8/W16 vector scratch
+whose complete transitive use set is confined to one basic block. This removes
+short-lived component scatter/gather traffic without promoting loop-carried
+vectors into wider scheduler state. W1/W2 remain byte-identical correctness
+widths, and a broader all-vector prototype was rejected.
 
 ## Test host and method
 
@@ -6777,3 +6782,87 @@ ASan/LSan/UBSan Schedule/JIT case list passes independently. Explicit W8/W16
 image-processing and Voxel gallery runs pass. The final 1024-spp ordinary
 path-tracing references pass at 39.219/37.800 dB for W8/W16; cutout-query
 passes at 45.530/45.151 dB.
+
+## Bounded single-block vector scratch promotion
+
+An eight-worker ordinary-path profile pinned to CPUs 0--7 attributed 67.72% of
+W8 samples to Embree and 29.87% to the main JIT object; W16 attributed 64.14%
+and 32.55%, respectively. SIMD runtime overhead was only 0.60% at W8 and 1.18%
+at W16. In the JIT object, the post-Embree path repeatedly scattered three
+components of two short-lived `float3` ray reconstruction temporaries and then
+immediately gathered each complete vector. Schedule-IR inspection confirmed
+that every transitive use of each temporary lived in one basic block.
+
+Blindly decomposing all vector allocas was not profitable. The broad W8
+prototype reduced gather/scatter count from 54 to 22 but doubled logical state
+slots from 32 to 64, increased reported spills from 18 to 33, and prevented an
+existing local-predication region from being selected. It was rejected rather
+than benchmarked into production.
+
+The retained policy extends the shared XIR SROA preflight with a strict
+single-block vector option. W4/W8/W16 split a vector alloca only when every
+transitive load, store, and GEP has the same nonnull parent block. W1/W2 do not
+request vector decomposition, matrices remain unsplit, and all existing
+escape, constant-top-index, bounds, and metadata proofs still apply. A second
+use block rejects the whole candidate before mutation.
+`LUISA_SIMD_DISABLE_VECTOR_ALLOCA_PROMOTION=1` is the narrow same-binary
+oracle; the older aggregate control remains a stronger all-SROA oracle.
+
+The ordinary path-tracing object changed as follows. Counts are static
+candidate/oracle pairs after LLVM optimization; stack references are direct
+addressing-mode counts and do not claim dynamic execution frequency.
+
+| width | state slots | spills | instructions | vector instructions | branches | stack refs | frame bytes | gather + scatter |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| W4 | 30/32 | 16/18 | 3140/3172 | 1959/2064 | 227/212 | 750/774 | 2904/3224 | 44/56 |
+| W8 | 30/32 | 16/18 | 3584/3592 | 2192/2275 | 255/267 | 934/903 | 5952/6592 | 42/54 |
+| W16 | 30/32 | 16/18 | 4258/4440 | 2526/2724 | 292/308 | 1008/1044 | 9408/10496 | 88/112 |
+
+W2 candidate and oracle objects are byte-identical. No W4/W8/W16 object has a
+scalar math call. The W8 direct stack-reference count grows despite a smaller
+frame and fewer spills, which is why production acceptance is based on paired
+execution rather than that static count alone.
+
+The primary ordinary-path experiment used 128 spp, one spp per dispatch,
+eight workers, CPUs 0--7, and ten alternating fresh-process candidate/oracle
+pairs per width. Other user workloads remained active; every sample is
+retained, and ratios are paired geometric means with log-space Student-t 95%
+intervals. All sixty invocations passed the gallery reference, and each
+candidate/oracle width pair produced the same image hash.
+
+| width | candidate median spp/s | oracle median spp/s | candidate / oracle | 95% CI | wins |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W4 | 29.129379 | 28.485495 | **1.023893x** | **[1.019516, 1.028288]** | **10/10** |
+| W8 | 37.813294 | 37.010888 | **1.020006x** | **[1.015024, 1.025012]** | **10/10** |
+| W16 | 41.611745 | 40.439868 | **1.031380x** | **[1.020778, 1.042092]** | **10/10** |
+
+The Voxel gallery is a second real consumer. Its DDA kernel contains one
+eligible `float2` temporary inside the 257-evaluation batch, while all five
+image-processing kernels contain zero eligible vector allocas and therefore
+compile unchanged. Voxel used 256 iterations per process with the same worker
+count, affinity, alternating order, ten pairs, and active background load.
+Every run produced the exact SHA-256
+`6172183a6c96704ffa48a6b64d30afcf2a3921431507dc40e3f80f1ae1362e4b`
+and passed the gallery reference at 82.834519 dB.
+
+| width | candidate median ms | oracle median ms | throughput gain | 95% CI | wins |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W4 | 10.6065 | 10.7240 | **1.013890x** | **[1.008173, 1.019641]** | **10/10** |
+| W8 | 6.3905 | 8.0285 | **1.256394x** | **[1.248702, 1.264133]** | **10/10** |
+| W16 | 8.5625 | 8.7730 | **1.024702x** | **[1.019173, 1.030261]** | **10/10** |
+
+The permanent XIR regression proves both acceptance and failure-atomic
+cross-block rejection. The JIT regression executes W1/W2/W4/W8/W16 on a
+13-thread dispatch, compares the enabled and disabled paths exactly, checks
+three inactive-tail sentinels, and requires exact W1/W2 assembly identity.
+W2 is intentionally a correctness/ABI/exact-bit/tail width, not a performance
+target.
+
+Final validation rebuilds the complete source state. The required
+native-math/runtime-width filter passes 3/3; the compiler-focused tree passes
+161/161, and the fallback/Embree/graphics tree passes 173/173. Clang
+ASan/LSan/UBSan passes both the complete Schedule/JIT executable and the
+complete shared XIR pass executable. An independent gallery matrix runs image
+processing, Voxel, and ordinary path tracing at W1/W2/W4/W8/W16: all 15 runs
+pass their checked-in references. Image-processing and Voxel hashes are
+identical across all five widths.

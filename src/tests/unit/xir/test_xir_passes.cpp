@@ -3508,6 +3508,7 @@ void reg_gvn() {
         auto *sample1 = b.call(
             Type::of<float4>(), ResourceQueryOp::TEXTURE2D_SAMPLE_LEVEL,
             {texture, uv, lod, selector, selector});
+        [[maybe_unused]] auto sample1_lock = sample1->lock();
         auto *sink = b.alloca_local(Type::of<float4>());
         auto *sum = b.call(
             Type::of<float4>(), ArithmeticOp::BINARY_ADD,
@@ -6964,6 +6965,62 @@ void reg_sroa() {
         auto *ret = static_cast<ReturnInst *>(body->terminator());
         expect(ret->return_value() != ld);
         expect(ret->return_value()->type() == struct_ty);
+    };
+
+    "sroa_single_block_vector_policy_is_fail_closed"_test = [] {
+        auto build = [](Module &m, bool cross_block) noexcept {
+            auto *f = m.create_callable(Type::of<float3>());
+            auto *body = f->create_body_block();
+            auto *continuation = cross_block ?
+                                     f->create_basic_block() :
+                                     body;
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *alloca = b.alloca_local(Type::of<float3>());
+            for (auto i = uint32_t{0u}; i < 3u; i++) {
+                auto value = static_cast<float>(i + 1u);
+                auto *index = m.create_constant(Type::of<uint32_t>(), &i);
+                auto *element = m.create_constant(Type::of<float>(), &value);
+                auto *gep = b.gep(Type::of<float>(), alloca, {index});
+                b.store(gep, element);
+            }
+            if (cross_block) {
+                b.br(continuation);
+                b.set_insertion_point(continuation);
+            }
+            auto *load = b.load(Type::of<float3>(), alloca);
+            b.return_(load);
+            return f;
+        };
+
+        Module local_module;
+        auto *local = build(local_module, false);
+        expect(xir_verify_module(&local_module).succeeded());
+        auto local_info = sroa_pass_run_on_function(
+            local,
+            {.decompose_vectors = true,
+             .single_block_vectors_only = true});
+        expect(local_info.decomposed_alloca_count == 1u);
+        expect(local_info.inserted_alloca_count == 3u);
+        expect(count_reachable_insts(
+                   local, DerivedInstructionTag::ALLOCA) == 3u);
+        expect(xir_verify_module(&local_module).succeeded());
+
+        Module cross_block_module;
+        auto *cross_block = build(cross_block_module, true);
+        expect(xir_verify_module(&cross_block_module).succeeded());
+        auto before = xir_to_text_translate(&cross_block_module, true);
+        auto cross_block_info = sroa_pass_run_on_function(
+            cross_block,
+            {.decompose_vectors = true,
+             .single_block_vectors_only = true});
+        expect(!cross_block_info.changed());
+        expect(count_reachable_insts(
+                   cross_block, DerivedInstructionTag::ALLOCA) == 1u);
+        expect(xir_to_text_translate(&cross_block_module, true) == before)
+            << "the single-block policy must reject before mutating a "
+               "cross-block vector temporary";
+        expect(xir_verify_module(&cross_block_module).succeeded());
     };
 
     "sroa_no_struct_no_change"_test = [] {
