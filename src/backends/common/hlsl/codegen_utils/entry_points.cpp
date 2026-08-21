@@ -101,6 +101,8 @@ size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRast
         // Vulkan versions typed bindless descriptors per slot. DXIL keeps its
         // established contiguous base+slot ABI.
         builder << "#define LUISA_SPIRV_TYPED_BINDLESS_INDIRECT 1\n";
+        // DX root UAVs do not carry a view size for capacity queries.
+        builder << "#define LUISA_INDIRECT_DISPATCH_BOUNDS_CHECK 1\n";
         builder << CodegenUtility::ReadInternalHLSLFile("spv_alias");
     }
     if (is_spirv && ops.test(CallOp::ASYNC_COPY)) {
