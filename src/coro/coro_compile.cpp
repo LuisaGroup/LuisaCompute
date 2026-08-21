@@ -906,6 +906,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
         }
     }
     profiler.checkpoint("irreducible-CFG lowering");
+    xir::RestructureCFGInfo continuation_restructure_work;
+    const auto verify_remaining_divergent_index =
+        environment_flag_enabled(
+            "LUISA_XIR_VERIFY_REMAINING_DIVERGENT_INDEX");
     for (auto &subroutine : split_info.subroutines) {
         auto restructure_info =
             xir::restructure_cfg_pass_run_on_function(
@@ -914,7 +918,45 @@ CoroutineCompileResult compile_coroutine_pipeline(
                      xir::RestructureCFGMutationMode::
                          IN_PLACE_DISCARDABLE,
                  .verification_transaction =
-                     nested_pass_verification_transaction});
+                     nested_pass_verification_transaction,
+                 .verify_remaining_divergent_index =
+                     verify_remaining_divergent_index});
+        continuation_restructure_work.postdom_analysis_count +=
+            restructure_info.postdom_analysis_count;
+        continuation_restructure_work.postdom_common_ancestor_query_count +=
+            restructure_info.postdom_common_ancestor_query_count;
+        continuation_restructure_work.postdom_common_ancestor_step_count +=
+            restructure_info.postdom_common_ancestor_step_count;
+        continuation_restructure_work.remaining_divergent_analysis_count +=
+            restructure_info.remaining_divergent_analysis_count;
+        continuation_restructure_work.remaining_divergent_indexed_block_count +=
+            restructure_info.remaining_divergent_indexed_block_count;
+        continuation_restructure_work.remaining_divergent_candidate_count +=
+            restructure_info.remaining_divergent_candidate_count;
+        continuation_restructure_work.remaining_divergent_candidate_query_count +=
+            restructure_info.remaining_divergent_candidate_query_count;
+        continuation_restructure_work.remaining_divergent_region_block_visit_count +=
+            restructure_info.remaining_divergent_region_block_visit_count;
+        continuation_restructure_work.remaining_divergent_region_edge_visit_count +=
+            restructure_info.remaining_divergent_region_edge_visit_count;
+        continuation_restructure_work.remaining_divergent_rewrite_count +=
+            restructure_info.remaining_divergent_rewrite_count;
+        continuation_restructure_work.remaining_divergent_dominance_rebuild_count +=
+            restructure_info.remaining_divergent_dominance_rebuild_count;
+        continuation_restructure_work.remaining_divergent_postdom_incremental_update_count +=
+            restructure_info.remaining_divergent_postdom_incremental_update_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_candidate_block_count +=
+            restructure_info.remaining_divergent_postdom_update_candidate_block_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_block_evaluation_count +=
+            restructure_info.remaining_divergent_postdom_update_block_evaluation_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_edge_visit_count +=
+            restructure_info.remaining_divergent_postdom_update_edge_visit_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_covered_block_count +=
+            restructure_info.remaining_divergent_postdom_update_covered_block_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_reparented_root_count +=
+            restructure_info.remaining_divergent_postdom_update_reparented_root_count;
+        continuation_restructure_work.remaining_divergent_postdom_rebuild_count +=
+            restructure_info.remaining_divergent_postdom_rebuild_count;
         nested_pass_boundary_verifier_count +=
             restructure_info.boundary_verifier_count;
         if (!restructure_info.succeeded()) {
@@ -932,6 +974,36 @@ CoroutineCompileResult compile_coroutine_pipeline(
             subroutine.callable);
         (void)xir::reg2mem_pass_run_on_function(
             subroutine.callable);
+    }
+    if (environment_flag_enabled("LUISA_CORO_PROFILE_COMPILATION")) {
+        LUISA_INFO(
+            "Coroutine continuation restructuring work: "
+            "continuations={} postdom_analyses={} common_ancestor_queries={} "
+            "common_ancestor_steps={} remaining_analyses={} indexed_blocks={} "
+            "candidates={} candidate_queries={} region_blocks={} "
+            "region_edges={} rewrites={} dominance_rebuilds={} "
+            "postdom_updates={} update_candidates={} update_evaluations={} "
+            "update_edges={} update_covered={} update_reparented_roots={} "
+            "postdom_rebuilds={}.",
+            split_info.subroutines.size(),
+            continuation_restructure_work.postdom_analysis_count,
+            continuation_restructure_work.postdom_common_ancestor_query_count,
+            continuation_restructure_work.postdom_common_ancestor_step_count,
+            continuation_restructure_work.remaining_divergent_analysis_count,
+            continuation_restructure_work.remaining_divergent_indexed_block_count,
+            continuation_restructure_work.remaining_divergent_candidate_count,
+            continuation_restructure_work.remaining_divergent_candidate_query_count,
+            continuation_restructure_work.remaining_divergent_region_block_visit_count,
+            continuation_restructure_work.remaining_divergent_region_edge_visit_count,
+            continuation_restructure_work.remaining_divergent_rewrite_count,
+            continuation_restructure_work.remaining_divergent_dominance_rebuild_count,
+            continuation_restructure_work.remaining_divergent_postdom_incremental_update_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_candidate_block_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_block_evaluation_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_edge_visit_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_covered_block_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_reparented_root_count,
+            continuation_restructure_work.remaining_divergent_postdom_rebuild_count);
     }
     profiler.checkpoint("continuation restructuring");
     auto argument_projection_info =

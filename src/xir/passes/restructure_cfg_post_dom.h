@@ -2,7 +2,9 @@
 
 #include <cstddef>
 
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 
 namespace luisa::compute::xir {
 
@@ -12,8 +14,47 @@ class FunctionDefinition;
 namespace detail {
 
 struct RestructurePostDomInfo {
-    luisa::unordered_map<BasicBlock *, BasicBlock *> ipostdom;
+    struct Node {
+        BasicBlock *parent{nullptr};
+        size_t depth{0u};
+        luisa::vector<BasicBlock *> children;
+        size_t update_epoch{0u};
+    };
+
+    luisa::unordered_map<BasicBlock *, Node> nodes;
     BasicBlock *virtual_exit{nullptr};
+    size_t update_epoch{0u};
+
+    [[nodiscard]] BasicBlock *immediate_postdom(
+        BasicBlock *block) const noexcept;
+    // Nearest common ancestor in the sparse immediate-postdominator tree.
+    // The synthetic virtual exit is reported as nullptr, matching the
+    // historical set-intersection query.
+    [[nodiscard]] BasicBlock *nearest_common_postdom(
+        luisa::span<BasicBlock *const> blocks,
+        size_t *ancestor_step_count = nullptr) const noexcept;
+
+    struct TransparentMergeUpdateStats {
+        size_t candidate_block_count{0u};
+        size_t block_evaluation_count{0u};
+        size_t edge_visit_count{0u};
+        size_t covered_block_count{0u};
+        size_t reparented_root_count{0u};
+    };
+
+    // Update the exact tree after replacing a non-empty subset of executable
+    // edges `u -> successor` by `u -> block -> successor`. The caller
+    // guarantees that all changed old edges originate in the old strict
+    // postdom subtree of `successor`; old nodes and all other executable edges
+    // are unchanged. Returns false when the mutation is outside this
+    // transparent-funnel model and the caller must rebuild the tree.
+    [[nodiscard]] bool insert_transparent_merge(
+        BasicBlock *block,
+        BasicBlock *successor,
+        TransparentMergeUpdateStats *stats = nullptr) noexcept;
+
+    [[nodiscard]] bool structurally_equals(
+        const RestructurePostDomInfo &other) const noexcept;
 };
 
 struct RestructurePostDomStats {
