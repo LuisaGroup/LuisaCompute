@@ -70,8 +70,8 @@ void register_coro_rematerialize_tests() {
         builder.return_void();
 
         expect(xir_verify_module(&module).succeeded());
-        auto info =
-            coro_rematerialize_local_state_pass_run_on_function(kernel);
+        auto info = coro_rematerialize_local_state_pass_run_on_function(
+            kernel, {.verify_dense_reaching_values = true});
 
         expect(info.invalid_semantic_cfg_count == 0u);
         expect(info.promoted_alloca_count == 1u);
@@ -114,8 +114,8 @@ void register_coro_rematerialize_tests() {
         builder.return_void();
 
         expect(xir_verify_module(&module).succeeded());
-        auto info =
-            coro_rematerialize_local_state_pass_run_on_function(kernel);
+        auto info = coro_rematerialize_local_state_pass_run_on_function(
+            kernel, {.verify_dense_reaching_values = true});
 
         expect(info.replayable_single_store_count == 1u);
         expect(info.promoted_alloca_count == 1u);
@@ -316,8 +316,8 @@ void register_coro_rematerialize_tests() {
         builder.return_void();
 
         expect(xir_verify_module(&module).succeeded());
-        auto info =
-            coro_rematerialize_local_state_pass_run_on_function(kernel);
+        auto info = coro_rematerialize_local_state_pass_run_on_function(
+            kernel, {.verify_dense_reaching_values = true});
 
         expect(info.replayable_multi_store_count == 1u);
         expect(info.unresolved_load_count == 1u);
@@ -357,8 +357,8 @@ void register_coro_rematerialize_tests() {
         builder.return_void();
 
         expect(xir_verify_module(&module).succeeded());
-        auto info =
-            coro_rematerialize_local_state_pass_run_on_function(kernel);
+        auto info = coro_rematerialize_local_state_pass_run_on_function(
+            kernel, {.verify_dense_reaching_values = true});
 
         expect(info.replayable_multi_store_count == 1u);
         expect(info.unresolved_load_count == 1u);
@@ -539,8 +539,8 @@ void register_coro_rematerialize_tests() {
         auto *write_second = builder.store(second_output, second);
         builder.return_void();
 
-        auto info =
-            coro_rematerialize_local_state_pass_run_on_function(kernel);
+        auto info = coro_rematerialize_local_state_pass_run_on_function(
+            kernel, {.verify_dense_reaching_values = true});
 
         expect(info.nonreplayable_candidate_count == 1u);
         expect(info.reaching_dataflow_alloca_count == 1u);
@@ -810,6 +810,62 @@ void register_coro_rematerialize_tests() {
         expect(info.nonreplayable_candidate_count == 1u);
         expect(info.promoted_nonreplayable_alloca_count == 1u);
         expect(info.promoted_alloca_count == 1u);
+        expect(info.replaced_load_count == 1u);
+        expect(count_loads_from(kernel, state) == 0u);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "reaching_value_projection_skips_unrelated_cfg"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *condition = kernel->create_argument(
+            Type::of<bool>(), false);
+        auto *store_block = kernel->create_basic_block();
+        auto *resume = kernel->create_basic_block();
+        constexpr auto unrelated_block_count = 512u;
+        luisa::vector<BasicBlock *> unrelated;
+        unrelated.reserve(unrelated_block_count);
+        for (auto i = 0u; i < unrelated_block_count; ++i) {
+            unrelated.emplace_back(kernel->create_basic_block());
+        }
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<uint>());
+        builder.cond_br(condition, store_block, unrelated.front());
+        builder.set_insertion_point(store_block);
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        // Two stores force the general reaching-value solver. The second one
+        // completely determines this block's output.
+        builder.store(state, zero);
+        builder.store(state, zero);
+        builder.coro_suspend(53u, "projected_reaching", nullptr);
+        builder.set_insertion_point(resume);
+        builder.coro_resume(53u, nullptr);
+        static_cast<void>(builder.load(Type::of<uint>(), state));
+        builder.return_void();
+        for (auto i = 0u; i < unrelated_block_count; ++i) {
+            builder.set_insertion_point(unrelated[i]);
+            if (i + 1u < unrelated_block_count) {
+                builder.br(unrelated[i + 1u]);
+            } else {
+                builder.return_void();
+            }
+        }
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_rematerialize_local_state_pass_run_on_function(
+            kernel, {.verify_dense_reaching_values = true});
+
+        expect(info.semantic_block_count ==
+               unrelated_block_count + 3u);
+        expect(info.reaching_dataflow_alloca_count == 1u);
+        // The resume block is the only demanded coordinate. Its predecessor
+        // has an overwriting store, so the exact reverse slice terminates at
+        // that boundary and never enters the unrelated 512-block arm.
+        expect(info.reaching_dataflow_active_block_count == 1u);
+        expect(info.reaching_dataflow_block_evaluation_count == 1u);
+        expect(info.promoted_multi_store_alloca_count == 1u);
         expect(info.replaced_load_count == 1u);
         expect(count_loads_from(kernel, state) == 0u);
         expect(xir_verify_module(&module).succeeded());

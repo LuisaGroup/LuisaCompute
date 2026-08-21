@@ -200,7 +200,7 @@ struct ReachingValue {
     return true;
 }
 
-[[nodiscard]] size_t resolve_reaching_values(
+[[nodiscard]] size_t resolve_reaching_values_dense_oracle(
     const CoroSemanticGraph &graph,
     const luisa::unordered_map<Instruction *, size_t> &instruction_indices,
     LocalStateCandidate &candidate,
@@ -316,6 +316,270 @@ struct ReachingValue {
     return unresolved;
 }
 
+struct ReachingEvent {
+    Instruction *instruction{nullptr};
+    LoadProjection *load{nullptr};
+};
+
+// Reused by all candidate coordinates. The reaching-value equations form a
+// product lattice: one local alloca is one independent coordinate. Reusing
+// the storage keeps projection cost proportional to the blocks actually
+// touched by that coordinate instead of repeatedly constructing B vectors.
+struct ReachingValueWorkspace {
+    luisa::vector<luisa::vector<ReachingEvent>> block_events;
+    luisa::vector<StoreInst *> last_stores;
+    luisa::vector<ReachingValue> block_inputs;
+    luisa::vector<ReachingValue> block_outputs;
+    luisa::vector<uint8_t> event_block_touched;
+    luisa::vector<uint8_t> active;
+    luisa::vector<uint8_t> queued;
+    luisa::vector<size_t> touched_event_blocks;
+    luisa::vector<size_t> active_blocks;
+    luisa::vector<size_t> reverse_worklist;
+    luisa::vector<size_t> forward_worklist;
+
+    explicit ReachingValueWorkspace(size_t block_count) noexcept
+        : block_events{block_count},
+          last_stores(block_count, nullptr),
+          block_inputs(block_count),
+          block_outputs(block_count),
+          event_block_touched(block_count, 0u),
+          active(block_count, 0u),
+          queued(block_count, 0u) {}
+
+    void reset() noexcept {
+        for (auto block_id : touched_event_blocks) {
+            block_events[block_id].clear();
+            last_stores[block_id] = nullptr;
+            event_block_touched[block_id] = 0u;
+        }
+        for (auto block_id : active_blocks) {
+            block_inputs[block_id] = ReachingValue{};
+            block_outputs[block_id] = ReachingValue{};
+            active[block_id] = 0u;
+            queued[block_id] = 0u;
+        }
+        touched_event_blocks.clear();
+        active_blocks.clear();
+        reverse_worklist.clear();
+        forward_worklist.clear();
+    }
+
+    void add_event(size_t block_id, ReachingEvent event) noexcept {
+        if (event_block_touched[block_id] == 0u) {
+            event_block_touched[block_id] = 1u;
+            touched_event_blocks.emplace_back(block_id);
+        }
+        block_events[block_id].emplace_back(event);
+    }
+
+    [[nodiscard]] bool mark_active(size_t block_id) noexcept {
+        if (active[block_id] != 0u) { return false; }
+        active[block_id] = 1u;
+        active_blocks.emplace_back(block_id);
+        reverse_worklist.emplace_back(block_id);
+        return true;
+    }
+};
+
+[[nodiscard]] size_t resolve_reaching_values_projected(
+    const CoroSemanticGraph &graph,
+    const luisa::unordered_map<Instruction *, size_t> &instruction_indices,
+    ReachingValueWorkspace &workspace,
+    LocalStateCandidate &candidate,
+    size_t &active_block_count,
+    size_t &block_evaluation_count) noexcept {
+    workspace.reset();
+    auto block_count = graph.block_count();
+    for (auto *store : candidate.stores) {
+        auto block_id = graph.block_id(store->parent_block());
+        if (block_id < block_count) {
+            workspace.add_event(
+                block_id, ReachingEvent{store, nullptr});
+        }
+    }
+    for (auto &projection : candidate.loads) {
+        auto block_id = graph.block_id(
+            projection.load->parent_block());
+        if (block_id < block_count) {
+            workspace.add_event(
+                block_id,
+                ReachingEvent{projection.load, &projection});
+        }
+    }
+
+    // A load after a store in the same block is resolved locally. Only loads
+    // before the first store demand the block input. A predecessor containing
+    // a store is a boundary: its output is the last stored value, independent
+    // of its input, so the backward projection stops there.
+    for (auto block_id : workspace.touched_event_blocks) {
+        auto &events = workspace.block_events[block_id];
+        std::sort(
+            events.begin(), events.end(),
+            [&](const ReachingEvent &lhs,
+                const ReachingEvent &rhs) noexcept {
+                return instruction_indices.at(lhs.instruction) <
+                       instruction_indices.at(rhs.instruction);
+            });
+        auto seen_store = false;
+        for (auto event : events) {
+            if (event.load == nullptr) {
+                auto *store = static_cast<StoreInst *>(event.instruction);
+                workspace.last_stores[block_id] = store;
+                seen_store = true;
+            } else if (!seen_store) {
+                static_cast<void>(workspace.mark_active(block_id));
+            }
+        }
+    }
+    for (size_t cursor = 0u;
+         cursor < workspace.reverse_worklist.size(); ++cursor) {
+        auto block_id = workspace.reverse_worklist[cursor];
+        // Match the original boundary condition exactly: entry is undefined
+        // even if malformed input manufactures a predecessor edge to it.
+        if (block_id == 0u) { continue; }
+        for (auto predecessor : graph.predecessors(block_id)) {
+            if (workspace.last_stores[predecessor] != nullptr) {
+                continue;
+            }
+            static_cast<void>(workspace.mark_active(predecessor));
+        }
+    }
+    active_block_count += workspace.active_blocks.size();
+
+    // Semantic graph IDs are reverse postorder. Sorting the projected subset
+    // preserves that order: every acyclic predecessor is evaluated before its
+    // consumer, while ordinary worklist revisits retain exact loop semantics.
+    std::sort(
+        workspace.active_blocks.begin(),
+        workspace.active_blocks.end());
+    workspace.forward_worklist = workspace.active_blocks;
+    for (auto block_id : workspace.active_blocks) {
+        workspace.queued[block_id] = 1u;
+        if (auto *store = workspace.last_stores[block_id]) {
+            workspace.block_outputs[block_id] =
+                ReachingValue::unique(store->value());
+        }
+    }
+    for (size_t cursor = 0u;
+         cursor < workspace.forward_worklist.size(); ++cursor) {
+        auto block_id = workspace.forward_worklist[cursor];
+        workspace.queued[block_id] = 0u;
+        ++block_evaluation_count;
+        auto incoming = block_id == 0u ?
+                            ReachingValue::undefined() :
+                            ReachingValue{};
+        if (block_id != 0u) {
+            for (auto predecessor : graph.predecessors(block_id)) {
+                auto predecessor_output = ReachingValue{};
+                if (auto *store = workspace.last_stores[predecessor]) {
+                    predecessor_output =
+                        ReachingValue::unique(store->value());
+                } else {
+                    LUISA_DEBUG_ASSERT(
+                        workspace.active[predecessor] != 0u,
+                        "Store-free predecessor must belong to the "
+                        "backward-closed reaching-value projection.");
+                    predecessor_output =
+                        workspace.block_outputs[predecessor];
+                }
+                if (predecessor_output.tag ==
+                        ReachingValueTag::UNIQUE &&
+                    graph.is_suspend_edge(
+                        predecessor, block_id)) {
+                    predecessor_output.crossed_suspend = true;
+                }
+                incoming = meet_reaching_values(
+                    incoming, predecessor_output);
+            }
+        }
+        workspace.block_inputs[block_id] = incoming;
+        auto outgoing = workspace.last_stores[block_id] == nullptr ?
+                            incoming :
+                            ReachingValue::unique(
+                                workspace.last_stores[block_id]->value());
+        if (outgoing == workspace.block_outputs[block_id]) {
+            continue;
+        }
+        workspace.block_outputs[block_id] = outgoing;
+        for (auto successor : graph.successors(block_id)) {
+            if (workspace.active[successor] != 0u &&
+                workspace.queued[successor] == 0u) {
+                workspace.queued[successor] = 1u;
+                workspace.forward_worklist.emplace_back(successor);
+            }
+        }
+    }
+
+    // Replay only sparse event blocks after convergence. A non-active event
+    // block has no pre-store load by construction, so its initial pending
+    // state is unobservable before the first overwriting store.
+    for (auto block_id : workspace.touched_event_blocks) {
+        auto state = workspace.active[block_id] != 0u ?
+                         workspace.block_inputs[block_id] :
+                         ReachingValue{};
+        for (auto event : workspace.block_events[block_id]) {
+            if (event.load == nullptr) {
+                auto *store = static_cast<StoreInst *>(event.instruction);
+                state = ReachingValue::unique(store->value());
+            } else if (state.tag == ReachingValueTag::UNIQUE) {
+                event.load->reaching_value = state.value;
+                event.load->reaches_across_suspend =
+                    state.crossed_suspend;
+            }
+        }
+    }
+    auto unresolved = size_t{0u};
+    for (auto &projection : candidate.loads) {
+        if (projection.reaching_value == nullptr) {
+            ++unresolved;
+        }
+    }
+    return unresolved;
+}
+
+[[nodiscard]] size_t resolve_reaching_values(
+    const CoroSemanticGraph &graph,
+    const luisa::unordered_map<Instruction *, size_t> &instruction_indices,
+    ReachingValueWorkspace &workspace,
+    LocalStateCandidate &candidate,
+    bool verify_dense_oracle,
+    size_t &active_block_count,
+    size_t &block_evaluation_count) noexcept {
+    LocalStateCandidate oracle_candidate;
+    auto oracle_unresolved = size_t{0u};
+    if (verify_dense_oracle) {
+        oracle_candidate = candidate;
+        auto oracle_evaluations = size_t{0u};
+        oracle_unresolved = resolve_reaching_values_dense_oracle(
+            graph, instruction_indices, oracle_candidate,
+            oracle_evaluations);
+    }
+    auto unresolved = resolve_reaching_values_projected(
+        graph, instruction_indices, workspace, candidate,
+        active_block_count, block_evaluation_count);
+    if (verify_dense_oracle) {
+        LUISA_ASSERT(
+            unresolved == oracle_unresolved &&
+                candidate.loads.size() == oracle_candidate.loads.size(),
+            "Projected and dense reaching-value analyses disagree on "
+            "the unresolved load count.");
+        for (size_t i = 0u; i < candidate.loads.size(); ++i) {
+            auto &projected = candidate.loads[i];
+            auto &dense = oracle_candidate.loads[i];
+            LUISA_ASSERT(
+                projected.load == dense.load &&
+                    projected.reaching_value == dense.reaching_value &&
+                    projected.reaches_across_suspend ==
+                        dense.reaches_across_suspend,
+                "Projected and dense reaching-value analyses disagree "
+                "at load {}.",
+                i);
+        }
+    }
+    return unresolved;
+}
+
 [[nodiscard]] size_t resolve_single_store_loads(
     const CoroSemanticGraph &graph,
     const luisa::unordered_map<Instruction *, size_t> &instruction_indices,
@@ -354,7 +618,8 @@ struct ReachingValue {
 
 CoroRematerializeInfo
 coro_rematerialize_local_state_pass_run_on_function(
-    Function *function) noexcept {
+    Function *function,
+    const CoroRematerializeOptions &options) noexcept {
     CoroRematerializeInfo info;
     auto *definition =
         function == nullptr ? nullptr : function->definition();
@@ -386,6 +651,8 @@ coro_rematerialize_local_state_pass_run_on_function(
     }
 
     detail::CoroReplayableValueAnalysis replayable;
+    detail::ReachingValueWorkspace reaching_workspace{
+        graph.block_count()};
     luisa::vector<detail::LocalStateCandidate> accepted;
     for (auto *alloca : allocas) {
         ++info.scanned_alloca_count;
@@ -458,7 +725,9 @@ coro_rematerialize_local_state_pass_run_on_function(
         } else {
             ++info.reaching_dataflow_alloca_count;
             unresolved = detail::resolve_reaching_values(
-                graph, instruction_indices, candidate,
+                graph, instruction_indices, reaching_workspace,
+                candidate, options.verify_dense_reaching_values,
+                info.reaching_dataflow_active_block_count,
                 info.reaching_dataflow_block_evaluation_count);
         }
         info.unresolved_load_count += unresolved;
@@ -527,7 +796,8 @@ coro_rematerialize_local_state_pass_run_on_function(
         luisa::unordered_set<Value *> charged_values;
         for (auto &projection : candidate.loads) {
             if (charged_values.emplace(
-                    projection.reaching_value).second) {
+                                  projection.reaching_value)
+                    .second) {
                 candidate.replay_cost += replayable.instruction_cost(
                     projection.reaching_value);
             }

@@ -8,6 +8,12 @@ namespace luisa::compute::xir {
 
 class Function;
 
+struct CoroRematerializeOptions {
+    // Expensive semantic oracle for compiler validation. The production
+    // solver is compared load-by-load with the full-CFG product dataflow.
+    bool verify_dense_reaching_values{false};
+};
+
 // Promotes coroutine local state back to exact SSA values. Replayable values
 // are reconstructed in each continuation; non-replayable values are computed
 // once and become ordinary versioned frame state instead of being recomputed.
@@ -41,6 +47,7 @@ struct CoroRematerializeInfo {
     size_t replayable_multi_store_count{0u};
     size_t nonreplayable_candidate_count{0u};
     size_t reaching_dataflow_alloca_count{0u};
+    size_t reaching_dataflow_active_block_count{0u};
     size_t reaching_dataflow_block_evaluation_count{0u};
     size_t promoted_multi_store_alloca_count{0u};
     size_t unresolved_load_count{0u};
@@ -63,6 +70,7 @@ struct CoroRematerializeInfo {
 
 [[nodiscard]] LUISA_XIR_API CoroRematerializeInfo
 coro_rematerialize_local_state_pass_run_on_function(
-    Function *function) noexcept;
+    Function *function,
+    const CoroRematerializeOptions &options = {}) noexcept;
 
 }// namespace luisa::compute::xir

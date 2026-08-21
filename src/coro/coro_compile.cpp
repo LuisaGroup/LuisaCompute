@@ -380,9 +380,13 @@ void verify_coro_xir_or_error(
           });
     p.add("coro-rematerialize-local-state",
           [coroutine](xir::Module *, xir::PassReport &r) {
+              xir::CoroRematerializeOptions options;
+              options.verify_dense_reaching_values =
+                  environment_flag_enabled(
+                      "LUISA_CORO_VERIFY_DENSE_REACHING_VALUES");
               auto i = xir::
                   coro_rematerialize_local_state_pass_run_on_function(
-                      coroutine);
+                      coroutine, options);
               r.set("semantic_block", i.semantic_block_count);
               r.set("semantic_edge", i.semantic_edge_count);
               r.set("scanned_alloca", i.scanned_alloca_count);
@@ -394,6 +398,8 @@ void verify_coro_xir_or_error(
                     i.nonreplayable_candidate_count);
               r.set("reaching_dataflow_alloca",
                     i.reaching_dataflow_alloca_count);
+              r.set("reaching_dataflow_active_block",
+                    i.reaching_dataflow_active_block_count);
               r.set("reaching_dataflow_block_evaluation",
                     i.reaching_dataflow_block_evaluation_count);
               r.set("promoted_multi_store_alloca",
@@ -424,7 +430,8 @@ void verify_coro_xir_or_error(
                       "Coroutine local-state rematerialization: "
                       "allocas={} single_store={} multi_store={} "
                       "nonreplayable_candidates={} "
-                      "dataflow_allocas={} block_evaluations={} "
+                      "dataflow_allocas={} active_blocks={} "
+                      "block_evaluations={} "
                       "unresolved_loads={} rejected_nonreplayable_projection={} "
                       "rejected_nonreplayable_scope_local={} "
                       "rejected_forwarding_cycles={} promoted_allocas={} "
@@ -436,6 +443,7 @@ void verify_coro_xir_or_error(
                       i.replayable_multi_store_count,
                       i.nonreplayable_candidate_count,
                       i.reaching_dataflow_alloca_count,
+                      i.reaching_dataflow_active_block_count,
                       i.reaching_dataflow_block_evaluation_count,
                       i.unresolved_load_count,
                       i.rejected_nonreplayable_projection_count,
