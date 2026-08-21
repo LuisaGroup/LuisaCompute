@@ -492,6 +492,9 @@ void register_tests() {
         b.set_insertion_point(f.loop->prev());
         auto *scratch = b.alloca_local(large_type);
         scratch->set_name("large_surface_invocation_scratch");
+        auto *unrelated = b.alloca_shared(large_type);
+        unrelated->set_name("unrelated_shared_pointer_volume");
+        b.store(unrelated, m.create_constant_zero(large_type));
 
         b.set_insertion_point(f.surface);
         b.store(scratch, m.create_constant_zero(large_type));
@@ -508,6 +511,17 @@ void register_tests() {
                 {noise, one});
         }
         static_cast<void>(noise);
+        // Pointer support is sparse as well: these lvalue/GEP chains belong
+        // to a different root and therefore denote identity in `scratch`'s
+        // product-lattice coordinate. They remain before DCE so the
+        // regression covers provenance filtering, not just scalar operands.
+        auto *zero_index =
+            m.create_constant_zero(Type::of<uint>());
+        for (auto i = 0u; i < 8192u; ++i) {
+            auto *pointer = b.gep(
+                Type::of<int>(), unrelated, {zero_index});
+            b.load(Type::of<int>(), pointer);
+        }
         b.br(f.dispatch);
 
         expect(xir_verify_module(&m).succeeded());

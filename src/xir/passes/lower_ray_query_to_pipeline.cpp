@@ -466,7 +466,7 @@ static void collect_handler_alloca_root_uses(
     Value *pointer, const RayQueryHandlerRegion &surface_region,
     const RayQueryHandlerRegion &procedural_region,
     RayQueryHandlerRootUseInfo &info,
-    luisa::unordered_set<Value *> &visited) noexcept {
+    luisa::unordered_set<const Value *> &visited) noexcept {
     if (!info.valid || pointer == nullptr ||
         !visited.emplace(pointer).second) {
         return;
@@ -555,6 +555,15 @@ struct RayQueryHandlerPointerResolveResult {
     bool related{false};
     RayQueryHandlerPointerView view;
 };
+
+// `collect_handler_alloca_root_uses` follows every use edge from one root and
+// recurses through the only address-preserving XIR instruction, GEP. Any other
+// top-level use is either a classified load/store, an explicit reference-call
+// boundary, or rejects localization. Its visited set is therefore the exact
+// support of this root in the parent function's pointer product lattice. An
+// instruction whose lvalue operands lie outside that support has the identity
+// effect for this coordinate. Callable bodies are analyzed without this
+// parent-function filter after binding their reference formals.
 
 struct RayQueryHandlerScratchEffect {
     const Type *type;
@@ -716,7 +725,8 @@ private:
         }
         auto result = summarize_region(
             definition->body_block(), blocks,
-            std::move(environment), false, active_functions);
+            std::move(environment), nullptr, false,
+            active_functions);
         active_functions.erase(function);
         return result;
     }
@@ -726,6 +736,7 @@ private:
         const RayQueryHandlerPointerEnvironment &environment,
         luisa::unordered_map<const Value *,
                              RayQueryHandlerPointerResolveResult> &cache,
+        const luisa::unordered_set<const Value *> *pointer_support,
         luisa::unordered_set<const Function *> &active_functions) const noexcept {
         RayQueryHandlerScratchEffect effect{_root_type};
         if (instruction == nullptr) {
@@ -735,6 +746,10 @@ private:
         auto require_unrelated_operand = [&](size_t index) noexcept {
             auto *operand = instruction->operand(index);
             if (operand == nullptr || !operand->is_lvalue()) { return; }
+            if (pointer_support != nullptr &&
+                !pointer_support->contains(operand)) {
+                return;
+            }
             auto resolved = resolve_pointer(
                 operand, environment, cache);
             effect.valid &= resolved.valid && !resolved.related;
@@ -745,9 +760,19 @@ private:
                     effect.valid = false;
                     break;
                 }
+                auto *base =
+                    static_cast<const GEPInst *>(instruction)->base();
+                if (pointer_support != nullptr &&
+                    !pointer_support->contains(base)) {
+                    for (auto i = 1u;
+                         effect.valid &&
+                         i < instruction->operand_count(); ++i) {
+                        require_unrelated_operand(i);
+                    }
+                    break;
+                }
                 auto resolved = resolve_pointer(
-                    static_cast<const GEPInst *>(instruction)->base(),
-                    environment, cache);
+                    base, environment, cache);
                 effect.valid &= resolved.valid;
                 for (auto i = 1u;
                      effect.valid && i < instruction->operand_count(); ++i) {
@@ -760,9 +785,14 @@ private:
                     effect.valid = false;
                     break;
                 }
+                auto *variable =
+                    static_cast<const LoadInst *>(instruction)->variable();
+                if (pointer_support != nullptr &&
+                    !pointer_support->contains(variable)) {
+                    break;
+                }
                 auto resolved = resolve_pointer(
-                    static_cast<const LoadInst *>(instruction)->variable(),
-                    environment, cache);
+                    variable, environment, cache);
                 effect.valid &= resolved.valid;
                 if (resolved.related) {
                     effect = access_effect(resolved.view, true, false);
@@ -774,9 +804,15 @@ private:
                     effect.valid = false;
                     break;
                 }
+                auto *variable =
+                    static_cast<const StoreInst *>(instruction)->variable();
+                if (pointer_support != nullptr &&
+                    !pointer_support->contains(variable)) {
+                    require_unrelated_operand(1u);
+                    break;
+                }
                 auto resolved = resolve_pointer(
-                    static_cast<const StoreInst *>(instruction)->variable(),
-                    environment, cache);
+                    variable, environment, cache);
                 effect.valid &= resolved.valid;
                 if (resolved.related) {
                     effect = access_effect(resolved.view, false, true);
@@ -796,6 +832,10 @@ private:
                 auto formal = callee->arguments().begin();
                 for (auto i = 0u; i < call->argument_count(); ++i, ++formal) {
                     auto *argument = call->argument(i);
+                    if (pointer_support != nullptr &&
+                        !pointer_support->contains(argument)) {
+                        continue;
+                    }
                     auto resolved =
                         argument == nullptr || !argument->is_lvalue() ?
                             RayQueryHandlerPointerResolveResult{} :
@@ -861,6 +901,7 @@ private:
         BasicBlock *entry,
         const luisa::unordered_set<BasicBlock *> &blocks,
         RayQueryHandlerPointerEnvironment environment,
+        const luisa::unordered_set<const Value *> *pointer_support,
         bool allow_external_exit,
         luisa::unordered_set<const Function *> &active_functions) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
@@ -883,18 +924,21 @@ private:
         luisa::unordered_set<BasicBlock *> queued;
         queued.insert(entry);
         RayQueryHandlerScratchBlockState exits{_root_type};
+        // Pointer provenance depends only on the immutable environment and
+        // value graph, not on the block or current dataflow fact. Reuse one
+        // memo table across block revisits and fixed-point iterations.
+        luisa::unordered_map<const Value *,
+                             RayQueryHandlerPointerResolveResult>
+            pointer_cache;
         while (!worklist.empty()) {
             auto *block = worklist.back();
             worklist.pop_back();
             queued.erase(block);
             auto current = states.at(block)->effect;
-            luisa::unordered_map<const Value *,
-                                 RayQueryHandlerPointerResolveResult>
-                pointer_cache;
             for (auto *instruction : block->instructions()) {
                 auto next = instruction_effect(
                     instruction, environment, pointer_cache,
-                    active_functions);
+                    pointer_support, active_functions);
                 append_handler_scratch_effect(current, next);
                 if (!current.valid) { return current; }
             }
@@ -936,7 +980,8 @@ public:
 
     [[nodiscard]] RayQueryHandlerScratchEffect summarize(
         AllocaInst *alloca, BasicBlock *entry,
-        const RayQueryHandlerRegion &region) const noexcept {
+        const RayQueryHandlerRegion &region,
+        const luisa::unordered_set<const Value *> &pointer_support) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
         invalid.valid = false;
         if (alloca == nullptr || entry == nullptr ||
@@ -949,7 +994,8 @@ public:
         luisa::unordered_set<const Function *> active_functions;
         active_functions.emplace(alloca->parent_function());
         return summarize_region(
-            entry, region.blocks, std::move(environment), true,
+            entry, region.blocks, std::move(environment),
+            &pointer_support, true,
             active_functions);
     }
 };
@@ -968,7 +1014,7 @@ find_handler_local_allocas(
         if (!alloca->is_local()) { continue; }
 
         RayQueryHandlerRootUseInfo uses;
-        luisa::unordered_set<Value *> visited;
+        luisa::unordered_set<const Value *> visited;
         collect_handler_alloca_root_uses(
             alloca, surface_region, procedural_region, uses, visited);
         if (!uses.valid) { continue; }
@@ -984,7 +1030,7 @@ find_handler_local_allocas(
                 const RayQueryHandlerRegion &region) noexcept {
                 auto summary =
                     RayQueryHandlerScratchAnalyzer{alloca->type()}
-                        .summarize(alloca, entry, region);
+                        .summarize(alloca, entry, region, visited);
                 return summary.valid && !summary.needs_input();
             };
         auto surface_is_local =
