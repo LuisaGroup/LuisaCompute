@@ -24,6 +24,14 @@ struct CoroAllocaScopeOptions {
 // GEP kills its exact version so a store from an earlier loop iteration cannot
 // initialize a later, potentially different runtime index.
 //
+// A second finite domain recognizes counted arrays without materializing their
+// unused suffix. It proves Prefix(A, C): all elements below an unsigned counter
+// are initialized. Only C = 0 and the atomic abstract transition
+// A[C] = value; C = C + 1 can establish/preserve that invariant; CFG joins use
+// Must intersection, counter overflow is rejected, and reads must select either
+// a statically initialized sentinel or an index proved less than C. Pointer
+// escape, unknown counter mutation, and unsupported arithmetic fail closed.
+//
 // A proved alloca is moved to the latest legal point in that block. It then
 // acts as an explicit lifetime start during frame liveness: storage from an
 // earlier continuation iteration is undefined, not an implicit input to a
@@ -54,9 +62,11 @@ struct CoroAllocaScopeInfo {
     size_t rejected_non_dominating_alloca_count{0u};
     size_t definite_initialization_proof_count{0u};
     size_t guarded_initialization_proof_count{0u};
+    size_t initialized_prefix_proof_count{0u};
     size_t rejected_prior_lifetime_observation_count{0u};
     size_t definite_initialization_block_evaluation_count{0u};
     size_t guarded_initialization_state_evaluation_count{0u};
+    size_t initialized_prefix_block_evaluation_count{0u};
     size_t predicate_widening_count{0u};
     size_t instruction_order_query_count{0u};
     size_t placement_user_inspection_count{0u};
