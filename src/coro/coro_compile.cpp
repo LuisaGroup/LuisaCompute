@@ -559,8 +559,12 @@ void verify_coro_xir_or_error(
     // instead of preserving bytes from the previous iteration.
     p.add("coro-alloca-scope",
           [coroutine](xir::Module *, xir::PassReport &r) {
+              xir::CoroAllocaScopeOptions options;
+              options.verify_instruction_order =
+                  environment_flag_enabled(
+                      "LUISA_CORO_VERIFY_ALLOCA_ORDER");
               auto i = xir::coro_alloca_scope_pass_run_on_function(
-                  coroutine);
+                  coroutine, options);
               r.set("semantic_block", i.semantic_block_count);
               r.set("semantic_edge", i.semantic_edge_count);
               r.set("scanned_local_alloca",
@@ -593,6 +597,10 @@ void verify_coro_xir_or_error(
                     i.guarded_initialization_state_evaluation_count);
               r.set("predicate_widening",
                     i.predicate_widening_count);
+              r.set("instruction_order_query",
+                    i.instruction_order_query_count);
+              r.set("placement_user_inspection",
+                    i.placement_user_inspection_count);
               r.set("invalid_semantic_cfg",
                     i.invalid_semantic_cfg_count);
               if (environment_flag_enabled(

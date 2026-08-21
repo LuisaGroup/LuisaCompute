@@ -111,7 +111,7 @@ struct InsertionPoint {
     bool has_gap_after_alloca{false};
 };
 
-[[nodiscard]] bool instruction_strictly_precedes(
+[[nodiscard]] bool instruction_strictly_precedes_linear(
     Instruction *before, Instruction *after) noexcept {
     if (before == nullptr || after == nullptr ||
         before->parent_block() != after->parent_block()) {
@@ -131,16 +131,10 @@ struct InsertionPoint {
         before->parent_block() != after->parent_block()) {
         return false;
     }
-    auto found_before = false;
-    for (auto *instruction :
-         before->parent_block()->instructions()) {
-        if (found_before) { return instruction == after; }
-        found_before = instruction == before;
-    }
-    return false;
+    return before->next() == after;
 }
 
-[[nodiscard]] InsertionPoint find_latest_insertion_point(
+[[nodiscard]] InsertionPoint find_latest_insertion_point_linear(
     BasicBlock *target, AllocaInst *alloca,
     const luisa::unordered_set<Instruction *> &users) noexcept {
     InsertionPoint result;
@@ -165,6 +159,100 @@ struct InsertionPoint {
     return result;
 }
 
+// The pass freezes its candidate set before mutation and moves only the
+// candidate alloca and, when proved unique, its whole-object defining store.
+// Neither instruction can be an observation of a different valid candidate.
+// Consequently the relative order of every pair queried for an unprocessed
+// candidate is invariant under earlier contractions. Snapshot ordinals answer
+// strict-order queries exactly; current intrusive-list adjacency answers the
+// one property that can change when unrelated nodes are inserted in a gap.
+[[nodiscard]] bool instruction_strictly_precedes(
+    Instruction *before, Instruction *after,
+    const InstructionLocationMap &locations,
+    bool verify_instruction_order,
+    size_t &instruction_order_query_count) noexcept {
+    ++instruction_order_query_count;
+    auto result = false;
+    if (before != nullptr && after != nullptr &&
+        before->parent_block() == after->parent_block()) {
+        auto before_iter = locations.find(before);
+        auto after_iter = locations.find(after);
+        result = before_iter != locations.end() &&
+                 after_iter != locations.end() &&
+                 before_iter->second.block_id ==
+                     after_iter->second.block_id &&
+                 before_iter->second.ordinal <
+                     after_iter->second.ordinal;
+    }
+    if (verify_instruction_order) {
+        LUISA_ASSERT(
+            result == instruction_strictly_precedes_linear(
+                          before, after),
+            "Snapshot instruction order disagrees with the current "
+            "intrusive list.");
+    }
+    return result;
+}
+
+[[nodiscard]] InsertionPoint find_latest_insertion_point(
+    BasicBlock *target, AllocaInst *alloca,
+    const luisa::unordered_set<Instruction *> &users,
+    const InstructionLocationMap &locations,
+    bool verify_instruction_order,
+    size_t &instruction_order_query_count,
+    size_t &placement_user_inspection_count) noexcept {
+    ++instruction_order_query_count;
+    InsertionPoint result;
+    if (target == nullptr) { return result; }
+    auto *insertion = static_cast<Instruction *>(
+        target->terminator());
+    auto insertion_iter = locations.find(insertion);
+    if (insertion == nullptr ||
+        insertion_iter == locations.end()) {
+        return result;
+    }
+    auto insertion_ordinal = insertion_iter->second.ordinal;
+    for (auto *user : users) {
+        ++placement_user_inspection_count;
+        if (user == nullptr || user->parent_block() != target) {
+            continue;
+        }
+        auto iter = locations.find(user);
+        if (iter == locations.end() ||
+            iter->second.block_id !=
+                insertion_iter->second.block_id) {
+            continue;
+        }
+        if (iter->second.ordinal < insertion_ordinal) {
+            insertion = user;
+            insertion_ordinal = iter->second.ordinal;
+        }
+    }
+    result.instruction = insertion;
+    if (alloca != nullptr && alloca->parent_block() == target) {
+        auto alloca_iter = locations.find(alloca);
+        result.follows_alloca =
+            alloca_iter != locations.end() &&
+            alloca_iter->second.block_id ==
+                insertion_iter->second.block_id &&
+            alloca_iter->second.ordinal < insertion_ordinal;
+        result.has_gap_after_alloca =
+            result.follows_alloca && alloca->next() != insertion;
+    }
+    if (verify_instruction_order) {
+        auto oracle = find_latest_insertion_point_linear(
+            target, alloca, users);
+        LUISA_ASSERT(
+            result.instruction == oracle.instruction &&
+                result.follows_alloca == oracle.follows_alloca &&
+                result.has_gap_after_alloca ==
+                    oracle.has_gap_after_alloca,
+            "Snapshot insertion-point query disagrees with the current "
+            "intrusive list.");
+    }
+    return result;
+}
+
 struct FirstDefinitionPlan {
     StoreInst *definition{nullptr};
     BasicBlock *target{nullptr};
@@ -173,7 +261,11 @@ struct FirstDefinitionPlan {
 
 [[nodiscard]] FirstDefinitionPlan plan_first_definition_delay(
     AllocaInst *alloca, const AllocaUseRegion &region,
-    const CoroSemanticGraph &graph) noexcept {
+    const CoroSemanticGraph &graph,
+    const InstructionLocationMap &instruction_locations,
+    bool verify_instruction_order,
+    size_t &instruction_order_query_count,
+    size_t &placement_user_inspection_count) noexcept {
     FirstDefinitionPlan plan;
     StoreInst *definition = nullptr;
     luisa::unordered_set<Instruction *> observations;
@@ -217,11 +309,15 @@ struct FirstDefinitionPlan {
         return plan;
     }
     auto insertion = find_latest_insertion_point(
-        target, alloca, observations);
+        target, alloca, observations, instruction_locations,
+        verify_instruction_order, instruction_order_query_count,
+        placement_user_inspection_count);
     if (insertion.instruction == nullptr) { return plan; }
     if (definition_block == target &&
         !instruction_strictly_precedes(
-            definition, insertion.instruction)) {
+            definition, insertion.instruction,
+            instruction_locations, verify_instruction_order,
+            instruction_order_query_count)) {
         return plan;
     }
     if (source == target &&
@@ -244,7 +340,9 @@ struct FirstDefinitionPlan {
             !graph.dominates(value_block, target) ||
             (value_block == target &&
              !instruction_strictly_precedes(
-                 value_instruction, insertion.instruction))) {
+                 value_instruction, insertion.instruction,
+                 instruction_locations, verify_instruction_order,
+                 instruction_order_query_count))) {
             return plan;
         }
     } else if (value->derived_value_tag() !=
@@ -1327,7 +1425,8 @@ make_guarded_transfer_events(
 }// namespace detail
 
 CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
-    Function *function) noexcept {
+    Function *function,
+    const CoroAllocaScopeOptions &options) noexcept {
     CoroAllocaScopeInfo info;
     auto *definition =
         function == nullptr ? nullptr : function->definition();
@@ -1424,7 +1523,10 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
         phase_begin = profile_begin();
         auto first_definition =
             detail::plan_first_definition_delay(
-                alloca, region, graph);
+                alloca, region, graph, instruction_locations,
+                options.verify_instruction_order,
+                info.instruction_order_query_count,
+                info.placement_user_inspection_count);
         first_definition_ms += profile_elapsed_ms(phase_begin);
         if (first_definition.definition != nullptr) {
             auto *source = alloca->parent_block();
@@ -1454,7 +1556,11 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             continue;
         }
         auto insertion = detail::find_latest_insertion_point(
-            target, alloca, region.users);
+            target, alloca, region.users,
+            instruction_locations,
+            options.verify_instruction_order,
+            info.instruction_order_query_count,
+            info.placement_user_inspection_count);
         placement_ms += profile_elapsed_ms(phase_begin);
         if (insertion.instruction == nullptr) {
             ++info.rejected_unreachable_use_count;
@@ -1549,12 +1655,15 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
         LUISA_INFO(
             "Coroutine alloca lifetime timing: region={:.3f} ms "
             "first_definition={:.3f} ms placement={:.3f} ms "
+            "order_queries={} user_inspections={} "
             "proof={:.3f} ms (problem={:.3f} ms: slice={:.3f} ms "
             "layout={:.3f} ms events={:.3f} ms (order={:.3f} ms "
             "transfer={:.3f} ms, reference_effects={} functions/{:.3f} ms); "
             "unconditional={:.3f} ms "
             "guarded={:.3f} ms) mutation={:.3f} ms.",
             collect_region_ms, first_definition_ms, placement_ms,
+            info.instruction_order_query_count,
+            info.placement_user_inspection_count,
             proof_ms, proof_timings.problem_ms, proof_timings.slice_ms,
             proof_timings.layout_ms, proof_timings.events_ms,
             proof_timings.event_order_ms,

@@ -8,6 +8,12 @@ namespace luisa::compute::xir {
 
 class Function;
 
+struct CoroAllocaScopeOptions {
+    // Expensive compiler-validation oracle. Every snapshot-order query is
+    // compared with a linear walk over the current intrusive instruction list.
+    bool verify_instruction_order{false};
+};
+
 // Contracts local-allocation lifetimes in the augmented coroutine CFG. For
 // each local alloca, the pass follows every derived pointer use and computes
 // the nearest common dominator including suspend -> resume transfer edges.
@@ -28,7 +34,11 @@ class Function;
 // edges rather than at the Phi's textual block position. Unreachable uses,
 // malformed ownership, and a non-dominating original allocation likewise
 // leave that allocation unchanged. The pass moves existing instructions and
-// preserves their metadata.
+// preserves their metadata. Placement queries use an immutable per-block
+// ordinal snapshot: earlier contractions cannot reorder the observation,
+// definition, or insertion instructions of an unprocessed valid candidate.
+// Current intrusive-list adjacency is consulted separately where intervening
+// moved nodes are semantically observable.
 struct CoroAllocaScopeInfo {
     size_t semantic_block_count{0u};
     size_t semantic_edge_count{0u};
@@ -48,6 +58,8 @@ struct CoroAllocaScopeInfo {
     size_t definite_initialization_block_evaluation_count{0u};
     size_t guarded_initialization_state_evaluation_count{0u};
     size_t predicate_widening_count{0u};
+    size_t instruction_order_query_count{0u};
+    size_t placement_user_inspection_count{0u};
     size_t invalid_semantic_cfg_count{0u};
 
     [[nodiscard]] bool changed() const noexcept {
@@ -56,6 +68,8 @@ struct CoroAllocaScopeInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API CoroAllocaScopeInfo
-coro_alloca_scope_pass_run_on_function(Function *function) noexcept;
+coro_alloca_scope_pass_run_on_function(
+    Function *function,
+    const CoroAllocaScopeOptions &options = {}) noexcept;
 
 }// namespace luisa::compute::xir
