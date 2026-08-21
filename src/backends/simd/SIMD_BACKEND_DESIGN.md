@@ -3551,8 +3551,9 @@ byte-identical. A seven-round equal-core rotation now measures SIMD/fallback at
 95% paired intervals are both above one. The performance report records the
 raw methodology and hashes.
 
-A nonempty candidate-local surface handler can use the same minimal state
-boundary when the Schedule proof is strengthened in the other direction. The
+A nonempty candidate-local surface handler can remove query state from the
+provider boundary when the Schedule proof is strengthened in the other
+direction. The
 query variable must have exactly one capture-free, triangle-only, direct
 surface-filter pipeline, its procedural handler must be empty, the caller may
 not write the query, and its only reads may be the terminal committed hit or
@@ -3562,14 +3563,39 @@ provider above. W1/W2, captures, explicit termination, resources, another
 query read/write, multiple pipelines, and a null provider fail closed.
 
 Construction caches a third provider and accel packet in the status color and
-uses the same interval-plus-committed initialization. The provider ABI is
-`(width, mask, accel, states, ray_packet, terminate_on_first,
-direct_surface_handler)`. Opaque triangles write `committed` directly.
+allocates one 64-byte-aligned, fixed-capacity output packet per status color.
+The packet is field-major: it contains sixteen entries each for `t_min`,
+`t_max`, committed instance, primitive, barycentric x/y, kind, and distance.
+Only the first W entries of each field are live. Eight masked vector stores
+initialize the active lanes' original inclusive interval and public miss
+result; no committed-hit scatter or operational-state initialization is
+needed. The separate twelve-vector ray packet retains the existing sparse-tail
+sanitizer.
+
+The provider ABI is `(width, mask, accel, output_packet, ray_packet,
+terminate_on_first, direct_surface_handler)` and contains no query-state
+pointer. Opaque triangles write the field-major committed output directly.
 Non-opaque candidate lanes enter the existing five-argument direct JIT handler
 with Embree packet pointers and a physical commit mask; accepted hits alone
-write `committed`, rejected hits clear Embree's valid bit. Neither side reads
-or writes operational state, candidate state, status, batch storage, or object
-ray, and the JIT publishes terminal status once after traversal.
+write the output packet, while rejected hits clear Embree's valid bit. Neither
+side receives, reads, or writes operational state, candidate state, status,
+batch storage, or object ray, and the JIT publishes terminal status once after
+traversal.
+
+The non-null provider branch is emitted before the state-handle packet, status
+callback loads, scratch-state publication, capture setup, and ordinary
+candidate handlers. A null provider enters that unchanged state-backed path in
+the same JIT module. The full state allocation therefore remains available as
+a fail-closed runtime fallback, but the selected fast path neither initializes
+nor dereferences it.
+
+A committed-hit read specializes dynamically from the per-lane provider
+sidecar. An all-output cohort performs only field-major masked vector loads; an
+all-state cohort performs only the established masked gathers; a cohort that
+diverged at construction and later reconverged executes both masked reads and
+selects their values. This preserves dynamic reconvergence without requiring
+the provider choice to be warp-uniform at a later read, and it sanitizes each
+inactive source before any address-dependent operation.
 
 `LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1` publishes a null provider
 without recompiling the JIT module. Runtime publication additionally requires
@@ -3579,14 +3605,17 @@ exact W4/W8/W16 Embree packet entry. The optimization report field
 constructions. The implementation lives beside the empty-provider route, so
 the two ABIs and their independent runtime oracles remain reviewable.
 
-Seven clean alternating 64-spp cutout pairs measure the new provider against
-the same-module operational-state provider at 1.0798x/1.0908x/1.1145x for
-W4/W8/W16, with 21/21 wins and every 95% paired interval above one. Three W16
-128-spp counter pairs measure 0.8968x cycles, 0.9472x instructions, and 0.8930x
-branches. The equal-core cutout sweep now measures SIMD/fallback at
-0.7074x/0.5811x/0.8930x/0.9789x/1.0377x for W1/W2/W4/W8/W16; W16 is the only
-stable crossover. The performance report records the contamination rejection
-rule, intervals, profiler split, and assembly audit.
+Seven clean alternating 64-spp cutout pairs measure the field-major provider
+against the same-module operational-state provider at
+1.1275x/1.1584x/1.2169x for W4/W8/W16, with 21/21 wins and every 95% paired
+interval above one. An independently built exact `89f9da8e2` predecessor
+confirms absolute gains of 1.0344x/1.0748x/1.0883x, again 21/21 wins with all
+intervals above one. Three W16 128-spp counter pairs against the state oracle
+measure 0.8247x cycles, 0.9246x instructions, and 0.8448x branches. The
+equal-core cutout sweep now measures SIMD/fallback at
+0.6959x/0.5831x/0.9118x/1.0459x/1.1084x for W1/W2/W4/W8/W16; W8 and W16 are
+stable crossovers. The performance report records the contamination rejection
+rule, intervals, exact-old control, hardware counters, and assembly audit.
 
 The audited W4/W8/W16 surface filter has a second, narrower JIT handler that
 removes the remaining candidate AoS round trip. Its private five-argument ABI

@@ -7684,10 +7684,10 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
 
 void ray_query_direct_output_surface_filter_packet_pipeline_probe(
     uint32_t lane_count, uint64_t active_mask_bits,
-    void *accel, SIMDHostRayQueryState *const *states,
+    void *accel, SIMDHostRayQueryDirectOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct) noexcept {
-    if (accel == nullptr || states == nullptr || ray_packet == nullptr ||
+    if (accel == nullptr || outputs == nullptr || ray_packet == nullptr ||
         on_surface_direct == nullptr || terminate_on_first > 1u) {
         std::abort();
     }
@@ -7708,14 +7708,11 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         candidate_ray_packet.data(), ray_packet,
         simd_host_accel_ray_packet_field_count * lane_count *
             sizeof(uint32_t));
-    auto *previous_state = static_cast<SIMDHostRayQueryState *>(nullptr);
-    auto previous_lane = uint32_t{0u};
     auto candidates = uint64_t{0u};
     for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
         auto active =
             (active_mask_bits & (uint64_t{1u} << lane)) != 0u;
         if (!active) {
-            probe->valid &= states[lane] == nullptr;
             for (auto field = uint32_t{0u};
                  field < simd_host_accel_ray_packet_field_count;
                  field++) {
@@ -7724,27 +7721,16 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             }
             continue;
         }
-        auto *state = states[lane];
-        probe->valid &= state != nullptr;
-        if (state == nullptr) { continue; }
-        if (previous_state != nullptr) {
-            probe->valid &=
-                reinterpret_cast<uintptr_t>(state) -
-                    reinterpret_cast<uintptr_t>(previous_state) ==
-                (lane - previous_lane) * probe->expected_state_stride;
-        }
-        previous_state = state;
-        previous_lane = lane;
         probe->valid &= packet_word(3u, lane) ==
                         embree_tnear_bits_for_probe(
-                            state->world_ray[3u]);
-        probe->valid &= state->world_ray[7u] == 100.0f;
-        probe->valid &= state->committed.inst == ~0u;
-        probe->valid &= state->committed.prim == ~0u;
-        probe->valid &= state->committed.bary[0u] == 0.0f;
-        probe->valid &= state->committed.bary[1u] == 0.0f;
-        probe->valid &= state->committed.kind == 0u;
-        probe->valid &= state->committed.t == 0.0f;
+                            outputs->t_min[lane]);
+        probe->valid &= outputs->t_max[lane] == 100.0f;
+        probe->valid &= outputs->committed_inst[lane] == ~0u;
+        probe->valid &= outputs->committed_prim[lane] == ~0u;
+        probe->valid &= outputs->committed_bary_x[lane] == 0.0f;
+        probe->valid &= outputs->committed_bary_y[lane] == 0.0f;
+        probe->valid &= outputs->committed_kind[lane] == 0u;
+        probe->valid &= outputs->committed_t[lane] == 0.0f;
         auto origin_x = std::bit_cast<float>(packet_word(0u, lane));
         auto dispatch_index = static_cast<uint32_t>(origin_x);
         probe->valid &= origin_x ==
@@ -7774,14 +7760,13 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
         remaining &= remaining - 1u;
         auto dispatch_index = candidate_hit_packet[5u * lane_count + lane];
-        states[lane]->committed = SIMDHostRayQueryCommittedHit{
-            .inst = 6u,
-            .prim = dispatch_index,
-            .bary = {0.04f, 0.05f},
-            .kind = static_cast<uint32_t>(
-                SIMDHostRayQueryCandidateKind::surface),
-            .t = 1.0f,
-        };
+        outputs->committed_inst[lane] = 6u;
+        outputs->committed_prim[lane] = dispatch_index;
+        outputs->committed_bary_x[lane] = 0.04f;
+        outputs->committed_bary_y[lane] = 0.05f;
+        outputs->committed_kind[lane] = static_cast<uint32_t>(
+            SIMDHostRayQueryCandidateKind::surface);
+        outputs->committed_t[lane] = 1.0f;
     }
 }
 
@@ -8435,6 +8420,15 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             CHECK(candidate.llvm_ir.find("ray.query.full.state.init") !=
                   std::string::npos);
             CHECK(candidate.llvm_ir.find(
+                      "ray.query.direct.output.committed.init") !=
+                  std::string::npos);
+            CHECK(candidate.llvm_ir.find(
+                      "ray.query.direct.output.surface.filter.committed.slot") !=
+                  std::string::npos);
+            CHECK(candidate.llvm_ir.find(
+                      "ray.query.direct.output.read.mask") !=
+                  std::string::npos);
+            CHECK(candidate.llvm_ir.find(
                       "ray.query.pipeline.direct.output") !=
                   std::string::npos);
             CHECK(candidate.llvm_ir.find("ray.query.full.state.mask") ==
@@ -8475,6 +8469,73 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             CHECK(direct_ir.find("llvm.x86.") ==
                   std::string_view::npos);
             CHECK(direct_ir.find("llvm.aarch64.") ==
+                  std::string_view::npos);
+
+            auto direct_init_begin = candidate.llvm_ir.find(
+                "ray.query.direct.output.committed.init:");
+            auto direct_init_end = candidate.llvm_ir.find(
+                "ray.query.operational.state.init:",
+                direct_init_begin);
+            CHECK(direct_init_begin != std::string::npos);
+            CHECK(direct_init_end != std::string::npos);
+            auto direct_init_ir = std::string_view{candidate.llvm_ir}.substr(
+                direct_init_begin,
+                direct_init_end - direct_init_begin);
+            CHECK(count_occurrences(
+                      direct_init_ir, "llvm.masked.store") == 8u);
+            CHECK(direct_init_ir.find("llvm.masked.scatter") ==
+                  std::string_view::npos);
+            CHECK(direct_init_ir.find("ray.query.full.states") ==
+                  std::string_view::npos);
+
+            auto direct_call_begin = candidate.llvm_ir.find(
+                "ray.query.pipeline.direct.output:");
+            auto direct_call_end = candidate.llvm_ir.find(
+                "ray.query.pipeline.direct.output.regular:",
+                direct_call_begin);
+            CHECK(direct_call_begin != std::string::npos);
+            CHECK(direct_call_end != std::string::npos);
+            auto direct_call_ir = std::string_view{candidate.llvm_ir}.substr(
+                direct_call_begin,
+                direct_call_end - direct_call_begin);
+            CHECK(direct_call_ir.find("store <8 x ptr>") ==
+                  std::string_view::npos);
+            CHECK(direct_call_ir.find("ray.query.cached.state.handles") ==
+                  std::string_view::npos);
+            CHECK(direct_call_ir.find("ray.query.pipeline.status.callbacks") ==
+                  std::string_view::npos);
+            auto direct_ready_begin = candidate.llvm_ir.find(
+                "ray.query.surface.filter.packet.ready:",
+                direct_call_begin);
+            auto direct_ready_end = candidate.llvm_ir.find(
+                "\n\n", direct_ready_begin);
+            CHECK(direct_ready_begin != std::string::npos);
+            CHECK(direct_ready_end != std::string::npos);
+            auto direct_ready_ir = std::string_view{candidate.llvm_ir}.substr(
+                direct_ready_begin,
+                direct_ready_end - direct_ready_begin);
+            CHECK(direct_ready_ir.find("store <8 x ptr>") ==
+                  std::string_view::npos);
+            CHECK(direct_ready_ir.find("ray.query.cached.state.handles") ==
+                  std::string_view::npos);
+            CHECK(direct_ready_ir.find(
+                      "ray.query.direct.output.surface.filter.committed.slot") !=
+                  std::string_view::npos);
+
+            auto direct_read_begin = candidate.llvm_ir.find(
+                "ray.query.direct.output.read.output:");
+            auto direct_read_end = candidate.llvm_ir.find(
+                "\n\n", direct_read_begin);
+            CHECK(direct_read_begin != std::string::npos);
+            CHECK(direct_read_end != std::string::npos);
+            auto direct_read_ir = std::string_view{candidate.llvm_ir}.substr(
+                direct_read_begin,
+                direct_read_end - direct_read_begin);
+            CHECK(count_occurrences(
+                      direct_read_ir, "llvm.masked.load") >= 5u);
+            CHECK(direct_read_ir.find("llvm.masked.gather") ==
+                  std::string_view::npos);
+            CHECK(direct_read_ir.find("ray.query.cached.state.handles") ==
                   std::string_view::npos);
 
             auto scheduler_symbol =

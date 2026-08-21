@@ -702,6 +702,13 @@ void ScheduleEmitter::_texture_write(
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_data(
     ::llvm::Value *base, ::llvm::Value *offsets,
     const Type *type, size_t leaf_offset) {
+    return _gather_data_masked(
+        base, offsets, type, _active_mask, leaf_offset);
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_data_masked(
+    ::llvm::Value *base, ::llvm::Value *offsets,
+    const Type *type, ::llvm::Value *mask, size_t leaf_offset) {
     if (_is_scalar_data(type)) {
         auto *pointers = _leaf_pointers(base, offsets, leaf_offset);
         auto *element = type->is_bool() ?
@@ -709,7 +716,7 @@ void ScheduleEmitter::_texture_write(
                             _data_type(type, false);
         auto *lanes = ::llvm::FixedVectorType::get(element, _width);
         auto *gathered = _builder.CreateMaskedGather(
-            lanes, pointers, ::llvm::Align{1u}, _active_mask,
+            lanes, pointers, ::llvm::Align{1u}, mask,
             ::llvm::Constant::getNullValue(lanes));
         return type->is_bool() ?
                    _builder.CreateICmpNE(
@@ -717,9 +724,9 @@ void ScheduleEmitter::_texture_write(
                    gathered;
     }
     return _assemble(type, true, [&](uint32_t i) {
-        return _gather_data(
+        return _gather_data_masked(
             base, offsets, _child_type(type, i),
-            leaf_offset + _child_offset(type, i));
+            mask, leaf_offset + _child_offset(type, i));
     });
 }
 

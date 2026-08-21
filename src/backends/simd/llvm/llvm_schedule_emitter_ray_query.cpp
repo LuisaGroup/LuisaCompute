@@ -336,9 +336,6 @@ namespace {
             direct_output_surface_filter_pipeline, null_pointer,
             "ray.query.direct.output.state");
     }
-    auto *use_minimal_output_state = _builder.CreateOr(
-        use_output_only_state, use_direct_output_state,
-        "ray.query.minimal.output.state");
     auto *use_compact_state = static_cast<::llvm::Value *>(
         _builder.getFalse());
     if (compact_eligible) {
@@ -528,61 +525,127 @@ namespace {
         _width == 2u ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_RAY_QUERY_LAZY_BATCH_INIT");
-    // The initialized fields gate every runtime read of the six metadata
-    // fields below. The first scan clears them before publishing both gates,
-    // so eager construction stores are redundant at accepted widths.
-    if (packed_init) {
-        auto *invalid_i64 =
-            ::llvm::Constant::getAllOnesValue(i64_lanes);
-        scatter(
-            invalid_i64,
-            offsetof(SIMDHostRayQueryState, committed),
-            alignof(uint64_t));
-        scatter(
-            zero_i64,
-            offsetof(SIMDHostRayQueryState, committed) +
-                offsetof(SIMDHostRayQueryCommittedHit, bary),
-            alignof(uint64_t));
-        scatter(
-            zero_i64,
-            offsetof(SIMDHostRayQueryState, committed) +
-                offsetof(SIMDHostRayQueryCommittedHit, kind),
-            alignof(uint64_t));
-    } else {
+    auto initialize_committed_state = [&]() noexcept {
+        if (packed_init) {
+            auto *invalid_i64 =
+                ::llvm::Constant::getAllOnesValue(i64_lanes);
+            scatter(
+                invalid_i64,
+                offsetof(SIMDHostRayQueryState, committed),
+                alignof(uint64_t));
+            scatter(
+                zero_i64,
+                offsetof(SIMDHostRayQueryState, committed) +
+                    offsetof(SIMDHostRayQueryCommittedHit, bary),
+                alignof(uint64_t));
+            scatter(
+                zero_i64,
+                offsetof(SIMDHostRayQueryState, committed) +
+                    offsetof(SIMDHostRayQueryCommittedHit, kind),
+                alignof(uint64_t));
+        } else {
+            auto *invalid_i32 =
+                ::llvm::Constant::getAllOnesValue(i32_lanes);
+            scatter(
+                invalid_i32,
+                offsetof(SIMDHostRayQueryState, committed) +
+                    offsetof(SIMDHostRayQueryCommittedHit, inst),
+                alignof(uint32_t));
+            scatter(
+                invalid_i32,
+                offsetof(SIMDHostRayQueryState, committed) +
+                    offsetof(SIMDHostRayQueryCommittedHit, prim),
+                alignof(uint32_t));
+            scatter(
+                zero_float,
+                offsetof(SIMDHostRayQueryState, committed) +
+                    offsetof(SIMDHostRayQueryCommittedHit, bary),
+                alignof(float));
+            scatter(
+                zero_float,
+                offsetof(SIMDHostRayQueryState, committed) +
+                    offsetof(SIMDHostRayQueryCommittedHit, bary) +
+                    sizeof(float),
+                alignof(float));
+            scatter(
+                zero_i32,
+                offsetof(SIMDHostRayQueryState, committed) +
+                    offsetof(SIMDHostRayQueryCommittedHit, kind),
+                alignof(uint32_t));
+            scatter(
+                zero_float,
+                offsetof(SIMDHostRayQueryState, committed) +
+                    offsetof(SIMDHostRayQueryCommittedHit, t),
+                alignof(float));
+        }
+    };
+    auto *direct_output_committed =
+        direct_output_eligible &&
+                status_index <
+                    _ray_query_direct_output_surface_filter_committed_storage
+                        .size() ?
+            _ray_query_direct_output_surface_filter_committed_storage
+                [status_index] :
+            nullptr;
+    auto initialize_direct_output_committed = [&]() noexcept {
+        auto store_field = [&](::llvm::Value *value,
+                               size_t offset) noexcept {
+            auto *pointer = offset == 0u ?
+                                static_cast<::llvm::Value *>(
+                                    direct_output_committed) :
+                                _builder.CreateGEP(
+                                    _builder.getInt8Ty(),
+                                    direct_output_committed,
+                                    _builder.getInt64(offset));
+            _builder.CreateMaskedStore(
+                value, pointer,
+                ::llvm::Align{
+                    alignof(SIMDHostRayQueryDirectOutputPacket)},
+                _active_mask);
+        };
+        auto *t_min = _extract_child(
+            ray, ray_value->type, 1u, true);
+        auto *t_max = _extract_child(
+            ray, ray_value->type, 3u, true);
         auto *invalid_i32 =
             ::llvm::Constant::getAllOnesValue(i32_lanes);
-        scatter(
+        store_field(
+            t_min,
+            offsetof(SIMDHostRayQueryDirectOutputPacket, t_min));
+        store_field(
+            t_max,
+            offsetof(SIMDHostRayQueryDirectOutputPacket, t_max));
+        store_field(
             invalid_i32,
-            offsetof(SIMDHostRayQueryState, committed) +
-                offsetof(SIMDHostRayQueryCommittedHit, inst),
-            alignof(uint32_t));
-        scatter(
+            offsetof(
+                SIMDHostRayQueryDirectOutputPacket,
+                committed_inst));
+        store_field(
             invalid_i32,
-            offsetof(SIMDHostRayQueryState, committed) +
-                offsetof(SIMDHostRayQueryCommittedHit, prim),
-            alignof(uint32_t));
-        scatter(
+            offsetof(
+                SIMDHostRayQueryDirectOutputPacket,
+                committed_prim));
+        store_field(
             zero_float,
-            offsetof(SIMDHostRayQueryState, committed) +
-                offsetof(SIMDHostRayQueryCommittedHit, bary),
-            alignof(float));
-        scatter(
+            offsetof(
+                SIMDHostRayQueryDirectOutputPacket,
+                committed_bary_x));
+        store_field(
             zero_float,
-            offsetof(SIMDHostRayQueryState, committed) +
-                offsetof(SIMDHostRayQueryCommittedHit, bary) +
-                sizeof(float),
-            alignof(float));
-        scatter(
+            offsetof(
+                SIMDHostRayQueryDirectOutputPacket,
+                committed_bary_y));
+        store_field(
             zero_i32,
-            offsetof(SIMDHostRayQueryState, committed) +
-                offsetof(SIMDHostRayQueryCommittedHit, kind),
-            alignof(uint32_t));
-        scatter(
+            offsetof(
+                SIMDHostRayQueryDirectOutputPacket,
+                committed_kind));
+        store_field(
             zero_float,
-            offsetof(SIMDHostRayQueryState, committed) +
-                offsetof(SIMDHostRayQueryCommittedHit, t),
-            alignof(float));
-    }
+            offsetof(
+                SIMDHostRayQueryDirectOutputPacket,
+                committed_t));
+    };
     auto initialize_full_state = [&]() noexcept {
         scatter(
             candidate_object_ray,
@@ -626,6 +689,7 @@ namespace {
             alignof(uint32_t));
     };
     auto initialize_operational_state = [&]() noexcept {
+        initialize_committed_state();
         scatter(
             object, offsetof(SIMDHostRayQueryState, accel),
             alignof(void *));
@@ -696,6 +760,7 @@ namespace {
         }
     };
     auto initialize_output_only_state = [&]() noexcept {
+        initialize_committed_state();
         auto *t_min = _extract_child(ray, ray_value->type, 1u, true);
         auto *t_max = _extract_child(ray, ray_value->type, 3u, true);
         scatter(
@@ -709,7 +774,28 @@ namespace {
                 7u * sizeof(float),
             alignof(float));
     };
-    if (output_only_eligible || direct_output_eligible) {
+    if (direct_output_eligible) {
+        if (direct_output_committed == nullptr) {
+            _fail("direct-output ray-query state lost its committed packet");
+            return nullptr;
+        }
+        auto *direct_output_init = ::llvm::BasicBlock::Create(
+            _module.getContext(),
+            "ray.query.direct.output.committed.init", _entry);
+        auto *operational_init = ::llvm::BasicBlock::Create(
+            _module.getContext(), "ray.query.operational.state.init", _entry);
+        auto *state_ready = ::llvm::BasicBlock::Create(
+            _module.getContext(), "ray.query.state.ready", _entry);
+        _builder.CreateCondBr(
+            use_direct_output_state, direct_output_init, operational_init);
+        _builder.SetInsertPoint(direct_output_init);
+        initialize_direct_output_committed();
+        _builder.CreateBr(state_ready);
+        _builder.SetInsertPoint(operational_init);
+        initialize_operational_state();
+        _builder.CreateBr(state_ready);
+        _builder.SetInsertPoint(state_ready);
+    } else if (output_only_eligible) {
         auto *output_only_init = ::llvm::BasicBlock::Create(
             _module.getContext(), "ray.query.output.only.state.init", _entry);
         auto *operational_init = ::llvm::BasicBlock::Create(
@@ -717,7 +803,7 @@ namespace {
         auto *state_ready = ::llvm::BasicBlock::Create(
             _module.getContext(), "ray.query.state.ready", _entry);
         _builder.CreateCondBr(
-            use_minimal_output_state, output_only_init, operational_init);
+            use_output_only_state, output_only_init, operational_init);
         _builder.SetInsertPoint(output_only_init);
         initialize_output_only_state();
         _builder.CreateBr(state_ready);
@@ -877,6 +963,170 @@ void ScheduleEmitter::_ray_query_update_status(
                     instruction.operands[0u], shift)) {
                 return cached;
             }
+        }
+    }
+    if (op ==
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT &&
+        is_committed_hit_type(result->type)) {
+        auto slot = instruction.operands[0u].value <
+                            _ray_query_status_slots.size() ?
+                        _ray_query_status_slots
+                            [instruction.operands[0u].value] :
+                        std::numeric_limits<uint32_t>::max();
+        if (slot <
+                _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                    .size() &&
+            slot <
+                _ray_query_direct_output_surface_filter_committed_storage
+                    .size()) {
+            auto *output_storage =
+                _ray_query_direct_output_surface_filter_committed_storage
+                    [slot];
+            if (output_storage == nullptr) {
+                _fail("direct-output committed read lost its packet");
+                return nullptr;
+            }
+            auto *callback_lanes = ::llvm::FixedVectorType::get(
+                ::llvm::PointerType::getUnqual(
+                    _module.getContext()),
+                _width);
+            auto *null_callbacks =
+                ::llvm::Constant::getNullValue(callback_lanes);
+            auto *callbacks = _builder.CreateMaskedLoad(
+                callback_lanes,
+                _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                    [slot],
+                ::llvm::Align{alignof(void *)},
+                _active_mask, null_callbacks,
+                "ray.query.direct.output.read.callbacks");
+            auto *output_mask = _builder.CreateAnd(
+                _active_mask,
+                _builder.CreateICmpNE(callbacks, null_callbacks),
+                "ray.query.direct.output.read.mask");
+            auto *state_mask = _builder.CreateAnd(
+                _active_mask, _builder.CreateNot(output_mask),
+                "ray.query.state.read.mask");
+            auto *has_output = _builder.CreateOrReduce(output_mask);
+            auto *has_state = _builder.CreateOrReduce(state_mask);
+            auto load_output = [&](::llvm::Value *mask) noexcept {
+                auto load_field = [&](size_t offset,
+                                      ::llvm::Type *element) noexcept {
+                    auto *pointer = _builder.CreateGEP(
+                        _builder.getInt8Ty(), output_storage,
+                        _builder.getInt64(offset));
+                    auto *lanes = ::llvm::FixedVectorType::get(
+                        element, _width);
+                    return _builder.CreateMaskedLoad(
+                        lanes, pointer,
+                        ::llvm::Align{alignof(
+                            SIMDHostRayQueryDirectOutputPacket)},
+                        mask,
+                        ::llvm::Constant::getNullValue(lanes));
+                };
+                auto *bary_type = _child_type(result->type, 2u);
+                auto *bary = _assemble(
+                    bary_type, true,
+                    [&](uint32_t component) noexcept {
+                        return load_field(
+                            component == 0u ?
+                                offsetof(
+                                    SIMDHostRayQueryDirectOutputPacket,
+                                    committed_bary_x) :
+                                offsetof(
+                                    SIMDHostRayQueryDirectOutputPacket,
+                                    committed_bary_y),
+                            _builder.getFloatTy());
+                    });
+                if (bary == nullptr) {
+                    return static_cast<::llvm::Value *>(nullptr);
+                }
+                auto *value = static_cast<::llvm::Value *>(
+                    ::llvm::PoisonValue::get(
+                        _data_type(result->type, true)));
+                value = _insert_child(
+                    value,
+                    load_field(
+                        offsetof(
+                            SIMDHostRayQueryDirectOutputPacket,
+                            committed_inst),
+                        _builder.getInt32Ty()),
+                    result->type, 0u, true);
+                value = _insert_child(
+                    value,
+                    load_field(
+                        offsetof(
+                            SIMDHostRayQueryDirectOutputPacket,
+                            committed_prim),
+                        _builder.getInt32Ty()),
+                    result->type, 1u, true);
+                value = _insert_child(
+                    value, bary, result->type, 2u, true);
+                value = _insert_child(
+                    value,
+                    load_field(
+                        offsetof(
+                            SIMDHostRayQueryDirectOutputPacket,
+                            committed_kind),
+                        _builder.getInt32Ty()),
+                    result->type, 3u, true);
+                return _insert_child(
+                    value,
+                    load_field(
+                        offsetof(
+                            SIMDHostRayQueryDirectOutputPacket,
+                            committed_t),
+                        _builder.getFloatTy()),
+                    result->type, 4u, true);
+            };
+
+            auto &context = _module.getContext();
+            auto *state_present = ::llvm::BasicBlock::Create(
+                context, "ray.query.direct.output.read.state", _entry);
+            auto *output_only = ::llvm::BasicBlock::Create(
+                context, "ray.query.direct.output.read.output", _entry);
+            auto *mixed = ::llvm::BasicBlock::Create(
+                context, "ray.query.direct.output.read.mixed", _entry);
+            auto *merge = ::llvm::BasicBlock::Create(
+                context, "ray.query.direct.output.read.merge", _entry);
+            _builder.CreateCondBr(
+                has_state, state_present, output_only);
+
+            _builder.SetInsertPoint(state_present);
+            auto *states = _ray_query_state_handles(
+                instruction.operands[0u]);
+            if (states == nullptr) { return nullptr; }
+            auto *zero_offsets = ::llvm::Constant::getNullValue(
+                ::llvm::FixedVectorType::get(
+                    _builder.getInt64Ty(), _width));
+            auto *state_value = _gather_data_masked(
+                states, zero_offsets, result->type, state_mask,
+                offsetof(SIMDHostRayQueryState, committed));
+            auto *state_only = _builder.GetInsertBlock();
+            _builder.CreateCondBr(has_output, mixed, merge);
+
+            _builder.SetInsertPoint(output_only);
+            auto *output_value = load_output(output_mask);
+            if (output_value == nullptr) { return nullptr; }
+            auto *output_only_end = _builder.GetInsertBlock();
+            _builder.CreateBr(merge);
+
+            _builder.SetInsertPoint(mixed);
+            auto *mixed_output_value = load_output(output_mask);
+            if (mixed_output_value == nullptr) { return nullptr; }
+            auto *mixed_value = _select_data(
+                output_mask, mixed_output_value, state_value,
+                result->type, true);
+            auto *mixed_end = _builder.GetInsertBlock();
+            _builder.CreateBr(merge);
+
+            _builder.SetInsertPoint(merge);
+            auto *value = _builder.CreatePHI(
+                _data_type(result->type, true), 3u,
+                "ray.query.direct.output.read.value");
+            value->addIncoming(state_value, state_only);
+            value->addIncoming(output_value, output_only_end);
+            value->addIncoming(mixed_value, mixed_end);
+            return value;
         }
     }
     auto *states = _ray_query_state_handles(instruction.operands[0u]);

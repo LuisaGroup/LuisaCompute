@@ -34,6 +34,7 @@ struct SurfaceFilterPipelineContext {
     uint32_t lane_count{0u};
     const SIMDHostAccelInstanceTable *instances{nullptr};
     std::array<SIMDHostRayQueryState *, 16u> states{};
+    SIMDHostRayQueryDirectOutputPacket *direct_outputs{nullptr};
     const SIMDPacketLaunchConfig *launch_config{nullptr};
     SIMDHostRayQuerySurfaceFilterHandler *on_surface{nullptr};
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct{nullptr};
@@ -105,6 +106,18 @@ void commit_surface_candidate_output_only(
     };
 }
 
+void commit_surface_candidate_direct_output(
+    SIMDHostRayQueryDirectOutputPacket &output, uint32_t lane,
+    const SIMDHostRayQuerySurfaceHit &candidate) noexcept {
+    output.committed_inst[lane] = candidate.inst;
+    output.committed_prim[lane] = candidate.prim;
+    output.committed_bary_x[lane] = candidate.bary[0u];
+    output.committed_bary_y[lane] = candidate.bary[1u];
+    output.committed_kind[lane] = static_cast<uint32_t>(
+        SIMDHostRayQueryCandidateKind::surface);
+    output.committed_t[lane] = candidate.t;
+}
+
 template<size_t packet_width>
 [[nodiscard]] uint32_t valid_mask(const int *valid) noexcept {
     auto mask = uint32_t{0u};
@@ -123,14 +136,18 @@ void surface_filter_pipeline(
         context != nullptr &&
         (context->output_only_empty_surface_filter ||
          context->output_only_direct_surface_filter);
+    auto direct_output_surface_filter =
+        context != nullptr &&
+        context->output_only_direct_surface_filter;
     if (context == nullptr || context->instances == nullptr ||
         (!output_only_surface_filter &&
          (context->launch_config == nullptr ||
           (context->use_direct_surface_candidate ?
                context->on_surface_direct == nullptr :
                context->on_surface == nullptr))) ||
-        (context->output_only_direct_surface_filter &&
-         context->on_surface_direct == nullptr) ||
+        (direct_output_surface_filter &&
+         (context->on_surface_direct == nullptr ||
+          context->direct_outputs == nullptr)) ||
         arguments->valid == nullptr ||
         arguments->ray == nullptr || arguments->hit == nullptr ||
         arguments->N != packet_width) [[unlikely]] {
@@ -165,23 +182,33 @@ void surface_filter_pipeline(
             arguments->valid[packet_lane] = 0;
             continue;
         }
-        auto *state = context->states[lane];
-        if (state == nullptr ||
+        auto *state = direct_output_surface_filter ?
+                          nullptr :
+                          context->states[lane];
+        if ((!direct_output_surface_filter && state == nullptr) ||
             (!output_only_surface_filter &&
              state->terminated != 0u)) {
             arguments->valid[packet_lane] = 0;
             continue;
         }
         auto candidate = load_candidate(packet_lane);
-        if (!(candidate.t >= state->world_ray[3u] &&
-              candidate.t <= state->world_ray[7u]) ||
+        auto t_min = direct_output_surface_filter ?
+                         context->direct_outputs->t_min[lane] :
+                         state->world_ray[3u];
+        auto t_max = direct_output_surface_filter ?
+                         context->direct_outputs->t_max[lane] :
+                         state->world_ray[7u];
+        if (!(candidate.t >= t_min && candidate.t <= t_max) ||
             candidate.inst == RTC_INVALID_GEOMETRY_ID ||
             candidate.prim == RTC_INVALID_GEOMETRY_ID) {
             arguments->valid[packet_lane] = 0;
             continue;
         }
         if (instance_is_opaque(*context->instances, candidate.inst)) {
-            if (output_only_surface_filter) {
+            if (direct_output_surface_filter) {
+                commit_surface_candidate_direct_output(
+                    *context->direct_outputs, lane, candidate);
+            } else if (output_only_surface_filter) {
                 commit_surface_candidate_output_only(
                     *state, candidate);
             } else {
@@ -224,9 +251,12 @@ void surface_filter_pipeline(
             std::countr_zero(remaining));
         remaining &= remaining - 1u;
         auto packet_lane = packet_lanes[lane];
-        auto *state = context->states[lane];
+        auto *state = direct_output_surface_filter ?
+                          nullptr :
+                          context->states[lane];
         LUISA_ASSERT(
-            state != nullptr && packet_lane < packet_width &&
+            (direct_output_surface_filter || state != nullptr) &&
+                packet_lane < packet_width &&
                 (output_only_surface_filter ||
                  state->terminated == 0u) &&
                 (context->use_direct_surface_candidate ||
@@ -238,7 +268,11 @@ void surface_filter_pipeline(
                              ((committed_packet_lanes >> packet_lane) & 1u) != 0u :
                              state->candidate_committed != 0u;
         if (committed) {
-            if (output_only_surface_filter) {
+            if (direct_output_surface_filter) {
+                commit_surface_candidate_direct_output(
+                    *context->direct_outputs, lane,
+                    load_candidate(packet_lane));
+            } else if (output_only_surface_filter) {
                 commit_surface_candidate_output_only(
                     *state, load_candidate(packet_lane));
             } else if (context->use_direct_surface_candidate) {
@@ -415,6 +449,7 @@ void initialize_context(
     const SIMDHostAccelInstanceTable &instances,
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
+    SIMDHostRayQueryDirectOutputPacket *direct_outputs,
     const SIMDPacketLaunchConfig *launch_config,
     SIMDHostRayQuerySurfaceFilterHandler *on_surface,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct,
@@ -423,6 +458,7 @@ void initialize_context(
     bool output_only_direct_surface_filter = false) noexcept {
     context.lane_count = lane_count;
     context.instances = &instances;
+    context.direct_outputs = direct_outputs;
     context.launch_config = launch_config;
     context.on_surface = on_surface;
     context.on_surface_direct = on_surface_direct;
@@ -432,9 +468,11 @@ void initialize_context(
         output_only_empty_surface_filter;
     context.output_only_direct_surface_filter =
         output_only_direct_surface_filter;
-    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
-        if (((active_mask_bits >> lane) & 1u) != 0u) {
-            context.states[lane] = states[lane];
+    if (states != nullptr) {
+        for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+            if (((active_mask_bits >> lane) & 1u) != 0u) {
+                context.states[lane] = states[lane];
+            }
         }
     }
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
@@ -451,6 +489,7 @@ void trace_group(
     RTCScene scene, const SIMDHostAccelInstanceTable &instances,
     uint32_t lane_count, uint64_t active_mask_bits,
     SIMDHostRayQueryState *const *states,
+    SIMDHostRayQueryDirectOutputPacket *direct_outputs,
     bool terminate_on_first,
     void *ray_packet,
     const SIMDPacketLaunchConfig *launch_config,
@@ -462,7 +501,7 @@ void trace_group(
     alignas(64) SurfaceFilterPipelineContext context{};
     initialize_context(
         context, instances, lane_count, active_mask_bits, states,
-        launch_config, on_surface, on_surface_direct,
+        direct_outputs, launch_config, on_surface, on_surface_direct,
         use_direct_surface_candidate,
         output_only_empty_surface_filter,
         output_only_direct_surface_filter);
@@ -541,21 +580,21 @@ void trace_group_for_width(
         case 4u:
             trace_group<packet_input, 4u, RTCRayHit4, RTCRay4>(
                 scene, instances, lane_count, active_mask_bits,
-                states, terminate_on_first, ray_packet, launch_config,
+                states, nullptr, terminate_on_first, ray_packet, launch_config,
                 on_surface, on_surface_direct,
                 use_direct_surface_candidate);
             break;
         case 8u:
             trace_group<packet_input, 8u, RTCRayHit8, RTCRay8>(
                 scene, instances, lane_count, active_mask_bits,
-                states, terminate_on_first, ray_packet, launch_config,
+                states, nullptr, terminate_on_first, ray_packet, launch_config,
                 on_surface, on_surface_direct,
                 use_direct_surface_candidate);
             break;
         case 16u:
             trace_group<packet_input, 16u, RTCRayHit16, RTCRay16>(
                 scene, instances, lane_count, active_mask_bits,
-                states, terminate_on_first, ray_packet, launch_config,
+                states, nullptr, terminate_on_first, ray_packet, launch_config,
                 on_surface, on_surface_direct,
                 use_direct_surface_candidate);
             break;
@@ -686,19 +725,19 @@ void ray_query_empty_surface_filter_packet_pipeline_triangle_only(
         case 4u:
             trace_group<true, 4u, RTCRayHit4, RTCRay4>(
                 scene, instances, lane_count, active, states,
-                terminate_on_first != 0u, ray_packet, nullptr,
+                nullptr, terminate_on_first != 0u, ray_packet, nullptr,
                 nullptr, nullptr, false, true);
             break;
         case 8u:
             trace_group<true, 8u, RTCRayHit8, RTCRay8>(
                 scene, instances, lane_count, active, states,
-                terminate_on_first != 0u, ray_packet, nullptr,
+                nullptr, terminate_on_first != 0u, ray_packet, nullptr,
                 nullptr, nullptr, false, true);
             break;
         case 16u:
             trace_group<true, 16u, RTCRayHit16, RTCRay16>(
                 scene, instances, lane_count, active, states,
-                terminate_on_first != 0u, ray_packet, nullptr,
+                nullptr, terminate_on_first != 0u, ray_packet, nullptr,
                 nullptr, nullptr, false, true);
             break;
         default: std::abort();
@@ -707,11 +746,11 @@ void ray_query_empty_surface_filter_packet_pipeline_triangle_only(
 
 void ray_query_direct_output_surface_filter_packet_pipeline_triangle_only(
     uint32_t lane_count, uint64_t active_mask_bits,
-    void *accel, SIMDHostRayQueryState *const *states,
+    void *accel, SIMDHostRayQueryDirectOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct) noexcept {
     LUISA_ASSERT(
-        accel != nullptr && states != nullptr && ray_packet != nullptr &&
+        accel != nullptr && outputs != nullptr && ray_packet != nullptr &&
             on_surface_direct != nullptr &&
             (lane_count == 4u || lane_count == 8u ||
              lane_count == 16u) &&
@@ -727,19 +766,19 @@ void ray_query_direct_output_surface_filter_packet_pipeline_triangle_only(
     switch (lane_count) {
         case 4u:
             trace_group<true, 4u, RTCRayHit4, RTCRay4>(
-                scene, instances, lane_count, active, states,
+                scene, instances, lane_count, active, nullptr, outputs,
                 terminate_on_first != 0u, ray_packet, nullptr,
                 nullptr, on_surface_direct, true, false, true);
             break;
         case 8u:
             trace_group<true, 8u, RTCRayHit8, RTCRay8>(
-                scene, instances, lane_count, active, states,
+                scene, instances, lane_count, active, nullptr, outputs,
                 terminate_on_first != 0u, ray_packet, nullptr,
                 nullptr, on_surface_direct, true, false, true);
             break;
         case 16u:
             trace_group<true, 16u, RTCRayHit16, RTCRay16>(
-                scene, instances, lane_count, active, states,
+                scene, instances, lane_count, active, nullptr, outputs,
                 terminate_on_first != 0u, ray_packet, nullptr,
                 nullptr, on_surface_direct, true, false, true);
             break;

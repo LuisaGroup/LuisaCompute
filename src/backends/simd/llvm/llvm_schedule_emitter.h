@@ -132,6 +132,8 @@ private:
     std::vector<::llvm::AllocaInst *>
         _ray_query_direct_output_surface_filter_accel_storage{};
     std::vector<::llvm::AllocaInst *>
+        _ray_query_direct_output_surface_filter_committed_storage{};
+    std::vector<::llvm::AllocaInst *>
         _ray_query_surface_filter_ray_packet_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_surface_filter_ray_packet_call_storage{};
@@ -438,6 +440,10 @@ private:
     [[nodiscard]] ::llvm::Value *_gather_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type, size_t leaf_offset = 0u);
+    [[nodiscard]] ::llvm::Value *_gather_data_masked(
+        ::llvm::Value *base, ::llvm::Value *offsets,
+        const Type *type, ::llvm::Value *mask,
+        size_t leaf_offset = 0u);
     [[nodiscard]] ::llvm::Value *_gather_paired_vector_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type);

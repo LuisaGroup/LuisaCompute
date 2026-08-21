@@ -2490,27 +2490,51 @@ ordinary route by publishing a null provider without changing generated LLVM
 IR or object code. W1, W2, curves/procedurals, captures, multiple pipelines,
 query mutation, or any additional query-object read must never use this ABI.
 
-A separate direct-output provider may reuse this minimal state contract for a
-nonempty handler only when the compiler proves exactly one surface-filter-safe
+A separate direct-output provider may remove query state from the runtime
+boundary for a nonempty handler only when the compiler proves exactly one
+surface-filter-safe
 pipeline for the query variable, an empty procedural handler, no caller-side
 query write, and no caller read other than committed hit or termination. The
 surface handler must have the audited five-argument direct packet ABI below;
 an empty handler must remain on the callback-free provider. Its signature is
-`(width, physical_mask, accel, states, ray_packet, terminate_on_first,
-direct_surface_handler)`. Cached provider and accel values must agree across
-all active lanes, and a non-null provider requires a non-null direct handler.
+`(width, physical_mask, accel, output_packet, ray_packet,
+terminate_on_first, direct_surface_handler)`. Cached provider and accel values
+must agree across all active lanes, and a non-null provider requires a non-null
+direct handler.
 
-Construction and inactive-lane sanitization are identical to the empty
-output-only route. Active state records contain authoritative data only in
-`world_ray[3]`, `world_ray[7]`, and the initialized miss-valued `committed`
-output. The provider and filter must not read `terminated`, accel/proceed,
-origin/direction, time, visibility, query-control/candidate/status fields,
-batch metadata, callbacks, or object ray; these fields are uninitialized on
-the selected path. Opaque triangles write `committed` directly. Non-opaque
-triangles invoke the direct handler once with exactly the Embree-valid physical
-candidate mask. An accepted lane writes the current Embree hit to `committed`;
-a rejected lane clears the corresponding valid entry. The provider must not
-publish candidate/status fields or run a status-packing pass.
+`output_packet` points to a 64-byte-aligned, 512-byte
+`SIMDHostRayQueryDirectOutputPacket`. It contains eight consecutive arrays of
+sixteen 32-bit elements in this exact order: `t_min`, `t_max`, committed
+instance, primitive, barycentric x, barycentric y, kind, and distance. Their
+byte offsets are 0, 64, 128, 192, 256, 320, 384, and 448. Only indices below
+the compiled W are addressable. Construction must initialize each active
+index's original inclusive interval and public miss-valued committed result
+with masked fixed-vector stores. An inactive index may retain another live
+query's data and must not be read or written.
+
+The provider and filter must not receive or reconstruct a query-state pointer.
+They may read only the active packet interval fields and may write only that
+lane's committed-output fields. Opaque triangles write the output directly.
+Non-opaque triangles invoke the direct handler once with exactly the
+Embree-valid physical candidate mask. An accepted lane writes the current
+Embree hit to the output packet; a rejected lane clears the corresponding
+valid entry. The provider must not publish candidate/status fields or run a
+status-packing pass.
+
+The JIT must test the cached provider before constructing a state-pointer
+packet, reading proceed/status callbacks, publishing scratch state, or setting
+up captures and ordinary handlers. A non-null call must therefore make no
+`SIMDHostRayQueryState` access. A null provider must enter the complete
+established state path in the same module, so the reserved backing state and
+all its initialization remain the exact fail-closed runtime fallback.
+
+At a terminal committed-hit read, the cached provider sidecar is a dynamic
+per-lane discriminator. If every active lane selected direct output, the JIT
+must use only masked fixed-vector loads from the field-major packet. If none
+did, it must use only the established masked state gathers. If construction
+divergence later reconverges a mixed cohort, each source must be read under its
+own submask and combined with fixed-vector selects. A lane outside a source
+submask must be sanitized before any gather, load, or address calculation.
 
 Closest and query-any traversal must use only matching
 `rtcIntersect4/8/16` and `rtcOccluded4/8/16` entries. Sparse masks, partial

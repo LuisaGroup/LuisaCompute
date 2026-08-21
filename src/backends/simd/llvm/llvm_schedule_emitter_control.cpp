@@ -1021,6 +1021,20 @@ void ScheduleEmitter::_allocate_state() {
                 accel;
         }
         if (slot <
+            _ray_query_direct_output_surface_filter_committed_storage.size()) {
+            auto *committed_type = ::llvm::ArrayType::get(
+                _builder.getInt8Ty(),
+                sizeof(SIMDHostRayQueryDirectOutputPacket));
+            auto *committed = _builder.CreateAlloca(
+                committed_type, nullptr,
+                "ray.query.direct.output.surface.filter.committed.slot." +
+                    std::to_string(slot));
+            committed->setAlignment(::llvm::Align{
+                alignof(SIMDHostRayQueryDirectOutputPacket)});
+            _ray_query_direct_output_surface_filter_committed_storage[slot] =
+                committed;
+        }
+        if (slot <
             _ray_query_surface_filter_ray_packet_storage.size()) {
             auto *lane_type = ::llvm::FixedVectorType::get(
                 _builder.getInt32Ty(), _width);

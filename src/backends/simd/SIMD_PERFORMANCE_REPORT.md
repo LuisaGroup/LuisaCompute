@@ -5782,3 +5782,121 @@ tracing, and voxel tests. A fresh read-only W1/W2/W4/W8/W16 1,024-spp cutout
 gallery sweep also passes at
 39.100980/40.178515/40.098347/39.996424/39.885689 dB RGB PSNR; no reference
 image was regenerated.
+
+## Field-major direct-output packet and state-free fast branch
+
+The nonempty direct-output route above still exchanged an array of query-state
+pointers and stored the terminal hit in a per-lane AoS. That forced the JIT to
+form the state packet before the provider call and to gather the result after
+it. The replacement ABI is one 64-byte-aligned, 512-byte field-major packet:
+sixteen entries each for the original inclusive `t_min`/`t_max` and the six
+committed-hit scalars. Construction emits eight masked fixed-vector stores;
+the provider reads/writes only this packet and the sanitized Embree ray packet.
+The non-null branch is now before state/status/capture setup. A null callback
+still enters the complete old state path in the same module.
+
+Committed reads select their source dynamically. An all-output cohort uses
+only contiguous masked vector loads, an all-state cohort uses only the old
+gathers, and a mixed reconverged cohort reads both under disjoint masks and
+selects. This matters for a status color reused across divergent construction
+paths: later convergence does not turn an inactive or stale sidecar into an
+address operand.
+
+An intermediate 32-byte-per-lane AoS output record was measured and rejected.
+Although its same-module oracle ratio improved, its absolute candidate FPS was
+approximately neutral against the preceding report and its assembly still had
+output scatters plus both state and output gathers. Only the field-major
+version below was retained after an independently built old-HEAD comparison
+showed a stable absolute gain.
+
+All timing used fresh Release system/TBB processes, CPUs 0--15, sixteen SIMD
+workers, 64 spp, and one spp per dispatch. Candidate/oracle order alternated.
+A 200-ms process monitor discarded a complete pair if any unrelated process
+reached 50% CPU. In particular, an initial W8 collection was abandoned when a
+separate Psycles render started; no sample from that interval is retained.
+Every accepted new/old or provider/oracle pair produced the same per-width PNG
+hash.
+
+Against the same current JIT module with
+`LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1`, the result is:
+
+| width | field-major FPS | state-oracle FPS | paired geometric speedup | wins | 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 43.8373 | 38.6262 | **1.1275x** | 7/7 | **[1.1015, 1.1542]** |
+| W8 | 49.9550 | 42.8161 | **1.1584x** | 7/7 | **[1.1362, 1.1810]** |
+| W16 | 53.5805 | 43.9358 | **1.2169x** | 7/7 | **[1.2057, 1.2281]** |
+
+That control proves the state-free boundary is cheaper, but code layout can
+move both sides. A second Release/system/TBB tree at exact predecessor
+`89f9da8e2db2fefa779edd11f6b0a815ef464396` therefore provides the absolute
+binary A/B:
+
+| width | field-major FPS | exact-old AoS FPS | paired geometric speedup | wins | 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 43.5512 | 42.5169 | **1.0344x** | 7/7 | **[1.0227, 1.0462]** |
+| W8 | 50.2965 | 46.5248 | **1.0748x** | 7/7 | **[1.0657, 1.0841]** |
+| W16 | 53.0774 | 48.8108 | **1.0883x** | 7/7 | **[1.0745, 1.1024]** |
+
+The complete field-major backend versus current fallback sweep below was taken
+immediately before the final inactive-sidecar masked-load hardening. The two
+provider/oracle tables above and the static audit below were recollected after
+that hardening. A replacement fallback sweep was deliberately not reported:
+an unrelated Psycles render prevented seven uncontaminated W8/W16 pairs, so no
+partial or loaded sample was mixed into the table.
+
+| width | SIMD median FPS | fallback median FPS | paired geometric SIMD / fallback | wins | 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W1 | 32.8404 | 47.3838 | 0.6959x | 0/7 | [0.6903, 0.7015] |
+| W2 | 27.9662 | 47.4957 | 0.5831x | 0/7 | [0.5610, 0.6061] |
+| W4 | 42.9998 | 47.2968 | 0.9118x | 0/7 | [0.8984, 0.9253] |
+| W8 | 49.3139 | 47.2305 | **1.0459x** | 7/7 | **[1.0357, 1.0562]** |
+| W16 | 52.2515 | 46.9323 | **1.1084x** | 7/7 | **[1.0800, 1.1375]** |
+
+In that complete sweep, W8 is 4.6% and W16 10.8% faster than fallback on this
+nonempty cutout-query workload, with both complete intervals above one. W1/W2
+are unchanged fail-closed controls and W4 does not cross over. These numbers
+remain scoped
+to the cutout-query example; they do not supersede the graphics, voxel, GEMM,
+ordinary direct-trace, empty-handler, or ISPC sections above.
+
+The same pre-hardening build used three clean alternating W16 pairs at 128 spp
+with one non-multiplexed hardware event group. Field-major/state-oracle
+geometric ratios are:
+
+| counter | ratio |
+| --- | ---: |
+| throughput | **1.1982x** |
+| task-clock | **0.8289x** |
+| cycles | **0.8247x** |
+| instructions | **0.9246x** |
+| branches | **0.8448x** |
+| branch misses | **0.6506x** |
+
+The reduction in cycles is substantially larger than the instruction
+reduction, while branches also fall by 15.5%. This is consistent with removing
+state scatters, pointer/status preparation, and result gathers from the hot
+provider route rather than relying on an LLVM flag or a changed math mode.
+
+The audited W8 JIT main object has 36,115 bytes of `.text`, 39,411 bytes of
+sections, a 19,520-byte stack reservation, and no undefined symbol. Its packet
+batch symbol is `0x63d3` bytes; each direct handler is `0x1b3`, versus
+`0x12dd` for each retained general handler. Relative to the intermediate AoS
+object, `.text` shrinks by 400 bytes, stack by 256 bytes, and packet-batch code
+by `0x190` bytes. Disassembly shows eight masked vector stores in direct
+construction, a provider branch before state-packet/status setup, and only
+contiguous masked loads on the all-output read. The old gathers/scatters remain
+reachable solely in fail-closed blocks. The main object SHA-256 is
+`e1ada6d208a601789704a2e35d81bcea8a81da017215c3bc1453b5468425171e`.
+
+The host backend's total text is 4,075,051 bytes, 383 bytes smaller than the
+exact-old binary, although ELF file size grows by 1,760 bytes. The specialized
+W4/W8/W16 helpers reach only `rtcIntersect4/8/16` and
+`rtcOccluded4/8/16`; no scalar Embree or scalar math symbol is reachable from
+this provider. Scalar Embree imports in the complete library remain for the
+separately supported W1 path.
+
+After this final ABI change, the self-thread-pool and system/TBB Release trees
+each pass the complete 170/170 inventory. A fresh read-only W1/W2/W4/W8/W16
+1,024-spp cutout sweep passes the checked-in gallery at
+42.930016/46.208391/45.900175/45.529821/45.150873 dB RGB PSNR. The reference
+was not regenerated.

@@ -50,6 +50,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     _ray_query_empty_surface_filter_accel_storage.clear();
     _ray_query_direct_output_surface_filter_pipeline_callback_storage.clear();
     _ray_query_direct_output_surface_filter_accel_storage.clear();
+    _ray_query_direct_output_surface_filter_committed_storage.clear();
     _ray_query_surface_filter_ray_packet_storage.clear();
     _ray_query_surface_filter_ray_packet_call_storage.clear();
     _ray_query_state_handle_storage.clear();
@@ -679,6 +680,8 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
             _ray_query_direct_output_surface_filter_pipeline_callback_storage.assign(
                 status_slot_count, nullptr);
             _ray_query_direct_output_surface_filter_accel_storage.assign(
+                status_slot_count, nullptr);
+            _ray_query_direct_output_surface_filter_committed_storage.assign(
                 status_slot_count, nullptr);
         }
         _result.ray_query_status_slot_count = status_slot_count;

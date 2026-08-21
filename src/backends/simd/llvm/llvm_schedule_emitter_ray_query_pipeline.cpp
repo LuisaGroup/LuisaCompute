@@ -12,9 +12,8 @@ void ScheduleEmitter::_ray_query_pipeline(
     }
     auto object_id = instruction.operands.front();
     auto *status_slot = _ray_query_status_slot(object_id);
-    auto *states = _ray_query_state_handles(object_id);
-    if (status_slot == nullptr || states == nullptr) {
-        _fail("ray-query pipeline requires a proven status/state owner");
+    if (status_slot == nullptr) {
+        _fail("ray-query pipeline requires a proven status owner");
         return;
     }
     auto handler_pair =
@@ -32,6 +31,11 @@ void ScheduleEmitter::_ray_query_pipeline(
     auto status_index = _ray_query_status_slots[object_id.value];
 
     if (_width == 1u) {
+        auto *states = _ray_query_state_handles(object_id);
+        if (states == nullptr) {
+            _fail("W1 ray-query pipeline requires a state owner");
+            return;
+        }
         if (handler_pair.on_candidate_w1 == nullptr ||
             status_index >=
                 _ray_query_pipeline_callback_storage.size()) {
@@ -123,6 +127,166 @@ void ScheduleEmitter::_ray_query_pipeline(
         return;
     }
 
+    auto *null_pointer =
+        ::llvm::ConstantPointerNull::get(pointer_type);
+    auto *outer_active_bits = _bindless_callback_mask(true);
+    auto *exit = ::llvm::BasicBlock::Create(
+        context, "ray.query.pipeline.exit", _entry);
+    auto *surface_filter_ray_packet =
+        static_cast<::llvm::Value *>(nullptr);
+    auto *surface_filter_call_ray_packet =
+        static_cast<::llvm::Value *>(nullptr);
+    if (handler_pair.embree_surface_filter_safe &&
+        status_index <
+            _ray_query_surface_filter_ray_packet_storage.size()) {
+        surface_filter_ray_packet =
+            _ray_query_surface_filter_ray_packet_storage[status_index];
+        surface_filter_call_ray_packet =
+            _ray_query_surface_filter_ray_packet_call_storage[status_index];
+    }
+    auto *surface_filter_handler =
+        static_cast<::llvm::Value *>(nullptr);
+    if (handler_pair.on_surface_filter != nullptr) {
+        surface_filter_handler = handler_pair.on_surface_filter;
+        if (handler_pair.on_surface_filter_scheduler_oracle != nullptr) {
+            if (handler_pair.on_surface_filter->getFunctionType() !=
+                handler_pair.on_surface_filter_scheduler_oracle
+                    ->getFunctionType()) {
+                _fail("surface-filter scheduler oracle type does not match the compact handler");
+                return;
+            }
+            auto *enabled = _load_launch_u32(offsetof(
+                SIMDPacketLaunchConfig,
+                enable_predicated_acyclic_surface_filter));
+            surface_filter_handler = _builder.CreateSelect(
+                _builder.CreateICmpNE(
+                    enabled, _builder.getInt32(0u)),
+                handler_pair.on_surface_filter,
+                handler_pair.on_surface_filter_scheduler_oracle,
+                "ray.query.surface.filter.handler");
+        }
+    }
+    auto *direct_output_surface_filter_callback =
+        static_cast<::llvm::Value *>(nullptr);
+    auto *direct_output_surface_filter_accel =
+        static_cast<::llvm::Value *>(nullptr);
+    if (handler_pair.embree_surface_filter_safe &&
+        !handler_pair.surface_handler_empty &&
+        handler_pair.on_surface_filter != nullptr && _width >= 4u &&
+        status_index <
+            _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                .size() &&
+        status_index <
+            _ray_query_direct_output_surface_filter_accel_storage.size()) {
+        auto *pipeline_callbacks = _builder.CreateMaskedLoad(
+            pointer_lanes,
+            _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                [status_index],
+            ::llvm::Align{alignof(void *)},
+            _active_mask,
+            ::llvm::Constant::getNullValue(pointer_lanes),
+            "ray.query.direct.output.surface.filter.pipeline.callbacks");
+        direct_output_surface_filter_callback =
+            _builder.CreateExtractElement(
+                pipeline_callbacks, _safe_first_lane(_active_mask));
+        auto *pipeline_callback_mismatch = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                pipeline_callbacks,
+                _builder.CreateVectorSplat(
+                    _width, direct_output_surface_filter_callback)));
+        _trap_if(
+            _builder.CreateOrReduce(pipeline_callback_mismatch),
+            "ray.query.direct.output.surface.filter.pipeline.callback.mismatch");
+        auto *accels = _builder.CreateMaskedLoad(
+            pointer_lanes,
+            _ray_query_direct_output_surface_filter_accel_storage
+                [status_index],
+            ::llvm::Align{alignof(void *)},
+            _active_mask,
+            ::llvm::Constant::getNullValue(pointer_lanes),
+            "ray.query.direct.output.surface.filter.accels");
+        direct_output_surface_filter_accel =
+            _builder.CreateExtractElement(
+                accels, _safe_first_lane(_active_mask));
+        auto *accel_mismatch = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                accels,
+                _builder.CreateVectorSplat(
+                    _width, direct_output_surface_filter_accel)));
+        _trap_if(
+            _builder.CreateOrReduce(accel_mismatch),
+            "ray.query.direct.output.surface.filter.accel.mismatch");
+        _trap_if(
+            _builder.CreateAnd(
+                _builder.CreateICmpNE(
+                    direct_output_surface_filter_callback,
+                    null_pointer),
+                _builder.CreateICmpEQ(
+                    direct_output_surface_filter_accel,
+                    null_pointer)),
+            "ray.query.direct.output.surface.filter.accel.null");
+    }
+    if (direct_output_surface_filter_callback != nullptr) {
+        auto *output_only_call = ::llvm::BasicBlock::Create(
+            context, "ray.query.pipeline.direct.output", _entry);
+        auto *regular = ::llvm::BasicBlock::Create(
+            context, "ray.query.pipeline.direct.output.regular", _entry);
+        _builder.CreateCondBr(
+            _builder.CreateICmpNE(
+                direct_output_surface_filter_callback,
+                null_pointer),
+            output_only_call, regular);
+
+        _builder.SetInsertPoint(output_only_call);
+        if (surface_filter_ray_packet == nullptr ||
+            surface_filter_call_ray_packet == nullptr ||
+            direct_output_surface_filter_accel == nullptr ||
+            surface_filter_handler == nullptr ||
+            status_index >=
+                _ray_query_direct_output_surface_filter_committed_storage
+                    .size() ||
+            _ray_query_direct_output_surface_filter_committed_storage
+                    [status_index] == nullptr) {
+            _fail("direct-output surface-filter packet has no analyzed storage or handler");
+            return;
+        }
+        auto *ray_packet =
+            _ray_query_surface_filter_ray_packet_for_call(
+                surface_filter_ray_packet,
+                surface_filter_call_ray_packet,
+                outer_active_bits);
+        if (ray_packet == nullptr) { return; }
+        auto *pipeline_type = ::llvm::FunctionType::get(
+            _builder.getVoidTy(),
+            {_builder.getInt32Ty(), _builder.getInt64Ty(),
+             pointer_type, pointer_type, pointer_type,
+             _builder.getInt32Ty(), pointer_type},
+            false);
+        auto *query_object = _source.value(object_id);
+        auto query_any =
+            query_object != nullptr &&
+            query_object->type == Type::custom("LC_RayQueryAny");
+        _builder.CreateCall(
+            pipeline_type, direct_output_surface_filter_callback,
+            {_builder.getInt32(_width), outer_active_bits,
+             direct_output_surface_filter_accel,
+             _ray_query_direct_output_surface_filter_committed_storage
+                 [status_index],
+             ray_packet,
+             _builder.getInt32(query_any ? 1u : 0u),
+             surface_filter_handler});
+        _builder.CreateBr(exit);
+        _builder.SetInsertPoint(regular);
+    }
+
+    auto *states = _ray_query_state_handles(object_id);
+    if (states == nullptr) {
+        _fail("ray-query pipeline fallback requires a state owner");
+        return;
+    }
+
     if (status_index >= _ray_query_status_callback_storage.size()) {
         _fail("ray-query pipeline status callback slot is invalid");
         return;
@@ -134,8 +298,6 @@ void ScheduleEmitter::_ray_query_pipeline(
         "ray.query.pipeline.status.callbacks");
     auto *status_callback = _builder.CreateExtractElement(
         status_callbacks, _safe_first_lane(_active_mask));
-    auto *null_pointer =
-        ::llvm::ConstantPointerNull::get(pointer_type);
     _trap_if(
         _builder.CreateICmpEQ(status_callback, null_pointer),
         "ray.query.pipeline.callback.null");
@@ -154,13 +316,7 @@ void ScheduleEmitter::_ray_query_pipeline(
         "ray.query.pipeline.packet." +
             std::to_string(*instruction.source_op));
     scratch->setAlignment(::llvm::Align{alignof(void *)});
-    auto *safe_states = _builder.CreateSelect(
-        _active_mask, states,
-        ::llvm::Constant::getNullValue(states->getType()));
-    auto *state_store = _builder.CreateStore(safe_states, scratch);
-    state_store->setAlignment(::llvm::Align{alignof(void *)});
 
-    auto *outer_active_bits = _bindless_callback_mask(true);
     auto handler_arguments = std::vector<::llvm::Value *>{
         _builder.getInt32(_width), nullptr, scratch, _launch_config};
     handler_arguments.reserve(instruction.operands.size() + 3u);
@@ -173,17 +329,9 @@ void ScheduleEmitter::_ray_query_pipeline(
     }
     auto *surface_filter_callback =
         static_cast<::llvm::Value *>(nullptr);
-    auto *surface_filter_ray_packet =
-        static_cast<::llvm::Value *>(nullptr);
-    auto *surface_filter_call_ray_packet =
-        static_cast<::llvm::Value *>(nullptr);
     auto *empty_surface_filter_callback =
         static_cast<::llvm::Value *>(nullptr);
     auto *empty_surface_filter_accel =
-        static_cast<::llvm::Value *>(nullptr);
-    auto *direct_output_surface_filter_callback =
-        static_cast<::llvm::Value *>(nullptr);
-    auto *direct_output_surface_filter_accel =
         static_cast<::llvm::Value *>(nullptr);
     if (handler_pair.embree_surface_filter_safe &&
         status_index <
@@ -204,13 +352,6 @@ void ScheduleEmitter::_ray_query_pipeline(
         _trap_if(
             _builder.CreateOrReduce(pipeline_callback_mismatch),
             "ray.query.surface.filter.pipeline.callback.mismatch");
-        if (status_index <
-            _ray_query_surface_filter_ray_packet_storage.size()) {
-            surface_filter_ray_packet =
-                _ray_query_surface_filter_ray_packet_storage[status_index];
-            surface_filter_call_ray_packet =
-                _ray_query_surface_filter_ray_packet_call_storage[status_index];
-        }
     }
     if (handler_pair.surface_handler_empty && _width >= 4u &&
         status_index <
@@ -258,81 +399,20 @@ void ScheduleEmitter::_ray_query_pipeline(
                     empty_surface_filter_accel, null_pointer)),
             "ray.query.empty.surface.filter.accel.null");
     }
-    if (handler_pair.embree_surface_filter_safe &&
-        !handler_pair.surface_handler_empty &&
-        handler_pair.on_surface_filter != nullptr && _width >= 4u &&
-        status_index <
-            _ray_query_direct_output_surface_filter_pipeline_callback_storage
-                .size() &&
-        status_index <
-            _ray_query_direct_output_surface_filter_accel_storage.size()) {
-        auto *pipeline_callbacks = _builder.CreateAlignedLoad(
-            pointer_lanes,
-            _ray_query_direct_output_surface_filter_pipeline_callback_storage
-                [status_index],
-            ::llvm::Align{alignof(void *)},
-            "ray.query.direct.output.surface.filter.pipeline.callbacks");
-        direct_output_surface_filter_callback =
-            _builder.CreateExtractElement(
-                pipeline_callbacks, _safe_first_lane(_active_mask));
-        auto *pipeline_callback_mismatch = _builder.CreateAnd(
-            _active_mask,
-            _builder.CreateICmpNE(
-                pipeline_callbacks,
-                _builder.CreateVectorSplat(
-                    _width, direct_output_surface_filter_callback)));
-        _trap_if(
-            _builder.CreateOrReduce(pipeline_callback_mismatch),
-            "ray.query.direct.output.surface.filter.pipeline.callback.mismatch");
-        auto *accels = _builder.CreateAlignedLoad(
-            pointer_lanes,
-            _ray_query_direct_output_surface_filter_accel_storage
-                [status_index],
-            ::llvm::Align{alignof(void *)},
-            "ray.query.direct.output.surface.filter.accels");
-        direct_output_surface_filter_accel =
-            _builder.CreateExtractElement(
-                accels, _safe_first_lane(_active_mask));
-        auto *accel_mismatch = _builder.CreateAnd(
-            _active_mask,
-            _builder.CreateICmpNE(
-                accels,
-                _builder.CreateVectorSplat(
-                    _width, direct_output_surface_filter_accel)));
-        _trap_if(
-            _builder.CreateOrReduce(accel_mismatch),
-            "ray.query.direct.output.surface.filter.accel.mismatch");
-        _trap_if(
-            _builder.CreateAnd(
-                _builder.CreateICmpNE(
-                    direct_output_surface_filter_callback,
-                    null_pointer),
-                _builder.CreateICmpEQ(
-                    direct_output_surface_filter_accel,
-                    null_pointer)),
-            "ray.query.direct.output.surface.filter.accel.null");
-    }
-    auto *surface_filter_handler =
-        static_cast<::llvm::Value *>(nullptr);
-    if (handler_pair.on_surface_filter != nullptr) {
-        surface_filter_handler = handler_pair.on_surface_filter;
-        if (handler_pair.on_surface_filter_scheduler_oracle != nullptr) {
-            if (handler_pair.on_surface_filter->getFunctionType() !=
-                handler_pair.on_surface_filter_scheduler_oracle
-                    ->getFunctionType()) {
-                _fail("surface-filter scheduler oracle type does not match the compact handler");
-                return;
-            }
-            auto *enabled = _load_launch_u32(offsetof(
-                SIMDPacketLaunchConfig,
-                enable_predicated_acyclic_surface_filter));
-            surface_filter_handler = _builder.CreateSelect(
-                _builder.CreateICmpNE(
-                    enabled, _builder.getInt32(0u)),
-                handler_pair.on_surface_filter,
-                handler_pair.on_surface_filter_scheduler_oracle,
-                "ray.query.surface.filter.handler");
-        }
+    auto state_packet_stored = false;
+    auto store_state_packet = [&]() noexcept {
+        auto *safe_states = _builder.CreateSelect(
+            _active_mask, states,
+            ::llvm::Constant::getNullValue(states->getType()));
+        auto *state_store = _builder.CreateStore(
+            safe_states, scratch);
+        state_store->setAlignment(
+            ::llvm::Align{alignof(void *)});
+        state_packet_stored = true;
+    };
+    if (empty_surface_filter_callback != nullptr) {
+        // The empty-handler ABI still receives the minimal state packet.
+        store_state_packet();
     }
     auto *preheader = _builder.GetInsertBlock();
     auto *loop = ::llvm::BasicBlock::Create(
@@ -351,8 +431,6 @@ void ScheduleEmitter::_ray_query_pipeline(
         context, "ray.query.pipeline.procedural", _entry);
     auto *continue_loop = ::llvm::BasicBlock::Create(
         context, "ray.query.pipeline.continue", _entry);
-    auto *exit = ::llvm::BasicBlock::Create(
-        context, "ray.query.pipeline.exit", _entry);
     auto *regular_preheader = preheader;
     if (empty_surface_filter_callback != nullptr) {
         auto *output_only_call = ::llvm::BasicBlock::Create(
@@ -395,51 +473,7 @@ void ScheduleEmitter::_ray_query_pipeline(
         _builder.CreateBr(exit);
         _builder.SetInsertPoint(regular_preheader);
     }
-    if (direct_output_surface_filter_callback != nullptr) {
-        auto *output_only_call = ::llvm::BasicBlock::Create(
-            context, "ray.query.pipeline.direct.output", _entry);
-        auto *next_regular_preheader = ::llvm::BasicBlock::Create(
-            context, "ray.query.pipeline.direct.output.regular", _entry);
-        _builder.CreateCondBr(
-            _builder.CreateICmpNE(
-                direct_output_surface_filter_callback,
-                null_pointer),
-            output_only_call, next_regular_preheader);
-
-        _builder.SetInsertPoint(output_only_call);
-        if (surface_filter_ray_packet == nullptr ||
-            surface_filter_call_ray_packet == nullptr ||
-            direct_output_surface_filter_accel == nullptr ||
-            surface_filter_handler == nullptr) {
-            _fail("direct-output surface-filter packet has no analyzed storage or handler");
-            return;
-        }
-        auto *ray_packet =
-            _ray_query_surface_filter_ray_packet_for_call(
-                surface_filter_ray_packet,
-                surface_filter_call_ray_packet,
-                outer_active_bits);
-        if (ray_packet == nullptr) { return; }
-        auto *pipeline_type = ::llvm::FunctionType::get(
-            _builder.getVoidTy(),
-            {_builder.getInt32Ty(), _builder.getInt64Ty(),
-             pointer_type, pointer_type, pointer_type,
-             _builder.getInt32Ty(), pointer_type},
-            false);
-        auto *query_object = _source.value(object_id);
-        auto query_any =
-            query_object != nullptr &&
-            query_object->type == Type::custom("LC_RayQueryAny");
-        _builder.CreateCall(
-            pipeline_type, direct_output_surface_filter_callback,
-            {_builder.getInt32(_width), outer_active_bits,
-             direct_output_surface_filter_accel, scratch, ray_packet,
-             _builder.getInt32(query_any ? 1u : 0u),
-             surface_filter_handler});
-        _builder.CreateBr(exit);
-        _builder.SetInsertPoint(next_regular_preheader);
-        regular_preheader = next_regular_preheader;
-    }
+    if (!state_packet_stored) { store_state_packet(); }
     if (surface_filter_callback == nullptr) {
         _builder.CreateBr(loop);
     } else {
