@@ -5900,3 +5900,87 @@ each pass the complete 170/170 inventory. A fresh read-only W1/W2/W4/W8/W16
 1,024-spp cutout sweep passes the checked-in gallery at
 42.930016/46.208391/45.900175/45.529821/45.150873 dB RGB PSNR. The reference
 was not regenerated.
+
+## Shared field-major packet for empty output-only queries
+
+The empty-handler output-only route previously stopped short of the nonempty
+route's final state-boundary optimization: it initialized a minimal
+`SIMDHostRayQueryState` AoS, formed a state-pointer packet, let the provider
+read `world_ray[3]`/`world_ray[7]`, and gathered `committed` afterward. The
+empty and nonempty routes now share `SIMDHostRayQueryOutputPacket`, a
+64-byte-aligned 512-byte field-major interval/committed packet. The empty
+provider receives no state pointer. Its non-null branch precedes state-handle,
+status-callback, scratch, capture, and ordinary-handler setup; a null provider
+still enters the exact state-backed route in the same JIT object.
+
+The committed read treats the union of the empty- and nonempty-provider
+sidecars as its output-source mask. All-output cohorts issue only masked
+contiguous loads, all-state cohorts issue only masked gathers, and mixed
+reconverged cohorts read the two sources under disjoint masks before selecting.
+The permanent W8 IR gate requires eight masked initialization stores, rejects
+state scatters in that block, and rejects state-handle/status/scratch setup in
+the selected provider block. W4/W8/W16 execution compares output-only,
+state-provider, null-provider, and explicit-loop results with sparse masks and
+a thirteen-element tail. The real Embree opacity test covers closest and any
+queries at every W1/W2/W4/W8/W16 width.
+
+Fresh system/TBB processes were pinned to CPUs 0--15 with sixteen SIMD workers,
+64 spp, and one spp per dispatch in `opaque-query` mode. Candidate/oracle order
+alternated within each pair. A 200-ms process monitor discarded a complete
+pair whenever any unrelated process reached 50% CPU; this removed browser and
+independent Python activity rather than mixing it into the results. Every
+accepted candidate/oracle image is byte-identical within its width.
+
+| width | field-major median FPS | state-provider median FPS | paired geometric speedup | wins | 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 47.9391 | 42.7991 | **1.1205x** | 7/7 | **[1.0961, 1.1454]** |
+| W8 | 56.0898 | 47.9819 | **1.1662x** | 7/7 | **[1.1457, 1.1871]** |
+| W16 | 59.2934 | 48.7781 | **1.2129x** | 7/7 | **[1.2023, 1.2237]** |
+
+The same final binary was then compared with equal-core fallback under the
+same affinity and workload. Backend-specific images each retained one stable
+hash; the comparison does not require the two different traversal
+implementations to be byte-identical.
+
+| width | SIMD median FPS | fallback median FPS | paired geometric SIMD / fallback | wins | 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W1 | 34.8866 | 51.2759 | 0.6789x | 0/7 | [0.6749, 0.6830] |
+| W2 | 30.5805 | 51.5204 | 0.5869x | 0/7 | [0.5549, 0.6207] |
+| W4 | 47.4746 | 51.0949 | 0.9190x | 0/7 | [0.8976, 0.9409] |
+| W8 | 54.8648 | 51.0599 | **1.0725x** | 7/7 | **[1.0587, 1.0865]** |
+| W16 | 58.3897 | 51.0560 | **1.1502x** | 7/7 | **[1.1410, 1.1595]** |
+
+W8 is therefore 7.25% and W16 15.02% faster than equal-core fallback on this
+empty-handler opaque-query workload; W4 remains 8.10% behind. W1/W2 are
+deliberate state-backed controls. These results supersede the earlier
+output-only-empty table above, but remain scoped to `opaque-query` and do not
+replace nonempty cutout, ordinary trace, graphics, voxel, GEMM, or ISPC
+measurements.
+
+Three repeated W8 `perf stat` processes recorded one non-multiplexed event
+group. Field-major/state-provider ratios are:
+
+| counter | ratio |
+| --- | ---: |
+| cycles | **0.8489x** |
+| instructions | **0.9379x** |
+| branches | **0.8711x** |
+| branch misses | **0.6845x** |
+| cache misses | 1.0056x |
+
+IPC rises from 2.5505 to 2.8177. The W8 candidate and disabled-oracle main JIT
+objects are byte-identical at SHA-256
+`06246f084489ac706061e531e1ef69913a88a98f7c9c6344e91d0f293a2732c9`;
+the object has 25,715 bytes of `.text`, 28,587 total section bytes, a
+19,520-byte stack reservation, and no undefined symbol. Annotated assembly
+counts 11 instructions in selected output-packet initialization versus 52 in
+operational-state initialization, and 36 in the empty output-provider call
+path versus 63 in the state-provider call path. Thus the measured gain follows
+the deleted AoS scatters, pointer/status preparation, and state-backed result
+path; it is not a code-layout, math-mode, or scalar-library change.
+
+Both maintained Release configurations pass the complete 171/171 CTest
+inventory independently (342/342 total). A fresh read-only W1/W2/W4/W8/W16
+1,024-spp non-coroutine cutout sweep also passes the checked-in fallback
+gallery at 42.930016/46.208391/45.900175/45.529821/45.150873 dB RGB PSNR,
+respectively; the reference image was not regenerated.

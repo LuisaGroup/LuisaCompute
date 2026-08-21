@@ -579,28 +579,25 @@ namespace {
                 alignof(float));
         }
     };
-    auto *direct_output_committed =
-        direct_output_eligible &&
-                status_index <
-                    _ray_query_direct_output_surface_filter_committed_storage
-                        .size() ?
-            _ray_query_direct_output_surface_filter_committed_storage
-                [status_index] :
+    auto *output_packet =
+        (output_only_eligible || direct_output_eligible) &&
+                status_index < _ray_query_output_packet_storage.size() ?
+            _ray_query_output_packet_storage[status_index] :
             nullptr;
-    auto initialize_direct_output_committed = [&]() noexcept {
+    auto initialize_output_packet = [&]() noexcept {
         auto store_field = [&](::llvm::Value *value,
                                size_t offset) noexcept {
             auto *pointer = offset == 0u ?
                                 static_cast<::llvm::Value *>(
-                                    direct_output_committed) :
+                                    output_packet) :
                                 _builder.CreateGEP(
                                     _builder.getInt8Ty(),
-                                    direct_output_committed,
+                                    output_packet,
                                     _builder.getInt64(offset));
             _builder.CreateMaskedStore(
                 value, pointer,
                 ::llvm::Align{
-                    alignof(SIMDHostRayQueryDirectOutputPacket)},
+                    alignof(SIMDHostRayQueryOutputPacket)},
                 _active_mask);
         };
         auto *t_min = _extract_child(
@@ -611,39 +608,39 @@ namespace {
             ::llvm::Constant::getAllOnesValue(i32_lanes);
         store_field(
             t_min,
-            offsetof(SIMDHostRayQueryDirectOutputPacket, t_min));
+            offsetof(SIMDHostRayQueryOutputPacket, t_min));
         store_field(
             t_max,
-            offsetof(SIMDHostRayQueryDirectOutputPacket, t_max));
+            offsetof(SIMDHostRayQueryOutputPacket, t_max));
         store_field(
             invalid_i32,
             offsetof(
-                SIMDHostRayQueryDirectOutputPacket,
+                SIMDHostRayQueryOutputPacket,
                 committed_inst));
         store_field(
             invalid_i32,
             offsetof(
-                SIMDHostRayQueryDirectOutputPacket,
+                SIMDHostRayQueryOutputPacket,
                 committed_prim));
         store_field(
             zero_float,
             offsetof(
-                SIMDHostRayQueryDirectOutputPacket,
+                SIMDHostRayQueryOutputPacket,
                 committed_bary_x));
         store_field(
             zero_float,
             offsetof(
-                SIMDHostRayQueryDirectOutputPacket,
+                SIMDHostRayQueryOutputPacket,
                 committed_bary_y));
         store_field(
             zero_i32,
             offsetof(
-                SIMDHostRayQueryDirectOutputPacket,
+                SIMDHostRayQueryOutputPacket,
                 committed_kind));
         store_field(
             zero_float,
             offsetof(
-                SIMDHostRayQueryDirectOutputPacket,
+                SIMDHostRayQueryOutputPacket,
                 committed_t));
     };
     auto initialize_full_state = [&]() noexcept {
@@ -759,53 +756,25 @@ namespace {
             initialize_full_state();
         }
     };
-    auto initialize_output_only_state = [&]() noexcept {
-        initialize_committed_state();
-        auto *t_min = _extract_child(ray, ray_value->type, 1u, true);
-        auto *t_max = _extract_child(ray, ray_value->type, 3u, true);
-        scatter(
-            t_min,
-            offsetof(SIMDHostRayQueryState, world_ray) +
-                3u * sizeof(float),
-            alignof(float));
-        scatter(
-            t_max,
-            offsetof(SIMDHostRayQueryState, world_ray) +
-                7u * sizeof(float),
-            alignof(float));
-    };
-    if (direct_output_eligible) {
-        if (direct_output_committed == nullptr) {
-            _fail("direct-output ray-query state lost its committed packet");
+    if (direct_output_eligible || output_only_eligible) {
+        if (output_packet == nullptr) {
+            _fail("output-only ray query lost its field-major packet");
             return nullptr;
         }
-        auto *direct_output_init = ::llvm::BasicBlock::Create(
+        auto *output_packet_init = ::llvm::BasicBlock::Create(
             _module.getContext(),
-            "ray.query.direct.output.committed.init", _entry);
+            "ray.query.output.packet.init", _entry);
         auto *operational_init = ::llvm::BasicBlock::Create(
             _module.getContext(), "ray.query.operational.state.init", _entry);
         auto *state_ready = ::llvm::BasicBlock::Create(
             _module.getContext(), "ray.query.state.ready", _entry);
+        auto *use_output_packet = _builder.CreateOr(
+            use_output_only_state, use_direct_output_state,
+            "ray.query.output.packet");
         _builder.CreateCondBr(
-            use_direct_output_state, direct_output_init, operational_init);
-        _builder.SetInsertPoint(direct_output_init);
-        initialize_direct_output_committed();
-        _builder.CreateBr(state_ready);
-        _builder.SetInsertPoint(operational_init);
-        initialize_operational_state();
-        _builder.CreateBr(state_ready);
-        _builder.SetInsertPoint(state_ready);
-    } else if (output_only_eligible) {
-        auto *output_only_init = ::llvm::BasicBlock::Create(
-            _module.getContext(), "ray.query.output.only.state.init", _entry);
-        auto *operational_init = ::llvm::BasicBlock::Create(
-            _module.getContext(), "ray.query.operational.state.init", _entry);
-        auto *state_ready = ::llvm::BasicBlock::Create(
-            _module.getContext(), "ray.query.state.ready", _entry);
-        _builder.CreateCondBr(
-            use_output_only_state, output_only_init, operational_init);
-        _builder.SetInsertPoint(output_only_init);
-        initialize_output_only_state();
+            use_output_packet, output_packet_init, operational_init);
+        _builder.SetInsertPoint(output_packet_init);
+        initialize_output_packet();
         _builder.CreateBr(state_ready);
         _builder.SetInsertPoint(operational_init);
         initialize_operational_state();
@@ -973,17 +942,18 @@ void ScheduleEmitter::_ray_query_update_status(
                         _ray_query_status_slots
                             [instruction.operands[0u].value] :
                         std::numeric_limits<uint32_t>::max();
-        if (slot <
-                _ray_query_direct_output_surface_filter_pipeline_callback_storage
-                    .size() &&
+        auto has_output_callback_storage =
             slot <
-                _ray_query_direct_output_surface_filter_committed_storage
-                    .size()) {
-            auto *output_storage =
-                _ray_query_direct_output_surface_filter_committed_storage
-                    [slot];
+                _ray_query_empty_surface_filter_pipeline_callback_storage
+                    .size() ||
+            slot <
+                _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                    .size();
+        if (slot < _ray_query_output_packet_storage.size() &&
+            has_output_callback_storage) {
+            auto *output_storage = _ray_query_output_packet_storage[slot];
             if (output_storage == nullptr) {
-                _fail("direct-output committed read lost its packet");
+                _fail("output-only committed read lost its packet");
                 return nullptr;
             }
             auto *callback_lanes = ::llvm::FixedVectorType::get(
@@ -992,17 +962,31 @@ void ScheduleEmitter::_ray_query_update_status(
                 _width);
             auto *null_callbacks =
                 ::llvm::Constant::getNullValue(callback_lanes);
-            auto *callbacks = _builder.CreateMaskedLoad(
-                callback_lanes,
-                _ray_query_direct_output_surface_filter_pipeline_callback_storage
-                    [slot],
-                ::llvm::Align{alignof(void *)},
-                _active_mask, null_callbacks,
-                "ray.query.direct.output.read.callbacks");
-            auto *output_mask = _builder.CreateAnd(
-                _active_mask,
-                _builder.CreateICmpNE(callbacks, null_callbacks),
-                "ray.query.direct.output.read.mask");
+            auto *output_mask = static_cast<::llvm::Value *>(
+                ::llvm::Constant::getNullValue(_layout.mask_type()));
+            auto add_output_callbacks =
+                [&](const std::vector<::llvm::AllocaInst *> &storage,
+                    std::string_view name) noexcept {
+                    if (slot >= storage.size()) { return; }
+                    auto *callbacks = _builder.CreateMaskedLoad(
+                        callback_lanes, storage[slot],
+                        ::llvm::Align{alignof(void *)},
+                        _active_mask, null_callbacks,
+                        std::string{name} + ".callbacks");
+                    output_mask = _builder.CreateOr(
+                        output_mask,
+                        _builder.CreateAnd(
+                            _active_mask,
+                            _builder.CreateICmpNE(
+                                callbacks, null_callbacks)),
+                        std::string{name} + ".mask");
+                };
+            add_output_callbacks(
+                _ray_query_empty_surface_filter_pipeline_callback_storage,
+                "ray.query.empty.output.read");
+            add_output_callbacks(
+                _ray_query_direct_output_surface_filter_pipeline_callback_storage,
+                "ray.query.direct.output.read");
             auto *state_mask = _builder.CreateAnd(
                 _active_mask, _builder.CreateNot(output_mask),
                 "ray.query.state.read.mask");
@@ -1019,7 +1003,7 @@ void ScheduleEmitter::_ray_query_update_status(
                     return _builder.CreateMaskedLoad(
                         lanes, pointer,
                         ::llvm::Align{alignof(
-                            SIMDHostRayQueryDirectOutputPacket)},
+                            SIMDHostRayQueryOutputPacket)},
                         mask,
                         ::llvm::Constant::getNullValue(lanes));
                 };
@@ -1030,10 +1014,10 @@ void ScheduleEmitter::_ray_query_update_status(
                         return load_field(
                             component == 0u ?
                                 offsetof(
-                                    SIMDHostRayQueryDirectOutputPacket,
+                                    SIMDHostRayQueryOutputPacket,
                                     committed_bary_x) :
                                 offsetof(
-                                    SIMDHostRayQueryDirectOutputPacket,
+                                    SIMDHostRayQueryOutputPacket,
                                     committed_bary_y),
                             _builder.getFloatTy());
                     });
@@ -1047,7 +1031,7 @@ void ScheduleEmitter::_ray_query_update_status(
                     value,
                     load_field(
                         offsetof(
-                            SIMDHostRayQueryDirectOutputPacket,
+                            SIMDHostRayQueryOutputPacket,
                             committed_inst),
                         _builder.getInt32Ty()),
                     result->type, 0u, true);
@@ -1055,7 +1039,7 @@ void ScheduleEmitter::_ray_query_update_status(
                     value,
                     load_field(
                         offsetof(
-                            SIMDHostRayQueryDirectOutputPacket,
+                            SIMDHostRayQueryOutputPacket,
                             committed_prim),
                         _builder.getInt32Ty()),
                     result->type, 1u, true);
@@ -1065,7 +1049,7 @@ void ScheduleEmitter::_ray_query_update_status(
                     value,
                     load_field(
                         offsetof(
-                            SIMDHostRayQueryDirectOutputPacket,
+                            SIMDHostRayQueryOutputPacket,
                             committed_kind),
                         _builder.getInt32Ty()),
                     result->type, 3u, true);
@@ -1073,7 +1057,7 @@ void ScheduleEmitter::_ray_query_update_status(
                     value,
                     load_field(
                         offsetof(
-                            SIMDHostRayQueryDirectOutputPacket,
+                            SIMDHostRayQueryOutputPacket,
                             committed_t),
                         _builder.getFloatTy()),
                     result->type, 4u, true);
@@ -1081,13 +1065,13 @@ void ScheduleEmitter::_ray_query_update_status(
 
             auto &context = _module.getContext();
             auto *state_present = ::llvm::BasicBlock::Create(
-                context, "ray.query.direct.output.read.state", _entry);
+                context, "ray.query.output.read.state", _entry);
             auto *output_only = ::llvm::BasicBlock::Create(
-                context, "ray.query.direct.output.read.output", _entry);
+                context, "ray.query.output.read.output", _entry);
             auto *mixed = ::llvm::BasicBlock::Create(
-                context, "ray.query.direct.output.read.mixed", _entry);
+                context, "ray.query.output.read.mixed", _entry);
             auto *merge = ::llvm::BasicBlock::Create(
-                context, "ray.query.direct.output.read.merge", _entry);
+                context, "ray.query.output.read.merge", _entry);
             _builder.CreateCondBr(
                 has_state, state_present, output_only);
 
@@ -1122,7 +1106,7 @@ void ScheduleEmitter::_ray_query_update_status(
             _builder.SetInsertPoint(merge);
             auto *value = _builder.CreatePHI(
                 _data_type(result->type, true), 3u,
-                "ray.query.direct.output.read.value");
+                "ray.query.output.read.value");
             value->addIncoming(state_value, state_only);
             value->addIncoming(output_value, output_only_end);
             value->addIncoming(mixed_value, mixed_end);

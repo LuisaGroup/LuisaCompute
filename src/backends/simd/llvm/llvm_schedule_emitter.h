@@ -132,7 +132,7 @@ private:
     std::vector<::llvm::AllocaInst *>
         _ray_query_direct_output_surface_filter_accel_storage{};
     std::vector<::llvm::AllocaInst *>
-        _ray_query_direct_output_surface_filter_committed_storage{};
+        _ray_query_output_packet_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_surface_filter_ray_packet_storage{};
     std::vector<::llvm::AllocaInst *>

@@ -228,6 +228,61 @@ void ScheduleEmitter::_ray_query_pipeline(
                     null_pointer)),
             "ray.query.direct.output.surface.filter.accel.null");
     }
+    auto *empty_surface_filter_callback =
+        static_cast<::llvm::Value *>(nullptr);
+    auto *empty_surface_filter_accel =
+        static_cast<::llvm::Value *>(nullptr);
+    if (handler_pair.embree_surface_filter_safe &&
+        handler_pair.surface_handler_empty && _width >= 4u &&
+        status_index <
+            _ray_query_empty_surface_filter_pipeline_callback_storage.size() &&
+        status_index <
+            _ray_query_empty_surface_filter_accel_storage.size()) {
+        auto *pipeline_callbacks = _builder.CreateMaskedLoad(
+            pointer_lanes,
+            _ray_query_empty_surface_filter_pipeline_callback_storage
+                [status_index],
+            ::llvm::Align{alignof(void *)},
+            _active_mask,
+            ::llvm::Constant::getNullValue(pointer_lanes),
+            "ray.query.empty.surface.filter.pipeline.callbacks");
+        empty_surface_filter_callback = _builder.CreateExtractElement(
+            pipeline_callbacks, _safe_first_lane(_active_mask));
+        auto *pipeline_callback_mismatch = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                pipeline_callbacks,
+                _builder.CreateVectorSplat(
+                    _width, empty_surface_filter_callback)));
+        _trap_if(
+            _builder.CreateOrReduce(pipeline_callback_mismatch),
+            "ray.query.empty.surface.filter.pipeline.callback.mismatch");
+        auto *accels = _builder.CreateMaskedLoad(
+            pointer_lanes,
+            _ray_query_empty_surface_filter_accel_storage[status_index],
+            ::llvm::Align{alignof(void *)},
+            _active_mask,
+            ::llvm::Constant::getNullValue(pointer_lanes),
+            "ray.query.empty.surface.filter.accels");
+        empty_surface_filter_accel = _builder.CreateExtractElement(
+            accels, _safe_first_lane(_active_mask));
+        auto *accel_mismatch = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                accels,
+                _builder.CreateVectorSplat(
+                    _width, empty_surface_filter_accel)));
+        _trap_if(
+            _builder.CreateOrReduce(accel_mismatch),
+            "ray.query.empty.surface.filter.accel.mismatch");
+        _trap_if(
+            _builder.CreateAnd(
+                _builder.CreateICmpNE(
+                    empty_surface_filter_callback, null_pointer),
+                _builder.CreateICmpEQ(
+                    empty_surface_filter_accel, null_pointer)),
+            "ray.query.empty.surface.filter.accel.null");
+    }
     if (direct_output_surface_filter_callback != nullptr) {
         auto *output_only_call = ::llvm::BasicBlock::Create(
             context, "ray.query.pipeline.direct.output", _entry);
@@ -244,11 +299,8 @@ void ScheduleEmitter::_ray_query_pipeline(
             surface_filter_call_ray_packet == nullptr ||
             direct_output_surface_filter_accel == nullptr ||
             surface_filter_handler == nullptr ||
-            status_index >=
-                _ray_query_direct_output_surface_filter_committed_storage
-                    .size() ||
-            _ray_query_direct_output_surface_filter_committed_storage
-                    [status_index] == nullptr) {
+            status_index >= _ray_query_output_packet_storage.size() ||
+            _ray_query_output_packet_storage[status_index] == nullptr) {
             _fail("direct-output surface-filter packet has no analyzed storage or handler");
             return;
         }
@@ -272,11 +324,55 @@ void ScheduleEmitter::_ray_query_pipeline(
             pipeline_type, direct_output_surface_filter_callback,
             {_builder.getInt32(_width), outer_active_bits,
              direct_output_surface_filter_accel,
-             _ray_query_direct_output_surface_filter_committed_storage
-                 [status_index],
+             _ray_query_output_packet_storage[status_index],
              ray_packet,
              _builder.getInt32(query_any ? 1u : 0u),
              surface_filter_handler});
+        _builder.CreateBr(exit);
+        _builder.SetInsertPoint(regular);
+    }
+    if (empty_surface_filter_callback != nullptr) {
+        auto *output_only_call = ::llvm::BasicBlock::Create(
+            context, "ray.query.pipeline.empty.output", _entry);
+        auto *regular = ::llvm::BasicBlock::Create(
+            context, "ray.query.pipeline.empty.output.regular", _entry);
+        _builder.CreateCondBr(
+            _builder.CreateICmpNE(
+                empty_surface_filter_callback, null_pointer),
+            output_only_call, regular);
+
+        _builder.SetInsertPoint(output_only_call);
+        if (surface_filter_ray_packet == nullptr ||
+            surface_filter_call_ray_packet == nullptr ||
+            empty_surface_filter_accel == nullptr ||
+            status_index >= _ray_query_output_packet_storage.size() ||
+            _ray_query_output_packet_storage[status_index] == nullptr) {
+            _fail("empty output-only surface-filter packet has no analyzed storage");
+            return;
+        }
+        auto *ray_packet =
+            _ray_query_surface_filter_ray_packet_for_call(
+                surface_filter_ray_packet,
+                surface_filter_call_ray_packet,
+                outer_active_bits);
+        if (ray_packet == nullptr) { return; }
+        auto *pipeline_type = ::llvm::FunctionType::get(
+            _builder.getVoidTy(),
+            {_builder.getInt32Ty(), _builder.getInt64Ty(),
+             pointer_type, pointer_type, pointer_type,
+             _builder.getInt32Ty()},
+            false);
+        auto *query_object = _source.value(object_id);
+        auto query_any =
+            query_object != nullptr &&
+            query_object->type == Type::custom("LC_RayQueryAny");
+        _builder.CreateCall(
+            pipeline_type, empty_surface_filter_callback,
+            {_builder.getInt32(_width), outer_active_bits,
+             empty_surface_filter_accel,
+             _ray_query_output_packet_storage[status_index],
+             ray_packet,
+             _builder.getInt32(query_any ? 1u : 0u)});
         _builder.CreateBr(exit);
         _builder.SetInsertPoint(regular);
     }
@@ -329,10 +425,6 @@ void ScheduleEmitter::_ray_query_pipeline(
     }
     auto *surface_filter_callback =
         static_cast<::llvm::Value *>(nullptr);
-    auto *empty_surface_filter_callback =
-        static_cast<::llvm::Value *>(nullptr);
-    auto *empty_surface_filter_accel =
-        static_cast<::llvm::Value *>(nullptr);
     if (handler_pair.embree_surface_filter_safe &&
         status_index <
             _ray_query_surface_filter_pipeline_callback_storage.size()) {
@@ -353,67 +445,13 @@ void ScheduleEmitter::_ray_query_pipeline(
             _builder.CreateOrReduce(pipeline_callback_mismatch),
             "ray.query.surface.filter.pipeline.callback.mismatch");
     }
-    if (handler_pair.surface_handler_empty && _width >= 4u &&
-        status_index <
-            _ray_query_empty_surface_filter_pipeline_callback_storage.size() &&
-        status_index <
-            _ray_query_empty_surface_filter_accel_storage.size()) {
-        auto *pipeline_callbacks = _builder.CreateAlignedLoad(
-            pointer_lanes,
-            _ray_query_empty_surface_filter_pipeline_callback_storage
-                [status_index],
-            ::llvm::Align{alignof(void *)},
-            "ray.query.empty.surface.filter.pipeline.callbacks");
-        empty_surface_filter_callback = _builder.CreateExtractElement(
-            pipeline_callbacks, _safe_first_lane(_active_mask));
-        auto *pipeline_callback_mismatch = _builder.CreateAnd(
-            _active_mask,
-            _builder.CreateICmpNE(
-                pipeline_callbacks,
-                _builder.CreateVectorSplat(
-                    _width, empty_surface_filter_callback)));
-        _trap_if(
-            _builder.CreateOrReduce(pipeline_callback_mismatch),
-            "ray.query.empty.surface.filter.pipeline.callback.mismatch");
-        auto *accels = _builder.CreateAlignedLoad(
-            pointer_lanes,
-            _ray_query_empty_surface_filter_accel_storage[status_index],
-            ::llvm::Align{alignof(void *)},
-            "ray.query.empty.surface.filter.accels");
-        empty_surface_filter_accel = _builder.CreateExtractElement(
-            accels, _safe_first_lane(_active_mask));
-        auto *accel_mismatch = _builder.CreateAnd(
-            _active_mask,
-            _builder.CreateICmpNE(
-                accels,
-                _builder.CreateVectorSplat(
-                    _width, empty_surface_filter_accel)));
-        _trap_if(
-            _builder.CreateOrReduce(accel_mismatch),
-            "ray.query.empty.surface.filter.accel.mismatch");
-        _trap_if(
-            _builder.CreateAnd(
-                _builder.CreateICmpNE(
-                    empty_surface_filter_callback, null_pointer),
-                _builder.CreateICmpEQ(
-                    empty_surface_filter_accel, null_pointer)),
-            "ray.query.empty.surface.filter.accel.null");
-    }
-    auto state_packet_stored = false;
-    auto store_state_packet = [&]() noexcept {
-        auto *safe_states = _builder.CreateSelect(
-            _active_mask, states,
-            ::llvm::Constant::getNullValue(states->getType()));
-        auto *state_store = _builder.CreateStore(
-            safe_states, scratch);
-        state_store->setAlignment(
-            ::llvm::Align{alignof(void *)});
-        state_packet_stored = true;
-    };
-    if (empty_surface_filter_callback != nullptr) {
-        // The empty-handler ABI still receives the minimal state packet.
-        store_state_packet();
-    }
+    auto *safe_states = _builder.CreateSelect(
+        _active_mask, states,
+        ::llvm::Constant::getNullValue(states->getType()));
+    auto *state_store = _builder.CreateStore(
+        safe_states, scratch);
+    state_store->setAlignment(
+        ::llvm::Align{alignof(void *)});
     auto *preheader = _builder.GetInsertBlock();
     auto *loop = ::llvm::BasicBlock::Create(
         context, "ray.query.pipeline.loop", _entry);
@@ -432,48 +470,6 @@ void ScheduleEmitter::_ray_query_pipeline(
     auto *continue_loop = ::llvm::BasicBlock::Create(
         context, "ray.query.pipeline.continue", _entry);
     auto *regular_preheader = preheader;
-    if (empty_surface_filter_callback != nullptr) {
-        auto *output_only_call = ::llvm::BasicBlock::Create(
-            context, "ray.query.pipeline.output.only", _entry);
-        regular_preheader = ::llvm::BasicBlock::Create(
-            context, "ray.query.pipeline.regular", _entry);
-        _builder.CreateCondBr(
-            _builder.CreateICmpNE(
-                empty_surface_filter_callback, null_pointer),
-            output_only_call, regular_preheader);
-
-        _builder.SetInsertPoint(output_only_call);
-        if (surface_filter_ray_packet == nullptr ||
-            surface_filter_call_ray_packet == nullptr ||
-            empty_surface_filter_accel == nullptr) {
-            _fail("output-only empty surface-filter packet has no analyzed storage");
-            return;
-        }
-        auto *ray_packet =
-            _ray_query_surface_filter_ray_packet_for_call(
-                surface_filter_ray_packet,
-                surface_filter_call_ray_packet,
-                outer_active_bits);
-        if (ray_packet == nullptr) { return; }
-        auto *pipeline_type = ::llvm::FunctionType::get(
-            _builder.getVoidTy(),
-            {_builder.getInt32Ty(), _builder.getInt64Ty(),
-             pointer_type, pointer_type, pointer_type,
-             _builder.getInt32Ty()},
-            false);
-        auto *query_object = _source.value(object_id);
-        auto query_any =
-            query_object != nullptr &&
-            query_object->type == Type::custom("LC_RayQueryAny");
-        _builder.CreateCall(
-            pipeline_type, empty_surface_filter_callback,
-            {_builder.getInt32(_width), outer_active_bits,
-             empty_surface_filter_accel, scratch, ray_packet,
-             _builder.getInt32(query_any ? 1u : 0u)});
-        _builder.CreateBr(exit);
-        _builder.SetInsertPoint(regular_preheader);
-    }
-    if (!state_packet_stored) { store_state_packet(); }
     if (surface_filter_callback == nullptr) {
         _builder.CreateBr(loop);
     } else {

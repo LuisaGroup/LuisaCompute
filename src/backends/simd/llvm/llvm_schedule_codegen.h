@@ -173,13 +173,13 @@ struct alignas(8) SIMDHostRayQueryCommittedHit {
     float t{0.0f};
 };
 
-// Provider-private, field-major packet for a terminal direct-output triangle
+// Provider-private, field-major packet for a terminal output-only triangle
 // query. A fixed sixteen-lane capacity keeps the C++ ABI typed while the JIT
 // accesses one native W4/W8/W16 vector at the beginning of every field. The
 // two inclusive source bounds retain Luisa's exact candidate domain after the
 // Embree-facing tnear value has been stepped outward. No operational cursor,
 // callback, candidate, or batch state is present.
-struct alignas(64) SIMDHostRayQueryDirectOutputPacket {
+struct alignas(64) SIMDHostRayQueryOutputPacket {
     std::array<float, 16u> t_min{};
     std::array<float, 16u> t_max{};
     std::array<uint32_t, 16u> committed_inst{};
@@ -259,12 +259,12 @@ using SIMDHostAccelRayQuerySurfaceFilterPacketPipeline = void(
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct);
 // An audited empty surface handler needs no candidate callback or mutable
 // query input. The packet provider receives the accel and sanitized Embree ray
-// packet directly. Active state pointers provide the original world-ray
-// interval in world_ray[3]/world_ray[7] and output storage for committed;
-// the provider must not access any other SIMDHostRayQueryState field.
+// packet directly. The field-major output packet provides the original
+// world-ray interval and terminal committed-hit storage; no operational query
+// state is materialized when this provider is selected.
 using SIMDHostAccelRayQueryEmptySurfaceFilterPacketPipeline = void(
     uint32_t lane_count, uint64_t active_mask_bits,
-    void *accel, SIMDHostRayQueryState *const *states,
+    void *accel, SIMDHostRayQueryOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first);
 // A nonempty audited direct handler may bypass the operational query state
 // when the caller observes only the terminal result. The callback consumes
@@ -274,7 +274,7 @@ using SIMDHostAccelRayQueryEmptySurfaceFilterPacketPipeline = void(
 // does not receive or inspect SIMDHostRayQueryState.
 using SIMDHostAccelRayQueryDirectOutputSurfaceFilterPacketPipeline = void(
     uint32_t lane_count, uint64_t active_mask_bits,
-    void *accel, SIMDHostRayQueryDirectOutputPacket *outputs,
+    void *accel, SIMDHostRayQueryOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct);
 
@@ -525,7 +525,7 @@ static_assert(
     sizeof(void *));
 static_assert(sizeof(SIMDHostRayQuerySurfaceHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryCommittedHit) == 24u);
-static_assert(sizeof(SIMDHostRayQueryDirectOutputPacket) == 512u);
+static_assert(sizeof(SIMDHostRayQueryOutputPacket) == 512u);
 static_assert(sizeof(SIMDHostRayQueryProceduralHit) == 8u);
 static_assert(sizeof(SIMDHostRayQueryState) == 1248u);
 static_assert(offsetof(SIMDHostRayQueryState, world_ray) == 16u);
@@ -540,25 +540,25 @@ static_assert(offsetof(SIMDHostRayQueryCommittedHit, prim) == 4u);
 static_assert(offsetof(SIMDHostRayQueryCommittedHit, bary) == 8u);
 static_assert(offsetof(SIMDHostRayQueryCommittedHit, kind) == 16u);
 static_assert(offsetof(SIMDHostRayQueryCommittedHit, t) == 20u);
-static_assert(offsetof(SIMDHostRayQueryDirectOutputPacket, t_min) == 0u);
-static_assert(offsetof(SIMDHostRayQueryDirectOutputPacket, t_max) == 64u);
+static_assert(offsetof(SIMDHostRayQueryOutputPacket, t_min) == 0u);
+static_assert(offsetof(SIMDHostRayQueryOutputPacket, t_max) == 64u);
 static_assert(offsetof(
-                  SIMDHostRayQueryDirectOutputPacket,
+                  SIMDHostRayQueryOutputPacket,
                   committed_inst) == 128u);
 static_assert(offsetof(
-                  SIMDHostRayQueryDirectOutputPacket,
+                  SIMDHostRayQueryOutputPacket,
                   committed_prim) == 192u);
 static_assert(offsetof(
-                  SIMDHostRayQueryDirectOutputPacket,
+                  SIMDHostRayQueryOutputPacket,
                   committed_bary_x) == 256u);
 static_assert(offsetof(
-                  SIMDHostRayQueryDirectOutputPacket,
+                  SIMDHostRayQueryOutputPacket,
                   committed_bary_y) == 320u);
 static_assert(offsetof(
-                  SIMDHostRayQueryDirectOutputPacket,
+                  SIMDHostRayQueryOutputPacket,
                   committed_kind) == 384u);
 static_assert(offsetof(
-                  SIMDHostRayQueryDirectOutputPacket,
+                  SIMDHostRayQueryOutputPacket,
                   committed_t) == 448u);
 static_assert(offsetof(SIMDHostRayQueryState, candidate_batch_count) == 152u);
 static_assert(offsetof(SIMDHostRayQueryState, candidate_batch) == 168u);

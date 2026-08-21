@@ -3519,37 +3519,44 @@ ordinary compact/full-state path in the same JIT module; W1/W2 and every
 unproven use never publish this callback.
 
 The non-null path treats the colored ray packet as the complete traversal
-input. Construction initializes only the original `t_min`/`t_max` interval and
-the miss-valued committed hit in the state record; accel/proceed, world origin
-and direction, time, visibility, query-control flags, candidate state, and all
-batch/object-ray fields remain untouched. The provider receives
-`(width, mask, accel, states, ray_packet, terminate_on_first)`. It may read only
-`world_ray[3]` and `world_ray[7]`, and may write only `committed`. Opaque
-triangles update that output in the Embree filter, non-opaque triangles clear
-their valid bit, and the JIT publishes terminal status after the single call.
-No candidate handler or runtime status-packing pass is entered.
+input and shares the field-major terminal packet described below with the
+nonempty direct-output route. Construction emits eight masked fixed-vector
+stores for the original `t_min`/`t_max` interval and public miss value; it does
+not initialize any `SIMDHostRayQueryState` field. The provider receives
+`(width, mask, accel, output_packet, ray_packet, terminate_on_first)`, reads
+only the active interval fields, and writes only the active committed fields.
+Opaque triangles update that output in the Embree filter, non-opaque triangles
+clear their valid bit, and the JIT publishes terminal status after the single
+call. No state-pointer packet, candidate handler, status callback, capture
+packet, or runtime status-packing pass is entered.
 
-This is an output-state specialization, not a public state ABI change. The
-same full backing allocation and 160-byte compact stride remain available, and
-the existing packet sanitizer still replaces every inactive ray field before
-the provider call. `LUISA_SIMD_DISABLE_OUTPUT_ONLY_EMPTY_SURFACE_FILTER=1`
-publishes a null callback without recompiling the shader. The compiler report
-field `output_only_empty_surface_filter_states` counts accepted construction
-sites. Runtime publication additionally requires the committed scene to be
+This is a private provider-boundary specialization, not a public state ABI
+change. The same full backing allocation and 160-byte compact stride remain
+available for a null provider, and the existing packet sanitizer still
+replaces every inactive ray field before the provider call. The committed-hit
+read uses the union of the empty and nonempty output-provider sidecars as its
+per-lane source mask, so a divergent status color may reconverge packet-backed
+and state-backed lanes without reading either source outside its submask.
+`LUISA_SIMD_DISABLE_OUTPUT_ONLY_EMPTY_SURFACE_FILTER=1` publishes a null
+callback without recompiling the shader. The compiler report field
+`output_only_empty_surface_filter_states` counts accepted construction sites.
+Runtime publication additionally requires the committed scene to be
 triangle-only, packet input to be enabled, and the exact W4/W8/W16 Embree
 entry point to exist.
 
-Seven clean alternating 64-spp pairs measure this boundary against its
-same-module state-provider oracle at 1.1029x/1.1092x/1.1291x paired geometric
-throughput for W4/W8/W16, with every candidate winning and all 95% log-paired
-intervals above one. Three W8 256-spp counter pairs measure 0.8928x cycles,
-0.9307x instructions, and 0.8810x branches; a separate three-pair group
-measures 0.8834x cache references while cache misses remain neutral at
-1.0110x. Candidate/oracle JIT objects and the audited W8 64-spp images are
-byte-identical. A seven-round equal-core rotation now measures SIMD/fallback at
-0.6787x/0.6075x/0.9307x/1.0333x/1.0733x for W1/W2/W4/W8/W16; the W8 and W16
-95% paired intervals are both above one. The performance report records the
-raw methodology and hashes.
+Seven clean alternating 64-spp `opaque-query` pairs measure the shared
+field-major boundary against its same-module state-provider oracle at
+1.1205x/1.1662x/1.2129x paired geometric throughput for W4/W8/W16, with 21/21
+wins and 95% log-paired intervals of [1.0961, 1.1454], [1.1457, 1.1871], and
+[1.2023, 1.2237]. Three repeated W8 hardware-counter runs measure ratios of
+0.8489x cycles, 0.9379x instructions, 0.8711x branches, 0.6845x branch misses,
+and 1.0056x cache misses; IPC rises from 2.5505 to 2.8177. Candidate/oracle JIT
+objects are byte-identical because the runtime callback is the only selector.
+In the annotated W8 packet batch, the selected packet initialization has 11
+instructions versus 52 for operational state initialization, and the output
+provider call path has 36 versus 63 for the state-provider path. The
+performance report records the complete methodology, medians, counters, and
+hashes.
 
 A nonempty candidate-local surface handler can remove query state from the
 provider boundary when the Schedule proof is strengthened in the other

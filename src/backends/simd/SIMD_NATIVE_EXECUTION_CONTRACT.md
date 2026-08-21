@@ -2460,25 +2460,26 @@ An additional W4/W8/W16 provider ABI is legal only for a query variable proven
 to have exactly one capture-free empty surface handler, an empty procedural
 handler, triangle-only surface-filter eligibility, no caller-side query write,
 and no caller read other than committed hit or termination. Its signature is
-`(width, physical_mask, accel, states, ray_packet, terminate_on_first)`. The
-cached callback and accel packets must agree across all active lanes. A null
-callback must select the ordinary provider; a null accel for a non-null
-callback or an active-lane disagreement is an invalid internal ABI. Stale data
-from a reused status color must never select this path.
+`(width, physical_mask, accel, output_packet, ray_packet,
+terminate_on_first)`. The cached callback and accel packets must agree across
+all active lanes. A null callback must select the ordinary provider; a null
+accel for a non-null callback or an active-lane disagreement is an invalid
+internal ABI. Stale data from a reused status color must never select this
+path.
 
 On the non-null path, `ray_packet` is the same twelve-field component-major
-packet and obeys the same pre-call inactive-lane sanitization contract. Each
-active state supplies only the original interval in `world_ray[3]` and
-`world_ray[7]`; its `committed` member is initialized to the public miss value
-and is the only writable output. The provider must not read or write accel,
-proceed, origin/direction, time, visibility, control/candidate/status fields,
-batch storage, callback pointers, or object ray. Construction may leave every
-such field uninitialized, so even diagnostic reads are forbidden.
+packet and obeys the same pre-call inactive-lane sanitization contract.
+`output_packet` is the shared field-major packet defined below. Construction
+initializes its active interval and committed fields with masked fixed-vector
+stores and may leave every `SIMDHostRayQueryState` field uninitialized. The
+provider must not receive, reconstruct, or diagnostically inspect a query-state
+pointer.
 
 The provider must invoke exactly the matching `rtcIntersect4/8/16` or
 `rtcOccluded4/8/16` packet entry, never a per-lane scalar Embree call. Its
 filter validates IDs and the original inclusive interval, writes an opaque
-surface hit directly to `committed`, and rejects every non-opaque triangle.
+surface hit directly to the packet's committed fields, and rejects every
+non-opaque triangle.
 It must not invoke either JIT candidate handler or pack state status. After the
 call, the JIT marks the original active lanes terminal in the normal status
 sidecar; no candidate may remain observable. Miss, closest, query-any,
@@ -2489,6 +2490,10 @@ remain identical to the ordinary empty-handler surface-filter route.
 ordinary route by publishing a null provider without changing generated LLVM
 IR or object code. W1, W2, curves/procedurals, captures, multiple pipelines,
 query mutation, or any additional query-object read must never use this ABI.
+The JIT must test the callback before constructing a state-pointer packet,
+reading the status callback, publishing scratch state, or materializing
+captures. A non-null empty-provider call must make no `SIMDHostRayQueryState`
+access.
 
 A separate direct-output provider may remove query state from the runtime
 boundary for a nonempty handler only when the compiler proves exactly one
@@ -2503,7 +2508,8 @@ must agree across all active lanes, and a non-null provider requires a non-null
 direct handler.
 
 `output_packet` points to a 64-byte-aligned, 512-byte
-`SIMDHostRayQueryDirectOutputPacket`. It contains eight consecutive arrays of
+`SIMDHostRayQueryOutputPacket`. It is shared by the empty and nonempty
+output-only providers and contains eight consecutive arrays of
 sixteen 32-bit elements in this exact order: `t_min`, `t_max`, committed
 instance, primitive, barycentric x, barycentric y, kind, and distance. Their
 byte offsets are 0, 64, 128, 192, 256, 320, 384, and 448. Only indices below
@@ -2528,8 +2534,9 @@ up captures and ordinary handlers. A non-null call must therefore make no
 established state path in the same module, so the reserved backing state and
 all its initialization remain the exact fail-closed runtime fallback.
 
-At a terminal committed-hit read, the cached provider sidecar is a dynamic
-per-lane discriminator. If every active lane selected direct output, the JIT
+At a terminal committed-hit read, the union of the cached empty-output and
+direct-output provider sidecars is a dynamic per-lane discriminator. If every
+active lane selected packet output, the JIT
 must use only masked fixed-vector loads from the field-major packet. If none
 did, it must use only the established masked state gathers. If construction
 divergence later reconverges a mixed cohort, each source must be read under its
