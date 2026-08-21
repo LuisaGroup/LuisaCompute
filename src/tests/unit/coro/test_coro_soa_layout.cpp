@@ -585,6 +585,35 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
                "name rather than compilation order alone";
     };
 
+    "wavefront_compaction_policy_is_structural"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto value = def(dispatch_x() * 13u + 7u);
+            $suspend("live_value");
+            output.write(dispatch_x(), value);
+        });
+        auto make_scheduler = [&](bool compact) {
+            return WavefrontCoroScheduler<Buffer<uint>>{
+                device, coro,
+                WavefrontCoroSchedulerConfig{
+                    .thread_count = 257u,
+                    .global_memory_soa = true,
+                    .gather_by_sorting = false,
+                    .frame_buffer_compaction = compact,
+                    .execution_block_size = 32u}};
+        };
+        auto compact = make_scheduler(true);
+        auto sparse = make_scheduler(false);
+        auto compact_hashes = compact.shader_structure_hashes();
+        auto sparse_hashes = sparse.shader_structure_hashes();
+        expect(compact_hashes.size() == sparse_hashes.size());
+        expect(!std::equal(compact_hashes.begin(), compact_hashes.end(),
+                           sparse_hashes.begin(), sparse_hashes.end()))
+            << "frame compaction changes generate-kernel control flow and "
+               "must remain a host structural specialization";
+    };
+
     "wavefront_execution_block_size_is_structural"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
         auto &device = dc.device;

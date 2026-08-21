@@ -120,6 +120,20 @@ size_t MetalCodegenAST::type_size_bytes(const Type *type) noexcept {
     LUISA_ERROR_WITH_LOCATION("Cannot get size of custom type.");
 }
 
+[[nodiscard]] static auto sorted_custom_callables(Function function) noexcept {
+    luisa::vector<Function> callables;
+    callables.reserve(function.custom_callables().size());
+    for (auto &&callable : function.custom_callables()) {
+        callables.emplace_back(callable->function());
+    }
+    std::sort(
+        callables.begin(), callables.end(),
+        [](Function lhs, Function rhs) noexcept {
+            return lhs.hash() < rhs.hash();
+        });
+    return callables;
+}
+
 static void collect_types_in_function(Function f,
                                       luisa::unordered_set<const Type *> &types,
                                       luisa::unordered_set<Function> &visited) noexcept {
@@ -153,9 +167,8 @@ static void collect_types_in_function(Function f,
     add(add, f.return_type());
 
     // types from called callables
-    for (auto &&c : f.custom_callables()) {
-        collect_types_in_function(
-            Function{c.get()}, types, visited);
+    for (auto callable : sorted_custom_callables(f)) {
+        collect_types_in_function(callable, types, visited);
     }
 }
 
@@ -402,8 +415,8 @@ bool MetalCodegenAST::_is_texture_written(Function function, Variable variable) 
 void MetalCodegenAST::_analyze_sampled_textures(Function function) noexcept {
     auto [iter, inserted] = _sampled_texture_variables.try_emplace(function.hash());
     if (!inserted) { return; }
-    for (auto &&callable : function.custom_callables()) {
-        _analyze_sampled_textures(callable->function());
+    for (auto callable : sorted_custom_callables(function)) {
+        _analyze_sampled_textures(callable);
     }
     auto &&sampled = iter->second;
     auto mark_argument = [&sampled](const Expression *expression) noexcept {
@@ -836,7 +849,9 @@ void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) n
         auto collect_functions = [&functions, collected = luisa::unordered_set<uint64_t>{}](
                                      auto &&self, Function function) mutable noexcept -> void {
             if (collected.emplace(function.hash()).second) {
-                for (auto &&c : function.custom_callables()) { self(self, c->function()); }
+                for (auto callable : sorted_custom_callables(function)) {
+                    self(self, callable);
+                }
                 functions.emplace_back(function);
             }
         };

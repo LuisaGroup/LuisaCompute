@@ -1303,8 +1303,6 @@ void reg_restructure_cfg() {
         expect(info.loop_continue_invalidation_count == 0u);
         expect(info.loop_continue_dominance_rebuild_count == 0u);
         expect(
-            info.loop_continue_frontier_materialization_count == 0u);
-        expect(
             info.loop_continue_site_query_count ==
             loop_count * info.loop_continue_analysis_count)
             << "all loop sites in an immutable CFG version must share "
@@ -1360,10 +1358,11 @@ void reg_restructure_cfg() {
             << "all guarded actions populated from one immutable CFG "
                "version must share its final exact dominance rebuild";
         expect(
-            info.loop_continue_frontier_materialization_count ==
-            info.loop_continue_dominance_rebuild_count)
-            << "each mutating analysis batch retains one exact ancestry "
-               "tree and materializes its frontier once";
+            info.selection_reentry_frontier_materialization_count ==
+            info.selection_reentry_boundary_analysis_count + 1u)
+            << "loop-continue analysis consumes ancestry only; the sparse "
+               "post-merge re-entry consumer must materialize exactly one "
+               "frontier per transform query plus the final audit";
         expect(info.loop_continue_dom_numbered_block_count > 0u);
         expect(info.loop_continue_dom_numbered_edge_count > 0u);
         expect(

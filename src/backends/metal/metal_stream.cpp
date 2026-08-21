@@ -1,4 +1,7 @@
 #include <luisa/core/logging.h>
+
+#include <thread>
+
 #include "metal_event.h"
 #include "metal_texture.h"
 #include "metal_swapchain.h"
@@ -42,7 +45,9 @@ MetalStageBufferPool *MetalStream::download_pool() noexcept {
 void MetalStream::signal(MetalEvent *event, uint64_t value) noexcept {
     auto command_buffer = _queue->commandBufferWithUnretainedReferences();
     event->signal(command_buffer, value);
-    submit(command_buffer, {});
+    CallbackContainer callbacks;
+    callbacks.emplace_back(event->host_signal_callback(value));
+    submit(command_buffer, std::move(callbacks));
 }
 
 void MetalStream::wait(MetalEvent *event, uint64_t value) noexcept {
@@ -59,6 +64,12 @@ void MetalStream::synchronize() noexcept {
         LUISA_ERROR_WITH_LOCATION(
             "Metal synchronization command buffer failed: {}.",
             error->localizedDescription()->utf8String());
+    }
+    auto callback_target =
+        _submitted_callback_lists.load(std::memory_order_acquire);
+    while (_completed_callback_lists.load(std::memory_order_acquire) <
+           callback_target) {
+        std::this_thread::yield();
     }
 }
 
@@ -110,9 +121,14 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
         {
             std::scoped_lock lock{_callback_mutex};
             _callback_lists.emplace(std::move(callbacks));
+            _submitted_callback_lists.fetch_add(
+                1u, std::memory_order_release);
         }
         command_buffer->addCompletedHandler(^(MTL::CommandBuffer *) noexcept {
-            auto callbacks = [self = this] {
+            auto self = this;
+            std::scoped_lock execution_lock{
+                self->_callback_execution_mutex};
+            auto callbacks = [self] {
                 std::scoped_lock lock{self->_callback_mutex};
                 if (self->_callback_lists.empty()) {
                     LUISA_WARNING_WITH_LOCATION(
@@ -124,6 +140,8 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
                 return callbacks;
             }();
             for (auto callback : callbacks) { callback->recycle(); }
+            self->_completed_callback_lists.fetch_add(
+                1u, std::memory_order_release);
         });
     }
     command_buffer->addCompletedHandler(^(MTL::CommandBuffer *cb) noexcept {

@@ -889,6 +889,54 @@ void register_coro_alloca_scope_tests() {
                instruction_index(entry, clock));
     };
 
+    "snapshot_instruction_order_is_sparse_and_exact_after_moves"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        constexpr auto candidate_count = 128u;
+        constexpr auto unrelated_instruction_count = 4096u;
+        luisa::vector<AllocaInst *> candidates;
+        candidates.reserve(candidate_count);
+        for (auto i = 0u; i < candidate_count; ++i) {
+            candidates.emplace_back(
+                builder.alloca_local(Type::of<uint>()));
+        }
+        auto *one = module.create_constant_one(Type::of<uint>());
+        auto *unrelated = static_cast<Value *>(one);
+        for (auto i = 0u; i < unrelated_instruction_count; ++i) {
+            unrelated = builder.call(
+                Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                {unrelated, one});
+        }
+        for (auto *candidate : candidates) {
+            builder.store(candidate, one);
+            static_cast<void>(
+                builder.load(Type::of<uint>(), candidate));
+        }
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(
+            kernel, {.verify_instruction_order = true});
+
+        expect(info.scanned_local_alloca_count == candidate_count);
+        expect(info.contracted_alloca_count == candidate_count);
+        expect(info.delayed_first_definition_count == candidate_count);
+        // One insertion-point query and one strict definition-before-load
+        // query per candidate. User inspection depends on the one observation
+        // per coordinate, not on the 4,096 unrelated block instructions.
+        expect(info.instruction_order_query_count ==
+               2u * candidate_count);
+        expect(info.placement_user_inspection_count ==
+               candidate_count);
+        for (auto *candidate : candidates) {
+            expect(candidate->parent_block() == entry);
+        }
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "invalid_suspend_resume_pair_is_an_atomic_noop"_test = [] {
         Module module;
         BasicBlock *entry;

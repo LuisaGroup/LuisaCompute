@@ -551,6 +551,7 @@ luisa_compute_add_test(test_xir_pass_unused_callable_removal unit/xir/test_xir_p
 luisa_compute_add_test(test_xir_pass_licm unit/xir/test_xir_pass_licm.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_lower_break_continue unit/xir/test_xir_pass_lower_break_continue.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_coro_cfg_distill unit/xir/test_coro_cfg_distill.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_coro_cfg_dataflow unit/xir/test_coro_cfg_dataflow.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_coro_materialize unit/xir/test_coro_materialize.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_dead_field unit/xir/test_coro_dead_field.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_frame_size unit/xir/test_coro_frame_size.cpp LABELS "unit;unit_xir;unit_coro")
