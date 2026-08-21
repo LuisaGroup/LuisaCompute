@@ -4338,6 +4338,29 @@ for an inactive tail, row crossing, storage mismatch, short extent, and null
 capability. The multi-width runtime gate covers native `FLOAT4`/`INT4` and both
 environment oracles.
 
+W8 has a measured secondary read route for packets that fail only the
+complete-row shape. A second descriptor capability authorizes the JIT to form
+an active-and-in-bounds mask, select every rejected coordinate to zero before
+forming an address, and load a native `FLOAT4`/`INT4` texel through two packed
+64-bit masked gathers. The masked zero passthrough implements the existing
+out-of-bounds-zero result without entering the callback. The complete
+load/transpose arm still wins first, so interior rows never pay gather
+latency. This route is emitted only when host TTI proves a native 512-bit
+fixed-vector register and a legal nonscalarized `<8 x i64>` gather.
+
+`LUISA_SIMD_DISABLE_GATHERED_NATIVE_TEXTURE_READS=1` clears only the runtime
+capability, leaving an identical JIT object as the callback oracle. The
+optimization report counts these guarded sites separately. Permanent coverage
+executes an inactive seven-lane tail, one active out-of-bounds lane, and a
+packet whose active coordinates approach `UINT32_MAX`; the latter also leaves
+an inactive `UINT32_MAX` lane. IR checks require pre-address sanitization and
+two packed gathers, while the x86 host-code check requires exactly two
+`vpgatherqq` instructions and no scalar math symbol when the TTI gate accepts.
+W1/W2/W4 and W16 contain no secondary route. W16 paired gathers measured
+0.99685x callback throughput with a 95% interval spanning
+0.947998x--1.048213x, so they were rejected rather than justified by width or
+legality alone.
+
 On the Ryzen 9 9950X3D / LLVM 22.1.8 host, seven fresh-process rounds rotated
 candidate, callback oracle, and fallback through execution order with sixteen
 workers on CPUs 0--15. Every invocation passed the checked-in image reference.

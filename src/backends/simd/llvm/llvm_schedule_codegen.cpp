@@ -686,7 +686,8 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         ray_query_pipeline_handlers,
     size_t print_format_id_base,
     bool enable_native_vector_compress,
-    bool enable_biased_narrow_buffer_gather) {
+    bool enable_biased_narrow_buffer_gather,
+    bool enable_gathered_native_texture_read) {
     auto enable_linear_1d_packet_tail_narrowing =
         enable_packet_batch_entry &&
         specialization_width != 0u &&
@@ -736,7 +737,8 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         ray_query_pipeline_handlers,
         print_format_id_base,
         true,
-        enable_biased_narrow_buffer_gather}
+        enable_biased_narrow_buffer_gather,
+        enable_gathered_native_texture_read}
                       .run();
     if (result.succeeded() && result.cooperative_block) {
         auto block_thread_count = uint64_t{1u};

@@ -414,14 +414,18 @@ SIMDCompiledKernel compile_simd_kernel(
         result.diagnostics.emplace_back(jit->error());
         return result;
     }
+    auto native_paired_leaf_gather =
+        jit->supports_native_paired_leaf_gather(warp_width);
     auto use_paired_leaf_gather =
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_PAIRED_LEAF_GATHER") &&
-        jit->supports_native_paired_leaf_gather(warp_width);
+        native_paired_leaf_gather;
     auto use_biased_narrow_buffer_gather =
         !detail::env_flag(
             "LUISA_SIMD_DISABLE_BIASED_NARROW_BUFFER_GATHER") &&
         jit->supports_native_biased_narrow_buffer_gather(warp_width);
+    auto use_gathered_native_texture_read =
+        native_paired_leaf_gather;
     auto use_native_predicated_loop =
         jit->supports_native_predicated_loop(warp_width);
     auto use_inlined_packet_batch =
@@ -712,7 +716,8 @@ SIMDCompiledKernel compile_simd_kernel(
         pipeline_handlers,
         pipeline_print_formats.size(),
         use_native_vector_compress,
-        use_biased_narrow_buffer_gather);
+        use_biased_narrow_buffer_gather,
+        use_gathered_native_texture_read);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
@@ -776,6 +781,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.interleaved_scalar_buffer_read_alias_guard_count;
     result.guarded_native_texture_read_count =
         llvm_result.guarded_native_texture_read_count;
+    result.guarded_gathered_native_texture_read_count =
+        llvm_result.guarded_gathered_native_texture_read_count;
     result.guarded_native_texture_write_count =
         llvm_result.guarded_native_texture_write_count;
     result.guarded_byte4_texture_write_count =

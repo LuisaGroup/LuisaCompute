@@ -53,7 +53,8 @@ ScheduleEmitter::ScheduleEmitter(
         ray_query_pipeline_handlers,
     size_t print_format_id_base,
     bool enable_predicated_acyclic_control_flow,
-    bool enable_biased_narrow_buffer_gather)
+    bool enable_biased_narrow_buffer_gather,
+    bool enable_gathered_native_texture_read)
     : _module{module},
       _source{source},
       _width{width},
@@ -65,6 +66,8 @@ ScheduleEmitter::ScheduleEmitter(
       _enable_paired_leaf_gather{enable_paired_leaf_gather},
       _enable_biased_narrow_buffer_gather{
           enable_biased_narrow_buffer_gather},
+      _enable_gathered_native_texture_read{
+          enable_gathered_native_texture_read},
       _enable_interleaved_scalar_buffer_reads{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_INTERLEAVED_SCALAR_BUFFER_READS")},

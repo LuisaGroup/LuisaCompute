@@ -6421,3 +6421,72 @@ with the current XIR shared library), the compiler-focused Release tree passes
 161/161 CTest cases and the fallback+SIMD+Embree graphics Release tree passes
 173/173. The Clang ASan/LSan/UBSan Schedule/JIT executable independently
 passes its complete case list, including the new gather regression.
+
+## Guarded W8 native texture gather
+
+The direct native texture arm above handles complete consecutive rows, but
+the clamped left/right packets in blur and Sobel still failed that proof and
+crossed the packet callback. A 1,024-iteration sampling run of the disabled
+oracle attributes 7.38% of cycles to `SIMDTexture::_read_float`. The retained
+W8-only second route keeps the existing row load first, then uses a runtime
+capability to replace only the failed native `FLOAT4`/`INT4` read with two
+masked 64-bit leaf gathers. Per-lane bounds form the gather mask, and both x
+and y are selected to zero before multiplication, GEP, or gather. Active
+out-of-bounds and inactive results therefore remain zero.
+
+The compiler emits this portable IR only when host TTI reports at least a
+512-bit fixed-vector register and a legal nonscalarized `<8 x i64>` masked
+gather. W1/W2/W4/W16 retain the callback. A seven-round, 1,024-iteration W16
+paired-gather ablation measured 0.99685x callback throughput with a
+[0.947998, 1.048213] interval and 4/7 wins, so it is not present in production.
+An earlier four-leaf W16 prototype was also nonpositive. W2 remains a
+correctness/ABI/tail width, not a performance target.
+
+`LUISA_SIMD_DISABLE_GATHERED_NATIVE_TEXTURE_READS=1` clears only the runtime
+descriptor bit; candidate and oracle therefore use byte-identical JIT objects.
+The final W8 causal gate used nine alternating fresh processes, 1,024 complete
+image-pipeline iterations per process, fifteen workers pinned to CPUs
+`0-7,9-15`, and the checked-in image reference. The earlier external render
+had completed before this final-code population; all samples were retained.
+Ratios are paired geometric means with log-space Student-t 95% intervals:
+
+| W8 image processing | median ms/iteration | paired throughput | 95% CI | wins |
+| --- | ---: | ---: | ---: | ---: |
+| native boundary gather | 1.882 | **1.03794x** | **[1.01810, 1.05816]** | **9/9** |
+| capability-disabled callback | 1.946 | -- | -- | -- |
+
+A separate nine-round candidate/fallback rotation used 256 complete
+iterations with the same CPU affinity. All eighteen invocations passed the
+reference at 89.251953 dB. Candidate/fallback reached **4.81445x**
+[4.69669, 4.93517] with 9/9 wins; medians were 1.874 and 9.038 ms. This is a
+current W8 image-processing result, not a claim for Voxel or path tracing,
+whose kernels contain no eligible direct texture reads.
+
+Five nonmultiplexed 512-iteration candidate/oracle `perf stat` pairs give:
+
+| counter | candidate / callback oracle | 95% paired CI |
+| --- | ---: | ---: |
+| cycles | 0.98424x | [0.96277, 1.00619] |
+| instructions | **0.92986x** | [0.92985, 0.92986] |
+| branches | **0.92394x** | [0.92393, 0.92395] |
+| branch misses | 0.99923x | [0.99376, 1.00474] |
+
+The deterministic 7.01% instruction and 7.61% branch reductions identify
+callback/scratch removal; cycle noise spans parity in the smaller counter
+population, while the longer primary throughput population is positive. In a
+following 1,024-iteration sampling pair, `_read_float` is 7.38% in the oracle
+and absent from the candidate report. The cost moves into the intended JIT
+gather blocks rather than another runtime helper.
+
+All five final W8 JIT object hashes are exactly equal between the capability
+states and have no undefined symbol. On the Ryzen 9 9950X3D, blur-X and blur-Y
+contain eighteen `vpgatherqq` instructions each (two per read site), Sobel has
+twelve after component DCE, and composite has five. Every object reports zero
+scalar-math call. These mnemonics are evidence for this host's LLVM lowering,
+not an AVX-512 promise attached to logical W8; the production source contains
+no target intrinsic and fails closed to the callback without the TTI proof.
+
+The permanent JIT regression covers IR, host assembly, object symbols,
+seven-lane inactive tail, active out-of-bounds zero, coordinates near
+`UINT32_MAX`, and callback/capability fallback. The runtime-width suite covers
+the independent capability oracle while continuing to execute W1/W2/W4/W8/W16.

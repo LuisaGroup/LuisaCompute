@@ -1850,8 +1850,8 @@ increasing row span, native `FLOAT4` and `INT4` storage may use an
 alignment-safe packet copy followed by an AoS-to-SoA transpose on reads, and
 the inverse transpose on writes. The bounds check must prove the entire span
 before the copy. Sparse masks, inactive tails, row crossings, 3D resources,
-and converting storage formats other than the separately specified linear
-`BYTE4` write retain the generic active-lane path. The
+and converting storage formats other than the separately specified W8 native
+gather and linear `BYTE4` write retain the generic active-lane path. The
 diagnostic environment flag
 `LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS=1` disables this specialization
 for same-binary performance and fallback-path tests; it does not change the
@@ -1875,6 +1875,37 @@ texture packets also publishes a null pointer and therefore continues to mean
 that the complete contiguous specialization is disabled. The metadata is
 backend-private and level-specific; it never changes public native handles,
 upload/download layout, or external-memory ownership.
+
+At W8 only, failure of the complete-row proof may take a second native read
+route when the descriptor publishes
+`simd_host_texture_capability_gathered_native_read` and host TTI reports a
+native 512-bit fixed-vector register plus a legal, nonscalarized
+`<8 x i64>` masked gather. W1/W2/W4/W16 do not contain this route. The route
+forms
+
+```text
+ax = select(active, x, 0)
+ay = select(active, y, 0)
+M = active & (ax < width) & (ay < height)
+offset = (zext(select(M, ay, 0)) * width +
+          zext(select(M, ax, 0))) * 16
+```
+
+before issuing two masked 64-bit gathers for the four adjacent 32-bit
+components. Thus inactive and out-of-bounds coordinates are sanitized before
+address arithmetic, inactive results are zero, and active out-of-bounds reads
+retain the established zero result. The complete-row load/transpose remains
+the first choice; the gather is only the callback replacement for a failed
+row proof. The emitted IR uses only arithmetic, compare, select, GEP, masked
+gather, shifts, truncation, bitcast, and aggregate assembly. It contains no
+target intrinsic and no extract/call/insert lane loop.
+
+`LUISA_SIMD_DISABLE_GATHERED_NATIVE_TEXTURE_READS=1` clears only this
+descriptor bit, so candidate and oracle execute the same generated object.
+Clearing direct-native or contiguous packet support clears it as well. W16 is
+intentionally excluded after its paired form measured statistically tied to
+the callback, and W2 remains only a correctness, ABI, and inactive-tail gate.
+Targets without the native-gather TTI proof retain the callback even at W8.
 
 The 96-byte private descriptor may additionally publish
 `simd_host_texture_capability_byte4_float_write` in the 32-bit capability word

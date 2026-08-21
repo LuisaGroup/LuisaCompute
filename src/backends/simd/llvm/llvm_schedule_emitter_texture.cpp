@@ -30,6 +30,8 @@ ScheduleEmitter::_native_texture_packet_info(
     auto *safe_y = _builder.CreateSelect(
         _active_mask, coordinates[1u], zero_lanes,
         "texture.native.safe.y");
+    info.safe_x_lanes = safe_x;
+    info.safe_y_lanes = safe_y;
     auto *x = _builder.CreateExtractElement(safe_x, uint64_t{0u});
     auto *y = _builder.CreateExtractElement(safe_y, uint64_t{0u});
     auto *expected_x = _builder.CreateAdd(
@@ -57,6 +59,10 @@ ScheduleEmitter::_native_texture_packet_info(
     auto *packet_inside = _builder.CreateICmpUGE(
         row_remaining, _builder.getInt32(_width));
     auto *y_inside = _builder.CreateICmpULT(y, height);
+    info.access_guard = _builder.CreateAnd(has_data, dimension_matches);
+    info.access_guard = _builder.CreateAnd(
+        info.access_guard, storage_matches,
+        "texture.native.access.guard");
     auto *common_guard = _builder.CreateAnd(all_active, same_x);
     common_guard = _builder.CreateAnd(common_guard, same_y);
     common_guard = _builder.CreateAnd(common_guard, has_data);
@@ -228,9 +234,23 @@ ScheduleEmitter::_native_texture_packet_info(
         context, "texture.read.native", _entry);
     auto *callback_block = ::llvm::BasicBlock::Create(
         context, "texture.read.callback", _entry);
+    auto enable_gathered_native_read =
+        _width == 8u && _enable_gathered_native_texture_read;
+    auto *gather_block = enable_gathered_native_read ?
+                             ::llvm::BasicBlock::Create(
+                                 context, "texture.read.gather", _entry) :
+                             nullptr;
+    auto *gather_route_block = enable_gathered_native_read ?
+                                   ::llvm::BasicBlock::Create(
+                                       context,
+                                       "texture.read.gather.route", _entry) :
+                                   nullptr;
     auto *merge_block = ::llvm::BasicBlock::Create(
         context, "texture.read.merge", _entry);
-    _builder.CreateCondBr(native.guard, fast_block, callback_block);
+    _builder.CreateCondBr(
+        native.guard, fast_block,
+        gather_route_block == nullptr ? callback_block :
+                                        gather_route_block);
 
     _builder.SetInsertPoint(fast_block);
     auto *i64 = _builder.getInt64Ty();
@@ -267,6 +287,64 @@ ScheduleEmitter::_native_texture_packet_info(
     auto *fast_exit = _builder.GetInsertBlock();
     _builder.CreateBr(merge_block);
 
+    ::llvm::Value *gathered_pixels = nullptr;
+    ::llvm::BasicBlock *gather_exit = nullptr;
+    if (gather_route_block != nullptr) {
+        _builder.SetInsertPoint(gather_route_block);
+        auto *capabilities = _builder.CreateExtractValue(texture, {14u});
+        auto *has_gather_capability = _builder.CreateICmpNE(
+            _builder.CreateAnd(
+                capabilities,
+                _builder.getInt32(
+                    simd_host_texture_capability_gathered_native_read)),
+            _builder.getInt32(0u));
+        auto *gather_guard = _builder.CreateAnd(
+            native.access_guard, has_gather_capability,
+            "texture.read.gather.guard");
+        _builder.CreateCondBr(
+            gather_guard, gather_block, callback_block);
+
+        _builder.SetInsertPoint(gather_block);
+        auto *x_inside_lanes = _builder.CreateICmpULT(
+            native.safe_x_lanes,
+            _builder.CreateVectorSplat(_width, native.width));
+        auto *height = _builder.CreateExtractValue(texture, {11u});
+        auto *y_inside_lanes = _builder.CreateICmpULT(
+            native.safe_y_lanes,
+            _builder.CreateVectorSplat(_width, height));
+        auto *in_bounds = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateAnd(x_inside_lanes, y_inside_lanes),
+            "texture.read.gather.in.bounds");
+        auto *zero_coordinate_lanes =
+            ::llvm::Constant::getNullValue(
+                native.safe_x_lanes->getType());
+        auto *safe_x_lanes = _builder.CreateSelect(
+            in_bounds, native.safe_x_lanes, zero_coordinate_lanes,
+            "texture.read.gather.safe.x");
+        auto *safe_y_lanes = _builder.CreateSelect(
+            in_bounds, native.safe_y_lanes, zero_coordinate_lanes,
+            "texture.read.gather.safe.y");
+        auto *i64_lanes = ::llvm::FixedVectorType::get(i64, _width);
+        auto *width_lanes = _builder.CreateVectorSplat(
+            _width, _builder.CreateZExt(native.width, i64));
+        auto *pixel_indices = _builder.CreateAdd(
+            _builder.CreateMul(
+                _builder.CreateZExt(safe_y_lanes, i64_lanes),
+                width_lanes),
+            _builder.CreateZExt(safe_x_lanes, i64_lanes));
+        auto *byte_offsets = _builder.CreateShl(
+            pixel_indices,
+            _builder.CreateVectorSplat(
+                _width, _builder.getInt64(4u)),
+            "texture.read.gather.byte.offsets");
+        gathered_pixels = _gather_paired_vector_data(
+            native.data, byte_offsets, result->type, in_bounds);
+        if (gathered_pixels == nullptr) { return nullptr; }
+        gather_exit = _builder.GetInsertBlock();
+        _builder.CreateBr(merge_block);
+    }
+
     _builder.SetInsertPoint(callback_block);
     auto *callback_pixels = emit_callback();
     auto *callback_exit = _builder.GetInsertBlock();
@@ -274,10 +352,17 @@ ScheduleEmitter::_native_texture_packet_info(
 
     _builder.SetInsertPoint(merge_block);
     auto *pixels = _builder.CreatePHI(
-        result_type, 2u, "texture.read.packet");
+        result_type, gather_exit == nullptr ? 2u : 3u,
+        "texture.read.packet");
     pixels->addIncoming(native_pixels, fast_exit);
+    if (gather_exit != nullptr) {
+        pixels->addIncoming(gathered_pixels, gather_exit);
+    }
     pixels->addIncoming(callback_pixels, callback_exit);
     _result.guarded_native_texture_read_count++;
+    if (gather_exit != nullptr) {
+        _result.guarded_gathered_native_texture_read_count++;
+    }
     return pixels;
 }
 

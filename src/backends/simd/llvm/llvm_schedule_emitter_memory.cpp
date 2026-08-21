@@ -505,7 +505,8 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_paired_vector_data(
-    ::llvm::Value *base, ::llvm::Value *offsets, const Type *type) {
+    ::llvm::Value *base, ::llvm::Value *offsets, const Type *type,
+    ::llvm::Value *mask) {
     static_assert(std::endian::native == std::endian::little ||
                   std::endian::native == std::endian::big);
     // A direct typed-buffer vector read is a flat AoS packet access. Pair two
@@ -518,13 +519,14 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
     auto *packed_lanes = ::llvm::FixedVectorType::get(
         _builder.getInt64Ty(), _width);
     auto pairs = type->dimension() / 2u;
+    mask = mask == nullptr ? _active_mask : mask;
     luisa::vector<std::array<::llvm::Value *, 2u>> values;
     values.reserve(pairs);
     for (auto pair = uint32_t{0u}; pair < pairs; pair++) {
         auto offset = _child_offset(type, pair * 2u);
         auto *pointers = _leaf_pointers(base, offsets, offset);
         auto *packed = _builder.CreateMaskedGather(
-            packed_lanes, pointers, ::llvm::Align{1u}, _active_mask,
+            packed_lanes, pointers, ::llvm::Align{1u}, mask,
             ::llvm::Constant::getNullValue(packed_lanes),
             "buffer.paired.gather");
         auto *low = _builder.CreateTrunc(
@@ -553,8 +555,9 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         if (i < pairs * 2u) {
             return values[i / 2u][i % 2u];
         }
-        return _gather_data(
-            base, offsets, type->element(), _child_offset(type, i));
+        return _gather_data_masked(
+            base, offsets, type->element(), mask,
+            _child_offset(type, i));
     });
 }
 

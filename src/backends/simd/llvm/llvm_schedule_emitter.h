@@ -58,6 +58,7 @@ private:
     bool _enable_lane_affine_buffer{true};
     bool _enable_paired_leaf_gather{false};
     bool _enable_biased_narrow_buffer_gather{false};
+    bool _enable_gathered_native_texture_read{false};
     bool _enable_interleaved_scalar_buffer_reads{true};
     uint32_t _dispatch_worker_count{1u};
     bool _enable_native_predicated_loop{true};
@@ -449,11 +450,14 @@ private:
         ::llvm::Type *type, std::string_view name);
     struct NativeTexturePacketInfo {
         ::llvm::Value *guard{nullptr};
+        ::llvm::Value *access_guard{nullptr};
         ::llvm::Value *byte4_guard{nullptr};
         ::llvm::Value *data{nullptr};
         ::llvm::Value *width{nullptr};
         ::llvm::Value *x{nullptr};
         ::llvm::Value *y{nullptr};
+        ::llvm::Value *safe_x_lanes{nullptr};
+        ::llvm::Value *safe_y_lanes{nullptr};
     };
     [[nodiscard]] NativeTexturePacketInfo
     _native_texture_packet_info(
@@ -475,7 +479,7 @@ private:
         size_t leaf_offset = 0u);
     [[nodiscard]] ::llvm::Value *_gather_paired_vector_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
-        const Type *type);
+        const Type *type, ::llvm::Value *mask = nullptr);
     [[nodiscard]] static uint32_t _vector_storage_component_count(
         const Type *type) noexcept;
     [[nodiscard]] ::llvm::Value *_lane_consecutive_address(
@@ -755,7 +759,8 @@ public:
                         ray_query_pipeline_handlers = {},
                     size_t print_format_id_base = 0u,
                     bool enable_predicated_acyclic_control_flow = true,
-                    bool enable_biased_narrow_buffer_gather = false);
+                    bool enable_biased_narrow_buffer_gather = false,
+                    bool enable_gathered_native_texture_read = false);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

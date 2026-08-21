@@ -660,6 +660,8 @@ using SIMDHostTextureSample = void(
 
 inline constexpr uint32_t
     simd_host_texture_capability_byte4_float_write = 1u << 0u;
+inline constexpr uint32_t
+    simd_host_texture_capability_gathered_native_read = 1u << 1u;
 
 struct alignas(16) SIMDHostTextureView {
     void *texture{nullptr};
@@ -858,6 +860,7 @@ struct LLVMScheduleCodegenResult {
     size_t interleaved_scalar_buffer_read_count{0u};
     size_t interleaved_scalar_buffer_read_alias_guard_count{0u};
     size_t guarded_native_texture_read_count{0u};
+    size_t guarded_gathered_native_texture_read_count{0u};
     size_t guarded_native_texture_write_count{0u};
     size_t guarded_byte4_texture_write_count{0u};
     size_t predicated_memory_diamond_count{0u};
@@ -952,7 +955,10 @@ struct LLVMScheduleCodegenResult {
         ray_query_pipeline_handlers = {},
     size_t print_format_id_base = 0u,
     bool enable_native_vector_compress = false,
-    bool enable_biased_narrow_buffer_gather = false);
+    bool enable_biased_narrow_buffer_gather = false,
+    // Host TTI must prove the exact native W8 packed-gather shape. This is
+    // independent of the direct-buffer paired-leaf profitability oracle.
+    bool enable_gathered_native_texture_read = false);
 
 // Ray-query handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,

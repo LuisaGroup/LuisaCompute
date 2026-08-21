@@ -489,6 +489,12 @@ int main(int argc, char *argv[]) {
             check_float_image(
                 "SIMD callback FLOAT4 packet mismatch");
         }
+        if (width == 8u) {
+            ScopedEnvironmentVariable disable_gathered_native_reads{
+                "LUISA_SIMD_DISABLE_GATHERED_NATIVE_TEXTURE_READS", "1"};
+            check_float_image(
+                "SIMD callback tail FLOAT4 packet mismatch");
+        }
 
         Kernel2D byte4_image_kernel = [width](
                                           ImageFloat target) noexcept {

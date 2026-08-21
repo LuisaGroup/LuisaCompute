@@ -13,6 +13,7 @@ private:
     bool _enable_contiguous_packets{true};
     bool _enable_direct_native_packets{true};
     bool _enable_direct_byte4_packets{true};
+    bool _enable_gathered_native_reads{true};
 
 private:
     static void _read_float(

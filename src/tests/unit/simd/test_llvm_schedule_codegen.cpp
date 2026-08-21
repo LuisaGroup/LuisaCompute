@@ -6396,6 +6396,7 @@ struct NativeTexturePacketProbe {
     bool valid{true};
     uint32_t read_calls{0u};
     uint32_t write_calls{0u};
+    uint32_t gathered_native_width{0u};
 };
 
 struct Byte4TexturePacketProbe {
@@ -6462,10 +6463,16 @@ void native_texture_packet_write_probe(
         }
         for (auto component = uint32_t{0u}; component < 4u;
              component++) {
-            auto expected = static_cast<float>(
-                                100u * component +
-                                10u * y[lane] + x[lane]) +
-                            delta[component];
+            auto out_of_bounds =
+                probe->gathered_native_width != 0u &&
+                x[lane] >= probe->gathered_native_width;
+            auto expected =
+                (out_of_bounds ?
+                     0.0f :
+                     static_cast<float>(
+                         100u * component +
+                         10u * y[lane] + x[lane])) +
+                delta[component];
             probe->valid &=
                 components[component * lane_count + lane] == expected;
         }
@@ -6672,7 +6679,9 @@ void texture_packet_sample_probe(
         auto name = "simd_native_texture_packet_w" +
                     std::to_string(width);
         auto codegen = lower_schedule_to_llvm(
-            *llvm_module, *lowered.function, width, name);
+            *llvm_module, *lowered.function, width, name,
+            false, {}, true, true, false, 1u, true,
+            false, false, false, {}, 0u, false, false, true);
         if (!codegen.succeeded()) {
             std::cerr << codegen.error << '\n';
             return false;
@@ -6680,6 +6689,8 @@ void texture_packet_sample_probe(
         auto expect_native = width == 8u || width == 16u;
         CHECK(codegen.guarded_native_texture_read_count ==
               static_cast<size_t>(expect_native));
+        CHECK(codegen.guarded_gathered_native_texture_read_count ==
+              static_cast<size_t>(width == 8u));
         CHECK(codegen.guarded_native_texture_write_count ==
               static_cast<size_t>(expect_native));
         CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
@@ -6691,10 +6702,44 @@ void texture_packet_sample_probe(
                std::string::npos) == expect_native);
         CHECK((ir.find("texture.write.native.aos") !=
                std::string::npos) == expect_native);
+        CHECK((ir.find("texture.read.gather.byte.offsets") !=
+               std::string::npos) == (width == 8u));
+        CHECK((count_occurrences(
+                   ir, "llvm.masked.gather") >= 2u) ==
+              (width == 8u));
+        if (width == 8u) {
+            auto sanitized = ir.find("texture.native.safe.x");
+            auto bounds = ir.find("texture.read.gather.in.bounds");
+            auto address =
+                ir.find("texture.read.gather.byte.offsets");
+            CHECK(sanitized != std::string::npos);
+            CHECK(bounds != std::string::npos);
+            CHECK(address != std::string::npos);
+            CHECK(sanitized < bounds);
+            CHECK(bounds < address);
+        }
         if (!expect_native) { continue; }
 
-        LLVMJIT jit;
+        LLVMJIT jit{true};
         CHECK(jit.succeeded());
+        auto assembly = jit.emit_assembly_copy(*llvm_module);
+        CHECK(!assembly.empty());
+        if (jit.target_triple().starts_with("x86_64")) {
+            if (jit.supports_native_paired_leaf_gather(width)) {
+                CHECK(count_occurrences(
+                          assembly, "vpgatherqq") == 2u);
+                CHECK(assembly.find("vpgatherdd") ==
+                      std::string::npos);
+                CHECK(assembly.find("vpgatherqd") ==
+                      std::string::npos);
+            } else {
+                CHECK(assembly.find("vpgather") ==
+                      std::string::npos);
+            }
+        }
+        CHECK(assembly.find("sinf") == std::string::npos);
+        CHECK(assembly.find("cosf") == std::string::npos);
+        CHECK(assembly.find("powf") == std::string::npos);
         CHECK(jit.add_module(std::move(llvm_module),
                              std::move(context)));
         using Entry = void(
@@ -6702,14 +6747,18 @@ void texture_packet_sample_probe(
             uint32_t);
         auto function = reinterpret_cast<Entry *>(jit.lookup(name));
         CHECK(function != nullptr);
+        CHECK(!jit.object().empty());
+        CHECK(jit.object().find("sinf") == std::string::npos);
+        CHECK(jit.object().find("cosf") == std::string::npos);
+        CHECK(jit.object().find("powf") == std::string::npos);
         NativeTexturePacketProbe probe;
         luisa::vector<float4> pixels(width * 2u);
         for (auto i = uint32_t{0u}; i < pixels.size(); i++) {
             pixels[i] = make_float4(
                 static_cast<float>(i),
-                static_cast<float>(10u + i),
-                static_cast<float>(20u + i),
-                static_cast<float>(30u + i));
+                static_cast<float>(100u + i),
+                static_cast<float>(200u + i),
+                static_cast<float>(300u + i));
         }
         auto original = pixels;
         auto texture_view = SIMDHostTextureView{
@@ -6776,6 +6825,45 @@ void texture_packet_sample_probe(
             [&](auto &view, auto &, auto &) {
                 view.native_data = nullptr;
             }));
+        if (width == 8u) {
+            probe = {};
+            pixels = original;
+            texture_view.native_data = pixels.data();
+            texture_view.native_width = width;
+            texture_view.native_height = 2u;
+            texture_view.native_storage = static_cast<uint32_t>(
+                PixelStorage::FLOAT4);
+            texture_view.native_capabilities =
+                simd_host_texture_capability_gathered_native_read;
+            config = launch_1d(width, width);
+            auto active_lanes = width - 1u;
+            function(
+                &texture_view, nullptr, &config, active_lanes);
+            CHECK(probe.valid);
+            CHECK(probe.read_calls == 0u);
+            CHECK(probe.write_calls == 1u);
+
+            probe = {};
+            probe.gathered_native_width = width - 1u;
+            texture_view.native_width = width - 1u;
+            config = launch_1d(width, width);
+            function(&texture_view, nullptr, &config, width);
+            CHECK(probe.valid);
+            CHECK(probe.read_calls == 0u);
+            CHECK(probe.write_calls == 1u);
+
+            probe = {};
+            probe.gathered_native_width = width;
+            texture_view.native_width = width;
+            config = launch_1d(
+                std::numeric_limits<uint32_t>::max(), width);
+            config.block_id[0u] =
+                std::numeric_limits<uint32_t>::max() / width;
+            function(&texture_view, nullptr, &config, width);
+            CHECK(probe.valid);
+            CHECK(probe.read_calls == 0u);
+            CHECK(probe.write_calls == 1u);
+        }
     }
     return true;
 }
