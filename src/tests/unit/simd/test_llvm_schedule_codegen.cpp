@@ -4,6 +4,7 @@
 
 #include "llvm_schedule_codegen.h"
 #include "llvm_jit.h"
+#include "buffer_read_latency_hiding.h"
 #include "predicated_if_conversion.h"
 #include "simd_compiler.h"
 #include "warp_uniformity.h"
@@ -13921,6 +13922,319 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_buffer_read_latency_hiding_metadata() {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    auto *buffer_type = Type::buffer(Type::of<uint32_t>());
+    auto *input = kernel->create_resource_argument(buffer_type);
+    auto *output = kernel->create_resource_argument(buffer_type);
+    auto *entry = kernel->create_body_block();
+    auto *header = kernel->create_basic_block();
+    auto *load = kernel->create_basic_block();
+    auto *hit = kernel->create_basic_block();
+    auto *bridge = kernel->create_basic_block();
+    auto *step = kernel->create_basic_block();
+    auto *step_true = kernel->create_basic_block();
+    auto *step_false = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    auto *exit = kernel->create_basic_block();
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    auto make_u32 = [&](uint32_t value) noexcept {
+        return module.create_constant(Type::of<uint32_t>(), &value);
+    };
+    auto *two = make_u32(2u);
+    auto *four = make_u32(4u);
+
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.br(header);
+
+    builder.set_insertion_point(header);
+    auto *iteration = builder.phi(Type::of<uint32_t>());
+    auto *state = builder.phi(Type::of<uint32_t>());
+    auto *keep_going = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {iteration, four});
+    builder.cond_br(keep_going, load, exit);
+
+    builder.set_insertion_point(load);
+    auto *read = builder.call(
+        Type::of<uint32_t>(), xir::ResourceReadOp::BUFFER_READ,
+        {input, lane});
+    auto *is_hit = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_GREATER,
+        {read, zero});
+    builder.cond_br(is_hit, hit, bridge);
+
+    builder.set_insertion_point(hit);
+    builder.br(exit);
+
+    builder.set_insertion_point(bridge);
+    builder.br(step);
+
+    builder.set_insertion_point(step);
+    auto *step_condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
+        {lane, one});
+    auto *annotated_step =
+        builder.cond_br(step_condition, step_true, step_false);
+    annotated_step->add_comment(
+        "latency hiding must retain the folded step provenance");
+
+    builder.set_insertion_point(step_true);
+    auto *true_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {state, one});
+    auto *unsafe_division = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_DIV,
+        {state, one});
+    builder.br(merge);
+
+    builder.set_insertion_point(step_false);
+    auto *false_value = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {state, two});
+    auto *annotated_exit = builder.br(merge);
+    annotated_exit->add_comment(
+        "latency hiding must retain this arm provenance");
+
+    builder.set_insertion_point(merge);
+    auto *next_state = builder.phi(
+        Type::of<uint32_t>(),
+        {{true_value, step_true}, {false_value, step_false}});
+    auto *next_iteration = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+        {iteration, one});
+    builder.br(header);
+
+    builder.set_insertion_point(exit);
+    auto *result = builder.phi(
+        Type::of<uint32_t>(),
+        {{state, header}, {read, hit}});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, lane, result});
+    builder.return_void();
+    iteration->add_incoming(zero, entry);
+    iteration->add_incoming(next_iteration, merge);
+    state->add_incoming(zero, entry);
+    state->add_incoming(next_state, merge);
+    CHECK(xir::xir_verify_module(&module).succeeded());
+    auto rejected =
+        schedule::hide_innermost_buffer_read_latency(kernel);
+    CHECK(!rejected.changed());
+    CHECK(unsafe_division->is_linked());
+    CHECK(xir::xir_verify_module(&module).succeeded());
+    {
+        [[maybe_unused]] auto removed_unsafe_division =
+            unsafe_division->remove_self();
+    }
+    CHECK(xir::xir_verify_module(&module).succeeded());
+    auto block_count_before =
+        kernel->definition()->basic_blocks().count_size();
+
+    auto info = schedule::hide_innermost_buffer_read_latency(kernel);
+    CHECK(info.hidden_diamond_count == 1u);
+    CHECK(info.moved_instruction_count == 4u);
+    CHECK(info.generated_select_count == 1u);
+    CHECK(kernel->definition()->basic_blocks().count_size() + 4u ==
+          block_count_before);
+    CHECK(step_condition->parent_block() == load);
+    CHECK(step_condition->find_metadata(
+              xir::DerivedMetadataTag::COMMENT) != nullptr);
+    CHECK(true_value->parent_block() == load);
+    CHECK(false_value->parent_block() == load);
+    CHECK(false_value->find_metadata(
+              xir::DerivedMetadataTag::COMMENT) != nullptr);
+    auto moved_before_read = size_t{0u};
+    for (auto *instruction : load->instructions()) {
+        if (instruction == read) { break; }
+        moved_before_read +=
+            instruction == step_condition ||
+            instruction == true_value ||
+            instruction == false_value ||
+            (instruction->isa<xir::ArithmeticInst>() &&
+             static_cast<xir::ArithmeticInst *>(instruction)->op() ==
+                 xir::ArithmeticOp::SELECT);
+    }
+    CHECK(moved_before_read == 4u);
+    CHECK(xir::xir_verify_module(&module).succeeded());
+    return true;
+}
+
+[[nodiscard]] bool run_ast_buffer_read_latency_hiding() {
+    static constexpr auto count = uint32_t{13u};
+    static constexpr auto max_steps = uint32_t{8u};
+    Kernel1D kernel = [](BufferUInt input,
+                         BufferUInt output) noexcept {
+        auto index = dispatch_id().x;
+        Float vx = cast<float>(index & 3u);
+        Float vy = cast<float>((index + 1u) & 3u);
+        Float vz = cast<float>((index + 2u) & 3u);
+        Float next_tx = cast<float>((index * 3u) % 7u) + 0.25f;
+        Float next_ty = cast<float>((index * 5u + 1u) % 7u) + 0.5f;
+        Float next_tz = cast<float>((index * 7u + 2u) % 9u) + 0.75f;
+        Int step_x = cast<int>((index & 1u) + 1u);
+        Int step_y = cast<int>(((index >> 1u) & 1u) + 1u);
+        Int step_z = cast<int>(((index >> 2u) & 1u) + 1u);
+        UInt hit = 0u;
+        $for (iteration, max_steps) {
+            auto sample = input.read(index * max_steps + iteration);
+            $if (sample > 0u) {
+                hit = sample;
+                $break;
+            };
+            $if (next_tx < next_ty & next_tx < next_tz) {
+                vx = vx + cast<float>(step_x);
+                next_tx = next_tx + 1.25f;
+            }
+            $else {
+                $if (next_ty < next_tz) {
+                    vy = vy + cast<float>(step_y);
+                    next_ty = next_ty + 1.5f;
+                }
+                $else {
+                    vz = vz + cast<float>(step_z);
+                    next_tz = next_tz + 1.75f;
+                };
+            };
+        };
+        auto checksum = cast<uint>(
+            (vx + vy + vz + next_tx + next_ty + next_tz) *
+            16.0f);
+        output.write(index, hit ^ checksum);
+    };
+
+    std::array<uint32_t, count * max_steps> input{};
+    for (auto index = uint32_t{0u}; index < count; index++) {
+        if (index % 3u != 0u) {
+            input[index * max_steps +
+                  ((index * 5u + 1u) % max_steps)] =
+                0x100u + index;
+        }
+    }
+    auto expected_value = [&](uint32_t index) noexcept {
+        auto vx = static_cast<float>(index & 3u);
+        auto vy = static_cast<float>((index + 1u) & 3u);
+        auto vz = static_cast<float>((index + 2u) & 3u);
+        auto next_tx =
+            static_cast<float>((index * 3u) % 7u) + 0.25f;
+        auto next_ty =
+            static_cast<float>((index * 5u + 1u) % 7u) + 0.5f;
+        auto next_tz =
+            static_cast<float>((index * 7u + 2u) % 9u) + 0.75f;
+        auto step_x = static_cast<int>((index & 1u) + 1u);
+        auto step_y = static_cast<int>(((index >> 1u) & 1u) + 1u);
+        auto step_z = static_cast<int>(((index >> 2u) & 1u) + 1u);
+        auto hit = uint32_t{0u};
+        for (auto iteration = uint32_t{0u};
+             iteration < max_steps; iteration++) {
+            auto sample = input[index * max_steps + iteration];
+            if (sample > 0u) {
+                hit = sample;
+                break;
+            }
+            if (next_tx < next_ty && next_tx < next_tz) {
+                vx += static_cast<float>(step_x);
+                next_tx += 1.25f;
+            } else if (next_ty < next_tz) {
+                vy += static_cast<float>(step_y);
+                next_ty += 1.5f;
+            } else {
+                vz += static_cast<float>(step_z);
+                next_tz += 1.75f;
+            }
+        }
+        auto checksum = static_cast<uint32_t>(
+            (vx + vy + vz + next_tx + next_ty + next_tz) *
+            16.0f);
+        return hit ^ checksum;
+    };
+
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        auto candidate = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_buffer_read_latency_hiding", false,
+            width == 8u);
+        SIMDCompiledKernel oracle;
+        {
+            ScopedEnvironmentVariable disable{
+                "LUISA_SIMD_DISABLE_BUFFER_READ_LATENCY_HIDING", "1"};
+            oracle = compile_simd_kernel(
+                kernel.function()->function(), width,
+                "simd_ast_buffer_read_latency_hiding", false,
+                width == 8u);
+        }
+        CHECK(candidate.succeeded());
+        CHECK(oracle.succeeded());
+        if (width == 4u || width == 8u) {
+            CHECK(candidate.buffer_read_latency_hidden_diamond_count ==
+                  1u);
+            CHECK(candidate.buffer_read_latency_moved_instruction_count ==
+                  23u);
+            CHECK(candidate.buffer_read_latency_generated_select_count ==
+                  6u);
+            CHECK(oracle.buffer_read_latency_hidden_diamond_count == 0u);
+            CHECK(candidate.schedule_block_count + 4u ==
+                  oracle.schedule_block_count);
+            CHECK(candidate.convergence_point_count + 1u ==
+                  oracle.convergence_point_count);
+            if (width == 8u &&
+                candidate.target_triple.starts_with("x86_64")) {
+                CHECK(candidate.assembly.find("gather") !=
+                      std::string::npos);
+            }
+        } else {
+            CHECK(candidate.buffer_read_latency_hidden_diamond_count ==
+                  0u);
+            CHECK(oracle.buffer_read_latency_hidden_diamond_count == 0u);
+            CHECK(candidate.schedule_block_count ==
+                  oracle.schedule_block_count);
+            CHECK(candidate.convergence_point_count ==
+                  oracle.convergence_point_count);
+        }
+
+        std::array<uint32_t, count + 3u> candidate_output{};
+        std::array<uint32_t, count + 3u> oracle_output{};
+        candidate_output.fill(0xdeadbeefu);
+        oracle_output.fill(0xdeadbeefu);
+        std::array<SIMDHostBufferView, 2u> candidate_arguments{
+            SIMDHostBufferView{input.data(), sizeof(input)},
+            SIMDHostBufferView{
+                candidate_output.data(), sizeof(candidate_output)}};
+        std::array<SIMDHostBufferView, 2u> oracle_arguments{
+            SIMDHostBufferView{input.data(), sizeof(input)},
+            SIMDHostBufferView{
+                oracle_output.data(), sizeof(oracle_output)}};
+        auto *candidate_entry =
+            reinterpret_cast<Entry *>(candidate.entry);
+        auto *oracle_entry = reinterpret_cast<Entry *>(oracle.entry);
+        CHECK(candidate_entry != nullptr);
+        CHECK(oracle_entry != nullptr);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u;
+             first += width) {
+            config.thread_index = first;
+            candidate_entry(
+                candidate_arguments.data(), nullptr, &config, width);
+            oracle_entry(
+                oracle_arguments.data(), nullptr, &config, width);
+        }
+        CHECK(candidate_output == oracle_output);
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            CHECK(candidate_output[index] == expected_value(index));
+        }
+        for (auto index = count; index < candidate_output.size(); index++) {
+            CHECK(candidate_output[index] == 0xdeadbeefu);
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_predicated_select_forwarding_provenance() {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -15144,6 +15458,10 @@ int main() {
          &run_ast_widened_predicated_update},
         {"predicated select forwarding metadata",
          &run_predicated_select_forwarding_metadata},
+        {"buffer-read latency hiding metadata",
+         &run_buffer_read_latency_hiding_metadata},
+        {"AST buffer-read latency hiding",
+         &run_ast_buffer_read_latency_hiding},
         {"predicated select forwarding provenance",
          &run_predicated_select_forwarding_provenance},
         {"AST predicated memory diamond",

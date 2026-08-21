@@ -1458,6 +1458,54 @@ checks fixed-vector IR and absence of target intrinsics, audits final x86
 `vpgatherdd`/`vpgatherqd` selection when the host proof succeeds, rejects W16,
 and executes candidate and oracle over a thirteen-thread inactive tail.
 
+### 4.8.2 Bounded W4/W8 buffer-read continuation motion
+
+Before Schedule-IR construction, W4/W8 may if-convert and move a pure
+continuation diamond ahead of a varying direct typed-buffer read. Eligibility
+requires all of the following:
+
+- the read is a nonvolatile scalar `int32`, `uint32`, or `float32`
+  `BUFFER_READ` inside an innermost natural loop, and uniformity classifies it
+  as varying;
+- the read has exactly one following nonterminator in its block, namely a
+  varying direct comparison of the read with a constant;
+- the selected continuation is an empty bridge into one varying diamond, both
+  arms have a single predecessor and the same merge, and the load block is not
+  already a merge predecessor;
+- the step block has at most four nonterminators, either arm has at most eleven,
+  both arms total at most fourteen, at most six merge PHIs need selects, and
+  the total moved/select cost is at most 24;
+- every speculated instruction is a total narrow-scalar add, subtract, bitwise
+  operation, comparison, select, or safe cast, and every external instruction
+  operand dominates the read. Floating-to-integer casts and every memory,
+  atomic, call, division, or otherwise unlisted operation are rejected.
+
+The pass delegates the exact diamond to the generic XIR if-conversion
+implementation, moves the resulting nonterminators before the read in their
+original order, and keeps the selected values committed only on the original
+continuation edge. It retargets that edge directly to the merge, updates its
+PHI predecessor labels, and removes the now-empty bridge and step blocks.
+Only `COMMENT` and `LOCATION` metadata may move to an unambiguous surviving
+owner; block metadata or semantic instruction metadata rejects the rewrite.
+No more than eight candidates are transformed per function.
+
+The read itself retains its original active mask and operand sanitization.
+Moved operations have no memory or trapping behavior, so inactive or hit lanes
+cannot make a new address, side effect, domain extension, or poison observable.
+Production uses generic fixed-vector LLVM arithmetic and selects and introduces
+no target intrinsic, physical-lane extraction loop, or scalar library call.
+
+This is a measured width policy: it is enabled only at W4/W8. W1/W2/W16 retain
+the unmodified CFG; in particular W2 is a correctness/ABI/tail-mask width, not
+a performance target, while the forced W16 route is a stable regression.
+`LUISA_SIMD_DISABLE_BUFFER_READ_LATENCY_HIDING=1` selects the same-binary oracle.
+The compile report exposes
+`buffer_read_latency_hidden_diamonds`,
+`buffer_read_latency_moved_instructions`, and
+`buffer_read_latency_generated_selects`. Regression coverage checks exact
+candidate/oracle values at W2/W4/W8/W16, a thirteen-thread inactive tail,
+structural block/convergence removal, and diagnostic provenance.
+
 ### 4.9 Complete verifier-legal arithmetic lowering
 
 For every `ArithmeticOp` and operand/result shape accepted by the XIR verifier,

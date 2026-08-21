@@ -37,6 +37,7 @@
 #include "../common/env_flag.h"
 #include "llvm/llvm_schedule_codegen.h"
 #include "schedule/block_barrier.h"
+#include "schedule/buffer_read_latency_hiding.h"
 #include "schedule/loop_unswitch.h"
 #include "schedule/predicated_if_conversion.h"
 #include "schedule/xir_to_schedule.h"
@@ -1102,6 +1103,8 @@ SIMDCompiledKernel compile_simd_kernel(
     }
     auto predication_info =
         schedule::PredicatedIfConversionInfo{};
+    auto buffer_read_latency_info =
+        schedule::BufferReadLatencyHidingInfo{};
     if (detail::env_flag("LUISA_SIMD_REPORT_XIR")) {
         luisa::string text;
         xir::XIRDebugPrinter printer;
@@ -1148,7 +1151,20 @@ SIMDCompiledKernel compile_simd_kernel(
                     !detail::env_flag(
                         "LUISA_SIMD_DISABLE_RAY_QUERY_FILTER_PREDICATION"));
     }
-    if (predication_info.changed()) {
+    // On the measured W4/W8 voxel traversal, issuing the bounded DDA
+    // continuation before the read overlaps it with the gather/hit-test
+    // dependency chain without adding memory effects. W16 regresses from the
+    // extra live vectors, so it deliberately remains outside this width policy
+    // instead of relying on a target-feature guess.
+    if ((warp_width == 4u || warp_width == 8u) &&
+        !detail::env_flag(
+            "LUISA_SIMD_DISABLE_BUFFER_READ_LATENCY_HIDING")) {
+        buffer_read_latency_info =
+            schedule::hide_innermost_buffer_read_latency(
+                xir_kernel);
+    }
+    if (predication_info.changed() ||
+        buffer_read_latency_info.changed()) {
         static_cast<void>(xir::dce_pass_run_on_module(module.get()));
     }
     auto loop_unswitch_info = schedule::SIMDLoopUnswitchInfo{};
@@ -1207,6 +1223,12 @@ SIMDCompiledKernel compile_simd_kernel(
         predication_info.wide_select_ladder_diamond_count;
     result.predicated_ray_query_filter_diamond_count =
         predication_info.ray_query_filter_diamond_count;
+    result.buffer_read_latency_hidden_diamond_count =
+        buffer_read_latency_info.hidden_diamond_count;
+    result.buffer_read_latency_moved_instruction_count =
+        buffer_read_latency_info.moved_instruction_count;
+    result.buffer_read_latency_generated_select_count =
+        buffer_read_latency_info.generated_select_count;
     result.factored_select_count =
         predication_info.select_factoring.factored_select_count;
     result.unswitched_loop_count =

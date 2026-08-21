@@ -351,6 +351,9 @@ SIMDShader::SIMDShader(
             "predicated_widened_update_diamonds={}, "
             "predicated_wide_select_ladder_diamonds={}, "
             "predicated_ray_query_filter_diamonds={}, "
+            "buffer_read_latency_hidden_diamonds={}, "
+            "buffer_read_latency_moved_instructions={}, "
+            "buffer_read_latency_generated_selects={}, "
             "predicated_memory_diamonds={}, "
             "predicated_memory_instructions={}, "
             "local_predicated_diamonds={}, "
@@ -433,6 +436,9 @@ SIMDShader::SIMDShader(
             _compiled.predicated_widened_update_diamond_count,
             _compiled.predicated_wide_select_ladder_diamond_count,
             _compiled.predicated_ray_query_filter_diamond_count,
+            _compiled.buffer_read_latency_hidden_diamond_count,
+            _compiled.buffer_read_latency_moved_instruction_count,
+            _compiled.buffer_read_latency_generated_select_count,
             _compiled.predicated_memory_diamond_count,
             _compiled.predicated_memory_instruction_count,
             _compiled.local_predicated_diamond_count,

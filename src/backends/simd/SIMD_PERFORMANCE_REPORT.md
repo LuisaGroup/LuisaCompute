@@ -6422,6 +6422,136 @@ with the current XIR shared library), the compiler-focused Release tree passes
 173/173. The Clang ASan/LSan/UBSan Schedule/JIT executable independently
 passes its complete case list, including the new gather regression.
 
+## Bounded W4/W8 buffer-read continuation motion
+
+The narrow-index gather above reduced the hot instruction's latency, but the
+first dependent operation remained the material hit test. The following miss
+continuation is a bounded, pure DDA coordinate-update diamond. The retained XIR
+transform if-converts that exact diamond, moves its arithmetic before the read,
+and folds the two empty continuation blocks. It does not insert a target
+prefetch or move a memory operation.
+
+Two frozen intermediate binaries separate the effects. Post-read
+if-conversion alone measured 1.12595x oracle throughput
+([1.11821, 1.13375], 9/9). Moving the already predicated DDA arithmetic before
+the read added another 1.02701x over that binary
+([1.02294, 1.03110], 9/9). Those decomposition populations are not multiplied
+to reconstruct the final result; the complete final source is measured
+directly below.
+
+The final same-binary gate used W8, eight workers pinned to CPUs 0--7, 256
+Voxel renders per fresh process, and alternating candidate/oracle order. The
+nine-pair population was collected in an observed idle window after an
+unrelated render completed. Every one of the eighteen invocations passed the
+checked-in image reference at 82.834519 dB:
+
+| W8 Voxel | median ms/iteration | paired throughput | 95% paired CI | wins |
+| --- | ---: | ---: | ---: | ---: |
+| continuation motion | 8.073 | **1.24251x** | **[1.23167, 1.25344]** | **9/9** |
+| disabled oracle | 10.026 | -- | -- | -- |
+
+The real kernel accepts one diamond, moves 23 instructions, and generates six
+selects. Folding changes the verified Schedule shape without increasing the
+suspension state:
+
+| W8 compile metric | candidate | oracle |
+| --- | ---: | ---: |
+| Schedule blocks | **22** | 26 |
+| convergence points | **7** | 8 |
+| state slots | 37 | 37 |
+| instruction spills | 15 | 15 |
+| cold slots | 13 | 13 |
+
+Five additional alternating pairs used one nonmultiplexed `perf stat` event
+group and the same 100 ms interference monitor. All ten 256-render references
+passed and every event reported 100% running time:
+
+| counter | candidate / oracle | 95% paired CI |
+| --- | ---: | ---: |
+| throughput | **1.22917x** | **[1.20499, 1.25384]** |
+| cycles | **0.80090x** | **[0.79364, 0.80823]** |
+| instructions | 1.20114x | [1.20113, 1.20114] |
+| branches | **0.88512x** | **[0.88511, 0.88512]** |
+| branch misses | **0.14394x** | **[0.14349, 0.14440]** |
+
+The transform deliberately executes about 20% more safe speculative
+arithmetic. Its win comes with about 20% fewer cycles, 11% fewer branches, and
+86% fewer branch misses, which is consistent with removing a divergent
+scheduler route rather than LLVM eliminating the DDA computation.
+
+The earlier version that retained the empty step block had 43 state slots and
+21 instruction spills; deleting that block restores the 37/15 oracle counts.
+In the final annotated assembly the candidate/oracle have 185/207 reload
+annotations, 164/164 spill annotations, and the same 3,776-byte stack frame.
+The candidate text is 13,061 bytes and 2,399 static instructions versus 13,017
+bytes and 2,366 instructions for the oracle, so this is not a static-code-size
+win.
+
+On this host both objects contain the same W8 `vpgatherdd`. Its first dependent
+consumer is still `vptestmd`; LLVM places one independent 32-byte reload between
+them in the candidate and none in the oracle. Thus the evidence supports a
+shorter dynamic scheduler route plus limited out-of-order overlap, not a claim
+that portable varying prefetch has been synthesized. The only undefined object
+symbol is uniform scalar `sincosf` for camera rotation. No varying scalar-libm
+lane loop appears. These AVX-512 mnemonics are host machine-code evidence only;
+logical W8 does not imply AVX-512.
+
+The complete-backend comparison used the separate Release tree configured with
+`LUISA_COMPUTE_USE_SYSTEM_PARALLEL_FOR=ON`, so fallback used oneTBB while SIMD
+kept eight workers. Both were pinned to CPUs 0--7 and rendered 256 iterations
+per fresh process. Because another development task was active, a 100 ms
+monitor rejected any pair in which `cc1plus` or the external renderer appeared.
+Nine clean alternating pairs remained; two additional pairs with 11 and 20
+interference samples are explicitly invalid and are not mixed into the result.
+All eighteen retained images passed:
+
+| W8 Voxel | median ms/iteration | paired throughput | 95% paired CI | wins |
+| --- | ---: | ---: | ---: | ---: |
+| SIMD continuation motion | 7.902 | **2.43149x** | **[2.41984, 2.44319]** | **9/9** |
+| system/TBB fallback | 19.234 | -- | -- | -- |
+
+This ratio is paired within its own system/TBB population; its absolute SIMD
+median is not used to reconstruct the same-binary causal ratio above.
+
+W4 uses the same transform without changing its established gather lowering.
+Nine alternating 128-render pairs used eight workers on CPUs 0--7 and the same
+100 ms interference monitor. All eighteen references passed and no pair saw an
+external compiler or renderer:
+
+| W4 Voxel | median ms/iteration | paired throughput | 95% paired CI | wins |
+| --- | ---: | ---: | ---: | ---: |
+| continuation motion | 10.746 | **1.22950x** | **[1.22017, 1.23891]** | **9/9** |
+| disabled oracle | 13.201 | -- | -- | -- |
+
+The W4 compile shape changes from 32 Schedule blocks and 10 convergence points
+to 28 and 9. Both sides retain 39 state slots and 15 instruction spills. This
+positive gate makes W4, together with W8, a production width for the pass.
+
+The corresponding system/TBB tree used the same 128-render, eight-core setup.
+Nine clean alternating pairs measured the complete W4 backend at 1.80161x
+fallback throughput ([1.79370, 1.80955], 9/9), with 10.652/19.183 ms SIMD/
+fallback medians. All eighteen references passed and no interference sample was
+recorded.
+
+W16 was re-audited after the final block folding rather than rejected from the
+older source prototype alone. Its default predicated-loop policy does not form
+this exact candidate. Forcing the W8 refinement and continuation transform
+reduces the same 26/8 block/convergence shape to 22/7, but five monitored,
+alternating 256-render pairs measured only 0.94957x oracle throughput
+([0.94121, 0.95801], 0/5). Median candidate/oracle times were 9.130/8.653 ms,
+all ten references passed, and no monitored external compile or renderer
+entered a pair. W16 therefore retains its existing predicated-loop route. W2
+remains a correctness/ABI/exact-result/inactive-tail width rather than a
+performance target.
+
+After the final W4 policy update, the graphics/fallback/SIMD/Embree Release
+tree passes 173/173 CTest cases and the independent compiler-focused Release
+tree passes 161/161. The complete Clang ASan/LSan/UBSan Schedule/JIT executable
+also passes. Explicit Voxel W2/W4/W8/W16 gallery runs pass and accept sites only
+at W4/W8. Image processing, Spacex, ordinary path tracing, non-coroutine SDF,
+and cutout-query all pass at W4/W8/W16 and report zero sites, so this stage
+makes no performance claim for those paths.
+
 ## Guarded W8 native texture gather
 
 The direct native texture arm above handles complete consecutive rows, but

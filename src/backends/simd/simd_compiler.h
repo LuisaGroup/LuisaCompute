@@ -45,6 +45,9 @@ struct SIMDCompiledKernel {
     size_t predicated_widened_update_diamond_count{0u};
     size_t predicated_wide_select_ladder_diamond_count{0u};
     size_t predicated_ray_query_filter_diamond_count{0u};
+    size_t buffer_read_latency_hidden_diamond_count{0u};
+    size_t buffer_read_latency_moved_instruction_count{0u};
+    size_t buffer_read_latency_generated_select_count{0u};
     size_t factored_select_count{0u};
     size_t unswitched_loop_count{0u};
     size_t guarded_unswitched_loop_count{0u};

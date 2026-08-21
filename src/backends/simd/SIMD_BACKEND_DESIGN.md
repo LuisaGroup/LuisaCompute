@@ -4035,9 +4035,10 @@ on 2026-08-11. The repository now contains:
   loop-gate reuse, dispatch-edge masks, and masked scalar returns; the old
   64-block ready bitmap and its CFG-size limit have been removed;
 - bounded speculation-safe diamond if-conversion, common-operation/select
-  factoring, and invariant-condition loop unswitching before Schedule
-  emission, plus a fail-closed Schedule-emitter predicated direct-buffer-read
-  diamond; each retains a same-binary disable control and inactive-tail proof;
+  factoring, invariant-condition loop unswitching, and a W4/W8 innermost-loop
+  buffer-read continuation transform before Schedule emission, plus a
+  fail-closed Schedule-emitter predicated direct-buffer-read diamond; each
+  retains a same-binary disable control and inactive-tail proof;
 - two-stage, fail-closed local struct/array SROA before scheduling, followed by
   `mem2reg`, so constant-member aggregate state can cross blocks as independent
   SoA SSA leaves rather than lane-private AoS round trips;
@@ -4601,3 +4602,47 @@ candidate/oracle execution with a thirteen-thread tail, W16 rejection, and
 final x86 `vpgatherdd` versus `vpgatherqd` when the host capability gate is
 true. On the current Voxel kernel only W8 accepts one site; image processing,
 Spacex, non-coroutine SDF, and ordinary Embree path tracing accept none.
+
+### Bounded W4/W8 buffer-read continuation latency hiding
+
+The hot Voxel DDA loop contains a varying 32-bit material read followed by a
+dependent hit test. Its miss continuation then chooses one of three bounded
+coordinate updates. Merely inserting a prefetch cannot express the varying
+address in legal portable LLVM IR, and the final W8 machine code still tests
+the gather result immediately. The retained optimization instead exposes
+independent continuation arithmetic to the out-of-order core and removes the
+corresponding scheduler route.
+
+The XIR transform runs after the general predication refinements and before
+Schedule-IR construction. It recognizes only a direct, nonvolatile, varying
+scalar 32-bit `BUFFER_READ` in an innermost natural loop whose branch condition
+is a direct comparison of that read with a constant. The continuation must be
+an empty forwarding block followed by one varying pure diamond. The step block
+may contain at most four nonterminators, either arm at most eleven, both arms
+together at most fourteen, and the merge may require at most six selects. The
+complete speculation cost and moved-instruction count are each bounded by 24.
+Accepted values are narrow scalar arithmetic, comparisons, selects, bitwise
+operations, and safe casts; memory effects, calls, division, float-to-integer
+conversion, and operands that do not dominate the read fail closed. At most
+eight candidates are transformed in one function.
+
+The exact diamond is first handled by the shared XIR if-conversion pass. The
+resulting pure computations are then moved before the read, while their values
+remain observable only through the original miss edge. The load branch is
+retargeted directly to the merge, affected PHI predecessors are repaired, and
+the two empty forwarding blocks are deleted. Only comment/location metadata
+may be rehomed to a surviving instruction; any semantic metadata rejects the
+candidate. Thus the transform neither speculates a memory operation nor makes
+an inactive lane access memory, trap, or introduce poison.
+
+Production selection is W4/W8. Nine monitored W4 pairs measured 1.22950x
+oracle throughput with a [1.22017, 1.23891] interval and 9/9 wins. A final
+forced W8-style refinement and continuation transform at W16 instead measured
+0.94957x with a [0.94121, 0.95801] interval and 0/5 wins, so W16 retains its
+existing predicated-loop policy. W2 remains a correctness, ABI, exact-result,
+and inactive-tail width rather than a performance target. The same-binary
+oracle is `LUISA_SIMD_DISABLE_BUFFER_READ_LATENCY_HIDING=1`. Runtime diagnostics
+expose the accepted diamond, moved-instruction, and generated-select counts.
+Permanent coverage includes direct XIR shape and diagnostic-metadata
+preservation, a thirteen-thread inactive tail, scalar-oracle equality, and
+W2/W4/W8/W16 policy checks.
