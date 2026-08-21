@@ -4007,6 +4007,8 @@ void reg_restructure_cfg() {
     };
 
     "restructure_drains_more_than_64_independent_selection_exits"_test = [] {
+        ScopedEnvironmentVariable verify_relation_updates{
+            "LUISA_XIR_VERIFY_SELECTION_EXIT_RELATION_UPDATES", "1"};
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -4023,8 +4025,14 @@ void reg_restructure_cfg() {
         // Give the common return block an existing structured role. The 65
         // nested selections therefore cannot reuse it as their own merge and
         // must exercise the explicit one-target exit-funnel path rather than
-        // the metadata-only exact-common-exit canonicalization.
+        // the metadata-only exact-common-exit canonicalization. Keep the
+        // chain inside a loop so every incremental update must also refresh
+        // and verify a non-empty lexical context relation.
         b.set_insertion_point(body);
+        auto *loop = b.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(loop_body);
         auto *root = b.if_(condition);
         auto *cursor = root->create_true_block();
         auto *root_false = root->create_false_block();
@@ -4047,6 +4055,8 @@ void reg_restructure_cfg() {
         b.set_insertion_point(cursor);
         b.br(ret);
         b.set_insertion_point(ret);
+        b.break_(loop_merge);
+        b.set_insertion_point(loop_merge);
         b.return_void();
 
         auto first = restructure_cfg_pass_run_on_function(k);
@@ -4061,6 +4071,15 @@ void reg_restructure_cfg() {
             first.selection_exit_cfg_invalidation_count);
         expect(
             first.selection_exit_global_invalidation_count == 0u);
+        expect(
+            first.selection_exit_relation_incremental_update_count ==
+            first.selection_exit_cfg_invalidation_count);
+        // The 65 funnels preserve the relation version. A fresh relation is
+        // still rebuilt by the diagnostic oracle after every update, but
+        // those oracle builds are deliberately excluded from pass counters.
+        expect(
+            first.selection_exit_boundary_analysis_count <
+            first.selection_exit_cfg_invalidation_count);
         // Each local rewrite dirties only itself and physical enclosing
         // selections. The common-merge role owner adds one enclosing query
         // per rewrite, so the 65-site chain must still drain linearly instead

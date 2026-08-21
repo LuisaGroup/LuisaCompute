@@ -81,6 +81,11 @@ public:
     // wrapper to avoid turning cross-packet live ranges into spills.
     [[nodiscard]] bool supports_inlined_packet_batch(
         uint32_t width) const noexcept;
+    // W16 sparse ray packets use llvm.masked.compressstore only when the host
+    // exposes a native 512-bit register file and legal masked compression.
+    // Other hosts retain the full-width portable packet path.
+    [[nodiscard]] bool supports_native_vector_compress(
+        uint32_t width) const noexcept;
     // Exact relocatable object emitted by ORC's compiler, before JITLink
     // applies relocations. Populated only when requested at construction.
     [[nodiscard]] const std::string &object() const noexcept {

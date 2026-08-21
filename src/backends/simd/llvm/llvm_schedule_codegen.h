@@ -260,13 +260,17 @@ using SIMDHostAccelRayQuerySurfaceFilterPacketPipeline = void(
     SIMDHostRayQuerySurfaceFilterHandler *on_surface,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct);
 // An audited empty surface handler needs no candidate callback or mutable
-// query input. The packet provider receives the accel and sanitized logical
-// ray packet directly; W2 expands that packet to Embree W4 inside the runtime.
-// The field-major output packet provides the original
-// world-ray interval and terminal committed-hit storage; no operational query
-// state is materialized when this provider is selected.
+// query input. The packet provider receives the accel and a sanitized native
+// Embree packet directly. ray_packet_width describes the supplied packet's
+// field stride: W2 remains a compact W2 packet and expands to Embree W4 inside
+// the runtime, while a sparse logical W16 packet may be compressed to W4/W8
+// without changing lane_count. Each compressed ray.id retains its original
+// logical lane. The field-major output packet provides the original world-ray
+// interval and terminal committed-hit storage; no operational query state is
+// materialized when this provider is selected.
 using SIMDHostAccelRayQueryEmptySurfaceFilterPacketPipeline = void(
-    uint32_t lane_count, uint64_t active_mask_bits,
+    uint32_t lane_count, uint32_t ray_packet_width,
+    uint64_t active_mask_bits,
     void *accel, SIMDHostRayQueryOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first);
 // A nonempty audited direct handler may bypass the operational query state
@@ -722,6 +726,9 @@ struct SIMDPacketLaunchConfig {
 };
 inline constexpr auto
     simd_packet_launch_flag_compact_surface_filter_state = 1u << 0u;
+inline constexpr auto
+    simd_packet_launch_flag_w16_sparse_empty_surface_filter_packet_narrowing =
+        1u << 1u;
 static_assert(
     offsetof(SIMDPacketLaunchConfig, reserved_runtime_flags) +
         sizeof(uint32_t) ==
@@ -904,7 +911,8 @@ struct LLVMScheduleCodegenResult {
     bool enable_block_batch_entry = false,
     std::span<const LLVMSIMDRayQueryPipelineHandlers>
         ray_query_pipeline_handlers = {},
-    size_t print_format_id_base = 0u);
+    size_t print_format_id_base = 0u,
+    bool enable_native_vector_compress = false);
 
 // Ray-query handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,

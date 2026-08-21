@@ -164,4 +164,156 @@ ScheduleEmitter::_ray_query_surface_filter_ray_packet_for_call(
     return packet;
 }
 
+std::pair<::llvm::Value *, ::llvm::Value *>
+ScheduleEmitter::_ray_query_empty_surface_filter_ray_packet_for_call(
+    ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
+    ::llvm::Value *active_mask_bits) {
+#if LLVM_VERSION_MAJOR < 18
+    auto *packet = _ray_query_surface_filter_ray_packet_for_call(
+        ray_packet, call_packet, active_mask_bits);
+    return {packet, packet == nullptr ? nullptr : _builder.getInt32(_width)};
+#else
+    if (_width != 16u || !_enable_native_vector_compress) {
+        auto *packet = _ray_query_surface_filter_ray_packet_for_call(
+            ray_packet, call_packet, active_mask_bits);
+        return {packet, packet == nullptr ? nullptr : _builder.getInt32(_width)};
+    }
+    if (ray_packet == nullptr || call_packet == nullptr ||
+        active_mask_bits == nullptr) {
+        _fail("empty surface-filter call packet has no analyzed storage");
+        return {nullptr, nullptr};
+    }
+
+    auto *runtime_flags = _load_launch_u32(offsetof(
+        SIMDPacketLaunchConfig, reserved_runtime_flags));
+    auto *narrowing_enabled = _builder.CreateICmpNE(
+        _builder.CreateAnd(
+            runtime_flags,
+            _builder.getInt32(
+                simd_packet_launch_flag_w16_sparse_empty_surface_filter_packet_narrowing)),
+        _builder.getInt32(0u),
+        "ray.query.empty.packet.narrowing.enabled");
+    auto lane_mask = (uint64_t{1u} << _width) - 1u;
+    auto *active_count = _builder.CreateIntrinsic(
+        _builder.getInt64Ty(), ::llvm::Intrinsic::ctpop,
+        {_builder.CreateAnd(
+            active_mask_bits, _builder.getInt64(lane_mask))},
+        nullptr, "ray.query.empty.packet.active.count");
+
+    auto &context = _module.getContext();
+    auto *narrow4 = ::llvm::BasicBlock::Create(
+        context, "ray.query.empty.packet.w4", _entry);
+    auto *narrow8 = ::llvm::BasicBlock::Create(
+        context, "ray.query.empty.packet.w8", _entry);
+    auto *check8 = ::llvm::BasicBlock::Create(
+        context, "ray.query.empty.packet.check.w8", _entry);
+    auto *wide = ::llvm::BasicBlock::Create(
+        context, "ray.query.empty.packet.wide", _entry);
+    auto *ready = ::llvm::BasicBlock::Create(
+        context, "ray.query.empty.packet.ready", _entry);
+    auto *use4 = _builder.CreateAnd(
+        narrowing_enabled,
+        _builder.CreateICmpULE(active_count, _builder.getInt64(4u)));
+    _builder.CreateCondBr(use4, narrow4, check8);
+    _builder.SetInsertPoint(check8);
+    auto *use8 = _builder.CreateAnd(
+        narrowing_enabled,
+        _builder.CreateICmpULE(active_count, _builder.getInt64(8u)));
+    _builder.CreateCondBr(use8, narrow8, wide);
+
+    auto *wide_lane_type = ::llvm::FixedVectorType::get(
+        _builder.getInt32Ty(), _width);
+    auto *wide_packet_type = ::llvm::ArrayType::get(
+        wide_lane_type, simd_host_accel_ray_packet_field_count);
+    auto *compress =
+#if LLVM_VERSION_MAJOR >= 22
+        ::llvm::Intrinsic::getOrInsertDeclaration(
+#else
+        ::llvm::Intrinsic::getDeclaration(
+#endif
+            &_module, ::llvm::Intrinsic::masked_compressstore,
+            {wide_lane_type});
+    auto emit_narrow_packet = [&](uint32_t packet_width) noexcept {
+        auto *narrow_lane_type = ::llvm::FixedVectorType::get(
+            _builder.getInt32Ty(), packet_width);
+        auto *narrow_packet_type = ::llvm::ArrayType::get(
+            narrow_lane_type, simd_host_accel_ray_packet_field_count);
+        auto *zero_chunk_type = ::llvm::FixedVectorType::get(
+            _builder.getInt32Ty(), 16u);
+        auto *zero_chunk = ::llvm::Constant::getNullValue(
+            zero_chunk_type);
+        auto packet_word_count =
+            packet_width * simd_host_accel_ray_packet_field_count;
+        for (auto word = uint32_t{0u}; word < packet_word_count;
+             word += 16u) {
+            auto *destination = _builder.CreateGEP(
+                _builder.getInt32Ty(), call_packet,
+                _builder.getInt64(word));
+            _builder.CreateAlignedStore(
+                zero_chunk, destination, ::llvm::Align{64u});
+        }
+        auto *direction_z_pointer = _builder.CreateGEP(
+            narrow_packet_type, call_packet,
+            {_builder.getInt32(0u), _builder.getInt32(6u)});
+        _builder.CreateAlignedStore(
+            _builder.CreateVectorSplat(
+                packet_width, _builder.getInt32(0x3f800000u)),
+            direction_z_pointer,
+            ::llvm::Align{packet_width * sizeof(uint32_t)});
+        for (auto field = uint32_t{0u};
+             field < simd_host_accel_ray_packet_field_count; field++) {
+            auto indices = std::array<::llvm::Value *, 2u>{
+                _builder.getInt32(0u), _builder.getInt32(field)};
+            auto *source_pointer = _builder.CreateGEP(
+                wide_packet_type, ray_packet, indices);
+            auto *loaded = _builder.CreateAlignedLoad(
+                wide_lane_type, source_pointer,
+                ::llvm::Align{_width * sizeof(uint32_t)});
+            auto *destination_pointer = _builder.CreateGEP(
+                narrow_packet_type, call_packet, indices);
+            auto *store = _builder.CreateCall(
+                compress, {loaded, destination_pointer, _active_mask});
+            store->addParamAttr(
+                1u, ::llvm::Attribute::getWithAlignment(
+                        context,
+                        ::llvm::Align{
+                            packet_width * sizeof(uint32_t)}));
+        }
+        return call_packet;
+    };
+
+    _builder.SetInsertPoint(narrow4);
+    auto *packet4 = emit_narrow_packet(4u);
+    auto *narrow4_exit = _builder.GetInsertBlock();
+    _builder.CreateBr(ready);
+
+    _builder.SetInsertPoint(narrow8);
+    auto *packet8 = emit_narrow_packet(8u);
+    auto *narrow8_exit = _builder.GetInsertBlock();
+    _builder.CreateBr(ready);
+
+    _builder.SetInsertPoint(wide);
+    auto *wide_packet = _ray_query_surface_filter_ray_packet_for_call(
+        ray_packet, call_packet, active_mask_bits);
+    if (wide_packet == nullptr) { return {nullptr, nullptr}; }
+    auto *wide_exit = _builder.GetInsertBlock();
+    _builder.CreateBr(ready);
+
+    _builder.SetInsertPoint(ready);
+    auto *packet = _builder.CreatePHI(
+        ray_packet->getType(), 3u,
+        "ray.query.empty.packet");
+    auto *packet_width = _builder.CreatePHI(
+        _builder.getInt32Ty(), 3u,
+        "ray.query.empty.packet.width");
+    packet->addIncoming(packet4, narrow4_exit);
+    packet_width->addIncoming(_builder.getInt32(4u), narrow4_exit);
+    packet->addIncoming(packet8, narrow8_exit);
+    packet_width->addIncoming(_builder.getInt32(8u), narrow8_exit);
+    packet->addIncoming(wide_packet, wide_exit);
+    packet_width->addIncoming(_builder.getInt32(_width), wide_exit);
+    return {packet, packet_width};
+#endif
+}
+
 }// namespace luisa::compute::simd::detail

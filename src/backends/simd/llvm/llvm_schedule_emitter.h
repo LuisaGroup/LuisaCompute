@@ -59,6 +59,7 @@ private:
     bool _enable_paired_leaf_gather{false};
     uint32_t _dispatch_worker_count{1u};
     bool _enable_native_predicated_loop{true};
+    bool _enable_native_vector_compress{false};
     bool _enable_runtime_packet_geometry{false};
     bool _enable_linear_1d_packet_tail_narrowing{false};
     bool _enable_predicated_acyclic_control_flow{true};
@@ -511,6 +512,10 @@ private:
     _ray_query_surface_filter_ray_packet_for_call(
         ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
         ::llvm::Value *active_mask_bits);
+    [[nodiscard]] std::pair<::llvm::Value *, ::llvm::Value *>
+    _ray_query_empty_surface_filter_ray_packet_for_call(
+        ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
+        ::llvm::Value *active_mask_bits);
     [[nodiscard]] ::llvm::Value *_ray_query_state_handles(
         schedule::ValueId object_id);
     [[nodiscard]] ::llvm::AllocaInst *_ray_query_status_slot(
@@ -699,6 +704,7 @@ public:
                     bool enable_paired_leaf_gather,
                     uint32_t dispatch_worker_count,
                     bool enable_native_predicated_loop,
+                    bool enable_native_vector_compress,
                     bool enable_runtime_packet_geometry,
                     bool enable_linear_1d_packet_tail_narrowing,
                     ScheduleEntryABI entry_abi = ScheduleEntryABI::packet,

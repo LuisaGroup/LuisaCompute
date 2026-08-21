@@ -350,15 +350,16 @@ void ScheduleEmitter::_ray_query_pipeline(
             _fail("empty output-only surface-filter packet has no analyzed storage");
             return;
         }
-        auto *ray_packet =
-            _ray_query_surface_filter_ray_packet_for_call(
+        auto [ray_packet, ray_packet_width] =
+            _ray_query_empty_surface_filter_ray_packet_for_call(
                 surface_filter_ray_packet,
                 surface_filter_call_ray_packet,
                 outer_active_bits);
-        if (ray_packet == nullptr) { return; }
+        if (ray_packet == nullptr || ray_packet_width == nullptr) { return; }
         auto *pipeline_type = ::llvm::FunctionType::get(
             _builder.getVoidTy(),
-            {_builder.getInt32Ty(), _builder.getInt64Ty(),
+            {_builder.getInt32Ty(), _builder.getInt32Ty(),
+             _builder.getInt64Ty(),
              pointer_type, pointer_type, pointer_type,
              _builder.getInt32Ty()},
             false);
@@ -368,7 +369,8 @@ void ScheduleEmitter::_ray_query_pipeline(
             query_object->type == Type::custom("LC_RayQueryAny");
         _builder.CreateCall(
             pipeline_type, empty_surface_filter_callback,
-            {_builder.getInt32(_width), outer_active_bits,
+            {_builder.getInt32(_width), ray_packet_width,
+             outer_active_bits,
              empty_surface_filter_accel,
              _ray_query_output_packet_storage[status_index],
              ray_packet,

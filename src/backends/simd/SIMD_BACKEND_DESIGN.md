@@ -22,6 +22,10 @@ stateful, captured, procedural, or resource-using handler retain the ordered
 pipeline. The accel summary publishes this route only for a committed
 triangle-only TLAS, so buffer-only metadata changes cannot reinterpret the
 stale Embree scene.
+On a target with native 512-bit fixed vectors and legal masked compression, a
+sparse W16 output-only empty-handler packet is formed directly as W4 or W8.
+Logical W8, nonempty handlers, and targets without that proof retain their
+established exact-width routes.
 Acceleration instance-buffer-only updates now publish metadata and primitive
 bindings without mutating the committed Embree scene; a later ordinary build
 reconciles the deferred state even after the originating modification command
@@ -3523,8 +3527,9 @@ input and shares the field-major terminal packet described below with the
 nonempty direct-output route. Construction emits eight masked fixed-vector
 stores for the original `t_min`/`t_max` interval and public miss value; it does
 not initialize any `SIMDHostRayQueryState` field. The provider receives
-`(width, mask, accel, output_packet, ray_packet, terminate_on_first)`, reads
-only the active interval fields, and writes only the active committed fields.
+`(logical_width, ray_packet_width, mask, accel, output_packet,
+ray_packet, terminate_on_first)`, reads only the active interval fields, and
+writes only the active committed fields.
 Opaque triangles update that output in the Embree filter, non-opaque triangles
 clear their valid bit, and the JIT publishes terminal status after the single
 call. No state-pointer packet, candidate handler, status callback, capture
@@ -3544,6 +3549,28 @@ Runtime publication additionally requires the committed scene to be
 triangle-only and packet input to be enabled. Logical W2 expands its compact
 twelve-by-two JIT packet into a fully sanitized Embree W4 packet; W4/W8/W16
 retain their exact native packet entry points. Neither path uses scalar Embree.
+
+On a host where target transform information proves a native 512-bit fixed
+vector register file and legal `<16 x i32>` masked compression, the W16
+output-only empty-handler call has one further same-module refinement. The JIT
+counts the active logical mask and forms the physical Embree packet directly
+with twelve `llvm.masked.compressstore` operations in each selected
+packet-width branch: up to four active rays use W4, five through eight use W8,
+and denser cohorts retain W16.
+Each compressed `ray.id` remains the original logical lane, so filter output
+and interval checks still address the logical W16 output packet. The unused
+physical suffix is initialized before traversal (`dir_z = 1`, every other
+field zero) and its Embree valid entries are clear. The runtime therefore does
+not repack or scan the twelve fields a second time.
+
+This policy is deliberately W16-only and output-only-empty-only. Logical W8
+keeps its native W8 packet, and nonempty direct handlers keep the packet width
+matching their compiled candidate ABI. A target without proven native masked
+compression emits only the established full-width path.
+`LUISA_SIMD_DISABLE_W16_SPARSE_EMPTY_SURFACE_FILTER_PACKET_NARROWING=1`
+clears the launch bit and selects that full W16 branch without recompiling.
+This switch is independent of the provider-selection oracle: disabling the
+output-only provider still falls back to operational query state as before.
 
 Seven clean alternating 64-spp `opaque-query` pairs measure the shared
 field-major boundary against its same-module state-provider oracle at

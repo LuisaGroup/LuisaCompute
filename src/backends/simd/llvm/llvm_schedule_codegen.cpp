@@ -684,7 +684,8 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
     bool enable_block_batch_entry,
     std::span<const LLVMSIMDRayQueryPipelineHandlers>
         ray_query_pipeline_handlers,
-    size_t print_format_id_base) {
+    size_t print_format_id_base,
+    bool enable_native_vector_compress) {
     auto enable_linear_1d_packet_tail_narrowing =
         enable_packet_batch_entry &&
         specialization_width != 0u &&
@@ -727,6 +728,7 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         enable_paired_leaf_gather,
         dispatch_worker_count,
         enable_native_predicated_loop,
+        enable_native_vector_compress,
         enable_packet_batch_entry,
         enable_linear_1d_packet_tail_narrowing,
         detail::ScheduleEntryABI::packet,
@@ -834,7 +836,7 @@ lower_ray_query_handler_schedule_to_llvm(
     bool enable_native_predicated_loop,
     size_t print_format_id_base) {
     return detail::ScheduleEmitter{
-        module, function, specialization_width, entry_name, enable_fast_math, static_block_size, enable_uniform_buffer_broadcast, enable_lane_affine_buffer, enable_paired_leaf_gather, dispatch_worker_count, enable_native_predicated_loop, false, false, detail::ScheduleEntryABI::ray_query_handler, {}, print_format_id_base}
+        module, function, specialization_width, entry_name, enable_fast_math, static_block_size, enable_uniform_buffer_broadcast, enable_lane_affine_buffer, enable_paired_leaf_gather, dispatch_worker_count, enable_native_predicated_loop, false, false, false, detail::ScheduleEntryABI::ray_query_handler, {}, print_format_id_base}
         .run();
 }
 
@@ -852,7 +854,7 @@ lower_ray_query_surface_filter_handler_schedule_to_llvm(
     size_t print_format_id_base,
     bool enable_predicated_acyclic_control_flow) {
     return detail::ScheduleEmitter{
-        module, function, specialization_width, entry_name, enable_fast_math, static_block_size, enable_uniform_buffer_broadcast, enable_lane_affine_buffer, enable_paired_leaf_gather, dispatch_worker_count, enable_native_predicated_loop, false, false, detail::ScheduleEntryABI::ray_query_surface_filter_handler, {}, print_format_id_base, enable_predicated_acyclic_control_flow}
+        module, function, specialization_width, entry_name, enable_fast_math, static_block_size, enable_uniform_buffer_broadcast, enable_lane_affine_buffer, enable_paired_leaf_gather, dispatch_worker_count, enable_native_predicated_loop, false, false, false, detail::ScheduleEntryABI::ray_query_surface_filter_handler, {}, print_format_id_base, enable_predicated_acyclic_control_flow}
         .run();
 }
 

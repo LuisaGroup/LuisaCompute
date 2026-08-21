@@ -2470,28 +2470,41 @@ branch in the same generated module. Inactive lanes remain masked before every
 store on either branch; selecting the compact path does not permit an inactive
 or out-of-prefix access.
 
-An additional W2/W4/W8/W16 provider ABI is legal only for a query variable proven
-to have exactly one capture-free empty surface handler, an empty procedural
-handler, triangle-only surface-filter eligibility, no caller-side query write,
-and no caller read other than committed hit or termination. Its signature is
-`(width, physical_mask, accel, output_packet, ray_packet,
-terminate_on_first)`. The cached callback and accel packets must agree across
-all active lanes. A null callback must select the ordinary provider; a null
-accel for a non-null callback or an active-lane disagreement is an invalid
-internal ABI. Stale data from a reused status color must never select this
-path.
+An additional W2/W4/W8/W16 provider ABI is legal only for a query variable
+proven to have exactly one capture-free empty surface handler, an empty
+procedural handler, triangle-only surface-filter eligibility, no caller-side
+query write, and no caller read other than committed hit or termination. Its
+signature is `(logical_width, ray_packet_width, physical_mask, accel,
+output_packet, ray_packet, terminate_on_first)`. The cached callback and accel
+packets must agree across all active lanes. A null callback must select the
+ordinary provider; a null accel for a non-null callback or an active-lane
+disagreement is an invalid internal ABI. Stale data from a reused status color
+must never select this path.
 
-On the non-null path, `ray_packet` is the same twelve-field component-major
-packet and obeys the same pre-call inactive-lane sanitization contract.
+On the non-null path, `ray_packet` is a twelve-field component-major packet
+whose field stride is `ray_packet_width`; it obeys the same pre-call
+inactive-lane sanitization contract.
 `output_packet` is the shared field-major packet defined below. Construction
 initializes its active interval and committed fields with masked fixed-vector
 stores and may leave every `SIMDHostRayQueryState` field uninitialized. The
 provider must not receive, reconstruct, or diagnostically inspect a query-state
 pointer.
 
-The provider must invoke `rtcIntersect4`/`rtcOccluded4` for W2, and the exactly
-matching `rtcIntersect4/8/16` or `rtcOccluded4/8/16` entry for wider widths,
-never a per-lane scalar Embree call. Its
+Normally `ray_packet_width` equals `logical_width`; the runtime subsequently
+expands the compact logical W2 representation to Embree W4. An independently
+guarded sparse W16 call may instead use a physical W4 packet when its logical
+active count is at most four or a physical W8 packet when that count is five
+through eight. Such narrowing is legal only when target transform
+information proves native 512-bit fixed vectors and legal `<16 x i32>` masked
+compression. The JIT must compress all twelve fields directly into initialized
+native packet storage, preserve each original logical lane in `ray.id`, clear
+every unused physical valid lane, and initialize the unused physical ray suffix
+to benign values before traversal. A runtime lane-by-lane or field-by-field
+repack is not part of this ABI. Logical W8, W4, and dense W16 remain exact-width.
+
+The provider must invoke the `rtcIntersect4/8/16` or `rtcOccluded4/8/16` entry
+matching the native packet described by `ray_packet_width` (with the W2
+expansion above), never a per-lane scalar Embree call. Its
 filter validates IDs and the original inclusive interval, writes an opaque
 surface hit directly to the packet's committed fields, and rejects every
 non-opaque triangle.
@@ -2509,6 +2522,12 @@ The JIT must test the callback before constructing a state-pointer packet,
 reading the status callback, publishing scratch state, or materializing
 captures. A non-null empty-provider call must make no `SIMDHostRayQueryState`
 access.
+
+`LUISA_SIMD_DISABLE_W16_SPARSE_EMPTY_SURFACE_FILTER_PACKET_NARROWING=1`
+must clear only the launch-time narrowing bit and choose the already-emitted
+full W16 packet branch. It must not change provider selection, LLVM IR, object
+code, output semantics, or any non-W16 path. A target for which the native
+compression proof fails must not emit the compression branch at all.
 
 A separate direct-output provider may remove query state from the runtime
 boundary for a nonempty handler only when the compiler proves exactly one
