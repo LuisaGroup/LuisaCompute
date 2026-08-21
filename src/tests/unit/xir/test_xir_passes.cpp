@@ -318,7 +318,7 @@ void reg_pass_entry_totality() {
         });
         // A null module publishes the complete zero-valued operation schema,
         // including sparse postdom and remaining-divergent indexing work.
-        check_zero_report(96u, [](PassReport *report) noexcept {
+        check_zero_report(97u, [](PassReport *report) noexcept {
             (void)restructure_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {

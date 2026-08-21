@@ -61,6 +61,15 @@ namespace {
     return false;
 }
 
+[[nodiscard]] bool
+restructure_verify_selection_exit_relation_updates_enabled() noexcept {
+    if (auto value = std::getenv(
+            "LUISA_XIR_VERIFY_SELECTION_EXIT_RELATION_UPDATES")) {
+        return luisa::string_view{value} == "1";
+    }
+    return false;
+}
+
 struct ScopedTimer {
     Clock clock;
     const char *name;
@@ -2973,101 +2982,69 @@ struct SelectionExitCFGRelations {
         ContextKind kind{ContextKind::LOOP};
         BasicBlock *break_target{nullptr};
         BasicBlock *continue_target{nullptr};
+        BasicBlock *loop_entry{nullptr};
         size_t dom_depth{0u};
+    };
+    struct ContextSite {
+        BasicBlock *header{nullptr};
+        BasicBlock *merge{nullptr};
+        ContextKind kind{ContextKind::LOOP};
+        BasicBlock *break_target{nullptr};
+        BasicBlock *continue_target{nullptr};
+        BasicBlock *loop_entry{nullptr};
+        size_t dom_depth{0u};
+        bool can_be_active{true};
     };
     luisa::unordered_set<BasicBlock *>
         loop_boundary_selection_entries;
     luisa::vector<Context> contexts;
+    // If-only relation updates never create or mutate a Loop/Switch
+    // terminator, so these descriptors are the stable input from which the
+    // exact context maps are rebuilt after dominance changes.
+    luisa::vector<ContextSite> context_sites;
     luisa::unordered_map<BasicBlock *, size_t>
         selection_contexts;
+    // The only block-level context consumer normalizes BreakInst spellings.
+    // Ordinary block contexts are deliberately not materialized.
     luisa::unordered_map<BasicBlock *, size_t>
         block_contexts;
     // A physical structured merge has one owner. Reusing another construct's
     // merge as the boundary of a selection would satisfy reachability while
     // violating SPIR-V's role-uniqueness constraint.
-    luisa::unordered_set<BasicBlock *> structured_merge_blocks;
+    luisa::unordered_map<BasicBlock *, size_t>
+        structured_merge_blocks;
     // Empty branch proxies are transparent only until the first structured
     // merge/continue role. Crossing such a role would skip a lexical
     // construct boundary rather than contract a representation-only edge.
-    luisa::unordered_set<BasicBlock *> structured_exit_boundaries;
+    luisa::unordered_map<BasicBlock *, size_t>
+        structured_exit_boundaries;
 };
 
-// Materialize the exact CFG relations consumed by one selection-exit scan.
-// No rewrite occurs while a scan evaluates its sites. A successful rewrite
-// returns to the caller, which rebuilds dominance and rematerializes these
-// relations before observing the new CFG.
-[[nodiscard]] SelectionExitCFGRelations
-build_selection_exit_cfg_relations(
-    FunctionDefinition *def,
+void rebuild_selection_exit_context_relations(
+    SelectionExitCFGRelations &relations,
     const DomTree &dom,
     RestructureCFGInfo &info) noexcept {
-    ScopedTimer _timer_selection_exit_relations(
-        "selection_exit_build_relations");
-    SelectionExitCFGRelations relations;
-    relations.loop_boundary_selection_entries =
-        collect_loop_boundary_selection_entries(def, &info);
-    struct ContextSite {
-        BasicBlock *header{nullptr};
-        BasicBlock *merge{nullptr};
-        SelectionExitCFGRelations::ContextKind kind{
-            SelectionExitCFGRelations::ContextKind::LOOP};
-        BasicBlock *break_target{nullptr};
-        BasicBlock *continue_target{nullptr};
-        size_t dom_depth{0u};
-        bool can_be_active{true};
-    };
-    luisa::vector<ContextSite> sites;
+    ScopedTimer _timer_selection_exit_context_relations(
+        "selection_exit_build_context_relations");
+    relations.contexts.clear();
+    relations.selection_contexts.clear();
+    relations.block_contexts.clear();
+    auto &sites = relations.context_sites;
     luisa::unordered_map<BasicBlock *, size_t>
         site_index_by_header;
     luisa::unordered_map<BasicBlock *, luisa::vector<size_t>>
         merge_events;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        if (block == nullptr || !block->is_terminated()) { return; }
-        auto *term = block->terminator();
-        if (auto *merge = structured_statement_merge(term);
-            merge != nullptr) {
-            relations.structured_merge_blocks.emplace(merge);
-            relations.structured_exit_boundaries.emplace(merge);
-        }
-        ContextSite site;
-        site.header = block;
-        if (term->isa<LoopInst>()) {
-            auto *loop = static_cast<LoopInst *>(term);
-            site.merge = loop->merge_block();
-            site.break_target = site.merge;
-            site.continue_target = loop->update_block();
-            if (site.continue_target == nullptr) {
-                site.continue_target = loop->prepare_block();
-            }
-            relations.structured_exit_boundaries.emplace(
-                site.continue_target);
-        } else if (term->isa<SimpleLoopInst>()) {
-            auto *loop = static_cast<SimpleLoopInst *>(term);
-            site.merge = loop->merge_block();
-            site.break_target = site.merge;
-            site.continue_target = loop->body_block();
-            relations.structured_exit_boundaries.emplace(
-                site.continue_target);
-        } else if (term->isa<SwitchInst>()) {
-            site.kind =
-                SelectionExitCFGRelations::ContextKind::SWITCH;
-            site.merge = static_cast<SwitchInst *>(term)->merge_block();
-            site.break_target = site.merge;
-        } else {
-            return;
-        }
-        if (!dom.contains(block)) { return; }
-        site.dom_depth = dom_depth(dom, block);
-        auto site_index = sites.size();
-        site_index_by_header.emplace(block, site_index);
-        sites.emplace_back(std::move(site));
-    });
     relations.contexts.reserve(sites.size());
     luisa::vector<size_t> context_id_by_site(
         sites.size(), SIZE_MAX);
     for (auto site_index = size_t{0u};
          site_index < sites.size(); ++site_index) {
         auto &site = sites[site_index];
+        site.can_be_active = true;
+        if (!dom.contains(site.header)) { continue; }
+        site.dom_depth = dom_depth(dom, site.header);
+        site_index_by_header.emplace(
+            site.header, site_index);
         if (site.merge == nullptr ||
             !dom.contains(site.merge)) {
             continue;
@@ -3125,10 +3102,12 @@ build_selection_exit_cfg_relations(
             auto current_context = active_contexts.empty() ?
                                        SIZE_MAX :
                                        active_contexts.rbegin()->second;
-            relations.block_contexts.emplace(
-                block, current_context);
             if (block->is_terminated()) {
                 auto *term = block->terminator();
+                if (term->isa<BreakInst>()) {
+                    relations.block_contexts.emplace(
+                        block, current_context);
+                }
                 if (term->isa<IfInst>() || term->isa<SwitchInst>()) {
                     relations.selection_contexts.emplace(
                         block, current_context);
@@ -3146,6 +3125,7 @@ build_selection_exit_cfg_relations(
                         .kind = site.kind,
                         .break_target = site.break_target,
                         .continue_target = site.continue_target,
+                        .loop_entry = site.loop_entry,
                         .dom_depth = site.dom_depth});
                 context_id_by_site[site_index] = context_id;
                 active_contexts.emplace(
@@ -3177,6 +3157,83 @@ build_selection_exit_cfg_relations(
         }
         walk.pop_back();
     }
+}
+
+// Materialize the exact CFG relations consumed by one selection-exit scan.
+// No rewrite occurs while a scan evaluates its sites. A successful rewrite
+// returns to the caller, which either performs the proven If-only update below
+// or rematerializes the complete relation before observing the new CFG.
+[[nodiscard]] SelectionExitCFGRelations
+build_selection_exit_cfg_relations(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    RestructureCFGInfo &info) noexcept {
+    ScopedTimer _timer_selection_exit_relations(
+        "selection_exit_build_relations");
+    SelectionExitCFGRelations relations;
+    {
+        ScopedTimer _timer_selection_exit_loop_boundaries(
+            "selection_exit_build_loop_boundaries");
+        relations.loop_boundary_selection_entries =
+            collect_loop_boundary_selection_entries(def, &info);
+    }
+    auto &sites = relations.context_sites;
+    auto add_role = [](
+                        auto &role_counts,
+                        BasicBlock *block) noexcept {
+        ++role_counts[block];
+    };
+    {
+        ScopedTimer _timer_selection_exit_collect_relations(
+            "selection_exit_collect_relation_sites");
+        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            if (block == nullptr || !block->is_terminated()) { return; }
+            auto *term = block->terminator();
+            if (auto *merge = structured_statement_merge(term);
+                merge != nullptr) {
+                add_role(
+                    relations.structured_merge_blocks,
+                    merge);
+                add_role(
+                    relations.structured_exit_boundaries,
+                    merge);
+            }
+            SelectionExitCFGRelations::ContextSite site;
+            site.header = block;
+            if (term->isa<LoopInst>()) {
+                auto *loop = static_cast<LoopInst *>(term);
+                site.merge = loop->merge_block();
+                site.break_target = site.merge;
+                site.continue_target = loop->update_block();
+                if (site.continue_target == nullptr) {
+                    site.continue_target = loop->prepare_block();
+                }
+                site.loop_entry = loop->prepare_block();
+                add_role(
+                    relations.structured_exit_boundaries,
+                    site.continue_target);
+            } else if (term->isa<SimpleLoopInst>()) {
+                auto *loop = static_cast<SimpleLoopInst *>(term);
+                site.merge = loop->merge_block();
+                site.break_target = site.merge;
+                site.continue_target = loop->body_block();
+                site.loop_entry = loop->body_block();
+                add_role(
+                    relations.structured_exit_boundaries,
+                    site.continue_target);
+            } else if (term->isa<SwitchInst>()) {
+                site.kind =
+                    SelectionExitCFGRelations::ContextKind::SWITCH;
+                site.merge = static_cast<SwitchInst *>(term)->merge_block();
+                site.break_target = site.merge;
+            } else {
+                return;
+            }
+            sites.emplace_back(std::move(site));
+        });
+    }
+    rebuild_selection_exit_context_relations(
+        relations, dom, info);
     return relations;
 }
 
@@ -3195,11 +3252,11 @@ struct SelectionExitRewriteResult {
     SelectionExitRewriteStatus status{SelectionExitRewriteStatus::UNCHANGED};
     Instruction *site{nullptr};
     // A one-target rewrite is only a common funnel in the quotient CFG where
-    // side-effect-free forwarding blocks are transparent. It preserves
-    // reachability and dominance among canonical pre-existing blocks, so only
-    // construct-containment and explicitly bypassed-boundary dependencies
-    // need invalidation. Multi-target state dispatches conservatively
-    // invalidate every site because their CFG expands correlated reachability.
+    // side-effect-free forwarding blocks are transparent. Its dependency cut
+    // consists of physical enclosing selections plus sites at an edited or
+    // bypassed boundary; the caller checks that cut in both the old and new
+    // dominator trees. Multi-target state dispatches conservatively invalidate
+    // every site because their CFG expands correlated reachability.
     bool local_dependency_only{false};
     bool requires_ssa_repair{false};
     // Changing only the declared merge preserves the executable CFG and its
@@ -3235,6 +3292,227 @@ struct SelectionExitAnalysis {
     return iter == relations.selection_contexts.end() ?
                SIZE_MAX :
                iter->second;
+}
+
+void replace_selection_exit_structured_role(
+    luisa::unordered_map<BasicBlock *, size_t> &role_counts,
+    BasicBlock *old_block,
+    BasicBlock *new_block) noexcept {
+    if (old_block == new_block) { return; }
+    auto old_iter = role_counts.find(old_block);
+    LUISA_ASSERT(
+        old_iter != role_counts.end() && old_iter->second != 0u,
+        "Selection-exit relation update removed an unowned structured role.");
+    if (--old_iter->second == 0u) {
+        role_counts.erase(old_iter);
+    }
+    ++role_counts[new_block];
+}
+
+void refresh_loop_boundary_selection_entry(
+    SelectionExitCFGRelations &relations,
+    BasicBlock *header,
+    IfInst *if_inst,
+    RestructureCFGInfo &info) noexcept {
+    relations.loop_boundary_selection_entries.erase(header);
+    for (auto context = selection_context(relations, header);
+         context != SIZE_MAX;
+         context = relations.contexts[context].parent) {
+        auto &&node = relations.contexts[context];
+        if (node.kind !=
+            SelectionExitCFGRelations::ContextKind::LOOP) {
+            continue;
+        }
+        info.selection_exit_boundary_classification_count += 2u;
+        if (is_physically_lowerable_loop_boundary_if(
+                if_inst, node.continue_target,
+                node.loop_entry, node.break_target)) {
+            relations.loop_boundary_selection_entries.emplace(
+                header);
+            return;
+        }
+    }
+}
+
+[[nodiscard]] bool equivalent_selection_exit_context_chain(
+    const SelectionExitCFGRelations &lhs,
+    size_t lhs_context,
+    const SelectionExitCFGRelations &rhs,
+    size_t rhs_context) noexcept {
+    auto steps = size_t{0u};
+    while (lhs_context != SIZE_MAX ||
+           rhs_context != SIZE_MAX) {
+        if (lhs_context == SIZE_MAX ||
+            rhs_context == SIZE_MAX ||
+            lhs_context >= lhs.contexts.size() ||
+            rhs_context >= rhs.contexts.size()) {
+            return false;
+        }
+        auto &&lhs_node = lhs.contexts[lhs_context];
+        auto &&rhs_node = rhs.contexts[rhs_context];
+        if (lhs_node.kind != rhs_node.kind ||
+            lhs_node.break_target != rhs_node.break_target ||
+            lhs_node.continue_target != rhs_node.continue_target ||
+            lhs_node.loop_entry != rhs_node.loop_entry) {
+            return false;
+        }
+        lhs_context = lhs_node.parent;
+        rhs_context = rhs_node.parent;
+        if (++steps > lhs.contexts.size() +
+                          rhs.contexts.size()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool equivalent_selection_exit_relations(
+    const SelectionExitCFGRelations &lhs,
+    const SelectionExitCFGRelations &rhs) noexcept {
+    auto equal_sets = [](auto &&a, auto &&b) noexcept {
+        if (a.size() != b.size()) { return false; }
+        for (auto value : a) {
+            if (!b.contains(value)) { return false; }
+        }
+        return true;
+    };
+    auto equal_counts = [](auto &&a, auto &&b) noexcept {
+        if (a.size() != b.size()) { return false; }
+        for (auto [block, count] : a) {
+            auto iter = b.find(block);
+            if (iter == b.end() || iter->second != count) {
+                return false;
+            }
+        }
+        return true;
+    };
+    auto require_equal = [](bool equal,
+                            const char *name,
+                            size_t lhs_size,
+                            size_t rhs_size) noexcept {
+        if (!equal) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Incremental selection-exit relation mismatch in {} "
+                "(incremental_size={}, oracle_size={}).",
+                name, lhs_size, rhs_size);
+        }
+        return equal;
+    };
+    if (!require_equal(
+            equal_sets(
+                lhs.loop_boundary_selection_entries,
+                rhs.loop_boundary_selection_entries),
+            "loop_boundary_selection_entries",
+            lhs.loop_boundary_selection_entries.size(),
+            rhs.loop_boundary_selection_entries.size()) ||
+        !require_equal(
+            equal_counts(
+                lhs.structured_merge_blocks,
+                rhs.structured_merge_blocks),
+            "structured_merge_blocks",
+            lhs.structured_merge_blocks.size(),
+            rhs.structured_merge_blocks.size()) ||
+        !require_equal(
+            equal_counts(
+                lhs.structured_exit_boundaries,
+                rhs.structured_exit_boundaries),
+            "structured_exit_boundaries",
+            lhs.structured_exit_boundaries.size(),
+            rhs.structured_exit_boundaries.size())) {
+        return false;
+    }
+    auto equal_context_maps = [&](auto &&a, auto &&b,
+                                  const char *name) noexcept {
+        if (a.size() != b.size()) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Incremental selection-exit relation mismatch in {} size "
+                "(incremental_size={}, oracle_size={}).",
+                name, a.size(), b.size());
+            return false;
+        }
+        for (auto [block, context] : a) {
+            auto iter = b.find(block);
+            if (iter == b.end() ||
+                !equivalent_selection_exit_context_chain(
+                    lhs, context, rhs, iter->second)) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Incremental selection-exit relation mismatch in {} "
+                    "for block {} (terminator={}, incremental_context={}, "
+                    "oracle_context={}).",
+                    name, static_cast<void *>(block),
+                    block != nullptr && block->is_terminated() ?
+                        static_cast<uint32_t>(
+                            block->terminator()
+                                ->derived_instruction_tag()) :
+                        UINT32_MAX,
+                    context,
+                    iter == b.end() ? SIZE_MAX : iter->second);
+                return false;
+            }
+        }
+        return true;
+    };
+    return equal_context_maps(
+               lhs.selection_contexts,
+               rhs.selection_contexts,
+               "selection_contexts") &&
+           equal_context_maps(
+               lhs.block_contexts,
+               rhs.block_contexts,
+               "block_contexts");
+}
+
+void incrementally_update_if_selection_exit_relations(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    SelectionExitCFGRelations &relations,
+    BasicBlock *header,
+    IfInst *if_inst,
+    BasicBlock *old_merge,
+    BasicBlock *new_merge,
+    bool executable_cfg_modified,
+    RestructureCFGInfo &info) noexcept {
+    // The executable-CFG cases accepted here are either metadata-only or a
+    // one-target funnel in the quotient where trivial BranchInst chains are
+    // transparent. Such a funnel can only add its fresh merge and bypass
+    // forwarding blocks. It cannot create or mutate a Loop/Switch descriptor.
+    // Ordinary continuation blocks may nevertheless gain or lose dominance,
+    // so a CFG-changing funnel rebuilds the exact observable
+    // selection/Break context maps from the stable Loop/Switch descriptors.
+    // Structured-role ownership and this If's physical loop-boundary
+    // classification are then updated independently.
+    replace_selection_exit_structured_role(
+        relations.structured_merge_blocks,
+        old_merge, new_merge);
+    replace_selection_exit_structured_role(
+        relations.structured_exit_boundaries,
+        old_merge, new_merge);
+    if (executable_cfg_modified) {
+        rebuild_selection_exit_context_relations(
+            relations, dom, info);
+    }
+    refresh_loop_boundary_selection_entry(
+        relations, header, if_inst, info);
+    ++info.selection_exit_relation_incremental_update_count;
+
+    if (restructure_verify_selection_exit_relation_updates_enabled()) {
+        RestructureCFGInfo oracle_work;
+        auto oracle = build_selection_exit_cfg_relations(
+            def, dom, oracle_work);
+        auto equivalent =
+            equivalent_selection_exit_relations(relations, oracle);
+        if (!equivalent) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Incremental selection-exit update site: header={}, "
+                "old_merge={}, new_merge={}.",
+                static_cast<void *>(header),
+                static_cast<void *>(old_merge),
+                static_cast<void *>(new_merge));
+        }
+        LUISA_ASSERT(
+            equivalent,
+            "Incremental selection-exit relation update diverged from a fresh rebuild.");
+    }
 }
 
 // SPIR-V structured exits for a selection form a lexical prefix, not the set
@@ -3316,7 +3594,7 @@ struct SelectionExitAnalysis {
 // a canonical BreakInst to the current Switch merge is retained.
 [[nodiscard]] bool canonicalize_nonlocal_switch_breaks(
     FunctionDefinition *def,
-    const SelectionExitCFGRelations &relations) noexcept {
+    SelectionExitCFGRelations &relations) noexcept {
     auto modified = false;
     for (auto *block : def->basic_blocks()) {
         if (block == nullptr || !block->is_terminated() ||
@@ -3351,6 +3629,10 @@ struct SelectionExitAnalysis {
             replacement->metadata_list().push_front(
                 metadata->clone());
         }
+        // `block_contexts` intentionally indexes only live BreakInst
+        // consumers. Keep the cached observable domain exact after replacing
+        // this terminator without rebuilding the surrounding relation.
+        relations.block_contexts.erase(block);
         modified = true;
     }
     return modified;
@@ -3916,14 +4198,24 @@ struct SelectionExitDrainResult {
             }
         };
 
+    SelectionExitCFGRelations cfg_relations;
+    auto cfg_relations_valid = false;
+    auto nonlocal_switch_breaks_canonical = false;
     for (;;) {
-        auto cfg_relations =
-            build_selection_exit_cfg_relations(
-                def, dom, info);
-        ++info.selection_exit_boundary_analysis_count;
-        drain.modified |=
-            canonicalize_nonlocal_switch_breaks(
-                def, cfg_relations);
+        if (!cfg_relations_valid) {
+            cfg_relations =
+                build_selection_exit_cfg_relations(
+                    def, dom, info);
+            cfg_relations_valid = true;
+            ++info.selection_exit_boundary_analysis_count;
+            nonlocal_switch_breaks_canonical = false;
+        }
+        if (!nonlocal_switch_breaks_canonical) {
+            drain.modified |=
+                canonicalize_nonlocal_switch_breaks(
+                    def, cfg_relations);
+            nonlocal_switch_breaks_canonical = true;
+        }
         struct Query {
             size_t site_index{0u};
             size_t depth{0u};
@@ -3982,10 +4274,15 @@ struct SelectionExitDrainResult {
                     LUISA_VERBOSE_WITH_LOCATION(
                         "[restructure_cfg] selection-exit worklist: "
                         "{} / {} dirty sites queried before status {} "
-                        "at dominance depth {}.",
+                        "at dominance depth {} (kind={}, cfg={}, local={}).",
                         query_index + 1u, queries.size(),
                         static_cast<uint32_t>(result.status),
-                        query.depth);
+                        query.depth,
+                        site.term->isa<SwitchInst>() ?
+                            "switch" :
+                            "if",
+                        result.cfg_modified,
+                        result.local_dependency_only);
                 }
                 if (result.status ==
                     SelectionExitRewriteStatus::STALLED_SITE) {
@@ -4000,6 +4297,18 @@ struct SelectionExitDrainResult {
                     ++info.selection_exit_merge_canonicalization_count;
                     mark_enclosing_dependencies(
                         dom, site.header);
+                    if (site.term->isa<IfInst>()) {
+                        incrementally_update_if_selection_exit_relations(
+                            def, dom, cfg_relations,
+                            site.header,
+                            static_cast<IfInst *>(site.term),
+                            merge, current_merge(site), false, info);
+                    } else {
+                        // A Switch merge is also its lexical break target and
+                        // changes the extent of that context. Rebuild instead
+                        // of pretending this is an If-only role update.
+                        cfg_relations_valid = false;
+                    }
                     break;
                 }
                 drain.cfg_modified = true;
@@ -4008,6 +4317,9 @@ struct SelectionExitDrainResult {
                     ssa_repair_requested = true;
                     ++info.selection_exit_ssa_repair_request_count;
                 }
+                auto incrementally_update_relations =
+                    result.local_dependency_only &&
+                    site.term->isa<IfInst>();
                 if (result.local_dependency_only) {
                     ++info.selection_exit_local_invalidation_count;
                     mark_enclosing_dependencies(
@@ -4039,6 +4351,7 @@ struct SelectionExitDrainResult {
                     }
                 } else {
                     ++info.selection_exit_global_invalidation_count;
+                    cfg_relations_valid = false;
                     for (auto index = size_t{0u};
                          index < dirty.size(); ++index) {
                         mark_dirty(index);
@@ -4048,6 +4361,16 @@ struct SelectionExitDrainResult {
                 if (result.local_dependency_only) {
                     mark_enclosing_dependencies(
                         dom, site.header);
+                }
+                if (incrementally_update_relations) {
+                    incrementally_update_if_selection_exit_relations(
+                        def, dom, cfg_relations,
+                        site.header,
+                        static_cast<IfInst *>(site.term),
+                        merge, current_merge(site), true, info);
+                    nonlocal_switch_breaks_canonical = false;
+                } else {
+                    cfg_relations_valid = false;
                 }
                 break;
             }
@@ -7982,6 +8305,9 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_global_invalidation",
             info.selection_exit_global_invalidation_count);
         report->set(
+            "selection_exit_relation_incremental_update",
+            info.selection_exit_relation_incremental_update_count);
+        report->set(
             "selection_exit_ssa_repair_request",
             info.selection_exit_ssa_repair_request_count);
         report->set(
@@ -8216,6 +8542,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_exit_local_invalidation_count;
         dst.selection_exit_global_invalidation_count +=
             src.selection_exit_global_invalidation_count;
+        dst.selection_exit_relation_incremental_update_count +=
+            src.selection_exit_relation_incremental_update_count;
         dst.selection_exit_ssa_repair_request_count +=
             src.selection_exit_ssa_repair_request_count;
         dst.selection_exit_ssa_repair_count +=

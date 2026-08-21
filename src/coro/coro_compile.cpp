@@ -957,6 +957,36 @@ CoroutineCompileResult compile_coroutine_pipeline(
             restructure_info.remaining_divergent_postdom_update_reparented_root_count;
         continuation_restructure_work.remaining_divergent_postdom_rebuild_count +=
             restructure_info.remaining_divergent_postdom_rebuild_count;
+        continuation_restructure_work.selection_exit_boundary_analysis_count +=
+            restructure_info.selection_exit_boundary_analysis_count;
+        continuation_restructure_work.selection_exit_boundary_dataflow_count +=
+            restructure_info.selection_exit_boundary_dataflow_count;
+        continuation_restructure_work.selection_exit_boundary_block_visit_count +=
+            restructure_info.selection_exit_boundary_block_visit_count;
+        continuation_restructure_work.selection_exit_boundary_edge_visit_count +=
+            restructure_info.selection_exit_boundary_edge_visit_count;
+        continuation_restructure_work.selection_exit_boundary_classification_count +=
+            restructure_info.selection_exit_boundary_classification_count;
+        continuation_restructure_work.selection_exit_site_query_count +=
+            restructure_info.selection_exit_site_query_count;
+        continuation_restructure_work.selection_exit_region_block_visit_count +=
+            restructure_info.selection_exit_region_block_visit_count;
+        continuation_restructure_work.selection_exit_region_edge_visit_count +=
+            restructure_info.selection_exit_region_edge_visit_count;
+        continuation_restructure_work.selection_exit_merge_canonicalization_count +=
+            restructure_info.selection_exit_merge_canonicalization_count;
+        continuation_restructure_work.selection_exit_cfg_invalidation_count +=
+            restructure_info.selection_exit_cfg_invalidation_count;
+        continuation_restructure_work.selection_exit_local_invalidation_count +=
+            restructure_info.selection_exit_local_invalidation_count;
+        continuation_restructure_work.selection_exit_global_invalidation_count +=
+            restructure_info.selection_exit_global_invalidation_count;
+        continuation_restructure_work.selection_exit_relation_incremental_update_count +=
+            restructure_info.selection_exit_relation_incremental_update_count;
+        continuation_restructure_work.selection_exit_dependency_requery_count +=
+            restructure_info.selection_exit_dependency_requery_count;
+        continuation_restructure_work.selection_exit_postdom_refresh_count +=
+            restructure_info.selection_exit_postdom_refresh_count;
         nested_pass_boundary_verifier_count +=
             restructure_info.boundary_verifier_count;
         if (!restructure_info.succeeded()) {
@@ -1004,6 +1034,29 @@ CoroutineCompileResult compile_coroutine_pipeline(
             continuation_restructure_work.remaining_divergent_postdom_update_covered_block_count,
             continuation_restructure_work.remaining_divergent_postdom_update_reparented_root_count,
             continuation_restructure_work.remaining_divergent_postdom_rebuild_count);
+        LUISA_INFO(
+            "Coroutine selection-exit restructuring work: "
+            "relation_builds={} loop_dataflows={} boundary_blocks={} "
+            "boundary_edges={} classifications={} site_queries={} "
+            "region_blocks={} region_edges={} merge_only={} "
+            "cfg_invalidations={} local_invalidations={} "
+            "global_invalidations={} relation_updates={} dependency_requeries={} "
+            "postdom_refreshes={}.",
+            continuation_restructure_work.selection_exit_boundary_analysis_count,
+            continuation_restructure_work.selection_exit_boundary_dataflow_count,
+            continuation_restructure_work.selection_exit_boundary_block_visit_count,
+            continuation_restructure_work.selection_exit_boundary_edge_visit_count,
+            continuation_restructure_work.selection_exit_boundary_classification_count,
+            continuation_restructure_work.selection_exit_site_query_count,
+            continuation_restructure_work.selection_exit_region_block_visit_count,
+            continuation_restructure_work.selection_exit_region_edge_visit_count,
+            continuation_restructure_work.selection_exit_merge_canonicalization_count,
+            continuation_restructure_work.selection_exit_cfg_invalidation_count,
+            continuation_restructure_work.selection_exit_local_invalidation_count,
+            continuation_restructure_work.selection_exit_global_invalidation_count,
+            continuation_restructure_work.selection_exit_relation_incremental_update_count,
+            continuation_restructure_work.selection_exit_dependency_requery_count,
+            continuation_restructure_work.selection_exit_postdom_refresh_count);
     }
     profiler.checkpoint("continuation restructuring");
     auto argument_projection_info =
