@@ -62,6 +62,9 @@ ScheduleEmitter::ScheduleEmitter(
       _enable_uniform_buffer_broadcast{enable_uniform_buffer_broadcast},
       _enable_lane_affine_buffer{enable_lane_affine_buffer},
       _enable_paired_leaf_gather{enable_paired_leaf_gather},
+      _enable_interleaved_scalar_buffer_reads{
+          !luisa::compute::detail::env_flag(
+              "LUISA_SIMD_DISABLE_INTERLEAVED_SCALAR_BUFFER_READS")},
       _dispatch_worker_count{std::max(dispatch_worker_count, 1u)},
       _enable_native_predicated_loop{enable_native_predicated_loop},
       _enable_native_vector_compress{enable_native_vector_compress},

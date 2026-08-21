@@ -4274,3 +4274,37 @@ checked-in-reference 1024-spp cutout renders pass independently at
 W1/W2/W4/W8/W16. Ray-query analysis, pipeline emission, and packet formation
 live in separate translation units; all remain below the enforced 2,000-line
 review budget under CMake's own counting rule.
+
+### Bounded interleaved scalar-buffer reads
+
+The direct packet emitter now recognizes the resource-layout half of the
+horizontal/vertical conversion requested for tile-style kernels. A bounded
+straight-line group of two through four nonvolatile 32-bit scalar reads is
+eligible when every read uses the same uniform typed-buffer parameter, the
+indices are consecutive fields of one affine root, and that root advances by
+exactly the field count between physical lanes. The current implementation is
+deliberately restricted to packet-entry direct CFG at W8/W16 and scans at most
+24 Schedule instructions. W1/W2/W4 keep the original gather path; W2 remains a
+correctness and ABI width rather than a performance target.
+
+The fast arm issues one fixed-vector masked load in physical AoS order and
+deinterleaves it into the original component-major SSA values. Arithmetic,
+casts, ordinary reads, and direct nonvolatile writes may remain between the
+source reads, so computations and stores still occur at their original source
+positions. If the group crosses a write, codegen compares the complete source
+and destination `SIMDHostBufferView` ranges at runtime. Only proven disjoint
+views enter the early-load arm; overlapping, wrapping, or otherwise uncertain
+views execute a cloned original-order gather arm. A full-packet source-bounds
+guard also prevents affine wraparound from changing the address sequence.
+Inactive lanes are repeated into the physical load mask before addressable
+elements are touched.
+
+`LUISA_SIMD_DISABLE_INTERLEAVED_SCALAR_BUFFER_READS=1` selects the same-binary
+gather oracle. The optimization report exposes group, logical-read, and alias-
+guard counts. Permanent JIT coverage includes W1/W2/W4 rejection, W8/W16
+acceptance, a 13-thread inactive tail, exact and partially overlapping views,
+fixed-vector IR shape, and the disabled oracle. The representative AoS-to-SoA
+kernel accepts one four-read group. Current image processing, Voxel, ordinary
+path tracing, and non-coroutine SDF kernels accept none, so this checkpoint
+claims no graphics speedup; it establishes the profitable layout primitive
+needed before a broader affine-tile residency pass.

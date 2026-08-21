@@ -4859,6 +4859,215 @@ template<size_t Width>
     return true;
 }
 
+[[nodiscard]] bool run_interleaved_scalar_buffer_read_codegen_width(
+    uint32_t width) {
+    static constexpr auto count = uint32_t{13u};
+    static constexpr auto storage_lane_count = uint32_t{16u};
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("interleaved_scalar_buffer_read");
+    kernel->set_block_size(luisa::make_uint3(64u, 1u, 1u));
+    auto *buffer_type = Type::buffer(Type::of<float>());
+    auto *input = kernel->create_resource_argument(buffer_type);
+    std::array<xir::Argument *, 4u> outputs{};
+    for (auto &output : outputs) {
+        output = kernel->create_resource_argument(buffer_type);
+    }
+    auto *entry = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto four_value = uint32_t{4u};
+    auto *four = module.create_constant(
+        Type::of<uint32_t>(), &four_value);
+    std::array<xir::Constant *, 4u> fields{};
+    for (auto field = uint32_t{0u}; field < fields.size(); field++) {
+        fields[field] = module.create_constant(
+            Type::of<uint32_t>(), &field);
+    }
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *base = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MUL,
+        {x, four});
+    for (auto field = uint32_t{0u}; field < fields.size(); field++) {
+        auto *index = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {base, fields[field]});
+        auto *value = builder.call(
+            Type::of<float>(), xir::ResourceReadOp::BUFFER_READ,
+            {input, index});
+        builder.call(
+            xir::ResourceWriteOp::BUFFER_WRITE,
+            {outputs[field], x, value});
+    }
+    builder.return_void();
+
+    auto compile = [&](bool disable, std::string_view suffix) {
+        ScopedEnvironmentVariable setting{
+            "LUISA_SIMD_DISABLE_INTERLEAVED_SCALAR_BUFFER_READS",
+            disable ? "1" : nullptr};
+        return compile_simd_kernel(
+            kernel, width,
+            "simd_interleaved_scalar_buffer_read_" +
+                std::string{suffix} + "_w" +
+                std::to_string(width),
+            false, true, true, true);
+    };
+    auto candidate = compile(false, "candidate");
+    auto oracle = compile(true, "oracle");
+    CHECK(candidate.succeeded());
+    CHECK(oracle.succeeded());
+    auto expect_group = width == 8u || width == 16u;
+    CHECK(candidate.interleaved_scalar_buffer_read_group_count ==
+          (expect_group ? 1u : 0u));
+    CHECK(candidate.interleaved_scalar_buffer_read_count ==
+          (expect_group ? 4u : 0u));
+    CHECK(candidate.interleaved_scalar_buffer_read_alias_guard_count ==
+          (expect_group ? 1u : 0u));
+    CHECK(oracle.interleaved_scalar_buffer_read_group_count == 0u);
+    CHECK(oracle.interleaved_scalar_buffer_read_count == 0u);
+    CHECK(oracle.interleaved_scalar_buffer_read_alias_guard_count == 0u);
+    CHECK((candidate.llvm_ir.find(
+               "buffer.interleaved.scalar.load") !=
+           std::string::npos) == expect_group);
+    CHECK((candidate.llvm_ir.find(
+               "buffer.interleaved.alias.guard") !=
+           std::string::npos) == expect_group);
+    CHECK(oracle.llvm_ir.find("buffer.interleaved.scalar.load") ==
+          std::string::npos);
+    CHECK(oracle.llvm_ir.find("buffer.interleaved.alias.guard") ==
+          std::string::npos);
+    if (expect_group) {
+        CHECK(candidate.llvm_ir.find("@llvm.masked.load") !=
+              std::string::npos);
+        CHECK(candidate.llvm_ir.find("@llvm.masked.gather") !=
+              std::string::npos);
+        CHECK(candidate.assembly.find("sinf") == std::string::npos);
+        CHECK(candidate.assembly.find("cosf") == std::string::npos);
+    }
+
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto *candidate_entry = reinterpret_cast<Entry *>(candidate.entry);
+    auto *oracle_entry = reinterpret_cast<Entry *>(oracle.entry);
+    CHECK(candidate_entry != nullptr);
+    CHECK(oracle_entry != nullptr);
+    auto execute = [&](Entry *function,
+                       std::array<SIMDHostBufferView, 5u> &arguments) {
+        auto config = launch_1d(count, 64u);
+        for (auto first = uint32_t{0u}; first < count; first += width) {
+            config.thread_index = first;
+            function(
+                arguments.data(), nullptr, &config,
+                std::min(width, count - first));
+        }
+    };
+
+    std::array<float, storage_lane_count * 4u> input_data{};
+    for (auto i = uint32_t{0u}; i < input_data.size(); i++) {
+        input_data[i] = 1000.0f + static_cast<float>(i);
+    }
+    using Outputs = std::array<std::array<float, storage_lane_count>, 4u>;
+    auto make_outputs = []() noexcept {
+        Outputs values{};
+        for (auto &field : values) { field.fill(-999.0f); }
+        return values;
+    };
+    auto candidate_outputs = make_outputs();
+    auto oracle_outputs = make_outputs();
+    auto make_arguments = [&](float *source, size_t source_size,
+                              Outputs &values) {
+        return std::array<SIMDHostBufferView, 5u>{
+            SIMDHostBufferView{source, source_size},
+            SIMDHostBufferView{values[0u].data(), sizeof(values[0u])},
+            SIMDHostBufferView{values[1u].data(), sizeof(values[1u])},
+            SIMDHostBufferView{values[2u].data(), sizeof(values[2u])},
+            SIMDHostBufferView{values[3u].data(), sizeof(values[3u])},
+        };
+    };
+    auto candidate_arguments = make_arguments(
+        input_data.data(), sizeof(input_data), candidate_outputs);
+    auto oracle_arguments = make_arguments(
+        input_data.data(), sizeof(input_data), oracle_outputs);
+    execute(candidate_entry, candidate_arguments);
+    execute(oracle_entry, oracle_arguments);
+    CHECK(candidate_outputs == oracle_outputs);
+    for (auto field = uint32_t{0u}; field < 4u; field++) {
+        for (auto lane = uint32_t{0u}; lane < storage_lane_count; lane++) {
+            auto expected = lane < count ? input_data[lane * 4u + field] :
+                                           -999.0f;
+            CHECK(candidate_outputs[field][lane] == expected);
+        }
+    }
+
+    struct AliasStorage {
+        std::array<float, 96u> backing{};
+        std::array<std::array<float, storage_lane_count>, 3u> outputs{};
+    };
+    auto initialize_alias_storage = []() noexcept {
+        AliasStorage storage{};
+        for (auto i = uint32_t{0u}; i < storage.backing.size(); i++) {
+            storage.backing[i] = 2000.0f + static_cast<float>(i);
+        }
+        for (auto &output : storage.outputs) {
+            output.fill(-777.0f);
+        }
+        return storage;
+    };
+    auto run_alias_case = [&](size_t source_offset,
+                              size_t output_offset) {
+        auto candidate_storage = initialize_alias_storage();
+        auto oracle_storage = candidate_storage;
+        auto make_alias_arguments = [&](AliasStorage &storage) {
+            auto *source = storage.backing.data() + source_offset;
+            auto *overlapping_output =
+                storage.backing.data() + output_offset;
+            return std::array<SIMDHostBufferView, 5u>{
+                SIMDHostBufferView{
+                    source,
+                    storage_lane_count * 4u * sizeof(float)},
+                SIMDHostBufferView{
+                    overlapping_output,
+                    storage_lane_count * sizeof(float)},
+                SIMDHostBufferView{
+                    storage.outputs[0u].data(),
+                    sizeof(storage.outputs[0u])},
+                SIMDHostBufferView{
+                    storage.outputs[1u].data(),
+                    sizeof(storage.outputs[1u])},
+                SIMDHostBufferView{
+                    storage.outputs[2u].data(),
+                    sizeof(storage.outputs[2u])},
+            };
+        };
+        auto candidate_alias_arguments =
+            make_alias_arguments(candidate_storage);
+        auto oracle_alias_arguments =
+            make_alias_arguments(oracle_storage);
+        execute(candidate_entry, candidate_alias_arguments);
+        execute(oracle_entry, oracle_alias_arguments);
+        CHECK(std::memcmp(
+                  &candidate_storage, &oracle_storage,
+                  sizeof(AliasStorage)) == 0);
+        return true;
+    };
+    CHECK(run_alias_case(0u, 0u));
+    CHECK(run_alias_case(8u, 10u));
+    return true;
+}
+
+[[nodiscard]] bool run_interleaved_scalar_buffer_read_codegen() {
+    for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+        if (!run_interleaved_scalar_buffer_read_codegen_width(width)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_sparse_lane_value_transpose_codegen() {
     static constexpr auto count = 13u;
     Kernel1D kernel = [](
@@ -13487,6 +13696,8 @@ int main() {
         {"XIR compiler facade", &run_compiler_facade},
         {"lane/value transposed direct buffer",
          &run_buffer_vector_codegen},
+        {"interleaved scalar direct-buffer read",
+         &run_interleaved_scalar_buffer_read_codegen},
         {"sparse lane/value transposed direct buffer",
          &run_sparse_lane_value_transpose_codegen},
         {"paired direct-buffer leaf gather",

@@ -761,6 +761,12 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.transposed_buffer_write_count;
     result.paired_leaf_gather_count =
         llvm_result.paired_leaf_gather_count;
+    result.interleaved_scalar_buffer_read_group_count =
+        llvm_result.interleaved_scalar_buffer_read_group_count;
+    result.interleaved_scalar_buffer_read_count =
+        llvm_result.interleaved_scalar_buffer_read_count;
+    result.interleaved_scalar_buffer_read_alias_guard_count =
+        llvm_result.interleaved_scalar_buffer_read_alias_guard_count;
     result.predicated_memory_diamond_count =
         llvm_result.predicated_memory_diamond_count;
     result.predicated_memory_instruction_count =

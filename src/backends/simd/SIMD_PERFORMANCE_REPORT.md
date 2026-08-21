@@ -6204,3 +6204,49 @@ This includes native math, all five runtime widths, Schedule/JIT, the complete
 XIR and coroutine pass suites, every accel oracle, graphics, path tracing,
 image processing, fire, voxel, and the remaining tutorial gates. LLVM 22.1.8
 `clang-format --dry-run --Werror` and `git diff --check` pass on the final tree.
+
+## Interleaved scalar AoS-to-SoA load group
+
+The standalone AoS-to-SoA control stores four scalar fields in one input
+buffer and reads `dispatch_x * 4 + {0,1,2,3}` into four output buffers. Before
+this change LLVM retained four `vgatherqps` operations per logical packet.
+The accepted W8/W16 direct-CFG transform performs one masked physical AoS load,
+deinterleaves four SSA vectors, and preserves an ordered gather arm behind a
+source/destination view-alias guard. W1/W2/W4 are unchanged.
+
+Seven process rounds per width rotated candidate, disabled oracle, fallback,
+and official ISPC 1.31.0 through execution order on logical CPU 6. Each process
+contains seven timed samples, all implementations produced checksum
+`6345f759877c7eed`, and no ISPC path or executable is recorded in the build
+system. Ratios are paired geometric means with log-space Student-t 95%
+intervals:
+
+| width | candidate median Mitems/s | gather-oracle median | candidate/oracle | fallback median | candidate/fallback | ISPC median | candidate/ISPC |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| W8 | 1,354.000 | 833.246 | **1.6350x** [1.5867, 1.6848], 7/7 | 940.835 | **1.4618x** [1.4159, 1.5092], 7/7 | 819.169 | **1.6721x** [1.6331, 1.7120], 7/7 |
+| W16 | 1,450.050 | 814.597 | **1.7882x** [1.7455, 1.8319], 7/7 | 909.459 | **1.5976x** [1.5676, 1.6282], 7/7 | 829.482 | **1.7438x** [1.7207, 1.7672], 7/7 |
+
+The final W8 candidate/oracle assembly reports 418/384 instructions,
+96/194 vector instructions, 26/23 branches, and 8/28 static gather mnemonics.
+W16 reports 499/557 instructions, 172/362 vector instructions, 26/23 branches,
+and 16/56 gathers. Static fallback gathers remain necessary for aliasing, but
+the disjoint hot arm executes two 64-byte loads at W8 and four at W16 with no
+gather. Both objects contain zero scalar-math calls.
+
+Five nonmultiplexed whole-process W8 `perf stat` repetitions measured
+2.451/3.625 billion cycles (0.676x) and 2.884/2.667 billion retired
+instructions (1.082x) for candidate/oracle. The extra bounds/alias routing
+therefore raises the instruction count while removing high-latency gathers
+cuts cycles by about 32%. This is a memory-latency/layout win, not a scheduler
+or fast-math claim.
+
+Fresh W8/W16 image-processing and Voxel reference runs passed at
+89.251953 dB and 82.834519 dB respectively, but every compiled kernel reported
+zero interleaved scalar groups. Audits of ordinary path tracing and
+non-coroutine SDF likewise report zero eligible groups. Their code and
+throughput are unchanged at this checkpoint; extending the layout across
+textures or scheduler-backed affine tiles remains a separate measured task.
+
+Both maintained Release configurations were completely rebuilt for this
+checkpoint and pass 173/173 CTest cases independently (346/346 total). The
+Clang/ASan Schedule/JIT executable also passes its complete case list.

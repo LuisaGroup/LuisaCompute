@@ -57,6 +57,7 @@ private:
     bool _enable_uniform_buffer_broadcast{true};
     bool _enable_lane_affine_buffer{true};
     bool _enable_paired_leaf_gather{false};
+    bool _enable_interleaved_scalar_buffer_reads{true};
     uint32_t _dispatch_worker_count{1u};
     bool _enable_native_predicated_loop{true};
     bool _enable_native_vector_compress{false};
@@ -148,6 +149,8 @@ private:
     std::vector<const schedule::Value *> _parameters{};
     std::vector<size_t> _parameter_offsets{};
     std::unordered_map<uint32_t, ::llvm::Value *> _locals{};
+    std::unordered_map<uint32_t, ::llvm::Value *>
+        _interleaved_scalar_read_overrides{};
     std::unordered_map<const schedule::Instruction *, uint64_t>
         _print_format_ids{};
     std::unordered_map<const schedule::Instruction *, ::llvm::AllocaInst *>
@@ -273,6 +276,17 @@ private:
         std::vector<const schedule::BasicBlock *> blocks{};
         size_t instruction_count{0u};
         size_t weighted_cost{0u};
+    };
+
+    struct InterleavedScalarBufferReadGroup {
+        size_t begin_instruction{0u};
+        size_t end_instruction{0u};
+        uint32_t field_count{0u};
+        schedule::ValueId buffer{};
+        schedule::ValueId first_index{};
+        const Type *element_type{nullptr};
+        std::vector<schedule::ValueId> results{};
+        std::vector<schedule::ValueId> crossed_write_buffers{};
     };
 
 private:
@@ -680,6 +694,19 @@ private:
     [[nodiscard]] bool _can_emit_direct_control_flow() const noexcept;
     [[nodiscard]] std::optional<std::vector<schedule::BlockId>>
     _find_predicated_acyclic_order() const noexcept;
+    [[nodiscard]] std::optional<InterleavedScalarBufferReadGroup>
+    _find_interleaved_scalar_buffer_read_group(
+        const schedule::BasicBlock &block,
+        size_t begin_instruction) const noexcept;
+    [[nodiscard]] ::llvm::Value *
+    _interleaved_scalar_buffer_read_guard(
+        const InterleavedScalarBufferReadGroup &group);
+    [[nodiscard]] std::vector<::llvm::Value *>
+    _load_interleaved_scalar_buffer_read_group(
+        const InterleavedScalarBufferReadGroup &group);
+    void _emit_interleaved_scalar_buffer_read_group(
+        const schedule::BasicBlock &block,
+        const InterleavedScalarBufferReadGroup &group);
     void _find_instruction_spills();
     void _coalesce_state_slots();
     void _allocate_state();

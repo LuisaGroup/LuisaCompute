@@ -1097,6 +1097,13 @@ void ScheduleEmitter::_store_contiguous_vector_data(
     const schedule::Instruction &instruction,
     ::llvm::Value *lane_affine_seed,
     ::llvm::Value *operand_sanitization_mask) {
+    if (instruction.result) {
+        if (auto iter = _interleaved_scalar_read_overrides.find(
+                instruction.result->value);
+            iter != _interleaved_scalar_read_overrides.end()) {
+            return iter->second;
+        }
+    }
     if (!instruction.result || !instruction.source_op) {
         _fail("buffer read instruction is malformed");
         return nullptr;

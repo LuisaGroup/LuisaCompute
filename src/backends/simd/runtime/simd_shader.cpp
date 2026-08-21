@@ -410,7 +410,10 @@ SIMDShader::SIMDShader(
             "direct_output_surface_filter_states={}, "
             "uniform_buffer_broadcasts={}, contiguous_buffer_reads={}, "
             "contiguous_buffer_writes={}, transposed_buffer_reads={}, "
-            "transposed_buffer_writes={}, paired_leaf_gathers={}.",
+            "transposed_buffer_writes={}, paired_leaf_gathers={}, "
+            "interleaved_scalar_buffer_read_groups={}, "
+            "interleaved_scalar_buffer_reads={}, "
+            "interleaved_scalar_buffer_read_alias_guards={}.",
             kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
             warp_width, _compiled.decomposed_aggregate_alloca_count,
             _compiled.inserted_aggregate_leaf_alloca_count,
@@ -493,7 +496,10 @@ SIMDShader::SIMDShader(
             _compiled.contiguous_buffer_write_count,
             _compiled.transposed_buffer_read_count,
             _compiled.transposed_buffer_write_count,
-            _compiled.paired_leaf_gather_count);
+            _compiled.paired_leaf_gather_count,
+            _compiled.interleaved_scalar_buffer_read_group_count,
+            _compiled.interleaved_scalar_buffer_read_count,
+            _compiled.interleaved_scalar_buffer_read_alias_guard_count);
     }
     if (capture_assembly) {
         auto stats = inspect_assembly(_compiled.assembly);

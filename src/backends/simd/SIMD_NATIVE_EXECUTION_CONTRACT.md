@@ -2867,3 +2867,33 @@ Every counterexample found by this audit is first retained as a regression
 that fails the old lowering, then fixed. Provider availability never changes
 source semantics: an unavailable native implementation produces a compilation
 diagnostic rather than silent scalarization.
+
+### Direct scalar AoS-to-SoA groups
+
+A direct-CFG packet may replace a complete two-, three-, or four-field scalar
+buffer-read group with one wider fixed-vector load only when all of the
+following are proven:
+
+- the physical width is W8 or W16 and lane zero begins every nonempty packet;
+- every result and the typed-buffer element are the same non-boolean 32-bit
+  scalar type;
+- all indices are unsigned 32-bit consecutive fields of one affine root whose
+  adjacent-lane stride equals the number of fields;
+- every crossed effect is an ordinary nonvolatile direct-buffer write through
+  a uniform resource parameter; volatile, bindless, texture, atomic, local,
+  ray-query, debug, and other effects reject the group; and
+- the first byte plus the complete physical packet footprint is within the
+  source view at runtime.
+
+When a write is crossed, numeric half-open ranges for the complete source and
+destination views must be nonwrapping and disjoint. A zero-sized destination
+is disjoint. Any possible overlap takes the unmodified ordered-gather arm, so
+distinct resource arguments are never assumed `noalias`. The fast and fallback
+arms merge every region result through SSA PHIs and execute side effects on
+exactly one arm. Expanded inactive-lane mask bits are false before the wide
+load; a later select is not used as a substitute for operand sanitization.
+
+The production path contains only portable pointer arithmetic, integer
+comparisons, a fixed-vector masked load, and shuffles. It introduces no target
+intrinsic, scalar library call, or extract/call/insert lane loop. The disabling
+oracle is `LUISA_SIMD_DISABLE_INTERLEAVED_SCALAR_BUFFER_READS=1`.
