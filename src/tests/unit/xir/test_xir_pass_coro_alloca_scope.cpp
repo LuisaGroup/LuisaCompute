@@ -818,6 +818,52 @@ void register_coro_alloca_scope_tests() {
         expect(xir_verify_module(&module).succeeded());
     };
 
+    "guarded_proof_stops_at_monotone_failing_read"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *phase = kernel->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        // This observation already disproves a fresh lifetime. Keep a large
+        // predicate-rich suffix in the reverse use slice to ensure the
+        // guarded solver does not explore it before reporting the monotone
+        // failure.
+        static_cast<void>(builder.load(Type::of<uint>(), scratch));
+        auto *cursor = phase;
+        for (auto i = 0u; i < 128u; ++i) {
+            auto *left = kernel->create_basic_block();
+            auto *right = kernel->create_basic_block();
+            auto *join = kernel->create_basic_block();
+            builder.set_insertion_point(cursor);
+            builder.cond_br(condition, left, right);
+            builder.set_insertion_point(left);
+            builder.br(join);
+            builder.set_insertion_point(right);
+            builder.br(join);
+            cursor = join;
+        }
+        builder.set_insertion_point(cursor);
+        builder.store(
+            scratch, module.create_constant_one(Type::of<uint>()));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.definite_initialization_proof_count == 0u);
+        expect(info.guarded_initialization_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(info.guarded_initialization_state_evaluation_count == 1u);
+        expect(info.contracted_alloca_count == 0u);
+        expect(scratch->parent_block() == entry);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "phi_pointer_use_is_an_atomic_noop"_test = [] {
         Module module;
         BasicBlock *entry;
