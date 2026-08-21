@@ -6289,3 +6289,69 @@ cost to the final converting `BYTE4` write: generic `write_pixel<float>` is
 row proof. This profile motivates a separately gated converting-write stage;
 no BYTE4 direct conversion is claimed here. Voxel remains unchanged because
 its hot varying DDA is buffer/scheduler work, not a native direct texture row.
+
+## Guarded JIT-native BYTE4 conversion
+
+The remaining final image output crossed the packet callback to convert a
+varying float4 into linear `BYTE4`. W8/W16 now perform the ordered
+clamp/scale/round/truncate and SoA-to-AoS packing directly in portable
+fixed-vector LLVM IR. `LUISA_SIMD_DISABLE_DIRECT_BYTE4_TEXTURE_PACKETS=1`
+clears a runtime descriptor capability, so candidate and callback oracle use
+identical generated objects. W1/W2/W4 remain on the callback; W2 is a
+correctness/ABI width rather than a performance target.
+
+After NaN validation was moved below the format/capability branch, the final
+binary was measured in nine fresh-process rounds per width. Candidate,
+same-object oracle, and fallback rotated through execution order on CPUs
+0--15 with sixteen workers and 256 timed complete pipeline iterations per
+process. An unrelated single-core Psycles render was active. All samples are
+retained, making these contention-inclusive results, and every one of the 54
+invocations passed the checked-in image reference at 89.251953 dB. Earlier
+prototype batches were also positive but are not mixed into the final-code
+population.
+
+| width | candidate median ms | callback-oracle median | candidate/oracle | fallback median | candidate/fallback |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W8 | 2.070 | 2.696 | **1.3007x** [1.2660, 1.3364], 9/9 | 7.978 | **4.0030x** [3.7375, 4.2875], 9/9 |
+| W16 | 2.279 | 2.999 | **1.3327x** [1.3035, 1.3625], 9/9 | 7.891 | **3.6906x** [3.4530, 3.9445], 9/9 |
+
+Ratios are paired geometric means with log-space Student-t 95% intervals.
+The much larger candidate/fallback interval reflects the external workload's
+effect on the longer TBB path. The same-object result is the primary causal
+measurement for this stage and remains positive in all nine final pairs.
+
+Seven alternating 512-iteration W8 `perf stat` pairs recorded one
+nonmultiplexed event group:
+
+| counter | candidate / callback oracle | 95% paired interval |
+| --- | ---: | ---: |
+| cycles | **0.7523x** | [0.7180, 0.7882] |
+| instructions | **0.5244x** | [0.5244, 0.5244] |
+| branches | **0.4463x** | [0.4463, 0.4463] |
+| branch misses | **0.8528x** | [0.8477, 0.8580] |
+| cache misses | 1.1505x | [1.0503, 1.2603] |
+
+The direct path retires roughly half as many instructions and 55% fewer
+branches while reducing cycles by 25%; its higher cache-miss count is not
+omitted. In paired 1,024-iteration sampling runs, the oracle attributes
+18.79% to generic `write_pixel<float>`, 6.17% to `_write_float`, 3.35% to
+`roundf32`, and 0.86% to its PLT entry. None appears above the 0.25% threshold
+in the candidate; the largest remaining named texture callback is boundary
+`_read_float` at 6.79%.
+
+The five W8 JIT object hashes are exactly equal between candidate and oracle,
+and every object has zero undefined symbols. The composite hot block contains
+vector `vcvttps2udq` and `vpmovdb` conversion/packing stores, with the indirect
+writer call retained only in the cold callback block. No `roundf`, scalar
+conversion loop, gather/scatter, or target-specific intrinsic occurs in the
+portable production IR. The AVX-512 mnemonics describe this Ryzen 9 9950X3D
+host's selected machine code; logical W8 does not guarantee AVX-512 on another
+target.
+
+Both maintained Release configurations pass the complete 173/173 CTest
+inventory (346/346 total). The Clang ASan/LSan/UBSan Schedule/JIT executable
+passes its complete case list, and SIMD/fallback counted-local-array runs pass
+1,028 assertions in each configuration. Explicit W8/W16 image-processing
+references pass at 89.251953 dB. Explicit W8/W16 Voxel references pass at
+82.834519 dB, but Voxel accepts no BYTE4 packet optimization in its varying
+buffer-based DDA and therefore has no performance claim in this section.

@@ -658,6 +658,9 @@ using SIMDHostTextureSample = void(
     const float *v, const float *w, const float *levels,
     float *values);
 
+inline constexpr uint32_t
+    simd_host_texture_capability_byte4_float_write = 1u << 0u;
+
 struct alignas(16) SIMDHostTextureView {
     void *texture{nullptr};
     SIMDHostTextureRead *read_float{nullptr};
@@ -680,6 +683,7 @@ struct alignas(16) SIMDHostTextureView {
     uint32_t native_height{0u};
     uint32_t native_depth{0u};
     uint32_t native_storage{0u};
+    uint32_t native_capabilities{0u};
 };
 static_assert(offsetof(SIMDHostTextureView, texture) == 0u);
 static_assert(offsetof(SIMDHostTextureView, read_float) == sizeof(void *));
@@ -693,6 +697,8 @@ static_assert(offsetof(SIMDHostTextureView, native_data) ==
               8u * sizeof(void *));
 static_assert(offsetof(SIMDHostTextureView, native_width) ==
               9u * sizeof(void *));
+static_assert(offsetof(SIMDHostTextureView, native_capabilities) ==
+              11u * sizeof(void *));
 static_assert(sizeof(SIMDHostTextureView) == 12u * sizeof(void *));
 
 // Per-packet launch state. thread_index is the first linear thread within the
@@ -852,6 +858,7 @@ struct LLVMScheduleCodegenResult {
     size_t interleaved_scalar_buffer_read_alias_guard_count{0u};
     size_t guarded_native_texture_read_count{0u};
     size_t guarded_native_texture_write_count{0u};
+    size_t guarded_byte4_texture_write_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
     size_t local_predicated_diamond_count{0u};

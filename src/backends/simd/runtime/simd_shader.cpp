@@ -415,7 +415,8 @@ SIMDShader::SIMDShader(
             "interleaved_scalar_buffer_reads={}, "
             "interleaved_scalar_buffer_read_alias_guards={}, "
             "guarded_native_texture_reads={}, "
-            "guarded_native_texture_writes={}.",
+            "guarded_native_texture_writes={}, "
+            "guarded_byte4_texture_writes={}.",
             kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
             warp_width, _compiled.decomposed_aggregate_alloca_count,
             _compiled.inserted_aggregate_leaf_alloca_count,
@@ -503,7 +504,8 @@ SIMDShader::SIMDShader(
             _compiled.interleaved_scalar_buffer_read_count,
             _compiled.interleaved_scalar_buffer_read_alias_guard_count,
             _compiled.guarded_native_texture_read_count,
-            _compiled.guarded_native_texture_write_count);
+            _compiled.guarded_native_texture_write_count,
+            _compiled.guarded_byte4_texture_write_count);
     }
     if (capture_assembly) {
         auto stats = inspect_assembly(_compiled.assembly);

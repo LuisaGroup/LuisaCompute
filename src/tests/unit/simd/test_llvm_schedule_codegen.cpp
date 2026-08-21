@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -6149,6 +6150,34 @@ struct NativeTexturePacketProbe {
     uint32_t write_calls{0u};
 };
 
+struct Byte4TexturePacketProbe {
+    bool valid{true};
+    uint32_t expected_width{0u};
+    uint32_t write_calls{0u};
+};
+
+struct alignas(16) Byte4TexturePacketArguments {
+    SIMDHostBufferView source;
+    SIMDHostTextureView texture;
+};
+
+void byte4_texture_packet_write_probe(
+    void *texture, uint32_t level, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *x,
+    const uint32_t *y, const uint32_t *, const void *) {
+    auto *probe = static_cast<Byte4TexturePacketProbe *>(texture);
+    probe->write_calls++;
+    probe->valid &= level == 0u;
+    probe->valid &= lane_count == probe->expected_width;
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        probe->valid &= x[lane] == lane;
+        probe->valid &= y[lane] == 0u;
+    }
+}
+
 void native_texture_packet_read_probe(
     void *texture, uint32_t level, uint32_t lane_count,
     uint64_t active_mask_bits, const uint32_t *x,
@@ -6498,6 +6527,172 @@ void texture_packet_sample_probe(
         CHECK(run_callback_case(
             [&](auto &view, auto &, auto &) {
                 view.native_data = nullptr;
+            }));
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_byte4_texture_packet_codegen() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_name("byte4_texture_packet");
+        auto *source = kernel->create_resource_argument(
+            Type::buffer(Type::of<float4>()));
+        auto *texture = kernel->create_resource_argument(
+            Type::texture(Type::of<float>(), 2u));
+        auto *entry_block = kernel->create_body_block();
+        auto *dispatch_id = module.create_dispatch_id();
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(entry_block);
+        auto *x = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+            {dispatch_id, zero});
+        auto *coordinate = builder.call(
+            Type::of<uint2>(), xir::ArithmeticOp::AGGREGATE,
+            {x, zero});
+        auto *value = builder.call(
+            Type::of<float4>(), xir::ResourceReadOp::BUFFER_READ,
+            {source, x});
+        builder.call(
+            xir::ResourceWriteOp::TEXTURE2D_WRITE,
+            {texture, coordinate, value});
+        builder.return_void();
+
+        auto lowered = schedule::lower_xir_to_schedule(
+            kernel, {.logical_warp_width = width});
+        if (!lowered.succeeded()) {
+            std::cerr << diagnostics_text(lowered);
+            return false;
+        }
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto llvm_module = std::make_unique<::llvm::Module>(
+            "simd-byte4-texture-packet", *context);
+        auto name = "simd_byte4_texture_packet_w" +
+                    std::to_string(width);
+        auto codegen = lower_schedule_to_llvm(
+            *llvm_module, *lowered.function, width, name);
+        if (!codegen.succeeded()) {
+            std::cerr << codegen.error << '\n';
+            return false;
+        }
+        auto expect_native = width == 8u || width == 16u;
+        CHECK(codegen.guarded_native_texture_read_count == 0u);
+        CHECK(codegen.guarded_native_texture_write_count ==
+              static_cast<size_t>(expect_native));
+        CHECK(codegen.guarded_byte4_texture_write_count ==
+              static_cast<size_t>(expect_native));
+        CHECK(codegen.argument_buffer_size ==
+              sizeof(Byte4TexturePacketArguments));
+        CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+        std::string ir;
+        ::llvm::raw_string_ostream stream{ir};
+        llvm_module->print(stream, nullptr);
+        stream.flush();
+        CHECK((ir.find("texture.write.byte4.aos") !=
+               std::string::npos) == expect_native);
+        CHECK((ir.find("texture.write.byte4.safe.nan") !=
+               std::string::npos) == expect_native);
+        if (!expect_native) { continue; }
+        CHECK(ir.find(
+                  "fptoui <" + std::to_string(width) +
+                  " x float>") != std::string::npos);
+        CHECK(ir.find("fptoui float ") == std::string::npos);
+        CHECK(ir.find("@roundf") == std::string::npos);
+
+        LLVMJIT jit;
+        CHECK(jit.succeeded());
+        CHECK(jit.add_module(std::move(llvm_module),
+                             std::move(context)));
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+        CHECK(function != nullptr);
+
+        luisa::vector<float4> values(width);
+        auto infinity = std::numeric_limits<float>::infinity();
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            auto t = static_cast<float>(lane) /
+                     static_cast<float>(width - 1u);
+            values[lane] = make_float4(
+                t, t * 1.5f - 0.25f,
+                0.5f / 255.0f, 127.5f / 255.0f);
+        }
+        values[0u].x = -infinity;
+        values[1u].x = infinity;
+        luisa::vector<std::array<std::byte, 4u>> pixels(width);
+        for (auto &pixel : pixels) { pixel.fill(std::byte{0xcdu}); }
+        Byte4TexturePacketProbe probe{
+            .expected_width = width};
+        Byte4TexturePacketArguments arguments{
+            .source = SIMDHostBufferView{
+                values.data(), values.size() * sizeof(float4)},
+            .texture = SIMDHostTextureView{
+                .texture = &probe,
+                .write_float = byte4_texture_packet_write_probe,
+                .level = 0u,
+                .dimension = 2u,
+                .native_data = pixels.data(),
+                .native_width = width,
+                .native_height = 1u,
+                .native_depth = 1u,
+                .native_storage = static_cast<uint32_t>(PixelStorage::BYTE4),
+                .native_capabilities = simd_host_texture_capability_byte4_float_write,
+            }};
+        auto config = launch_1d(width, width);
+        function(&arguments, nullptr, &config, width);
+        CHECK(probe.valid);
+        CHECK(probe.write_calls == 0u);
+        auto encode = [](float value) noexcept {
+            auto rounded = std::round(value * 255.0f);
+            return static_cast<uint8_t>(
+                std::clamp(rounded, 0.0f, 255.0f));
+        };
+        for (auto lane = uint32_t{0u}; lane < width; lane++) {
+            for (auto component = uint32_t{0u}; component < 4u;
+                 component++) {
+                CHECK(std::to_integer<uint8_t>(
+                          pixels[lane][component]) ==
+                      encode(values[lane][component]));
+            }
+        }
+
+        auto run_callback_case = [&](auto configure) -> bool {
+            probe = {.expected_width = width};
+            arguments.texture.native_storage =
+                static_cast<uint32_t>(PixelStorage::BYTE4);
+            arguments.texture.native_capabilities =
+                simd_host_texture_capability_byte4_float_write;
+            config = launch_1d(width, width);
+            auto active_lanes = width;
+            configure(arguments, config, active_lanes);
+            function(
+                &arguments, nullptr, &config, active_lanes);
+            CHECK(probe.valid);
+            CHECK(probe.write_calls == 1u);
+            return true;
+        };
+        auto finite_x = values[0u].x;
+        CHECK(run_callback_case(
+            [&](auto &, auto &, auto &) {
+                values[0u].x =
+                    std::numeric_limits<float>::quiet_NaN();
+            }));
+        values[0u].x = finite_x;
+        CHECK(run_callback_case(
+            [](auto &args, auto &, auto &) {
+                args.texture.native_capabilities = 0u;
+            }));
+        CHECK(run_callback_case(
+            [](auto &, auto &, auto &active_lanes) {
+                active_lanes--;
+            }));
+        CHECK(run_callback_case(
+            [](auto &args, auto &, auto &) {
+                args.texture.native_storage =
+                    static_cast<uint32_t>(PixelStorage::BYTE4_SRGB);
             }));
     }
     return true;
@@ -13923,6 +14118,8 @@ int main() {
         {"XIR texture packet callback", &run_texture_packet_codegen},
         {"XIR native texture packet",
          &run_native_texture_packet_codegen},
+        {"XIR BYTE4 texture packet",
+         &run_byte4_texture_packet_codegen},
         {"XIR direct texture sample callback",
          &run_direct_texture_sample_codegen},
         {"XIR accel instance metadata",

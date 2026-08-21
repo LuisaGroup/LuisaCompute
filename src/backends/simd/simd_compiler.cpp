@@ -771,6 +771,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.guarded_native_texture_read_count;
     result.guarded_native_texture_write_count =
         llvm_result.guarded_native_texture_write_count;
+    result.guarded_byte4_texture_write_count =
+        llvm_result.guarded_byte4_texture_write_count;
     result.predicated_memory_diamond_count =
         llvm_result.predicated_memory_diamond_count;
     result.predicated_memory_instruction_count =

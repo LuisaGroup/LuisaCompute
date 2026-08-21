@@ -227,7 +227,8 @@ void ScheduleEmitter::_fail(std::string message) {
         {pointer, pointer, pointer, pointer, pointer, pointer,
          _builder.getInt32Ty(), _builder.getInt32Ty(), pointer,
          pointer, _builder.getInt32Ty(), _builder.getInt32Ty(),
-         _builder.getInt32Ty(), _builder.getInt32Ty()});
+         _builder.getInt32Ty(), _builder.getInt32Ty(),
+         _builder.getInt32Ty()});
 }
 
 [[nodiscard]] ::llvm::StructType *ScheduleEmitter::_bindless_view_type() {
@@ -1192,6 +1193,7 @@ void ScheduleEmitter::_preflight() {
         offsetof(SIMDHostTextureView, native_height),
         offsetof(SIMDHostTextureView, native_depth),
         offsetof(SIMDHostTextureView, native_storage),
+        offsetof(SIMDHostTextureView, native_capabilities),
     };
     for (auto i = uint32_t{0u}; i < native_u32_offsets.size(); i++) {
         auto *field = _builder.CreateLoad(

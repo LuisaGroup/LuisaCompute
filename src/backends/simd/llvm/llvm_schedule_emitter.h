@@ -448,6 +448,7 @@ private:
         ::llvm::Type *type, std::string_view name);
     struct NativeTexturePacketInfo {
         ::llvm::Value *guard{nullptr};
+        ::llvm::Value *byte4_guard{nullptr};
         ::llvm::Value *data{nullptr};
         ::llvm::Value *width{nullptr};
         ::llvm::Value *x{nullptr};
@@ -457,7 +458,7 @@ private:
     _native_texture_packet_info(
         ::llvm::Value *texture,
         const std::array<::llvm::Value *, 3u> &coordinates,
-        bool floating);
+        bool floating, bool allow_byte4_write);
     [[nodiscard]] ::llvm::Value *_texture_read(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_direct_texture_sample(

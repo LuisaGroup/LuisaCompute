@@ -1809,7 +1809,8 @@ increasing row span, native `FLOAT4` and `INT4` storage may use an
 alignment-safe packet copy followed by an AoS-to-SoA transpose on reads, and
 the inverse transpose on writes. The bounds check must prove the entire span
 before the copy. Sparse masks, inactive tails, row crossings, 3D resources,
-and every converting storage format retain the generic active-lane path. The
+and converting storage formats other than the separately specified linear
+`BYTE4` write retain the generic active-lane path. The
 diagnostic environment flag
 `LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS=1` disables this specialization
 for same-binary performance and fallback-path tests; it does not change the
@@ -1833,6 +1834,37 @@ texture packets also publishes a null pointer and therefore continues to mean
 that the complete contiguous specialization is disabled. The metadata is
 backend-private and level-specific; it never changes public native handles,
 upload/download layout, or external-memory ownership.
+
+The 96-byte private descriptor may additionally publish
+`simd_host_texture_capability_byte4_float_write` in the 32-bit capability word
+at byte offset 88. At W8/W16 only, a varying float4 write to linear `BYTE4` may
+use this capability after proving the same nonnull, fully active, consecutive,
+same-row, 2D, complete-span bounds predicate as a native four-channel packet.
+The exact per-component result for every ordered input is
+
+```text
+uint8(trunc(min(max(value, 0.0f), 1.0f) * 255.0f + 0.5f))
+```
+
+Finite out-of-range values and infinities therefore saturate; `+0` and `-0`
+produce zero; positive and negative subnormals produce zero after clamping and
+rounding; positive half-way values round upward, matching the established
+linear UNORM writer. Before compare, clamp, multiply, conversion, or store,
+inactive components are selected to zero. Every active component must be
+ordered. Any NaN routes the complete packet to the established callback, so
+the optimization does not define a new NaN result. `BYTE4_SRGB`, integer
+writes, W1/W2/W4, partial tails, row crossings, 3D resources, and absent
+capabilities also use that callback.
+
+The accepted arm consists only of portable fixed-vector compare/select,
+min/max, multiply/add, float-to-unsigned conversion, shuffle, truncation, and
+one physical byte-vector store. It must contain no target intrinsic, scalar
+math/conversion symbol, or extract/call/insert lane loop. The same generated
+object is selected back to the callback by
+`LUISA_SIMD_DISABLE_DIRECT_BYTE4_TEXTURE_PACKETS=1`; disabling direct native or
+all contiguous texture packets clears the capability as well. W2 coverage is
+mandatory for semantics, ABI, and inactive-tail regression, but W2 performance
+is not an acceptance target.
 
 Bindless arrays extend the same packet boundary with a runtime-owned dense
 slot table. Each slot contains independent buffer, 2D-texture, and 3D-texture

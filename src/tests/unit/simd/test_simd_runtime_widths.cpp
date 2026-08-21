@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -486,6 +488,59 @@ int main(int argc, char *argv[]) {
                 "LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS", "1"};
             check_float_image(
                 "SIMD callback FLOAT4 packet mismatch");
+        }
+
+        Kernel2D byte4_image_kernel = [width](
+                                          ImageFloat target) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto coordinate = dispatch_id().xy();
+            auto x = (cast<float>(coordinate.x) - 1.0f) / 30.0f;
+            auto y = cast<float>(coordinate.y) / 2.0f;
+            target.write(
+                coordinate,
+                make_float4(
+                    x, y, 0.5f / 255.0f,
+                    127.5f / 255.0f));
+        };
+        auto byte4_image_shader = device.compile(byte4_image_kernel);
+        auto check_byte4_image = [&](const char *failure_message) noexcept {
+            auto image = device.create_image<float>(
+                PixelStorage::BYTE4, image_size);
+            luisa::vector<std::byte> output(
+                image_size.x * image_size.y * 4u);
+            stream << byte4_image_shader(image).dispatch(image_size)
+                   << image.copy_to(luisa::span{output})
+                   << synchronize();
+            auto encode = [](float value) noexcept {
+                auto rounded = std::round(value * 255.0f);
+                return static_cast<uint8_t>(
+                    std::clamp(rounded, 0.0f, 255.0f));
+            };
+            for (auto y = 0u; y < image_size.y; y++) {
+                for (auto x = 0u; x < image_size.x; x++) {
+                    auto index = (y * image_size.x + x) * 4u;
+                    auto expected = std::array{
+                        encode((static_cast<float>(x) - 1.0f) / 30.0f),
+                        encode(static_cast<float>(y) / 2.0f),
+                        encode(0.5f / 255.0f),
+                        encode(127.5f / 255.0f),
+                    };
+                    for (auto component = 0u; component < 4u;
+                         component++) {
+                        expect(std::to_integer<uint8_t>(
+                                   output[index + component]) ==
+                               expected[component])
+                            << failure_message;
+                    }
+                }
+            }
+        };
+        check_byte4_image("SIMD direct BYTE4 packet mismatch");
+        if (width == 8u || width == 16u) {
+            ScopedEnvironmentVariable disable_direct_byte4_packets{
+                "LUISA_SIMD_DISABLE_DIRECT_BYTE4_TEXTURE_PACKETS", "1"};
+            check_byte4_image("SIMD callback BYTE4 packet mismatch");
         }
 
         auto uint_image = device.create_image<uint>(

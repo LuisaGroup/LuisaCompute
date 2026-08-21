@@ -4350,3 +4350,69 @@ oracle (95% interval 2.4087x--2.5091x) and 3.6505x over fallback
 `vmovups` and `vpermt2ps` on this target and contain no gather; indirect calls
 remain only in the cold callback arms. This checkpoint does not claim a Voxel
 gain because Voxel's varying DDA does not issue these direct texture reads.
+
+### Guarded JIT-native BYTE4 conversion
+
+The final image-processing output remained behind the packet callback after
+native `FLOAT4`/`INT4` packets moved into JIT IR. The callback converted every
+active float4 independently and dominated the resulting profile. The W8/W16
+direct-write arm now has a second, independently gated route for linear
+`BYTE4`. `SIMDHostTextureView::native_capabilities` occupies offset 88 in the
+existing 96-byte private descriptor; the callback prefix and every preceding
+field offset remain unchanged. Texture lowering has also moved out of the
+general memory emitter into `llvm_schedule_emitter_texture.cpp` so the format
+and sampling boundary has one reviewable owner.
+
+The route reuses the complete active, consecutive bounded-row proof. It then
+sanitizes inactive values before floating-point operations, rejects the packet
+if any active component is NaN, clamps ordered inputs to `[0, 1]`, and computes
+`trunc(clamp(value, 0, 1) * 255 + 0.5)` in fixed-vector IR. Thus finite
+out-of-range values and infinities saturate, both signed zeros encode as zero,
+positive subnormals encode as zero, and the positive half-way cases retain the
+runtime's round-away-from-zero UNORM result. NaN, an inactive tail, a row
+crossing, `BYTE4_SRGB`, 3D storage, a missing capability, or any failed address
+proof executes the unchanged callback. The route contains no target intrinsic,
+scalar conversion call, or lane extract/call/insert loop.
+
+`LUISA_SIMD_DISABLE_DIRECT_BYTE4_TEXTURE_PACKETS=1` clears only the conversion
+capability and is the same-generated-object oracle. The optimization report
+separately counts guarded BYTE4 writes. Permanent JIT tests cover W2/W4
+rejection, W8/W16 acceptance, exact byte results including infinities and
+positive half-way values, NaN fallback, capability fallback, sRGB rejection,
+and an inactive tail. The runtime-width gate writes and copies back a 33-by-3
+`BYTE4` image at W1/W2/W4/W8/W16, including complete packet rows and the final
+one-texel tail. W2 deliberately remains a correctness/ABI width; performance
+work targets W8/W16, with W4 secondary.
+
+After moving NaN validation below the format/capability branch, the final
+binary was remeasured in nine fresh-process rounds per width. Candidate,
+disabled oracle, and fallback rotated through execution order. Each process
+ran 256 complete blur/Sobel/composite iterations with sixteen workers on CPUs
+0--15 while an independent single-core Psycles render was active; every sample
+is retained rather than selecting quiet rounds. All 54 invocations passed the
+checked-in reference. W8 measured 2.070/2.696/7.978 ms median for
+candidate/oracle/fallback and paired geometric speedups of 1.3007x over the
+oracle (95% interval 1.2660x--1.3364x) and 4.0030x over fallback
+(3.7375x--4.2875x), both with 9/9 wins. W16 measured
+2.279/2.999/7.891 ms and 1.3327x (1.3035x--1.3625x) / 3.6906x
+(3.4530x--3.9445x), again 9/9. Earlier prototype batches were independently
+positive but are not mixed with this final-code measurement.
+
+Seven paired W8 hardware-counter runs put candidate/oracle cycles at 0.7523x,
+instructions at 0.5244x, branches at 0.4463x, and branch misses at 0.8528x;
+cache misses rose to 1.1505x and are reported rather than hidden. The matching
+JIT objects contain no undefined symbol, and the hot conversion lowers to
+`vcvttps2udq` plus `vpmovdb` on this AVX-512 host. A 1,024-iteration sampling
+profile removes `write_pixel<float>`, `_write_float`, and `roundf32` from the
+candidate's reported hot symbols; the oracle attributes 18.79%, 6.17%, and
+3.35% respectively to those three implementations (plus 0.86% to the
+`roundf` PLT entry). This is a measured callback-boundary and conversion-cost
+removal, not a claim that logical W8 guarantees AVX-512 on other targets.
+
+Both maintained Release configurations pass the complete 173/173 CTest
+inventory (346/346 total), and the Clang ASan/LSan/UBSan Schedule/JIT case list
+passes independently. SIMD and fallback counted-local-array runs pass 1,028
+assertions in both configurations. Fresh W8/W16 image-processing references
+pass at 89.251953 dB; fresh W8/W16 Voxel references pass at 82.834519 dB.
+Voxel remains a correctness confirmation because this optimization does not
+match its buffer-based DDA hot path.

@@ -12,6 +12,7 @@ private:
     uint _dimension{2u};
     bool _enable_contiguous_packets{true};
     bool _enable_direct_native_packets{true};
+    bool _enable_direct_byte4_packets{true};
 
 private:
     static void _read_float(

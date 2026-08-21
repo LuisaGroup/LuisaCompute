@@ -796,7 +796,10 @@ SIMDTexture::SIMDTexture(
               "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS")},
       _enable_direct_native_packets{
           !detail::env_flag(
-              "LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS")} {}
+              "LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS")},
+      _enable_direct_byte4_packets{
+          !detail::env_flag(
+              "LUISA_SIMD_DISABLE_DIRECT_BYTE4_TEXTURE_PACKETS")} {}
 
 SIMDTexture::SIMDTexture(
     PixelStorage storage, uint dimension, uint3 size,
@@ -809,7 +812,10 @@ SIMDTexture::SIMDTexture(
               "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS")},
       _enable_direct_native_packets{
           !detail::env_flag(
-              "LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS")} {}
+              "LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS")},
+      _enable_direct_byte4_packets{
+          !detail::env_flag(
+              "LUISA_SIMD_DISABLE_DIRECT_BYTE4_TEXTURE_PACKETS")} {}
 
 [[nodiscard]] uint3 SIMDTexture::size(uint32_t level) const noexcept {
     auto base_size = view(0u).size3d();
@@ -1019,6 +1025,12 @@ SIMDHostTextureView SIMDTexture::host_view(uint level) noexcept {
         .native_height = native_size.y,
         .native_depth = native_size.z,
         .native_storage = static_cast<uint32_t>(native_view.storage()),
+        .native_capabilities =
+            _enable_contiguous_packets &&
+                    _enable_direct_native_packets &&
+                    _enable_direct_byte4_packets ?
+                simd_host_texture_capability_byte4_float_write :
+                0u,
     };
 }
 
