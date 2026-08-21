@@ -1,7 +1,7 @@
 // Test for tile_to_kernel — the SIMD->SIMT lowering that translates a traced
 // tile function (TileFunctionBuilder, <luisa/ast/tile_function_builder.h>)
 // into a REGULAR Luisa kernel (FunctionBuilder, <luisa/ast/function_builder.h>)
-// as declared in <luisa/dsl/tile_to_kernel.h>.
+// as declared in <luisa/ast/tile_to_kernel.h>.
 //
 // This test covers:
 // - translating the three example tile kernels (elementwise_add, pipelined
@@ -20,7 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <luisa/dsl/tensor.h>
-#include <luisa/dsl/tile_to_kernel.h>
+#include <luisa/ast/tile_to_kernel.h>
 #include <luisa/ast/expression.h>
 #include <luisa/ast/statement.h>
 #include <luisa/ast/variable.h>

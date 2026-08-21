@@ -19,7 +19,6 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             resource.cpp
             soa.cpp
             sugar.cpp
-            tile_to_kernel.cpp
             ${LUISA_COMPUTE_DSL_RTX_SOURCES}
             ${LUISA_COMPUTE_DSL_RASTER_SOURCES})
 

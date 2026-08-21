@@ -728,7 +728,7 @@ barriers/atomics where TileLang's passes would inject them).
 // host-side tensor name (added to TensorExpr / AllocStmt by the tile DSL);
 // name-less IR falls back to a first-layout-match heuristic.
 
-#include <luisa/dsl/tile_to_kernel.h>
+#include <luisa/ast/tile_to_kernel.h>
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
