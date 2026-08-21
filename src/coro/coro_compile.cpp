@@ -589,12 +589,16 @@ void verify_coro_xir_or_error(
                     i.definite_initialization_proof_count);
               r.set("guarded_initialization_proof",
                     i.guarded_initialization_proof_count);
+              r.set("initialized_prefix_proof",
+                    i.initialized_prefix_proof_count);
               r.set("rejected_prior_lifetime_observation",
                     i.rejected_prior_lifetime_observation_count);
               r.set("definite_initialization_block_evaluation",
                     i.definite_initialization_block_evaluation_count);
               r.set("guarded_initialization_state_evaluation",
                     i.guarded_initialization_state_evaluation_count);
+              r.set("initialized_prefix_block_evaluation",
+                    i.initialized_prefix_block_evaluation_count);
               r.set("predicate_widening",
                     i.predicate_widening_count);
               r.set("instruction_order_query",
@@ -611,9 +615,11 @@ void verify_coro_xir_or_error(
                       "intra_block={} delayed_first_defs={} "
                       "definite_proofs={} "
                       "guarded_proofs={} "
+                      "prefix_proofs={} "
                       "rejected_prior_lifetime={} "
                       "proof_block_evaluations={} "
-                      "guarded_state_evaluations={} widenings={}.",
+                      "guarded_state_evaluations={} "
+                      "prefix_block_evaluations={} widenings={}.",
                       i.scanned_local_alloca_count,
                       i.contracted_alloca_count,
                       i.cross_block_contraction_count,
@@ -621,9 +627,11 @@ void verify_coro_xir_or_error(
                       i.delayed_first_definition_count,
                       i.definite_initialization_proof_count,
                       i.guarded_initialization_proof_count,
+                      i.initialized_prefix_proof_count,
                       i.rejected_prior_lifetime_observation_count,
                       i.definite_initialization_block_evaluation_count,
                       i.guarded_initialization_state_evaluation_count,
+                      i.initialized_prefix_block_evaluation_count,
                       i.predicate_widening_count);
               }
               return i.changed();

@@ -184,6 +184,7 @@ Interprocedural corner-case matrix:
 
 - [x] `autodiff`
 - [x] `coro_cfg_distill`
+- [x] `coro_alloca_scope`
 - [x] `coro_materialize`
 - [x] `coro_reg2mem`
 - [x] `coro_split`
@@ -533,3 +534,55 @@ Validation evidence:
   field) from two independently dynamic observed components (two fields).
 - `ctest -L unit_xir -j$(nproc)`: 53/53 passed; `ctest -L unit
   -j$(nproc)`: 121/121 passed, including the EASTL allocation contract.
+
+## Counted-array initialized-prefix proof (2026-08-21)
+
+`coro_alloca_scope` may begin an aggregate's lifetime after a suspension only
+when every later observation is defined on every path. Requiring a full store
+of a fixed-capacity array is unnecessarily strong for the common counted-array
+protocol, so the pass now has a separate finite Must domain for the invariant
+
+`Prefix(A, C) := forall i in [0, C), A[i] is initialized`.
+
+The accepted transition system is deliberately closed:
+
+- an unsigned direct-access counter store `C = 0` establishes the empty
+  prefix;
+- a full-element store through the current counter, `A[C] = value`, establishes
+  a pending extension only while the abstract upper bound proves `C` is in
+  range;
+- a later, non-wrapping `C = C + 1` consumes that pending extension and
+  preserves the prefix;
+- CFG joins intersect `Prefix` and pending-extension facts and take the maximum
+  finite counter upper bound, so one path cannot supply another path's store;
+- a dynamic read is accepted only when its index selects between an ordinarily
+  initialized static sentinel and an index whose local condition is exactly
+  `index < C` (or its type-preserving boolean wrapper);
+- counter or array pointer escape, Phi pointers, calls, atomics, partial element
+  stores, unsupported arithmetic, arbitrary counter mutation, overflow-prone
+  counter widths, and observations before the proposed lifetime start all fail
+  closed.
+
+Single-store scalar copies are resolved only within one linear basic-block
+execution. This is an exact snapshot relation, not cross-edge memory SSA, and
+therefore cannot reuse a temporary or dynamic GEP version from an earlier loop
+iteration. The forward worklist is finite: Must bits only transition from one
+to zero at joins and the counter upper bound only increases within the static
+array dimension. Rejection occurs before any IR mutation.
+
+Direct validation is in `test_xir_pass_coro_alloca_scope`:
+
+- `counted_array_prefix_contracts_without_initializing_unused_suffix` proves
+  the positive append/skip merge and verifies that the array leaves the frame;
+- `counted_array_increment_before_element_store_is_rejected` checks update
+  ordering;
+- `counted_array_subaggregate_store_is_not_an_extension` checks that a nested
+  field store cannot masquerade as the required whole-element definition;
+- `counted_array_unrelated_read_bound_is_rejected` checks condition identity;
+- `counted_array_arbitrary_counter_overwrite_is_rejected` checks the counter
+  kill rule; and
+- `counted_array_partial_branch_extension_is_rejected` checks Must-join
+  behavior when only one predecessor writes `A[C]`.
+
+The dedicated target passes 31 tests / 338 assertions after the change, with
+XIR verification before and after every new transform/rejection case.

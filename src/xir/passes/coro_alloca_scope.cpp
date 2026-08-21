@@ -23,6 +23,7 @@
 #include <luisa/xir/passes/pointer_usage.h>
 
 #include "coro_frame_access.h"
+#include "coro_initialized_prefix.h"
 #include "coro_predicate_analysis.h"
 #include "coro_semantic_graph.h"
 
@@ -1592,6 +1593,24 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                 proof.guarded_state_evaluation_count;
             info.predicate_widening_count +=
                 proof.predicate_widening_count;
+            if (!proof.succeeded) {
+                phase_begin = profile_begin();
+                auto prefix_proof = detail::
+                    prove_initialized_prefix_fresh_lifetime(
+                        alloca, target, insertion.instruction,
+                        graph, frame_domain);
+                proof_ms += profile_elapsed_ms(phase_begin);
+                info.initialized_prefix_block_evaluation_count +=
+                    prefix_proof.block_evaluation_count;
+                if (prefix_proof.succeeded) {
+                    proof.succeeded = true;
+                    proof.guarded = false;
+                    proof.failing_read = nullptr;
+                    ++info.initialized_prefix_proof_count;
+                } else if (prefix_proof.failing_read != nullptr) {
+                    proof.failing_read = prefix_proof.failing_read;
+                }
+            }
             if (!proof.succeeded) {
                 if (dump_scope_rejections) {
                     const auto alloca_name =

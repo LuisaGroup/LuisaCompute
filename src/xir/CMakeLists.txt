@@ -76,6 +76,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/coro_cfg_distill.cpp
         passes/coro_cfg_dataflow.cpp
         passes/coro_alloca_scope.cpp
+        passes/coro_initialized_prefix.cpp
         passes/coro_frame_abi.cpp
         passes/coro_frame_access.cpp
         passes/coro_rematerialize.cpp

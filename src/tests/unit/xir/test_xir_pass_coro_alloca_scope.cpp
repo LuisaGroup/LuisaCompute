@@ -864,6 +864,381 @@ void register_coro_alloca_scope_tests() {
         expect(xir_verify_module(&module).succeeded());
     };
 
+    "counted_array_prefix_contracts_without_initializing_unused_suffix"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *append_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *read_index =
+            kernel->create_value_argument(Type::of<uint>());
+        auto *resume = kernel->create_basic_block();
+        auto *append = kernel->create_basic_block();
+        auto *skip = kernel->create_basic_block();
+        auto *consume = kernel->create_basic_block();
+        auto *array_type = Type::array(Type::of<uint>(), 4u);
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *array = builder.alloca_local(array_type);
+        auto *count = builder.alloca_local(Type::of<uint>());
+        builder.coro_suspend(7u, "counted", nullptr);
+
+        builder.set_insertion_point(resume);
+        builder.coro_resume(7u, nullptr);
+        builder.store(
+            count, module.create_constant_zero(Type::of<uint>()));
+        auto *sentinel = builder.gep(
+            Type::of<uint>(), array,
+            {module.create_constant_zero(Type::of<uint>())});
+        builder.store(
+            sentinel, module.create_constant_zero(Type::of<uint>()));
+        builder.cond_br(append_condition, append, skip);
+
+        builder.set_insertion_point(append);
+        auto *append_index = builder.load(Type::of<uint>(), count);
+        auto *element = builder.gep(
+            Type::of<uint>(), array, {append_index});
+        builder.store(
+            element, module.create_constant_one(Type::of<uint>()));
+        auto *old_count = builder.load(Type::of<uint>(), count);
+        auto *next_count = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {old_count, module.create_constant_one(Type::of<uint>())});
+        builder.store(count, next_count);
+        builder.br(consume);
+
+        builder.set_insertion_point(skip);
+        builder.br(consume);
+
+        builder.set_insertion_point(consume);
+        auto *current_count = builder.load(Type::of<uint>(), count);
+        auto *in_prefix = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {read_index, current_count});
+        auto *bounded_index = builder.call(
+            Type::of<uint>(), ArithmeticOp::SELECT,
+            {module.create_constant_zero(Type::of<uint>()),
+             read_index, in_prefix});
+        auto *selected = builder.gep(
+            Type::of<uint>(), array, {bounded_index});
+        static_cast<void>(builder.load(Type::of<uint>(), selected));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto before = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(before.succeeded());
+        expect(frame_contains(before, array));
+
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.initialized_prefix_proof_count == 1u);
+        expect(info.rejected_prior_lifetime_observation_count == 0u);
+        expect(array->parent_block() == resume);
+        expect(xir_verify_module(&module).succeeded());
+
+        auto after = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(after.succeeded());
+        expect(!frame_contains(after, array));
+    };
+
+    "counted_array_increment_before_element_store_is_rejected"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *read_index =
+            kernel->create_value_argument(Type::of<uint>());
+        auto *resume = kernel->create_basic_block();
+        auto *array_type = Type::array(Type::of<uint>(), 4u);
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *array = builder.alloca_local(array_type);
+        auto *count = builder.alloca_local(Type::of<uint>());
+        builder.coro_suspend(9u, "bad-order", nullptr);
+
+        builder.set_insertion_point(resume);
+        builder.coro_resume(9u, nullptr);
+        builder.store(
+            count, module.create_constant_zero(Type::of<uint>()));
+        auto *sentinel = builder.gep(
+            Type::of<uint>(), array,
+            {module.create_constant_zero(Type::of<uint>())});
+        builder.store(
+            sentinel, module.create_constant_zero(Type::of<uint>()));
+        auto *old_count = builder.load(Type::of<uint>(), count);
+        auto *next_count = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {old_count, module.create_constant_one(Type::of<uint>())});
+        builder.store(count, next_count);
+        auto *late_index = builder.load(Type::of<uint>(), count);
+        auto *late_element = builder.gep(
+            Type::of<uint>(), array, {late_index});
+        builder.store(
+            late_element, module.create_constant_one(Type::of<uint>()));
+        auto *current_count = builder.load(Type::of<uint>(), count);
+        auto *in_prefix = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {read_index, current_count});
+        auto *bounded_index = builder.call(
+            Type::of<uint>(), ArithmeticOp::SELECT,
+            {module.create_constant_zero(Type::of<uint>()),
+             read_index, in_prefix});
+        auto *selected = builder.gep(
+            Type::of<uint>(), array, {bounded_index});
+        static_cast<void>(builder.load(Type::of<uint>(), selected));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto original_block = array->parent_block();
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.initialized_prefix_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(array->parent_block() == original_block);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "counted_array_subaggregate_store_is_not_an_extension"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *read_index =
+            kernel->create_value_argument(Type::of<uint>());
+        auto *resume = kernel->create_basic_block();
+        auto *element_type = Type::structure(
+            {Type::of<uint>(), Type::of<uint>()});
+        auto *array_type = Type::array(element_type, 4u);
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *array = builder.alloca_local(array_type);
+        auto *count = builder.alloca_local(Type::of<uint>());
+        builder.coro_suspend(10u, "bad-subaggregate-store", nullptr);
+
+        builder.set_insertion_point(resume);
+        builder.coro_resume(10u, nullptr);
+        builder.store(
+            count, module.create_constant_zero(Type::of<uint>()));
+        uint32_t sentinel_index_value = 3u;
+        auto *sentinel_index = module.create_constant(
+            Type::of<uint>(), &sentinel_index_value);
+        auto *sentinel = builder.gep(
+            element_type, array, {sentinel_index});
+        builder.store(sentinel, module.create_constant_zero(element_type));
+        auto *append_index = builder.load(Type::of<uint>(), count);
+        auto *element = builder.gep(
+            element_type, array, {append_index});
+        auto *first_field = builder.gep(
+            Type::of<uint>(), element,
+            {module.create_constant_zero(Type::of<uint>())});
+        builder.store(
+            first_field, module.create_constant_one(Type::of<uint>()));
+        auto *old_count = builder.load(Type::of<uint>(), count);
+        auto *next_count = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {old_count, module.create_constant_one(Type::of<uint>())});
+        builder.store(count, next_count);
+        auto *current_count = builder.load(Type::of<uint>(), count);
+        auto *in_prefix = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {read_index, current_count});
+        auto *bounded_index = builder.call(
+            Type::of<uint>(), ArithmeticOp::SELECT,
+            {sentinel_index, read_index, in_prefix});
+        auto *selected = builder.gep(
+            element_type, array, {bounded_index});
+        static_cast<void>(builder.load(element_type, selected));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto original_block = array->parent_block();
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.initialized_prefix_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(array->parent_block() == original_block);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "counted_array_unrelated_read_bound_is_rejected"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *read_index =
+            kernel->create_value_argument(Type::of<uint>());
+        auto *unrelated_limit =
+            kernel->create_value_argument(Type::of<uint>());
+        auto *resume = kernel->create_basic_block();
+        auto *array_type = Type::array(Type::of<uint>(), 4u);
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *array = builder.alloca_local(array_type);
+        auto *count = builder.alloca_local(Type::of<uint>());
+        builder.coro_suspend(11u, "bad-bound", nullptr);
+
+        builder.set_insertion_point(resume);
+        builder.coro_resume(11u, nullptr);
+        builder.store(
+            count, module.create_constant_zero(Type::of<uint>()));
+        auto *sentinel = builder.gep(
+            Type::of<uint>(), array,
+            {module.create_constant_zero(Type::of<uint>())});
+        builder.store(
+            sentinel, module.create_constant_zero(Type::of<uint>()));
+        auto *append_index = builder.load(Type::of<uint>(), count);
+        auto *element = builder.gep(
+            Type::of<uint>(), array, {append_index});
+        builder.store(
+            element, module.create_constant_one(Type::of<uint>()));
+        auto *old_count = builder.load(Type::of<uint>(), count);
+        auto *next_count = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {old_count, module.create_constant_one(Type::of<uint>())});
+        builder.store(count, next_count);
+        auto *unrelated_guard = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {read_index, unrelated_limit});
+        auto *bounded_index = builder.call(
+            Type::of<uint>(), ArithmeticOp::SELECT,
+            {module.create_constant_zero(Type::of<uint>()),
+             read_index, unrelated_guard});
+        auto *selected = builder.gep(
+            Type::of<uint>(), array, {bounded_index});
+        static_cast<void>(builder.load(Type::of<uint>(), selected));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto original_block = array->parent_block();
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.initialized_prefix_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(array->parent_block() == original_block);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "counted_array_arbitrary_counter_overwrite_is_rejected"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *read_index =
+            kernel->create_value_argument(Type::of<uint>());
+        auto *replacement_count =
+            kernel->create_value_argument(Type::of<uint>());
+        auto *resume = kernel->create_basic_block();
+        auto *array_type = Type::array(Type::of<uint>(), 4u);
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *array = builder.alloca_local(array_type);
+        auto *count = builder.alloca_local(Type::of<uint>());
+        builder.coro_suspend(13u, "bad-counter-overwrite", nullptr);
+
+        builder.set_insertion_point(resume);
+        builder.coro_resume(13u, nullptr);
+        builder.store(
+            count, module.create_constant_zero(Type::of<uint>()));
+        auto *sentinel = builder.gep(
+            Type::of<uint>(), array,
+            {module.create_constant_zero(Type::of<uint>())});
+        builder.store(
+            sentinel, module.create_constant_zero(Type::of<uint>()));
+        auto *append_index = builder.load(Type::of<uint>(), count);
+        auto *element = builder.gep(
+            Type::of<uint>(), array, {append_index});
+        builder.store(
+            element, module.create_constant_one(Type::of<uint>()));
+        builder.store(count, replacement_count);
+        auto *current_count = builder.load(Type::of<uint>(), count);
+        auto *in_prefix = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {read_index, current_count});
+        auto *bounded_index = builder.call(
+            Type::of<uint>(), ArithmeticOp::SELECT,
+            {module.create_constant_zero(Type::of<uint>()),
+             read_index, in_prefix});
+        auto *selected = builder.gep(
+            Type::of<uint>(), array, {bounded_index});
+        static_cast<void>(builder.load(Type::of<uint>(), selected));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto original_block = array->parent_block();
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.initialized_prefix_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(array->parent_block() == original_block);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "counted_array_partial_branch_extension_is_rejected"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *write_element =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *read_index =
+            kernel->create_value_argument(Type::of<uint>());
+        auto *resume = kernel->create_basic_block();
+        auto *write = kernel->create_basic_block();
+        auto *skip = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *array_type = Type::array(Type::of<uint>(), 4u);
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *array = builder.alloca_local(array_type);
+        auto *count = builder.alloca_local(Type::of<uint>());
+        builder.coro_suspend(15u, "bad-partial-extension", nullptr);
+
+        builder.set_insertion_point(resume);
+        builder.coro_resume(15u, nullptr);
+        builder.store(
+            count, module.create_constant_zero(Type::of<uint>()));
+        auto *sentinel = builder.gep(
+            Type::of<uint>(), array,
+            {module.create_constant_zero(Type::of<uint>())});
+        builder.store(
+            sentinel, module.create_constant_zero(Type::of<uint>()));
+        builder.cond_br(write_element, write, skip);
+
+        builder.set_insertion_point(write);
+        auto *append_index = builder.load(Type::of<uint>(), count);
+        auto *element = builder.gep(
+            Type::of<uint>(), array, {append_index});
+        builder.store(
+            element, module.create_constant_one(Type::of<uint>()));
+        builder.br(merge);
+
+        builder.set_insertion_point(skip);
+        builder.br(merge);
+
+        builder.set_insertion_point(merge);
+        auto *old_count = builder.load(Type::of<uint>(), count);
+        auto *next_count = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {old_count, module.create_constant_one(Type::of<uint>())});
+        builder.store(count, next_count);
+        auto *current_count = builder.load(Type::of<uint>(), count);
+        auto *in_prefix = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {read_index, current_count});
+        auto *bounded_index = builder.call(
+            Type::of<uint>(), ArithmeticOp::SELECT,
+            {module.create_constant_zero(Type::of<uint>()),
+             read_index, in_prefix});
+        auto *selected = builder.gep(
+            Type::of<uint>(), array, {bounded_index});
+        static_cast<void>(builder.load(Type::of<uint>(), selected));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto original_block = array->parent_block();
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.initialized_prefix_proof_count == 0u);
+        expect(info.rejected_prior_lifetime_observation_count == 1u);
+        expect(array->parent_block() == original_block);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "phi_pointer_use_is_an_atomic_noop"_test = [] {
         Module module;
         BasicBlock *entry;
