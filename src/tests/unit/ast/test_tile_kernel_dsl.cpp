@@ -11,14 +11,24 @@
 //   traced builder in the compiled kernel
 // - T.Pipelined emitting exactly ONE PipelinedStmt and tracing its body once
 //   (guards F1: the range-for must iterate one representative step)
+// - device.compile_tile(...) routing a compiled tile kernel through the new
+//   TileShader interface; without a native tile backend this exercises the
+//   tile_to_kernel + create_shader fallback and dispatches on real device
+//   buffers (C = A + B).
 //
-// Pure host code: no device / backend is required.
+// The host-side tests run without a device; the device-backed test needs a
+// backend argument (e.g. `test_tile_kernel_dsl dx`).
 
 #include "ut/ut.hpp"
-
-#include <cstdint>
+#include "test_device.h"
 
 #include <luisa/dsl/tensor.h>
+#include <luisa/runtime/tile_shader.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/buffer.h>
+
+#include <cmath>
+#include <cstdint>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -350,5 +360,51 @@ int main(int argc, char *argv[]) {
         // describe() carries the quantized dtype name
         expect(luisa::string_view{alloc_a->tensor()->describe()}.find("int8") != luisa::string_view::npos);
         expect(luisa::string_view{alloc_b->tensor()->describe()}.find("fp8") != luisa::string_view::npos);
+    };
+
+    // Device-backed test: compile a traced tile kernel through
+    // device.compile_tile(...) and dispatch it like a regular shader. No
+    // backend implements support_tile_compiling() yet, so this exercises the
+    // tile_to_kernel + create_shader fallback path and verifies that the
+    // lowered kernel actually computes C = A + B on device buffers.
+    "compile_tile_runs_fallback_kernel_on_device"_test = [] {
+        auto dc = luisa::test::create_device_from_ut();
+        if (!dc) return;
+        auto &device = dc->device;
+        Stream stream = device.create_stream();
+
+        auto tile_kernel = tile::jit(elementwise_add).compile();
+        auto tile_shader = device.compile_tile(tile_kernel);
+        expect(tile_shader.valid()) << "compile_tile should produce a valid TileShader";
+        // No backend implements native tile compiling yet: expect the regular
+        // kernel fallback path (tile_to_kernel + create_shader).
+        expect(!tile_shader.is_native_tile_shader());
+        // elementwise_add: T.Kernel(4, 4, 32) -> dispatch grid (4 * 32, 4).
+        auto xy = tile_shader.dispatch_size_xy();
+        expect(xy.x == 128u && xy.y == 4u);
+
+        constexpr auto count = 32u * 32u;
+        auto bufA = device.create_buffer<float>(count);
+        auto bufB = device.create_buffer<float>(count);
+        auto bufC = device.create_buffer<float>(count);
+        luisa::vector<float> hA(count), hB(count), hC(count);
+        for (auto i = 0u; i < count; ++i) {
+            hA[i] = static_cast<float>(i) * 0.5f;
+            hB[i] = static_cast<float>(i) * 1.5f + 1.0f;
+        }
+        stream << bufA.copy_from(luisa::span{hA})
+               << bufB.copy_from(luisa::span{hB}) << synchronize();
+        stream << tile_shader(bufA, bufB, bufC).dispatch(1u)
+               << bufC.copy_to(luisa::span{hC}) << synchronize();
+        bool ok = true;
+        for (auto i = 0u; i < count; ++i) {
+            if (std::abs(hC[i] - (hA[i] + hB[i])) > 1e-3f) {
+                LUISA_WARNING("compile_tile fallback mismatch at [{}]: got {}, want {}",
+                              i, hC[i], hA[i] + hB[i]);
+                ok = false;
+                break;
+            }
+        }
+        expect(ok) << "tile shader fallback should compute C = A + B";
     };
 }

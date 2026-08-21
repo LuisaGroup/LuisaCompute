@@ -17,10 +17,10 @@ class BinaryIO;
 namespace luisa::compute {
 
 class Context;
-class TileFunctionBuilder;
 
 namespace detail {
 class ContextImpl;
+class TileFunctionBuilder;
 }// namespace detail
 
 class Type;
@@ -156,7 +156,7 @@ public:
 
     // tile kernel
     [[nodiscard]] virtual bool support_tile_compiling() { return false; }
-    [[nodiscard]] virtual TileShaderCreationInfo create_tile_shader(const TileShaderOption &option, const TileFunctionBuilder *tile_kernel) noexcept;
+    [[nodiscard]] virtual TileShaderCreationInfo create_tile_shader(const TileShaderOption &option, const detail::TileFunctionBuilder *tile_kernel) noexcept;
     virtual Usage tile_shader_argument_usage(uint64_t handle, size_t index) noexcept;
     virtual void destroy_tile_shader(uint64_t handle) noexcept;
 

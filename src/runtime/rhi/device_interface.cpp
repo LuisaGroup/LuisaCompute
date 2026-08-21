@@ -36,7 +36,7 @@ ResourceCreationInfo DeviceInterface::create_motion_instance(const AccelMotionOp
 void DeviceInterface::destroy_motion_instance(uint64_t handle) noexcept {
     LUISA_NOT_IMPLEMENTED();
 }
-TileShaderCreationInfo DeviceInterface::create_tile_shader(const TileShaderOption &option, const TileFunctionBuilder *tile_kernel) noexcept {
+TileShaderCreationInfo DeviceInterface::create_tile_shader(const TileShaderOption &option, const detail::TileFunctionBuilder *tile_kernel) noexcept {
     LUISA_NOT_IMPLEMENTED();
     return {};
 }
