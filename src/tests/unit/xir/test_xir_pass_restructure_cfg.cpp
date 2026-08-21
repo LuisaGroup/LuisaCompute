@@ -44,6 +44,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -2774,6 +2775,94 @@ void reg_restructure_cfg() {
         expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
     };
 
+    "restructure_indexes_remaining_divergent_tree_once_per_drain"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        constexpr auto tree_depth = size_t{6u};
+        constexpr auto branch_count =
+            (size_t{1u} << tree_depth) - 1u;
+        constexpr auto leaf_count =
+            size_t{1u} << tree_depth;
+        constexpr auto input_block_count =
+            branch_count + leaf_count;
+
+        luisa::vector<BasicBlock *> level{body};
+        XIRBuilder builder;
+        for (auto depth = size_t{0u};
+             depth < tree_depth; ++depth) {
+            luisa::vector<BasicBlock *> next_level;
+            next_level.reserve(level.size() * 2u);
+            for (auto *header : level) {
+                auto *true_block =
+                    kernel->create_basic_block();
+                auto *false_block =
+                    kernel->create_basic_block();
+                builder.set_insertion_point(header);
+                builder.cond_br(
+                    condition, true_block, false_block);
+                next_level.emplace_back(true_block);
+                next_level.emplace_back(false_block);
+            }
+            level = std::move(next_level);
+        }
+        for (auto *leaf : level) {
+            builder.set_insertion_point(leaf);
+            builder.return_void();
+        }
+        expect(level.size() == leaf_count);
+        expect(count_terminator_kind(
+                   kernel,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               branch_count);
+        expect(xir_verify_module(&module).succeeded());
+
+        auto info = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.mutation_mode =
+                 RestructureCFGMutationMode::IN_PLACE_DISCARDABLE,
+             .verify_remaining_divergent_index = true});
+
+        expect(info.succeeded());
+        expect(info.definition_transform_invocation_count == 1u);
+        expect(info.remaining_divergent_rewrite_count ==
+               branch_count);
+        expect(info.remaining_divergent_candidate_count ==
+               branch_count);
+        expect(info.remaining_divergent_candidate_query_count ==
+               branch_count);
+        expect(info.remaining_divergent_dominance_rebuild_count == 1u);
+        expect(info.remaining_divergent_postdom_incremental_update_count ==
+               0u);
+        expect(info.remaining_divergent_postdom_rebuild_count == 0u);
+        expect(info.remaining_divergent_analysis_count > 0u);
+        expect(info.remaining_divergent_analysis_count <
+               info.remaining_divergent_rewrite_count)
+            << "one immutable candidate index must serve the complete "
+               "remaining-divergent drain";
+        expect(info.remaining_divergent_indexed_block_count <
+               branch_count * input_block_count)
+            << "candidate indexing must not rescan the complete CFG for "
+               "every consumed conditional";
+        expect(info.postdom_common_ancestor_query_count >=
+               branch_count);
+        expect(info.postdom_common_ancestor_step_count > 0u);
+        expect(count_terminator_kind(
+                   kernel,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               0u);
+        expect(count_terminator_kind(
+                   kernel,
+                   DerivedInstructionTag::IF) == branch_count);
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+    };
+
     "restructure_fixup_nested_if_cross_hierarchy"_test = [] {
         Module m;
         BasicBlock *body;
@@ -2844,9 +2933,19 @@ void reg_restructure_cfg() {
         b.return_void();
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = restructure_cfg_pass_run_on_function(k);
+        auto info = restructure_cfg_pass_run_on_function(
+            k,
+            {.mutation_mode =
+                 RestructureCFGMutationMode::IN_PLACE_DISCARDABLE,
+             .verify_remaining_divergent_index = true});
         expect(info.succeeded());
         expect(info.unstructured_branch_count == 0u);
+        expect(info.remaining_divergent_postdom_incremental_update_count >
+               0u)
+            << "a reachable shared successor must exercise the exact "
+               "transparent-merge postdom update";
+        expect(info.remaining_divergent_postdom_rebuild_count == 0u)
+            << "the transparent-merge model must not need a fresh CHK solve";
         expect(original_store->parent_block() == shared);
         size_t writes_to_slot = 0u;
         def->traverse_instructions([&](Instruction *instruction) noexcept {

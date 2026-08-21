@@ -91,6 +91,37 @@ struct RestructureCFGInfo {
     size_t postdom_fixed_point_block_visit_count{0u};
     size_t postdom_fixed_point_edge_visit_count{0u};
     size_t postdom_intersect_step_count{0u};
+    // Common-postdominator queries are LCAs in the sparse immediate-
+    // postdominator tree. Ancestor steps count tree edges, not temporary
+    // pointer-set construction or intersections.
+    size_t postdom_common_ancestor_query_count{0u};
+    size_t postdom_common_ancestor_step_count{0u};
+    // Remaining divergent-conditionals are value-numbered once per drain.
+    // A rewrite consumes one original ConditionalBranch and creates only an
+    // If plus branch/unreachable blocks, so it cannot add another candidate
+    // or change loop-role membership. Dynamic dominance/post-dominance
+    // relations are maintained by exact overlays while the drain mutates.
+    size_t remaining_divergent_analysis_count{0u};
+    size_t remaining_divergent_indexed_block_count{0u};
+    size_t remaining_divergent_candidate_count{0u};
+    size_t remaining_divergent_candidate_query_count{0u};
+    size_t remaining_divergent_region_block_visit_count{0u};
+    size_t remaining_divergent_region_edge_visit_count{0u};
+    size_t remaining_divergent_rewrite_count{0u};
+    // Each real rewrite subdivides old edges with one transparent structural
+    // merge. Contracting all such overlays recovers the immutable input CFG,
+    // so one dominance snapshot serves a complete drain. Post-dominance keeps
+    // the concrete nesting through an exact greatest-fixed-point update of the
+    // affected old subtree; shapes outside that model fall back to CHK. These
+    // counters expose both the incremental work and exceptional rebuilds.
+    size_t remaining_divergent_dominance_rebuild_count{0u};
+    size_t remaining_divergent_postdom_incremental_update_count{0u};
+    size_t remaining_divergent_postdom_update_candidate_block_count{0u};
+    size_t remaining_divergent_postdom_update_block_evaluation_count{0u};
+    size_t remaining_divergent_postdom_update_edge_visit_count{0u};
+    size_t remaining_divergent_postdom_update_covered_block_count{0u};
+    size_t remaining_divergent_postdom_update_reparented_root_count{0u};
+    size_t remaining_divergent_postdom_rebuild_count{0u};
     // Physical invocations of the per-definition mutating transform. A
     // successful transactional pass invokes it twice per definition (shadow
     // validation plus identity-preserving replay); an in-place pass invokes
@@ -226,6 +257,10 @@ struct RestructureCFGOptions {
     // passed its complete input boundary and requires a complete output
     // boundary before publication.
     const XIRPassVerificationTransaction *verification_transaction{nullptr};
+    // Expensive diagnostic oracle. After every remaining-divergent rewrite,
+    // compare the immutable candidate index, dominance-overlay answers, and
+    // incrementally maintained postdom tree with fresh live-CFG analyses.
+    bool verify_remaining_divergent_index{false};
 };
 
 // Converts reducible plain CFG regions into structured control flow. A function
