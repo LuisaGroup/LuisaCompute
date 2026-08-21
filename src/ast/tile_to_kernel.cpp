@@ -1347,24 +1347,6 @@ private:
         });
     }
 
-    // emit `if (cond) { body() }` (the DSL $if sugar: if_(Expr<bool>, body))
-    template<typename Body>
-    void _if(const Expression *cond, Body &&body) {
-        if_(Expr<bool>{cond}, std::forward<Body>(body));
-    }
-
-    // emit `for (var = begin; var < end; var += step) { body(var) }`
-    // (the DSL $for sugar: for (auto i : dynamic_range(begin, end, step)));
-    // `var` is the DSL loop variable and body receives its raw expression.
-    template<typename Body>
-    void _for_range(const Expression *begin, const Expression *end,
-                    const Expression *step, Body &&body) {
-        for (auto i : dynamic_range(Expr<uint>{begin},
-                                    Expr<uint>{end},
-                                    Expr<uint>{step})) {
-            body(i.expression());
-        }
-    }
 
     [[nodiscard]] const Expression *_zero_of(TensorElementType e) const noexcept {
         switch (e) {
@@ -1660,7 +1642,7 @@ private:
                 case TensorScope::Global: {
                     auto idx = _global_index(t, c);
                     if (_batching) {
-                        _if(_batch_valid, [&] { _fb->call(CallOp::BUFFER_WRITE, {st.buffer, idx, value}); });
+                        if_(Expr<bool>{_batch_valid}, [&] { _fb->call(CallOp::BUFFER_WRITE, {st.buffer, idx, value}); });
                     } else {
                         _fb->call(CallOp::BUFFER_WRITE, {st.buffer, idx, value});
                     }
@@ -1690,7 +1672,7 @@ private:
                     // contains no barrier, so it is divergence-safe.  Global reads
                     // are intentionally unguarded (clamped index, values discarded).
                     auto write = [&] { Expr<Buffer<T>>{st.buffer}.write(idx, v); };
-                    if (_batching) { _if(_batch_valid, write); } else { write(); }
+                    if (_batching) { if_(Expr<bool>{_batch_valid}, write); } else { write(); }
                     break;
                 }
                 case TensorScope::Shared: {
@@ -1747,18 +1729,20 @@ private:
         auto th = (_threads + tw - 1u) / tw;// threads along the slow axis
         auto r0 = tid / tw;
         auto c0 = tid % tw;
-        _for_range(r0.expression(), _literal_u(rows), _literal_u(th),
-                   [&](const Expression *r) {
-            auto emit_cols = [&] {
-                _for_range(c0.expression(), _literal_u(cols), _literal_u(tw),
-                           [&](const Expression *c) { body(r, c); });
-            };
-            if (rows % th != 0u) [[unlikely]] {// some threads start at r0 >= rows
-                _if((Expr<uint>{r} < rows).expression(), emit_cols);
-            } else {
-                emit_cols();
-            }
-        });
+        for (auto _range_i_ : dynamic_range(Expr<uint>{r0.expression()}, Expr<uint>{_literal_u(rows)}, Expr<uint>{_literal_u(th)})) {
+            [&](const Expression *r) {
+     auto emit_cols = [&] {
+         for (auto _range_i_ : dynamic_range(Expr<uint>{c0.expression()}, Expr<uint>{_literal_u(cols)}, Expr<uint>{_literal_u(tw)})) {
+             [&](const Expression *c) { body(r, c); }(_range_i_.expression());
+         }
+     };
+     if (rows % th != 0u) [[unlikely]] {// some threads start at r0 >= rows
+         if_(Expr<bool>{(Expr<uint>{r} < rows).expression()}, emit_cols);
+     } else {
+         emit_cols();
+     }
+ }(_range_i_.expression());
+        }
     }
 
     // rank-2 partition loop: adapts the Coord-based body used everywhere else.
@@ -1804,18 +1788,20 @@ private:
         auto tid = Expr<uint3>{_fb->thread_id()}.x;
         auto emit_body = [&](const Expression *idx) { body(_decompose(t, idx)); };
         if (total % _threads != 0u) [[unlikely]] {
-            _for_range(_literal_u(0u), _literal_u(iters), _literal_u(1u),
-                       [&](const Expression *i) {
-                           auto idx = (Expr<uint>{i} * _threads + tid).expression();
-                           auto cond = (Expr<uint>{idx} < total).expression();
-                           _if(cond, [&] { emit_body(idx); });
-                       });
+            for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(iters)}, Expr<uint>{_literal_u(1u)})) {
+                [&](const Expression *i) {
+                    auto idx = (Expr<uint>{i} * _threads + tid).expression();
+                    auto cond = (Expr<uint>{idx} < total).expression();
+                    if_(Expr<bool>{cond}, [&] { emit_body(idx); });
+                }(_range_i_.expression());
+            }
         } else {
-            _for_range(_literal_u(0u), _literal_u(iters), _literal_u(1u),
-                       [&](const Expression *i) {
-                           auto idx = (Expr<uint>{i} * _threads + tid).expression();
-                           emit_body(idx);
-                       });
+            for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(iters)}, Expr<uint>{_literal_u(1u)})) {
+                [&](const Expression *i) {
+                    auto idx = (Expr<uint>{i} * _threads + tid).expression();
+                    emit_body(idx);
+                }(_range_i_.expression());
+            }
         }
     }
 
@@ -1832,8 +1818,9 @@ private:
     template<typename Body>
     void _full_loop(const TensorExpr *t, Body &&body) {
         auto total = tile_element_count(t);
-        _for_range(_literal_u(0u), _literal_u(total), _literal_u(1u),
-                   [&](const Expression *i) { body(_decompose(t, i)); });
+        for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(total)}, Expr<uint>{_literal_u(1u)})) {
+            [&](const Expression *i) { body(_decompose(t, i)); }(_range_i_.expression());
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -1991,11 +1978,12 @@ private:
                 if (ai0 == bj1) { _pipeline_copy_axes[copies[i]] = 0u; _pipeline_copy_axes[copies[j]] = 1u; break; }
             }
         }
-        _for_range(_literal_u(0u), _literal_u(count), _literal_u(1u),
-                   [&](const Expression *ko) {
-                       _pipeline_var = ko;
-                       for (auto *s : body) { _emit(s); }
-                   });
+        for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(count)}, Expr<uint>{_literal_u(1u)})) {
+            [&](const Expression *ko) {
+                _pipeline_var = ko;
+                for (auto *s : body) { _emit(s); }
+            }(_range_i_.expression());
+        }
         _pipeline_copy_axes.clear();
         _pipeline_var = nullptr;
         _pipeline_count = 0u;
@@ -2448,13 +2436,15 @@ private:
                     }
                 };
                 if (nchunks % _threads != 0u) {
-                    _for_range(tid.expression(), _literal_u(nchunks), _literal_u(_threads),
-                               [&](const Expression *cid) {
-                                   _if((Expr<uint>{cid} < nchunks).expression(), [&] { emit_chunk(cid); });
-                               });
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{tid.expression()}, Expr<uint>{_literal_u(nchunks)}, Expr<uint>{_literal_u(_threads)})) {
+                        [&](const Expression *cid) {
+                            if_(Expr<bool>{(Expr<uint>{cid} < nchunks).expression()}, [&] { emit_chunk(cid); });
+                        }(_range_i_.expression());
+                    }
                 } else {
-                    _for_range(tid.expression(), _literal_u(nchunks), _literal_u(_threads),
-                               [&](const Expression *cid) { emit_chunk(cid); });
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{tid.expression()}, Expr<uint>{_literal_u(nchunks)}, Expr<uint>{_literal_u(_threads)})) {
+                        [&](const Expression *cid) { emit_chunk(cid); }(_range_i_.expression());
+                    }
                 }
                 _pipeline_axis = saved_axis;
                 _current_extent = saved;
@@ -2974,44 +2964,45 @@ private:
                     // Guard elision: _threads is host-known, so when the
                     // reduce extent divides evenly every strided k is valid.
                     const bool k_tail_free = reduce_len % _threads == 0u;
-                    _for_range(_literal_u(0u), _literal_u(block_k_iters), _literal_u(1u),
-                               [&](const Expression *ki) {
-                        auto k = (Expr<uint>{ki} * _threads + Expr<uint>{_tid_x()}).expression();
-                        auto load = [&] {
-                            xc[dim] = k;
-                            auto xv = _maybe_cast(_value_at(x, xc), Type::of<T>());
-                            if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
-                                xv = abs(Expr<T>{xv}).expression();
-                            }
-                            return xv;
-                        };
-                        if (k_tail_free) [[likely]] {
-                            acc = Expr<T>{_combine_expr<T>(op, acc.expression(), load())};
-                        } else {
-                            auto v = Var<T>{Expr<T>{identity_v()}};
-                            auto k_valid = (Expr<uint>{k} < reduce_len).expression();
-                            _if(k_valid, [&] { v = Expr<T>{load()}; });
-                            acc = Expr<T>{_combine_expr<T>(op, acc.expression(), v.expression())};
-                        }
-                    });
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(block_k_iters)}, Expr<uint>{_literal_u(1u)})) {
+                        [&](const Expression *ki) {
+                 auto k = (Expr<uint>{ki} * _threads + Expr<uint>{_tid_x()}).expression();
+                 auto load = [&] {
+                     xc[dim] = k;
+                     auto xv = _maybe_cast(_value_at(x, xc), Type::of<T>());
+                     if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
+                         xv = abs(Expr<T>{xv}).expression();
+                     }
+                     return xv;
+                 };
+                 if (k_tail_free) [[likely]] {
+                     acc = Expr<T>{_combine_expr<T>(op, acc.expression(), load())};
+                 } else {
+                     auto v = Var<T>{Expr<T>{identity_v()}};
+                     auto k_valid = (Expr<uint>{k} < reduce_len).expression();
+                     if_(Expr<bool>{k_valid}, [&] { v = Expr<T>{load()}; });
+                     acc = Expr<T>{_combine_expr<T>(op, acc.expression(), v.expression())};
+                 }
+             }(_range_i_.expression());
+                    }
                     // warp-level combine, lane 0 publishes to the workspace
                     auto total = _warp_reduce_typed<T>(op, acc.expression());
                     auto is_lane0 = (Expr<uint>{lane} == 0u).expression();
-                    _if(is_lane0, [&] {
+                    if_(Expr<bool>{is_lane0}, [&] {
                         workspace[Expr<uint>{warp}] = Expr<T>{total};
                     });
                     _sync_block();// publish workspace before warp 0 reads it
                     // warp 0 reduces the per-warp partials and writes the output
                     auto is_warp0 = (Expr<uint>{warp} == 0u).expression();
-                    _if(is_warp0, [&] {
+                    if_(Expr<bool>{is_warp0}, [&] {
                         auto val = Var<T>{Expr<T>{identity_v()}};
                         auto lane_valid = (Expr<uint>{lane} < Expr<uint>{nw}).expression();
-                        _if(lane_valid, [&] {
+                        if_(Expr<bool>{lane_valid}, [&] {
                             val = Expr<T>{workspace[Expr<uint>{lane}].expression()};
                         });
                         auto block = _warp_reduce_typed<T>(op, val.expression());
                         auto lane0 = (Expr<uint>{lane} == 0u).expression();
-                        _if(lane0, [&] {
+                        if_(Expr<bool>{lane0}, [&] {
                             if (frag_out) {
                         auto sidx = Expr<uint>{_staging_index(y, yc)};
                                 auto bcast = _maybe_cast(block, out_t);
@@ -3028,78 +3019,80 @@ private:
                 }
             } else {
                 // ---- normal warp-per-output partition (existing path) ----
-                _for_range(_literal_u(0u), o_iters, _literal_u(1u),
-                           [&](const Expression *oi) {
-                    auto o = (Expr<uint>{oi} * Expr<uint>{nw} + Expr<uint>{warp}).expression();
-                    auto o_valid = (Expr<uint>{o} < out_count).expression();
-                    _if(o_valid, [&] {
-                        // decompose o over x's shape minus the reduce axis
-                        Coord xc = _zero_coord();
-                        Coord yc = _zero_coord();
-                        auto rem = Var<uint>{Expr<uint>{o}};
-                        for (int32_t i = static_cast<int32_t>(x->rank()) - 1; i >= 0; --i) {
-                            auto ui = static_cast<uint32_t>(i);
-                            if (ui == dim) { continue; }
-                            auto e = Expr<uint>{static_cast<uint32_t>(axis_extent(x, ui))};
-                            auto ci = (rem % e).expression();
-                            rem = rem / e;
-                            xc[ui] = ci;
-                            yc[ui < dim ? ui : ui - 1u] = ci;
-                        }
-                        // per-lane partial over the strided reduce axis.
-                        // Full/tail split (lc_optimize: guard elision): the
-                        // bounds guard is only needed in the last chunk, so the
-                        // hot full chunks load/combine unconditionally (no
-                        // identity-init, no predicated branch per element); the
-                        // tail chunk keeps the identity-padded guard.  When the
-                        // reduce extent is a host-known multiple of every
-                        // possible power-of-two warp size (<= 128), the tail is
-                        // provably empty and is not emitted at all.
-                        auto acc = Var<T>{Expr<T>{identity_v()}};
-                        auto full_k = (Expr<uint>{reduce_len} / Expr<uint>{lanes}).expression();
-                        const bool tail_free = reduce_len % 128u == 0u;
-                        _for_range(_literal_u(0u), full_k, _literal_u(1u),
-                                   [&](const Expression *ki) {
-                            auto k = (Expr<uint>{ki} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
-                            xc[dim] = k;
-                            auto xv = _maybe_cast(_value_at(x, xc), Type::of<T>());
-                            if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
-                                xv = abs(Expr<T>{xv}).expression();
-                            }
-                            acc = Expr<T>{_combine_expr<T>(op, acc.expression(), xv)};
-                        });
-                        if (!tail_free) [[likely]] {
-                            _if((Expr<uint>{full_k} < Expr<uint>{k_iters}).expression(), [&] {
-                                auto k = (Expr<uint>{full_k} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
-                                auto v = Var<T>{Expr<T>{identity_v()}};
-                                auto k_valid = (Expr<uint>{k} < reduce_len).expression();
-                                _if(k_valid, [&] {
-                                    xc[dim] = k;
-                                    auto xv = _maybe_cast(_value_at(x, xc), Type::of<T>());
-                                    if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
-                                        xv = abs(Expr<T>{xv}).expression();
-                                    }
-                                    v = Expr<T>{xv};
-                                });
-                                acc = Expr<T>{_combine_expr<T>(op, acc.expression(), v.expression())};
-                            });
-                        }
-                        auto total = _warp_reduce_typed<T>(op, acc.expression());
-                        auto is_lane0 = (Expr<uint>{lane} == 0u).expression();
-                        _if(is_lane0, [&] {
-                            if (frag_out) {
-                                auto sidx = Expr<uint>{_staging_index(y, yc)};
-                                auto tcast = _maybe_cast(total, out_t);
-                                with_elem_type(y->dtype(), [&]<typename U>() {
-                                    Var<std::array<U, 1>> arr{staging};
-                                    arr[sidx] = Expr<U>{tcast};
-                                });
-                            } else {
-                                _write_to(y, yc, total);
-                            }
-                        });
-                    });
-                });
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{o_iters}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *oi) {
+             auto o = (Expr<uint>{oi} * Expr<uint>{nw} + Expr<uint>{warp}).expression();
+             auto o_valid = (Expr<uint>{o} < out_count).expression();
+             if_(Expr<bool>{o_valid}, [&] {
+                 // decompose o over x's shape minus the reduce axis
+                 Coord xc = _zero_coord();
+                 Coord yc = _zero_coord();
+                 auto rem = Var<uint>{Expr<uint>{o}};
+                 for (int32_t i = static_cast<int32_t>(x->rank()) - 1; i >= 0; --i) {
+                     auto ui = static_cast<uint32_t>(i);
+                     if (ui == dim) { continue; }
+                     auto e = Expr<uint>{static_cast<uint32_t>(axis_extent(x, ui))};
+                     auto ci = (rem % e).expression();
+                     rem = rem / e;
+                     xc[ui] = ci;
+                     yc[ui < dim ? ui : ui - 1u] = ci;
+                 }
+                 // per-lane partial over the strided reduce axis.
+                 // Full/tail split (lc_optimize: guard elision): the
+                 // bounds guard is only needed in the last chunk, so the
+                 // hot full chunks load/combine unconditionally (no
+                 // identity-init, no predicated branch per element); the
+                 // tail chunk keeps the identity-padded guard.  When the
+                 // reduce extent is a host-known multiple of every
+                 // possible power-of-two warp size (<= 128), the tail is
+                 // provably empty and is not emitted at all.
+                 auto acc = Var<T>{Expr<T>{identity_v()}};
+                 auto full_k = (Expr<uint>{reduce_len} / Expr<uint>{lanes}).expression();
+                 const bool tail_free = reduce_len % 128u == 0u;
+                 for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{full_k}, Expr<uint>{_literal_u(1u)})) {
+                     [&](const Expression *ki) {
+              auto k = (Expr<uint>{ki} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+              xc[dim] = k;
+              auto xv = _maybe_cast(_value_at(x, xc), Type::of<T>());
+              if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
+                  xv = abs(Expr<T>{xv}).expression();
+              }
+              acc = Expr<T>{_combine_expr<T>(op, acc.expression(), xv)};
+          }(_range_i_.expression());
+                 }
+                 if (!tail_free) [[likely]] {
+                     if_(Expr<bool>{(Expr<uint>{full_k} < Expr<uint>{k_iters}).expression()}, [&] {
+                         auto k = (Expr<uint>{full_k} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+                         auto v = Var<T>{Expr<T>{identity_v()}};
+                         auto k_valid = (Expr<uint>{k} < reduce_len).expression();
+                         if_(Expr<bool>{k_valid}, [&] {
+                             xc[dim] = k;
+                             auto xv = _maybe_cast(_value_at(x, xc), Type::of<T>());
+                             if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
+                                 xv = abs(Expr<T>{xv}).expression();
+                             }
+                             v = Expr<T>{xv};
+                         });
+                         acc = Expr<T>{_combine_expr<T>(op, acc.expression(), v.expression())};
+                     });
+                 }
+                 auto total = _warp_reduce_typed<T>(op, acc.expression());
+                 auto is_lane0 = (Expr<uint>{lane} == 0u).expression();
+                 if_(Expr<bool>{is_lane0}, [&] {
+                     if (frag_out) {
+                         auto sidx = Expr<uint>{_staging_index(y, yc)};
+                         auto tcast = _maybe_cast(total, out_t);
+                         with_elem_type(y->dtype(), [&]<typename U>() {
+                             Var<std::array<U, 1>> arr{staging};
+                             arr[sidx] = Expr<U>{tcast};
+                         });
+                     } else {
+                         _write_to(y, yc, total);
+                     }
+                 });
+             });
+         }(_range_i_.expression());
+                }
             }
         });
         if (frag_out) { _replicate_from_staging(y, y->dtype(), staging); }
@@ -3324,16 +3317,17 @@ private:
                         emit_k((Expr<uint>{lane} + kk * 32u).expression());
                     }
                 } else {
-                    _for_range(_literal_u(0u), _literal_u(k_iters_w), _literal_u(1u),
-                               [&](const Expression *kk) {
-                        // DSL: k = kk * lanes + lane
-                        auto k = (Expr<uint>{kk} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
-                        if (K % 32u != 0u) {// k may run past K on the last kk
-                            _if((Expr<uint>{k} < K).expression(), [&] { emit_k(k); });
-                        } else {
-                            emit_k(k);
-                        }
-                    });
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(k_iters_w)}, Expr<uint>{_literal_u(1u)})) {
+                        [&](const Expression *kk) {
+                 // DSL: k = kk * lanes + lane
+                 auto k = (Expr<uint>{kk} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+                 if (K % 32u != 0u) {// k may run past K on the last kk
+                     if_(Expr<bool>{(Expr<uint>{k} < K).expression()}, [&] { emit_k(k); });
+                 } else {
+                     emit_k(k);
+                 }
+             }(_range_i_.expression());
+                    }
                 }
                 // one scalar all-reduce per C element: every lane receives the
                 // finished tile (see the per-tile path for why this is not a
@@ -3376,7 +3370,7 @@ private:
                     // single-warp invalidation gap)
                     _invalidate_lazy(c);
                 } else {
-                    _if((Expr<uint>{lane} == 0u).expression(), write_tile);
+                    if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, write_tile);
                 }
                 _current_extent = saved;
                 return;
@@ -3401,56 +3395,57 @@ private:
                 // lane-strided K loop (lanes pinned to 32); the tail guard only
                 // wraps the loads/FMAs, so every lane still reaches the reduce
                 auto k_iters_w = (K + 32u - 1u) / 32u;
-                _for_range(_literal_u(0u), _literal_u(k_iters_w), _literal_u(1u),
-                           [&](const Expression *kk) {
-                    // DSL: k = kk * lanes + lane
-                    auto k = (Expr<uint>{kk} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
-                    auto emit_k = [&] {
-                        // TM A loads + TN B loads, then TM*TN FMAs (same
-                        // trans_a/trans_b indexing as the per-thread path)
-                        std::array<const Expression *, 16> a_row{};
-                        for (uint32_t i = 0u; i < TM; ++i) {
-                            Coord ac = _zero_coord();
-                            auto ri = (Expr<uint>{r} + i).expression();
-                            if (s->trans_a() != 0) {
-                                ac[0] = k;
-                                ac[1] = ri;
-                            } else {
-                                ac[0] = ri;
-                                ac[1] = k;
-                            }
-                            // DSL local: Var<float> initialized from the cast A value
-                            a_row[i] = Var<float>{Expr<float>{_maybe_cast(_value_at(a, ac), wide_t)}}.expression();
-                        }
-                        std::array<const Expression *, 16> b_col{};
-                        for (uint32_t j = 0u; j < TN; ++j) {
-                            Coord bc = _zero_coord();
-                            auto cj = (Expr<uint>{ct0} + j).expression();
-                            if (s->trans_b() != 0) {
-                                bc[0] = cj;
-                                bc[1] = k;
-                            } else {
-                                bc[0] = k;
-                                bc[1] = cj;
-                            }
-                            // DSL local: Var<float> initialized from the cast B value
-                            b_col[j] = Var<float>{Expr<float>{_maybe_cast(_value_at(b, bc), wide_t)}}.expression();
-                        }
-                        for (uint32_t i = 0u; i < TM; ++i) {
-                            for (uint32_t j = 0u; j < TN; ++j) {
-                                // DSL: acc[i][j] = fma(a_row[i], b_col[j], acc[i][j])
-                                acc[i * TN + j] = fma(Expr<float>{a_row[i]},
-                                                      Expr<float>{b_col[j]},
-                                                      Expr<float>{acc[i * TN + j].expression()});
-                            }
-                        }
-                    };
-                    if (K % 32u != 0u) {// k may run past K on the last kk
-                        _if((Expr<uint>{k} < K).expression(), emit_k);
-                    } else {
-                        emit_k();
-                    }
-                });
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(k_iters_w)}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *kk) {
+             // DSL: k = kk * lanes + lane
+             auto k = (Expr<uint>{kk} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+             auto emit_k = [&] {
+                 // TM A loads + TN B loads, then TM*TN FMAs (same
+                 // trans_a/trans_b indexing as the per-thread path)
+                 std::array<const Expression *, 16> a_row{};
+                 for (uint32_t i = 0u; i < TM; ++i) {
+                     Coord ac = _zero_coord();
+                     auto ri = (Expr<uint>{r} + i).expression();
+                     if (s->trans_a() != 0) {
+                         ac[0] = k;
+                         ac[1] = ri;
+                     } else {
+                         ac[0] = ri;
+                         ac[1] = k;
+                     }
+                     // DSL local: Var<float> initialized from the cast A value
+                     a_row[i] = Var<float>{Expr<float>{_maybe_cast(_value_at(a, ac), wide_t)}}.expression();
+                 }
+                 std::array<const Expression *, 16> b_col{};
+                 for (uint32_t j = 0u; j < TN; ++j) {
+                     Coord bc = _zero_coord();
+                     auto cj = (Expr<uint>{ct0} + j).expression();
+                     if (s->trans_b() != 0) {
+                         bc[0] = cj;
+                         bc[1] = k;
+                     } else {
+                         bc[0] = k;
+                         bc[1] = cj;
+                     }
+                     // DSL local: Var<float> initialized from the cast B value
+                     b_col[j] = Var<float>{Expr<float>{_maybe_cast(_value_at(b, bc), wide_t)}}.expression();
+                 }
+                 for (uint32_t i = 0u; i < TM; ++i) {
+                     for (uint32_t j = 0u; j < TN; ++j) {
+                         // DSL: acc[i][j] = fma(a_row[i], b_col[j], acc[i][j])
+                         acc[i * TN + j] = fma(Expr<float>{a_row[i]},
+                                               Expr<float>{b_col[j]},
+                                               Expr<float>{acc[i * TN + j].expression()});
+                     }
+                 }
+             };
+             if (K % 32u != 0u) {// k may run past K on the last kk
+                 if_(Expr<bool>{(Expr<uint>{k} < K).expression()}, emit_k);
+             } else {
+                 emit_k();
+             }
+         }(_range_i_.expression());
+                }
                 // scalar all-reduce per micro-tile element: every lane receives
                 // the full TM x TN tile (uniform; no sync_block inside a $if).
                 // A packed vector WARP_ACTIVE_SUM would cut the reduction cost
@@ -3495,7 +3490,7 @@ private:
                         }
                     }
                 } else {
-                    _if((Expr<uint>{lane} == 0u).expression(), [&] {
+                    if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, [&] {
                         for (uint32_t i = 0u; i < TM; ++i) {
                             for (uint32_t j = 0u; j < TN; ++j) {
                                 Coord cc = _zero_coord();
@@ -3526,18 +3521,22 @@ private:
                 _sync_block();// staging write-after-read hazard vs. previous use
             }
             // warp-level 2D partition of the MT x NT micro-tile grid
-            _for_range(r0, _literal_u(MT), _literal_u(th), [&](const Expression *r) {
-                auto emit_cols = [&] {
-                    _for_range(c0, _literal_u(NT), _literal_u(tw), [&](const Expression *c) {
-                        warp_micro_tile(r, c);
-                    });
-                };
-                if (MT % th != 0u) {// some warps start at r0 >= MT
-                    _if((Expr<uint>{r} < MT).expression(), emit_cols);
-                } else {
-                    emit_cols();
-                }
-            });
+            for (auto _range_i_ : dynamic_range(Expr<uint>{r0}, Expr<uint>{_literal_u(MT)}, Expr<uint>{_literal_u(th)})) {
+                [&](const Expression *r) {
+                               auto emit_cols = [&] {
+                                   for (auto _range_i_ : dynamic_range(Expr<uint>{c0}, Expr<uint>{_literal_u(NT)}, Expr<uint>{_literal_u(tw)})) {
+                                       [&](const Expression *c) {
+                                                                             warp_micro_tile(r, c);
+                                                                         }(_range_i_.expression());
+                                   }
+                               };
+                               if (MT % th != 0u) {// some warps start at r0 >= MT
+                                   if_(Expr<bool>{(Expr<uint>{r} < MT).expression()}, emit_cols);
+                               } else {
+                                   emit_cols();
+                               }
+                           }(_range_i_.expression());
+            }
             if (frag && host_nw > 1u) {
                 _replicate_from_staging(c, c->dtype(), staging);
             } else if (frag) {
@@ -3573,57 +3572,58 @@ private:
                 }
             }
             // K loop with k_pack host unrolling; tail guarded when K % k_pack != 0
-            _for_range(_literal_u(0u), _literal_u(k_iters), _literal_u(1u),
-                       [&](const Expression *kk) {
-                for (uint32_t u = 0u; u < k_pack; ++u) {
-                    // DSL: k = kk * k_pack + u
-                    auto k = (Expr<uint>{kk} * k_pack + u).expression();
-                    auto emit_k = [&] {
-                        // TM A loads + TN B loads, then TM*TN FMAs
-                        std::array<const Expression *, 16> a_row{};
-                        for (uint32_t i = 0u; i < TM; ++i) {
-                            Coord ac = _zero_coord();
-                            auto ri = (Expr<uint>{r} + i).expression();
-                            if (s->trans_a() != 0) {
-                                ac[0] = k;
-                                ac[1] = ri;
-                            } else {
-                                ac[0] = ri;
-                                ac[1] = k;
-                            }
-                            // DSL local: Var<float> initialized from the cast A value
-                            a_row[i] = Var<float>{Expr<float>{_maybe_cast(_value_at(a, ac), wide_t)}}.expression();
-                        }
-                        std::array<const Expression *, 16> b_col{};
-                        for (uint32_t j = 0u; j < TN; ++j) {
-                            Coord bc = _zero_coord();
-                            auto cj = (Expr<uint>{c0} + j).expression();
-                            if (s->trans_b() != 0) {
-                                bc[0] = cj;
-                                bc[1] = k;
-                            } else {
-                                bc[0] = k;
-                                bc[1] = cj;
-                            }
-                            // DSL local: Var<float> initialized from the cast B value
-                            b_col[j] = Var<float>{Expr<float>{_maybe_cast(_value_at(b, bc), wide_t)}}.expression();
-                        }
-                        for (uint32_t i = 0u; i < TM; ++i) {
-                            for (uint32_t j = 0u; j < TN; ++j) {
-                                // DSL: acc[i][j] = fma(a_row[i], b_col[j], acc[i][j])
-                                acc[i * TN + j] = fma(Expr<float>{a_row[i]},
-                                                      Expr<float>{b_col[j]},
-                                                      Expr<float>{acc[i * TN + j].expression()});
-                            }
-                        }
-                    };
-                    if (K % k_pack != 0u) {// k may run past K on the last kk
-                        _if((Expr<uint>{k} < K).expression(), emit_k);
-                    } else {
-                        emit_k();
-                    }
-                }
-            });
+            for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(k_iters)}, Expr<uint>{_literal_u(1u)})) {
+                [&](const Expression *kk) {
+         for (uint32_t u = 0u; u < k_pack; ++u) {
+             // DSL: k = kk * k_pack + u
+             auto k = (Expr<uint>{kk} * k_pack + u).expression();
+             auto emit_k = [&] {
+                 // TM A loads + TN B loads, then TM*TN FMAs
+                 std::array<const Expression *, 16> a_row{};
+                 for (uint32_t i = 0u; i < TM; ++i) {
+                     Coord ac = _zero_coord();
+                     auto ri = (Expr<uint>{r} + i).expression();
+                     if (s->trans_a() != 0) {
+                         ac[0] = k;
+                         ac[1] = ri;
+                     } else {
+                         ac[0] = ri;
+                         ac[1] = k;
+                     }
+                     // DSL local: Var<float> initialized from the cast A value
+                     a_row[i] = Var<float>{Expr<float>{_maybe_cast(_value_at(a, ac), wide_t)}}.expression();
+                 }
+                 std::array<const Expression *, 16> b_col{};
+                 for (uint32_t j = 0u; j < TN; ++j) {
+                     Coord bc = _zero_coord();
+                     auto cj = (Expr<uint>{c0} + j).expression();
+                     if (s->trans_b() != 0) {
+                         bc[0] = cj;
+                         bc[1] = k;
+                     } else {
+                         bc[0] = k;
+                         bc[1] = cj;
+                     }
+                     // DSL local: Var<float> initialized from the cast B value
+                     b_col[j] = Var<float>{Expr<float>{_maybe_cast(_value_at(b, bc), wide_t)}}.expression();
+                 }
+                 for (uint32_t i = 0u; i < TM; ++i) {
+                     for (uint32_t j = 0u; j < TN; ++j) {
+                         // DSL: acc[i][j] = fma(a_row[i], b_col[j], acc[i][j])
+                         acc[i * TN + j] = fma(Expr<float>{a_row[i]},
+                                               Expr<float>{b_col[j]},
+                                               Expr<float>{acc[i * TN + j].expression()});
+                     }
+                 }
+             };
+             if (K % k_pack != 0u) {// k may run past K on the last kk
+                 if_(Expr<bool>{(Expr<uint>{k} < K).expression()}, emit_k);
+             } else {
+                 emit_k();
+             }
+         }
+     }(_range_i_.expression());
+            }
             // write-back the micro-tile
             for (uint32_t i = 0u; i < TM; ++i) {
                 for (uint32_t j = 0u; j < TN; ++j) {
@@ -3652,21 +3652,23 @@ private:
         auto gemm_partition = [&](auto &&body) {
             switch (s->policy()) {
                 case GemmWarpPolicy::FullRow: {
-                    _for_range(_tid_x(), _literal_u(MT), _literal_u(_threads),
-                               [&](const Expression *rt) {
-                        for (uint32_t ct = 0u; ct < NT; ++ct) {
-                            body(rt, _literal_u(ct));
-                        }
-                    });
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{_tid_x()}, Expr<uint>{_literal_u(MT)}, Expr<uint>{_literal_u(_threads)})) {
+                        [&](const Expression *rt) {
+                 for (uint32_t ct = 0u; ct < NT; ++ct) {
+                     body(rt, _literal_u(ct));
+                 }
+             }(_range_i_.expression());
+                    }
                     break;
                 }
                 case GemmWarpPolicy::FullCol: {
-                    _for_range(_tid_x(), _literal_u(NT), _literal_u(_threads),
-                               [&](const Expression *ct) {
-                        for (uint32_t rt = 0u; rt < MT; ++rt) {
-                            body(_literal_u(rt), ct);
-                        }
-                    });
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{_tid_x()}, Expr<uint>{_literal_u(NT)}, Expr<uint>{_literal_u(_threads)})) {
+                        [&](const Expression *ct) {
+                 for (uint32_t rt = 0u; rt < MT; ++rt) {
+                     body(_literal_u(rt), ct);
+                 }
+             }(_range_i_.expression());
+                    }
                     break;
                 }
                 default: {// Square
@@ -3799,8 +3801,8 @@ private:
         // worth the with_elem_type plumbing for a path that is NOT exercised by
         // the default tests.  The raw calls are correct (Type::cooperative_vector
         // + COOPERATIVE_VECTOR_SPLAT + per-component FMA expansion).  Only the
-        // index math and control flow use the DSL helpers (_for_range /
-        // _literal_u / _zero_coord).
+        // index math and control flow use the DSL sugar (dynamic_range /
+        // if_ / _literal_u / _zero_coord).
         auto acc_vec_t = Type::cooperative_vector(wide_t, N);
         auto in_vec_t = Type::cooperative_vector(in_t, N);
         // component access / assignment of a cooperative vector (the AST-level
@@ -3810,56 +3812,58 @@ private:
         };
         // uniform (non-partitioned) row loop: every thread of the block
         // executes the same cooperative ops, block-wide
-        _for_range(_literal_u(0u), _literal_u(M), _literal_u(1u),
-                   [&](const Expression *r) {
-            auto acc = _fb->local(acc_vec_t);
-            if (s->clear_accum() != 0) {
-                _fb->assign(acc, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT,
-                                           {_fb->literal(wide_t, 0.f)}));
-            } else {
-                // load the existing C row into the accumulator
-                for (auto i = 0u; i < N; ++i) {
-                    Coord cc = _zero_coord();
-                    cc[0] = r;
-                    cc[1] = _literal_u(i);
-                    _fb->assign(vec_at(acc, wide_t, i),
-                                _maybe_cast(_value_at(c, cc), wide_t));
-                }
-            }
-            _for_range(_literal_u(0u), _literal_u(K), _literal_u(1u),
-                       [&](const Expression *k) {
-                // broadcast A[r][k] into a cooperative vector
-                Coord ac = _zero_coord();
-                ac[0] = r;
-                ac[1] = k;
-                auto av = _maybe_cast(_value_at(a, ac), wide_t);
-                auto a_vec = _fb->local(acc_vec_t);
-                _fb->assign(a_vec, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT, {av}));
-                // stage B[k][0:N] into a cooperative vector
-                auto b_vec = _fb->local(in_vec_t);
-                for (auto i = 0u; i < N; ++i) {
-                    Coord bc = _zero_coord();
-                    bc[0] = k;
-                    bc[1] = _literal_u(i);
-                    _fb->assign(vec_at(b_vec, in_t, i), _value_at(b, bc));
-                }
-                // acc += a_vec * b_vec (elementwise FMA expansion, as the DSL
-                // cooperative_vector_fma emits)
-                for (auto i = 0u; i < N; ++i) {
-                    auto ai = vec_at(a_vec, wide_t, i);
-                    auto bi = _maybe_cast(vec_at(b_vec, in_t, i), wide_t);
-                    auto ci = vec_at(acc, wide_t, i);
-                    _fb->assign(ci, _fb->call(wide_t, CallOp::FMA, {ai, bi, ci}));
-                }
-            });
-            // store the accumulated row back into the C tile
-            for (auto i = 0u; i < N; ++i) {
-                Coord cc = _zero_coord();
-                cc[0] = r;
-                cc[1] = _literal_u(i);
-                _write_to(c, cc, _maybe_cast(vec_at(acc, wide_t, i), out_t));
-            }
-        });
+        for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(M)}, Expr<uint>{_literal_u(1u)})) {
+            [&](const Expression *r) {
+     auto acc = _fb->local(acc_vec_t);
+     if (s->clear_accum() != 0) {
+         _fb->assign(acc, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT,
+                                    {_fb->literal(wide_t, 0.f)}));
+     } else {
+         // load the existing C row into the accumulator
+         for (auto i = 0u; i < N; ++i) {
+             Coord cc = _zero_coord();
+             cc[0] = r;
+             cc[1] = _literal_u(i);
+             _fb->assign(vec_at(acc, wide_t, i),
+                         _maybe_cast(_value_at(c, cc), wide_t));
+         }
+     }
+     for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(K)}, Expr<uint>{_literal_u(1u)})) {
+         [&](const Expression *k) {
+  // broadcast A[r][k] into a cooperative vector
+  Coord ac = _zero_coord();
+  ac[0] = r;
+  ac[1] = k;
+  auto av = _maybe_cast(_value_at(a, ac), wide_t);
+  auto a_vec = _fb->local(acc_vec_t);
+  _fb->assign(a_vec, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT, {av}));
+  // stage B[k][0:N] into a cooperative vector
+  auto b_vec = _fb->local(in_vec_t);
+  for (auto i = 0u; i < N; ++i) {
+      Coord bc = _zero_coord();
+      bc[0] = k;
+      bc[1] = _literal_u(i);
+      _fb->assign(vec_at(b_vec, in_t, i), _value_at(b, bc));
+  }
+  // acc += a_vec * b_vec (elementwise FMA expansion, as the DSL
+  // cooperative_vector_fma emits)
+  for (auto i = 0u; i < N; ++i) {
+      auto ai = vec_at(a_vec, wide_t, i);
+      auto bi = _maybe_cast(vec_at(b_vec, in_t, i), wide_t);
+      auto ci = vec_at(acc, wide_t, i);
+      _fb->assign(ci, _fb->call(wide_t, CallOp::FMA, {ai, bi, ci}));
+  }
+}(_range_i_.expression());
+     }
+     // store the accumulated row back into the C tile
+     for (auto i = 0u; i < N; ++i) {
+         Coord cc = _zero_coord();
+         cc[0] = r;
+         cc[1] = _literal_u(i);
+         _write_to(c, cc, _maybe_cast(vec_at(acc, wide_t, i), out_t));
+     }
+ }(_range_i_.expression());
+        }
         _current_extent = saved;
     }
 
@@ -3887,7 +3891,7 @@ private:
             // scalars; AND and BIT_AND coincide on {0,1}.)
             cond = (Expr<bool>{cond} & Expr<bool>{_batch_valid}).expression();
         }
-        _if(cond, [&] {
+        if_(Expr<bool>{cond}, [&] {
             auto v = _value_at(t, c0);
             auto fmt = luisa::format("[tile] {} tile[0] = {{}}", luisa::string{s->msg()});
             // no DSL equivalent for print_: keep the raw call
@@ -4125,7 +4129,7 @@ private:
             };
             // All atomics target Global storage; guard them with the batch
             // validity predicate so idle tz threads never touch batch 0.
-            if (_batching) { _if(_batch_valid, emit_body); } else { emit_body(); }
+            if (_batching) { if_(Expr<bool>{_batch_valid}, emit_body); } else { emit_body(); }
         };
         if (dst->rank() == 2u) {
             _partition_loop_2d(dst, body);
@@ -4343,117 +4347,118 @@ private:
                         const bool seg_guard_free = (seg_len % 32u == 0u) && (scan_len % seg_len == 0u);
                         Coord scc = cc0;
                         carry = Expr<T>{base};
-                        _for_range(_literal_u(0u), _literal_u(seg_chunks), _literal_u(1u),
-                                   [&](const Expression *ch) {
-                            // DSL: off = seg_start + ch * lanes + lane
-                            auto off = (Expr<uint>{seg_start} +
-                                        Expr<uint>{ch} * Expr<uint>{lanes} +
-                                        Expr<uint>{lane}).expression();
-                            // element position along the scan axis (from the scan side)
-                            const Expression *pos = off;
-                            if (reverse != 0) {
-                                pos = (Expr<uint>{scan_len - 1u} - Expr<uint>{off}).expression();
-                            }
-                            auto valid = (Expr<uint>{off} < Expr<uint>{seg_end}).expression();
-                            auto v = Var<T>{Expr<T>{identity()}};
-                            if (seg_guard_free) [[likely]] {
-                                scc[dim] = pos;
-                                v = Expr<T>{_maybe_cast(_value_at(src, scc), Type::of<T>())};
-                            } else {
-                                _if(valid, [&] {
-                                    scc[dim] = pos;
-                                    v = Expr<T>{_maybe_cast(_value_at(src, scc), Type::of<T>())};
-                                });
-                            }
-                            // in-chunk inclusive scan across the warp: butterfly
-                            // inclusive scan via WARP_READ_LANE (lc_optimize 2.2;
-                            // the lane read is unconditional/clamped so it is never
-                            // divergent)
-                            auto incl = Var<T>{Expr<T>{v.expression()}};
-                            for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
-                                auto d_active = (Expr<uint>{d} < Expr<uint>{lanes}).expression();
-                                _if(d_active, [&] {
-                                    auto clamped = min(Expr<uint>{lane}, Expr<uint>{d});
-                                    auto peer = (Expr<uint>{lane} - clamped).expression();
-                                    // stage the unconditional wave read in a local
-                                    auto other = Var<T>{warp_read_lane(incl, Expr<uint>{peer})};
-                                    auto has_prev = (Expr<uint>{lane} >= Expr<uint>{d}).expression();
-                                    _if(has_prev, [&] {
-                                        incl = Expr<T>{_combine_expr<T>(op, incl.expression(),
-                                                                        other.expression())};
-                                    });
-                                });
-                            }
-                            // chunk total = the last lane's inclusive value
-                            auto last = (Expr<uint>{lanes} - 1u).expression();
-                            auto total = warp_read_lane(incl, Expr<uint>{last}).expression();
-                            const Expression *res = _combine_expr<T>(op, carry.expression(),
-                                                                     incl.expression());
-                            if (emit_writes) {
-                                if (seg_guard_free) [[likely]] {
-                                    scc[dim] = pos;
-                                    if (frag_out) {
-                                        auto sidx = Expr<uint>{_staging_index(dst, scc)};
-                                        auto res_cast = _maybe_cast(res, out_t);
-                                        // DSL staging write (dst dtype may differ):
-                                        //   Var<std::array<U,1>> s{staging}; s[idx] = cast(res, U)
-                                        with_elem_type(dst->dtype(), [&]<typename U>() {
-                                            Var<std::array<U, 1>> s{staging};
-                                            s[sidx] = Expr<U>{res_cast};
-                                        });
-                                    } else {
-                                        _write_to(dst, scc, res);
-                                    }
-                                } else {
-                                    _if(valid, [&] {
-                                        scc[dim] = pos;
-                                        if (frag_out) {
-                                            auto sidx = Expr<uint>{_staging_index(dst, scc)};
-                                            auto res_cast = _maybe_cast(res, out_t);
-                                            // DSL staging write (dst dtype may differ):
-                                            //   Var<std::array<U,1>> s{staging}; s[idx] = cast(res, U)
-                                            with_elem_type(dst->dtype(), [&]<typename U>() {
-                                                Var<std::array<U, 1>> s{staging};
-                                                s[sidx] = Expr<U>{res_cast};
-                                            });
-                                        } else {
-                                            _write_to(dst, scc, res);
-                                        }
-                                    });
-                                }
-                            }
-                            carry = Expr<T>{_combine_expr<T>(op, carry.expression(), total)};
-                        });
+                        for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(seg_chunks)}, Expr<uint>{_literal_u(1u)})) {
+                            [&](const Expression *ch) {
+                     // DSL: off = seg_start + ch * lanes + lane
+                     auto off = (Expr<uint>{seg_start} +
+                                 Expr<uint>{ch} * Expr<uint>{lanes} +
+                                 Expr<uint>{lane}).expression();
+                     // element position along the scan axis (from the scan side)
+                     const Expression *pos = off;
+                     if (reverse != 0) {
+                         pos = (Expr<uint>{scan_len - 1u} - Expr<uint>{off}).expression();
+                     }
+                     auto valid = (Expr<uint>{off} < Expr<uint>{seg_end}).expression();
+                     auto v = Var<T>{Expr<T>{identity()}};
+                     if (seg_guard_free) [[likely]] {
+                         scc[dim] = pos;
+                         v = Expr<T>{_maybe_cast(_value_at(src, scc), Type::of<T>())};
+                     } else {
+                         if_(Expr<bool>{valid}, [&] {
+                             scc[dim] = pos;
+                             v = Expr<T>{_maybe_cast(_value_at(src, scc), Type::of<T>())};
+                         });
+                     }
+                     // in-chunk inclusive scan across the warp: butterfly
+                     // inclusive scan via WARP_READ_LANE (lc_optimize 2.2;
+                     // the lane read is unconditional/clamped so it is never
+                     // divergent)
+                     auto incl = Var<T>{Expr<T>{v.expression()}};
+                     for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
+                         auto d_active = (Expr<uint>{d} < Expr<uint>{lanes}).expression();
+                         if_(Expr<bool>{d_active}, [&] {
+                             auto clamped = min(Expr<uint>{lane}, Expr<uint>{d});
+                             auto peer = (Expr<uint>{lane} - clamped).expression();
+                             // stage the unconditional wave read in a local
+                             auto other = Var<T>{warp_read_lane(incl, Expr<uint>{peer})};
+                             auto has_prev = (Expr<uint>{lane} >= Expr<uint>{d}).expression();
+                             if_(Expr<bool>{has_prev}, [&] {
+                                 incl = Expr<T>{_combine_expr<T>(op, incl.expression(),
+                                                                 other.expression())};
+                             });
+                         });
+                     }
+                     // chunk total = the last lane's inclusive value
+                     auto last = (Expr<uint>{lanes} - 1u).expression();
+                     auto total = warp_read_lane(incl, Expr<uint>{last}).expression();
+                     const Expression *res = _combine_expr<T>(op, carry.expression(),
+                                                              incl.expression());
+                     if (emit_writes) {
+                         if (seg_guard_free) [[likely]] {
+                             scc[dim] = pos;
+                             if (frag_out) {
+                                 auto sidx = Expr<uint>{_staging_index(dst, scc)};
+                                 auto res_cast = _maybe_cast(res, out_t);
+                                 // DSL staging write (dst dtype may differ):
+                                 //   Var<std::array<U,1>> s{staging}; s[idx] = cast(res, U)
+                                 with_elem_type(dst->dtype(), [&]<typename U>() {
+                                     Var<std::array<U, 1>> s{staging};
+                                     s[sidx] = Expr<U>{res_cast};
+                                 });
+                             } else {
+                                 _write_to(dst, scc, res);
+                             }
+                         } else {
+                             if_(Expr<bool>{valid}, [&] {
+                                 scc[dim] = pos;
+                                 if (frag_out) {
+                                     auto sidx = Expr<uint>{_staging_index(dst, scc)};
+                                     auto res_cast = _maybe_cast(res, out_t);
+                                     // DSL staging write (dst dtype may differ):
+                                     //   Var<std::array<U,1>> s{staging}; s[idx] = cast(res, U)
+                                     with_elem_type(dst->dtype(), [&]<typename U>() {
+                                         Var<std::array<U, 1>> s{staging};
+                                         s[sidx] = Expr<U>{res_cast};
+                                     });
+                                 } else {
+                                     _write_to(dst, scc, res);
+                                 }
+                             });
+                         }
+                     }
+                     carry = Expr<T>{_combine_expr<T>(op, carry.expression(), total)};
+                 }(_range_i_.expression());
+                        }
                     };
                     auto seg_valid = (Expr<uint>{warp} < seg_count).expression();
-                    _if(seg_valid, [&] {
+                    if_(Expr<bool>{seg_valid}, [&] {
                         // pass 1: scan segment, publish the segment total
                         auto seg_start = (Expr<uint>{warp} * seg_len).expression();
                         carry = Expr<T>{identity()};
                         scan_segment(cc, seg_start, seg_len, identity(), false);
-                        _if((Expr<uint>{lane} == 0u).expression(), [&] {
+                        if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, [&] {
                             totals_s[Expr<uint>{warp}] = Expr<T>{carry.expression()};
                         });
                     });
                     _sync_block();// publish totals before warp 0 scans them
                     // pass 2: warp 0 inclusive-scans the seg_count totals -> per-
                     // segment exclusive prefixes
-                    _if((Expr<uint>{warp} == 0u).expression(), [&] {
+                    if_(Expr<bool>{(Expr<uint>{warp} == 0u).expression()}, [&] {
                         auto v = Var<T>{Expr<T>{identity()}};
                         auto lane_valid = (Expr<uint>{lane} < seg_count).expression();
-                        _if(lane_valid, [&] {
+                        if_(Expr<bool>{lane_valid}, [&] {
                             v = Expr<T>{totals_s[Expr<uint>{lane}].expression()};
                         });
                         auto incl = Var<T>{Expr<T>{v.expression()}};
                         // butterfly inclusive scan of totals (same loop as above)
                         for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
                             auto d_active = (Expr<uint>{d} < Expr<uint>{lanes}).expression();
-                            _if(d_active, [&] {
+                            if_(Expr<bool>{d_active}, [&] {
                                 auto clamped = min(Expr<uint>{lane}, Expr<uint>{d});
                                 auto peer = (Expr<uint>{lane} - clamped).expression();
                                 auto other = Var<T>{warp_read_lane(incl, Expr<uint>{peer})};
                                 auto has_prev = (Expr<uint>{lane} >= Expr<uint>{d}).expression();
-                                _if(has_prev, [&] {
+                                if_(Expr<bool>{has_prev}, [&] {
                                     incl = Expr<T>{_combine_expr<T>(op, incl.expression(),
                                                                     other.expression())};
                                 });
@@ -4463,15 +4468,15 @@ private:
                         auto pred = (Expr<uint>{lane} -
                                      min(Expr<uint>{lane}, Expr<uint>{1u})).expression();
                         auto prev = Var<T>{warp_read_lane(incl, Expr<uint>{pred})};
-                        _if((Expr<uint>{lane} == 0u).expression(), [&] {
+                        if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, [&] {
                             prev = Expr<T>{identity()};
                         });
-                        _if(lane_valid, [&] {
+                        if_(Expr<bool>{lane_valid}, [&] {
                             prefix_s[Expr<uint>{lane}] = Expr<T>{prev.expression()};
                         });
                     });
                     _sync_block();// publish prefixes before pass 3 reads them
-                    _if(seg_valid, [&] {
+                    if_(Expr<bool>{seg_valid}, [&] {
                         // pass 3: recompute the segment scan with the exclusive prefix
                         auto seg_start = (Expr<uint>{warp} * seg_len).expression();
                         auto base = Var<T>{Expr<T>{prefix_s[Expr<uint>{warp}].expression()}};
@@ -4485,107 +4490,109 @@ private:
         }
         // ---- normal warp-per-line scan (existing path) ----
         with_elem_type(src->dtype(), [&]<typename T>() {
-            _for_range(_literal_u(0u), line_iters, _literal_u(1u),
-                       [&](const Expression *li) {
-                // DSL: line = li * nw + warp
-                auto line = (Expr<uint>{li} * Expr<uint>{nw} + Expr<uint>{warp}).expression();
-                auto line_valid = (Expr<uint>{line} < line_count).expression();
-                _if(line_valid, [&] {
-                    // decompose the line index over src's shape minus the scan axis
-                    Coord cc = _zero_coord();
-                    auto rem = Var<uint>{Expr<uint>{line}};
-                    for (int32_t i = static_cast<int32_t>(src->rank()) - 1; i >= 0; --i) {
-                        auto ui = static_cast<uint32_t>(i);
-                        if (ui == dim) { continue; }
-                        auto e = Expr<uint>{static_cast<uint32_t>(axis_extent(src, ui))};
-                        auto ci = (rem % e).expression();
-                        rem = rem / e;
-                        cc[ui] = ci;
-                    }
-                    auto carry = Var<T>{Expr<T>{identity()}};
-                    // Full/tail chunk split (lc_optimize: guard elision): the
-                    // off < scan_len guard is only false in the last chunk, so
-                    // full chunks load/scan/store unconditionally; the tail
-                    // chunk keeps the identity-padded guards.  When scan_len is
-                    // a host-known multiple of every possible power-of-two warp
-                    // size (<= 128), the tail is provably empty and not emitted.
-                    auto full_ch = (Expr<uint>{scan_len} / Expr<uint>{lanes}).expression();
-                    const bool tail_free = scan_len % 128u == 0u;
-                    auto chunk_body = [&](const Expression *ch, bool guarded) {
-                        // DSL: off = ch * lanes + lane
-                        auto off = (Expr<uint>{ch} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
-                        // element position along the scan axis (from the scan side)
-                        const Expression *pos = off;
-                        if (reverse != 0) {
-                            pos = (Expr<uint>{scan_len - 1u} - Expr<uint>{off}).expression();
-                        }
-                        auto valid = (Expr<uint>{off} < scan_len).expression();
-                        auto v = Var<T>{Expr<T>{identity()}};
-                        if (guarded) {
-                            _if(valid, [&] {
-                                cc[dim] = pos;
-                                v = Expr<T>{_maybe_cast(_value_at(src, cc), Type::of<T>())};
-                            });
-                        } else {
-                            cc[dim] = pos;
-                            v = Expr<T>{_maybe_cast(_value_at(src, cc), Type::of<T>())};
-                        }
-                        // in-chunk inclusive scan across the warp: butterfly
-                        // inclusive scan via WARP_READ_LANE (lc_optimize 2.2; the
-                        // lane read is unconditional/clamped so it is never
-                        // divergent — the built-in WARP_PREFIX_SUM miscompiles in
-                        // this nested control flow on some backends)
-                        auto incl = Var<T>{Expr<T>{v.expression()}};
-                        for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
-                            auto d_active = (Expr<uint>{d} < Expr<uint>{lanes}).expression();
-                            _if(d_active, [&] {
-                                auto clamped = min(Expr<uint>{lane}, Expr<uint>{d});
-                                auto peer = (Expr<uint>{lane} - clamped).expression();
-                                // the wave read must stay UNCONDITIONAL (a
-                                // divergent wave intrinsic is UB): stage it in a
-                                // local and guard only the combine step
-                                auto other = Var<T>{warp_read_lane(incl, Expr<uint>{peer})};
-                                auto has_prev = (Expr<uint>{lane} >= Expr<uint>{d}).expression();
-                                _if(has_prev, [&] {
-                                    incl = Expr<T>{_combine_expr<T>(op, incl.expression(),
-                                                                    other.expression())};
-                                });
-                            });
-                        }
-                        // chunk total = the last lane's inclusive value
-                        auto last = (Expr<uint>{lanes} - 1u).expression();
-                        auto total = warp_read_lane(incl, Expr<uint>{last}).expression();
-                        const Expression *res = _combine_expr<T>(op, carry.expression(),
-                                                                 incl.expression());
-                        auto emit_write = [&] {
-                            cc[dim] = pos;
-                            if (frag_out) {
-                                auto sidx = Expr<uint>{_staging_index(dst, cc)};
-                                auto res_cast = _maybe_cast(res, out_t);
-                                with_elem_type(dst->dtype(), [&]<typename U>() {
-                                    Var<std::array<U, 1>> s{staging};
-                                    s[sidx] = Expr<U>{res_cast};
-                                });
-                            } else {
-                                _write_to(dst, cc, res);
-                            }
-                        };
-                        if (guarded) {
-                            _if(valid, emit_write);
-                        } else {
-                            emit_write();
-                        }
-                        carry = Expr<T>{_combine_expr<T>(op, carry.expression(), total)};
-                    };
-                    _for_range(_literal_u(0u), full_ch, _literal_u(1u),
-                               [&](const Expression *ch) { chunk_body(ch, false); });
-                    if (!tail_free) [[likely]] {
-                        _if((Expr<uint>{full_ch} < Expr<uint>{chunks}).expression(), [&] {
-                            chunk_body(full_ch, true);
-                        });
-                    }
-                });
-            });
+            for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{line_iters}, Expr<uint>{_literal_u(1u)})) {
+                [&](const Expression *li) {
+         // DSL: line = li * nw + warp
+         auto line = (Expr<uint>{li} * Expr<uint>{nw} + Expr<uint>{warp}).expression();
+         auto line_valid = (Expr<uint>{line} < line_count).expression();
+         if_(Expr<bool>{line_valid}, [&] {
+             // decompose the line index over src's shape minus the scan axis
+             Coord cc = _zero_coord();
+             auto rem = Var<uint>{Expr<uint>{line}};
+             for (int32_t i = static_cast<int32_t>(src->rank()) - 1; i >= 0; --i) {
+                 auto ui = static_cast<uint32_t>(i);
+                 if (ui == dim) { continue; }
+                 auto e = Expr<uint>{static_cast<uint32_t>(axis_extent(src, ui))};
+                 auto ci = (rem % e).expression();
+                 rem = rem / e;
+                 cc[ui] = ci;
+             }
+             auto carry = Var<T>{Expr<T>{identity()}};
+             // Full/tail chunk split (lc_optimize: guard elision): the
+             // off < scan_len guard is only false in the last chunk, so
+             // full chunks load/scan/store unconditionally; the tail
+             // chunk keeps the identity-padded guards.  When scan_len is
+             // a host-known multiple of every possible power-of-two warp
+             // size (<= 128), the tail is provably empty and not emitted.
+             auto full_ch = (Expr<uint>{scan_len} / Expr<uint>{lanes}).expression();
+             const bool tail_free = scan_len % 128u == 0u;
+             auto chunk_body = [&](const Expression *ch, bool guarded) {
+                 // DSL: off = ch * lanes + lane
+                 auto off = (Expr<uint>{ch} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+                 // element position along the scan axis (from the scan side)
+                 const Expression *pos = off;
+                 if (reverse != 0) {
+                     pos = (Expr<uint>{scan_len - 1u} - Expr<uint>{off}).expression();
+                 }
+                 auto valid = (Expr<uint>{off} < scan_len).expression();
+                 auto v = Var<T>{Expr<T>{identity()}};
+                 if (guarded) {
+                     if_(Expr<bool>{valid}, [&] {
+                         cc[dim] = pos;
+                         v = Expr<T>{_maybe_cast(_value_at(src, cc), Type::of<T>())};
+                     });
+                 } else {
+                     cc[dim] = pos;
+                     v = Expr<T>{_maybe_cast(_value_at(src, cc), Type::of<T>())};
+                 }
+                 // in-chunk inclusive scan across the warp: butterfly
+                 // inclusive scan via WARP_READ_LANE (lc_optimize 2.2; the
+                 // lane read is unconditional/clamped so it is never
+                 // divergent — the built-in WARP_PREFIX_SUM miscompiles in
+                 // this nested control flow on some backends)
+                 auto incl = Var<T>{Expr<T>{v.expression()}};
+                 for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
+                     auto d_active = (Expr<uint>{d} < Expr<uint>{lanes}).expression();
+                     if_(Expr<bool>{d_active}, [&] {
+                         auto clamped = min(Expr<uint>{lane}, Expr<uint>{d});
+                         auto peer = (Expr<uint>{lane} - clamped).expression();
+                         // the wave read must stay UNCONDITIONAL (a
+                         // divergent wave intrinsic is UB): stage it in a
+                         // local and guard only the combine step
+                         auto other = Var<T>{warp_read_lane(incl, Expr<uint>{peer})};
+                         auto has_prev = (Expr<uint>{lane} >= Expr<uint>{d}).expression();
+                         if_(Expr<bool>{has_prev}, [&] {
+                             incl = Expr<T>{_combine_expr<T>(op, incl.expression(),
+                                                             other.expression())};
+                         });
+                     });
+                 }
+                 // chunk total = the last lane's inclusive value
+                 auto last = (Expr<uint>{lanes} - 1u).expression();
+                 auto total = warp_read_lane(incl, Expr<uint>{last}).expression();
+                 const Expression *res = _combine_expr<T>(op, carry.expression(),
+                                                          incl.expression());
+                 auto emit_write = [&] {
+                     cc[dim] = pos;
+                     if (frag_out) {
+                         auto sidx = Expr<uint>{_staging_index(dst, cc)};
+                         auto res_cast = _maybe_cast(res, out_t);
+                         with_elem_type(dst->dtype(), [&]<typename U>() {
+                             Var<std::array<U, 1>> s{staging};
+                             s[sidx] = Expr<U>{res_cast};
+                         });
+                     } else {
+                         _write_to(dst, cc, res);
+                     }
+                 };
+                 if (guarded) {
+                     if_(Expr<bool>{valid}, emit_write);
+                 } else {
+                     emit_write();
+                 }
+                 carry = Expr<T>{_combine_expr<T>(op, carry.expression(), total)};
+             };
+             for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{full_ch}, Expr<uint>{_literal_u(1u)})) {
+                 [&](const Expression *ch) { chunk_body(ch, false); }(_range_i_.expression());
+             }
+             if (!tail_free) [[likely]] {
+                 if_(Expr<bool>{(Expr<uint>{full_ch} < Expr<uint>{chunks}).expression()}, [&] {
+                     chunk_body(full_ch, true);
+                 });
+             }
+         });
+     }(_range_i_.expression());
+            }
         });
         if (frag_out) { _replicate_from_staging(dst, dst->dtype(), staging); }
         _current_extent = saved;
@@ -4666,14 +4673,14 @@ private:
             Shared<bool> workspace{nw_est};
             auto lane = _lane();
             auto warp = _slice_warp();
-            _if((Expr<uint>{lane} == 0u).expression(), [&] {
+            if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, [&] {
                 workspace[Expr<uint>{warp}] = Expr<bool>{warp_acc.expression()};
             });
             _sync_block();// publish workspace before warp 0 reads it
-            _if((Expr<uint>{warp} == 0u).expression(), [&] {
+            if_(Expr<bool>{(Expr<uint>{warp} == 0u).expression()}, [&] {
                 auto val = Var<bool>{Expr<bool>{is_all}};
                 auto lane_valid = (Expr<uint>{lane} < Expr<uint>{_num_warps()}).expression();
-                _if(lane_valid, [&] {
+                if_(Expr<bool>{lane_valid}, [&] {
                     val = Expr<bool>{workspace[Expr<uint>{lane}].expression()};
                 });
                 auto a = Expr<bool>{val.expression()};

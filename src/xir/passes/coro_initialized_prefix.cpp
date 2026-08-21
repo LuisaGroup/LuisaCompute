@@ -15,6 +15,7 @@
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
@@ -158,6 +159,7 @@ struct ActiveSlice {
 struct ScalarSlotInfo {
     bool valid{false};
     StoreInst *single_store{nullptr};
+    luisa::unordered_map<LoadInst *, StoreInst *> local_reaching_stores;
 };
 
 class ScalarCopyResolver {
@@ -166,7 +168,30 @@ private:
     mutable luisa::unordered_map<AllocaInst *, ScalarSlotInfo> _slots;
 
 private:
-    [[nodiscard]] ScalarSlotInfo _slot_info(
+    [[nodiscard]] static bool _value_depends_on_slot(
+        Value *value, AllocaInst *slot) noexcept {
+        luisa::unordered_set<Value *> visited;
+        luisa::vector<Value *> worklist{value};
+        while (!worklist.empty()) {
+            auto *current = worklist.back();
+            worklist.pop_back();
+            if (current == nullptr || !visited.emplace(current).second) {
+                continue;
+            }
+            if (current->isa<LoadInst>() &&
+                static_cast<LoadInst *>(current)->variable() == slot) {
+                return true;
+            }
+            if (!current->isa<Instruction>()) { continue; }
+            auto *instruction = static_cast<Instruction *>(current);
+            for (size_t i = 0u; i < instruction->operand_count(); ++i) {
+                worklist.emplace_back(instruction->operand(i));
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] const ScalarSlotInfo &_slot_info(
         AllocaInst *slot) const noexcept {
         if (auto iter = _slots.find(slot); iter != _slots.end()) {
             return iter->second;
@@ -174,33 +199,88 @@ private:
         ScalarSlotInfo info;
         if (slot == nullptr || !slot->is_local() ||
             slot->type() == nullptr || !slot->type()->is_scalar()) {
-            _slots.emplace(slot, info);
-            return info;
+            return _slots.emplace(slot, std::move(info)).first->second;
         }
-        info.valid = true;
+        luisa::vector<LoadInst *> loads;
+        luisa::vector<StoreInst *> stores;
         for (auto *use : slot->use_list()) {
             auto *user = use == nullptr ? nullptr : use->user();
             if (user == nullptr || !user->isa<Instruction>()) {
-                info.valid = false;
-                break;
+                return _slots.emplace(slot, std::move(info)).first->second;
             }
             auto *instruction = static_cast<Instruction *>(user);
             if (instruction->isa<LoadInst>() &&
                 static_cast<LoadInst *>(instruction)->variable() == slot) {
+                loads.emplace_back(static_cast<LoadInst *>(instruction));
                 continue;
             }
             if (instruction->isa<StoreInst>() &&
-                static_cast<StoreInst *>(instruction)->variable() == slot &&
-                info.single_store == nullptr) {
-                info.single_store = static_cast<StoreInst *>(instruction);
+                static_cast<StoreInst *>(instruction)->variable() == slot) {
+                stores.emplace_back(static_cast<StoreInst *>(instruction));
                 continue;
             }
-            info.valid = false;
-            break;
+            return _slots.emplace(slot, std::move(info)).first->second;
         }
-        info.valid &= info.single_store != nullptr;
-        _slots.emplace(slot, info);
-        return info;
+        if (stores.empty()) {
+            return _slots.emplace(slot, std::move(info)).first->second;
+        }
+        if (stores.size() == 1u) {
+            // Preserve the original exact single-store rule. Individual
+            // substitutions below still require store < load < use within
+            // one basic block.
+            info.valid = true;
+            info.single_store = stores.front();
+            return _slots.emplace(slot, std::move(info)).first->second;
+        }
+
+        // Local reaching-definition lemma: in a basic block's total order,
+        // the last direct store preceding a load executes on every path to
+        // that load and kills all incoming definitions. With no indirect
+        // accesses, substituting that store's SSA value is exact. This is a
+        // per-load fact: loads without a local reaching store remain opaque,
+        // rather than invalidating independent exact copies elsewhere.
+        for (auto *load : loads) {
+            auto load_iter = _locations.find(load);
+            if (load_iter == _locations.end()) { continue; }
+            StoreInst *reaching_store = nullptr;
+            size_t reaching_ordinal = 0u;
+            for (auto *store : stores) {
+                auto store_iter = _locations.find(store);
+                if (store_iter == _locations.end() ||
+                    store_iter->second.block_id !=
+                        load_iter->second.block_id ||
+                    store_iter->second.ordinal >=
+                        load_iter->second.ordinal) {
+                    continue;
+                }
+                if (reaching_store == nullptr ||
+                    reaching_ordinal < store_iter->second.ordinal) {
+                    reaching_store = store;
+                    reaching_ordinal = store_iter->second.ordinal;
+                }
+            }
+            // A recurrence is mutable state, not a transparent copy. Reject
+            // only the affected reaching definition: an unrelated local
+            // overwrite in another block may still be substituted exactly.
+            if (reaching_store != nullptr &&
+                !_value_depends_on_slot(reaching_store->value(), slot)) {
+                info.local_reaching_stores.emplace(load, reaching_store);
+            }
+        }
+        info.valid = true;
+        return _slots.emplace(slot, std::move(info)).first->second;
+    }
+
+    [[nodiscard]] StoreInst *_reaching_store(
+        AllocaInst *slot, LoadInst *load) const noexcept {
+        auto &&info = _slot_info(slot);
+        if (!info.valid) { return nullptr; }
+        if (info.single_store != nullptr) { return info.single_store; }
+        if (auto iter = info.local_reaching_stores.find(load);
+            iter != info.local_reaching_stores.end()) {
+            return iter->second;
+        }
+        return nullptr;
     }
 
 public:
@@ -208,9 +288,9 @@ public:
         const PrefixInstructionLocationMap &locations) noexcept
         : _locations{locations} {}
 
-    // A single-store scalar local is an exact snapshot only within the same
-    // linear block execution. This restriction rules out loop-carried and
-    // cross-edge substitution without requiring memory SSA.
+    // A scalar local is an exact snapshot only after a proven block-local
+    // reaching store and before the consuming instruction. This restriction
+    // rules out loop-carried and cross-edge substitution without memory SSA.
     [[nodiscard]] Value *resolve(
         Value *value, Instruction *use,
         size_t depth = 0u) const noexcept {
@@ -224,15 +304,15 @@ public:
             return value;
         }
         auto *slot = static_cast<AllocaInst *>(variable);
-        auto info = _slot_info(slot);
-        if (!info.valid || load->parent_block() != use->parent_block() ||
-            info.single_store->parent_block() != load->parent_block() ||
-            !instruction_precedes(info.single_store, load, _locations) ||
+        auto *store = _reaching_store(slot, load);
+        if (store == nullptr ||
+            load->parent_block() != use->parent_block() ||
+            store->parent_block() != load->parent_block() ||
+            !instruction_precedes(store, load, _locations) ||
             !instruction_precedes(load, use, _locations)) {
             return value;
         }
-        return resolve(info.single_store->value(), info.single_store,
-                       depth + 1u);
+        return resolve(store->value(), store, depth + 1u);
     }
 
     [[nodiscard]] bool scalar_slot_has_only_direct_accesses(
@@ -551,6 +631,105 @@ void define_pointer(Value *pointer, FactState &facts,
     return condition;
 }
 
+// Returns U only when taking the selected edge proves the unsigned relation
+// C <= U for the current value of counter C. This is an edge refinement, not
+// a guess about branch probability: comparisons are accepted only when the
+// counter operand is an exact snapshot at the terminator and the other operand
+// is a compile-time non-negative integer. For Boolean conjunction, a true
+// result proves both operands; dually, a false disjunction proves both false.
+[[nodiscard]] luisa::optional<size_t>
+condition_implied_counter_upper_bound(
+    Value *condition, bool truth, AllocaInst *counter,
+    Instruction *terminator, const ScalarCopyResolver &resolver,
+    const PrefixInstructionLocationMap &locations,
+    size_t depth = 0u) noexcept {
+    if (depth >= 16u) { return luisa::nullopt; }
+    condition = strip_boolean_wrappers(
+        condition, truth, terminator, resolver);
+    if (condition == nullptr || !condition->isa<ArithmeticInst>()) {
+        return luisa::nullopt;
+    }
+    auto *arithmetic = static_cast<ArithmeticInst *>(condition);
+    if (arithmetic->operand_count() != 2u) {
+        return luisa::nullopt;
+    }
+
+    const auto combine_implied_bounds = [&]() noexcept {
+        auto lhs = condition_implied_counter_upper_bound(
+            arithmetic->operand(0u), truth, counter, terminator,
+            resolver, locations, depth + 1u);
+        auto rhs = condition_implied_counter_upper_bound(
+            arithmetic->operand(1u), truth, counter, terminator,
+            resolver, locations, depth + 1u);
+        if (lhs && rhs) { return luisa::optional<size_t>{std::min(*lhs, *rhs)}; }
+        return lhs ? lhs : rhs;
+    };
+    if (truth && arithmetic->op() == ArithmeticOp::BINARY_BIT_AND &&
+        arithmetic->type() == Type::of<bool>()) {
+        return combine_implied_bounds();
+    }
+    if (!truth && arithmetic->op() == ArithmeticOp::BINARY_BIT_OR &&
+        arithmetic->type() == Type::of<bool>()) {
+        return combine_implied_bounds();
+    }
+
+    const auto decode_bound = [&](Value *value) noexcept
+        -> luisa::optional<size_t> {
+        auto decoded = decode_unsigned_constant(
+            resolver.resolve(value, terminator));
+        if (!decoded ||
+            *decoded > std::numeric_limits<size_t>::max()) {
+            return luisa::nullopt;
+        }
+        return static_cast<size_t>(*decoded);
+    };
+    const auto strict_predecessor = [](size_t bound) noexcept
+        -> luisa::optional<size_t> {
+        return bound == 0u ? luisa::nullopt :
+                             luisa::optional<size_t>{bound - 1u};
+    };
+
+    auto *lhs = arithmetic->operand(0u);
+    auto *rhs = arithmetic->operand(1u);
+    if (is_current_slot_snapshot(
+            lhs, counter, terminator, resolver, locations)) {
+        auto bound = decode_bound(rhs);
+        if (!bound) { return luisa::nullopt; }
+        switch (arithmetic->op()) {
+            case ArithmeticOp::BINARY_LESS:
+                return truth ? strict_predecessor(*bound) :
+                               luisa::nullopt;
+            case ArithmeticOp::BINARY_LESS_EQUAL:
+                return truth ? bound : luisa::nullopt;
+            case ArithmeticOp::BINARY_GREATER:
+                return truth ? luisa::nullopt : bound;
+            case ArithmeticOp::BINARY_GREATER_EQUAL:
+                return truth ? luisa::nullopt :
+                               strict_predecessor(*bound);
+            default: return luisa::nullopt;
+        }
+    }
+    if (is_current_slot_snapshot(
+            rhs, counter, terminator, resolver, locations)) {
+        auto bound = decode_bound(lhs);
+        if (!bound) { return luisa::nullopt; }
+        switch (arithmetic->op()) {
+            case ArithmeticOp::BINARY_GREATER:
+                return truth ? strict_predecessor(*bound) :
+                               luisa::nullopt;
+            case ArithmeticOp::BINARY_GREATER_EQUAL:
+                return truth ? bound : luisa::nullopt;
+            case ArithmeticOp::BINARY_LESS:
+                return truth ? luisa::nullopt : bound;
+            case ArithmeticOp::BINARY_LESS_EQUAL:
+                return truth ? luisa::nullopt :
+                               strict_predecessor(*bound);
+            default: return luisa::nullopt;
+        }
+    }
+    return luisa::nullopt;
+}
+
 [[nodiscard]] bool condition_implies_less_than_counter(
     Value *condition, bool truth, Value *index,
     AllocaInst *counter, Instruction *read,
@@ -713,6 +892,38 @@ struct CandidateContext {
     const PrefixInstructionLocationMap &locations;
 };
 
+void refine_counter_bound_on_edge(
+    PrefixState &state, BasicBlock *predecessor,
+    BasicBlock *successor,
+    const CandidateContext &context) noexcept {
+    auto *terminator = predecessor == nullptr ?
+                           nullptr :
+                           predecessor->terminator();
+    if (terminator == nullptr ||
+        !terminator->isa<ConditionalBranchInst>()) {
+        return;
+    }
+    auto *branch = static_cast<ConditionalBranchInst *>(terminator);
+    bool truth;
+    if (branch->true_block() == successor &&
+        branch->false_block() != successor) {
+        truth = true;
+    } else if (branch->false_block() == successor &&
+               branch->true_block() != successor) {
+        truth = false;
+    } else {
+        return;
+    }
+    auto bound = condition_implied_counter_upper_bound(
+        branch->condition(), truth, context.counter, branch,
+        context.resolver, context.locations);
+    if (!bound) { return; }
+    state.counter_upper_bound = state.counter_upper_bound ?
+                                    std::min(*state.counter_upper_bound,
+                                             *bound) :
+                                    *bound;
+}
+
 [[nodiscard]] bool process_instruction(
     Instruction *instruction, PrefixState &state,
     const CandidateContext &context, bool &used_prefix_read,
@@ -847,6 +1058,11 @@ struct CandidateContext {
         .resolver = resolver,
         .locations = locations};
 
+    // Sparse forward must analysis. An unvisited block denotes lattice top;
+    // its first executable predecessor supplies the initial state. Subsequent
+    // joins intersect definite-initialization facts and take the maximum of
+    // finite upper bounds. Transfers are monotone in this ordering, so states
+    // only lose proofs and the worklist reaches the greatest fixed point.
     luisa::vector<luisa::optional<PrefixState>> in_states(
         graph.block_count());
     in_states[slice.target_id] = PrefixState{
@@ -887,12 +1103,17 @@ struct CandidateContext {
                 slice.active[successor] == 0u) {
                 continue;
             }
+            auto edge_state = state;
+            refine_counter_bound_on_edge(
+                edge_state, graph.block(block_id),
+                graph.block(successor), context);
             auto changed = false;
             if (!in_states[successor]) {
-                in_states[successor] = state;
+                in_states[successor] = std::move(edge_state);
                 changed = true;
             } else {
-                changed = merge_state(*in_states[successor], state);
+                changed = merge_state(
+                    *in_states[successor], edge_state);
             }
             if (changed && queued[successor] == 0u) {
                 queued[successor] = 1u;
