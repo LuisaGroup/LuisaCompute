@@ -59,9 +59,11 @@ struct WavefrontCoroSchedulerConfig {
     // continuation selected by the host. This replaces a complete token
     // multi-split per scheduling iteration with one selected-token gather.
     // LUISA_CORO_WAVEFRONT_VERIFY_QUEUES=1 independently materializes and
-    // checks the invariant at scheduler boundaries. This strategy requires
-    // greedy one-continuation-at-a-time scheduling. Kept last for positional
-    // source compatibility.
+    // checks the invariant at scheduler boundaries. Without frame-buffer
+    // compaction, free slots are gathered as an index queue at refill and
+    // frames remain at stable addresses. This strategy requires greedy
+    // one-continuation-at-a-time scheduling. Kept last for positional source
+    // compatibility.
     bool incremental_continuation_counts = false;
 };
 
@@ -133,10 +135,10 @@ private:
         _gen_kernel;
     luisa::vector<Shader1D<uint, Buffer<uint>, uint, uint, Args...>>
         _resume_kernels;
-    Shader1D<uint, uint> _initialize_shader;
+    Shader1D<uint, uint, Buffer<uint>> _initialize_shader;
     Shader1D<Buffer<uint>, uint> _clear_count_shader;
     Shader1D<uint, Buffer<uint>, uint> _count_shader;
-    Shader1D<uint, Buffer<uint>, uint, uint>
+    Shader1D<uint, Buffer<uint>, uint, Buffer<uint>, uint, uint>
         _publish_generated_count_shader;
     Shader1D<uint, Buffer<uint>, uint, Buffer<uint>, uint, uint>
         _publish_resumed_count_shader;
@@ -332,8 +334,9 @@ private:
         _resume_count = device.create_buffer<uint>(nc);
         // Incremental queue counts are scheduler-owned state. For
         // every nonterminal continuation t, C[t] is the cardinality of the
-        // active-prefix frames whose target token is t. Queue zero is derived
-        // as prefix_size - sum(C[1..]) and is deliberately not maintained.
+        // frames whose target token is t. Queue zero is derived from the
+        // relevant slot domain minus sum(C[1..]) and is deliberately not
+        // maintained.
         // Only scheduler-owned publication kernels bind this buffer, keeping
         // every user continuation's AST and argument ABI independent of the
         // queue-accounting policy.
@@ -484,14 +487,25 @@ private:
                               coro.graph().node(i).name));
         }
 
-        Kernel1D initialize_kernel = [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa](
-                                         UInt frame_capacity,
-                                         UInt n) {
+        Kernel1D initialize_kernel =
+            [frame_buffer, layout = _frame_layout,
+             soa = _config.global_memory_soa,
+             initialize_free_indices =
+                 _config.incremental_continuation_counts &&
+                 !_config.frame_buffer_compaction](
+                UInt frame_capacity, UInt n, BufferUInt free_index) {
             auto buf = Expr<ByteBuffer>{*frame_buffer};
             auto x = dispatch_x();
             $if (x < n) {
                 coro_frame_write_field(
                     buf, x, frame_capacity, layout, soa, 6u, 0u);
+                // Before the first admission every active slot is free, so
+                // its index queue is the identity permutation. Materialize it
+                // alongside token initialization and avoid a contended atomic
+                // gather on the initial refill.
+                if (initialize_free_indices) {
+                    free_index.write(x, x);
+                }
             };
         };
         _initialize_shader = _compile_shader(
@@ -537,25 +551,30 @@ private:
             //
             // Generation publishes
             //
-            //   C' = C + histogram(target(frame_offset + [0, n))).
+            //   C' = C + histogram(target(generated_slot([0, n)))).
             //
-            // Incremental scheduling requires compact active-prefix storage,
-            // as asserted by the public constructor, so newly admitted frames
-            // occupy exactly this contiguous range.
+            // With compaction, generated_slot(x) = frame_offset + x. With
+            // stable frames it is the x-th index from the gathered free-slot
+            // queue. Generation and publication use the same mapping.
             //
             // Token zero denotes termination and is intentionally omitted.
             Kernel1D publish_generated_count_kernel =
                 [frame_buffer, layout = _frame_layout,
                  soa = _config.global_memory_soa,
+                 compact = _config.frame_buffer_compaction,
                  read_scheduler_token,
                  node_count = static_cast<uint>(nc)](
-                    UInt frame_capacity, BufferUInt count,
+                    UInt frame_capacity, BufferUInt index,
+                    UInt index_offset, BufferUInt count,
                     UInt frame_offset, UInt n) noexcept {
                     auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
                     auto x = dispatch_x();
                     $if (x >= n) { $return(); };
+                    auto frame_index = compact ?
+                                           frame_offset + x :
+                                           index.read(index_offset + x);
                     auto tok = read_scheduler_token(
-                        frame_offset + x, frame_buf, frame_capacity);
+                        frame_index, frame_buf, frame_capacity);
                     $if ((tok != 0u) & (tok < node_count)) {
                         count.atomic(tok).fetch_add(1u);
                     };
@@ -797,7 +816,8 @@ private:
         if (_active_frame_capacity == 0u) { return; }
         stream << _initialize_shader(
                       _config.thread_count,
-                      _active_frame_capacity)
+                      _active_frame_capacity,
+                      _resume_index)
                       .dispatch(_active_frame_capacity);
         _used_frame_count = 0u;
 
@@ -957,9 +977,18 @@ private:
             LUISA_ASSERT(active_count <= scan_count,
                          "Wavefront coroutine queue invariant violation: active frames ({}) exceed scanned frame prefix ({}).",
                          active_count, scan_count);
-            auto empty_count = _config.frame_buffer_compaction ?
-                                   _active_frame_capacity - active_count :
-                                   _host_count[0u];
+            // Incremental accounting deliberately omits queue zero. Its
+            // cardinality follows from the fixed-slot conservation law
+            //
+            //   free = capacity - sum(C[t], t != 0).
+            //
+            // Legacy non-compacting scheduling still materializes queue zero
+            // and therefore uses that observed cardinality directly.
+            auto empty_count =
+                _config.frame_buffer_compaction ||
+                        _config.incremental_continuation_counts ?
+                    _active_frame_capacity - active_count :
+                    _host_count[0u];
             auto compact_empty_count = _config.frame_buffer_compaction ?
                                            scan_count - active_count :
                                            empty_count;
@@ -1069,34 +1098,45 @@ private:
                 dispatch_counter < N) {
                 auto gen_count = std::min(N - dispatch_counter, empty_count);
                 auto frame_offset = active_count;
-                if (_config.frame_buffer_compaction && active_count != 0u && compact_empty_count != 0u) {
-                    if (_config.incremental_continuation_counts) {
-                        // Compaction needs the empty frame indices. They are
-                        // scheduler queue zero, so collect only that queue on
-                        // the uncommon refill/relocation path.
-                        stream << _clear_count_shader(_global_buffer, 1u)
-                                      .dispatch(1u);
-                        stream << _gather_selected_shader(
-                                      _config.thread_count, _resume_index,
-                                      _global_buffer, 0u, scan_count)
-                                      .dispatch(scan_count);
-                        gather_scan_count += scan_count;
-                        _host_offset[0u] = 0u;
-                        if (verify_queues) {
-                            uint gathered_empty_count = 0u;
-                            stream << _global_buffer.copy_to(
-                                          luisa::span{
-                                              &gathered_empty_count, 1u})
-                                   << synchronize();
-                            LUISA_ASSERT(
-                                gathered_empty_count == compact_empty_count,
-                                "Incremental wavefront empty-queue gather "
-                                "violation at iteration {}: gathered {} "
-                                "frames, expected {}.",
-                                iteration_count, gathered_empty_count,
-                                compact_empty_count);
-                        }
+                auto gather_incremental_free_slots =
+                    _config.incremental_continuation_counts &&
+                    ((!_config.frame_buffer_compaction && empty_count != 0u &&
+                      dispatch_counter != 0u) ||
+                     (_config.frame_buffer_compaction && active_count != 0u &&
+                      compact_empty_count != 0u));
+                if (gather_incremental_free_slots) {
+                    // A fixed-slot scheduler never relocates frames. Refill
+                    // instead enumerates token-zero slots once and passes the
+                    // resulting index queue to both generation and count
+                    // publication. In compact mode the same queue identifies
+                    // holes in the used prefix for the relocation kernel.
+                    stream << _clear_count_shader(_global_buffer, 1u)
+                                  .dispatch(1u);
+                    stream << _gather_selected_shader(
+                                  _config.thread_count, _resume_index,
+                                  _global_buffer, 0u, scan_count)
+                                  .dispatch(scan_count);
+                    gather_scan_count += scan_count;
+                    _host_offset[0u] = 0u;
+                    if (verify_queues) {
+                        uint gathered_empty_count = 0u;
+                        stream << _global_buffer.copy_to(
+                                      luisa::span{&gathered_empty_count, 1u})
+                               << synchronize();
+                        auto expected_empty_count =
+                            _config.frame_buffer_compaction ?
+                                compact_empty_count :
+                                empty_count;
+                        LUISA_ASSERT(
+                            gathered_empty_count == expected_empty_count,
+                            "Incremental wavefront empty-queue gather "
+                            "violation at iteration {}: gathered {} frames, "
+                            "expected {}.",
+                            iteration_count, gathered_empty_count,
+                            expected_empty_count);
                     }
+                }
+                if (_config.frame_buffer_compaction && active_count != 0u && compact_empty_count != 0u) {
                     stream << _clear_count_shader(_global_buffer, 1u).dispatch(1u);
                     stream << _compact_shader(_config.thread_count,
                                               _resume_index, _global_buffer,
@@ -1111,7 +1151,8 @@ private:
                               .dispatch(gen_count);
                 if (_config.incremental_continuation_counts) {
                     stream << _publish_generated_count_shader(
-                                  _config.thread_count, _resume_count,
+                                  _config.thread_count, _resume_index,
+                                  _host_offset[0u], _resume_count,
                                   frame_offset, gen_count)
                                   .dispatch(gen_count);
                 }
@@ -1364,12 +1405,6 @@ public:
                 _config.largest_continuation_first,
             "Incremental selected-queue scheduling requires greedy "
             "largest-continuation-first execution.");
-        LUISA_ASSERT(
-            !_config.incremental_continuation_counts ||
-                _config.frame_buffer_compaction,
-            "Incremental selected-queue scheduling currently requires "
-            "frame-buffer compaction so refill can use the compact active "
-            "prefix without a persistent free-list.");
         _create_shader(device, coro);
     }
     WavefrontCoroScheduler(Device &device, const Coro &coro) noexcept

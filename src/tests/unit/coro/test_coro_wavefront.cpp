@@ -1691,44 +1691,47 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             auto output = device.create_buffer<uint>(N);
             auto visits = device.create_buffer<uint>(N);
             luisa::vector<uint> zero(N);
-            stream << output.copy_from(luisa::span{zero})
-                   << visits.copy_from(luisa::span{zero})
-                   << synchronize();
+            for (auto compaction : {false, true}) {
+                stream << output.copy_from(luisa::span{zero})
+                       << visits.copy_from(luisa::span{zero})
+                       << synchronize();
 
-            WavefrontCoroSchedulerConfig cfg{
-                .thread_count = capacity,
-                .global_memory_soa = true,
-                .gather_by_sorting = true,
-                .frame_buffer_compaction = true,
-                .execution_block_size = 32u,
-                .largest_continuation_first = true,
-                .refill_continuations = {"refill"},
-                .refill_threshold = capacity / 2u,
-                .incremental_continuation_counts = true,
-            };
-            WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
-                device, coro, cfg};
-            scheduler(output, visits).dispatch(N)(stream);
+                WavefrontCoroSchedulerConfig cfg{
+                    .thread_count = capacity,
+                    .global_memory_soa = true,
+                    .gather_by_sorting = true,
+                    .frame_buffer_compaction = compaction,
+                    .execution_block_size = 32u,
+                    .largest_continuation_first = true,
+                    .refill_continuations = {"refill"},
+                    .refill_threshold = capacity / 2u,
+                    .incremental_continuation_counts = true,
+                };
+                WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+                    device, coro, cfg};
+                scheduler(output, visits).dispatch(N)(stream);
 
-            luisa::vector<uint> host_output(N);
-            luisa::vector<uint> host_visits(N);
-            stream << output.copy_to(luisa::span{host_output})
-                   << visits.copy_to(luisa::span{host_visits})
-                   << synchronize();
+                luisa::vector<uint> host_output(N);
+                luisa::vector<uint> host_visits(N);
+                stream << output.copy_to(luisa::span{host_output})
+                       << visits.copy_to(luisa::span{host_visits})
+                       << synchronize();
 
-            auto correct = true;
-            for (auto i = 0u; i < N; ++i) {
-                auto expected = i * 17u + 3u +
-                                (i % 3u == 0u ? 5u : 11u);
-                for (auto r = i & 3u; r != 0u; --r) {
-                    expected += r;
+                auto correct = true;
+                for (auto i = 0u; i < N; ++i) {
+                    auto expected = i * 17u + 3u +
+                                    (i % 3u == 0u ? 5u : 11u);
+                    for (auto r = i & 3u; r != 0u; --r) {
+                        expected += r;
+                    }
+                    correct &= host_output[i] == expected;
+                    correct &= host_visits[i] == 1u;
                 }
-                correct &= host_output[i] == expected;
-                correct &= host_visits[i] == 1u;
+                expect(correct)
+                    << "incremental queue counts must preserve every "
+                       "sparse-token branch and self-loop transition under "
+                       "refill, with or without frame relocation";
             }
-            expect(correct)
-                << "incremental queue counts must preserve every sparse-token "
-                   "branch and self-loop transition under refill/compaction";
         };
 
     "wavefront_incremental_counts_do_not_perturb_user_kernels"_test =
