@@ -539,6 +539,13 @@ void register_tests() {
         expect(report_value(
                    report,
                    "selection_localization_analysis") == 0u);
+        // The proof is defined on the root's GEP-closed use support. Only the
+        // store and load of `scratch` have non-identity effects; growing the
+        // handler by unrelated scalar or pointer instructions must not grow
+        // the evaluated event domain.
+        expect(report_value(
+                   report,
+                   "handler_localization_instruction_evaluation") == 2u);
         expect(xir_verify_module(&m).succeeded());
     };
 

@@ -40,6 +40,7 @@ namespace detail {
 struct LowerRayQueryToPipelineRunInfo : LowerRayQueryToPipelineInfo {
     size_t localized_alloca_count{0u};
     size_t selection_localization_analysis_count{0u};
+    size_t handler_localization_instruction_evaluation_count{0u};
 };
 
 struct RayQueryHandlerRegion {
@@ -457,6 +458,25 @@ struct RayQueryHandlerRootUseInfo {
     bool used_by_procedural{false};
 };
 
+// Pointer identity is already unique inside one XIR module. Hashing the bytes
+// of an address with the general content hash is unnecessary work for these
+// short-lived compiler analyses, especially when system STL is selected.
+// Deliberately omit `is_avalanching`: dense hash tables may still mix the raw
+// identity, while std::unordered_* receives the ordinary address hash.
+struct RayQueryHandlerPointerIdentityHash {
+    [[nodiscard]] size_t operator()(const void *pointer) const noexcept {
+        return static_cast<size_t>(reinterpret_cast<uintptr_t>(pointer));
+    }
+};
+
+template<typename T>
+using RayQueryHandlerPointerSet =
+    luisa::unordered_set<T *, RayQueryHandlerPointerIdentityHash>;
+
+template<typename T, typename V>
+using RayQueryHandlerPointerMap =
+    luisa::unordered_map<T *, V, RayQueryHandlerPointerIdentityHash>;
+
 // The root-use proof is deliberately separate from definite initialization.
 // It establishes ownership: outside-handler writes are killed incoming state,
 // while every observation or escape must belong to exactly one candidate kind.
@@ -466,7 +486,7 @@ static void collect_handler_alloca_root_uses(
     Value *pointer, const RayQueryHandlerRegion &surface_region,
     const RayQueryHandlerRegion &procedural_region,
     RayQueryHandlerRootUseInfo &info,
-    luisa::unordered_set<const Value *> &visited) noexcept {
+    RayQueryHandlerPointerSet<const Value> &visited) noexcept {
     if (!info.valid || pointer == nullptr ||
         !visited.emplace(pointer).second) {
         return;
@@ -548,7 +568,15 @@ struct RayQueryHandlerPointerView {
 };
 
 using RayQueryHandlerPointerEnvironment =
-    luisa::unordered_map<const Value *, RayQueryHandlerPointerView>;
+    RayQueryHandlerPointerMap<const Value, RayQueryHandlerPointerView>;
+
+using RayQueryHandlerPointerSupport =
+    RayQueryHandlerPointerSet<const Value>;
+using RayQueryHandlerActiveFunctions =
+    RayQueryHandlerPointerSet<const Function>;
+using RayQueryHandlerInstructionSchedule =
+    RayQueryHandlerPointerMap<const BasicBlock,
+                              luisa::vector<const Instruction *>>;
 
 struct RayQueryHandlerPointerResolveResult {
     bool valid{true};
@@ -626,13 +654,14 @@ class RayQueryHandlerScratchAnalyzer {
 
 private:
     const Type *_root_type;
+    size_t *_instruction_evaluation_count;
 
 private:
     [[nodiscard]] RayQueryHandlerPointerResolveResult resolve_pointer(
         const Value *value,
         const RayQueryHandlerPointerEnvironment &environment,
-        luisa::unordered_map<const Value *,
-                             RayQueryHandlerPointerResolveResult> &cache)
+        RayQueryHandlerPointerMap<
+            const Value, RayQueryHandlerPointerResolveResult> &cache)
         const noexcept {
         if (value == nullptr || !value->is_lvalue()) { return {}; }
         if (auto iter = cache.find(value); iter != cache.end()) {
@@ -709,7 +738,7 @@ private:
     [[nodiscard]] RayQueryHandlerScratchEffect summarize_callable(
         const Function *function,
         RayQueryHandlerPointerEnvironment environment,
-        luisa::unordered_set<const Function *> &active_functions) const noexcept {
+        RayQueryHandlerActiveFunctions &active_functions) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
         invalid.valid = false;
         if (function == nullptr || function->definition() == nullptr ||
@@ -725,7 +754,7 @@ private:
         }
         auto result = summarize_region(
             definition->body_block(), blocks,
-            std::move(environment), nullptr, false,
+            std::move(environment), nullptr, nullptr, false,
             active_functions);
         active_functions.erase(function);
         return result;
@@ -734,10 +763,13 @@ private:
     [[nodiscard]] RayQueryHandlerScratchEffect instruction_effect(
         const Instruction *instruction,
         const RayQueryHandlerPointerEnvironment &environment,
-        luisa::unordered_map<const Value *,
-                             RayQueryHandlerPointerResolveResult> &cache,
-        const luisa::unordered_set<const Value *> *pointer_support,
-        luisa::unordered_set<const Function *> &active_functions) const noexcept {
+        RayQueryHandlerPointerMap<
+            const Value, RayQueryHandlerPointerResolveResult> &cache,
+        const RayQueryHandlerPointerSupport *pointer_support,
+        RayQueryHandlerActiveFunctions &active_functions) const noexcept {
+        if (_instruction_evaluation_count != nullptr) {
+            ++*_instruction_evaluation_count;
+        }
         RayQueryHandlerScratchEffect effect{_root_type};
         if (instruction == nullptr) {
             effect.valid = false;
@@ -766,7 +798,8 @@ private:
                     !pointer_support->contains(base)) {
                     for (auto i = 1u;
                          effect.valid &&
-                         i < instruction->operand_count(); ++i) {
+                         i < instruction->operand_count();
+                         ++i) {
                         require_unrelated_operand(i);
                     }
                     break;
@@ -901,14 +934,16 @@ private:
         BasicBlock *entry,
         const luisa::unordered_set<BasicBlock *> &blocks,
         RayQueryHandlerPointerEnvironment environment,
-        const luisa::unordered_set<const Value *> *pointer_support,
+        const RayQueryHandlerPointerSupport *pointer_support,
+        const RayQueryHandlerInstructionSchedule *instruction_schedule,
         bool allow_external_exit,
-        luisa::unordered_set<const Function *> &active_functions) const noexcept {
+        RayQueryHandlerActiveFunctions &active_functions) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
         invalid.valid = false;
         if (entry == nullptr || !blocks.contains(entry)) { return invalid; }
-        luisa::unordered_map<BasicBlock *,
-                             luisa::unique_ptr<RayQueryHandlerScratchBlockState>>
+        RayQueryHandlerPointerMap<
+            BasicBlock,
+            luisa::unique_ptr<RayQueryHandlerScratchBlockState>>
             states;
         for (auto *block : blocks) {
             if (block == nullptr) { return invalid; }
@@ -921,27 +956,67 @@ private:
         states.at(entry)->reached = true;
         states.at(entry)->effect = identity;
         luisa::vector<BasicBlock *> worklist{entry};
-        luisa::unordered_set<BasicBlock *> queued;
+        RayQueryHandlerPointerSet<BasicBlock> queued;
         queued.insert(entry);
         RayQueryHandlerScratchBlockState exits{_root_type};
         // Pointer provenance depends only on the immutable environment and
         // value graph, not on the block or current dataflow fact. Reuse one
         // memo table across block revisits and fixed-point iterations.
-        luisa::unordered_map<const Value *,
-                             RayQueryHandlerPointerResolveResult>
+        RayQueryHandlerPointerMap<
+            const Value, RayQueryHandlerPointerResolveResult>
             pointer_cache;
+        // A block effect is a pure function of the immutable pointer
+        // environment and its ordered instruction effects. Memoizing it does
+        // not change the CFG fixed point; it only avoids recomputing the same
+        // transfer when a predecessor fact grows. Effects are created lazily
+        // so malformed instructions in unreachable blocks remain irrelevant,
+        // exactly as in the original reachable-worklist formulation.
+        RayQueryHandlerPointerMap<
+            BasicBlock,
+            luisa::unique_ptr<RayQueryHandlerScratchEffect>>
+            block_effects;
+        auto block_effect = [&](BasicBlock *block) noexcept
+            -> const RayQueryHandlerScratchEffect & {
+            if (auto iter = block_effects.find(block);
+                iter != block_effects.end()) {
+                return *iter->second;
+            }
+            auto effect = luisa::make_unique<RayQueryHandlerScratchEffect>(
+                _root_type);
+            auto append_instruction =
+                [&](const Instruction *instruction) noexcept {
+                    auto next = instruction_effect(
+                        instruction, environment, pointer_cache,
+                        pointer_support, active_functions);
+                    append_handler_scratch_effect(*effect, next);
+                };
+            if (instruction_schedule != nullptr) {
+                if (auto iter = instruction_schedule->find(block);
+                    iter != instruction_schedule->end()) {
+                    for (auto *instruction : iter->second) {
+                        append_instruction(instruction);
+                        if (!effect->valid) { break; }
+                    }
+                }
+            } else {
+                for (auto *instruction : block->instructions()) {
+                    append_instruction(instruction);
+                    if (!effect->valid) { break; }
+                }
+            }
+            auto [iter, inserted] =
+                block_effects.emplace(block, std::move(effect));
+            LUISA_DEBUG_ASSERT(inserted,
+                               "Duplicate ray-query block effect.");
+            return *iter->second;
+        };
         while (!worklist.empty()) {
             auto *block = worklist.back();
             worklist.pop_back();
             queued.erase(block);
             auto current = states.at(block)->effect;
-            for (auto *instruction : block->instructions()) {
-                auto next = instruction_effect(
-                    instruction, environment, pointer_cache,
-                    pointer_support, active_functions);
-                append_handler_scratch_effect(current, next);
-                if (!current.valid) { return current; }
-            }
+            append_handler_scratch_effect(current, block_effect(block));
+            if (!current.valid) { return current; }
             auto successor_count = 0u;
             auto external_successor_count = 0u;
             block->traverse_successors(
@@ -975,13 +1050,17 @@ private:
     }
 
 public:
-    explicit RayQueryHandlerScratchAnalyzer(const Type *root_type) noexcept
-        : _root_type{root_type} {}
+    explicit RayQueryHandlerScratchAnalyzer(
+        const Type *root_type,
+        size_t *instruction_evaluation_count) noexcept
+        : _root_type{root_type},
+          _instruction_evaluation_count{
+              instruction_evaluation_count} {}
 
     [[nodiscard]] RayQueryHandlerScratchEffect summarize(
         AllocaInst *alloca, BasicBlock *entry,
         const RayQueryHandlerRegion &region,
-        const luisa::unordered_set<const Value *> &pointer_support) const noexcept {
+        const RayQueryHandlerPointerSupport &pointer_support) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
         invalid.valid = false;
         if (alloca == nullptr || entry == nullptr ||
@@ -991,11 +1070,45 @@ public:
         }
         RayQueryHandlerPointerEnvironment environment;
         environment.emplace(alloca, RayQueryHandlerPointerView{});
-        luisa::unordered_set<const Function *> active_functions;
+        RayQueryHandlerActiveFunctions active_functions;
         active_functions.emplace(alloca->parent_function());
+
+        // Let S be the GEP-closed support of this root. The instruction effect
+        // is identity exactly when none of its operands belongs to S (the
+        // provenance resolver recognizes no other address-preserving XIR
+        // instruction). Therefore the ordered subsequence below is a lossless
+        // sparse representation of each block's path effect.
+        RayQueryHandlerPointerSet<const Instruction> relevant_instructions;
+        RayQueryHandlerPointerSet<const BasicBlock> relevant_blocks;
+        for (auto *pointer : pointer_support) {
+            for (auto &&use : pointer->use_list()) {
+                auto *user = use->user();
+                if (user == nullptr || !user->isa<Instruction>()) {
+                    continue;
+                }
+                auto *instruction =
+                    static_cast<const Instruction *>(user);
+                auto *block = instruction->parent_block();
+                if (block != nullptr &&
+                    region.blocks.contains(
+                        const_cast<BasicBlock *>(block)) &&
+                    relevant_instructions.emplace(instruction).second) {
+                    relevant_blocks.emplace(block);
+                }
+            }
+        }
+        RayQueryHandlerInstructionSchedule instruction_schedule;
+        for (auto *block : relevant_blocks) {
+            auto &ordered = instruction_schedule[block];
+            for (auto *instruction : block->instructions()) {
+                if (relevant_instructions.contains(instruction)) {
+                    ordered.emplace_back(instruction);
+                }
+            }
+        }
         return summarize_region(
             entry, region.blocks, std::move(environment),
-            &pointer_support, true,
+            &pointer_support, &instruction_schedule, true,
             active_functions);
     }
 };
@@ -1006,7 +1119,8 @@ find_handler_local_allocas(
     BasicBlock *surface_entry,
     const RayQueryHandlerRegion &surface_region,
     BasicBlock *procedural_entry,
-    const RayQueryHandlerRegion &procedural_region) noexcept {
+    const RayQueryHandlerRegion &procedural_region,
+    size_t &instruction_evaluation_count) noexcept {
     RayQueryHandlerLocalAllocas result;
     for (auto *value : capture_list.in_values) {
         if (value == nullptr || !value->isa<AllocaInst>()) { continue; }
@@ -1014,7 +1128,7 @@ find_handler_local_allocas(
         if (!alloca->is_local()) { continue; }
 
         RayQueryHandlerRootUseInfo uses;
-        luisa::unordered_set<const Value *> visited;
+        RayQueryHandlerPointerSupport visited;
         collect_handler_alloca_root_uses(
             alloca, surface_region, procedural_region, uses, visited);
         if (!uses.valid) { continue; }
@@ -1029,7 +1143,9 @@ find_handler_local_allocas(
             [&](BasicBlock *entry,
                 const RayQueryHandlerRegion &region) noexcept {
                 auto summary =
-                    RayQueryHandlerScratchAnalyzer{alloca->type()}
+                    RayQueryHandlerScratchAnalyzer{
+                        alloca->type(),
+                        &instruction_evaluation_count}
                         .summarize(alloca, entry, region, visited);
                 return summary.valid && !summary.needs_input();
             };
@@ -1051,7 +1167,8 @@ find_handler_local_allocas(
 
 [[nodiscard]] static size_t count_handler_localized_input_captures(
     RayQueryLoopInst *loop,
-    const RayQueryLoopCaptureList &capture_list) noexcept {
+    const RayQueryLoopCaptureList &capture_list,
+    size_t &instruction_evaluation_count) noexcept {
     if (loop == nullptr || loop->dispatch_block() == nullptr) {
         return 0u;
     }
@@ -1081,7 +1198,8 @@ find_handler_local_allocas(
                capture_list,
                dispatch->on_surface_candidate_block(), surface_region,
                dispatch->on_procedural_candidate_block(),
-               procedural_region)
+               procedural_region,
+               instruction_evaluation_count)
         .all.size();
 }
 
@@ -1195,7 +1313,8 @@ select_ray_query_loops(
             ++info.selection_localization_analysis_count;
             auto localized_input_capture_count =
                 count_handler_localized_input_captures(
-                    loop, capture_list);
+                    loop, capture_list,
+                    info.handler_localization_instruction_evaluation_count);
             LUISA_DEBUG_ASSERT(
                 localized_input_capture_count <= input_capture_count,
                 "Localized ray-query handler captures exceed input captures.");
@@ -1421,7 +1540,8 @@ static void lower_ray_query_to_pipeline(
         region_reason);
     auto local_allocas = find_handler_local_allocas(
         capture_list, dispatch->on_surface_candidate_block(), surface_region,
-        dispatch->on_procedural_candidate_block(), procedural_region);
+        dispatch->on_procedural_candidate_block(), procedural_region,
+        info.handler_localization_instruction_evaluation_count);
     if (!local_allocas.all.empty()) {
         capture_list.in_values.erase(
             std::remove_if(
@@ -1733,6 +1853,9 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         report->set("error", info.error_count);
         report->set("selection_localization_analysis",
                     info.selection_localization_analysis_count);
+        report->set(
+            "handler_localization_instruction_evaluation",
+            info.handler_localization_instruction_evaluation_count);
     }
     if (options.localized_alloca_count != nullptr) {
         *options.localized_alloca_count = info.localized_alloca_count;
