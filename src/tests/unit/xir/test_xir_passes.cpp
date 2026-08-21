@@ -283,7 +283,7 @@ void reg_pass_entry_totality() {
             (void)loop_vectorization_pass_run_on_module(
                 nullptr, report);
         });
-        check_zero_report(3u, [](PassReport *report) noexcept {
+        check_zero_report(4u, [](PassReport *report) noexcept {
             (void)lower_ray_query_to_pipeline_pass_run_on_module(
                 nullptr, report);
         });
