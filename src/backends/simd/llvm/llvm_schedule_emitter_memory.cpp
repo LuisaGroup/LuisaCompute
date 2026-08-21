@@ -1030,7 +1030,8 @@ void ScheduleEmitter::_store_contiguous_vector_data(
             ::llvm::Constant::getNullValue(index->getType()));
     }
     auto biased_narrow_gather =
-        _enable_biased_narrow_buffer_gather && _width == 8u &&
+        _enable_biased_narrow_buffer_gather &&
+        (_width == 8u || _width == 16u) &&
         op == xir::ResourceReadOp::BUFFER_READ &&
         (index_value->type->is_int32() ||
          index_value->type->is_uint32()) &&
@@ -1054,14 +1055,58 @@ void ScheduleEmitter::_store_contiguous_vector_data(
                 _width, _builder.getInt32(sign_bias)),
             "buffer.narrow.gather.biased.index");
         auto *element = _data_type(result_value->type, false);
-        auto *pointers = _builder.CreateGEP(
-            element, biased_base, biased_index,
-            "buffer.narrow.gather.pointers");
-        auto *lanes = ::llvm::FixedVectorType::get(element, _width);
-        auto *gathered = _builder.CreateMaskedGather(
-            lanes, pointers, ::llvm::Align{1u}, _active_mask,
-            ::llvm::Constant::getNullValue(lanes),
-            "buffer.narrow.gather");
+        ::llvm::Value *gathered = nullptr;
+        if (_width == 8u) {
+            auto *pointers = _builder.CreateGEP(
+                element, biased_base, biased_index,
+                "buffer.narrow.gather.pointers");
+            auto *lanes = ::llvm::FixedVectorType::get(element, _width);
+            gathered = _builder.CreateMaskedGather(
+                lanes, pointers, ::llvm::Align{1u}, _active_mask,
+                ::llvm::Constant::getNullValue(lanes),
+                "buffer.narrow.gather");
+        } else {
+            std::array<std::vector<int>, 2u> half_masks;
+            for (auto half = uint32_t{0u}; half < 2u; half++) {
+                half_masks[half].reserve(8u);
+                for (auto lane = uint32_t{0u}; lane < 8u; lane++) {
+                    half_masks[half].emplace_back(
+                        static_cast<int>(half * 8u + lane));
+                }
+            }
+            auto *poison_index =
+                ::llvm::PoisonValue::get(biased_index->getType());
+            auto *poison_mask =
+                ::llvm::PoisonValue::get(_active_mask->getType());
+            std::array<::llvm::Value *, 2u> halves{};
+            auto *half_lanes =
+                ::llvm::FixedVectorType::get(element, 8u);
+            for (auto half = uint32_t{0u}; half < 2u; half++) {
+                auto *half_index = _builder.CreateShuffleVector(
+                    biased_index, poison_index, half_masks[half],
+                    "buffer.narrow.gather.half.index");
+                auto *half_active = _builder.CreateShuffleVector(
+                    _active_mask, poison_mask, half_masks[half],
+                    "buffer.narrow.gather.half.mask");
+                auto *half_pointers = _builder.CreateGEP(
+                    element, biased_base, half_index,
+                    "buffer.narrow.gather.half.pointers");
+                halves[half] = _builder.CreateMaskedGather(
+                    half_lanes, half_pointers, ::llvm::Align{1u},
+                    half_active,
+                    ::llvm::Constant::getNullValue(half_lanes),
+                    "buffer.narrow.gather.half");
+            }
+            std::vector<int> concatenate_mask;
+            concatenate_mask.reserve(_width);
+            for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+                concatenate_mask.emplace_back(
+                    static_cast<int>(lane));
+            }
+            gathered = _builder.CreateShuffleVector(
+                halves[0u], halves[1u], concatenate_mask,
+                "buffer.narrow.gather.join");
+        }
         _result.biased_narrow_buffer_gather_count++;
         return gathered;
     }

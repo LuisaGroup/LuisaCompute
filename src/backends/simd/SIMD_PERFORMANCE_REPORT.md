@@ -6938,9 +6938,9 @@ and `vcvttps2udq`/`vpmovdb` for BYTE4. No scalar half helper or varying
 scalar-libm call appears. These mnemonics document LLVM 22.1.8 lowering on the
 Ryzen 9 9950X3D; logical W4 does not promise AVX-512 or any other ISA.
 
-### Current width matrix against fallback
+### Width matrix before the split-W16 gather
 
-The current Release binary was then measured in seven four-way rounds rotating
+The then-current Release binary was measured in seven four-way rounds rotating
 system/TBB fallback, W4, W8, and W16 through execution order. Every process was
 pinned to CPUs 0--7; SIMD used eight workers. Path tracing used 128 spp and one
 spp per dispatch, image processing used 128 complete iterations, and Voxel
@@ -6972,3 +6972,88 @@ matrix runs image processing, Voxel, and ordinary 1024-spp path tracing at
 W1/W2/W4/W8/W16: all 15 executions pass their checked-in references. The path
 PSNRs are 35.426795/42.781582/40.940376/39.219305/37.800295 dB respectively,
 and every process reports Embree 4.4.1 native W4/W8/W16 packet support.
+
+## Split-W16 biased narrow loop-buffer gather
+
+The earlier rejected W16 prototype formed one logical `<16 x i32>` masked
+gather. The retained extension is deliberately different: it shuffles the
+logical W16 index and active-mask vectors into two eight-lane halves, emits two
+generic `<8 x i32>` masked gathers, and concatenates the results. The existing
+base-bias/xor address identity still covers every unsigned 32-bit bit pattern.
+Inactive indices are sanitized before either half is formed, and each half
+retains its corresponding mask. The production IR contains no target
+intrinsic, scalar lane loop, or extract/call/insert sequence.
+
+The host capability gate requires the same 64-bit pointer/index layout,
+512-bit fixed-vector register floor, legal masked gather, and nonscalarized
+TTI cost used by W8. It prices `<8 x i32>` because that is the physical shape
+actually emitted at W16. W1/W2/W4 and every unsupported target retain the
+pointer-width-index oracle. The optimization report counts one logical source
+site even though W16 lowers that site to two physical half-gathers.
+
+The primary same-binary causal gate used eight workers pinned to CPUs 0--7,
+256 Voxel renders per fresh process, alternating/reversed order, and ten
+candidate/oracle pairs. Every invocation passed the checked-in reference at
+82.834519 dB:
+
+| W16 Voxel | median ms/iteration | paired throughput | 95% paired CI | wins |
+| --- | ---: | ---: | ---: | ---: |
+| split narrow gather | 7.9860 | **1.064436x** | **[1.058122, 1.070788]** | **10/10** |
+| pointer-width oracle | 8.4845 | -- | -- | -- |
+
+Five additional nonmultiplexed counter pairs used the same affinity and
+iteration count. Ratios are candidate/oracle:
+
+| metric | ratio | 95% paired CI |
+| --- | ---: | ---: |
+| throughput | **1.068712x** | **[1.062239, 1.075224]** |
+| cycles | **0.938296x** | **[0.937557, 0.939036]** |
+| instructions | **0.937976x** | **[0.937971, 0.937982]** |
+| branches | **0.995677x** | **[0.995646, 0.995708]** |
+| branch misses | **0.888343x** | **[0.823823, 0.957916]** |
+
+This is not a scheduler-state change: it removes about 6.2% of retired
+instructions and cycles while leaving dynamic branch count nearly unchanged.
+The real Voxel candidate contains four `vpgatherdd` instructions, two sites
+times two halves, and no `vpgatherqd`; its disabled oracle contains four
+`vpgatherqd`. Candidate/oracle objects are 24,720/24,768 bytes and contain
+3,571/3,596 instructions, 1,509/1,532 vector instructions, 405/407 branches,
+696/695 stack references, and the same 3,712-byte frame. Their only undefined
+math symbol is uniform scalar `sincosf` for camera rotation, not a varying
+lane loop.
+
+Application-site auditing at W16 reports two logical sites in Voxel and zero
+in all five image-processing kernels, ordinary Embree path tracing, cutout
+query tracing, Spacex, and non-coroutine SDF. Those zero-site applications are
+correctness checks only; this stage makes no performance claim for them.
+
+### Refreshed Voxel width matrix against fallback
+
+After one unrecorded 64-iteration warm-up per mode, nine balanced rounds
+rotated fallback, W8, and W16 through fresh processes. Each recorded process
+used 256 renders and CPUs 0--7; SIMD used eight workers. No recorded sample was
+removed, and all 27 reference comparisons passed. Ratios are paired geometric
+means with log-space Student-t 95% intervals:
+
+| mode | median ms/iteration | speedup versus fallback | 95% paired CI | wins |
+| --- | ---: | ---: | ---: | ---: |
+| fallback | 19.252 | -- | -- | -- |
+| W8 | 6.395 | **3.015872x** | **[2.984202, 3.047879]** | **9/9** |
+| W16 | 8.044 | **2.396918x** | **[2.386749, 2.407130]** | **9/9** |
+
+W8 remains 1.258229x [1.248171, 1.268369] faster than W16 with 9/9 wins.
+The split gather therefore closes part of the W16 gap but does not make logical
+width monotonic for this divergent DDA. Raw populations are retained at
+`/tmp/luisa-simd-w16-split-gather-10r-20260822.tsv`,
+`/tmp/luisa-simd-w16-split-counters-5r-20260822.tsv`, and
+`/tmp/luisa-simd-voxel-current-widths-warmed-9r-20260822.tsv`.
+
+Final validation rebuilds both maintained Release configurations and each
+passes the complete 173/173 CTest inventory. The focused native-math,
+Schedule/JIT, and runtime-width filter passes 4/4. A complete Clang
+ASan/LSan/UBSan rebuild passes the Schedule/JIT and shared-XIR-pass
+executables. An explicit matrix runs image processing, Voxel, and ordinary
+1024-spp Embree path tracing at W1/W2/W4/W8/W16: all 15 reference comparisons
+pass. Image processing and Voxel report 89.251953 and 82.834519 dB at every
+width; path tracing reports 35.426800/42.781833/40.940546/39.219375/37.800289
+dB respectively.

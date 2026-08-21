@@ -5286,6 +5286,7 @@ template<size_t Width>
     static constexpr auto width = 8u;
     static constexpr auto count = 13u;
     static constexpr auto input_count = 64u;
+    static constexpr auto output_count = 16u;
     static constexpr auto sign_bias = uint32_t{1u} << 31u;
     for (auto index : std::array{
              0u, 1u, sign_bias - 1u, sign_bias,
@@ -5400,24 +5401,30 @@ template<size_t Width>
             std::move(context), std::move(module),
             std::move(codegen), std::move(name)};
     };
-    auto candidate = compile(
+    auto candidate_w8 = compile(
         *schedule_w8, width, true,
         "simd_biased_narrow_buffer_gather_w8");
-    auto oracle = compile(
+    auto oracle_w8 = compile(
         *schedule_w8, width, false,
         "simd_wide_buffer_gather_w8");
-    auto rejected_w16 = compile(
+    auto candidate_w16 = compile(
         *schedule_w16, 16u, true,
-        "simd_biased_narrow_buffer_gather_w16_rejected");
-    CHECK(candidate.codegen.succeeded());
-    CHECK(oracle.codegen.succeeded());
-    CHECK(rejected_w16.codegen.succeeded());
-    CHECK(candidate.codegen.biased_narrow_buffer_gather_count == 1u);
-    CHECK(oracle.codegen.biased_narrow_buffer_gather_count == 0u);
-    CHECK(rejected_w16.codegen.biased_narrow_buffer_gather_count == 0u);
-    CHECK(!::llvm::verifyModule(*candidate.module, &::llvm::errs()));
-    CHECK(!::llvm::verifyModule(*oracle.module, &::llvm::errs()));
-    CHECK(!::llvm::verifyModule(*rejected_w16.module, &::llvm::errs()));
+        "simd_split_biased_narrow_buffer_gather_w16");
+    auto oracle_w16 = compile(
+        *schedule_w16, 16u, false,
+        "simd_wide_buffer_gather_w16");
+    CHECK(candidate_w8.codegen.succeeded());
+    CHECK(oracle_w8.codegen.succeeded());
+    CHECK(candidate_w16.codegen.succeeded());
+    CHECK(oracle_w16.codegen.succeeded());
+    CHECK(candidate_w8.codegen.biased_narrow_buffer_gather_count == 1u);
+    CHECK(oracle_w8.codegen.biased_narrow_buffer_gather_count == 0u);
+    CHECK(candidate_w16.codegen.biased_narrow_buffer_gather_count == 1u);
+    CHECK(oracle_w16.codegen.biased_narrow_buffer_gather_count == 0u);
+    CHECK(!::llvm::verifyModule(*candidate_w8.module, &::llvm::errs()));
+    CHECK(!::llvm::verifyModule(*oracle_w8.module, &::llvm::errs()));
+    CHECK(!::llvm::verifyModule(*candidate_w16.module, &::llvm::errs()));
+    CHECK(!::llvm::verifyModule(*oracle_w16.module, &::llvm::errs()));
 
     auto module_ir = [](const ::llvm::Module &module) {
         std::string ir;
@@ -5426,21 +5433,41 @@ template<size_t Width>
         stream.flush();
         return ir;
     };
-    auto candidate_ir = module_ir(*candidate.module);
-    auto oracle_ir = module_ir(*oracle.module);
-    auto rejected_w16_ir = module_ir(*rejected_w16.module);
-    CHECK(candidate_ir.find("buffer.narrow.gather.biased.base") !=
+    auto candidate_w8_ir = module_ir(*candidate_w8.module);
+    auto oracle_w8_ir = module_ir(*oracle_w8.module);
+    auto candidate_w16_ir = module_ir(*candidate_w16.module);
+    auto oracle_w16_ir = module_ir(*oracle_w16.module);
+    CHECK(candidate_w8_ir.find("buffer.narrow.gather.biased.base") !=
           std::string::npos);
-    CHECK(candidate_ir.find("buffer.narrow.gather.biased.index") !=
+    CHECK(candidate_w8_ir.find("buffer.narrow.gather.biased.index") !=
           std::string::npos);
-    CHECK(candidate_ir.find("i64 8589934592") != std::string::npos);
-    CHECK(candidate_ir.find("<8 x i32>") != std::string::npos);
-    CHECK(candidate_ir.find("@llvm.masked.gather.v8i32") !=
+    CHECK(candidate_w8_ir.find("i64 8589934592") !=
           std::string::npos);
-    CHECK(candidate_ir.find("llvm.x86.") == std::string::npos);
-    CHECK(oracle_ir.find("buffer.narrow.gather") == std::string::npos);
-    CHECK(oracle_ir.find("zext <8 x i32>") != std::string::npos);
-    CHECK(rejected_w16_ir.find("buffer.narrow.gather") ==
+    CHECK(candidate_w8_ir.find("<8 x i32>") != std::string::npos);
+    CHECK(candidate_w8_ir.find("@llvm.masked.gather.v8i32") !=
+          std::string::npos);
+    CHECK(candidate_w8_ir.find("llvm.x86.") == std::string::npos);
+    CHECK(oracle_w8_ir.find("buffer.narrow.gather") ==
+          std::string::npos);
+    CHECK(oracle_w8_ir.find("zext <8 x i32>") !=
+          std::string::npos);
+    CHECK(candidate_w16_ir.find(
+              "buffer.narrow.gather.half.index") !=
+          std::string::npos);
+    CHECK(candidate_w16_ir.find(
+              "buffer.narrow.gather.join") !=
+          std::string::npos);
+    CHECK(count_occurrences(
+              candidate_w16_ir,
+              "call <8 x i32> @llvm.masked.gather") == 2u);
+    CHECK(candidate_w16_ir.find(
+              "call <16 x i32> @llvm.masked.gather") ==
+          std::string::npos);
+    CHECK(candidate_w16_ir.find("llvm.x86.") ==
+          std::string::npos);
+    CHECK(oracle_w16_ir.find("buffer.narrow.gather") ==
+          std::string::npos);
+    CHECK(oracle_w16_ir.find("zext <16 x i32>") !=
           std::string::npos);
 
     LLVMJIT assembly_target;
@@ -5451,45 +5478,71 @@ template<size_t Width>
         2u));
     CHECK(!assembly_target.supports_native_biased_narrow_buffer_gather(
         4u));
-    CHECK(!assembly_target.supports_native_biased_narrow_buffer_gather(
-        16u));
-    auto candidate_assembly =
-        assembly_target.emit_assembly_copy(*candidate.module);
-    auto oracle_assembly =
-        assembly_target.emit_assembly_copy(*oracle.module);
-    CHECK(!candidate_assembly.empty());
-    CHECK(!oracle_assembly.empty());
+    CHECK(assembly_target.supports_native_biased_narrow_buffer_gather(
+              16u) ==
+          assembly_target.supports_native_biased_narrow_buffer_gather(
+              width));
+    auto candidate_w8_assembly =
+        assembly_target.emit_assembly_copy(*candidate_w8.module);
+    auto oracle_w8_assembly =
+        assembly_target.emit_assembly_copy(*oracle_w8.module);
+    auto candidate_w16_assembly =
+        assembly_target.emit_assembly_copy(*candidate_w16.module);
+    auto oracle_w16_assembly =
+        assembly_target.emit_assembly_copy(*oracle_w16.module);
+    CHECK(!candidate_w8_assembly.empty());
+    CHECK(!oracle_w8_assembly.empty());
+    CHECK(!candidate_w16_assembly.empty());
+    CHECK(!oracle_w16_assembly.empty());
     if (assembly_target.target_triple().starts_with("x86_64") &&
         assembly_target.supports_native_biased_narrow_buffer_gather(
             width)) {
         std::ranges::transform(
-            candidate_assembly, candidate_assembly.begin(),
+            candidate_w8_assembly, candidate_w8_assembly.begin(),
             [](unsigned char c) {
                 return static_cast<char>(std::tolower(c));
             });
         std::ranges::transform(
-            oracle_assembly, oracle_assembly.begin(),
+            oracle_w8_assembly, oracle_w8_assembly.begin(),
             [](unsigned char c) {
                 return static_cast<char>(std::tolower(c));
             });
-        CHECK(candidate_assembly.find("vpgatherdd") !=
+        std::ranges::transform(
+            candidate_w16_assembly, candidate_w16_assembly.begin(),
+            [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+        std::ranges::transform(
+            oracle_w16_assembly, oracle_w16_assembly.begin(),
+            [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+        CHECK(candidate_w8_assembly.find("vpgatherdd") !=
               std::string::npos);
-        CHECK(candidate_assembly.find("vpgatherqd") ==
+        CHECK(candidate_w8_assembly.find("vpgatherqd") ==
               std::string::npos);
-        CHECK(oracle_assembly.find("vpgatherqd") !=
+        CHECK(oracle_w8_assembly.find("vpgatherqd") !=
+              std::string::npos);
+        CHECK(candidate_w16_assembly.find("vpgatherdd") !=
+              std::string::npos);
+        CHECK(candidate_w16_assembly.find("vpgatherqd") ==
+              std::string::npos);
+        CHECK(oracle_w16_assembly.find("vpgatherqd") !=
               std::string::npos);
     }
 
     std::array<uint32_t, input_count> input_values{};
-    std::array<uint32_t, count> candidate_output{};
-    std::array<uint32_t, count> oracle_output{};
+    std::array<uint32_t, output_count> candidate_w8_output{};
+    std::array<uint32_t, output_count> oracle_w8_output{};
+    std::array<uint32_t, output_count> candidate_w16_output{};
+    std::array<uint32_t, output_count> oracle_w16_output{};
     for (auto i = uint32_t{0u}; i < input_count; i++) {
         input_values[i] = i * 17u + 5u;
     }
-    candidate_output.fill(0xdeadbeefu);
-    oracle_output.fill(0xdeadbeefu);
     auto execute = [&](ModuleBundle &bundle,
-                       std::array<uint32_t, count> &result) {
+                       uint32_t logical_width,
+                       std::array<uint32_t, output_count> &result) {
+        result.fill(0xdeadbeefu);
         LLVMJIT jit;
         if (!jit.succeeded() ||
             !jit.add_module(
@@ -5509,23 +5562,33 @@ template<size_t Width>
             SIMDHostBufferView{result.data(), sizeof(result)},
         };
         auto config = launch_1d(count, 64u);
-        for (auto first = uint32_t{0u}; first < 16u;
-             first += width) {
+        for (auto first = uint32_t{0u}; first < count;
+             first += logical_width) {
             config.thread_index = first;
-            auto active = std::min(width, count - first);
+            auto active = std::min(logical_width, count - first);
             function(
                 arguments.data(), nullptr, &config, active);
         }
         return true;
     };
-    CHECK(execute(candidate, candidate_output));
-    CHECK(execute(oracle, oracle_output));
+    CHECK(execute(candidate_w8, width, candidate_w8_output));
+    CHECK(execute(oracle_w8, width, oracle_w8_output));
+    CHECK(execute(candidate_w16, 16u, candidate_w16_output));
+    CHECK(execute(oracle_w16, 16u, oracle_w16_output));
     for (auto i = uint32_t{0u}; i < count; i++) {
         auto expected = input_values[i * 3u] +
                         input_values[i * 3u + 1u] +
                         input_values[i * 3u + 2u];
-        CHECK(candidate_output[i] == expected);
-        CHECK(oracle_output[i] == expected);
+        CHECK(candidate_w8_output[i] == expected);
+        CHECK(oracle_w8_output[i] == expected);
+        CHECK(candidate_w16_output[i] == expected);
+        CHECK(oracle_w16_output[i] == expected);
+    }
+    for (auto i = count; i < output_count; i++) {
+        CHECK(candidate_w8_output[i] == 0xdeadbeefu);
+        CHECK(oracle_w8_output[i] == 0xdeadbeefu);
+        CHECK(candidate_w16_output[i] == 0xdeadbeefu);
+        CHECK(oracle_w16_output[i] == 0xdeadbeefu);
     }
     return true;
 }

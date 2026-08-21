@@ -1,5 +1,6 @@
 #include "llvm_jit.h"
 
+#include <algorithm>
 #include <utility>
 
 #include <llvm/Analysis/CGSCCPassManager.h>
@@ -234,10 +235,9 @@ bool LLVMJIT::supports_native_paired_leaf_gather(
 
 bool LLVMJIT::supports_native_biased_narrow_buffer_gather(
     uint32_t width) const noexcept {
-    // W8 is the measured policy. W16's single 16-lane i32-index gather is
-    // legal on the reference host but consistently slower than the existing
-    // pair of i64-index gathers, so legality alone must not enable it.
-    if (!succeeded() || width != 8u) { return false; }
+    if (!succeeded() || (width != 8u && width != 16u)) {
+        return false;
+    }
     ::llvm::LLVMContext context;
     ::llvm::Module module{"simd-biased-narrow-gather-probe", context};
     auto data_layout = _target_machine->createDataLayout();
@@ -262,8 +262,13 @@ bool LLVMJIT::supports_native_biased_narrow_buffer_gather(
     auto target = _target_machine->getTargetTransformInfo(*function);
     auto fixed_register_bits = target.getRegisterBitWidth(
         ::llvm::TargetTransformInfo::RGK_FixedWidthVector);
+    // W16 is deliberately formed as two W8 gathers. A single W16 narrow
+    // gather was slower than the existing wide-index lowering on the
+    // reference host, while two independently schedulable halves preserve
+    // the logical W16 mask and expose the same legal W8 machine shape.
+    auto gather_width = std::min(width, 8u);
     auto *gather_type = ::llvm::FixedVectorType::get(
-        ::llvm::Type::getInt32Ty(context), width);
+        ::llvm::Type::getInt32Ty(context), gather_width);
     auto alignment = ::llvm::Align{1u};
     return fixed_register_bits.getKnownMinValue() >= 512u &&
            target.isLegalMaskedGather(gather_type, alignment) &&

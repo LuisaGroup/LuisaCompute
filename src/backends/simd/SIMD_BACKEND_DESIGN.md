@@ -4610,7 +4610,7 @@ at W1/W2/W4/W8/W16: all 15 executions pass. Image processing and Voxel report
 89.251953 and 82.834519 dB at every width; ordinary path tracing reports
 35.426795/42.781582/40.940376/39.219305/37.800295 dB respectively.
 
-### Exact biased narrow W8 loop-buffer gathers
+### Exact biased narrow W8 and split-W16 loop-buffer gathers
 
 The Voxel DDA profile identified the first dependent instruction after a
 `vpgatherqd` as the dominant JIT sample site. Scalar lane loads were a severe
@@ -4620,8 +4620,8 @@ fixed-vector production contract. The accepted refinement instead changes the
 index representation without changing the accessed address.
 
 For a direct nonvolatile scalar 32-bit typed-buffer read in an innermost loop,
-W8 may bias the scalar base by `2^31 * 4` bytes and xor each 32-bit index with
-`0x80000000`. LLVM sign-extends the resulting GEP index, making
+W8 and W16 may bias the scalar base by `2^31 * 4` bytes and xor each 32-bit
+index with `0x80000000`. LLVM sign-extends the resulting GEP index, making
 `biased_base + sext(index xor 0x80000000) * 4` exactly equal to the previous
 `base + zext(index) * 4` for all source bit patterns. Indices are sanitized
 before the transform, the gather keeps the original mask, and both GEPs are
@@ -4629,18 +4629,32 @@ non-`inbounds`. No target intrinsic or address-domain assumption is introduced.
 
 Selection is fail-closed through the host JIT's 64-bit pointer/index layout,
 native 512-bit fixed-vector register, and nonscalarized masked-gather proofs.
-It is then restricted to measured W8 profitability. W16's apparently legal
-single narrow gather regressed against two wide-index gathers, so W16 remains
-unchanged; W1/W2/W4 likewise retain their established paths. W2 is used for
-correctness, ABI, and tail-mask coverage, not as a performance target.
+It is then restricted to measured W8 and split-W16 profitability. W16's
+apparently legal single `<16 x i32>` gather was a stable regression. The
+retained form instead shuffles the logical index and active-mask vectors into
+two `<8 x i32>` halves, issues two independently schedulable masked gathers,
+and concatenates their results. The TTI proof therefore prices the actual W8
+machine shape at both logical widths. W1/W2/W4 retain their established paths;
+W2 is used for correctness, ABI, and tail-mask coverage, not as a performance
+target.
 
 `LUISA_SIMD_DISABLE_BIASED_NARROW_BUFFER_GATHER=1` selects the prior lowering,
 and the optimization report exposes `biased_narrow_buffer_gathers`. The
 permanent JIT regression checks high-bit address algebra, LLVM IR shape,
-candidate/oracle execution with a thirteen-thread tail, W16 rejection, and
-final x86 `vpgatherdd` versus `vpgatherqd` when the host capability gate is
-true. On the current Voxel kernel only W8 accepts one site; image processing,
-Spacex, non-coroutine SDF, and ordinary Embree path tracing accept none.
+candidate/oracle execution at W8 and W16 with a thirteen-thread tail, the two-
+half W16 IR shape, and final x86 `vpgatherdd` versus `vpgatherqd` when the host
+capability gate is true. The current Voxel kernel accepts one W8 site and two
+W16 sites. Image processing, Spacex, non-coroutine SDF, ordinary Embree path
+tracing, and cutout query tracing accept none.
+
+Ten alternating eight-worker W16 Voxel pairs measured the split form at
+1.064436x pointer-width-oracle throughput [1.058122, 1.070788], with 10/10
+wins. Five nonmultiplexed counter pairs put cycles and instructions at
+0.938296x and 0.937976x while branches remained 0.995677x. Final candidate
+code has four `vpgatherdd` instructions for the two logical sites; the oracle
+has four `vpgatherqd`. A warmed nine-round width rotation measures current W8
+and W16 Voxel at 3.015872x and 2.396918x fallback throughput respectively.
+Thus the split is retained, but W8 remains the preferred Voxel width.
 
 ### Bounded W4/W8 buffer-read continuation latency hiding
 
