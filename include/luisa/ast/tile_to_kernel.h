@@ -8,7 +8,7 @@
 // <luisa/ast/tile_function_builder.h>) describes a *tile-style* program: whole
 // tiles, T.copy / T.gemm / T.reduce_sum / ... , with no threads, no block size
 // and no dispatch.  `tile_to_kernel` performs the SIMD→SIMT step (see the
-// lowering plan in src/dsl/tile_to_kernel.cpp) and emits a REGULAR Luisa
+// lowering plan in src/ast/tile_to_kernel.cpp) and emits a REGULAR Luisa
 // kernel (a FunctionBuilder of Tag::KERNEL) that implements the same tile
 // program on every backend:
 //
@@ -39,7 +39,7 @@
 namespace luisa::compute {
 
 /// Result of translating a traced tile function into a regular kernel.
-struct LUISA_DSL_API TileCompileResult {
+struct LUISA_AST_API TileCompileResult {
     /// The generated kernel (FunctionBuilder with Tag::KERNEL).  It declares
     /// one Buffer argument per Global tensor of the tile function (in
     /// AllocStmt order) and carries the launch block size via
@@ -82,7 +82,7 @@ struct TileToKernelConfig {
 /// Translate a compiled tile kernel (a traced TileFunctionBuilder) into a
 /// regular Luisa kernel (FunctionBuilder).  The traced builder is only read;
 /// a const shared_ptr (as returned by tile::Kernel::function()) is accepted.
-[[nodiscard]] LUISA_DSL_API TileCompileResult tile_to_kernel(
+[[nodiscard]] LUISA_AST_API TileCompileResult tile_to_kernel(
     luisa::shared_ptr<const detail::TileFunctionBuilder> const &tile_function,
     TileToKernelConfig const &config = {});
 

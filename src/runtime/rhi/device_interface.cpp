@@ -21,6 +21,7 @@ void DeviceInterface::set_stream_log_callback(uint64_t stream_handle,
 
 ResourceCreationInfo DeviceInterface::create_curve(const AccelOption &option) noexcept {
     LUISA_NOT_IMPLEMENTED();
+    return {};
 }
 
 void DeviceInterface::destroy_curve(uint64_t handle) noexcept {
@@ -29,10 +30,21 @@ void DeviceInterface::destroy_curve(uint64_t handle) noexcept {
 
 ResourceCreationInfo DeviceInterface::create_motion_instance(const AccelMotionOption &option) noexcept {
     LUISA_NOT_IMPLEMENTED();
+    return {};
 }
 
 void DeviceInterface::destroy_motion_instance(uint64_t handle) noexcept {
     LUISA_NOT_IMPLEMENTED();
 }
-
+TileShaderCreationInfo DeviceInterface::create_tile_shader(const TileShaderOption &option, const TileFunctionBuilder *tile_kernel) noexcept {
+    LUISA_NOT_IMPLEMENTED();
+    return {};
+}
+void DeviceInterface::destroy_tile_shader(uint64_t handle) noexcept {
+    LUISA_NOT_IMPLEMENTED();
+}
+Usage DeviceInterface::tile_shader_argument_usage(uint64_t handle, size_t index) noexcept {
+    LUISA_NOT_IMPLEMENTED();
+    return {};
+}
 }// namespace luisa::compute
