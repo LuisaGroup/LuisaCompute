@@ -102,6 +102,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/local_load_elimination.cpp
         passes/lower_irreducible_cfg.cpp
         passes/lower_ray_query_to_pipeline.cpp
+        passes/lower_ray_query_handler_graph.cpp
         passes/lower_ray_query_to_loop.cpp
         passes/reconstruct_ray_query_loop.cpp
         passes/mem2reg.cpp
