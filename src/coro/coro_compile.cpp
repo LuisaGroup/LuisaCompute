@@ -687,14 +687,36 @@ CoroutineCompileResult compile_coroutine_pipeline(
             "explicit ray-query loop(s).",
             inline_ray_query_info.error_count);
     }
+    xir::PassReport ray_query_report;
+    xir::LowerRayQueryToPipelineOptions ray_query_options;
+    ray_query_options.verify_handler_scratch_graph =
+        environment_flag_enabled(
+            "LUISA_CORO_VERIFY_HANDLER_SCRATCH_GRAPH");
     auto ray_query_info =
         xir::lower_ray_query_to_pipeline_pass_run_on_module(
-            module.get());
+            module.get(), &ray_query_report, ray_query_options);
     if (!ray_query_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Coroutine ray-query normalization rejected {} unsupported "
             "ray-query loop(s).",
             ray_query_info.error_count);
+    }
+    if (environment_flag_enabled("LUISA_CORO_PROFILE_COMPILATION")) {
+        auto report_value = [&](luisa::string_view key) noexcept {
+            for (auto &&entry : ray_query_report.entries()) {
+                if (entry.key == key) { return entry.value; }
+            }
+            return uint64_t{0u};
+        };
+        LUISA_INFO(
+            "Coroutine ray-query handler scratch: analyses={} "
+            "indexed_instructions={} relevant_instructions={} "
+            "avoided_linear_scans={} block_evaluations={}.",
+            report_value("handler_localization_analysis"),
+            report_value("handler_localization_indexed_instruction"),
+            report_value("handler_localization_relevant_instruction"),
+            report_value("handler_localization_avoided_instruction_scan"),
+            report_value("handler_localization_block_evaluation"));
     }
     profiler.checkpoint("ray-query normalization");
     auto ordinary_callable_snapshots =

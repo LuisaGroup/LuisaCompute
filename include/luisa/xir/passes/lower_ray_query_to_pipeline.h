@@ -77,6 +77,11 @@ struct LowerRayQueryToPipelineOptions {
     // callback invocation. This stays out of the canonical result structure
     // so its established two-word return ABI remains unchanged.
     size_t *localized_alloca_count{nullptr};
+    // Expensive compiler-validation oracle. The dense CFG/ordinal snapshot is
+    // checked against the live immutable handler, and every candidate-local
+    // sparse instruction schedule is compared with a linear block scan before
+    // the definite-initialization dataflow is solved.
+    bool verify_handler_scratch_graph{false};
 };
 
 // Every loop in a function is preflighted before outlining. Unsupported handler

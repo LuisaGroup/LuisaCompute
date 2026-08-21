@@ -26,6 +26,7 @@
 #include <limits>
 
 #include "helpers.h"
+#include "lower_ray_query_handler_graph.h"
 
 namespace luisa::compute::xir {
 
@@ -41,6 +42,12 @@ struct LowerRayQueryToPipelineRunInfo : LowerRayQueryToPipelineInfo {
     size_t localized_alloca_count{0u};
     size_t selection_localization_analysis_count{0u};
     size_t handler_localization_instruction_evaluation_count{0u};
+    size_t handler_localization_analysis_count{0u};
+    size_t handler_localization_indexed_instruction_count{0u};
+    size_t handler_localization_relevant_instruction_count{0u};
+    size_t handler_localization_avoided_instruction_scan_count{0u};
+    size_t handler_localization_block_evaluation_count{0u};
+    bool verify_handler_scratch_graph{false};
 };
 
 struct RayQueryHandlerRegion {
@@ -654,7 +661,8 @@ class RayQueryHandlerScratchAnalyzer {
 
 private:
     const Type *_root_type;
-    size_t *_instruction_evaluation_count;
+    LowerRayQueryToPipelineRunInfo *_run_info;
+    const RayQueryHandlerGraph *_graph;
 
 private:
     [[nodiscard]] RayQueryHandlerPointerResolveResult resolve_pointer(
@@ -752,8 +760,9 @@ private:
         for (auto *block : definition->basic_blocks()) {
             blocks.emplace(block);
         }
+        RayQueryHandlerGraph graph{blocks};
         auto result = summarize_region(
-            definition->body_block(), blocks,
+            definition->body_block(), graph,
             std::move(environment), nullptr, nullptr, false,
             active_functions);
         active_functions.erase(function);
@@ -767,8 +776,8 @@ private:
             const Value, RayQueryHandlerPointerResolveResult> &cache,
         const RayQueryHandlerPointerSupport *pointer_support,
         RayQueryHandlerActiveFunctions &active_functions) const noexcept {
-        if (_instruction_evaluation_count != nullptr) {
-            ++*_instruction_evaluation_count;
+        if (_run_info != nullptr) {
+            ++_run_info->handler_localization_instruction_evaluation_count;
         }
         RayQueryHandlerScratchEffect effect{_root_type};
         if (instruction == nullptr) {
@@ -932,7 +941,7 @@ private:
 
     [[nodiscard]] RayQueryHandlerScratchEffect summarize_region(
         BasicBlock *entry,
-        const luisa::unordered_set<BasicBlock *> &blocks,
+        const RayQueryHandlerGraph &graph,
         RayQueryHandlerPointerEnvironment environment,
         const RayQueryHandlerPointerSupport *pointer_support,
         const RayQueryHandlerInstructionSchedule *instruction_schedule,
@@ -940,24 +949,19 @@ private:
         RayQueryHandlerActiveFunctions &active_functions) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
         invalid.valid = false;
-        if (entry == nullptr || !blocks.contains(entry)) { return invalid; }
-        RayQueryHandlerPointerMap<
-            BasicBlock,
-            luisa::unique_ptr<RayQueryHandlerScratchBlockState>>
-            states;
-        for (auto *block : blocks) {
-            if (block == nullptr) { return invalid; }
-            states.emplace(
-                block,
-                luisa::make_unique<RayQueryHandlerScratchBlockState>(
-                    _root_type));
+        auto entry_id = graph.block_id(entry);
+        if (!graph.valid() || entry_id >= graph.size()) { return invalid; }
+        luisa::vector<RayQueryHandlerScratchBlockState> states;
+        states.reserve(graph.size());
+        for (auto i = 0u; i < graph.size(); ++i) {
+            states.emplace_back(_root_type);
         }
         RayQueryHandlerScratchEffect identity{_root_type};
-        states.at(entry)->reached = true;
-        states.at(entry)->effect = identity;
-        luisa::vector<BasicBlock *> worklist{entry};
-        RayQueryHandlerPointerSet<BasicBlock> queued;
-        queued.insert(entry);
+        states[entry_id].reached = true;
+        states[entry_id].effect = identity;
+        luisa::vector<size_t> worklist{entry_id};
+        luisa::vector<uint8_t> queued(graph.size(), uint8_t{0u});
+        queued[entry_id] = 1u;
         RayQueryHandlerScratchBlockState exits{_root_type};
         // Pointer provenance depends only on the immutable environment and
         // value graph, not on the block or current dataflow fact. Reuse one
@@ -1011,31 +1015,28 @@ private:
             return *iter->second;
         };
         while (!worklist.empty()) {
-            auto *block = worklist.back();
+            if (_run_info != nullptr) {
+                ++_run_info->handler_localization_block_evaluation_count;
+            }
+            auto block_id = worklist.back();
             worklist.pop_back();
-            queued.erase(block);
-            auto current = states.at(block)->effect;
+            queued[block_id] = 0u;
+            auto &graph_block = graph.block(block_id);
+            auto *block = graph_block.source;
+            auto current = states[block_id].effect;
             append_handler_scratch_effect(current, block_effect(block));
             if (!current.valid) { return current; }
-            auto successor_count = 0u;
-            auto external_successor_count = 0u;
-            block->traverse_successors(
-                false, [&](BasicBlock *successor) noexcept {
-                    ++successor_count;
-                    if (!blocks.contains(successor)) {
-                        ++external_successor_count;
-                        return;
-                    }
-                    auto &state = *states.at(successor);
-                    if (join_effect(state, current) &&
-                        queued.emplace(successor).second) {
-                        worklist.emplace_back(successor);
-                    }
-                });
-            if (external_successor_count != 0u) {
+            for (auto successor_id : graph_block.successors) {
+                auto &state = states[successor_id];
+                if (join_effect(state, current) && !queued[successor_id]) {
+                    queued[successor_id] = 1u;
+                    worklist.emplace_back(successor_id);
+                }
+            }
+            if (graph_block.external_successor_count != 0u) {
                 if (!allow_external_exit) { return invalid; }
                 join_effect(exits, current);
-            } else if (successor_count == 0u) {
+            } else if (graph_block.successor_count == 0u) {
                 auto *terminator = block->terminator();
                 if (terminator != nullptr &&
                     terminator->isa<ReturnInst>()) {
@@ -1052,21 +1053,25 @@ private:
 public:
     explicit RayQueryHandlerScratchAnalyzer(
         const Type *root_type,
-        size_t *instruction_evaluation_count) noexcept
+        LowerRayQueryToPipelineRunInfo *run_info,
+        const RayQueryHandlerGraph *graph) noexcept
         : _root_type{root_type},
-          _instruction_evaluation_count{
-              instruction_evaluation_count} {}
+          _run_info{run_info},
+          _graph{graph} {}
 
     [[nodiscard]] RayQueryHandlerScratchEffect summarize(
         AllocaInst *alloca, BasicBlock *entry,
-        const RayQueryHandlerRegion &region,
         const RayQueryHandlerPointerSupport &pointer_support) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
         invalid.valid = false;
         if (alloca == nullptr || entry == nullptr ||
             alloca->type() != _root_type ||
-            alloca->parent_function() == nullptr) {
+            alloca->parent_function() == nullptr ||
+            _graph == nullptr || !_graph->valid()) {
             return invalid;
+        }
+        if (_run_info != nullptr) {
+            ++_run_info->handler_localization_analysis_count;
         }
         RayQueryHandlerPointerEnvironment environment;
         environment.emplace(alloca, RayQueryHandlerPointerView{});
@@ -1080,6 +1085,7 @@ public:
         // sparse representation of each block's path effect.
         RayQueryHandlerPointerSet<const Instruction> relevant_instructions;
         RayQueryHandlerPointerSet<const BasicBlock> relevant_blocks;
+        luisa::vector<const Instruction *> ordered_instructions;
         for (auto *pointer : pointer_support) {
             for (auto &&use : pointer->use_list()) {
                 auto *user = use->user();
@@ -1090,24 +1096,70 @@ public:
                     static_cast<const Instruction *>(user);
                 auto *block = instruction->parent_block();
                 if (block != nullptr &&
-                    region.blocks.contains(
-                        const_cast<BasicBlock *>(block)) &&
+                    _graph->contains(block) &&
                     relevant_instructions.emplace(instruction).second) {
                     relevant_blocks.emplace(block);
+                    ordered_instructions.emplace_back(instruction);
                 }
             }
         }
         RayQueryHandlerInstructionSchedule instruction_schedule;
-        for (auto *block : relevant_blocks) {
-            auto &ordered = instruction_schedule[block];
-            for (auto *instruction : block->instructions()) {
-                if (relevant_instructions.contains(instruction)) {
-                    ordered.emplace_back(instruction);
+        for (auto *instruction : ordered_instructions) {
+            instruction_schedule[instruction->parent_block()]
+                .emplace_back(instruction);
+        }
+        for (auto &[block, ordered] : instruction_schedule) {
+            static_cast<void>(block);
+            std::sort(
+                ordered.begin(), ordered.end(),
+                [&](const Instruction *lhs,
+                    const Instruction *rhs) noexcept {
+                    auto *lhs_location =
+                        _graph->instruction_location(lhs);
+                    auto *rhs_location =
+                        _graph->instruction_location(rhs);
+                    LUISA_DEBUG_ASSERT(
+                        lhs_location != nullptr && rhs_location != nullptr &&
+                            lhs_location->block_id == rhs_location->block_id,
+                        "Invalid ray-query handler instruction order.");
+                    return lhs_location->ordinal < rhs_location->ordinal;
+                });
+        }
+        if (_run_info != nullptr) {
+            _run_info->handler_localization_relevant_instruction_count +=
+                ordered_instructions.size();
+            for (auto *block : relevant_blocks) {
+                _run_info
+                    ->handler_localization_avoided_instruction_scan_count +=
+                    _graph->block_instruction_count(block);
+            }
+        }
+        if (_run_info != nullptr &&
+            _run_info->verify_handler_scratch_graph) {
+            RayQueryHandlerInstructionSchedule oracle;
+            for (auto *block : relevant_blocks) {
+                auto &linear = oracle[block];
+                for (auto *instruction : block->instructions()) {
+                    if (relevant_instructions.contains(instruction)) {
+                        linear.emplace_back(instruction);
+                    }
                 }
+            }
+            LUISA_ASSERT(
+                oracle.size() == instruction_schedule.size(),
+                "Sparse ray-query handler schedule disagrees with the "
+                "linear instruction-order oracle.");
+            for (auto &[block, linear] : oracle) {
+                auto iter = instruction_schedule.find(block);
+                LUISA_ASSERT(
+                    iter != instruction_schedule.end() &&
+                        iter->second == linear,
+                    "Sparse ray-query handler schedule disagrees with the "
+                    "linear instruction-order oracle.");
             }
         }
         return summarize_region(
-            entry, region.blocks, std::move(environment),
+            entry, *_graph, std::move(environment),
             &pointer_support, &instruction_schedule, true,
             active_functions);
     }
@@ -1120,13 +1172,28 @@ find_handler_local_allocas(
     const RayQueryHandlerRegion &surface_region,
     BasicBlock *procedural_entry,
     const RayQueryHandlerRegion &procedural_region,
-    size_t &instruction_evaluation_count) noexcept {
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
     RayQueryHandlerLocalAllocas result;
+    luisa::vector<AllocaInst *> candidates;
     for (auto *value : capture_list.in_values) {
-        if (value == nullptr || !value->isa<AllocaInst>()) { continue; }
-        auto *alloca = static_cast<AllocaInst *>(value);
-        if (!alloca->is_local()) { continue; }
-
+        if (value != nullptr && value->isa<AllocaInst>()) {
+            auto *alloca = static_cast<AllocaInst *>(value);
+            if (alloca->is_local()) { candidates.emplace_back(alloca); }
+        }
+    }
+    if (candidates.empty()) { return result; }
+    RayQueryHandlerGraph surface_graph{surface_region.blocks};
+    RayQueryHandlerGraph procedural_graph{procedural_region.blocks};
+    if (info.verify_handler_scratch_graph) {
+        LUISA_ASSERT(
+            surface_graph.verify(surface_region.blocks) &&
+                procedural_graph.verify(procedural_region.blocks),
+            "Dense ray-query handler graph disagrees with the source CFG.");
+    }
+    info.handler_localization_indexed_instruction_count +=
+        surface_graph.instruction_count() +
+        procedural_graph.instruction_count();
+    for (auto *alloca : candidates) {
         RayQueryHandlerRootUseInfo uses;
         RayQueryHandlerPointerSupport visited;
         collect_handler_alloca_root_uses(
@@ -1141,20 +1208,19 @@ find_handler_local_allocas(
         if (!uses.used_by_surface && !uses.used_by_procedural) { continue; }
         auto handler_is_invocation_local =
             [&](BasicBlock *entry,
-                const RayQueryHandlerRegion &region) noexcept {
+                const RayQueryHandlerGraph &graph) noexcept {
                 auto summary =
                     RayQueryHandlerScratchAnalyzer{
-                        alloca->type(),
-                        &instruction_evaluation_count}
-                        .summarize(alloca, entry, region, visited);
+                        alloca->type(), &info, &graph}
+                        .summarize(alloca, entry, visited);
                 return summary.valid && !summary.needs_input();
             };
         auto surface_is_local =
             !uses.used_by_surface ||
-            handler_is_invocation_local(surface_entry, surface_region);
+            handler_is_invocation_local(surface_entry, surface_graph);
         auto procedural_is_local =
             !uses.used_by_procedural ||
-            handler_is_invocation_local(procedural_entry, procedural_region);
+            handler_is_invocation_local(procedural_entry, procedural_graph);
         if (!surface_is_local || !procedural_is_local) { continue; }
         if (uses.used_by_surface) { result.surface.emplace_back(alloca); }
         if (uses.used_by_procedural) {
@@ -1168,7 +1234,7 @@ find_handler_local_allocas(
 [[nodiscard]] static size_t count_handler_localized_input_captures(
     RayQueryLoopInst *loop,
     const RayQueryLoopCaptureList &capture_list,
-    size_t &instruction_evaluation_count) noexcept {
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
     if (loop == nullptr || loop->dispatch_block() == nullptr) {
         return 0u;
     }
@@ -1199,7 +1265,7 @@ find_handler_local_allocas(
                dispatch->on_surface_candidate_block(), surface_region,
                dispatch->on_procedural_candidate_block(),
                procedural_region,
-               instruction_evaluation_count)
+               info)
         .all.size();
 }
 
@@ -1313,8 +1379,7 @@ select_ray_query_loops(
             ++info.selection_localization_analysis_count;
             auto localized_input_capture_count =
                 count_handler_localized_input_captures(
-                    loop, capture_list,
-                    info.handler_localization_instruction_evaluation_count);
+                    loop, capture_list, info);
             LUISA_DEBUG_ASSERT(
                 localized_input_capture_count <= input_capture_count,
                 "Localized ray-query handler captures exceed input captures.");
@@ -1541,7 +1606,7 @@ static void lower_ray_query_to_pipeline(
     auto local_allocas = find_handler_local_allocas(
         capture_list, dispatch->on_surface_candidate_block(), surface_region,
         dispatch->on_procedural_candidate_block(), procedural_region,
-        info.handler_localization_instruction_evaluation_count);
+        info);
     if (!local_allocas.all.empty()) {
         capture_list.in_values.erase(
             std::remove_if(
@@ -1788,6 +1853,8 @@ lower_ray_query_to_pipeline_pass_run_on_function(
         *options.localized_alloca_count = 0u;
     }
     detail::LowerRayQueryToPipelineRunInfo info;
+    info.verify_handler_scratch_graph =
+        options.verify_handler_scratch_graph;
     detail::run_lower_ray_query_to_pipeline_pass_on_function(
         function, options, info);
     if (options.localized_alloca_count != nullptr) {
@@ -1814,6 +1881,8 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         *options.localized_alloca_count = 0u;
     }
     detail::LowerRayQueryToPipelineRunInfo info;
+    info.verify_handler_scratch_graph =
+        options.verify_handler_scratch_graph;
     struct FunctionWork {
         Function *function;
         luisa::vector<RayQueryLoopInst *> loops;
@@ -1856,6 +1925,16 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         report->set(
             "handler_localization_instruction_evaluation",
             info.handler_localization_instruction_evaluation_count);
+        report->set("handler_localization_analysis",
+                    info.handler_localization_analysis_count);
+        report->set("handler_localization_indexed_instruction",
+                    info.handler_localization_indexed_instruction_count);
+        report->set("handler_localization_relevant_instruction",
+                    info.handler_localization_relevant_instruction_count);
+        report->set("handler_localization_avoided_instruction_scan",
+                    info.handler_localization_avoided_instruction_scan_count);
+        report->set("handler_localization_block_evaluation",
+                    info.handler_localization_block_evaluation_count);
     }
     if (options.localized_alloca_count != nullptr) {
         *options.localized_alloca_count = info.localized_alloca_count;

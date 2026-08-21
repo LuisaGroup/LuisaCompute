@@ -529,7 +529,8 @@ void register_tests() {
         size_t localized_alloca_count = 0u;
         auto info = lower_ray_query_to_pipeline_pass_run_on_module(
             &m, &report,
-            {.localized_alloca_count = &localized_alloca_count});
+            {.localized_alloca_count = &localized_alloca_count,
+             .verify_handler_scratch_graph = true});
         expect(info.succeeded());
         expect(info.lowered_loop_count == 1u);
         expect(localized_alloca_count == 1u);
@@ -546,6 +547,13 @@ void register_tests() {
         expect(report_value(
                    report,
                    "handler_localization_instruction_evaluation") == 2u);
+        expect(report_value(
+                   report,
+                   "handler_localization_relevant_instruction") == 2u);
+        expect(report_value(
+                   report,
+                   "handler_localization_avoided_instruction_scan") >
+               8192u);
         expect(xir_verify_module(&m).succeeded());
     };
 
@@ -1013,6 +1021,44 @@ void register_tests() {
             expect(!captures_scratch);
             expect(captures_observed);
         }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "dense_handler_graph_preserves_cyclic_must_join"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *condition =
+            f.kernel->create_value_argument(Type::of<bool>());
+        auto *define = f.kernel->create_basic_block();
+        auto *observe = f.kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(Type::of<int>());
+        b.store(scratch, m.create_constant_zero(Type::of<int>()));
+        b.set_insertion_point(f.surface);
+        b.cond_br(condition, define, observe);
+        b.set_insertion_point(define);
+        b.store(scratch, m.create_constant_one(Type::of<int>()));
+        b.br(f.surface);
+        b.set_insertion_point(observe);
+        b.load(Type::of<int>(), scratch);
+        b.br(f.dispatch);
+
+        expect(xir_verify_module(&m).succeeded());
+        PassReport report;
+        size_t localized_alloca_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, &report,
+            {.localized_alloca_count = &localized_alloca_count,
+             .verify_handler_scratch_graph = true});
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        // The direct entry -> observe path reads incoming state. A definition
+        // on the backedge cannot turn that path-union into a must-definition.
+        expect(localized_alloca_count == 0u);
+        expect(report_value(
+                   report,
+                   "handler_localization_block_evaluation") >= 3u);
         expect(xir_verify_module(&m).succeeded());
     };
 
