@@ -67,6 +67,7 @@ struct SIMDCompiledKernel {
     size_t ray_query_state_handle_slot_count{0u};
     size_t compact_surface_filter_state_count{0u};
     size_t output_only_empty_surface_filter_state_count{0u};
+    size_t direct_output_surface_filter_state_count{0u};
     size_t direct_ray_query_pipeline_count{0u};
     size_t post_reconstruction_ray_query_pipeline_count{0u};
     size_t resident_ray_query_pipeline_count{0u};

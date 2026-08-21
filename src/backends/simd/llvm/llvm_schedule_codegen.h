@@ -249,6 +249,15 @@ using SIMDHostAccelRayQueryEmptySurfaceFilterPacketPipeline = void(
     uint32_t lane_count, uint64_t active_mask_bits,
     void *accel, SIMDHostRayQueryState *const *states,
     void *ray_packet, uint32_t terminate_on_first);
+// A nonempty audited direct handler may use the same output-only query-state
+// boundary when the caller observes only the terminal result. The callback
+// consumes Embree's native packet candidate and returns physical commit bits;
+// active states provide only the original interval and committed-hit output.
+using SIMDHostAccelRayQueryDirectOutputSurfaceFilterPacketPipeline = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    void *accel, SIMDHostRayQueryState *const *states,
+    void *ray_packet, uint32_t terminate_on_first,
+    SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct);
 
 // One fixed-size state belongs to each logical lane and simultaneously live
 // query object. Noninterfering construction sites may share storage after a
@@ -465,6 +474,8 @@ struct alignas(16) SIMDHostAccelInstanceTable {
     size_t committed_size{0u};
     SIMDHostAccelRayQueryEmptySurfaceFilterPacketPipeline *
         ray_query_empty_surface_filter_packet_pipeline{nullptr};
+    SIMDHostAccelRayQueryDirectOutputSurfaceFilterPacketPipeline *
+        ray_query_direct_output_surface_filter_packet_pipeline{nullptr};
 };
 
 struct alignas(16) SIMDHostAccelView {
@@ -489,6 +500,9 @@ static_assert(
     sizeof(SIMDHostAccelRayQuerySurfaceFilterPipeline *) == sizeof(void *));
 static_assert(
     sizeof(SIMDHostAccelRayQuerySurfaceFilterPacketPipeline *) ==
+    sizeof(void *));
+static_assert(
+    sizeof(SIMDHostAccelRayQueryDirectOutputSurfaceFilterPacketPipeline *) ==
     sizeof(void *));
 static_assert(sizeof(SIMDHostRayQuerySurfaceHit) == 24u);
 static_assert(sizeof(SIMDHostRayQueryCommittedHit) == 24u);
@@ -553,6 +567,10 @@ static_assert(offsetof(
                   SIMDHostAccelInstanceTable,
                   ray_query_empty_surface_filter_packet_pipeline) ==
               8u * sizeof(void *));
+static_assert(offsetof(
+                  SIMDHostAccelInstanceTable,
+                  ray_query_direct_output_surface_filter_packet_pipeline) ==
+              9u * sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, accel) == 0u);
 static_assert(offsetof(SIMDHostAccelView, trace_closest) == sizeof(void *));
 static_assert(offsetof(SIMDHostAccelView, trace_any) == 2u * sizeof(void *));
@@ -746,6 +764,7 @@ struct LLVMScheduleCodegenResult {
     size_t ray_query_state_handle_slot_count{0u};
     size_t compact_surface_filter_state_count{0u};
     size_t output_only_empty_surface_filter_state_count{0u};
+    size_t direct_output_surface_filter_state_count{0u};
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};

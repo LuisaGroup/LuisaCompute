@@ -742,6 +742,11 @@ if (TARGET luisa-compute-backend-simd)
     set_tests_properties(test_simd_accel_output_only_empty_surface_filter_oracle PROPERTIES
             LABELS "integration_simd;runtime_simd"
             ENVIRONMENT "LUISA_SIMD_DISABLE_OUTPUT_ONLY_EMPTY_SURFACE_FILTER=1")
+    add_test(NAME test_simd_accel_direct_output_surface_filter_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_direct_output_surface_filter_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1")
 
     foreach (_simd_runtime_test IN ITEMS
             test_buffer

@@ -992,6 +992,35 @@ void ScheduleEmitter::_allocate_state() {
             _ray_query_empty_surface_filter_accel_storage[slot] = accel;
         }
         if (slot <
+            _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                .size()) {
+            auto *pipeline_callback = _builder.CreateAlloca(
+                callback_type, nullptr,
+                "ray.query.direct.output.surface.filter.pipeline.callback.slot." +
+                    std::to_string(slot));
+            pipeline_callback->setAlignment(
+                ::llvm::Align{alignof(void *)});
+            _builder.CreateAlignedStore(
+                ::llvm::Constant::getNullValue(callback_type),
+                pipeline_callback,
+                ::llvm::Align{alignof(void *)});
+            _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                [slot] = pipeline_callback;
+        }
+        if (slot <
+            _ray_query_direct_output_surface_filter_accel_storage.size()) {
+            auto *accel = _builder.CreateAlloca(
+                callback_type, nullptr,
+                "ray.query.direct.output.surface.filter.accel.slot." +
+                    std::to_string(slot));
+            accel->setAlignment(::llvm::Align{alignof(void *)});
+            _builder.CreateAlignedStore(
+                ::llvm::Constant::getNullValue(callback_type), accel,
+                ::llvm::Align{alignof(void *)});
+            _ray_query_direct_output_surface_filter_accel_storage[slot] =
+                accel;
+        }
+        if (slot <
             _ray_query_surface_filter_ray_packet_storage.size()) {
             auto *lane_type = ::llvm::FixedVectorType::get(
                 _builder.getInt32Ty(), _width);

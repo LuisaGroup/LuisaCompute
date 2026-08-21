@@ -5681,3 +5681,104 @@ independently (338/338 total). Fresh W1/W2/W4/W8/W16 1,024-spp non-coroutine
 cutout renders explicitly compare against the checked-in fallback gallery and
 pass at 42.930016/46.208391/45.900175/45.529821/45.150873 dB RGB PSNR,
 respectively; the reference was not regenerated.
+
+## Direct-output nonempty surface-filter query state
+
+The output-only state boundary now also covers a capture-free nonempty direct
+surface handler. The proof accepts exactly one triangle-only surface pipeline
+whose direct packet handler reads only the current triangle candidate and
+writes only its commit decision, plus an empty procedural handler. The caller
+may read only the final committed hit or termination and may not write the
+query. W4/W8/W16 use a new provider that initializes and returns only the
+original ray interval and `committed`; W1/W2, captures or resources, explicit
+termination, candidate object-space ray reads, multiple pipelines, and any
+unproven use fail closed to the existing operational-state route. A null
+provider has the same fallback behavior.
+
+`LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1` selects the established
+state provider without recompiling the shader. Fresh system/TBB processes used
+physical CPUs 0--15, sixteen workers, 64 spp, and one spp per dispatch.
+Candidate/oracle order alternated, and a 200-ms monitor discarded an entire
+pair whenever the known collector, Psycles jobs, or any unrelated process at
+or above 50% CPU appeared. The seven retained pairs at every width were all
+clean; no sample was selected by its timing. Every candidate/oracle PNG pair
+was byte-identical.
+
+| width | direct-output median FPS | state-provider median FPS | paired geometric speedup | wins | 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W4 | 42.6340 | 39.4194 | **1.0798x** | 7/7 | **[1.0724, 1.0872]** |
+| W8 | 47.5490 | 43.6714 | **1.0908x** | 7/7 | **[1.0733, 1.1085]** |
+| W16 | 50.3041 | 44.9990 | **1.1145x** | 7/7 | **[1.0996, 1.1296]** |
+
+The stable paired hashes are
+`0274b95c8d726c5e97fe2a64d7d6d50e646140ef3c6f95f38646e3387e57b201`
+at W4,
+`f00e7624e4ff03068c8a3c2759ed4a0a70b24f0723985786eabde997e65d8d29`
+at W8, and
+`f6b54a3148bd070f5111c8a7203d1f9e6690ef0f361323819852356dc9df3ef3`
+at W16.
+
+Three additional clean W16 pairs at 128 spp recorded a non-multiplexed event
+group. Candidate/oracle geometric ratios are:
+
+| counter | direct-output / state-provider oracle |
+| --- | ---: |
+| throughput | **1.1115x** |
+| task-clock | **0.8983x** |
+| cycles | **0.8968x** |
+| instructions | **0.9472x** |
+| branches | **0.8930x** |
+| branch misses | **0.9482x** |
+
+The throughput, time, cycle, instruction, and branch results agree: the new
+boundary deletes operational query initialization, callback state packing,
+and state-machine work rather than changing only an LLVM flag. A separate
+clean W16 `cycles:u` profile places Embree/JIT/SIMD-runtime at
+43.49%/33.71%/18.59% for the candidate and 40.01%/36.42%/20.27% for the
+oracle. The shared `surface_filter_pipeline<16>` accounts for 6.31% versus
+7.37%, while the new provider itself accounts for 0.22%. These values are
+sample shares and are not independent speedups.
+
+A separate seven-pair equal-core rotation compares the complete current SIMD
+route with fallback under the same affinity and workload:
+
+| width | SIMD median FPS | fallback median FPS | paired geometric SIMD / fallback | wins | 95% log-paired CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W1 | 33.6508 | 47.8997 | 0.7074x | 0/7 | [0.6972, 0.7177] |
+| W2 | 28.1274 | 48.2621 | 0.5811x | 0/7 | [0.5633, 0.5995] |
+| W4 | 42.5489 | 47.8827 | 0.8930x | 0/7 | [0.8748, 0.9115] |
+| W8 | 46.8040 | 47.7411 | 0.9789x | 1/7 | [0.9626, 0.9955] |
+| W16 | 50.0992 | 48.2083 | **1.0377x** | 7/7 | **[1.0272, 1.0482]** |
+
+Thus W16 is 3.77% faster than equal-core fallback on this nonempty cutout-query
+workload with its complete paired interval above one. W8 remains 2.1% behind,
+W4 remains 10.7% behind, and W1/W2 are deliberate fail-closed controls. This
+does not replace the ordinary direct-trace, empty-handler, graphics, voxel,
+GEMM, or ISPC comparisons elsewhere in this report.
+
+Candidate and oracle processes emit the same five JIT objects. The W16 main
+object is 65,632 bytes with a 51,411-byte `.text`; it has no undefined symbol,
+no scheduler-oracle function, and no varying scalar-libm, scalar Embree, or
+target-intrinsic reference. Its two direct surface handlers are each 445
+bytes. Disassembly of the new backend provider reaches only the matching
+`rtcIntersect4/8/16` and `rtcOccluded4/8/16` packet entries. Scalar Embree
+imports in the complete backend belong to the separately supported W1 route.
+
+The permanent JIT differential exercises W4/W8/W16 direct-output,
+state-provider, null-provider, and explicit-loop routes with a sparse physical
+candidate mask and a partial tail. It requires inactive state pointers to be
+null, all twelve inactive ray-packet fields to be benign before Embree, exact
+candidate masks and commit bits, and exact compact/full strides. W2 and
+captured, resource-using, reused, empty, or explicitly terminating handlers
+exercise rejection. The real Embree suite covers closest and any-hit queries,
+runtime opacity mutation, and W1/W2/W4/W8/W16; a dedicated CTest selects the
+disabled-provider oracle.
+
+After correcting the newly extended XIR pass-report schema expectation, both
+maintained Release trees pass the complete 170/170 CTest inventory
+independently (340/340 total). This includes all native-math, Schedule/JIT,
+runtime-width, accel/oracle, XIR/coroutine, graphics, image-processing, path
+tracing, and voxel tests. A fresh read-only W1/W2/W4/W8/W16 1,024-spp cutout
+gallery sweep also passes at
+39.100980/40.178515/40.098347/39.996424/39.885689 dB RGB PSNR; no reference
+image was regenerated.

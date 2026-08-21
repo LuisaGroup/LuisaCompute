@@ -7164,6 +7164,9 @@ struct RayQueryFilterProbe {
     uint32_t output_only_surface_pipeline_calls{0u};
     uint32_t output_only_closest_calls{0u};
     uint32_t output_only_any_calls{0u};
+    uint32_t direct_output_surface_pipeline_calls{0u};
+    uint32_t direct_output_closest_calls{0u};
+    uint32_t direct_output_any_calls{0u};
     uint32_t expected_lane_count{0u};
     SIMDHostAccelRayQueryProceed *expected_proceed{nullptr};
     size_t expected_state_stride{sizeof(SIMDHostRayQueryState)};
@@ -7679,6 +7682,109 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
     }
 }
 
+void ray_query_direct_output_surface_filter_packet_pipeline_probe(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    void *accel, SIMDHostRayQueryState *const *states,
+    void *ray_packet, uint32_t terminate_on_first,
+    SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct) noexcept {
+    if (accel == nullptr || states == nullptr || ray_packet == nullptr ||
+        on_surface_direct == nullptr || terminate_on_first > 1u) {
+        std::abort();
+    }
+    auto *probe = static_cast<RayQueryFilterProbe *>(accel);
+    probe->direct_output_surface_pipeline_calls++;
+    probe->direct_output_closest_calls += terminate_on_first == 0u;
+    probe->direct_output_any_calls += terminate_on_first != 0u;
+    probe->valid &= lane_count == probe->expected_lane_count;
+    auto *packet_words = static_cast<uint32_t *>(ray_packet);
+    auto packet_word = [&](uint32_t field, uint32_t lane) noexcept {
+        return packet_words[field * lane_count + lane];
+    };
+    std::array<uint32_t,
+               simd_host_accel_ray_packet_field_count * 16u>
+        candidate_ray_packet{};
+    std::array<uint32_t, 8u * 16u> candidate_hit_packet{};
+    std::memcpy(
+        candidate_ray_packet.data(), ray_packet,
+        simd_host_accel_ray_packet_field_count * lane_count *
+            sizeof(uint32_t));
+    auto *previous_state = static_cast<SIMDHostRayQueryState *>(nullptr);
+    auto previous_lane = uint32_t{0u};
+    auto candidates = uint64_t{0u};
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        auto active =
+            (active_mask_bits & (uint64_t{1u} << lane)) != 0u;
+        if (!active) {
+            probe->valid &= states[lane] == nullptr;
+            for (auto field = uint32_t{0u};
+                 field < simd_host_accel_ray_packet_field_count;
+                 field++) {
+                auto safe_bits = field == 6u ? 0x3f800000u : 0u;
+                probe->valid &= packet_word(field, lane) == safe_bits;
+            }
+            continue;
+        }
+        auto *state = states[lane];
+        probe->valid &= state != nullptr;
+        if (state == nullptr) { continue; }
+        if (previous_state != nullptr) {
+            probe->valid &=
+                reinterpret_cast<uintptr_t>(state) -
+                    reinterpret_cast<uintptr_t>(previous_state) ==
+                (lane - previous_lane) * probe->expected_state_stride;
+        }
+        previous_state = state;
+        previous_lane = lane;
+        probe->valid &= packet_word(3u, lane) ==
+                        embree_tnear_bits_for_probe(
+                            state->world_ray[3u]);
+        probe->valid &= state->world_ray[7u] == 100.0f;
+        probe->valid &= state->committed.inst == ~0u;
+        probe->valid &= state->committed.prim == ~0u;
+        probe->valid &= state->committed.bary[0u] == 0.0f;
+        probe->valid &= state->committed.bary[1u] == 0.0f;
+        probe->valid &= state->committed.kind == 0u;
+        probe->valid &= state->committed.t == 0.0f;
+        auto origin_x = std::bit_cast<float>(packet_word(0u, lane));
+        auto dispatch_index = static_cast<uint32_t>(origin_x);
+        probe->valid &= origin_x ==
+                        static_cast<float>(dispatch_index);
+        if ((dispatch_index & 1u) != 0u) { continue; }
+        candidates |= uint64_t{1u} << lane;
+        candidate_ray_packet[simd_host_accel_ray_tfar_field * lane_count + lane] =
+            std::bit_cast<uint32_t>(1.0f);
+        candidate_hit_packet[3u * lane_count + lane] =
+            std::bit_cast<uint32_t>(0.04f);
+        candidate_hit_packet[4u * lane_count + lane] =
+            std::bit_cast<uint32_t>(0.05f);
+        candidate_hit_packet[5u * lane_count + lane] = dispatch_index;
+        candidate_hit_packet[7u * lane_count + lane] = 6u;
+    }
+    probe->surface_pipeline_candidate_mask |= candidates;
+    auto committed = uint64_t{0u};
+    if (candidates != 0u) {
+        on_surface_direct(
+            lane_count, candidates,
+            candidate_ray_packet.data(), candidate_hit_packet.data(),
+            &committed);
+    }
+    probe->valid &= (committed & ~candidates) == 0u;
+    auto remaining = committed;
+    while (remaining != 0u) {
+        auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
+        remaining &= remaining - 1u;
+        auto dispatch_index = candidate_hit_packet[5u * lane_count + lane];
+        states[lane]->committed = SIMDHostRayQueryCommittedHit{
+            .inst = 6u,
+            .prim = dispatch_index,
+            .bary = {0.04f, 0.05f},
+            .kind = static_cast<uint32_t>(
+                SIMDHostRayQueryCandidateKind::surface),
+            .t = 1.0f,
+        };
+    }
+}
+
 [[nodiscard]] bool run_ast_ray_query_filter_predication() {
     static constexpr auto count = uint32_t{13u};
     Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
@@ -7782,7 +7888,9 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
         auto expected_diamonds = width == 1u ? 0u : 2u;
         CHECK(candidate.predicated_ray_query_filter_diamond_count ==
               expected_diamonds);
+        CHECK(candidate.direct_output_surface_filter_state_count == 0u);
         CHECK(oracle.predicated_ray_query_filter_diamond_count == 0u);
+        CHECK(oracle.direct_output_surface_filter_state_count == 0u);
         CHECK(candidate.predicated_diamond_count ==
               oracle.predicated_diamond_count + expected_diamonds);
         if (width == 8u) {
@@ -8208,6 +8316,7 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
     CHECK(reused_compiled.direct_ray_query_pipeline_count == 2u);
     CHECK(reused_compiled.surface_filter_ray_query_pipeline_count == 0u);
     CHECK(reused_compiled.compact_surface_filter_state_count == 0u);
+    CHECK(reused_compiled.direct_output_surface_filter_state_count == 0u);
     return true;
 }
 
@@ -8313,14 +8422,20 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
         CHECK(candidate.surface_filter_ray_query_pipeline_count == 1u);
         CHECK(candidate.compact_surface_filter_state_count ==
               (width >= 4u ? 1u : 0u));
+        CHECK(candidate.direct_output_surface_filter_state_count ==
+              (width >= 4u ? 1u : 0u));
         CHECK(candidate.predicated_acyclic_surface_filter_handler_count ==
               (width >= 4u ? 1u : 0u));
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
         CHECK(oracle.surface_filter_ray_query_pipeline_count == 0u);
         CHECK(oracle.compact_surface_filter_state_count == 0u);
+        CHECK(oracle.direct_output_surface_filter_state_count == 0u);
         CHECK(oracle.predicated_acyclic_surface_filter_handler_count == 0u);
         if (width == 8u) {
             CHECK(candidate.llvm_ir.find("ray.query.full.state.init") !=
+                  std::string::npos);
+            CHECK(candidate.llvm_ir.find(
+                      "ray.query.pipeline.direct.output") !=
                   std::string::npos);
             CHECK(candidate.llvm_ir.find("ray.query.full.state.mask") ==
                   std::string::npos);
@@ -8385,6 +8500,7 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
         auto execute = [&](const SIMDCompiledKernel &compiled,
                            bool enable_surface_pipeline,
                            bool direct_surface_candidate,
+                           bool enable_direct_output_pipeline,
                            std::array<uint32_t, 16u> &values,
                            bool enable_predicated_acyclic = true,
                            bool enable_compact_state = false) {
@@ -8416,6 +8532,11 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
                         ray_query_surface_filter_pipeline_probe;
                 }
             }
+            if (enable_direct_output_pipeline) {
+                instance_table
+                    .ray_query_direct_output_surface_filter_packet_pipeline =
+                    ray_query_direct_output_surface_filter_packet_pipeline_probe;
+            }
             Arguments arguments{
                 .accel = {
                     .accel = &probe,
@@ -8445,7 +8566,23 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
                       std::min(width, count - first));
             }
             CHECK(probe.valid);
-            if (enable_surface_pipeline) {
+            if (enable_direct_output_pipeline) {
+                CHECK(probe.calls == 0u);
+                CHECK(probe.surface_pipeline_calls == 0u);
+                CHECK(probe.direct_surface_pipeline_calls == 0u);
+                CHECK(probe.direct_output_surface_pipeline_calls ==
+                      (count + width - 1u) / width);
+                CHECK(probe.direct_output_closest_calls ==
+                      probe.direct_output_surface_pipeline_calls);
+                CHECK(probe.direct_output_any_calls == 0u);
+                auto expected_mask = uint64_t{0u};
+                for (auto lane = uint32_t{0u};
+                     lane < std::min(width, count); lane += 2u) {
+                    expected_mask |= uint64_t{1u} << lane;
+                }
+                CHECK(probe.surface_pipeline_candidate_mask ==
+                      expected_mask);
+            } else if (enable_surface_pipeline) {
                 CHECK(probe.calls == 0u);
                 CHECK(probe.surface_pipeline_calls ==
                       (count + width - 1u) / width);
@@ -8464,10 +8601,12 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
                 CHECK(probe.calls != 0u);
                 CHECK(probe.surface_pipeline_calls == 0u);
                 CHECK(probe.direct_surface_pipeline_calls == 0u);
+                CHECK(probe.direct_output_surface_pipeline_calls == 0u);
             }
             return true;
         };
 
+        std::array<uint32_t, 16u> direct_output{};
         std::array<uint32_t, 16u> pipeline_output{};
         std::array<uint32_t, 16u> full_state_output{};
         std::array<uint32_t, 16u> scheduler_direct_output{};
@@ -8475,23 +8614,29 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
         std::array<uint32_t, 16u> null_provider_output{};
         std::array<uint32_t, 16u> oracle_output{};
         CHECK(execute(
-            candidate, true, width >= 4u, pipeline_output,
+            candidate, true, width >= 4u, width >= 4u,
+            direct_output,
             true, width >= 4u));
         CHECK(execute(
-            candidate, true, width >= 4u, full_state_output));
+            candidate, true, width >= 4u, false,
+            pipeline_output, true, width >= 4u));
+        CHECK(execute(
+            candidate, true, width >= 4u, false,
+            full_state_output));
         if (width >= 4u) {
             CHECK(execute(
-                candidate, true, true,
+                candidate, true, true, true,
                 scheduler_direct_output, false, true));
-            CHECK(pipeline_output == scheduler_direct_output);
+            CHECK(direct_output == scheduler_direct_output);
         }
         CHECK(execute(
-            candidate, true, false, state_pipeline_output,
+            candidate, true, false, false, state_pipeline_output,
             true, width >= 4u));
         CHECK(execute(
-            candidate, false, false, null_provider_output,
+            candidate, false, false, false, null_provider_output,
             true, width >= 4u));
-        CHECK(execute(oracle, false, false, oracle_output));
+        CHECK(execute(oracle, false, false, false, oracle_output));
+        CHECK(direct_output == pipeline_output);
         CHECK(pipeline_output == full_state_output);
         CHECK(pipeline_output == state_pipeline_output);
         CHECK(pipeline_output == null_provider_output);
@@ -8551,6 +8696,7 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
     CHECK(switch_compiled.succeeded());
     CHECK(switch_compiled.surface_filter_ray_query_pipeline_count == 1u);
     CHECK(switch_compiled.compact_surface_filter_state_count == 1u);
+    CHECK(switch_compiled.direct_output_surface_filter_state_count == 1u);
     CHECK(switch_compiled.predicated_acyclic_surface_filter_handler_count ==
           1u);
     CHECK(switch_compiled.llvm_ir.find("predicated.acyclic") !=
@@ -8592,6 +8738,7 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
     CHECK(loop_compiled.succeeded());
     CHECK(loop_compiled.surface_filter_ray_query_pipeline_count == 1u);
     CHECK(loop_compiled.compact_surface_filter_state_count == 1u);
+    CHECK(loop_compiled.direct_output_surface_filter_state_count == 1u);
     CHECK(loop_compiled.predicated_acyclic_surface_filter_handler_count ==
           0u);
 
@@ -8639,10 +8786,12 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
         CHECK(candidate.surface_filter_ray_query_pipeline_count == 2u);
         CHECK(candidate.compact_surface_filter_state_count == 2u);
         CHECK(candidate.output_only_empty_surface_filter_state_count == 2u);
+        CHECK(candidate.direct_output_surface_filter_state_count == 0u);
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
         CHECK(oracle.surface_filter_ray_query_pipeline_count == 0u);
         CHECK(oracle.compact_surface_filter_state_count == 0u);
         CHECK(oracle.output_only_empty_surface_filter_state_count == 0u);
+        CHECK(oracle.direct_output_surface_filter_state_count == 0u);
 
         auto execute = [&](const SIMDCompiledKernel &compiled,
                            bool enable_surface_pipeline,
@@ -8821,11 +8970,13 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
         CHECK(candidate.direct_ray_query_pipeline_count == 1u);
         CHECK(candidate.surface_filter_ray_query_pipeline_count == 0u);
         CHECK(candidate.compact_surface_filter_state_count == 0u);
+        CHECK(candidate.direct_output_surface_filter_state_count == 0u);
         CHECK(candidate.resident_ray_query_pipeline_count ==
               (width == 1u ? 1u : 0u));
         CHECK(oracle.direct_ray_query_pipeline_count == 0u);
         CHECK(oracle.surface_filter_ray_query_pipeline_count == 0u);
         CHECK(oracle.compact_surface_filter_state_count == 0u);
+        CHECK(oracle.direct_output_surface_filter_state_count == 0u);
         CHECK(oracle.resident_ray_query_pipeline_count == 0u);
         if (width == 8u) {
             CHECK(candidate.schedule_block_count <
@@ -8989,6 +9140,7 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
     CHECK(resource_compiled.direct_ray_query_pipeline_count == 1u);
     CHECK(resource_compiled.surface_filter_ray_query_pipeline_count == 0u);
     CHECK(resource_compiled.compact_surface_filter_state_count == 0u);
+    CHECK(resource_compiled.direct_output_surface_filter_state_count == 0u);
     return true;
 }
 

@@ -181,6 +181,10 @@ void ScheduleEmitter::_ray_query_pipeline(
         static_cast<::llvm::Value *>(nullptr);
     auto *empty_surface_filter_accel =
         static_cast<::llvm::Value *>(nullptr);
+    auto *direct_output_surface_filter_callback =
+        static_cast<::llvm::Value *>(nullptr);
+    auto *direct_output_surface_filter_accel =
+        static_cast<::llvm::Value *>(nullptr);
     if (handler_pair.embree_surface_filter_safe &&
         status_index <
             _ray_query_surface_filter_pipeline_callback_storage.size()) {
@@ -254,6 +258,82 @@ void ScheduleEmitter::_ray_query_pipeline(
                     empty_surface_filter_accel, null_pointer)),
             "ray.query.empty.surface.filter.accel.null");
     }
+    if (handler_pair.embree_surface_filter_safe &&
+        !handler_pair.surface_handler_empty &&
+        handler_pair.on_surface_filter != nullptr && _width >= 4u &&
+        status_index <
+            _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                .size() &&
+        status_index <
+            _ray_query_direct_output_surface_filter_accel_storage.size()) {
+        auto *pipeline_callbacks = _builder.CreateAlignedLoad(
+            pointer_lanes,
+            _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                [status_index],
+            ::llvm::Align{alignof(void *)},
+            "ray.query.direct.output.surface.filter.pipeline.callbacks");
+        direct_output_surface_filter_callback =
+            _builder.CreateExtractElement(
+                pipeline_callbacks, _safe_first_lane(_active_mask));
+        auto *pipeline_callback_mismatch = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                pipeline_callbacks,
+                _builder.CreateVectorSplat(
+                    _width, direct_output_surface_filter_callback)));
+        _trap_if(
+            _builder.CreateOrReduce(pipeline_callback_mismatch),
+            "ray.query.direct.output.surface.filter.pipeline.callback.mismatch");
+        auto *accels = _builder.CreateAlignedLoad(
+            pointer_lanes,
+            _ray_query_direct_output_surface_filter_accel_storage
+                [status_index],
+            ::llvm::Align{alignof(void *)},
+            "ray.query.direct.output.surface.filter.accels");
+        direct_output_surface_filter_accel =
+            _builder.CreateExtractElement(
+                accels, _safe_first_lane(_active_mask));
+        auto *accel_mismatch = _builder.CreateAnd(
+            _active_mask,
+            _builder.CreateICmpNE(
+                accels,
+                _builder.CreateVectorSplat(
+                    _width, direct_output_surface_filter_accel)));
+        _trap_if(
+            _builder.CreateOrReduce(accel_mismatch),
+            "ray.query.direct.output.surface.filter.accel.mismatch");
+        _trap_if(
+            _builder.CreateAnd(
+                _builder.CreateICmpNE(
+                    direct_output_surface_filter_callback,
+                    null_pointer),
+                _builder.CreateICmpEQ(
+                    direct_output_surface_filter_accel,
+                    null_pointer)),
+            "ray.query.direct.output.surface.filter.accel.null");
+    }
+    auto *surface_filter_handler =
+        static_cast<::llvm::Value *>(nullptr);
+    if (handler_pair.on_surface_filter != nullptr) {
+        surface_filter_handler = handler_pair.on_surface_filter;
+        if (handler_pair.on_surface_filter_scheduler_oracle != nullptr) {
+            if (handler_pair.on_surface_filter->getFunctionType() !=
+                handler_pair.on_surface_filter_scheduler_oracle
+                    ->getFunctionType()) {
+                _fail("surface-filter scheduler oracle type does not match the compact handler");
+                return;
+            }
+            auto *enabled = _load_launch_u32(offsetof(
+                SIMDPacketLaunchConfig,
+                enable_predicated_acyclic_surface_filter));
+            surface_filter_handler = _builder.CreateSelect(
+                _builder.CreateICmpNE(
+                    enabled, _builder.getInt32(0u)),
+                handler_pair.on_surface_filter,
+                handler_pair.on_surface_filter_scheduler_oracle,
+                "ray.query.surface.filter.handler");
+        }
+    }
     auto *preheader = _builder.GetInsertBlock();
     auto *loop = ::llvm::BasicBlock::Create(
         context, "ray.query.pipeline.loop", _entry);
@@ -315,6 +395,51 @@ void ScheduleEmitter::_ray_query_pipeline(
         _builder.CreateBr(exit);
         _builder.SetInsertPoint(regular_preheader);
     }
+    if (direct_output_surface_filter_callback != nullptr) {
+        auto *output_only_call = ::llvm::BasicBlock::Create(
+            context, "ray.query.pipeline.direct.output", _entry);
+        auto *next_regular_preheader = ::llvm::BasicBlock::Create(
+            context, "ray.query.pipeline.direct.output.regular", _entry);
+        _builder.CreateCondBr(
+            _builder.CreateICmpNE(
+                direct_output_surface_filter_callback,
+                null_pointer),
+            output_only_call, next_regular_preheader);
+
+        _builder.SetInsertPoint(output_only_call);
+        if (surface_filter_ray_packet == nullptr ||
+            surface_filter_call_ray_packet == nullptr ||
+            direct_output_surface_filter_accel == nullptr ||
+            surface_filter_handler == nullptr) {
+            _fail("direct-output surface-filter packet has no analyzed storage or handler");
+            return;
+        }
+        auto *ray_packet =
+            _ray_query_surface_filter_ray_packet_for_call(
+                surface_filter_ray_packet,
+                surface_filter_call_ray_packet,
+                outer_active_bits);
+        if (ray_packet == nullptr) { return; }
+        auto *pipeline_type = ::llvm::FunctionType::get(
+            _builder.getVoidTy(),
+            {_builder.getInt32Ty(), _builder.getInt64Ty(),
+             pointer_type, pointer_type, pointer_type,
+             _builder.getInt32Ty(), pointer_type},
+            false);
+        auto *query_object = _source.value(object_id);
+        auto query_any =
+            query_object != nullptr &&
+            query_object->type == Type::custom("LC_RayQueryAny");
+        _builder.CreateCall(
+            pipeline_type, direct_output_surface_filter_callback,
+            {_builder.getInt32(_width), outer_active_bits,
+             direct_output_surface_filter_accel, scratch, ray_packet,
+             _builder.getInt32(query_any ? 1u : 0u),
+             surface_filter_handler});
+        _builder.CreateBr(exit);
+        _builder.SetInsertPoint(next_regular_preheader);
+        regular_preheader = next_regular_preheader;
+    }
     if (surface_filter_callback == nullptr) {
         _builder.CreateBr(loop);
     } else {
@@ -342,26 +467,9 @@ void ScheduleEmitter::_ray_query_pipeline(
                     surface_filter_call_ray_packet,
                     outer_active_bits);
             if (ray_packet == nullptr) { return; }
-            auto *surface_filter_handler =
-                static_cast<::llvm::Value *>(
-                    handler_pair.on_surface_filter);
-            if (handler_pair.on_surface_filter_scheduler_oracle !=
-                nullptr) {
-                if (handler_pair.on_surface_filter->getFunctionType() !=
-                    handler_pair.on_surface_filter_scheduler_oracle
-                        ->getFunctionType()) {
-                    _fail("surface-filter scheduler oracle type does not match the compact handler");
-                    return;
-                }
-                auto *enabled = _load_launch_u32(offsetof(
-                    SIMDPacketLaunchConfig,
-                    enable_predicated_acyclic_surface_filter));
-                surface_filter_handler = _builder.CreateSelect(
-                    _builder.CreateICmpNE(
-                        enabled, _builder.getInt32(0u)),
-                    handler_pair.on_surface_filter,
-                    handler_pair.on_surface_filter_scheduler_oracle,
-                    "ray.query.surface.filter.handler");
+            if (surface_filter_handler == nullptr) {
+                _fail("surface-filter packet has no direct handler");
+                return;
             }
             _builder.CreateCall(
                 pipeline_type, surface_filter_callback,

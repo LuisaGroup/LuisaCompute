@@ -116,6 +116,8 @@ private:
     std::vector<uint8_t> _ray_query_compact_surface_filter_state{};
     std::vector<uint8_t>
         _ray_query_output_only_empty_surface_filter_state{};
+    std::vector<uint8_t>
+        _ray_query_direct_output_surface_filter_state{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_callback_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_pipeline_callback_storage{};
@@ -125,6 +127,10 @@ private:
         _ray_query_empty_surface_filter_pipeline_callback_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_empty_surface_filter_accel_storage{};
+    std::vector<::llvm::AllocaInst *>
+        _ray_query_direct_output_surface_filter_pipeline_callback_storage{};
+    std::vector<::llvm::AllocaInst *>
+        _ray_query_direct_output_surface_filter_accel_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_surface_filter_ray_packet_storage{};
     std::vector<::llvm::AllocaInst *>

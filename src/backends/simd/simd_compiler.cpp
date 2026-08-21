@@ -662,6 +662,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.compact_surface_filter_state_count;
     result.output_only_empty_surface_filter_state_count =
         llvm_result.output_only_empty_surface_filter_state_count;
+    result.direct_output_surface_filter_state_count =
+        llvm_result.direct_output_surface_filter_state_count;
     result.uniform_buffer_broadcast_count =
         llvm_result.uniform_buffer_broadcast_count;
     result.contiguous_buffer_read_count =

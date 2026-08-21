@@ -2490,6 +2490,38 @@ ordinary route by publishing a null provider without changing generated LLVM
 IR or object code. W1, W2, curves/procedurals, captures, multiple pipelines,
 query mutation, or any additional query-object read must never use this ABI.
 
+A separate direct-output provider may reuse this minimal state contract for a
+nonempty handler only when the compiler proves exactly one surface-filter-safe
+pipeline for the query variable, an empty procedural handler, no caller-side
+query write, and no caller read other than committed hit or termination. The
+surface handler must have the audited five-argument direct packet ABI below;
+an empty handler must remain on the callback-free provider. Its signature is
+`(width, physical_mask, accel, states, ray_packet, terminate_on_first,
+direct_surface_handler)`. Cached provider and accel values must agree across
+all active lanes, and a non-null provider requires a non-null direct handler.
+
+Construction and inactive-lane sanitization are identical to the empty
+output-only route. Active state records contain authoritative data only in
+`world_ray[3]`, `world_ray[7]`, and the initialized miss-valued `committed`
+output. The provider and filter must not read `terminated`, accel/proceed,
+origin/direction, time, visibility, query-control/candidate/status fields,
+batch metadata, callbacks, or object ray; these fields are uninitialized on
+the selected path. Opaque triangles write `committed` directly. Non-opaque
+triangles invoke the direct handler once with exactly the Embree-valid physical
+candidate mask. An accepted lane writes the current Embree hit to `committed`;
+a rejected lane clears the corresponding valid entry. The provider must not
+publish candidate/status fields or run a status-packing pass.
+
+Closest and query-any traversal must use only matching
+`rtcIntersect4/8/16` and `rtcOccluded4/8/16` entries. Sparse masks, partial
+tails, original inclusive intervals, dynamic opacity, miss output, and the
+post-call terminal sidecar must match the ordinary state-provider route.
+W1/W2, curves/procedurals, captures/resources, explicit termination, multiple
+pipelines, query mutation, any other query read, missing packet/direct
+capability, or a null provider must select the ordinary path.
+`LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1` is the required
+same-module runtime oracle.
+
 For a compiler-audited capture-free surface filter at W4/W8/W16, the runtime
 may invoke a separate direct handler with exactly five arguments `(width,
 physical_candidate_mask, ray_packet, hit_packet, commit_mask_out)`. That ABI

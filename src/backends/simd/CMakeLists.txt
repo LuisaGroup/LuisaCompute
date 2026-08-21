@@ -71,6 +71,7 @@ set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_emitter_predication.cpp
         llvm/llvm_schedule_emitter_state.cpp
         llvm/llvm_schedule_emitter_structured_loop.cpp
+        llvm/llvm_schedule_emitter_ray_query_analysis.cpp
         llvm/llvm_schedule_emitter_ray_query.cpp
         llvm/llvm_schedule_emitter_ray_query_filter.cpp
         llvm/llvm_schedule_emitter_ray_query_pipeline.cpp
