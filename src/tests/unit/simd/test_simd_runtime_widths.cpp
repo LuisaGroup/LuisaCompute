@@ -499,7 +499,7 @@ int main(int argc, char *argv[]) {
                 "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS", "1"};
             check_float_image("SIMD generic FLOAT4 packet mismatch");
         }
-        if (width == 8u || width == 16u) {
+        if (width >= 4u) {
             ScopedEnvironmentVariable disable_direct_native_packets{
                 "LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS", "1"};
             check_float_image(
@@ -559,7 +559,7 @@ int main(int argc, char *argv[]) {
             }
         };
         check_byte4_image("SIMD direct BYTE4 packet mismatch");
-        if (width == 8u || width == 16u) {
+        if (width >= 4u) {
             ScopedEnvironmentVariable disable_direct_byte4_packets{
                 "LUISA_SIMD_DISABLE_DIRECT_BYTE4_TEXTURE_PACKETS", "1"};
             check_byte4_image("SIMD callback BYTE4 packet mismatch");
@@ -657,7 +657,7 @@ int main(int argc, char *argv[]) {
             }
         };
         check_half4_image("SIMD direct HALF4 packet mismatch");
-        if (width == 8u || width == 16u) {
+        if (width >= 4u) {
             ScopedEnvironmentVariable disable_direct_half4_packets{
                 "LUISA_SIMD_DISABLE_DIRECT_HALF4_TEXTURE_PACKETS", "1"};
             check_half4_image("SIMD callback HALF4 packet mismatch");
@@ -713,7 +713,7 @@ int main(int argc, char *argv[]) {
             }
         };
         check_int1_image("SIMD direct INT1 packet mismatch");
-        if (width == 8u || width == 16u) {
+        if (width >= 4u) {
             ScopedEnvironmentVariable disable_direct_int1_packets{
                 "LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS", "1"};
             check_int1_image("SIMD callback INT1 packet mismatch");

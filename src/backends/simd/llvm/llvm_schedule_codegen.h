@@ -968,7 +968,7 @@ struct LLVMScheduleCodegenResult {
     // Host TTI must prove the exact native W8 packed-gather shape. This is
     // independent of the direct-buffer paired-leaf profitability oracle.
     bool enable_gathered_native_texture_read = false,
-    // Host TTI must price W8/W16 float<->half casts as packed operations.
+    // Host TTI must price W4/W8/W16 float<->half casts as packed operations.
     // The emitted IR remains target-independent and contains no ISA intrinsic.
     bool enable_native_half4_texture_packet = false);
 

@@ -4327,22 +4327,22 @@ storage code, making the backend-private descriptor 96 bytes. A null data
 pointer is the capability/oracle value. The public texture remains row-major
 AoS and external-memory ownership is unchanged.
 
-Only W8/W16 direct 2D reads and writes are candidates. Codegen first sanitizes
+Only W4/W8/W16 direct 2D reads and writes are candidates. Codegen first sanitizes
 inactive coordinates, then checks a full active mask, consecutive x lanes,
 one y row, native `FLOAT4`/`INT4` storage, a nonnull mip pointer, and bounds for
 the complete packet. The hot arm computes one row address, issues an
 alignment-one physical fixed-vector load or store, and shuffles between AoS
 pixels and component-major SSA vectors. A partial tail, row crossing, 3D
 resource, converting format, disabled capability, or failed bound takes the
-original packet callback. W1/W2/W4 are intentionally unchanged; W2 remains a
+original packet callback. W1/W2 are intentionally unchanged; W2 remains a
 correctness/ABI width rather than a performance target.
 
 `LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS=1` disables only the JIT
 arm, leaving the earlier contiguous runtime callback as a same-binary oracle.
 `LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS=1` disables both layers so its
 existing generic-path meaning remains intact. The optimization report counts
-guarded native read and write sites. Permanent JIT coverage rejects W2/W4,
-accepts W8/W16, executes native float packets, and forces callback fallback
+guarded native read and write sites. Permanent JIT coverage rejects W2,
+accepts W4/W8/W16, executes native float packets, and forces callback fallback
 for an inactive tail, row crossing, storage mismatch, short extent, and null
 capability. The multi-width runtime gate covers native `FLOAT4`/`INT4` and both
 environment oracles.
@@ -4387,7 +4387,7 @@ gain because Voxel's varying DDA does not issue these direct texture reads.
 
 The final image-processing output remained behind the packet callback after
 native `FLOAT4`/`INT4` packets moved into JIT IR. The callback converted every
-active float4 independently and dominated the resulting profile. The W8/W16
+active float4 independently and dominated the resulting profile. The W4/W8/W16
 direct-write arm now has a second, independently gated route for linear
 `BYTE4`. `SIMDHostTextureView::native_capabilities` occupies offset 88 in the
 existing 96-byte private descriptor; the callback prefix and every preceding
@@ -4408,13 +4408,13 @@ scalar conversion call, or lane extract/call/insert loop.
 
 `LUISA_SIMD_DISABLE_DIRECT_BYTE4_TEXTURE_PACKETS=1` clears only the conversion
 capability and is the same-generated-object oracle. The optimization report
-separately counts guarded BYTE4 writes. Permanent JIT tests cover W2/W4
-rejection, W8/W16 acceptance, exact byte results including infinities and
+separately counts guarded BYTE4 writes. Permanent JIT tests cover W2
+rejection, W4/W8/W16 acceptance, exact byte results including infinities and
 positive half-way values, NaN fallback, capability fallback, sRGB rejection,
 and an inactive tail. The runtime-width gate writes and copies back a 33-by-3
 `BYTE4` image at W1/W2/W4/W8/W16, including complete packet rows and the final
 one-texel tail. W2 deliberately remains a correctness/ABI width; performance
-work targets W8/W16, with W4 secondary.
+work targets W4/W8/W16.
 
 After moving NaN validation below the format/capability branch, the final
 binary was remeasured in nine fresh-process rounds per width. Candidate,
@@ -4460,7 +4460,7 @@ named integer packet helpers contributed about 1.6%, with additional samples in
 their generic pixel helpers. This is independent of Embree traversal and
 scheduler continuation state.
 
-W8/W16 integer texture lowering now adds an independently capability-gated
+W4/W8/W16 integer texture lowering now adds an independently capability-gated
 `INT1` arm after the existing `INT4` arm. It reuses the fully active,
 consecutive, same-row, complete-span proof, requires exact `INT1` storage, and
 forms no pointer before that proof succeeds. A read is one alignment-one
@@ -4474,7 +4474,7 @@ capability case keeps the packet callback.
 `LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS=1` clears only the descriptor
 bit, so the performance oracle executes the same generated object. The
 optimization report separately counts guarded INT1 reads and writes. Permanent
-JIT coverage checks W2/W4 rejection, W8/W16 acceptance, high-bit input values,
+JIT coverage checks W2 rejection, W4/W8/W16 acceptance, high-bit input values,
 zero y/z/w read components, x-only writes, the disabled capability, and an
 inactive tail. The runtime-width suite executes a 33-by-3 `INT1` image through
 both direct and callback routes. W2 remains a correctness/ABI/tail width; this
@@ -4501,9 +4501,9 @@ Five nonmultiplexed W8 cutout counter pairs put candidate/oracle cycles at
 0.95667x, instructions at 0.95585x, branches at 0.92786x, and branch misses at
 1.00204x. The corresponding throughput ratio is 1.04432x. Candidate and oracle
 produce byte-identical JIT objects; all five cutout objects have zero undefined
-symbols. The W8/W16 direct blocks lower on this host to one `vmovdqu` YMM or
-`vmovdqu64` ZMM load/store. These mnemonics audit this target's machine code and
-do not make AVX-512 part of the logical-width contract.
+symbols. The W4/W8/W16 direct blocks lower on this host to one `vmovdqu`
+XMM/YMM or `vmovdqu64` ZMM load/store. These mnemonics audit this target's
+machine code and do not make AVX-512 part of the logical-width contract.
 
 After the final code and documentation update, the compiler-focused Release
 tree passes 161/161 CTest cases and the graphics/fallback/SIMD/Embree Release
@@ -4515,11 +4515,11 @@ passes its complete case list, including the new INT1 differential.
 The path-tracing framebuffer uses linear `HALF4`. Even after direct `INT1`
 seed traffic, every framebuffer write and the later accumulation/tone-mapping
 reads still crossed the packet callback and performed scalar host half
-conversion. W8/W16 now add a separate HALF4 descriptor capability. The JIT
+conversion. W4/W8/W16 now add a separate HALF4 descriptor capability. The JIT
 emits this route only when LLVM TargetTransformInfo prices both fixed-vector
 half extension and truncation as packed operations; the current ceiling is
 `W / 4` reciprocal-throughput units. Hosts that would scalarize the portable
-casts retain the callback, as do W1/W2/W4. W2 remains an exact-bit, ABI, and
+casts retain the callback, as do W1/W2. W2 remains an exact-bit, ABI, and
 inactive-tail gate rather than a performance target.
 
 The route reuses the complete active, consecutive, same-row, in-bounds 2D
@@ -4542,7 +4542,7 @@ deterministic 65,536-pattern float corpus plus explicit boundary/tie values,
 compares the capability and callback routes bit-for-bit, checks an inactive
 tail, and audits IR, target assembly, object materialization, and scalar-helper
 symbols. The runtime-width suite independently exercises a 33-by-3 HALF4 image
-at W1/W2/W4/W8/W16 and disables the capability at W8/W16.
+at W1/W2/W4/W8/W16 and disables the capability at W4/W8/W16.
 
 On the Ryzen 9 9950X3D with LLVM 22.1.8, seven alternating same-object pairs
 used fifteen workers on physical CPUs `0-7,9-15`. An unrelated single-thread
@@ -4572,12 +4572,43 @@ host the accepted blocks contain packed `vcvtph2ps`/`vcvtps2ph`; that is
 machine-code evidence for this target, not an AVX-512 promise attached to
 logical W8.
 
-After the final source and documentation update, the compiler-focused Release
-tree passes 161/161 CTest cases and the graphics/fallback/SIMD/Embree Release
-tree passes 173/173. The complete Clang ASan/LSan/UBSan Schedule/JIT case list
-also passes. Explicit W8/W16 image-processing and Voxel gallery runs pass.
-At 1024 spp, ordinary path tracing passes at 39.219/37.800 dB for W8/W16 and
-cutout-query passes at 45.530/45.151 dB.
+W4 now uses the same guarded native `FLOAT4`/`INT4`, linear `BYTE4`, exact
+`INT1`, and TTI-approved `HALF4` routes. This is a width-policy extension, not
+a second implementation: the address, bounds, NaN, inactive-tail, storage,
+and capability proofs above are unchanged. The W4 HALF4 arm remains fail-
+closed when host TTI cannot prove packed conversion. W1/W2 retain the callback,
+and W2 remains a correctness/ABI/exact-bit/tail width rather than a performance
+target.
+
+Ten alternating eight-worker pairs pinned to CPUs 0--7 measured W4 against
+the same-object callback oracle. Ordinary 128-spp path tracing improved
+1.16580x [1.15211, 1.17965], the 128-iteration image pipeline improved
+4.34816x [4.27606, 4.42147], and 256-iteration Voxel improved
+1.12735x [1.12033, 1.13441], all with 10/10 wins and passing reference images.
+A later seven-round four-way rotation measured the complete current binary
+against system/TBB fallback on the same eight CPUs. W4/W8/W16 respectively
+reached 1.17289x/1.36359x/1.51022x for ordinary path tracing,
+4.31763x/7.62998x/8.98250x for image processing, and
+1.92702x/3.01431x/2.21610x for Voxel; every width won all seven pairs and
+passed its reference. Unrelated user work remained active, so all accepted
+samples are compared only within their rotated round.
+
+Three nonmultiplexed counter pairs put direct/oracle image-pipeline cycles,
+instructions, and branches at 0.25787x/0.18725x/0.09742x. Ordinary path tracing
+retained 0.86606x/0.82616x/0.69039x. This identifies removal of callback,
+scratch, and lane-loop traffic rather than a parallel-for or scheduler change.
+The dumped W4 path objects have no undefined symbol; accepted blocks contain
+packed `vcvtph2ps`/`vcvtps2ph` and `vcvttps2udq`/`vpmovdb`, with no scalar half
+helper or varying scalar-libm call. These are host lowering observations, not
+ISA requirements attached to logical W4.
+
+After the final source and documentation update, both maintained Release trees
+pass the complete 173/173 CTest inventory. Clang ASan/LSan/UBSan independently
+passes the complete Schedule/JIT and shared-XIR-pass executables. An explicit
+gallery matrix runs image processing, Voxel, and ordinary 1024-spp path tracing
+at W1/W2/W4/W8/W16: all 15 executions pass. Image processing and Voxel report
+89.251953 and 82.834519 dB at every width; ordinary path tracing reports
+35.426795/42.781582/40.940376/39.219305/37.800295 dB respectively.
 
 ### Exact biased narrow W8 loop-buffer gathers
 

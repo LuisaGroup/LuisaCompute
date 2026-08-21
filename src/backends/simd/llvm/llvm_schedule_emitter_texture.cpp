@@ -14,7 +14,8 @@ ScheduleEmitter::_native_texture_packet_info(
     const std::array<::llvm::Value *, 3u> &coordinates,
     bool floating, bool allow_byte4_write) {
     NativeTexturePacketInfo info{};
-    if ((_width != 8u && _width != 16u) || texture == nullptr ||
+    if ((_width != 4u && _width != 8u && _width != 16u) ||
+        texture == nullptr ||
         coordinates[0u] == nullptr || coordinates[1u] == nullptr) {
         return info;
     }
@@ -261,7 +262,7 @@ ScheduleEmitter::_native_texture_packet_info(
     };
 
     if (expected_dimension != 2u ||
-        (_width != 8u && _width != 16u)) {
+        (_width != 4u && _width != 8u && _width != 16u)) {
         return emit_callback();
     }
     auto native = _native_texture_packet_info(
@@ -685,7 +686,7 @@ void ScheduleEmitter::_texture_write(
     };
 
     if (expected_dimension != 2u ||
-        (_width != 8u && _width != 16u)) {
+        (_width != 4u && _width != 8u && _width != 16u)) {
         emit_callback();
         return;
     }

@@ -1909,13 +1909,13 @@ alignment-safe packet copy followed by an AoS-to-SoA transpose on reads, and
 the inverse transpose on writes. The bounds check must prove the entire span
 before the copy. Sparse masks, inactive tails, row crossings, 3D resources,
 and converting storage formats other than the separately specified W8 native
-gather and linear `BYTE4` write retain the generic active-lane path. The
+gather and W4/W8/W16 linear `BYTE4` write retain the generic active-lane path. The
 diagnostic environment flag
 `LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS=1` disables this specialization
 for same-binary performance and fallback-path tests; it does not change the
 public texture layout or semantics.
 
-At W8/W16, the direct resource descriptor may publish the exact mip-level data
+At W4/W8/W16, the direct resource descriptor may publish the exact mip-level data
 pointer, extent, and storage code to fixed-vector JIT code. Before using it,
 the JIT must prove a nonnull pointer, matching 2D dimension and native
 four-channel storage, a completely active cohort, `x[lane] == x[0] + lane`, a
@@ -1924,7 +1924,7 @@ selected to zero under inactive lanes before any compare or arithmetic. The
 accepted arm performs only portable fixed-vector load/store and shuffle IR at
 alignment one; it must contain no target intrinsic, gather/scatter, scalar
 library call, or lane extract/call/insert loop. Every failed proof executes the
-unchanged packet callback. W1/W2/W4 never enter this direct arm.
+unchanged packet callback. W1/W2 never enter this direct arm.
 
 `LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS=1` publishes a null native
 pointer while retaining the runtime's contiguous callback specialization,
@@ -1967,7 +1967,7 @@ Targets without the native-gather TTI proof retain the callback even at W8.
 
 The 96-byte private descriptor may additionally publish
 `simd_host_texture_capability_byte4_float_write` in the 32-bit capability word
-at byte offset 88. At W8/W16 only, a varying float4 write to linear `BYTE4` may
+at byte offset 88. At W4/W8/W16 only, a varying float4 write to linear `BYTE4` may
 use this capability after proving the same nonnull, fully active, consecutive,
 same-row, 2D, complete-span bounds predicate as a native four-channel packet.
 The exact per-component result for every ordered input is
@@ -1983,7 +1983,7 @@ linear UNORM writer. Before compare, clamp, multiply, conversion, or store,
 inactive components are selected to zero. Every active component must be
 ordered. Any NaN routes the complete packet to the established callback, so
 the optimization does not define a new NaN result. `BYTE4_SRGB`, integer
-writes, W1/W2/W4, partial tails, row crossings, 3D resources, and absent
+writes, W1/W2, partial tails, row crossings, 3D resources, and absent
 capabilities also use that callback.
 
 The accepted arm consists only of portable fixed-vector compare/select,
@@ -1997,7 +1997,7 @@ mandatory for semantics, ABI, and inactive-tail regression, but W2 performance
 is not an acceptance target.
 
 The same 32-bit descriptor word may publish
-`simd_host_texture_capability_int1_packet`. At W8/W16, an integer 2D texture
+`simd_host_texture_capability_int1_packet`. At W4/W8/W16, an integer 2D texture
 read or write may use this capability only after the complete active,
 consecutive, same-row, in-bounds packet proof above and an exact
 `PixelStorage::INT1` storage check. Reads issue one alignment-one `<W x i32>`
@@ -2015,13 +2015,13 @@ compare/select, GEP, fixed-vector load/store, and aggregate assembly; it has no
 target intrinsic or extract/call/insert lane loop.
 `LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS=1` clears only this capability,
 so candidate and oracle execute the same JIT object. Disabling direct-native or
-all contiguous packets clears it as well. W1/W2/W4 always use the callback;
+all contiguous packets clears it as well. W1/W2 always use the callback;
 W2 remains a correctness, ABI, exact-bit, and inactive-tail gate rather than a
 performance target.
 
 The capability word may also publish
 `simd_host_texture_capability_half4_float_packet`. This route is generated only
-at W8/W16 and only when host TargetTransformInfo prices both `<W x half>` to
+at W4/W8/W16 and only when host TargetTransformInfo prices both `<W x half>` to
 `<W x float>` extension and the inverse truncation at no more than `W / 4`
 reciprocal-throughput units. Thus the portable IR fails closed to the callback
 on a target where fixed-vector half conversion would scalarize or call a
@@ -2053,7 +2053,7 @@ and `fptrunc`; it contains no target intrinsic, scalar helper symbol, or
 extract/call/insert lane loop.
 `LUISA_SIMD_DISABLE_DIRECT_HALF4_TEXTURE_PACKETS=1` clears only this descriptor
 capability, giving a same-generated-object performance and semantic oracle.
-Disabling direct-native or all contiguous packets clears it as well. W1/W2/W4
+Disabling direct-native or all contiguous packets clears it as well. W1/W2
 always use the callback; W2 is mandatory for ABI, exact-bit, and inactive-tail
 regression but has no performance acceptance criterion.
 

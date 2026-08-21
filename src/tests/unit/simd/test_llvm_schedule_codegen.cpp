@@ -6821,7 +6821,7 @@ void texture_packet_sample_probe(
             std::cerr << codegen.error << '\n';
             return false;
         }
-        auto expect_native = width == 8u || width == 16u;
+        auto expect_native = width >= 4u;
         CHECK(codegen.guarded_native_texture_read_count ==
               static_cast<size_t>(expect_native));
         CHECK(codegen.guarded_gathered_native_texture_read_count ==
@@ -7048,7 +7048,7 @@ void texture_packet_sample_probe(
             std::cerr << codegen.error << '\n';
             return false;
         }
-        auto expect_native = width == 8u || width == 16u;
+        auto expect_native = width >= 4u;
         CHECK(codegen.guarded_native_texture_read_count == 0u);
         CHECK(codegen.guarded_native_texture_write_count ==
               static_cast<size_t>(expect_native));
@@ -7216,7 +7216,6 @@ void texture_packet_sample_probe(
         auto enable_native =
             jit.supports_native_half_conversion(width);
         CHECK(!jit.supports_native_half_conversion(2u));
-        CHECK(!jit.supports_native_half_conversion(4u));
         auto context = std::make_unique<::llvm::LLVMContext>();
         auto llvm_module = std::make_unique<::llvm::Module>(
             "simd-half4-texture-packet", *context);
@@ -7238,7 +7237,7 @@ void texture_packet_sample_probe(
         CHECK(codegen.guarded_half4_texture_read_count ==
               static_cast<size_t>(enable_native));
         CHECK(codegen.guarded_native_texture_write_count ==
-              static_cast<size_t>(width == 8u || width == 16u));
+              static_cast<size_t>(enable_native));
         CHECK(codegen.guarded_half4_texture_write_count ==
               static_cast<size_t>(enable_native));
         CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
@@ -7529,7 +7528,7 @@ void texture_packet_sample_probe(
             std::cerr << codegen.error << '\n';
             return false;
         }
-        auto expect_native = width == 8u || width == 16u;
+        auto expect_native = width >= 4u;
         CHECK(codegen.argument_buffer_size ==
               sizeof(Int1TexturePacketArguments));
         CHECK(codegen.guarded_native_texture_read_count ==

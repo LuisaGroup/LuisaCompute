@@ -91,7 +91,7 @@ public:
     // Other hosts retain the full-width portable packet path.
     [[nodiscard]] bool supports_native_vector_compress(
         uint32_t width) const noexcept;
-    // W8/W16 HALF4 packets are enabled only when TTI prices both directions
+    // W4/W8/W16 HALF4 packets are enabled only when TTI prices both directions
     // as packed conversions. This prevents the portable fpext/fptrunc IR from
     // turning into per-lane compiler-runtime calls on hosts without native
     // half conversion support.

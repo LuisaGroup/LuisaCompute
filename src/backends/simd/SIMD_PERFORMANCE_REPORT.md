@@ -6866,3 +6866,109 @@ complete shared XIR pass executable. An independent gallery matrix runs image
 processing, Voxel, and ordinary path tracing at W1/W2/W4/W8/W16: all 15 runs
 pass their checked-in references. Image-processing and Voxel hashes are
 identical across all five widths.
+
+## W4 guarded native texture packet admission
+
+W4 previously retained the texture packet callback even when a complete
+cohort addressed one consecutive, bounded 2D row. This left native
+`FLOAT4`/`INT4`, converting linear `BYTE4`, exact `INT1`, and `HALF4` traffic
+behind coordinate/value scratch and an indirect runtime call. The retained
+change admits W4 to the same guarded fixed-vector arms already used by W8/W16.
+The HALF4 arm remains separately fail-closed: host TTI must price both
+`<4 x half>` extension and `<4 x float>` truncation as packed operations.
+
+No texture ABI, native resource layout, or callback semantics changed. The W4
+arm reuses the existing full-active, consecutive-x, cohort-uniform-y, 2D,
+same-row, complete-span, exact-storage, nonnull-data, and capability proofs.
+Inactive operands are sanitized before arithmetic or address formation. NaN,
+partial tail, row crossing, out-of-bounds, converting-format mismatch, missing
+capability, or rejected HALF4 target still executes the established callback.
+Production IR remains target-independent and contains no ISA intrinsic or
+extract/call/insert lane loop. W1/W2 retain the callback. W2 continues to be a
+correctness, ABI, exact-bit, and inactive-tail width, not a performance target.
+
+The Schedule/JIT regression now requires W2 rejection and W4/W8/W16 acceptance
+for native four-channel, BYTE4, and INT1 packets. HALF4 acceptance follows the
+TTI result at W4/W8/W16. Its existing exhaustive corpus reads every 16-bit half
+pattern, writes a deterministic 65,536-pattern float corpus plus boundary and
+tie cases, compares direct and callback results bit-for-bit, executes an
+inactive tail, checks fixed-vector IR, emits host assembly and materializes an
+object. The runtime-width gate independently executes the W4 direct and
+capability-disabled routes for a 33-by-3 image, including the one-texel tail.
+
+### Isolated W4 contribution
+
+The primary same-generated-object population used eight workers pinned to
+CPUs 0--7. Candidate and
+`LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS=1` callback oracle alternated
+through fresh processes for ten pairs. Other user work was active elsewhere on
+the machine; all samples are retained. Ratios are paired geometric means with
+log-space Student-t 95% intervals. Every invocation passed its checked-in
+reference, and each candidate/oracle workload produced the same SIMD result.
+
+| workload | direct median | callback median | direct / callback | 95% CI | wins |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| ordinary path, 128 spp | 32.5476 FPS | 28.0784 FPS | **1.16580x** | **[1.15211, 1.17965]** | **10/10** |
+| image processing, 128 iterations | 2.856 ms | 12.332 ms | **4.34816x** | **[4.27606, 4.42147]** | **10/10** |
+| Voxel, 256 iterations | 9.887 ms | 11.1355 ms | **1.12735x** | **[1.12033, 1.13441]** | **10/10** |
+
+Three earlier component-isolation pairs measured the W4 HALF4 arm alone at
+1.08565x [1.07590, 1.09549] and INT1 alone at 1.06647x
+[1.03323, 1.10079], both 3/3. The ordinary path result above is the supported
+end-to-end causal estimate; component ratios are not multiplied to reconstruct
+it.
+
+Three nonmultiplexed `perf stat` pairs used the same object and capability
+oracle. The ratios below are direct/oracle, so values below one are reductions:
+
+| workload | cycles | instructions | branches | branch misses |
+| --- | ---: | ---: | ---: | ---: |
+| image processing | **0.25787x** [0.24873, 0.26735] | **0.18725x** [0.18725, 0.18726] | **0.09742x** [0.09742, 0.09743] | **0.92630x** [0.92211, 0.93050] |
+| ordinary path | **0.86606x** [0.85668, 0.87555] | **0.82616x** [0.82615, 0.82617] | **0.69039x** [0.69037, 0.69040] | **0.96164x** [0.92721, 0.99735] |
+
+Thus the image pipeline removes 81.3% of retired instructions and 90.3% of
+branches, while ordinary tracing removes 17.4% and 31.0%. The cycle changes
+track the paired throughput changes after Embree and shading dilute the path
+tracer's texture share. This is callback/scratch/lane-loop removal, not a
+parallel-for or independent-PC scheduler change.
+
+A fresh W4 ordinary-path dump produced five JIT objects with no undefined
+symbol. Real accepted blocks contain packed `vcvtph2ps`/`vcvtps2ph` for HALF4
+and `vcvttps2udq`/`vpmovdb` for BYTE4. No scalar half helper or varying
+scalar-libm call appears. These mnemonics document LLVM 22.1.8 lowering on the
+Ryzen 9 9950X3D; logical W4 does not promise AVX-512 or any other ISA.
+
+### Current width matrix against fallback
+
+The current Release binary was then measured in seven four-way rounds rotating
+system/TBB fallback, W4, W8, and W16 through execution order. Every process was
+pinned to CPUs 0--7; SIMD used eight workers. Path tracing used 128 spp and one
+spp per dispatch, image processing used 128 complete iterations, and Voxel
+used 256. Image and Voxel also recorded nonmultiplexed `task-clock`; their
+accepted populations were stable. A preliminary image batch was discarded in
+its entirety before analysis after all four modes abruptly slowed by several
+times during an external burst. No point from that partial batch is mixed into
+the clean rerun.
+
+| workload | fallback median | W4 median and speedup | W8 median and speedup | W16 median and speedup |
+| --- | ---: | ---: | ---: | ---: |
+| ordinary path | 27.4603 FPS | 32.1274, **1.17289x** [1.16625, 1.17957] | 37.5283, **1.36359x** [1.35129, 1.37600] | 41.5242, **1.51022x** [1.49662, 1.52394] |
+| image processing | 13.009 ms | 3.048 ms, **4.31763x** [4.26010, 4.37593] | 1.705 ms, **7.62998x** [7.56827, 7.69218] | 1.438 ms, **8.98250x** [8.76014, 9.21051] |
+| Voxel | 19.146 ms | 9.935 ms, **1.92702x** [1.91839, 1.93570] | 6.315 ms, **3.01431x** [2.98075, 3.04824] | 8.646 ms, **2.21610x** [2.20431, 2.22797] |
+
+Every width wins all seven fallback pairs for every workload. All 84 measured
+invocations pass reference comparison. Ordinary-path SIMD PSNR is
+32.064870/31.841256/31.596420 dB at W4/W8/W16; image processing is
+89.251953 dB and Voxel is 82.834519 dB at every SIMD width. W16 is best for the
+path and image kernels, while W8 is best for Voxel because its measured narrow
+gather and continuation-motion policies are deliberately W8-specific. Width is
+therefore a workload policy decision, not a monotonic proxy for ISA width.
+
+Final validation rebuilds both maintained Release configurations and passes the
+complete 173/173 CTest inventory in each. The focused native-math,
+Schedule/JIT, and runtime-width gate passes 4/4. Clang ASan/LSan/UBSan passes
+the complete Schedule/JIT and shared-XIR-pass executables. A separate gallery
+matrix runs image processing, Voxel, and ordinary 1024-spp path tracing at
+W1/W2/W4/W8/W16: all 15 executions pass their checked-in references. The path
+PSNRs are 35.426795/42.781582/40.940376/39.219305/37.800295 dB respectively,
+and every process reports Embree 4.4.1 native W4/W8/W16 packet support.

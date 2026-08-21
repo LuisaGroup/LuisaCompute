@@ -361,7 +361,8 @@ bool LLVMJIT::supports_native_vector_compress(
 
 bool LLVMJIT::supports_native_half_conversion(
     uint32_t width) const noexcept {
-    if (!succeeded() || (width != 8u && width != 16u)) {
+    if (!succeeded() ||
+        (width != 4u && width != 8u && width != 16u)) {
         return false;
     }
     ::llvm::LLVMContext context;
