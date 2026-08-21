@@ -19,7 +19,7 @@
 // =============================================================================
 
 #include <luisa/dsl/tensor.h>
-#include <luisa/ast/tile_to_kernel.h>
+#include <luisa/dsl/tile_to_kernel.h>
 #include <luisa/dsl/func.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/mathematics.h>
