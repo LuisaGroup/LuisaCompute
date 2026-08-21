@@ -59,6 +59,7 @@ private:
     bool _enable_paired_leaf_gather{false};
     bool _enable_biased_narrow_buffer_gather{false};
     bool _enable_gathered_native_texture_read{false};
+    bool _enable_native_half4_texture_packet{false};
     bool _enable_interleaved_scalar_buffer_reads{true};
     uint32_t _dispatch_worker_count{1u};
     bool _enable_native_predicated_loop{true};
@@ -453,6 +454,7 @@ private:
         ::llvm::Value *access_guard{nullptr};
         ::llvm::Value *byte4_guard{nullptr};
         ::llvm::Value *int1_guard{nullptr};
+        ::llvm::Value *half4_guard{nullptr};
         ::llvm::Value *data{nullptr};
         ::llvm::Value *width{nullptr};
         ::llvm::Value *x{nullptr};
@@ -761,7 +763,8 @@ public:
                     size_t print_format_id_base = 0u,
                     bool enable_predicated_acyclic_control_flow = true,
                     bool enable_biased_narrow_buffer_gather = false,
-                    bool enable_gathered_native_texture_read = false);
+                    bool enable_gathered_native_texture_read = false,
+                    bool enable_native_half4_texture_packet = false);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

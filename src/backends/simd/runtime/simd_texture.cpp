@@ -805,7 +805,10 @@ SIMDTexture::SIMDTexture(
               "LUISA_SIMD_DISABLE_GATHERED_NATIVE_TEXTURE_READS")},
       _enable_direct_int1_packets{
           !detail::env_flag(
-              "LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS")} {}
+              "LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS")},
+      _enable_direct_half4_packets{
+          !detail::env_flag(
+              "LUISA_SIMD_DISABLE_DIRECT_HALF4_TEXTURE_PACKETS")} {}
 
 SIMDTexture::SIMDTexture(
     PixelStorage storage, uint dimension, uint3 size,
@@ -827,7 +830,10 @@ SIMDTexture::SIMDTexture(
               "LUISA_SIMD_DISABLE_GATHERED_NATIVE_TEXTURE_READS")},
       _enable_direct_int1_packets{
           !detail::env_flag(
-              "LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS")} {}
+              "LUISA_SIMD_DISABLE_DIRECT_INT1_TEXTURE_PACKETS")},
+      _enable_direct_half4_packets{
+          !detail::env_flag(
+              "LUISA_SIMD_DISABLE_DIRECT_HALF4_TEXTURE_PACKETS")} {}
 
 [[nodiscard]] uint3 SIMDTexture::size(uint32_t level) const noexcept {
     auto base_size = view(0u).size3d();
@@ -1048,6 +1054,9 @@ SIMDHostTextureView SIMDTexture::host_view(uint level) noexcept {
                          0u) |
                     (_enable_direct_int1_packets ?
                          simd_host_texture_capability_int1_packet :
+                         0u) |
+                    (_enable_direct_half4_packets ?
+                         simd_host_texture_capability_half4_float_packet :
                          0u) :
                 0u,
     };

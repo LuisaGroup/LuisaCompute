@@ -664,6 +664,8 @@ inline constexpr uint32_t
     simd_host_texture_capability_gathered_native_read = 1u << 1u;
 inline constexpr uint32_t
     simd_host_texture_capability_int1_packet = 1u << 2u;
+inline constexpr uint32_t
+    simd_host_texture_capability_half4_float_packet = 1u << 3u;
 
 struct alignas(16) SIMDHostTextureView {
     void *texture{nullptr};
@@ -865,9 +867,11 @@ struct LLVMScheduleCodegenResult {
     size_t guarded_native_texture_read_count{0u};
     size_t guarded_gathered_native_texture_read_count{0u};
     size_t guarded_int1_texture_read_count{0u};
+    size_t guarded_half4_texture_read_count{0u};
     size_t guarded_native_texture_write_count{0u};
     size_t guarded_byte4_texture_write_count{0u};
     size_t guarded_int1_texture_write_count{0u};
+    size_t guarded_half4_texture_write_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
     size_t local_predicated_diamond_count{0u};
@@ -963,7 +967,10 @@ struct LLVMScheduleCodegenResult {
     bool enable_biased_narrow_buffer_gather = false,
     // Host TTI must prove the exact native W8 packed-gather shape. This is
     // independent of the direct-buffer paired-leaf profitability oracle.
-    bool enable_gathered_native_texture_read = false);
+    bool enable_gathered_native_texture_read = false,
+    // Host TTI must price W8/W16 float<->half casts as packed operations.
+    // The emitted IR remains target-independent and contains no ISA intrinsic.
+    bool enable_native_half4_texture_packet = false);
 
 // Ray-query handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,

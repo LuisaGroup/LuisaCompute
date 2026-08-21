@@ -6415,6 +6415,17 @@ struct Int1TexturePacketProbe {
     uint32_t *pixels{nullptr};
 };
 
+using Half4PixelBits = std::array<uint16_t, 4u>;
+
+struct Half4TexturePacketProbe {
+    bool valid{true};
+    uint32_t expected_width{0u};
+    uint32_t read_calls{0u};
+    uint32_t write_calls{0u};
+    Half4PixelBits *pixels{nullptr};
+    size_t pixel_count{0u};
+};
+
 struct alignas(16) Byte4TexturePacketArguments {
     SIMDHostBufferView source;
     SIMDHostTextureView texture;
@@ -6424,6 +6435,72 @@ struct alignas(16) Int1TexturePacketArguments {
     SIMDHostTextureView texture;
     SIMDHostBufferView output;
 };
+
+struct alignas(16) Half4TexturePacketArguments {
+    SIMDHostTextureView texture;
+    SIMDHostBufferView source;
+    SIMDHostBufferView output;
+};
+
+[[nodiscard]] float half_bits_to_float(uint16_t bits) noexcept {
+    auto value = luisa::half{};
+    std::memcpy(&value, &bits, sizeof(bits));
+    return static_cast<float>(value);
+}
+
+[[nodiscard]] uint16_t float_to_half_bits(float value) noexcept {
+    auto converted = luisa::half{value};
+    auto bits = uint16_t{0u};
+    std::memcpy(&bits, &converted, sizeof(bits));
+    return bits;
+}
+
+void half4_texture_packet_read_probe(
+    void *texture, uint32_t level, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *x,
+    const uint32_t *y, const uint32_t *, void *values) {
+    auto *probe = static_cast<Half4TexturePacketProbe *>(texture);
+    probe->read_calls++;
+    probe->valid &= level == 0u && lane_count == probe->expected_width;
+    auto *components = static_cast<float *>(values);
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        probe->valid &= y[lane] == 0u;
+        auto in_bounds = x[lane] < probe->pixel_count;
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            components[component * lane_count + lane] =
+                in_bounds ?
+                    half_bits_to_float(
+                        probe->pixels[x[lane]][component]) :
+                    0.0f;
+        }
+    }
+}
+
+void half4_texture_packet_write_probe(
+    void *texture, uint32_t level, uint32_t lane_count,
+    uint64_t active_mask_bits, const uint32_t *x,
+    const uint32_t *y, const uint32_t *, const void *values) {
+    auto *probe = static_cast<Half4TexturePacketProbe *>(texture);
+    probe->write_calls++;
+    probe->valid &= level == 0u && lane_count == probe->expected_width;
+    auto *components = static_cast<const float *>(values);
+    for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
+        if ((active_mask_bits & (uint64_t{1u} << lane)) == 0u) {
+            continue;
+        }
+        probe->valid &= y[lane] == 0u;
+        if (x[lane] >= probe->pixel_count) { continue; }
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            probe->pixels[x[lane]][component] = float_to_half_bits(
+                components[component * lane_count + lane]);
+        }
+    }
+}
 
 void int1_texture_packet_read_probe(
     void *texture, uint32_t level, uint32_t lane_count,
@@ -7087,6 +7164,308 @@ void texture_packet_sample_probe(
                 args.texture.native_storage =
                     static_cast<uint32_t>(PixelStorage::BYTE4_SRGB);
             }));
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_half4_texture_packet_codegen() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_name("half4_texture_packet");
+        auto *texture = kernel->create_resource_argument(
+            Type::texture(Type::of<float>(), 2u));
+        auto *source = kernel->create_resource_argument(
+            Type::buffer(Type::of<float4>()));
+        auto *output = kernel->create_resource_argument(
+            Type::buffer(Type::of<float4>()));
+        auto *entry_block = kernel->create_body_block();
+        auto *dispatch_id = module.create_dispatch_id();
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(entry_block);
+        auto *x = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+            {dispatch_id, zero});
+        auto *coordinate = builder.call(
+            Type::of<uint2>(), xir::ArithmeticOp::AGGREGATE,
+            {x, zero});
+        auto *pixel = builder.call(
+            Type::of<float4>(), xir::ResourceReadOp::TEXTURE2D_READ,
+            {texture, coordinate});
+        builder.call(
+            xir::ResourceWriteOp::BUFFER_WRITE,
+            {output, x, pixel});
+        auto *replacement = builder.call(
+            Type::of<float4>(), xir::ResourceReadOp::BUFFER_READ,
+            {source, x});
+        builder.call(
+            xir::ResourceWriteOp::TEXTURE2D_WRITE,
+            {texture, coordinate, replacement});
+        builder.return_void();
+
+        auto lowered = schedule::lower_xir_to_schedule(
+            kernel, {.logical_warp_width = width});
+        if (!lowered.succeeded()) {
+            std::cerr << diagnostics_text(lowered);
+            return false;
+        }
+        LLVMJIT jit{true};
+        CHECK(jit.succeeded());
+        auto enable_native =
+            jit.supports_native_half_conversion(width);
+        CHECK(!jit.supports_native_half_conversion(2u));
+        CHECK(!jit.supports_native_half_conversion(4u));
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto llvm_module = std::make_unique<::llvm::Module>(
+            "simd-half4-texture-packet", *context);
+        auto name = "simd_half4_texture_packet_w" +
+                    std::to_string(width);
+        auto codegen = lower_schedule_to_llvm(
+            *llvm_module, *lowered.function, width, name,
+            false, {}, true, true, false, 1u, true,
+            false, false, false, {}, 0u, false, false,
+            false, enable_native);
+        if (!codegen.succeeded()) {
+            std::cerr << codegen.error << '\n';
+            return false;
+        }
+        CHECK(codegen.argument_buffer_size ==
+              sizeof(Half4TexturePacketArguments));
+        CHECK(codegen.guarded_native_texture_read_count ==
+              static_cast<size_t>(enable_native));
+        CHECK(codegen.guarded_half4_texture_read_count ==
+              static_cast<size_t>(enable_native));
+        CHECK(codegen.guarded_native_texture_write_count ==
+              static_cast<size_t>(width == 8u || width == 16u));
+        CHECK(codegen.guarded_half4_texture_write_count ==
+              static_cast<size_t>(enable_native));
+        CHECK(!::llvm::verifyModule(*llvm_module, &::llvm::errs()));
+        std::string ir;
+        ::llvm::raw_string_ostream stream{ir};
+        llvm_module->print(stream, nullptr);
+        stream.flush();
+        CHECK((ir.find("texture.read.half4.aos") !=
+               std::string::npos) == enable_native);
+        CHECK((ir.find("texture.write.half4.aos") !=
+               std::string::npos) == enable_native);
+        CHECK((ir.find("texture.half4.packet.guard") !=
+               std::string::npos) == enable_native);
+        if (!enable_native) { continue; }
+        CHECK(ir.find(
+                  "fpext <" + std::to_string(width) +
+                  " x half>") != std::string::npos);
+        CHECK(ir.find(
+                  "fptrunc <" + std::to_string(width) +
+                  " x float>") != std::string::npos);
+        CHECK(ir.find("fpext half ") == std::string::npos);
+        CHECK(ir.find("fptrunc float ") == std::string::npos);
+        CHECK(ir.find("texture.read.half4.value") !=
+              std::string::npos);
+        CHECK(ir.find("texture.write.half4.safe.active") !=
+              std::string::npos);
+
+        auto assembly = jit.emit_assembly_copy(*llvm_module);
+        CHECK(!assembly.empty());
+        for (auto symbol : {
+                 "__extendhfsf2", "__truncsfhf2",
+                 "__gnu_h2f_ieee", "__gnu_f2h_ieee"}) {
+            CHECK(assembly.find(symbol) == std::string::npos);
+        }
+        if (jit.target_triple().starts_with("x86_64")) {
+            CHECK(assembly.find("vcvtph2ps") != std::string::npos);
+            CHECK(assembly.find("vcvtps2ph") != std::string::npos);
+        }
+        CHECK(jit.add_module(
+            std::move(llvm_module), std::move(context)));
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *,
+            uint32_t);
+        auto function = reinterpret_cast<Entry *>(jit.lookup(name));
+        CHECK(function != nullptr);
+        CHECK(!jit.object().empty());
+        for (auto symbol : {
+                 "__extendhfsf2", "__truncsfhf2",
+                 "__gnu_h2f_ieee", "__gnu_f2h_ieee"}) {
+            CHECK(jit.object().find(symbol) == std::string::npos);
+        }
+
+        constexpr auto value_count = uint32_t{1u} << 16u;
+        constexpr auto pixel_count = value_count / 4u;
+        luisa::vector<Half4PixelBits> original_pixels(pixel_count);
+        luisa::vector<float4> source_values(pixel_count);
+        for (auto value_index = uint32_t{0u};
+             value_index < value_count; value_index++) {
+            auto pixel_index = value_index / 4u;
+            auto component = value_index % 4u;
+            original_pixels[pixel_index][component] =
+                static_cast<uint16_t>(value_index);
+            auto source_bits =
+                value_index * 0x9e3779b9u + 0x7f4a7c15u;
+            source_values[pixel_index][component] =
+                std::bit_cast<float>(source_bits);
+        }
+        constexpr std::array special_float_bits{
+            0x00000000u,
+            0x80000000u,
+            0x7f800000u,
+            0xff800000u,
+            0x7fc00000u,
+            0xffc00000u,
+            0x7f800001u,
+            0xff800001u,
+            0x7fffffffu,
+            0xffffffffu,
+            0x00000001u,
+            0x80000001u,
+            0x007fffffu,
+            0x807fffffu,
+            0x00800000u,
+            0x80800000u,
+            0x32ffffffu,
+            0x33000000u,
+            0x337fffffu,
+            0x33800000u,
+            0x33800001u,
+            0x387fffffu,
+            0x38800000u,
+            0x38800001u,
+            0x3f7fffffu,
+            0x3f800000u,
+            0x3f800fffu,
+            0x3f801000u,
+            0x3f801001u,
+            0x477fdfffu,
+            0x477fe000u,
+            0x477fefffu,
+            0x477ff000u,
+            0x477ff001u,
+            0x7f7fffffu,
+            0xff7fffffu,
+        };
+        for (auto i = size_t{0u}; i < special_float_bits.size(); i++) {
+            source_values[i / 4u][i % 4u] =
+                std::bit_cast<float>(special_float_bits[i]);
+        }
+
+        auto direct_pixels = original_pixels;
+        auto callback_pixels = original_pixels;
+        auto output_sentinel = make_float4(-123.25f);
+        luisa::vector<float4> direct_output(
+            pixel_count, output_sentinel);
+        luisa::vector<float4> callback_output(
+            pixel_count, output_sentinel);
+        Half4TexturePacketProbe direct_probe{
+            .expected_width = width,
+            .pixels = direct_pixels.data(),
+            .pixel_count = pixel_count};
+        Half4TexturePacketProbe callback_probe{
+            .expected_width = width,
+            .pixels = callback_pixels.data(),
+            .pixel_count = pixel_count};
+        auto make_arguments = [&](Half4TexturePacketProbe &probe,
+                                  Half4PixelBits *pixels,
+                                  float4 *output_values,
+                                  uint32_t capabilities) {
+            return Half4TexturePacketArguments{
+                .texture = SIMDHostTextureView{
+                    .texture = &probe,
+                    .read_float = half4_texture_packet_read_probe,
+                    .write_float = half4_texture_packet_write_probe,
+                    .level = 0u,
+                    .dimension = 2u,
+                    .native_data = pixels,
+                    .native_width = static_cast<uint32_t>(
+                        probe.pixel_count),
+                    .native_height = 1u,
+                    .native_depth = 1u,
+                    .native_storage = static_cast<uint32_t>(
+                        PixelStorage::HALF4),
+                    .native_capabilities = capabilities,
+                },
+                .source = SIMDHostBufferView{source_values.data(), source_values.size() * sizeof(float4)},
+                .output = SIMDHostBufferView{output_values, probe.pixel_count * sizeof(float4)},
+            };
+        };
+        auto direct_arguments = make_arguments(
+            direct_probe, direct_pixels.data(), direct_output.data(),
+            simd_host_texture_capability_half4_float_packet);
+        auto callback_arguments = make_arguments(
+            callback_probe, callback_pixels.data(),
+            callback_output.data(), 0u);
+        // Keep the exhaustive corpus in one synthetic block. thread_index is
+        // block-local, so using `width` here would make every packet after the
+        // first one an inactive out-of-block launch rather than advancing
+        // across the corpus.
+        auto config = launch_1d(pixel_count, pixel_count);
+        auto expected_direct_read_callbacks = uint32_t{0u};
+        auto expected_direct_write_callbacks = uint32_t{0u};
+        for (auto first = uint32_t{0u}; first < pixel_count;
+             first += width) {
+            auto read_nan = false;
+            auto write_nan = false;
+            for (auto lane = uint32_t{0u}; lane < width; lane++) {
+                for (auto component = uint32_t{0u}; component < 4u;
+                     component++) {
+                    auto half_bits = original_pixels[first + lane][component];
+                    read_nan |= (half_bits & 0x7fffu) > 0x7c00u;
+                    write_nan |= std::isnan(
+                        source_values[first + lane][component]);
+                }
+            }
+            expected_direct_read_callbacks += read_nan;
+            expected_direct_write_callbacks += write_nan;
+            config.thread_index = first;
+            function(&direct_arguments, nullptr, &config, width);
+            function(&callback_arguments, nullptr, &config, width);
+        }
+        CHECK(direct_probe.valid);
+        CHECK(callback_probe.valid);
+        CHECK(direct_probe.read_calls ==
+              expected_direct_read_callbacks);
+        CHECK(direct_probe.write_calls ==
+              expected_direct_write_callbacks);
+        CHECK(callback_probe.read_calls == pixel_count / width);
+        CHECK(callback_probe.write_calls == pixel_count / width);
+        for (auto pixel_index = uint32_t{0u};
+             pixel_index < pixel_count; pixel_index++) {
+            for (auto component = uint32_t{0u}; component < 4u;
+                 component++) {
+                auto direct_read_bits = std::bit_cast<uint32_t>(
+                    direct_output[pixel_index][component]);
+                auto callback_read_bits = std::bit_cast<uint32_t>(
+                    callback_output[pixel_index][component]);
+                auto expected_read_bits = std::bit_cast<uint32_t>(
+                    half_bits_to_float(
+                        original_pixels[pixel_index][component]));
+                CHECK(direct_read_bits == callback_read_bits);
+                CHECK(direct_read_bits == expected_read_bits);
+                auto expected_write_bits = float_to_half_bits(
+                    source_values[pixel_index][component]);
+                CHECK(direct_pixels[pixel_index][component] ==
+                      callback_pixels[pixel_index][component]);
+                CHECK(direct_pixels[pixel_index][component] ==
+                      expected_write_bits);
+            }
+        }
+
+        direct_pixels.assign(width, Half4PixelBits{});
+        direct_output.assign(width, output_sentinel);
+        direct_probe = {
+            .expected_width = width,
+            .pixels = direct_pixels.data(),
+            .pixel_count = width};
+        direct_arguments = make_arguments(
+            direct_probe, direct_pixels.data(), direct_output.data(),
+            simd_host_texture_capability_half4_float_packet);
+        direct_arguments.texture.native_width = width;
+        config = launch_1d(width - 1u, width);
+        function(
+            &direct_arguments, nullptr, &config, width - 1u);
+        CHECK(direct_probe.valid);
+        CHECK(direct_probe.read_calls == 1u);
+        CHECK(direct_probe.write_calls == 1u);
+        CHECK(all(direct_output[width - 1u] == output_sentinel));
     }
     return true;
 }
@@ -14702,6 +15081,8 @@ int main() {
          &run_native_texture_packet_codegen},
         {"XIR BYTE4 texture packet",
          &run_byte4_texture_packet_codegen},
+        {"XIR HALF4 texture packet",
+         &run_half4_texture_packet_codegen},
         {"XIR INT1 texture packet",
          &run_int1_texture_packet_codegen},
         {"XIR direct texture sample callback",

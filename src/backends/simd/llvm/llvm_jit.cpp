@@ -12,6 +12,7 @@
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Error.h>
@@ -356,6 +357,47 @@ bool LLVMJIT::supports_native_vector_compress(
            target.isLegalMaskedCompressStore(
                vector_type, ::llvm::Align{16u});
 #endif
+}
+
+bool LLVMJIT::supports_native_half_conversion(
+    uint32_t width) const noexcept {
+    if (!succeeded() || (width != 8u && width != 16u)) {
+        return false;
+    }
+    ::llvm::LLVMContext context;
+    ::llvm::Module module{"simd-half-conversion-probe", context};
+    module.setDataLayout(_target_machine->createDataLayout());
+#if LLVM_VERSION_MAJOR >= 21
+    module.setTargetTriple(_target_machine->getTargetTriple());
+#else
+    module.setTargetTriple(_target_machine->getTargetTriple().str());
+#endif
+    auto *function_type = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(context), false);
+    auto *function = ::llvm::Function::Create(
+        function_type, ::llvm::GlobalValue::PrivateLinkage,
+        "simd_half_conversion_probe", module);
+    auto target = _target_machine->getTargetTransformInfo(*function);
+    auto *float_lanes = ::llvm::FixedVectorType::get(
+        ::llvm::Type::getFloatTy(context), width);
+    auto *half_lanes = ::llvm::FixedVectorType::get(
+        ::llvm::Type::getHalfTy(context), width);
+    auto extension_cost = target.getCastInstrCost(
+        ::llvm::Instruction::FPExt, float_lanes, half_lanes,
+        ::llvm::TTI::CastContextHint::None,
+        ::llvm::TTI::TCK_RecipThroughput);
+    auto truncation_cost = target.getCastInstrCost(
+        ::llvm::Instruction::FPTrunc, half_lanes, float_lanes,
+        ::llvm::TTI::CastContextHint::None,
+        ::llvm::TTI::TCK_RecipThroughput);
+    if (!extension_cost.isValid() || !truncation_cost.isValid()) {
+        return false;
+    }
+    // One W8 cast or at most a bounded split of W16 is the measured useful
+    // shape. Generic scalar/helper lowering is priced in the hundreds by TTI.
+    auto maximum_packed_cost = static_cast<int64_t>(width / 4u);
+    return extension_cost.getValue() <= maximum_packed_cost &&
+           truncation_cost.getValue() <= maximum_packed_cost;
 }
 
 }// namespace luisa::compute::simd

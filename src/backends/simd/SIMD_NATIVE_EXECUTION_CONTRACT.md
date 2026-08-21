@@ -1961,6 +1961,44 @@ all contiguous packets clears it as well. W1/W2/W4 always use the callback;
 W2 remains a correctness, ABI, exact-bit, and inactive-tail gate rather than a
 performance target.
 
+The capability word may also publish
+`simd_host_texture_capability_half4_float_packet`. This route is generated only
+at W8/W16 and only when host TargetTransformInfo prices both `<W x half>` to
+`<W x float>` extension and the inverse truncation at no more than `W / 4`
+reciprocal-throughput units. Thus the portable IR fails closed to the callback
+on a target where fixed-vector half conversion would scalarize or call a
+compiler helper. The resource must additionally pass the same nonnull, 2D,
+fully active, consecutive, same-row, complete-span proof and have exact linear
+`PixelStorage::HALF4` storage.
+
+An accepted read performs one alignment-one `<4W x half>` AoS load, tests the
+raw 16-bit exponent/mantissa fields, transposes the four components, and uses
+four fixed-vector `fpext` operations. Every non-NaN half value, including both
+infinities, signed zero, and every subnormal, converts exactly to float. If any
+physical component is a NaN, the complete packet executes the established
+callback; the optimization therefore neither canonicalizes nor newly defines
+NaN payload, sign, or signaling behavior. An accepted write first selects
+inactive components to positive zero, requires every component to be ordered,
+uses four fixed-vector `fptrunc` operations with LLVM's default round-to-nearest
+ties-to-even semantics, transposes to physical AoS, and performs one
+alignment-one `<4W x half>` store. Any float NaN routes the complete packet to
+the callback. Finite overflow, infinities, signed zero, subnormals, underflow,
+and half-way cases must be bit-identical to the existing default-rounding host
+half conversion.
+
+No half address or conversion is formed before its guards succeed. Partial
+tails, row crossings, active out-of-bounds coordinates, 3D resources, other
+formats, missing native data, a missing capability, and targets rejected by
+TTI retain the callback. The emitted production IR contains only arithmetic,
+bit operations, compare/select, GEP, fixed-vector load/store, shuffle, `fpext`,
+and `fptrunc`; it contains no target intrinsic, scalar helper symbol, or
+extract/call/insert lane loop.
+`LUISA_SIMD_DISABLE_DIRECT_HALF4_TEXTURE_PACKETS=1` clears only this descriptor
+capability, giving a same-generated-object performance and semantic oracle.
+Disabling direct-native or all contiguous packets clears it as well. W1/W2/W4
+always use the callback; W2 is mandatory for ABI, exact-bit, and inactive-tail
+regression but has no performance acceptance criterion.
+
 Bindless arrays extend the same packet boundary with a runtime-owned dense
 slot table. Each slot contains independent buffer, 2D-texture, and 3D-texture
 descriptors; a texture descriptor stores the resolved `SIMDTexture` plus a

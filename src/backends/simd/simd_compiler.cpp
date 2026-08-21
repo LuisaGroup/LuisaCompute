@@ -426,6 +426,8 @@ SIMDCompiledKernel compile_simd_kernel(
         jit->supports_native_biased_narrow_buffer_gather(warp_width);
     auto use_gathered_native_texture_read =
         native_paired_leaf_gather;
+    auto use_native_half4_texture_packet =
+        jit->supports_native_half_conversion(warp_width);
     auto use_native_predicated_loop =
         jit->supports_native_predicated_loop(warp_width);
     auto use_inlined_packet_batch =
@@ -717,7 +719,8 @@ SIMDCompiledKernel compile_simd_kernel(
         pipeline_print_formats.size(),
         use_native_vector_compress,
         use_biased_narrow_buffer_gather,
-        use_gathered_native_texture_read);
+        use_gathered_native_texture_read,
+        use_native_half4_texture_packet);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
@@ -785,12 +788,16 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.guarded_gathered_native_texture_read_count;
     result.guarded_int1_texture_read_count =
         llvm_result.guarded_int1_texture_read_count;
+    result.guarded_half4_texture_read_count =
+        llvm_result.guarded_half4_texture_read_count;
     result.guarded_native_texture_write_count =
         llvm_result.guarded_native_texture_write_count;
     result.guarded_byte4_texture_write_count =
         llvm_result.guarded_byte4_texture_write_count;
     result.guarded_int1_texture_write_count =
         llvm_result.guarded_int1_texture_write_count;
+    result.guarded_half4_texture_write_count =
+        llvm_result.guarded_half4_texture_write_count;
     result.predicated_memory_diamond_count =
         llvm_result.predicated_memory_diamond_count;
     result.predicated_memory_instruction_count =

@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cerrno>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <optional>
 #include <string>
 
@@ -60,6 +63,19 @@ struct ScopedEnvironmentVariable {
             previous ? previous->c_str() : nullptr);
     }
 };
+
+[[nodiscard]] float half_bits_to_float(uint16_t bits) noexcept {
+    auto value = luisa::half{};
+    std::memcpy(&value, &bits, sizeof(bits));
+    return static_cast<float>(value);
+}
+
+[[nodiscard]] uint16_t float_to_half_bits(float value) noexcept {
+    auto converted = luisa::half{value};
+    auto bits = uint16_t{0u};
+    std::memcpy(&bits, &converted, sizeof(bits));
+    return bits;
+}
 
 [[nodiscard]] bool invalid_worker_override_fails_closed(
     const char *program) noexcept {
@@ -547,6 +563,104 @@ int main(int argc, char *argv[]) {
             ScopedEnvironmentVariable disable_direct_byte4_packets{
                 "LUISA_SIMD_DISABLE_DIRECT_BYTE4_TEXTURE_PACKETS", "1"};
             check_byte4_image("SIMD callback BYTE4 packet mismatch");
+        }
+
+        Kernel2D half4_write_kernel = [width](
+                                          ImageFloat target,
+                                          BufferFloat4 source) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto coordinate = dispatch_id().xy();
+            auto index = coordinate.x + coordinate.y * 33u;
+            target.write(coordinate, source.read(index));
+        };
+        Kernel2D half4_read_kernel = [width](
+                                         ImageFloat source,
+                                         BufferFloat4 output) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto coordinate = dispatch_id().xy();
+            auto index = coordinate.x + coordinate.y * 33u;
+            output.write(index, source.read(coordinate));
+        };
+        auto half4_write_shader = device.compile(half4_write_kernel);
+        auto half4_read_shader = device.compile(half4_read_kernel);
+        constexpr std::array half4_special_bits{
+            0x00000000u,
+            0x80000000u,
+            0x7f800000u,
+            0xff800000u,
+            0x7fc00000u,
+            0xffc00000u,
+            0x7f800001u,
+            0xff800001u,
+            0x00000001u,
+            0x80000001u,
+            0x007fffffu,
+            0x807fffffu,
+            0x00800000u,
+            0x80800000u,
+            0x32ffffffu,
+            0x33000000u,
+            0x337fffffu,
+            0x33800000u,
+            0x33800001u,
+            0x387fffffu,
+            0x38800000u,
+            0x38800001u,
+            0x3f7fffffu,
+            0x3f800000u,
+            0x3f800fffu,
+            0x3f801000u,
+            0x3f801001u,
+            0x477fdfffu,
+            0x477fe000u,
+            0x477fefffu,
+            0x477ff000u,
+            0x477ff001u,
+            0x7f7fffffu,
+            0xff7fffffu,
+        };
+        luisa::vector<float4> half4_input(
+            image_size.x * image_size.y);
+        for (auto i = size_t{0u}; i < half4_input.size() * 4u; i++) {
+            auto bits = static_cast<uint32_t>(i) * 0x9e3779b9u +
+                        0x7f4a7c15u;
+            if (i < half4_special_bits.size()) {
+                bits = half4_special_bits[i];
+            }
+            half4_input[i / 4u][i % 4u] = std::bit_cast<float>(bits);
+        }
+        auto check_half4_image = [&](const char *failure_message) noexcept {
+            auto image = device.create_image<float>(
+                PixelStorage::HALF4, image_size);
+            auto input = device.create_buffer<float4>(half4_input.size());
+            auto output = device.create_buffer<float4>(half4_input.size());
+            luisa::vector<uint16_t> raw_output(half4_input.size() * 4u);
+            luisa::vector<float4> read_output(half4_input.size());
+            stream << input.copy_from(luisa::span{half4_input})
+                   << half4_write_shader(image, input).dispatch(image_size)
+                   << image.copy_to(luisa::span{raw_output})
+                   << half4_read_shader(image, output).dispatch(image_size)
+                   << output.copy_to(luisa::span{read_output})
+                   << synchronize();
+            for (auto i = size_t{0u}; i < half4_input.size() * 4u; i++) {
+                auto expected_half = float_to_half_bits(
+                    half4_input[i / 4u][i % 4u]);
+                expect(raw_output[i] == expected_half)
+                    << failure_message;
+                auto expected_float = half_bits_to_float(expected_half);
+                expect(std::bit_cast<uint32_t>(
+                           read_output[i / 4u][i % 4u]) ==
+                       std::bit_cast<uint32_t>(expected_float))
+                    << failure_message;
+            }
+        };
+        check_half4_image("SIMD direct HALF4 packet mismatch");
+        if (width == 8u || width == 16u) {
+            ScopedEnvironmentVariable disable_direct_half4_packets{
+                "LUISA_SIMD_DISABLE_DIRECT_HALF4_TEXTURE_PACKETS", "1"};
+            check_half4_image("SIMD callback HALF4 packet mismatch");
         }
 
         auto uint_image = device.create_image<uint>(

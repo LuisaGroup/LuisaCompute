@@ -4501,6 +4501,75 @@ tree passes 161/161 CTest cases and the graphics/fallback/SIMD/Embree Release
 tree passes 173/173. The Clang ASan/LSan/UBSan Schedule/JIT executable also
 passes its complete case list, including the new INT1 differential.
 
+### Guarded JIT-native HALF4 packets
+
+The path-tracing framebuffer uses linear `HALF4`. Even after direct `INT1`
+seed traffic, every framebuffer write and the later accumulation/tone-mapping
+reads still crossed the packet callback and performed scalar host half
+conversion. W8/W16 now add a separate HALF4 descriptor capability. The JIT
+emits this route only when LLVM TargetTransformInfo prices both fixed-vector
+half extension and truncation as packed operations; the current ceiling is
+`W / 4` reciprocal-throughput units. Hosts that would scalarize the portable
+casts retain the callback, as do W1/W2/W4. W2 remains an exact-bit, ABI, and
+inactive-tail gate rather than a performance target.
+
+The route reuses the complete active, consecutive, same-row, in-bounds 2D
+proof. Reads load one alignment-one physical `<4W x half>` vector, inspect the
+raw half bits before floating-point conversion, transpose AoS to component-
+major vectors, and issue fixed-vector `fpext`. Writes sanitize components,
+reject unordered values, issue fixed-vector round-to-nearest-ties-to-even
+`fptrunc`, transpose to AoS, and store one physical vector. A packet containing
+any half NaN on read or float NaN on write executes the complete original
+callback. This deliberately preserves the host half implementation's NaN
+payload/signaling behavior while making every finite value, infinity, signed
+zero, and subnormal bit-identical through the packed route. No target
+intrinsic, scalar half helper, or lane extract/call/insert loop is introduced.
+
+`LUISA_SIMD_DISABLE_DIRECT_HALF4_TEXTURE_PACKETS=1` clears only the runtime
+capability; candidate and callback oracle therefore execute byte-identical JIT
+objects. The optimization report separately counts guarded HALF4 reads and
+writes. The direct JIT regression reads all 65,536 half bit patterns, writes a
+deterministic 65,536-pattern float corpus plus explicit boundary/tie values,
+compares the capability and callback routes bit-for-bit, checks an inactive
+tail, and audits IR, target assembly, object materialization, and scalar-helper
+symbols. The runtime-width suite independently exercises a 33-by-3 HALF4 image
+at W1/W2/W4/W8/W16 and disables the capability at W8/W16.
+
+On the Ryzen 9 9950X3D with LLVM 22.1.8, seven alternating same-object pairs
+used fifteen workers on physical CPUs `0-7,9-15`. An unrelated single-thread
+data-collection process remained active on the excluded core, so all points
+are retained and absolute rates are not compared with earlier populations.
+At 256 spp, ordinary path tracing measured 1.07229x W8 throughput
+([1.06183, 1.08286], 7/7) and 1.07547x W16
+([1.06127, 1.08985], 7/7). At 128 spp, cutout-query measured 1.05782x W8
+([1.03618, 1.07992], 7/7) and 1.05172x W16
+([1.04345, 1.06006], 7/7). Every render passed its gallery reference.
+
+A fresh equal-core system/TBB comparison of the complete backend measured
+ordinary W8/W16 at 1.34712x [1.33337, 1.36101] and
+1.48738x [1.47364, 1.50125] fallback throughput. Cutout-query reached
+1.17228x [1.16235, 1.18229] and 1.20436x [1.19397, 1.21484]. These ratios are
+paired within the same background-load population and must not be reconstructed
+from absolute medians in an older checkpoint.
+
+Five nonmultiplexed W8 ordinary counter pairs put candidate/oracle cycles at
+0.94438x, instructions at 0.88475x, branches at 0.76881x, and branch misses at
+0.91355x; profiled throughput was 1.08820x. In the callback oracle,
+`float2half_impl`, `_read_float`, `_write_float`, and generic pixel read/write
+accounted for 5.24% of named samples; none appeared above the 0.05% threshold
+in the candidate. All five W8 JIT objects and annotated assemblies were
+byte-identical between capability states and had no undefined symbol. On this
+host the accepted blocks contain packed `vcvtph2ps`/`vcvtps2ph`; that is
+machine-code evidence for this target, not an AVX-512 promise attached to
+logical W8.
+
+After the final source and documentation update, the compiler-focused Release
+tree passes 161/161 CTest cases and the graphics/fallback/SIMD/Embree Release
+tree passes 173/173. The complete Clang ASan/LSan/UBSan Schedule/JIT case list
+also passes. Explicit W8/W16 image-processing and Voxel gallery runs pass.
+At 1024 spp, ordinary path tracing passes at 39.219/37.800 dB for W8/W16 and
+cutout-query passes at 45.530/45.151 dB.
+
 ### Exact biased narrow W8 loop-buffer gathers
 
 The Voxel DDA profile identified the first dependent instruction after a

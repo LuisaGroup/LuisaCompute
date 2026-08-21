@@ -85,9 +85,11 @@ struct SIMDCompiledKernel {
     size_t guarded_native_texture_read_count{0u};
     size_t guarded_gathered_native_texture_read_count{0u};
     size_t guarded_int1_texture_read_count{0u};
+    size_t guarded_half4_texture_read_count{0u};
     size_t guarded_native_texture_write_count{0u};
     size_t guarded_byte4_texture_write_count{0u};
     size_t guarded_int1_texture_write_count{0u};
+    size_t guarded_half4_texture_write_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
     size_t local_predicated_diamond_count{0u};

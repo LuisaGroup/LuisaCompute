@@ -6571,3 +6571,79 @@ ASan/LSan/UBSan Schedule/JIT executable independently passes its complete case
 list. The runtime-width test exercises W1/W2/W4/W8/W16 and both W8/W16
 capability states; the JIT test checks exact values, inactive tail behavior,
 portable fixed-vector IR shape, assembly generation, and object materialization.
+
+## Guarded JIT-native HALF4 texture packets
+
+The path-tracing framebuffer is linear `HALF4`. The prior packet path retained
+scalar runtime half conversion on every framebuffer write and on the later
+accumulation/tone-mapping reads. W8/W16 now use portable fixed-vector
+`fpext`/`fptrunc` only when host TTI prices both directions as packed
+operations. The packet must also be fully active, consecutive, within one 2D
+row, in bounds, and backed by exact HALF4 storage. Any NaN component, failed
+shape/address proof, absent capability, or rejected target executes the
+unchanged callback. W1/W2/W4 remain callback-only; W2 is an ABI, exact-bit,
+and inactive-tail gate rather than a performance target.
+
+`LUISA_SIMD_DISABLE_DIRECT_HALF4_TEXTURE_PACKETS=1` clears only the runtime
+capability, so candidate and oracle execute the same generated code. The
+primary causal population used seven alternating fresh-process pairs per
+width/workload, fifteen workers pinned to physical CPUs `0-7,9-15`, one sample
+per dispatch, LLVM 22.1.8, and the Ryzen 9 9950X3D. A separate single-thread
+LuisaTrade data collector remained active on the excluded core. Every one of
+the 56 candidate/oracle invocations passed its gallery reference; all samples
+are retained. Ratios are paired geometric means with log-space Student-t 95%
+intervals:
+
+| workload | width | candidate median FPS or spp/s | callback median | candidate / callback | wins | 95% CI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ordinary, 256 spp | W8 | 61.4742 | 57.0341 | **1.07229x** | **7/7** | **[1.06183, 1.08286]** |
+| ordinary, 256 spp | W16 | 67.7362 | 63.1396 | **1.07547x** | **7/7** | **[1.06127, 1.08985]** |
+| cutout-query, 128 spp | W8 | 51.4774 | 48.6746 | **1.05782x** | **7/7** | **[1.03618, 1.07992]** |
+| cutout-query, 128 spp | W16 | 53.9050 | 51.2921 | **1.05172x** | **7/7** | **[1.04345, 1.06006]** |
+
+A fresh complete-backend comparison used the system/TBB fallback build, the
+same physical CPU set, seven alternating pairs, and the same SPP settings.
+This is the current fallback comparison after HALF4, not the isolated effect
+of this arm. Background load makes the absolute rates lower than the preceding
+INT1 population, so cross-population median subtraction is invalid; the paired
+ratios below are the supported result. All 56 invocations passed reference:
+
+| workload | width | SIMD median FPS or spp/s | fallback median | SIMD / fallback | wins | 95% CI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ordinary | W8 | 61.1834 | 45.3786 | **1.34712x** | **7/7** | **[1.33337, 1.36101]** |
+| ordinary | W16 | 67.5830 | 45.3634 | **1.48738x** | **7/7** | **[1.47364, 1.50125]** |
+| cutout-query | W8 | 51.5647 | 44.0423 | **1.17228x** | **7/7** | **[1.16235, 1.18229]** |
+| cutout-query | W16 | 53.1613 | 44.1483 | **1.20436x** | **7/7** | **[1.19397, 1.21484]** |
+
+Five nonmultiplexed W8 ordinary `perf stat` pairs used the same object and
+256 spp. They quantify the removed boundary directly:
+
+| counter | candidate / callback oracle | 95% paired CI |
+| --- | ---: | ---: |
+| throughput | **1.08820x** | **[1.04509, 1.13309]** |
+| cycles | **0.94438x** | **[0.94250, 0.94626]** |
+| instructions | **0.88475x** | **[0.88474, 0.88476]** |
+| branches | **0.76881x** | **[0.76878, 0.76883]** |
+| branch misses | **0.91355x** | **[0.91035, 0.91676]** |
+
+A following 256-spp sampling pair attributes 1.72% of oracle samples to
+`float2half_impl`, 1.47% to `SIMDTexture::_read_float`, 1.03% to
+`SIMDTexture::_write_float`, and 1.02% total to generic pixel read/write.
+None of these symbols appears above the 0.05% reporting threshold in the
+candidate. This agrees with the deterministic 11.53% instruction and 23.12%
+branch reductions: the gain comes from removing conversion callbacks and
+their scratch/control traffic, not from scheduler or Embree changes.
+
+The five dumped W8 JIT objects and their annotated assembly files are
+byte-identical between capability states and have zero undefined symbols.
+Real path-tracer blocks contain packed `vcvtph2ps` and `vcvtps2ph`; no scalar
+half helper or scalar libm call appears. These mnemonics describe this host's
+LLVM lowering only. The production IR contains no x86/AVX/AVX-512 intrinsic,
+and logical W8 does not imply AVX-512.
+
+The final compiler-focused Release tree passes 161/161 CTest cases and the
+graphics/fallback/SIMD/Embree Release tree passes 173/173. The complete Clang
+ASan/LSan/UBSan Schedule/JIT case list passes independently. Explicit W8/W16
+image-processing and Voxel gallery runs pass. The final 1024-spp ordinary
+path-tracing references pass at 39.219/37.800 dB for W8/W16; cutout-query
+passes at 45.530/45.151 dB.
