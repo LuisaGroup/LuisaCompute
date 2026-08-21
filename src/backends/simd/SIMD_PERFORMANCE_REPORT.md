@@ -1,6 +1,6 @@
 # SIMD CPU backend performance report
 
-Snapshot date: 2026-08-20. This report covers the Release build after merging
+Snapshot date: 2026-08-21. This report covers the Release build after merging
 `origin/next@62b77df36b6dae05aff558d4db84e415b5e84e75` into
 `codex/simd-cpu-backend`, adding coherent direct-CFG lowering, completing the
 bindless gradient-sampling vertical slice, and eliminating curve-hit
@@ -6052,3 +6052,67 @@ non-coroutine cutout render passes the checked-in reference at 46.208391 dB
 RGB PSNR and 0.999632 luminance correlation; the reference was not regenerated.
 This section supersedes the W2 portion of the earlier statements that described
 W1/W2 together as state-backed controls. W1 remains unchanged.
+
+## W16 sparse output-only ray packets
+
+Real `opaque-query` traces leave many W16 ray-query cohorts sparse: the audit
+run found roughly 63% of packet calls at eight or fewer active lanes and about
+53% at four or fewer. Passing every such cohort to `rtcIntersect16` or
+`rtcOccluded16` wastes traversal width, but compacting a complete native packet
+inside the C++ provider copied every field twice. That first runtime-repack
+prototype was rejected: W8 measured 0.9579x across five pairs and W16 measured
+0.9920x across twelve pairs.
+
+The retained W16-only implementation forms a smaller native packet directly in
+JIT IR. When the host TTI proves native 512-bit fixed vectors and a legal
+`llvm.masked.compressstore` for `<16 x i32>`, an active count of one through
+four selects an Embree W4 packet, five through eight selects W8, and nine
+through sixteen retains W16. All twelve ray fields are compressed directly to
+their final component-major memory; the physical tail is initialized before
+the call, and `ray.id` preserves the original logical lane for output mapping.
+The runtime performs no second packet scan or repack. This applies only to the
+state-free output-only empty surface-filter provider. Nonempty direct handlers
+must retain the packet width of their compiled callback ABI.
+
+The narrower logical-W8 experiment was not retained. Seven alternating W8
+pairs measured 0.9947x with only 3/7 wins and a 95% interval crossing one.
+Separate W16 threshold isolation found the W8 physical tier neutral at 1.0016x
+(4/7), while W4-only was positive but noisy at 1.0082x (5/7). The combined
+W4/W8 policy is retained because three independent final-binary batches are
+positive together; no claim is made that logical W8 itself benefits.
+
+The final A/B uses the system/TBB build, fifteen fixed physical cores, W16,
+128 spp, one sample per dispatch, and alternating fresh `opaque-query`
+processes. Candidate and oracle are the same binary; the oracle sets
+`LUISA_SIMD_DISABLE_W16_SPARSE_EMPTY_SURFACE_FILTER_PACKET_NARROWING=1`.
+Unrelated compiler and renderer activity is rejected on the selected physical
+cores and their SMT siblings. Three independent eight-pair batches measured
+1.0189x (7/8), 1.0023x (4/8), and 1.0128x (7/8). Across all 24 pairs:
+
+| W16 comparison | paired geometric ratio | wins | 95% log-space Student-t CI | candidate/oracle median FPS |
+| --- | ---: | ---: | ---: | ---: |
+| sparse W4/W8 packet / full W16 packet | **1.01135x** | **18/24** | **[1.00517, 1.01757]** | 52.318 / 51.312 |
+
+The candidate-first and oracle-first strata are 1.01014x and 1.01256x,
+respectively. Every pair produced the same PNG SHA-256
+`c111cb6971cba02993298222319f2e8250e3f7100d367edd73178735660e6f25`.
+This is therefore a measured roughly 1.1% W16 opaque-query gain, not a general
+path-tracing, cutout-handler, or W8 speedup.
+
+The final main JIT assembly contains 48 direct-to-memory `vpcompressd`
+instructions across its four W4/W8 narrowing blocks. Compared with the earlier
+register-compress/shuffle form it removes 884 assembly bytes, 18 instructions,
+22 vector instructions, and eight stack references; the final counts are
+297,787 assembly bytes, 5,621 instructions, 3,632 vector instructions, 402
+branches, 24 calls, 1,423 stack references, and a 35,072-byte frame. It has no
+scalar math or scalar Embree call. The runtime object imports only
+`rtcIntersect4/8/16` and `rtcOccluded4/8/16`. Permanent JIT probes cover both
+W16 -> W4 and W16 -> W8, original logical IDs, no duplicate/missing active
+lane, benign physical tails, host capability gating, and absence of the
+compression intrinsic from the disabled provider oracle. Real Embree tests
+cover closest, any, hits, misses, sparse tails, and callback counts.
+
+Both maintained Release configurations pass the complete 172/172 CTest
+inventory independently (344/344 total), including the registered same-binary
+W16 full-packet oracle. LLVM 22.1.8 `clang-format --dry-run --Werror` and
+`git diff --check` also pass for the final source tree.

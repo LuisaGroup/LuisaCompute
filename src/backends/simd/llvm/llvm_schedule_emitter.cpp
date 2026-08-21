@@ -45,6 +45,7 @@ ScheduleEmitter::ScheduleEmitter(
     bool enable_paired_leaf_gather,
     uint32_t dispatch_worker_count,
     bool enable_native_predicated_loop,
+    bool enable_native_vector_compress,
     bool enable_runtime_packet_geometry,
     bool enable_linear_1d_packet_tail_narrowing,
     ScheduleEntryABI entry_abi,
@@ -63,6 +64,7 @@ ScheduleEmitter::ScheduleEmitter(
       _enable_paired_leaf_gather{enable_paired_leaf_gather},
       _dispatch_worker_count{std::max(dispatch_worker_count, 1u)},
       _enable_native_predicated_loop{enable_native_predicated_loop},
+      _enable_native_vector_compress{enable_native_vector_compress},
       _enable_runtime_packet_geometry{enable_runtime_packet_geometry},
       _enable_linear_1d_packet_tail_narrowing{
           enable_linear_1d_packet_tail_narrowing},

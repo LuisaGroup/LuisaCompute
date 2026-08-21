@@ -43,7 +43,8 @@ void ray_query_surface_filter_packet_pipeline_triangle_only_state_oracle(
     SIMDHostRayQuerySurfaceFilterHandler *on_surface,
     SIMDHostRayQueryDirectSurfaceFilterHandler *on_surface_direct) noexcept;
 void ray_query_empty_surface_filter_packet_pipeline_triangle_only(
-    uint32_t lane_count, uint64_t active_mask_bits,
+    uint32_t lane_count, uint32_t ray_packet_width,
+    uint64_t active_mask_bits,
     void *accel, SIMDHostRayQueryOutputPacket *outputs,
     void *ray_packet, uint32_t terminate_on_first) noexcept;
 void ray_query_direct_output_surface_filter_packet_pipeline_triangle_only(

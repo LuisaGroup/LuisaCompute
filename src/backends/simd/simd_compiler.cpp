@@ -418,6 +418,8 @@ SIMDCompiledKernel compile_simd_kernel(
     auto use_inlined_packet_batch =
         enable_packet_batch_entry &&
         jit->supports_inlined_packet_batch(warp_width);
+    auto use_native_vector_compress =
+        jit->supports_native_vector_compress(warp_width);
     result.native_predicated_loop = use_native_predicated_loop;
     if (detail::env_flag("LUISA_SIMD_REPORT_SCHEDULE")) {
         LUISA_INFO(
@@ -622,7 +624,8 @@ SIMDCompiledKernel compile_simd_kernel(
         use_inlined_packet_batch,
         enable_block_batch_entry,
         pipeline_handlers,
-        pipeline_print_formats.size());
+        pipeline_print_formats.size(),
+        use_native_vector_compress);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;

@@ -1744,5 +1744,51 @@ int main(int argc, char *argv[]) {
                        "empty-handler opacity mismatch at width {} lane {}",
                        width, i);
         }
+        if (width == 16u) {
+            // The ordinary 35-lane dispatch above leaves three live lanes in
+            // its final W16 packet and therefore exercises W16 -> W4. A
+            // 40-lane dispatch leaves exactly eight live lanes, permanently
+            // covering the independent W16 -> W8 boundary through both
+            // closest and any output-only queries.
+            static constexpr auto sparse_thread_count = 40u;
+            auto sparse_metadata =
+                device.create_buffer<uint4>(sparse_thread_count);
+            auto sparse_empty_metadata =
+                device.create_buffer<uint2>(sparse_thread_count);
+            std::array<uint4, sparse_thread_count>
+                host_sparse_metadata{};
+            std::array<uint2, sparse_thread_count>
+                host_sparse_empty_metadata{};
+            stream << trace_opacity_shader(
+                          opacity_accel, sparse_metadata,
+                          sparse_empty_metadata)
+                          .dispatch(sparse_thread_count)
+                   << sparse_metadata.copy_to(
+                          luisa::span{host_sparse_metadata})
+                   << sparse_empty_metadata.copy_to(
+                          luisa::span{host_sparse_empty_metadata})
+                   << synchronize();
+            for (auto i = 0u; i < sparse_thread_count; i++) {
+                auto instance = i < thread_count ? i : ~0u;
+                auto callback_count =
+                    i < thread_count ? i & 1u : 0u;
+                expect(static_cast<bool>(
+                    all(host_sparse_metadata[i] == make_uint4(
+                                                       instance,
+                                                       callback_count,
+                                                       instance,
+                                                       callback_count))))
+                    << luisa::format(
+                           "W16 sparse opacity mismatch at lane {}", i);
+                auto empty_instance =
+                    i < thread_count && (i & 1u) == 0u ? i : ~0u;
+                expect(static_cast<bool>(
+                    all(host_sparse_empty_metadata[i] ==
+                        make_uint2(empty_instance))))
+                    << luisa::format(
+                           "W16 sparse empty-handler mismatch at lane {}",
+                           i);
+            }
+        }
     }
 }

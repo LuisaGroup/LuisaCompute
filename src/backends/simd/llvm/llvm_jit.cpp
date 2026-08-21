@@ -289,4 +289,35 @@ bool LLVMJIT::supports_inlined_packet_batch(
            target.getNumberOfRegisters(register_class) >= 32u;
 }
 
+bool LLVMJIT::supports_native_vector_compress(
+    uint32_t width) const noexcept {
+#if LLVM_VERSION_MAJOR < 18
+    static_cast<void>(width);
+    return false;
+#else
+    if (!succeeded() || width != 16u) { return false; }
+    ::llvm::LLVMContext context;
+    ::llvm::Module module{"simd-vector-compress-probe", context};
+    module.setDataLayout(_target_machine->createDataLayout());
+#if LLVM_VERSION_MAJOR >= 21
+    module.setTargetTriple(_target_machine->getTargetTriple());
+#else
+    module.setTargetTriple(_target_machine->getTargetTriple().str());
+#endif
+    auto *function_type = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(context), false);
+    auto *function = ::llvm::Function::Create(
+        function_type, ::llvm::GlobalValue::PrivateLinkage,
+        "simd_vector_compress_probe", module);
+    auto target = _target_machine->getTargetTransformInfo(*function);
+    auto fixed_register_bits = target.getRegisterBitWidth(
+        ::llvm::TargetTransformInfo::RGK_FixedWidthVector);
+    auto *vector_type = ::llvm::FixedVectorType::get(
+        ::llvm::Type::getInt32Ty(context), width);
+    return fixed_register_bits.getKnownMinValue() >= 512u &&
+           target.isLegalMaskedCompressStore(
+               vector_type, ::llvm::Align{16u});
+#endif
+}
+
 }// namespace luisa::compute::simd
