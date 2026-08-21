@@ -169,6 +169,12 @@ struct RestructureCFGInfo {
     size_t selection_exit_cfg_invalidation_count{0u};
     size_t selection_exit_local_invalidation_count{0u};
     size_t selection_exit_global_invalidation_count{0u};
+    // Exact relation updates after an If-only merge reassignment or
+    // one-target transparent funnel. Loop/Switch descriptors remain stable;
+    // the pass refreshes observable contexts after CFG changes and updates
+    // role counts plus the affected loop-boundary classification instead of
+    // rebuilding the whole relation snapshot.
+    size_t selection_exit_relation_incremental_update_count{0u};
     // Multi-target state dispatches can make existing SSA uses syntactically
     // non-dominating. Requests accumulate across one drain; the exact final
     // CFG is repaired once at the batch boundary.
