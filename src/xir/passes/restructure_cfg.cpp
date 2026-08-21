@@ -244,6 +244,16 @@ void trace_preflight_result(
 
 using PostDomInfo = detail::RestructurePostDomInfo;
 
+// Restructuring consumes dominance ancestry on every CFG version, whereas
+// only post-merge selection re-entry consumes dominance frontiers. Keep that
+// derived relation demand-driven instead of rebuilding it after every edit.
+[[nodiscard]] DomTree compute_restructure_dom(
+    FunctionDefinition *def) noexcept {
+    return compute_dom_tree(
+        static_cast<Function *>(def),
+        {.compute_dominance_frontiers = false});
+}
+
 [[nodiscard]] PostDomInfo compute_post_dom(
     FunctionDefinition *def,
     RestructureCFGInfo &info) noexcept {
@@ -700,7 +710,7 @@ template<typename Dominance>
     FunctionDefinition *def) noexcept {
     auto modified = false;
     for (;;) {
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_restructure_dom(def);
         IndexedBranchInst *candidate = nullptr;
         for (auto *block : def->basic_blocks()) {
             if (block == nullptr || !block->is_terminated() ||
@@ -787,7 +797,7 @@ template<typename Dominance>
 void restructure_indexed_branches(
     FunctionDefinition *def, RestructureCFGInfo &info) noexcept {
     for (;;) {
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_restructure_dom(def);
         auto pdom = compute_post_dom(def, info);
         BasicBlock *header = nullptr;
         IndexedBranchInst *indexed_branch = nullptr;
@@ -1306,7 +1316,7 @@ classify_exclusive_loop_boundary_arm(
                                                                       exit_dispatch_headers,
                                                                   const luisa::unordered_set<BasicBlock *> &
                                                                       generated_exit_dispatch_headers) noexcept {
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_restructure_dom(def);
     struct LoopSite {
         BasicBlock *owner{nullptr};
         BasicBlock *entry{nullptr};
@@ -1911,7 +1921,6 @@ void remove_write_only_dispatch_selectors(
     LoopContinueBatchAnalysis batch_analysis{def, dom};
     auto ownership_ms = ownership_clock.toc();
     auto dominance_rebuild_ms = 0.0;
-    auto dominance_frontier_ms = 0.0;
     Clock region_discovery_clock;
     ++info.loop_continue_analysis_count;
     for (auto site_index = size_t{0u};
@@ -1974,8 +1983,9 @@ void remove_write_only_dispatch_selectors(
     }
     if (changed) {
         // No analysis query is issued after mutation. Build the one exact
-        // ancestry tree retained by the caller, then materialize its frontier
-        // relation once at the public batch boundary.
+        // ancestry tree retained by the caller. Its dominance-frontier
+        // derivative is intentionally left absent until the unique
+        // selection-reentry consumer asks for it.
         Clock dominance_rebuild_clock;
         DomTreeBuildStats dominance_stats;
         dom = compute_dom_tree(
@@ -1995,10 +2005,6 @@ void remove_write_only_dispatch_selectors(
             dominance_stats.fixed_point_edge_visit_count;
         info.loop_continue_dom_intersect_step_count +=
             dominance_stats.intersect_step_count;
-        Clock dominance_frontier_clock;
-        dom.compute_dominance_frontiers();
-        dominance_frontier_ms += dominance_frontier_clock.toc();
-        ++info.loop_continue_frontier_materialization_count;
     }
     if (restructure_trace_enabled()) {
         LUISA_VERBOSE_WITH_LOCATION(
@@ -2016,9 +2022,6 @@ void remove_write_only_dispatch_selectors(
         LUISA_VERBOSE_WITH_LOCATION(
             "[restructure_cfg] loop_continue_dominance_rebuild: {:.3f} ms",
             dominance_rebuild_ms);
-        LUISA_VERBOSE_WITH_LOCATION(
-            "[restructure_cfg] loop_continue_dominance_frontier: {:.3f} ms",
-            dominance_frontier_ms);
     }
     return changed;
 }
@@ -4060,7 +4063,7 @@ struct SelectionExitDrainResult {
                         mark_dirty(index);
                     }
                 }
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 if (result.local_dependency_only) {
                     mark_enclosing_dependencies(
                         dom, site.header);
@@ -4112,7 +4115,7 @@ struct SelectionExitDrainResult {
     ScopedTimer _timer_selection_exit_audit(
         "post_count_noncanonical_selection_exits");
     if (def == nullptr) { return 0u; }
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_restructure_dom(def);
     // Keep proof checking separate from the mutating phase's cost counters.
     // The audit performs no transformation and has its own observable counts.
     RestructureCFGInfo audit_work;
@@ -5461,12 +5464,18 @@ enum struct SelectionReentryAnalysisPurpose : uint8_t {
 [[nodiscard]] luisa::vector<PostMergeSelectionReentry>
 analyze_post_merge_selection_reentries(
     FunctionDefinition *def,
-    const DomTree &dom,
+    DomTree &dom,
     const SelectionExitCFGRelations &cfg_relations,
     const luisa::unordered_set<BasicBlock *> &ignored_headers,
     RestructureCFGInfo &info,
     SelectionReentryAnalysisPurpose purpose,
     bool stop_after_first) noexcept {
+    // The frontier is a pure derivative of this immutable dominance snapshot
+    // and is observed nowhere else in restructure_cfg. Keeping its
+    // materialization at this semantic demand point makes every ancestry-only
+    // tree strictly cheaper without weakening the witness theorem below.
+    dom.compute_dominance_frontiers();
+    ++info.selection_reentry_frontier_materialization_count;
     luisa::vector<PostMergeSelectionReentry> result;
     const auto &loop_boundary_selection_entries =
         cfg_relations.loop_boundary_selection_entries;
@@ -5715,7 +5724,7 @@ analyze_post_merge_selection_reentries(
             // either the original arm or its clone writes the same slot before
             // the common continuation reloads it.
             repair_target_state_dispatch_ssa(def);
-            dom = compute_dom_tree(def);
+            dom = compute_restructure_dom(def);
             pdom = compute_post_dom(def, info);
             LUISA_ASSERT(
                 clone_owned_subgraph_for_edge(
@@ -5728,7 +5737,7 @@ analyze_post_merge_selection_reentries(
                     reentry.merge, dom, true),
                 "Selection re-entry node splitting made no progress.");
             ++info.canonicalized_cfg_count;
-            dom = compute_dom_tree(def);
+            dom = compute_restructure_dom(def);
             pdom = compute_post_dom(def, info);
             return true;
         }
@@ -5758,7 +5767,7 @@ analyze_post_merge_selection_reentries(
         reentry.header, reentry.entries);
     if (reentry.entries.empty()) { return false; }
     repair_target_state_dispatch_ssa(def);
-    dom = compute_dom_tree(def);
+    dom = compute_restructure_dom(def);
     pdom = compute_post_dom(def, info);
     LUISA_ASSERT(
         clone_owned_subgraph_for_edge(
@@ -5771,7 +5780,7 @@ analyze_post_merge_selection_reentries(
             reentry.merge, dom, true),
         "Selection re-entry frontier splitting made no progress.");
     ++info.canonicalized_cfg_count;
-    dom = compute_dom_tree(def);
+    dom = compute_restructure_dom(def);
     pdom = compute_post_dom(def, info);
     return true;
 }
@@ -5831,7 +5840,7 @@ analyze_post_merge_selection_reentries(
         luisa::unordered_set<BasicBlock *> rewritten_predecessors;
         for (;;) {
             if (!dom_valid) {
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 ++info.construct_entry_dom_tree_count;
                 dom_valid = true;
             }
@@ -6152,7 +6161,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     info.restructured_if_count++;
 
     // Invalidate analyses after CFG mutation.
-    dom = compute_dom_tree(def);
+    dom = compute_restructure_dom(def);
     pdom = compute_post_dom(def, info);
     return true;
 }
@@ -6588,7 +6597,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 
         // LLVM Splitter::invalidate(): all containment and exit facts above are
         // stale after one rewrite.
-        dom = compute_dom_tree(def);
+        dom = compute_restructure_dom(def);
         pdom = compute_post_dom(def, info);
     }
     return modified;
@@ -6722,7 +6731,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 [[nodiscard]] size_t count_unauthorized_construct_entries(
     FunctionDefinition *def) noexcept {
     size_t count = 0u;
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_restructure_dom(def);
     const auto loop_boundary_selection_entries =
         collect_loop_boundary_selection_entries(def);
     for (auto *header : def->basic_blocks()) {
@@ -6770,7 +6779,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 [[nodiscard]] size_t count_post_merge_selection_reentries(
     FunctionDefinition *def,
     RestructureCFGInfo &info) noexcept {
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_restructure_dom(def);
     RestructureCFGInfo relation_work;
     const auto cfg_relations =
         build_selection_exit_cfg_relations(
@@ -7078,7 +7087,7 @@ restructure_cfg_on_definition_in_place(
                 "[restructure_cfg] main iteration {}.",
                 iteration);
         }
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_restructure_dom(def);
         auto pdom = compute_post_dom(def, info);
         if (try_restructure_loop(def, dom, pdom, info)) {
             main_last_modified = true;
@@ -7142,7 +7151,7 @@ restructure_cfg_on_definition_in_place(
     bool post_last_modified = false;
     {
         ScopedTimer _timer_post("post_restructure_fixed_point");
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_restructure_dom(def);
         auto pdom = compute_post_dom(def, info);
         for (size_t iteration = 0u;
              iteration < options.post_iteration_limit;
@@ -7156,7 +7165,7 @@ restructure_cfg_on_definition_in_place(
                 try_restructure_loop(def, dom, pdom, info);
             if (loop_changed) {
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto header_changed =
@@ -7172,7 +7181,7 @@ restructure_cfg_on_definition_in_place(
             if (switch_proxy_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto selection_exit_drain =
@@ -7208,7 +7217,7 @@ restructure_cfg_on_definition_in_place(
             if (boundary_merge_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto boundary_branch_changed =
@@ -7218,7 +7227,7 @@ restructure_cfg_on_definition_in_place(
             if (boundary_branch_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto loop_prepare_changed =
@@ -7226,7 +7235,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_prepare_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto loop_continue_changed =
@@ -7242,7 +7251,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_update_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto limits_before_fixup = info.iteration_limit_count;
@@ -7253,7 +7262,7 @@ restructure_cfg_on_definition_in_place(
             if (construct_exit_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             for (auto *header : exit_dispatch_headers) {
@@ -7267,7 +7276,7 @@ restructure_cfg_on_definition_in_place(
             if (dispatch_collapse_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             if (restructure_trace_enabled()) {
@@ -7644,9 +7653,6 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "loop_continue_dominance_rebuild",
             info.loop_continue_dominance_rebuild_count);
         report->set(
-            "loop_continue_frontier_materialization",
-            info.loop_continue_frontier_materialization_count);
-        report->set(
             "loop_continue_region_block_visit",
             info.loop_continue_region_block_visit_count);
         report->set(
@@ -7782,6 +7788,9 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_reentry_boundary_analysis",
             info.selection_reentry_boundary_analysis_count);
         report->set(
+            "selection_reentry_frontier_materialization",
+            info.selection_reentry_frontier_materialization_count);
+        report->set(
             "selection_reentry_edge_query",
             info.selection_reentry_edge_query_count);
         report->set(
@@ -7870,8 +7879,6 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.loop_continue_invalidation_count;
         dst.loop_continue_dominance_rebuild_count +=
             src.loop_continue_dominance_rebuild_count;
-        dst.loop_continue_frontier_materialization_count +=
-            src.loop_continue_frontier_materialization_count;
         dst.loop_continue_region_block_visit_count +=
             src.loop_continue_region_block_visit_count;
         dst.loop_continue_region_edge_visit_count +=
@@ -7962,6 +7969,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.boundary_merge_rewrite_batch_count;
         dst.selection_reentry_boundary_analysis_count +=
             src.selection_reentry_boundary_analysis_count;
+        dst.selection_reentry_frontier_materialization_count +=
+            src.selection_reentry_frontier_materialization_count;
         dst.selection_reentry_edge_query_count +=
             src.selection_reentry_edge_query_count;
         dst.selection_reentry_owner_query_count +=

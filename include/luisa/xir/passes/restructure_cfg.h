@@ -58,13 +58,12 @@ struct RestructureCFGInfo {
     // Loop-continue normalization shares ownership and dominance across all
     // site queries in one immutable CFG version. Any successful site rewrite
     // invalidates both analyses before the next site is inspected. Intermediate
-    // dominance versions omit the unobserved frontier relation; the final tree
-    // retained by each mutating batch materializes it exactly once.
+    // dominance versions omit the unobserved frontier relation; frontier
+    // materialization is deferred to the selection-reentry consumer below.
     size_t loop_continue_analysis_count{0u};
     size_t loop_continue_site_query_count{0u};
     size_t loop_continue_invalidation_count{0u};
     size_t loop_continue_dominance_rebuild_count{0u};
-    size_t loop_continue_frontier_materialization_count{0u};
     // All sites in one CFG version are populated before any rewrite is
     // applied. Actions retain their original edge precondition and fail
     // closed if an earlier action consumed it.
@@ -173,6 +172,10 @@ struct RestructureCFGInfo {
     // ancestors of each forwarding edge destination. These operation counts
     // make that complexity contract observable to scale regressions.
     size_t selection_reentry_boundary_analysis_count{0u};
+    // Dominance frontiers are a derived relation used only by the sparse
+    // post-merge re-entry analysis. Each transform query and the final audit
+    // materialize one; all other dominance trees contain only idom/ancestry.
+    size_t selection_reentry_frontier_materialization_count{0u};
     size_t selection_reentry_edge_query_count{0u};
     size_t selection_reentry_owner_query_count{0u};
     // The final selection-reentry audit is expressed as sparse dominance-
