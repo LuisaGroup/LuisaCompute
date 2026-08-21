@@ -390,7 +390,7 @@ static void hash_optional_token(DistillCertificateHasher &h,
 }
 
 template<typename T>
-[[nodiscard]] static bool same_set(const luisa::unordered_set<T> &a,
+[[nodiscard]] static bool distill_same_set(const luisa::unordered_set<T> &a,
                                    const luisa::unordered_set<T> &b) noexcept {
     if (a.size() != b.size()) { return false; }
     for (auto &v : a) {
@@ -1213,7 +1213,7 @@ static void analyze_live_variables(
                         oracle_edge_killed[edge_index]);
                     append(next, propagated);
                 }
-                if (!same_set(oracle_live_begin[scope], next)) {
+                if (!distill_same_set(oracle_live_begin[scope], next)) {
                     oracle_live_begin[scope] = std::move(next);
                     changed = true;
                 }
@@ -1255,11 +1255,11 @@ static void analyze_live_variables(
 
         for (size_t scope = 0u; scope < n; ++scope) {
             LUISA_ASSERT(
-                same_set(to_pointer_set(live_begin[scope]),
+                distill_same_set(to_pointer_set(live_begin[scope]),
                          oracle_live_begin[scope]) &&
-                    same_set(to_pointer_set(live_in[scope]),
+                    distill_same_set(to_pointer_set(live_in[scope]),
                              oracle_live_in[scope]) &&
-                    same_set(to_pointer_set(live_out[scope]),
+                    distill_same_set(to_pointer_set(live_out[scope]),
                              oracle_live_out[scope]),
                 "Dense inter-scope liveness differs from the pointer oracle "
                 "for scope token {}.",
@@ -1268,9 +1268,9 @@ static void analyze_live_variables(
         for (size_t edge_index = 0u;
              edge_index < edge_data.size(); ++edge_index) {
             LUISA_ASSERT(
-                same_set(to_pointer_set(edge_data[edge_index].live),
+                distill_same_set(to_pointer_set(edge_data[edge_index].live),
                          oracle_edge_live[edge_index]) &&
-                    same_set(to_pointer_set(edge_data[edge_index].store),
+                    distill_same_set(to_pointer_set(edge_data[edge_index].store),
                              oracle_edge_store[edge_index]),
                 "Dense inter-scope edge liveness differs from the pointer "
                 "oracle at edge {}.",
