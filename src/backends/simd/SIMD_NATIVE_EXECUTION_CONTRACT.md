@@ -1788,9 +1788,11 @@ fixed-width sampler once per group. A uniform sampled result narrows the mask
 to the first active lane; a varying result preserves the complete cohort and
 tail mask. Coordinate, sampler, derivative, and level operands are selected to
 benign values before scratch stores, conversions, native logarithms, or the
-callback. The callback pointer is appended to the direct texture descriptor in
-its existing 64-bit-host tail padding: the descriptor remains 64 bytes and all
-established read/write/size field offsets remain unchanged.
+callback. The sample callback pointer remains in the direct texture
+descriptor's former 64-bit-host tail padding, so all established
+read/write/size and sample field offsets remain unchanged. Native packet
+metadata is appended after that 64-byte prefix, extending the internal
+descriptor to 96 bytes.
 
 The physical texture remains Luisa's native row-major resource layout. The
 packet ABI is the SIMD-facing layout boundary: it permits coherence-aware
@@ -1812,6 +1814,25 @@ diagnostic environment flag
 `LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS=1` disables this specialization
 for same-binary performance and fallback-path tests; it does not change the
 public texture layout or semantics.
+
+At W8/W16, the direct resource descriptor may publish the exact mip-level data
+pointer, extent, and storage code to fixed-vector JIT code. Before using it,
+the JIT must prove a nonnull pointer, matching 2D dimension and native
+four-channel storage, a completely active cohort, `x[lane] == x[0] + lane`, a
+cohort-uniform `y`, and a complete in-bounds row span. Coordinate values are
+selected to zero under inactive lanes before any compare or arithmetic. The
+accepted arm performs only portable fixed-vector load/store and shuffle IR at
+alignment one; it must contain no target intrinsic, gather/scatter, scalar
+library call, or lane extract/call/insert loop. Every failed proof executes the
+unchanged packet callback. W1/W2/W4 never enter this direct arm.
+
+`LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS=1` publishes a null native
+pointer while retaining the runtime's contiguous callback specialization,
+providing a same-binary direct-versus-callback oracle. Disabling contiguous
+texture packets also publishes a null pointer and therefore continues to mean
+that the complete contiguous specialization is disabled. The metadata is
+backend-private and level-specific; it never changes public native handles,
+upload/download layout, or external-memory ownership.
 
 Bindless arrays extend the same packet boundary with a runtime-owned dense
 slot table. Each slot contains independent buffer, 2D-texture, and 3D-texture

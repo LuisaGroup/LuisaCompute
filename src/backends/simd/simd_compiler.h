@@ -81,6 +81,8 @@ struct SIMDCompiledKernel {
     size_t interleaved_scalar_buffer_read_group_count{0u};
     size_t interleaved_scalar_buffer_read_count{0u};
     size_t interleaved_scalar_buffer_read_alias_guard_count{0u};
+    size_t guarded_native_texture_read_count{0u};
+    size_t guarded_native_texture_write_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
     size_t local_predicated_diamond_count{0u};

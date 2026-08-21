@@ -667,10 +667,19 @@ struct alignas(16) SIMDHostTextureView {
     SIMDHostTextureSize *size{nullptr};
     uint32_t level{0u};
     uint32_t dimension{0u};
-    // Appended after the established read/write/size fields. On the supported
-    // 64-bit hosts this consumes the descriptor's existing tail padding, so
-    // the argument-slot size and every earlier field offset stay unchanged.
+    // Appended after the established read/write/size fields. On supported
+    // 64-bit hosts this occupies the descriptor's former tail padding, so its
+    // offset and every earlier field offset remain unchanged.
     SIMDHostTextureSample *sample_float{nullptr};
+    // Direct native packet metadata for the fixed-vector JIT fast path. The
+    // data pointer addresses this descriptor's mip level. A null pointer
+    // disables the fast path and preserves the callback ABI as the semantic
+    // fallback. Only native four-channel storage is consumed directly.
+    void *native_data{nullptr};
+    uint32_t native_width{0u};
+    uint32_t native_height{0u};
+    uint32_t native_depth{0u};
+    uint32_t native_storage{0u};
 };
 static_assert(offsetof(SIMDHostTextureView, texture) == 0u);
 static_assert(offsetof(SIMDHostTextureView, read_float) == sizeof(void *));
@@ -680,7 +689,11 @@ static_assert(offsetof(SIMDHostTextureView, dimension) ==
               6u * sizeof(void *) + sizeof(uint32_t));
 static_assert(offsetof(SIMDHostTextureView, sample_float) ==
               7u * sizeof(void *));
-static_assert(sizeof(SIMDHostTextureView) == 8u * sizeof(void *));
+static_assert(offsetof(SIMDHostTextureView, native_data) ==
+              8u * sizeof(void *));
+static_assert(offsetof(SIMDHostTextureView, native_width) ==
+              9u * sizeof(void *));
+static_assert(sizeof(SIMDHostTextureView) == 12u * sizeof(void *));
 
 // Per-packet launch state. thread_index is the first linear thread within the
 // current block; lane i executes thread_index + i. The generated entry derives
@@ -837,6 +850,8 @@ struct LLVMScheduleCodegenResult {
     size_t interleaved_scalar_buffer_read_group_count{0u};
     size_t interleaved_scalar_buffer_read_count{0u};
     size_t interleaved_scalar_buffer_read_alias_guard_count{0u};
+    size_t guarded_native_texture_read_count{0u};
+    size_t guarded_native_texture_write_count{0u};
     size_t predicated_memory_diamond_count{0u};
     size_t predicated_memory_instruction_count{0u};
     size_t local_predicated_diamond_count{0u};

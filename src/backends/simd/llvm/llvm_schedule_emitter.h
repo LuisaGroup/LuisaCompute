@@ -446,6 +446,18 @@ private:
         size_t leaf_offset);
     [[nodiscard]] ::llvm::AllocaInst *_entry_scratch(
         ::llvm::Type *type, std::string_view name);
+    struct NativeTexturePacketInfo {
+        ::llvm::Value *guard{nullptr};
+        ::llvm::Value *data{nullptr};
+        ::llvm::Value *width{nullptr};
+        ::llvm::Value *x{nullptr};
+        ::llvm::Value *y{nullptr};
+    };
+    [[nodiscard]] NativeTexturePacketInfo
+    _native_texture_packet_info(
+        ::llvm::Value *texture,
+        const std::array<::llvm::Value *, 3u> &coordinates,
+        bool floating);
     [[nodiscard]] ::llvm::Value *_texture_read(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_direct_texture_sample(

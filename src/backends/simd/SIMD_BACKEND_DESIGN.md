@@ -4308,3 +4308,45 @@ kernel accepts one four-read group. Current image processing, Voxel, ordinary
 path tracing, and non-coroutine SDF kernels accept none, so this checkpoint
 claims no graphics speedup; it establishes the profitable layout primitive
 needed before a broader affine-tile residency pass.
+
+### Guarded JIT-native texture packets
+
+The direct texture boundary now applies the same horizontal/vertical layout
+conversion to real image kernels. `SIMDHostTextureView` keeps its established
+64-byte callback prefix and appends a mip-local data pointer, extent, and
+storage code, making the backend-private descriptor 96 bytes. A null data
+pointer is the capability/oracle value. The public texture remains row-major
+AoS and external-memory ownership is unchanged.
+
+Only W8/W16 direct 2D reads and writes are candidates. Codegen first sanitizes
+inactive coordinates, then checks a full active mask, consecutive x lanes,
+one y row, native `FLOAT4`/`INT4` storage, a nonnull mip pointer, and bounds for
+the complete packet. The hot arm computes one row address, issues an
+alignment-one physical fixed-vector load or store, and shuffles between AoS
+pixels and component-major SSA vectors. A partial tail, row crossing, 3D
+resource, converting format, disabled capability, or failed bound takes the
+original packet callback. W1/W2/W4 are intentionally unchanged; W2 remains a
+correctness/ABI width rather than a performance target.
+
+`LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS=1` disables only the JIT
+arm, leaving the earlier contiguous runtime callback as a same-binary oracle.
+`LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS=1` disables both layers so its
+existing generic-path meaning remains intact. The optimization report counts
+guarded native read and write sites. Permanent JIT coverage rejects W2/W4,
+accepts W8/W16, executes native float packets, and forces callback fallback
+for an inactive tail, row crossing, storage mismatch, short extent, and null
+capability. The multi-width runtime gate covers native `FLOAT4`/`INT4` and both
+environment oracles.
+
+On the Ryzen 9 9950X3D / LLVM 22.1.8 host, seven fresh-process rounds rotated
+candidate, callback oracle, and fallback through execution order with sixteen
+workers on CPUs 0--15. Every invocation passed the checked-in image reference.
+W8 measured 2.735/6.720/10.046 ms median per pipeline iteration for
+candidate/oracle/fallback; paired geometric speedups were 2.4584x over the
+oracle (95% interval 2.4087x--2.5091x) and 3.6505x over fallback
+(3.5653x--3.7377x), with 7/7 wins. W16 measured
+3.066/5.638/9.988 ms and 1.8332x (1.7664x--1.9025x) / 3.2291x
+(3.1102x--3.3526x), again 7/7. The generated W8 fast arms use contiguous
+`vmovups` and `vpermt2ps` on this target and contain no gather; indirect calls
+remain only in the cold callback arms. This checkpoint does not claim a Voxel
+gain because Voxel's varying DDA does not issue these direct texture reads.

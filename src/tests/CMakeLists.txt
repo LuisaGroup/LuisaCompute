@@ -207,6 +207,16 @@ if (TARGET luisa-compute-simd-llvm)
             luisa-compute-dsl)
     target_include_directories(test_simd_llvm_schedule_codegen PRIVATE
             ${LLVM_INCLUDE_DIRS})
+    # Clang's UBSan function-type check reads an eight-byte signature before
+    # every indirect-call target. ORC JIT entry points are not Clang-emitted
+    # functions and may begin at a page boundary, so that probe can fault
+    # before the generated function is entered. Keep ASan and the remaining
+    # UBSan checks enabled for this test while disabling only that incompatible
+    # call-site check.
+    if (LUISA_COMPUTE_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set_property(SOURCE unit/simd/test_llvm_schedule_codegen.cpp
+                APPEND PROPERTY COMPILE_OPTIONS "-fno-sanitize=function")
+    endif ()
     add_test(NAME test_simd_llvm_schedule_codegen
             COMMAND test_simd_llvm_schedule_codegen)
     set_tests_properties(test_simd_llvm_schedule_codegen PROPERTIES

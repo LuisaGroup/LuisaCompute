@@ -225,7 +225,9 @@ void ScheduleEmitter::_fail(std::string message) {
     return ::llvm::StructType::get(
         _module.getContext(),
         {pointer, pointer, pointer, pointer, pointer, pointer,
-         _builder.getInt32Ty(), _builder.getInt32Ty(), pointer});
+         _builder.getInt32Ty(), _builder.getInt32Ty(), pointer,
+         pointer, _builder.getInt32Ty(), _builder.getInt32Ty(),
+         _builder.getInt32Ty(), _builder.getInt32Ty()});
 }
 
 [[nodiscard]] ::llvm::StructType *ScheduleEmitter::_bindless_view_type() {
@@ -1178,7 +1180,27 @@ void ScheduleEmitter::_preflight() {
         _byte_pointer(
             base, offsetof(SIMDHostTextureView, sample_float)));
     sample->setAlignment(::llvm::Align{alignof(void *)});
-    return _builder.CreateInsertValue(result, sample, {8u});
+    result = _builder.CreateInsertValue(result, sample, {8u});
+    auto *native_data = _builder.CreateLoad(
+        pointer_type,
+        _byte_pointer(
+            base, offsetof(SIMDHostTextureView, native_data)));
+    native_data->setAlignment(::llvm::Align{alignof(void *)});
+    result = _builder.CreateInsertValue(result, native_data, {9u});
+    constexpr std::array native_u32_offsets{
+        offsetof(SIMDHostTextureView, native_width),
+        offsetof(SIMDHostTextureView, native_height),
+        offsetof(SIMDHostTextureView, native_depth),
+        offsetof(SIMDHostTextureView, native_storage),
+    };
+    for (auto i = uint32_t{0u}; i < native_u32_offsets.size(); i++) {
+        auto *field = _builder.CreateLoad(
+            _builder.getInt32Ty(),
+            _byte_pointer(base, native_u32_offsets[i]));
+        field->setAlignment(::llvm::Align{alignof(uint32_t)});
+        result = _builder.CreateInsertValue(result, field, {i + 10u});
+    }
+    return result;
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_bindless_view(

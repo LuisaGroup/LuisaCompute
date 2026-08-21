@@ -6250,3 +6250,42 @@ textures or scheduler-backed affine tiles remains a separate measured task.
 Both maintained Release configurations were completely rebuilt for this
 checkpoint and pass 173/173 CTest cases independently (346/346 total). The
 Clang/ASan Schedule/JIT executable also passes its complete case list.
+
+## Guarded JIT-native texture packets
+
+The image-processing kernels previously crossed an indirect packet callback
+for every direct texture read and write. The runtime already recognized a
+fully active contiguous row packet and copied native `FLOAT4`/`INT4`, but the
+JIT still materialized coordinate/result scratch and paid the call boundary.
+The new W8/W16 arm publishes explicit mip metadata, proves a complete in-bounds
+row packet, and performs the AoS/SoA fixed-vector load/store transpose directly
+in portable LLVM IR. `LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS=1`
+keeps the same generated binary and selects the prior optimized callback.
+W1/W2/W4 do not generate this arm.
+
+Seven fresh processes per width rotated candidate, callback oracle, and
+fallback through execution order. All used CPUs 0--15, sixteen workers, 64
+timed complete blur/Sobel/composite iterations, LLVM 22.1.8, and the Ryzen 9
+9950X3D. Every one of the 42 invocations passed the checked-in image reference.
+Ratios below are paired geometric means with log-space Student-t 95%
+intervals:
+
+| width | candidate median ms | callback-oracle median | candidate/oracle | fallback median | candidate/fallback |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| W8 | 2.735 | 6.720 | **2.4584x** [2.4087, 2.5091], 7/7 | 10.046 | **3.6505x** [3.5653, 3.7377], 7/7 |
+| W16 | 3.066 | 5.638 | **1.8332x** [1.7664, 1.9025], 7/7 | 9.988 | **3.2291x** [3.1102, 3.3526], 7/7 |
+
+The current W8 image kernels report 0/9/9/12/3 guarded reads and one guarded
+write each for pattern/blur-X/blur-Y/Sobel/composite. Their direct control-flow
+state remains zero. On this AVX-512 target, disassembly of the hot arms shows
+contiguous `vmovups` plus `vpermt2ps` and no gather/scatter or scalar math.
+The retained callback arms account for the static indirect calls and increase
+object size, but are not executed for accepted interior native packets.
+
+A 256-iteration sampling profile after the change moves the largest named
+cost to the final converting `BYTE4` write: generic `write_pixel<float>` is
+19.20% of samples, `_write_float` 5.95%, and `roundf32` plus its PLT entry
+4.55%. `_read_float` is 4.70%, primarily boundary packets that fail the full
+row proof. This profile motivates a separately gated converting-write stage;
+no BYTE4 direct conversion is claimed here. Voxel remains unchanged because
+its hot varying DDA is buffer/scheduler work, not a native direct texture row.

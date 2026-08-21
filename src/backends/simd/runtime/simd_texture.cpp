@@ -793,7 +793,10 @@ SIMDTexture::SIMDTexture(
       _dimension{dimension},
       _enable_contiguous_packets{
           !detail::env_flag(
-              "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS")} {}
+              "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS")},
+      _enable_direct_native_packets{
+          !detail::env_flag(
+              "LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS")} {}
 
 SIMDTexture::SIMDTexture(
     PixelStorage storage, uint dimension, uint3 size,
@@ -803,7 +806,10 @@ SIMDTexture::SIMDTexture(
       _dimension{dimension},
       _enable_contiguous_packets{
           !detail::env_flag(
-              "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS")} {}
+              "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS")},
+      _enable_direct_native_packets{
+          !detail::env_flag(
+              "LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS")} {}
 
 [[nodiscard]] uint3 SIMDTexture::size(uint32_t level) const noexcept {
     auto base_size = view(0u).size3d();
@@ -993,6 +999,8 @@ void SIMDTexture::sample_float_packet(
 }
 
 SIMDHostTextureView SIMDTexture::host_view(uint level) noexcept {
+    auto native_view = view(level);
+    auto native_size = native_view.size3d();
     return {
         .texture = this,
         .read_float = _read_float,
@@ -1003,6 +1011,14 @@ SIMDHostTextureView SIMDTexture::host_view(uint level) noexcept {
         .level = level,
         .dimension = _dimension,
         .sample_float = _sample_float,
+        .native_data = _enable_contiguous_packets &&
+                               _enable_direct_native_packets ?
+                           native_view.data() :
+                           nullptr,
+        .native_width = native_size.x,
+        .native_height = native_size.y,
+        .native_depth = native_size.z,
+        .native_storage = static_cast<uint32_t>(native_view.storage()),
     };
 }
 

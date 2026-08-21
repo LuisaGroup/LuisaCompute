@@ -481,6 +481,12 @@ int main(int argc, char *argv[]) {
                 "LUISA_SIMD_DISABLE_CONTIGUOUS_TEXTURE_PACKETS", "1"};
             check_float_image("SIMD generic FLOAT4 packet mismatch");
         }
+        if (width == 8u || width == 16u) {
+            ScopedEnvironmentVariable disable_direct_native_packets{
+                "LUISA_SIMD_DISABLE_DIRECT_NATIVE_TEXTURE_PACKETS", "1"};
+            check_float_image(
+                "SIMD callback FLOAT4 packet mismatch");
+        }
 
         auto uint_image = device.create_image<uint>(
             PixelStorage::INT4, image_size);
