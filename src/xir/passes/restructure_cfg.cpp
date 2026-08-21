@@ -6460,10 +6460,22 @@ struct RemainingDivergentOverlay {
         }
 
         auto successors = std::array{t, f};
-        auto *merge = common_postdom(
-            pdom,
+        // Classical post-dominance crosses loop-epoch boundaries. For a
+        // one-sided exit, it can therefore select a block reached only after
+        // the enclosing loop starts its next iteration, turning that old arm
+        // block into the new selection merge. Use the same lexical merge
+        // inference as indexed-branch restructuring before falling back to
+        // global post-dominance.
+        auto *merge = infer_selection_merge(
+            def, bb,
             luisa::span<BasicBlock *const>{successors},
-            info);
+            dominance);
+        if (merge == nullptr) {
+            merge = common_postdom(
+                pdom,
+                luisa::span<BasicBlock *const>{successors},
+                info);
+        }
         bool is_synthetic = (merge == nullptr || merge == pdom.virtual_exit || merge == bb);
         const auto preserves_postdom =
             merge == nullptr &&

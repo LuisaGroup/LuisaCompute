@@ -3159,6 +3159,117 @@ void reg_restructure_cfg() {
             << "the SimpleLoop exit protocol must be a fixed point";
     };
 
+    "restructure_remaining_branch_uses_lexical_loop_epoch_merge"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *definition = kernel->definition();
+        auto *exit_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *continuation_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *payload_slot =
+            builder.alloca_local(Type::of<uint32_t>());
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(prepare);
+        builder.br(body);
+
+        // The raw branch has one ordinary arm followed by a recovered
+        // statement and one payload-bearing exit from the current loop
+        // epoch. The payload prevents the exit arm from being classified as
+        // a physical, merge-less loop guard.
+        auto *ordinary_arm = definition->create_basic_block();
+        auto *exit_arm = definition->create_basic_block();
+        builder.set_insertion_point(body);
+        builder.cond_br(
+            exit_condition, exit_arm, ordinary_arm);
+
+        auto *continuation_header =
+            definition->create_basic_block();
+        builder.set_insertion_point(ordinary_arm);
+        builder.br(continuation_header);
+        builder.set_insertion_point(continuation_header);
+        auto *continuation = builder.if_(
+            continuation_condition);
+        auto *continuation_true =
+            continuation->create_true_block();
+        auto *continuation_false =
+            continuation->create_false_block();
+        auto *continuation_merge =
+            continuation->create_merge_block();
+        builder.set_insertion_point(continuation_true);
+        builder.br(continuation_merge);
+        builder.set_insertion_point(continuation_false);
+        builder.br(continuation_merge);
+        builder.set_insertion_point(continuation_merge);
+        builder.break_(loop_merge);
+
+        builder.set_insertion_point(exit_arm);
+        builder.store(
+            payload_slot,
+            module.create_constant_one(Type::of<uint32_t>()));
+        builder.break_(loop_merge);
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        const auto initial_block_count =
+            count_owned_blocks(definition);
+        expect(xir_verify_module(&module).succeeded());
+        auto first = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 0u,
+             .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.unstructured_branch_count == 0u);
+        expect(first.remaining_divergent_rewrite_count == 1u);
+        expect(body->terminator()->isa<IfInst>());
+        auto *recovered =
+            static_cast<IfInst *>(body->terminator());
+        expect(branch_chain_reaches(
+            recovered->merge_block(), continuation_header))
+            << "the current-epoch continuation, not the enclosing loop exit "
+               "or a next-epoch post-dominator, must be the recovered merge";
+        expect(count_owned_blocks(definition) <=
+               initial_block_count + 8u)
+            << "lexical merge recovery must not enter the exit-dispatch "
+               "restructuring cycle";
+        expect(count_terminator_kind(
+                   definition,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        expect(count_non_canonical_loop_prepare(definition) == 0u);
+        auto verification = xir_verify_module(
+            &module,
+            {.require_no_unstructured_control_flow = true,
+             .require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets = true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "strict structured verification failed" :
+                    verification.errors.front().message);
+
+        const auto stable_block_count =
+            count_owned_blocks(definition);
+        auto second = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) ==
+               stable_block_count);
+    };
+
     "restructure_splits_dispatch_reentry_through_fallback_proxy"_test = [] {
         Module m;
         BasicBlock *body;
