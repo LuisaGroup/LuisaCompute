@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <bit>
 #include <cstdlib>
 #include <type_traits>
 #include <utility>
@@ -27,6 +26,7 @@
 #include <luisa/xir/verifier.h>
 
 #include "../pointer_containers.h"
+#include "coro_cfg_dataflow.h"
 #include "coro_frame_abi.h"
 #include "coro_frame_access.h"
 #include "coro_replayable.h"
@@ -374,50 +374,6 @@ static void hash_optional_token(DistillCertificateHasher &h,
     return reachable;
 }
 
-[[nodiscard]] static AllocaInst *trace_local_alloca(Value *value) noexcept {
-    while (value != nullptr && value->isa<Instruction>()) {
-        auto *inst = static_cast<Instruction *>(value);
-        switch (inst->derived_instruction_tag()) {
-            case DerivedInstructionTag::ALLOCA: {
-                auto *alloca = static_cast<AllocaInst *>(inst);
-                return alloca->is_local() ? alloca : nullptr;
-            }
-            case DerivedInstructionTag::GEP: {
-                value = static_cast<GEPInst *>(inst)->base();
-                break;
-            }
-            default:
-                return nullptr;
-        }
-    }
-    return nullptr;
-}
-
-[[nodiscard]] static luisa::optional<luisa::string> local_alloca_name(Value *value) noexcept {
-    if (auto *alloca = trace_local_alloca(value)) {
-        if (auto name = alloca->name()) {
-            return luisa::string{name.value()};
-        }
-    }
-    return luisa::nullopt;
-}
-
-[[nodiscard]] static bool is_always_available(Value *value) noexcept {
-    if (value == nullptr) { return true; }
-    switch (value->derived_value_tag()) {
-        case DerivedValueTag::UNDEFINED:
-        case DerivedValueTag::FUNCTION:
-        case DerivedValueTag::BASIC_BLOCK:
-        case DerivedValueTag::CONSTANT:
-        case DerivedValueTag::ARGUMENT:
-        case DerivedValueTag::SPECIAL_REGISTER:
-            return true;
-        case DerivedValueTag::INSTRUCTION:
-            return false;
-    }
-    return true;
-}
-
 [[nodiscard]] static luisa::string frame_value_name(
     Value *value, luisa::span<const uint32_t> access_chain,
     size_t index) noexcept {
@@ -441,716 +397,6 @@ template<typename T>
         if (!b.contains(v)) { return false; }
     }
     return true;
-}
-
-class DenseValueSet {
-
-private:
-    luisa::vector<uint64_t> _words;
-
-public:
-    explicit DenseValueSet(size_t bit_count = 0u) noexcept
-        : _words((bit_count + 63u) / 64u, 0u) {}
-
-    [[nodiscard]] static DenseValueSet full(size_t bit_count) noexcept {
-        DenseValueSet result{bit_count};
-        std::fill(result._words.begin(), result._words.end(), ~uint64_t{0u});
-        if (auto tail_bit_count = bit_count % 64u;
-            tail_bit_count != 0u) {
-            result._words.back() &=
-                (uint64_t{1u} << tail_bit_count) - uint64_t{1u};
-        }
-        return result;
-    }
-
-    void set(size_t index) noexcept {
-        _words[index / 64u] |= uint64_t{1u} << (index % 64u);
-    }
-
-    [[nodiscard]] bool test(size_t index) const noexcept {
-        return (_words[index / 64u] &
-                (uint64_t{1u} << (index % 64u))) != 0u;
-    }
-
-    void union_with(const DenseValueSet &other) noexcept {
-        for (size_t i = 0u; i < _words.size(); ++i) {
-            _words[i] |= other._words[i];
-        }
-    }
-
-    void intersect_with(const DenseValueSet &other) noexcept {
-        for (size_t i = 0u; i < _words.size(); ++i) {
-            _words[i] &= other._words[i];
-        }
-    }
-
-    void subtract(const DenseValueSet &other) noexcept {
-        for (size_t i = 0u; i < _words.size(); ++i) {
-            _words[i] &= ~other._words[i];
-        }
-    }
-
-    [[nodiscard]] bool operator==(const DenseValueSet &other) const noexcept {
-        return _words == other._words;
-    }
-
-    [[nodiscard]] size_t count_size() const noexcept {
-        auto count = size_t{0u};
-        for (auto word : _words) {
-            count += static_cast<size_t>(std::popcount(word));
-        }
-        return count;
-    }
-
-    template<typename F>
-    void for_each_set_bit(F &&visit) const noexcept {
-        for (size_t word_index = 0u;
-             word_index < _words.size(); ++word_index) {
-            auto word = _words[word_index];
-            while (word != 0u) {
-                auto bit = static_cast<size_t>(std::countr_zero(word));
-                visit(word_index * 64u + bit);
-                word &= word - 1u;
-            }
-        }
-    }
-};
-
-// One immutable value-number domain is shared by every block, scope, edge, and
-// inter-scope fixed point. All possible frame values are instructions in the
-// source definition: local allocas represent addressable state, while typed
-// non-lvalue non-terminators represent SSA state. Numbering this exact
-// superset once lets every subsequent relation use the same bit coordinates.
-class DenseValueDomain {
-
-private:
-    detail::CoroFrameAtomDomain _atoms;
-
-public:
-    explicit DenseValueDomain(
-        FunctionDefinition *definition,
-        luisa::span<Value *const> designated_values = {}) noexcept
-        : _atoms{definition, designated_values} {}
-
-    [[nodiscard]] size_t size() const noexcept { return _atoms.size(); }
-
-    [[nodiscard]] luisa::optional<size_t> ssa_index(
-        Value *value) const noexcept {
-        return _atoms.ssa_index(value);
-    }
-
-    [[nodiscard]] luisa::span<const detail::CoroFrameAtomDomain::MemoryAccess>
-    memory_accesses(
-        Value *pointer) const noexcept {
-        return _atoms.memory_accesses(pointer);
-    }
-
-    [[nodiscard]] const auto &atom(size_t index) const noexcept {
-        return _atoms.atom(index);
-    }
-
-    [[nodiscard]] const auto &atom_domain() const noexcept { return _atoms; }
-
-    [[nodiscard]] size_t split_alloca_count() const noexcept {
-        return _atoms.split_alloca_count();
-    }
-
-    [[nodiscard]] size_t split_atom_count() const noexcept {
-        return _atoms.split_atom_count();
-    }
-
-    void append_indices(luisa::vector<size_t> &destination,
-                        const DenseValueSet &source) const noexcept {
-        destination.clear();
-        destination.reserve(source.count_size());
-        source.for_each_set_bit([&](size_t i) noexcept {
-            LUISA_DEBUG_ASSERT(i < _atoms.size(),
-                               "Coroutine atom bit exceeds its domain.");
-            destination.emplace_back(i);
-        });
-    }
-};
-
-struct PointerScopeDataflowState {
-    const DenseValueDomain *domain{nullptr};
-    detail::CoroReplayableValueAnalysis *replayable{nullptr};
-    luisa::unordered_set<size_t> killed;
-    luisa::unordered_set<size_t> external;
-    luisa::unordered_set<size_t> touched;
-
-    PointerScopeDataflowState() noexcept = default;
-
-    explicit PointerScopeDataflowState(
-        const DenseValueDomain &value_domain,
-        detail::CoroReplayableValueAnalysis &analysis) noexcept
-        : domain{&value_domain}, replayable{&analysis} {}
-
-    void kill(size_t index) noexcept { killed.emplace(index); }
-    void expose(size_t index) noexcept { external.emplace(index); }
-    void touch(size_t index) noexcept { touched.emplace(index); }
-    [[nodiscard]] bool is_killed(size_t index) const noexcept {
-        return killed.contains(index);
-    }
-};
-
-struct DenseScopeDataflowState {
-    const DenseValueDomain *domain;
-    detail::CoroReplayableValueAnalysis *replayable;
-    DenseValueSet killed;
-    DenseValueSet external;
-    DenseValueSet touched;
-
-    explicit DenseScopeDataflowState(
-        const DenseValueDomain &value_domain,
-        detail::CoroReplayableValueAnalysis &analysis) noexcept
-        : domain{&value_domain},
-          replayable{&analysis},
-          killed{value_domain.size()},
-          external{value_domain.size()},
-          touched{value_domain.size()} {}
-
-    void kill(size_t index) noexcept {
-        killed.set(index);
-    }
-    void expose(size_t index) noexcept {
-        external.set(index);
-    }
-    void touch(size_t index) noexcept {
-        touched.set(index);
-    }
-    [[nodiscard]] bool is_killed(size_t index) const noexcept {
-        return killed.test(index);
-    }
-};
-
-template<typename State>
-static void touch_index(size_t index, State &state) noexcept {
-    state.kill(index);
-    state.touch(index);
-}
-
-template<typename State>
-static void use_index(size_t index, State &state) noexcept {
-    if (!state.is_killed(index)) { state.expose(index); }
-}
-
-template<typename State>
-static void use_value(Value *value, State &state) noexcept {
-    if (is_always_available(value)) { return; }
-    if (state.replayable->detect(value)) { return; }
-    if (auto index = state.domain->ssa_index(value)) {
-        use_index(*index, state);
-        return;
-    }
-    for (auto access : state.domain->memory_accesses(value)) {
-        use_index(access.atom_index, state);
-    }
-}
-
-template<typename State>
-static void touch_value(Value *value, State &state) noexcept {
-    if (value == nullptr) { return; }
-    if (auto index = state.domain->ssa_index(value)) {
-        touch_index(*index, state);
-    }
-}
-
-template<typename State>
-static void use_memory(Value *pointer, State &state) noexcept {
-    for (auto access : state.domain->memory_accesses(pointer)) {
-        use_index(access.atom_index, state);
-    }
-}
-
-template<typename State>
-static void touch_memory(Value *pointer, State &state,
-                         bool definite) noexcept {
-    for (auto access : state.domain->memory_accesses(pointer)) {
-        if (definite) {
-            if (access.covers_atom) {
-                state.kill(access.atom_index);
-            } else {
-                // A partial store must preserve the bytes outside its path.
-                // Model that dependence before recording the write so a live
-                // outgoing aggregate is reloaded on entry to this scope.
-                use_index(access.atom_index, state);
-            }
-        }
-        state.touch(access.atom_index);
-    }
-}
-
-template<typename State>
-static void begin_memory_lifetime(Value *pointer, State &state) noexcept {
-    // ALLOCA denotes fresh, undefined storage each time execution reaches the
-    // instruction. This is a must-kill for every atom rooted at the local,
-    // including all leaves of a split aggregate, but it is not a write: no
-    // value becomes live or needs to be stored into the coroutine frame.
-    for (auto access : state.domain->memory_accesses(pointer)) {
-        state.kill(access.atom_index);
-    }
-}
-
-template<typename State>
-static void use_pointer_indices(Value *value, State &state) noexcept {
-    while (value != nullptr && value->isa<Instruction>()) {
-        auto *inst = static_cast<Instruction *>(value);
-        if (inst->derived_instruction_tag() != DerivedInstructionTag::GEP) { break; }
-        auto *gep = static_cast<GEPInst *>(inst);
-        for (size_t i = 0u; i < gep->index_count(); ++i) {
-            use_value(gep->index(i), state);
-        }
-        value = gep->base();
-    }
-}
-
-template<typename State>
-static void transfer_call_instruction(CallInst *call, State &state) noexcept {
-    auto arg_iter = call->callee()->arguments().begin();
-    for (auto *arg_use : call->argument_uses()) {
-        auto *argument = arg_use->value();
-        if (arg_iter != call->callee()->arguments().end() &&
-            (*arg_iter)->is_reference()) {
-            use_pointer_indices(argument, state);
-            if (auto *alloca = trace_local_alloca(argument)) {
-                static_cast<void>(alloca);
-                use_memory(argument, state);
-                touch_memory(argument, state, false);
-            } else {
-                use_value(argument, state);
-            }
-        } else {
-            use_value(argument, state);
-        }
-        if (arg_iter != call->callee()->arguments().end()) { ++arg_iter; }
-    }
-    if (call->type() != nullptr && !call->is_lvalue()) {
-        touch_value(call, state);
-    }
-}
-
-template<typename State>
-static void transfer_instruction(Instruction *inst, State &state) noexcept {
-    switch (inst->derived_instruction_tag()) {
-        case DerivedInstructionTag::ALLOCA: {
-            auto *alloca = static_cast<AllocaInst *>(inst);
-            if (alloca->is_local()) {
-                begin_memory_lifetime(alloca, state);
-            }
-            break;
-        }
-        case DerivedInstructionTag::GEP: {
-            // Computing an address does not read the pointee. Only the index
-            // expressions are SSA uses; the eventual load/store/call models
-            // the selected memory atom.
-            use_pointer_indices(inst, state);
-            break;
-        }
-        case DerivedInstructionTag::CALL: {
-            transfer_call_instruction(static_cast<CallInst *>(inst), state);
-            break;
-        }
-        case DerivedInstructionTag::LOAD: {
-            auto *load = static_cast<LoadInst *>(inst);
-            use_pointer_indices(load->variable(), state);
-            if (auto *alloca = trace_local_alloca(load->variable())) {
-                static_cast<void>(alloca);
-                use_memory(load->variable(), state);
-                touch_value(inst, state);
-            } else {
-                use_value(load->variable(), state);
-                touch_value(inst, state);
-            }
-            break;
-        }
-        case DerivedInstructionTag::STORE: {
-            auto *store = static_cast<StoreInst *>(inst);
-            use_value(store->value(), state);
-            use_pointer_indices(store->variable(), state);
-            if (auto *alloca = trace_local_alloca(store->variable())) {
-                static_cast<void>(alloca);
-                touch_memory(store->variable(), state, true);
-            } else {
-                use_value(store->variable(), state);
-            }
-            break;
-        }
-        case DerivedInstructionTag::ATOMIC: {
-            auto *atomic = static_cast<AtomicInst *>(inst);
-            for (auto *index : atomic->index_uses()) { use_value(index->value(), state); }
-            for (auto *value : atomic->value_uses()) { use_value(value->value(), state); }
-            if (auto *alloca = trace_local_alloca(atomic->base())) {
-                static_cast<void>(alloca);
-                use_memory(atomic->base(), state);
-                touch_memory(atomic->base(), state, false);
-            } else {
-                use_value(atomic->base(), state);
-            }
-            if (atomic->type() != nullptr && !atomic->is_lvalue()) { touch_value(atomic, state); }
-            break;
-        }
-        case DerivedInstructionTag::CORO_SUSPEND: {
-            auto *suspend = static_cast<CoroSuspendInst *>(inst);
-            for (size_t i = 0u;
-                 i < suspend->frame_export_count(); ++i) {
-                use_value(suspend->frame_export_value(i), state);
-            }
-            break;
-        }
-        case DerivedInstructionTag::CORO_TERMINATE:
-            break;
-        default: {
-            for (auto *op_use : inst->operand_uses()) {
-                use_value(op_use->value(), state);
-            }
-            if (inst->type() != nullptr && !inst->is_lvalue() && !inst->is_terminator()) {
-                touch_value(inst, state);
-            }
-            break;
-        }
-    }
-}
-
-struct PointerScopeDataflowResult {
-    luisa::unordered_set<size_t> external;
-    luisa::unordered_set<size_t> touched;
-    luisa::unordered_map<BasicBlock *, luisa::unordered_set<size_t>> killed_at_exit;
-    luisa::unordered_map<BasicBlock *, luisa::unordered_set<size_t>> touched_at_exit;
-};
-
-[[nodiscard]] static bool same_pointer_state(
-    const PointerScopeDataflowState &a,
-    const PointerScopeDataflowState &b) noexcept {
-    return same_set(a.killed, b.killed) &&
-           same_set(a.external, b.external) &&
-           same_set(a.touched, b.touched);
-}
-
-static void merge_pointer_state_into_entry(
-    PointerScopeDataflowState &dst,
-    const PointerScopeDataflowState &src,
-    bool first_predecessor) noexcept {
-    for (auto value : src.external) { dst.external.emplace(value); }
-    for (auto value : src.touched) { dst.touched.emplace(value); }
-    if (first_predecessor) {
-        dst.killed = src.killed;
-    } else {
-        luisa::unordered_set<size_t> killed;
-        for (auto value : dst.killed) {
-            if (src.killed.contains(value)) { killed.emplace(value); }
-        }
-        dst.killed = std::move(killed);
-    }
-}
-
-[[nodiscard]] static PointerScopeDataflowResult
-analyze_scope_use_def_pointer_oracle(
-    const CoroCfgDistillResult::Scope &scope,
-    const DenseValueDomain &value_domain,
-    detail::CoroReplayableValueAnalysis &replayable) noexcept {
-    PointerScopeDataflowResult result;
-    if (scope.blocks.empty()) { return result; }
-    luisa::unordered_set<BasicBlock *> scope_blocks;
-    for (auto *block : scope.blocks) { scope_blocks.emplace(block); }
-    luisa::unordered_map<BasicBlock *, PointerScopeDataflowState> in_states;
-    luisa::unordered_map<BasicBlock *, PointerScopeDataflowState> out_states;
-    for (;;) {
-        auto changed = false;
-        for (auto *block : scope.blocks) {
-            PointerScopeDataflowState next_in{value_domain, replayable};
-            auto first_predecessor = block != scope.blocks.front();
-            block->traverse_predecessors(
-                false, [&](BasicBlock *predecessor) noexcept {
-                    if (!scope_blocks.contains(predecessor)) { return; }
-                    auto iter = out_states.find(predecessor);
-                    if (iter == out_states.end()) { return; }
-                    merge_pointer_state_into_entry(
-                        next_in, iter->second, first_predecessor);
-                    first_predecessor = false;
-                });
-            auto old_in = in_states.find(block);
-            if (old_in == in_states.end() ||
-                !same_pointer_state(old_in->second, next_in)) {
-                in_states[block] = next_in;
-                changed = true;
-            }
-            auto state = next_in;
-            for (auto *instruction : block->instructions()) {
-                if (instruction->derived_instruction_tag() ==
-                        DerivedInstructionTag::CORO_SUSPEND ||
-                    (instruction->is_terminator() &&
-                     instruction->derived_instruction_tag() !=
-                         DerivedInstructionTag::CORO_SUSPEND)) {
-                    result.killed_at_exit[block] = state.killed;
-                    result.touched_at_exit[block] = state.touched;
-                }
-                transfer_instruction(instruction, state);
-            }
-            auto old_out = out_states.find(block);
-            if (old_out == out_states.end() ||
-                !same_pointer_state(old_out->second, state)) {
-                out_states[block] = std::move(state);
-                changed = true;
-            }
-        }
-        if (!changed) { break; }
-    }
-    for (auto &[block, state] : out_states) {
-        static_cast<void>(block);
-        for (auto value : state.external) { result.external.emplace(value); }
-        for (auto value : state.touched) { result.touched.emplace(value); }
-    }
-    return result;
-}
-
-struct DenseScopeDataflowResult {
-    DenseValueSet external;
-    DenseValueSet touched;
-    luisa::vector<DenseValueSet> killed_at_exit;
-    luisa::vector<DenseValueSet> touched_at_exit;
-    size_t fixed_point_block_evaluations{0u};
-
-    DenseScopeDataflowResult(size_t block_count,
-                             size_t value_count) noexcept
-        : external{value_count},
-          touched{value_count},
-          killed_at_exit(block_count, DenseValueSet{value_count}),
-          touched_at_exit(block_count, DenseValueSet{value_count}) {}
-};
-
-[[nodiscard]] static DenseScopeDataflowResult analyze_scope_use_def(
-    const CoroCfgDistillResult::Scope &scope,
-    const DenseValueDomain &value_domain,
-    detail::CoroReplayableValueAnalysis &replayable) noexcept {
-    auto block_count = scope.blocks.size();
-    auto value_count = value_domain.size();
-    DenseScopeDataflowResult result{block_count, value_count};
-    if (scope.blocks.empty()) { return result; }
-
-    DensePointerMap<BasicBlock *, size_t> block_indices;
-    block_indices.reserve(block_count);
-    for (size_t i = 0u; i < block_count; ++i) {
-        block_indices.emplace(scope.blocks[i], i);
-    }
-
-    // Summarize each transfer exactly once. For a block B:
-    //
-    //   K_out = K_in union K_B
-    //   T_out = T_in union T_B
-    //   E_out = E_in union (E_B - K_in)
-    //
-    // K is a must-definition fact (intersection at joins); T and E are may
-    // facts (union at joins). This is the same finite dataflow problem as the
-    // former pointer-set fixed point, but instruction transfer is no longer
-    // re-executed on every iteration.
-    luisa::vector<DenseScopeDataflowState> local_transfers;
-    local_transfers.reserve(block_count);
-    for (auto *block : scope.blocks) {
-        auto &local = local_transfers.emplace_back(
-            value_domain, replayable);
-        for (auto *instruction : block->instructions()) {
-            transfer_instruction(instruction, local);
-        }
-    }
-
-    // Number the induced scope CFG once. Successor construction also gives us
-    // sparse predecessor lists without repeatedly walking intrusive use lists.
-    luisa::vector<luisa::vector<size_t>> successors(block_count);
-    luisa::vector<luisa::vector<size_t>> predecessors(block_count);
-    for (size_t i = 0u; i < block_count; ++i) {
-        scope.blocks[i]->traverse_successors(
-            false, [&](BasicBlock *successor) noexcept {
-                auto iter = block_indices.find(successor);
-                if (iter == block_indices.end()) { return; }
-                auto j = iter->second;
-                auto &out = successors[i];
-                if (std::find(out.begin(), out.end(), j) == out.end()) {
-                    out.emplace_back(j);
-                    predecessors[j].emplace_back(i);
-                }
-            });
-    }
-
-    auto solve_worklist = [&](auto &&update) noexcept {
-        luisa::deque<size_t> worklist;
-        luisa::vector<uint8_t> queued(block_count, 1u);
-        for (size_t i = 0u; i < block_count; ++i) {
-            worklist.emplace_back(i);
-        }
-        while (!worklist.empty()) {
-            auto block = worklist.front();
-            worklist.pop_front();
-            queued[block] = 0u;
-            ++result.fixed_point_block_evaluations;
-            if (update(block)) {
-                for (auto successor : successors[block]) {
-                    if (queued[successor] == 0u) {
-                        queued[successor] = 1u;
-                        worklist.emplace_back(successor);
-                    }
-                }
-            }
-        }
-    };
-
-    // Solve must-kill first. This is a forward must analysis, so non-entry
-    // states start at TOP and monotonically decrease to the greatest fixed
-    // point. Starting at the empty set instead computes the least fixed point:
-    // in a loop, a value killed on every path from the entry can then be lost
-    // merely because the unvisited back-edge initially contributes BOTTOM.
-    // The entry boundary remains the empty set even when a loop targets it.
-    // Keeping the final must solution fixed makes the subsequent may-use
-    // equations monotone and avoids transient external-value overestimates.
-    auto killed_top = DenseValueSet::full(value_count);
-    luisa::vector<DenseValueSet> killed_in(block_count, killed_top);
-    luisa::vector<DenseValueSet> killed_out(block_count, killed_top);
-    killed_in.front() = DenseValueSet{value_count};
-    killed_out.front() = local_transfers.front().killed;
-    solve_worklist([&](size_t block) noexcept {
-        DenseValueSet next_in{value_count};
-        if (block != 0u && !predecessors[block].empty()) {
-            next_in = killed_out[predecessors[block].front()];
-            for (size_t i = 1u; i < predecessors[block].size(); ++i) {
-                next_in.intersect_with(
-                    killed_out[predecessors[block][i]]);
-            }
-        }
-        auto next_out = next_in;
-        next_out.union_with(local_transfers[block].killed);
-        if (next_in == killed_in[block] &&
-            next_out == killed_out[block]) {
-            return false;
-        }
-        killed_in[block] = std::move(next_in);
-        killed_out[block] = std::move(next_out);
-        return true;
-    });
-
-    luisa::vector<DenseValueSet> external_out(
-        block_count, DenseValueSet{value_count});
-    luisa::vector<DenseValueSet> touched_out(
-        block_count, DenseValueSet{value_count});
-    solve_worklist([&](size_t block) noexcept {
-        DenseValueSet next_external{value_count};
-        DenseValueSet next_touched{value_count};
-        for (auto predecessor : predecessors[block]) {
-            next_external.union_with(external_out[predecessor]);
-            next_touched.union_with(touched_out[predecessor]);
-        }
-        auto local_external = local_transfers[block].external;
-        local_external.subtract(killed_in[block]);
-        next_external.union_with(local_external);
-        next_touched.union_with(local_transfers[block].touched);
-        if (next_external == external_out[block] &&
-            next_touched == touched_out[block]) {
-            return false;
-        }
-        external_out[block] = std::move(next_external);
-        touched_out[block] = std::move(next_touched);
-        return true;
-    });
-
-    for (size_t i = 0u; i < block_count; ++i) {
-        result.external.union_with(external_out[i]);
-        result.touched.union_with(touched_out[i]);
-        result.killed_at_exit[i] = killed_out[i];
-        result.touched_at_exit[i] = touched_out[i];
-    }
-    if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW");
-        flag != nullptr && luisa::string_view{flag} == "1") {
-        auto oracle = analyze_scope_use_def_pointer_oracle(
-            scope, value_domain, replayable);
-        auto to_pointer_set = [&](const DenseValueSet &dense) noexcept {
-            luisa::unordered_set<size_t> indices;
-            dense.for_each_set_bit([&](size_t index) noexcept {
-                indices.emplace(index);
-            });
-            return indices;
-        };
-        auto pointer_set_difference = [](auto &a, auto &b) noexcept {
-            luisa::unordered_set<size_t> difference;
-            for (auto value : a) {
-                if (!b.contains(value)) { difference.emplace(value); }
-            }
-            return difference;
-        };
-        auto dense_external = to_pointer_set(result.external);
-        auto dense_touched = to_pointer_set(result.touched);
-        auto dense_only_external = pointer_set_difference(
-            dense_external, oracle.external);
-        auto oracle_only_external = pointer_set_difference(
-            oracle.external, dense_external);
-        auto dense_only_touched = pointer_set_difference(
-            dense_touched, oracle.touched);
-        auto oracle_only_touched = pointer_set_difference(
-            oracle.touched, dense_touched);
-        LUISA_ASSERT(
-            dense_only_external.empty() &&
-                oracle_only_external.empty() &&
-                dense_only_touched.empty() &&
-                oracle_only_touched.empty(),
-            "Dense coroutine dataflow differs from pointer oracle for scope "
-            "token {} (external dense-only={}, oracle-only={}; touched "
-            "dense-only={}, oracle-only={}).",
-            scope.trigger_token,
-            dense_only_external.size(), oracle_only_external.size(),
-            dense_only_touched.size(), oracle_only_touched.size());
-        for (size_t block_index = 0u;
-             block_index < scope.blocks.size(); ++block_index) {
-            auto *block = scope.blocks[block_index];
-            if (!block->is_terminated()) { continue; }
-            auto dense_killed =
-                to_pointer_set(result.killed_at_exit[block_index]);
-            auto dense_touched_at_exit =
-                to_pointer_set(result.touched_at_exit[block_index]);
-            auto oracle_killed = oracle.killed_at_exit.find(block);
-            auto oracle_touched = oracle.touched_at_exit.find(block);
-            auto empty = luisa::unordered_set<size_t>{};
-            auto &oracle_killed_set = oracle_killed == oracle.killed_at_exit.end() ?
-                                          empty :
-                                          oracle_killed->second;
-            auto &oracle_touched_set = oracle_touched == oracle.touched_at_exit.end() ?
-                                           empty :
-                                           oracle_touched->second;
-            LUISA_ASSERT(
-                same_set(dense_killed, oracle_killed_set) &&
-                    same_set(dense_touched_at_exit, oracle_touched_set),
-                "Dense coroutine exit dataflow differs from pointer oracle "
-                "for scope token {}.",
-                scope.trigger_token);
-        }
-    }
-    return result;
-}
-
-static void append_legacy_values(
-    luisa::vector<Value *> &dst, const DenseValueSet &atoms,
-    const DenseValueDomain &domain) noexcept {
-    dst.clear();
-    luisa::unordered_set<Value *> seen;
-    atoms.for_each_set_bit([&](size_t atom_index) noexcept {
-        auto *root = domain.atom(atom_index).root;
-        if (root != nullptr && seen.emplace(root).second) {
-            dst.emplace_back(root);
-        }
-    });
-}
-
-static void append_frame_value_indices(
-    luisa::vector<size_t> &dst, const DenseValueSet &atoms,
-    luisa::span<const std::pair<size_t, size_t>>
-        atom_to_frame_value_range) noexcept {
-    dst.clear();
-    atoms.for_each_set_bit([&](size_t atom_index) noexcept {
-        LUISA_DEBUG_ASSERT(atom_index < atom_to_frame_value_range.size(),
-                           "Coroutine atom index is out of range.");
-        auto [first, count] = atom_to_frame_value_range[atom_index];
-        if (first != static_cast<size_t>(-1)) {
-            for (size_t i = 0u; i < count; ++i) {
-                dst.emplace_back(first + i);
-            }
-        }
-    });
 }
 
 static void append_names_from_frame_values(
@@ -1413,7 +659,9 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
     optimize_frame_slot_abi_order(result);
 }
 
-static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinition *def) noexcept {
+static void analyze_live_variables(
+    CoroCfgDistillResult &result, FunctionDefinition *def,
+    CoroCfgDistillStats *stats) noexcept {
     auto n = result.scopes.size();
     // Collect the semantic scheduler ABI before constructing the immutable
     // atom domain. A designated value may otherwise be omitted as replayable
@@ -1475,6 +723,35 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     for (auto &scope : result.scopes) {
         scope_data.emplace_back(
             analyze_scope_use_def(scope, value_domain, replayable));
+    }
+    // Intra-scope fixed points use compact local coordinates. All relations
+    // crossing a scope boundary are embedded once into the immutable global
+    // atom numbering, so the rest of the analysis remains unchanged.
+    luisa::vector<DenseValueSet> scope_external;
+    luisa::vector<DenseValueSet> scope_touched;
+    scope_external.reserve(n);
+    scope_touched.reserve(n);
+    for (auto &data : scope_data) {
+        scope_external.emplace_back(
+            data.expand_to_global(data.external));
+        scope_touched.emplace_back(
+            data.expand_to_global(data.touched));
+    }
+    if (stats != nullptr) {
+        stats->value_atom_count = value_count;
+        stats->scope_count = n;
+        for (size_t i = 0u; i < n; ++i) {
+            auto local_count = scope_data[i].local_value_count();
+            stats->projected_scope_atom_count += local_count;
+            stats->max_projected_scope_atom_count = std::max(
+                stats->max_projected_scope_atom_count, local_count);
+            stats->block_membership_count +=
+                result.scopes[i].blocks.size();
+            stats->must_block_evaluation_count +=
+                scope_data[i].must_block_evaluations;
+            stats->may_block_evaluation_count +=
+                scope_data[i].may_block_evaluations;
+        }
     }
 
     luisa::unordered_map<uint32_t, size_t> trigger_to_scope;
@@ -1553,10 +830,10 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         edge.exit_block = exit_block;
         edge.is_suspend = is_suspend;
         auto &dense = edge_data.emplace_back(value_count);
-        dense.killed =
-            scope_data[from].killed_at_exit[location->second];
-        dense.touched =
-            scope_data[from].touched_at_exit[location->second];
+        dense.killed = scope_data[from].expand_to_global(
+            scope_data[from].killed_at_exit[location->second]);
+        dense.touched = scope_data[from].expand_to_global(
+            scope_data[from].touched_at_exit[location->second]);
         if (is_suspend) {
             auto *suspend = static_cast<CoroSuspendInst *>(
                 exit_block->terminator());
@@ -1638,8 +915,8 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     // domain and every edge relation share one value numbering.
     luisa::vector<DenseValueSet> live_begin;
     live_begin.reserve(n);
-    for (auto &data : scope_data) {
-        live_begin.emplace_back(data.external);
+    for (auto &external : scope_external) {
+        live_begin.emplace_back(external);
     }
     luisa::deque<size_t> worklist;
     luisa::vector<uint8_t> queued(n, 1u);
@@ -1650,7 +927,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         worklist.pop_front();
         queued[scope] = 0u;
         ++inter_scope_evaluations;
-        auto next = scope_data[scope].external;
+        auto next = scope_external[scope];
         for (auto edge_index : outgoing_edges[scope]) {
             auto &edge = result.transition_edges[edge_index];
             auto propagated = live_begin[edge.to_scope];
@@ -1673,13 +950,13 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     luisa::vector<DenseValueSet> live_out(
         n, DenseValueSet{value_count});
     for (size_t s = 0u; s < n; ++s) {
-        live_in[s] = scope_data[s].external;
+        live_in[s] = scope_external[s];
         for (auto edge_index : outgoing_edges[s]) {
             auto &edge = result.transition_edges[edge_index];
             auto propagated = live_begin[edge.to_scope];
             propagated.subtract(edge_data[edge_index].killed);
             auto reload = propagated;
-            reload.intersect_with(scope_data[s].touched);
+            reload.intersect_with(scope_touched[s]);
             live_in[s].union_with(reload);
             auto store = live_begin[edge.to_scope];
             store.intersect_with(edge_data[edge_index].touched);
@@ -1796,16 +1073,16 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     for (size_t i = 0u; i < n; ++i) {
         auto &scope = result.scopes[i];
         append_legacy_values(
-            scope.external_values, scope_data[i].external, value_domain);
+            scope.external_values, scope_external[i], value_domain);
         append_legacy_values(
-            scope.touched_values, scope_data[i].touched, value_domain);
+            scope.touched_values, scope_touched[i], value_domain);
         append_legacy_values(scope.live_in_values, live_in[i], value_domain);
         append_legacy_values(scope.live_out_values, live_out[i], value_domain);
         append_frame_value_indices(
-            scope.external_frame_value_indices, scope_data[i].external,
+            scope.external_frame_value_indices, scope_external[i],
             atom_to_frame_value_range);
         append_frame_value_indices(
-            scope.touched_frame_value_indices, scope_data[i].touched,
+            scope.touched_frame_value_indices, scope_touched[i],
             atom_to_frame_value_range);
         append_frame_value_indices(
             scope.live_in_frame_value_indices, live_in[i],
@@ -1897,11 +1174,11 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             oracle_touched;
         oracle_external.reserve(n);
         oracle_touched.reserve(n);
-        for (auto &data : scope_data) {
+        for (size_t i = 0u; i < n; ++i) {
             oracle_external.emplace_back(
-                to_pointer_set(data.external));
+                to_pointer_set(scope_external[i]));
             oracle_touched.emplace_back(
-                to_pointer_set(data.touched));
+                to_pointer_set(scope_touched[i]));
         }
         luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_killed;
@@ -2005,10 +1282,25 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         flag != nullptr && luisa::string_view{flag} == "1") {
         auto block_memberships = size_t{0u};
         auto block_evaluations = size_t{0u};
+        auto projected_atoms = size_t{0u};
+        auto projected_words = size_t{0u};
+        auto max_scope_atoms = size_t{0u};
         for (size_t i = 0u; i < n; ++i) {
             block_memberships += result.scopes[i].blocks.size();
             block_evaluations +=
-                scope_data[i].fixed_point_block_evaluations;
+                scope_data[i].fixed_point_block_evaluations();
+            auto local_count = scope_data[i].local_value_count();
+            projected_atoms += local_count;
+            projected_words += (local_count + 63u) / 64u;
+            max_scope_atoms = std::max(max_scope_atoms, local_count);
+            LUISA_INFO(
+                "Coroutine dense scope: index={} token={} atoms={} words={} "
+                "blocks={} must_evaluations={} may_evaluations={}.",
+                i, result.scopes[i].trigger_token, local_count,
+                (local_count + 63u) / 64u,
+                result.scopes[i].blocks.size(),
+                scope_data[i].must_block_evaluations,
+                scope_data[i].may_block_evaluations);
         }
         luisa::unordered_set<Value *> named_alloca_roots;
         for (auto &value : result.frame_values) {
@@ -2019,6 +1311,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         }
         LUISA_INFO(
             "Coroutine dense dataflow: atoms={} words={} scopes={} "
+            "projected_atoms={} projected_words={} max_scope_atoms={} "
             "block_memberships={} block_evaluations={} transitions={} "
             "scope_evaluations={} replayable_values={} "
             "rejected_replay_values={} logical_frame_values={} "
@@ -2026,6 +1319,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
             "abi_decomposed_atoms={} abi_nominal_padding_saved={} "
             "physical_frame_slots={}.",
             value_count, (value_count + 63u) / 64u, n,
+            projected_atoms, projected_words, max_scope_atoms,
             block_memberships, block_evaluations,
             result.transition_edges.size(), inter_scope_evaluations,
             replayable.replayable_value_count(),
@@ -2142,7 +1436,8 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     }
 }
 
-[[nodiscard]] static CoroCfgDistillResult distill_function(FunctionDefinition *def) noexcept {
+[[nodiscard]] static CoroCfgDistillResult distill_function(
+    FunctionDefinition *def, CoroCfgDistillStats *stats) noexcept {
 
     CoroCfgDistillResult result;
     if (def == nullptr || def->body_block() == nullptr) { return result; }
@@ -2278,7 +1573,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         std::sort(result.edges[i].begin(), result.edges[i].end());
     }
 
-    analyze_live_variables(result, def);
+    analyze_live_variables(result, def, stats);
     return result;
 }
 
@@ -2301,6 +1596,9 @@ bool CoroCfgDistillResult::validation_certificate_matches(
 CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(
     Function *f,
     const CoroCfgDistillOptions &options) noexcept {
+    if (options.stats != nullptr) {
+        *options.stats = {};
+    }
     CoroCfgDistillResult result;
     if (f == nullptr) {
         result.invalid_input_error_count = 1u;
@@ -2332,7 +1630,7 @@ CoroCfgDistillResult coro_cfg_distill_pass_run_on_function(
     }
     auto boundary_verifier_count =
         result.boundary_verifier_count;
-    result = detail::distill_function(def);
+    result = detail::distill_function(def, options.stats);
     result.boundary_verifier_count =
         boundary_verifier_count;
     result._seal(def);

@@ -148,8 +148,24 @@ public:
     }
 };
 
+// Optional host-analysis diagnostics. Counts are reset on every invocation,
+// including rejected input, and do not participate in the immutable semantic
+// certificate carried by CoroCfgDistillResult.
+struct CoroCfgDistillStats {
+    size_t value_atom_count{0u};
+    size_t scope_count{0u};
+    // Sum of each scope's compact active atom domain. The corresponding
+    // unprojected product size is value_atom_count * scope_count.
+    size_t projected_scope_atom_count{0u};
+    size_t max_projected_scope_atom_count{0u};
+    size_t block_membership_count{0u};
+    size_t must_block_evaluation_count{0u};
+    size_t may_block_evaluation_count{0u};
+};
+
 struct CoroCfgDistillOptions {
     const XIRPassVerificationTransaction *verification_transaction{nullptr};
+    CoroCfgDistillStats *stats{nullptr};
 };
 
 // These analysis entry points do not mutate the input. Their scope/liveness
