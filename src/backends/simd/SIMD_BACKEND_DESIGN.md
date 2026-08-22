@@ -592,7 +592,7 @@ early exits, and one common post-loop rendezvous. It emits the original loop
 body once as structured LLVM control. It is not a new Schedule semantic and
 does not replace the arbitrary reducible-CFG scheduler.
 
-Production selection is W8-only and fail-closed. The loop must have a proven
+Production selection is W8/W16 and fail-closed. The loop must have a proven
 trip bound in `[1, 16]`, contain 25--64 Schedule blocks and at most 256
 instructions, have no child loop, and use the existing
 `cohort_uniform_condition` proof on its header comparison. The comparison has
@@ -639,11 +639,21 @@ tails are removed from the dispatcher switch; local arms stay single-copy
 predicated regions. No source instruction is cloned, and no independent-PC
 state is simulated inside the accepted loop.
 
+The structured-loop audit alone may also absorb a one-sided, speculation-safe
+inner diamond containing one to three cheap pure instructions. This narrow
+allowance lets a nested region stay inside the loop when its inactive arm has
+no effect, trap, poison, memory access, or expensive math. It is not enabled
+for ordinary scheduler regions: doing so globally made a measured W16 analytic
+kernel slower. Candidate discovery is cached before spill classification so
+the exact same accepted region controls both SSA residency and final emission;
+a rejected or out-of-loop diamond retains the ordinary spill and scheduler
+rules.
+
 `LUISA_SIMD_DISABLE_STRUCTURED_EARLY_EXIT_LOOP=1` is the production
 same-binary oracle. `LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP=1` bypasses
-only the W8 and 25-block profitability gates for bounded tests; every semantic
-and instruction-safety proof still applies. The latter also lowers the
-XIR-to-Schedule cohort-header discovery threshold through an explicit lowering
+only the production width and 25-block profitability gates for bounded tests;
+every semantic and instruction-safety proof still applies. The latter also
+lowers the XIR-to-Schedule cohort-header discovery threshold through an explicit lowering
 option, rather than exposing an emitter environment variable inside Schedule
 IR. Runtime reporting exposes accepted loop, loop-block, instruction, and
 absorbed-tail-block counts.
@@ -656,7 +666,10 @@ near-miss kernels prove that a varying buffer read and integer division retain
 the general scheduler; a Schedule mutation proves that an inside/exit split
 with a foreign convergence target is rejected before LLVM emission. The
 detailed mask proof and measurements are recorded in the native contract and
-performance report.
+performance report. A production-threshold W16 regression adds a 26-block
+loop, a nested two-instruction pure diamond, a 13-lane active prefix, and a
+disabled-scheduler oracle. It proves both the scoped tiny-diamond acceptance
+and the three-lane inactive tail without using the force knob.
 
 A remaining varying conditional or switch has a dynamic coherent fast path:
 when all active lanes select one successor, it behaves like directly threaded
@@ -1610,13 +1623,19 @@ attributes. Neither optimization asserts that two resources loaded from the
 argument record are mutually disjoint.
 
 Shader dispatches use a device-owned persistent worker pool. The flattened
-block range is split into dynamically claimed chunks; all warps belonging to
-one block execute sequentially on the worker that claimed that block, while
-different blocks may execute in any order and concurrently. A dispatch joins
-all of its block jobs before the stream advances to the next command or invokes
-command-list callbacks. Multiple dispatch sizes in one command also remain
-ordered. Direct batched dispatches assign their zero-based command index to
-`kernel_id()`.
+block range is divided into chunks and chunk `c` has stable home worker
+`c % active_workers`. Each worker drains that strided home sequence through a
+cache-line-isolated cursor. An idle worker then round-robin steals only
+unclaimed chunks from the other cursors, preserving tail load balance without
+making every chunk acquisition contend on one global atomic cache line. The
+same flattened range therefore normally retains block-to-worker ownership
+across repeated dispatches, improving cache/NUMA locality without making
+ownership part of shader semantics. All warps belonging to one block execute
+sequentially on the worker that claimed that block, while different blocks may
+execute in any order and concurrently. A dispatch joins all of its block jobs
+before the stream advances to the next command or invokes command-list
+callbacks. Multiple dispatch sizes in one command also remain ordered. Direct
+batched dispatches assign their zero-based command index to `kernel_id()`.
 
 Indirect dispatch buffers use the shared target-independent source ABI from
 `backends/common/indirect_dispatch_layout.h`: one count word followed by seven

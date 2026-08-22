@@ -599,6 +599,13 @@ void ScheduleEmitter::_find_instruction_spills() {
     }
     std::vector<uint8_t> chained_blocks(
         _source.blocks().size(), uint8_t{0u});
+    auto in_structured_loop = [&](schedule::BlockId id) noexcept {
+        return _structured_early_exit_loop &&
+               std::find(
+                   _structured_early_exit_loop->loop->blocks.cbegin(),
+                   _structured_early_exit_loop->loop->blocks.cend(), id) !=
+                   _structured_early_exit_loop->loop->blocks.cend();
+    };
     if (!_predicated_acyclic_control_flow) {
         for (auto &&block : _source.blocks()) {
             if (chained_blocks[block.id.value] != 0u) { continue; }
@@ -614,7 +621,8 @@ void ScheduleEmitter::_find_instruction_spills() {
         for (auto &&block : _source.blocks()) {
             if (chained_blocks[block.id.value] != 0u) { continue; }
             if (auto diamond =
-                    _find_guarded_predicated_math_diamond(block)) {
+                    _find_guarded_predicated_math_diamond(
+                        block, in_structured_loop(block.id))) {
                 for (auto *arm : diamond->true_blocks) {
                     emission_blocks[arm->id.value] = block.id;
                 }
@@ -625,7 +633,8 @@ void ScheduleEmitter::_find_instruction_spills() {
         }
         for (auto &&block : _source.blocks()) {
             if (chained_blocks[block.id.value] != 0u) { continue; }
-            if (auto region = _find_nested_predicated_region(block)) {
+            if (auto region = _find_nested_predicated_region(
+                    block, in_structured_loop(block.id))) {
                 emission_blocks[region->nested_split_block->id.value] =
                     block.id;
                 for (auto *arm : region->nested_diamond.true_blocks) {
@@ -720,6 +729,17 @@ void ScheduleEmitter::_find_instruction_spills() {
 }
 
 void ScheduleEmitter::_allocate_state() {
+    if (!_direct_control_flow &&
+        !_predicated_acyclic_control_flow) {
+        for (auto &&block : _source.blocks()) {
+            if (auto candidate =
+                    _find_structured_early_exit_loop(block)) {
+                _structured_early_exit_loop =
+                    std::move(*candidate);
+                break;
+            }
+        }
+    }
     if (!_direct_control_flow &&
         !_predicated_acyclic_control_flow) {
         auto *mask_type = _layout.mask_type();
@@ -1421,25 +1441,17 @@ void ScheduleEmitter::_build() {
             context,
             "schedule." + std::to_string(block.id.value), _entry));
     }
-    std::optional<StructuredEarlyExitLoop> structured_early_exit_loop;
-    for (auto &&block : _source.blocks()) {
-        if (auto candidate =
-                _find_structured_early_exit_loop(block)) {
-            structured_early_exit_loop = std::move(*candidate);
-            break;
-        }
-    }
     std::vector<uint8_t> structured_emitted_blocks(
         _source.blocks().size(), uint8_t{0u});
     std::vector<uint8_t> structured_absorbed_blocks(
         _source.blocks().size(), uint8_t{0u});
-    if (structured_early_exit_loop) {
+    if (_structured_early_exit_loop) {
         for (auto *block :
-             structured_early_exit_loop->emitted_blocks) {
+             _structured_early_exit_loop->emitted_blocks) {
             structured_emitted_blocks[block->id.value] = 1u;
         }
         for (auto *block :
-             structured_early_exit_loop->absorbed_blocks) {
+             _structured_early_exit_loop->absorbed_blocks) {
             structured_absorbed_blocks[block->id.value] = 1u;
         }
     }
@@ -1534,6 +1546,13 @@ void ScheduleEmitter::_build() {
 
     std::vector<uint8_t> locally_inlined_blocks(
         _source.blocks().size(), uint8_t{0u});
+    auto in_structured_loop = [&](schedule::BlockId id) noexcept {
+        return _structured_early_exit_loop &&
+               std::find(
+                   _structured_early_exit_loop->loop->blocks.cbegin(),
+                   _structured_early_exit_loop->loop->blocks.cend(), id) !=
+                   _structured_early_exit_loop->loop->blocks.cend();
+    };
     std::vector<uint8_t> chained_blocks(
         _source.blocks().size(), uint8_t{0u});
     for (auto &&block : _source.blocks()) {
@@ -1550,7 +1569,8 @@ void ScheduleEmitter::_build() {
     for (auto &&block : _source.blocks()) {
         if (chained_blocks[block.id.value] != 0u) { continue; }
         if (auto diamond =
-                _find_guarded_predicated_math_diamond(block)) {
+                _find_guarded_predicated_math_diamond(
+                    block, in_structured_loop(block.id))) {
             for (auto *arm : diamond->true_blocks) {
                 locally_inlined_blocks[arm->id.value] = 1u;
             }
@@ -1561,7 +1581,8 @@ void ScheduleEmitter::_build() {
     }
     for (auto &&block : _source.blocks()) {
         if (chained_blocks[block.id.value] != 0u) { continue; }
-        if (auto region = _find_nested_predicated_region(block)) {
+        if (auto region = _find_nested_predicated_region(
+                block, in_structured_loop(block.id))) {
             locally_inlined_blocks[region->nested_split_block->id.value] = 1u;
             for (auto *arm : region->nested_diamond.true_blocks) {
                 locally_inlined_blocks[arm->id.value] = 1u;
@@ -1573,9 +1594,9 @@ void ScheduleEmitter::_build() {
             locally_inlined_blocks[region->other_block->id.value] = 1u;
         }
     }
-    if (structured_early_exit_loop) {
+    if (_structured_early_exit_loop) {
         for (auto *block :
-             structured_early_exit_loop->absorbed_blocks) {
+             _structured_early_exit_loop->absorbed_blocks) {
             locally_inlined_blocks[block->id.value] = 1u;
         }
     }
@@ -1607,10 +1628,10 @@ void ScheduleEmitter::_build() {
             _active_mask = flow;
         }
         _seed_lane = _safe_first_lane(_active_mask);
-        if (structured_early_exit_loop &&
-            structured_early_exit_loop->header->id == block.id) {
+        if (_structured_early_exit_loop &&
+            _structured_early_exit_loop->header->id == block.id) {
             _emit_structured_early_exit_loop(
-                *structured_early_exit_loop);
+                *_structured_early_exit_loop);
             if (_failed()) { return; }
             continue;
         }

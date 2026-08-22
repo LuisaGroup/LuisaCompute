@@ -559,6 +559,15 @@ LLVM atomic lowering supplies the required cross-worker ordering. Shader
 submissions sharing one device pool are serialized to protect pool state; no
 additional ordering between independent host streams is implied.
 
+For a dispatch with `N` chunks and `P = min(N, worker_count)` active workers,
+chunk `c` has home worker `c mod P`. Every home sequence has an independent,
+cache-line-isolated atomic cursor. A worker consumes its home sequence first,
+then may advance another worker's cursor to steal an unclaimed chunk. Thus no
+chunk executes twice or is omitted, an imbalanced tail remains stealable, and
+the dispatch still joins before returning. Stable home ownership is a host
+locality policy only: shader results may not depend on worker identity or block
+execution order.
+
 `SIMDDeviceConfigExt::worker_count()` defines the host execution width. Zero
 selects `max(hardware_concurrency, 1)` and one executes block ranges inline for
 diagnostics and serial differential benchmarks.
@@ -1202,8 +1211,8 @@ audited early-exit tails when their masks become nonempty, and reaches one
 common post-loop block after all lanes have left. It neither clones the loop
 nor changes the Schedule scheduler's abstract result.
 
-The production candidate is the first eligible W8 loop in Schedule order and
-must satisfy all of the following:
+The production candidate is the first eligible W8 or W16 loop in Schedule
+order and must satisfy all of the following:
 
 - it is innermost, has no child loop, has 25--64 blocks and at most 256 loop
   instructions, and carries a proven `max_trip_count` in `[1, 16]`;
@@ -1223,6 +1232,11 @@ must satisfy all of the following:
   those predecessors are in the loop. Its remaining control is an audited
   branch/backedge, an inside/exit split, a cohort-equal inside/inside split, or
   an existing proven local predicated region;
+- only while auditing this accepted structured loop, a nested local region may
+  contain a one-sided inner diamond with one to three cheap pure instructions.
+  The existing purity, no-participant-mask, no-side-effect, no-trapping, and
+  no-expensive-math checks still apply. This allowance is never used for a
+  normal scheduler region or a block outside the selected loop;
 - each declared exit reaches the header convergence's common target through a
   disjoint linear tail of at most four blocks and 64 instructions. A nonempty
   tail entry has exactly one predecessor from the loop, every later block has
@@ -1230,8 +1244,11 @@ must satisfy all of the following:
   split declares that same common target as its convergence.
 
 The diagnostic force knob may lower the block minimum to four and bypass the
-width gate; it bypasses none of the other clauses. Any failed clause leaves
-every block on the original independent-PC path before IR emission begins.
+production width gate; it bypasses none of the other clauses. Candidate
+selection runs before spill classification and is cached through final
+emission, so accepted local arms share one emission-block map and may remain in
+LLVM SSA. Any failed clause leaves every block on the original independent-PC
+path before IR emission begins.
 
 Let `A0` be the nonempty mask that enters the header and `Ak` the continuation
 mask at one iteration. For an exit condition `C`, codegen first sanitizes its
@@ -1284,7 +1301,11 @@ a two-sided local diamond, and inactive NaNs before `fptoui`; every active bit
 and inactive sentinel must match the scalar reference. Separate resource-read
 and integer-division variants, plus an otherwise eligible Schedule graph whose
 inside/exit split names an in-loop convergence target, must report zero
-candidates.
+candidates. A second regression uses the production W16 thresholds: 26 loop
+blocks, a nested two-instruction one-sided pure diamond, 13 active lanes, and
+three inactive sentinels. Candidate and disabled scheduler oracle must match
+exactly, and only the candidate may report one structured loop and the nested
+predicated region.
 
 ### 4.6 Cohort-equal typed-buffer read refinement
 

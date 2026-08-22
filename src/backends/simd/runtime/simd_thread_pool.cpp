@@ -5,7 +5,9 @@
 namespace luisa::compute::simd {
 
 SIMDThreadPool::SIMDThreadPool(uint32_t worker_count) noexcept
-    : _worker_count{std::max(worker_count, 1u)} {
+    : _worker_cursors{std::make_unique<WorkerCursor[]>(
+          std::max(worker_count, 1u))},
+      _worker_count{std::max(worker_count, 1u)} {
     if (_worker_count <= 1u) { return; }
     _workers.reserve(_worker_count);
     for (auto worker = uint32_t{0u}; worker < _worker_count; worker++) {
@@ -40,13 +42,41 @@ void SIMDThreadPool::_worker_loop(uint32_t worker_index) noexcept {
         auto work = _work;
         if (worker_index >= work.active_workers) { continue; }
         lock.unlock();
-        for (;;) {
-            auto begin = _next.fetch_add(
-                work.grain_size, std::memory_order_relaxed);
-            if (begin >= work.count) { break; }
+        auto invoke_chunk = [&](uint64_t chunk) noexcept {
+            auto begin = chunk * work.grain_size;
             auto end = begin +
                        std::min(work.grain_size, work.count - begin);
             work.invoke(work.context, begin, end);
+        };
+        auto try_claim = [&](uint32_t owner) noexcept {
+            auto owned_chunk_count =
+                (work.chunk_count - 1u - owner) /
+                    work.active_workers +
+                1u;
+            auto local_chunk = _worker_cursors[owner].next.fetch_add(
+                1u, std::memory_order_relaxed);
+            if (local_chunk >= owned_chunk_count) { return false; }
+            auto chunk = owner +
+                         local_chunk * work.active_workers;
+            invoke_chunk(chunk);
+            return true;
+        };
+
+        // Drain the stable home sequence first. Once a worker becomes idle it
+        // steals one chunk at a time in round-robin victim order, retaining
+        // load balance without discarding cross-dispatch ownership locality.
+        while (try_claim(worker_index)) {}
+        for (;;) {
+            auto found_work = false;
+            for (auto offset = uint32_t{1u};
+                 offset < work.active_workers; offset++) {
+                auto victim = worker_index + offset;
+                if (victim >= work.active_workers) {
+                    victim -= work.active_workers;
+                }
+                found_work |= try_claim(victim);
+            }
+            if (!found_work) { break; }
         }
         lock.lock();
         if (--_working_workers == 0u) {
@@ -69,10 +99,14 @@ void SIMDThreadPool::_parallel_for(
         return;
     }
     std::unique_lock lock{_work_mutex};
-    _next.store(0u, std::memory_order_relaxed);
+    for (auto worker = uint32_t{0u}; worker < active_workers; worker++) {
+        _worker_cursors[worker].next.store(
+            0u, std::memory_order_relaxed);
+    }
     _work = {
         .count = count,
         .grain_size = grain_size,
+        .chunk_count = chunk_count,
         .active_workers = active_workers,
         .context = context,
         .invoke = invoke,

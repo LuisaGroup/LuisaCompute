@@ -1376,23 +1376,41 @@ make_two_sided_local_predicated_loop(uint32_t width) {
 }
 
 [[nodiscard]] std::optional<schedule::Function>
-make_nested_local_predicated_loop(uint32_t width) {
+make_nested_local_predicated_loop(
+    uint32_t width, bool tiny_inner = false,
+    bool pad_for_production = false) {
     xir::Module module;
     auto *kernel = module.create_kernel();
     kernel->set_name("nested_local_predicated_loop");
     auto *entry = kernel->create_body_block();
     auto *header = kernel->create_basic_block();
     auto *body = kernel->create_basic_block();
+    auto *outer_test = pad_for_production ?
+                           kernel->create_basic_block() :
+                           body;
     auto *nested = kernel->create_basic_block();
     auto *inner_true = kernel->create_basic_block();
     auto *inner_false = kernel->create_basic_block();
     auto *inner_merge = kernel->create_basic_block();
     auto *outer_false = kernel->create_basic_block();
     auto *outer_merge = kernel->create_basic_block();
+    std::vector<xir::BasicBlock *> padding;
+    if (pad_for_production) {
+        constexpr auto padding_block_count = size_t{17u};
+        padding.reserve(padding_block_count);
+        for (auto i = size_t{0u}; i < padding_block_count; i++) {
+            auto *block = kernel->create_basic_block();
+            block->set_name("padding_" + std::to_string(i));
+            padding.emplace_back(block);
+        }
+    }
     auto *exit = kernel->create_basic_block();
     entry->set_name("entry");
     header->set_name("header");
     body->set_name("body");
+    if (pad_for_production) {
+        outer_test->set_name("outer_test");
+    }
     nested->set_name("nested");
     inner_true->set_name("inner_true");
     inner_false->set_name("inner_false");
@@ -1428,15 +1446,25 @@ make_nested_local_predicated_loop(uint32_t width) {
     auto *parity = builder.call(
         Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
         {lane, one});
-    auto *bound = builder.call(
-        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
-        {parity, two});
+    auto *bound = static_cast<xir::Value *>(two);
+    if (!pad_for_production) {
+        bound = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {parity, two});
+    }
     auto *loop_condition = builder.call(
         Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS,
         {index, bound});
     builder.cond_br(loop_condition, body, exit);
 
     builder.set_insertion_point(body);
+    if (pad_for_production) {
+        auto *leave_early = builder.call(
+            Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+            {index, lane});
+        builder.cond_br(leave_early, exit, outer_test);
+        builder.set_insertion_point(outer_test);
+    }
     auto *outer_condition = builder.call(
         Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL,
         {parity, zero});
@@ -1455,12 +1483,21 @@ make_nested_local_predicated_loop(uint32_t width) {
     builder.set_insertion_point(inner_true);
     builder.br(inner_merge);
     builder.set_insertion_point(inner_false);
+    auto *inner_false_value = static_cast<xir::Value *>(three);
+    if (tiny_inner) {
+        auto *choose_advanced = builder.call(
+            Type::of<bool>(), xir::ArithmeticOp::BINARY_GREATER,
+            {value, lane});
+        inner_false_value = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::SELECT,
+            {three, advanced, choose_advanced});
+    }
     builder.br(inner_merge);
 
     builder.set_insertion_point(inner_merge);
     auto *inner_value = builder.phi(
         Type::of<uint32_t>(),
-        {{advanced, inner_true}, {three, inner_false}});
+        {{advanced, inner_true}, {inner_false_value, inner_false}});
     builder.br(outer_merge);
 
     builder.set_insertion_point(outer_false);
@@ -1473,17 +1510,35 @@ make_nested_local_predicated_loop(uint32_t width) {
     auto *next_index = builder.call(
         Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
         {index, one});
-    builder.br(header);
+    auto *backedge = outer_merge;
+    if (padding.empty()) {
+        builder.br(header);
+    } else {
+        builder.br(padding.front());
+        for (auto i = size_t{0u}; i < padding.size(); i++) {
+            builder.set_insertion_point(padding[i]);
+            builder.br(i + 1u == padding.size() ?
+                           header :
+                           padding[i + 1u]);
+        }
+        backedge = padding.back();
+    }
 
     builder.set_insertion_point(exit);
     builder.return_void();
     index->add_incoming(zero, entry);
-    index->add_incoming(next_index, outer_merge);
+    index->add_incoming(next_index, backedge);
     value->add_incoming(initial, entry);
-    value->add_incoming(next_value, outer_merge);
+    value->add_incoming(next_value, backedge);
 
+    auto lowering_options = schedule::XIRToScheduleOptions{
+        .logical_warp_width = width};
+    if (pad_for_production) {
+        lowering_options
+            .cohort_uniform_induction_min_loop_block_count = 4u;
+    }
     auto lowered = schedule::lower_xir_to_schedule(
-        kernel, {.logical_warp_width = width});
+        kernel, lowering_options);
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
         return std::nullopt;
@@ -3262,6 +3317,81 @@ template<size_t Width>
         CHECK(oracle.nested_predicated_block_count == 0u);
         CHECK(oracle.nested_predicated_instruction_count == 0u);
         CHECK(candidate_output == oracle_output);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_w16_structured_tiny_nested_loop_codegen() {
+    static constexpr auto width = 16u;
+    static constexpr auto active_lanes = 13u;
+    auto schedule_function = make_nested_local_predicated_loop(
+        width, true, true);
+    CHECK(schedule_function.has_value());
+    CHECK(schedule_function->loops().size() == 1u);
+    CHECK(schedule_function->loops().front().blocks.size() >= 25u);
+
+    auto run_variant = [&](bool disable_structured,
+                           std::array<uint32_t, width> &output,
+                           LLVMScheduleCodegenResult &result) {
+        auto context = std::make_unique<::llvm::LLVMContext>();
+        auto module = std::make_unique<::llvm::Module>(
+            disable_structured ?
+                "simd-structured-tiny-nested-oracle" :
+                "simd-structured-tiny-nested",
+            *context);
+        auto name = std::string{
+            disable_structured ?
+                "schedule_structured_tiny_nested_oracle_w16" :
+                "schedule_structured_tiny_nested_w16"};
+        {
+            ScopedEnvironmentVariable disable{
+                "LUISA_SIMD_DISABLE_STRUCTURED_EARLY_EXIT_LOOP",
+                disable_structured ? "1" : nullptr};
+            result = lower_schedule_to_llvm(
+                *module, *schedule_function, width, name);
+        }
+        if (!result.succeeded() ||
+            ::llvm::verifyModule(*module, &::llvm::errs())) {
+            return false;
+        }
+        LLVMJIT jit;
+        if (!jit.succeeded() ||
+            !jit.add_module(std::move(module), std::move(context))) {
+            return false;
+        }
+        using Entry = void(
+            const void *, uint32_t *,
+            const SIMDPacketLaunchConfig *, uint32_t);
+        auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
+        if (entry == nullptr) { return false; }
+        output.fill(0xdeadbeefu);
+        auto config = launch_1d(active_lanes, width);
+        entry(nullptr, output.data(), &config, active_lanes);
+        return true;
+    };
+
+    std::array<uint32_t, width> candidate_output{};
+    std::array<uint32_t, width> oracle_output{};
+    LLVMScheduleCodegenResult candidate;
+    LLVMScheduleCodegenResult oracle;
+    CHECK(run_variant(false, candidate_output, candidate));
+    CHECK(run_variant(true, oracle_output, oracle));
+    CHECK(candidate.structured_early_exit_loop_count == 1u);
+    CHECK(candidate.structured_early_exit_loop_block_count >= 25u);
+    CHECK(candidate.local_predicated_diamond_count == 1u);
+    CHECK(candidate.local_predicated_instruction_count == 2u);
+    CHECK(candidate.nested_predicated_region_count == 1u);
+    CHECK(candidate.nested_predicated_instruction_count == 4u);
+    CHECK(oracle.structured_early_exit_loop_count == 0u);
+    CHECK(oracle.nested_predicated_region_count == 0u);
+    CHECK(candidate_output == oracle_output);
+    for (auto lane = uint32_t{0u}; lane < width; lane++) {
+        auto expected = lane < active_lanes ?
+                            lane + 11u +
+                                static_cast<uint32_t>(
+                                    (lane & 1u) != 0u && lane != 1u) :
+                            0xdeadbeefu;
+        CHECK(candidate_output[lane] == expected);
     }
     return true;
 }
@@ -15492,6 +15622,8 @@ int main() {
          &run_two_sided_local_predicated_codegen},
         {"nested innermost-loop local predicated regions",
          &run_nested_local_predicated_region_codegen},
+        {"W16 structured tiny nested predication",
+         &run_w16_structured_tiny_nested_loop_codegen},
         {"varying loop exit collective",
          &run_varying_loop_collective_codegen},
         {"multiple-exit loop collective",

@@ -24,9 +24,18 @@ private:
     struct ParallelFor {
         uint64_t count{0u};
         uint64_t grain_size{1u};
+        uint64_t chunk_count{0u};
         uint32_t active_workers{0u};
         void *context{nullptr};
         Invoke invoke{nullptr};
+    };
+
+    // Each worker owns one strided chunk sequence. Keeping the cursor on a
+    // separate cache line avoids turning chunk acquisition into a global
+    // cache-line ping-pong point. Idle workers may advance another worker's
+    // cursor to steal only work that has not been claimed yet.
+    struct alignas(64) WorkerCursor {
+        std::atomic_uint64_t next{0u};
     };
 
 private:
@@ -36,7 +45,7 @@ private:
     std::condition_variable _work_available;
     std::condition_variable _work_done;
     ParallelFor _work{};
-    alignas(64) std::atomic_uint64_t _next{0u};
+    std::unique_ptr<WorkerCursor[]> _worker_cursors;
     uint64_t _generation{0u};
     uint32_t _working_workers{0u};
     uint32_t _worker_count{1u};

@@ -11,7 +11,7 @@ ScheduleEmitter::_find_structured_early_exit_loop(
     const schedule::BasicBlock &header) const noexcept {
     auto force = luisa::compute::detail::env_flag(
         "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP");
-    if ((!force && _width != 8u) ||
+    if ((!force && _width != 8u && _width != 16u) ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_STRUCTURED_EARLY_EXIT_LOOP")) {
         return std::nullopt;
@@ -411,7 +411,8 @@ ScheduleEmitter::_find_structured_early_exit_loop(
             }
             continue;
         }
-        if (auto region = _find_nested_predicated_region(*block)) {
+        if (auto region = _find_nested_predicated_region(
+                *block, true)) {
             auto mark = [&](const schedule::BasicBlock *inlined) noexcept {
                 if (inlined != nullptr &&
                     is_loop_target(inlined->id)) {
@@ -435,7 +436,8 @@ ScheduleEmitter::_find_structured_early_exit_loop(
             continue;
         }
         if (auto diamond =
-                _find_guarded_predicated_math_diamond(*block)) {
+                _find_guarded_predicated_math_diamond(
+                    *block, true)) {
             auto mark = [&](const schedule::BasicBlock *inlined) noexcept {
                 if (inlined != nullptr &&
                     is_loop_target(inlined->id)) {
@@ -455,7 +457,6 @@ ScheduleEmitter::_find_structured_early_exit_loop(
             }
         }
     }
-
     for (auto id : loop->blocks) {
         if (id == header.id || locally_inlined[id.value] != 0u) {
             continue;
@@ -463,8 +464,8 @@ ScheduleEmitter::_find_structured_early_exit_loop(
         auto *block = _source.block(id);
         if (!valid_control(*block) &&
             !_find_chained_predicated_region(*block) &&
-            !_find_nested_predicated_region(*block) &&
-            !_find_guarded_predicated_math_diamond(*block)) {
+            !_find_nested_predicated_region(*block, true) &&
+            !_find_guarded_predicated_math_diamond(*block, true)) {
             return std::nullopt;
         }
         result.emitted_blocks.emplace_back(block);
@@ -713,7 +714,8 @@ void ScheduleEmitter::_emit_structured_early_exit_loop(
             }
             return;
         }
-        if (auto region = _find_nested_predicated_region(block)) {
+        if (auto region = _find_nested_predicated_region(
+                block, true)) {
             auto *split = std::get_if<schedule::SplitTerminator>(
                 &block.terminator);
             _emit_nested_predicated_region(*split, *region, false);
@@ -723,7 +725,8 @@ void ScheduleEmitter::_emit_structured_early_exit_loop(
             return;
         }
         if (auto diamond =
-                _find_guarded_predicated_math_diamond(block)) {
+                _find_guarded_predicated_math_diamond(
+                    block, true)) {
             auto *split = std::get_if<schedule::SplitTerminator>(
                 &block.terminator);
             _emit_guarded_predicated_math_diamond(

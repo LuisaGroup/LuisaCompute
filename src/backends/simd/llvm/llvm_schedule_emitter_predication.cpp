@@ -313,7 +313,8 @@ ScheduleEmitter::_innermost_loop_containing(
 
 [[nodiscard]] std::optional<ScheduleEmitter::GuardedPredicatedMathDiamond>
 ScheduleEmitter::_find_guarded_predicated_math_diamond(
-    const schedule::BasicBlock &block) const noexcept {
+    const schedule::BasicBlock &block,
+    bool allow_tiny_speculation) const noexcept {
     if (_width == 1u ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS")) {
@@ -553,6 +554,10 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
     auto guarded_math = !two_sided && has_expensive_math &&
                         instruction_count >= 4u &&
                         instruction_count <= 24u;
+    auto tiny_speculation_safe =
+        allow_tiny_speculation &&
+        !two_sided && !has_expensive_math &&
+        instruction_count != 0u && instruction_count <= 3u;
     auto force_two_sided = luisa::compute::detail::env_flag(
         "LUISA_SIMD_FORCE_TWO_SIDED_LOCAL_PREDICATION");
     auto enable_two_sided =
@@ -563,7 +568,8 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
     auto bounded_two_sided = two_sided && enable_two_sided &&
                              instruction_count >= 4u &&
                              instruction_count <= 24u;
-    if (!assignment_only && !guarded_math && !bounded_two_sided) {
+    if (!assignment_only && !guarded_math && !bounded_two_sided &&
+        !tiny_speculation_safe) {
         return std::nullopt;
     }
     return GuardedPredicatedMathDiamond{
@@ -577,7 +583,8 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
 
 [[nodiscard]] std::optional<ScheduleEmitter::NestedPredicatedRegion>
 ScheduleEmitter::_find_nested_predicated_region(
-    const schedule::BasicBlock &block) const noexcept {
+    const schedule::BasicBlock &block,
+    bool allow_tiny_speculation) const noexcept {
     if (_width == 1u ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS") ||
@@ -728,9 +735,9 @@ ScheduleEmitter::_find_nested_predicated_region(
         }
         auto nested_diamond =
             _find_guarded_predicated_math_diamond(
-                *nested_split_block);
+                *nested_split_block, allow_tiny_speculation);
         if (!nested_diamond ||
-            nested_diamond->instruction_count != 0u) {
+            nested_diamond->instruction_count > 3u) {
             return std::nullopt;
         }
         auto *nested_control =
@@ -801,7 +808,8 @@ ScheduleEmitter::_find_nested_predicated_region(
             .merge = outer_point->target,
             .nested_on_true = nested_on_true,
             .instruction_count =
-                nested_split_block->instructions.size(),
+                nested_split_block->instructions.size() +
+                nested_diamond->instruction_count,
         };
     };
     if (auto region = try_side(

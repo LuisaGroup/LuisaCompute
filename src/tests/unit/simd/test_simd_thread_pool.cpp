@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <barrier>
 #include <chrono>
 #include <mutex>
 #include <thread>
@@ -102,5 +103,57 @@ int main(int argc, char *argv[]) {
             expect(first[i].load(std::memory_order_relaxed) == 1u);
             expect(second[i].load(std::memory_order_relaxed) == 1u);
         }
+    };
+
+    "balanced repeated ranges retain stable worker ownership"_test = [] {
+        constexpr auto worker_count = uint32_t{4u};
+        constexpr auto repeat_count = uint32_t{8u};
+        SIMDThreadPool pool{worker_count};
+        std::array<std::thread::id, worker_count> owners{};
+        auto stable = true;
+        for (auto repeat = uint32_t{0u}; repeat < repeat_count; repeat++) {
+            std::barrier ready{static_cast<std::ptrdiff_t>(worker_count)};
+            std::array<std::thread::id, worker_count> current{};
+            std::atomic_bool unit_ranges{true};
+            pool.parallel_for(
+                worker_count, 1u,
+                [&](uint64_t begin, uint64_t end) noexcept {
+                    if (end != begin + 1u) {
+                        unit_ranges.store(false, std::memory_order_relaxed);
+                    }
+                    current[begin] = std::this_thread::get_id();
+                    ready.arrive_and_wait();
+                });
+            expect(unit_ranges.load(std::memory_order_relaxed));
+            if (repeat == 0u) {
+                owners = current;
+            } else {
+                stable &= owners == current;
+            }
+        }
+        expect(stable)
+            << "equal repeated ranges should keep the same worker owners";
+    };
+
+    "idle workers steal an unfinished owner's tail"_test = [] {
+        constexpr auto worker_count = uint32_t{4u};
+        SIMDThreadPool pool{worker_count};
+        std::array<std::thread::id, worker_count * 2u> owners{};
+        std::atomic_bool unit_ranges{true};
+        pool.parallel_for(
+            owners.size(), 1u,
+            [&](uint64_t begin, uint64_t end) noexcept {
+                if (end != begin + 1u) {
+                    unit_ranges.store(false, std::memory_order_relaxed);
+                }
+                owners[begin] = std::this_thread::get_id();
+                if (begin == 0u) {
+                    std::this_thread::sleep_for(
+                        std::chrono::milliseconds{20});
+                }
+            });
+        expect(unit_ranges.load(std::memory_order_relaxed));
+        expect(owners[0u] != owners[worker_count])
+            << "another worker should steal a blocked owner's next chunk";
     };
 }

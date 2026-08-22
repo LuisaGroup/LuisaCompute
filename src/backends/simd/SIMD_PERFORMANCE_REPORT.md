@@ -7057,3 +7057,147 @@ executables. An explicit matrix runs image processing, Voxel, and ordinary
 pass. Image processing and Voxel report 89.251953 and 82.834519 dB at every
 width; path tracing reports 35.426800/42.781833/40.940546/39.219375/37.800289
 dB respectively.
+
+## W16 cross-CCD locality and structured-loop residency
+
+The 16-worker analytic path benchmark exposed two independent costs. The
+runtime assigned every block chunk through one global `fetch_add`, so repeated
+dispatches migrated the cursor cache line and did not preserve block-to-worker
+ownership across the two CCDs. Separately, the production W16 compiler rejected
+an otherwise eligible structured early-exit loop because one nested arm
+contained a two-instruction pure diamond. It consequently retained the full
+independent-PC state machine and its state traffic. This section measures the
+two fixes independently before composing them.
+
+The runtime now gives chunk `c` stable home worker
+`c % active_workers`. Cache-line-separated per-worker cursors preserve the
+strided home sequences, while an idle worker may still steal unclaimed tail
+chunks in round-robin victim order. The scheduler contract and block ordering
+remain unchanged. Permanent tests require stable ownership across repeated
+balanced dispatches and prove that a delayed owner's tail is nevertheless
+stolen and executed exactly once.
+
+### Host scheduling isolation
+
+The analytic path control used 16 persistent workers pinned to CPUs 0--15,
+256 dispatches per process, and seven timed samples per process. A saved backend
+from immediately before the change supplied the global-cursor oracle. A
+balanced seven-process population measured W16 medians of 2,249.44 Mitems/s
+for that oracle and 3,169.77 Mitems/s for the striped scheduler with structured
+W16 still disabled. The paired geometric mean was 1.3867x.
+
+Fresh nonmultiplexed three-repeat counters reproduce the cause. Both columns
+execute the same general-scheduler JIT shape; only the host pool differs:
+
+| W16 host scheduler | cycles | instructions | cache misses |
+| --- | ---: | ---: | ---: |
+| one global cursor | 13.354 B | 18.669 B | 118.644 M |
+| stable striped cursors | 8.434 B | 18.691 B | 47.277 M |
+
+Retired instructions change by only +0.12%, while cycles fall 36.8% and cache
+misses fall 60.2%. This identifies cache-line/ownership locality, rather than
+LLVM code generation, as the multicore scaling trigger.
+
+### W16 state-machine isolation
+
+W16 production selection now admits the same bounded structured early-exit
+loop class as W8. Only within an already accepted structured-loop audit, a
+one-sided nested diamond may contain one to three cheap pure instructions.
+Normal scheduler regions do not receive this speculation allowance: enabling
+it globally regressed the same single-worker analytic benchmark. Candidate
+discovery is cached before spill analysis, so spill classification and final
+emission use one identical accepted block set.
+
+The final object changes as follows. Stack-reference counts are assembly-text
+counts for the exact dumped entries:
+
+| W16 analytic entry | general scheduler | structured production |
+| --- | ---: | ---: |
+| recognized stack allocation | 2,240 B | 1,344 B |
+| `%rsp` references | 416 | 66 |
+| structured loop blocks | 0 | 53 |
+| structured loop instructions | 0 | 170 |
+
+Thus the frame is 40.0% smaller and `%rsp` references fall 84.1%. Three
+fresh nonmultiplexed counter repeats, with the new host scheduler on both sides,
+give:
+
+| W16 process | cycles | instructions | branches | branch misses | cache misses |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| structured production | 6.720 B | 13.189 B | 751.793 M | 3.363 M | 39.148 M |
+| disabled scheduler oracle | 8.656 B | 18.692 B | 1,815.550 M | 6.797 M | 49.800 M |
+
+Structured emission removes 22.4% of cycles, 29.4% of instructions, 58.6% of
+branches, 50.5% of branch misses, and 21.4% of cache misses. Nine alternating
+fresh-process pairs measured medians of 3,684.45 versus 3,220.91 Mitems/s;
+the paired result is **1.13010x [1.09895, 1.16213]**, with 9/9 wins and the
+same `a93089e651f98582` checksum.
+
+A production-threshold W16 regression permanently covers the enabling corner:
+26 loop blocks, one nested two-instruction pure diamond, 13 active lanes, and
+three inactive sentinels. It compares the candidate with the disabled general
+scheduler and a scalar result. The pre-existing forced W8 and fail-closed
+resource/integer-division/foreign-convergence cases remain unchanged.
+
+### Composed throughput and current baselines
+
+Nine interleaved old-backend/current-backend pairs retain every sample,
+including one slow global-cursor W16 process. The old median is 2,267.57 and
+the current median is 3,672.93 Mitems/s, a conservative median ratio of 1.620x;
+current wins 9/9. The paired geometric mean is 1.6823x with the deliberately
+wide [1.5413, 1.8362] interval caused by that retained slow oracle sample.
+
+The official ISPC 1.31.0 driver was then rebuilt with an explicit repository-
+external executable path, `--cpu=znver5`, precise math, FMA contraction
+disabled, the same striped thread-pool implementation, 16 workers, CPUs 0--15,
+and nine balanced process rounds. No ISPC path or configuration variable is
+written into CMake or the repository:
+
+| matched analytic path | median Mitems/s | relation to Luisa | paired 95% CI |
+| --- | ---: | ---: | ---: |
+| Luisa W8 | 2,619.174 | baseline | -- |
+| ISPC AVX2 i32x8 | 2,674.975 | ISPC/Luisa 1.022x | [1.016, 1.029] |
+| ISPC AVX-512 x8 | 2,571.023 | ISPC/Luisa 0.981x | [0.972, 0.989] |
+| Luisa W16 | 3,719.750 | baseline | -- |
+| ISPC AVX-512 x16 | 3,447.233 | ISPC/Luisa 0.924x | [0.920, 0.928] |
+
+Luisa W8 is 2.2% behind ISPC's AVX2 x8 target but 1.9% ahead of its AVX-512
+x8 target. Luisa W16 is approximately **1.082x faster** than ISPC AVX-512 x16
+on this matched analytic workload. All validation dumps satisfy the driver's
+absolute-plus-relative reference tolerance.
+
+A separate nine-round fallback/width sweep records the current logical-width
+curve. Its large ratios describe this standalone analytic compiler workload,
+not the full Embree renderer:
+
+| variant | median Mitems/s | paired speedup over fallback | 95% CI |
+| --- | ---: | ---: | ---: |
+| fallback | 45.562 | 1.000x | [1.000, 1.000] |
+| SIMD W1 | 635.537 | 13.844x | [13.470, 14.228] |
+| SIMD W2 | 752.396 | 16.505x | [16.411, 16.599] |
+| SIMD W4 | 1,362.255 | 29.888x | [29.729, 30.047] |
+| SIMD W8 | 2,617.067 | 57.530x | [56.984, 58.081] |
+| SIMD W16 | 3,726.398 | 76.678x | [66.431, 88.505] |
+
+The W16 interval retains one 2,123.57 Mitems/s interruption; the other eight
+samples lie between 3,625.51 and 3,824.72 Mitems/s. W1 is not expected to match
+fallback because these are distinct compiler/runtime pipelines even when their
+logical lane count is one.
+
+Finally, the real ordinary Embree renderer reports zero structured-loop sites,
+so it serves as an applicability control for the host change rather than for
+W16 structured emission. Five alternating old/new backend pairs used W16,
+16 pinned workers, 128 spp, one spp per dispatch, and the checked-in image
+reference. Old/current medians are 79.026/79.210 FPS; the paired result is
+**1.00030x [0.99203, 1.00865]**, with 3/5 current wins. Every run passes at
+31.596420 dB and reports native Embree 4.4.1 W16 packets. The end-to-end
+renderer is therefore statistically neutral here; its Embree and shading work
+does not reproduce the analytic kernel's global-cursor sensitivity.
+
+Raw official-driver populations are retained under the ignored build tree as
+`diagnostics/path-current-vs-ispc-final.json` and
+`diagnostics/path-current-vs-fallback-final.json`. Final validation rebuilds
+the complete Release tree, passes the focused native-math/runtime-width/
+thread-pool/Schedule gate 5/5, the standalone driver tests 8/8, and the full
+CTest inventory 173/173, including XIR ray-query lowering/reconstruction,
+Embree packet oracles, graphics examples, and every supported runtime width.

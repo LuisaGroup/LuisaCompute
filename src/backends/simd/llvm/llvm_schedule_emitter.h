@@ -275,6 +275,9 @@ private:
         size_t instruction_count{0u};
     };
 
+    std::optional<StructuredEarlyExitLoop>
+        _structured_early_exit_loop{};
+
     struct CoherentAllOnRegion {
         std::vector<const schedule::BasicBlock *> blocks{};
         size_t instruction_count{0u};
@@ -671,14 +674,16 @@ private:
         schedule::BlockId block) const noexcept;
     [[nodiscard]] std::optional<GuardedPredicatedMathDiamond>
     _find_guarded_predicated_math_diamond(
-        const schedule::BasicBlock &block) const noexcept;
+        const schedule::BasicBlock &block,
+        bool allow_tiny_speculation = false) const noexcept;
     void _emit_guarded_predicated_math_diamond(
         const schedule::SplitTerminator &control,
         const GuardedPredicatedMathDiamond &diamond,
         bool continue_at_merge = true);
     [[nodiscard]] std::optional<NestedPredicatedRegion>
     _find_nested_predicated_region(
-        const schedule::BasicBlock &block) const noexcept;
+        const schedule::BasicBlock &block,
+        bool allow_tiny_speculation = false) const noexcept;
     void _emit_nested_predicated_region(
         const schedule::SplitTerminator &control,
         const NestedPredicatedRegion &region,
