@@ -7,11 +7,13 @@ if(block_size==0){return 0;}
 return size/block_size+(size%block_size==0?0u:1u);
 }
 void _SetDispInd(RWStructuredBuffer<uint> buffer,uint idx,uint3 blk,uint3 size,uint kid){
+#ifdef LUISA_INDIRECT_DISPATCH_BOUNDS_CHECK
 uint word_count,word_stride;
 buffer.GetDimensions(word_count,word_stride);
 if(word_stride!=4||word_count<_LC_INDIRECT_HEADER_WORDS){return;}
 uint capacity=(word_count-_LC_INDIRECT_HEADER_WORDS)/_LC_INDIRECT_RECORD_WORDS;
 if(idx>=capacity){return;}
+#endif
 bool valid_block=all(blk!=0);
 uint3 dispSize=uint3(
 _LC_IndirectGroupCount(size.x,blk.x),
@@ -28,9 +30,13 @@ buffer[idx+5]=dispSize.y;
 buffer[idx+6]=dispSize.z;
 }
 void _SetDispCount(RWStructuredBuffer<uint> buffer,uint cnt){
+#ifdef LUISA_INDIRECT_DISPATCH_BOUNDS_CHECK
 uint word_count,word_stride;
 buffer.GetDimensions(word_count,word_stride);
 if(word_stride!=4||word_count<_LC_INDIRECT_HEADER_WORDS){return;}
 uint capacity=(word_count-_LC_INDIRECT_HEADER_WORDS)/_LC_INDIRECT_RECORD_WORDS;
 buffer[0]=min(cnt,capacity);
+#else
+buffer[0]=cnt;
+#endif
 }
