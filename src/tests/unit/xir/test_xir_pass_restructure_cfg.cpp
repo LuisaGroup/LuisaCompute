@@ -1060,6 +1060,150 @@ void reg_restructure_cfg() {
                stable_block_count);
     };
 
+    "restructure_exit_dispatch_sink_priority_converges_for_target_orders"_test = [] {
+        std::optional<uint64_t> expected_hash;
+        auto terminal_target_count = size_t{0u};
+        auto terminal_fallback_reorder_count = size_t{0u};
+        for (auto sink_created_first : {false, true}) {
+            Module module;
+            BasicBlock *entry;
+            auto *kernel = make_kernel_with_body(module, entry);
+            auto *definition = kernel->definition();
+            auto *loop_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *outer_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *nested_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *ordinary_condition =
+                kernel->create_value_argument(Type::of<bool>());
+
+            // Build both ownership orders. The state-dispatch selector must be
+            // ordered by target semantics, not by which target happened to be
+            // allocated first.
+            BasicBlock *return_block = nullptr;
+            if (sink_created_first) {
+                return_block = definition->create_basic_block();
+            }
+            auto *ordinary_header =
+                definition->create_basic_block();
+
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *loop_merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(loop_condition, body, loop_merge);
+
+            // The nested selection does not dominate this payload selection
+            // because the sibling outer arm reaches it directly. The IfInst
+            // keeps it as an ordinary continuation target instead of an empty
+            // proxy that canonical_exit_target would contract to the loop
+            // boundary.
+            builder.set_insertion_point(ordinary_header);
+            auto *ordinary = builder.if_(ordinary_condition);
+            auto *ordinary_true = ordinary->create_true_block();
+            auto *ordinary_false = ordinary->create_false_block();
+            auto *ordinary_merge = ordinary->create_merge_block();
+            builder.set_insertion_point(ordinary_true);
+            builder.br(prepare);
+            if (!sink_created_first) {
+                // Allocate the terminal target after every block in the
+                // ordinary target's local construct. Stable ownership order
+                // alone would therefore place it in the ladder fallback.
+                return_block = definition->create_basic_block();
+            }
+            builder.set_insertion_point(ordinary_false);
+            builder.br(return_block);
+            builder.set_insertion_point(ordinary_merge);
+            builder.unreachable_();
+            builder.set_insertion_point(return_block);
+            builder.return_void();
+
+            builder.set_insertion_point(body);
+            auto *outer = builder.if_(outer_condition);
+            auto *nested_header = outer->create_true_block();
+            outer->set_false_target(ordinary_header);
+            auto *outer_merge = outer->create_merge_block();
+            builder.set_insertion_point(nested_header);
+            auto *nested = builder.if_(nested_condition);
+            auto *return_proxy = nested->create_true_block();
+            nested->set_false_target(ordinary_header);
+            auto *nested_merge = nested->create_merge_block();
+            builder.set_insertion_point(return_proxy);
+            builder.br(return_block);
+            builder.set_insertion_point(nested_merge);
+            builder.unreachable_();
+            builder.set_insertion_point(outer_merge);
+            builder.unreachable_();
+
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            builder.set_insertion_point(loop_merge);
+            builder.return_void();
+
+            expect(xir_verify_module(&module).succeeded());
+            auto initial_block_count = count_owned_blocks(definition);
+            auto first = restructure_cfg_pass_run_on_function(
+                kernel,
+                {.main_iteration_limit = 64u,
+                 .post_iteration_limit = 12u});
+            expect(first.succeeded());
+            expect(first.iteration_limit_count == 0u);
+            expect(first.selection_exit_cfg_invalidation_count > 0u)
+                << "the fixture must exercise a multi-target exit dispatch";
+            terminal_target_count +=
+                first.selection_exit_terminal_target_count;
+            terminal_fallback_reorder_count +=
+                first.selection_exit_terminal_fallback_reorder_count;
+            expect(count_terminator_kind(
+                       definition,
+                       DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+                   count_canonical_conditional_loop_prepare(definition));
+            expect(count_owned_blocks(definition) <=
+                   initial_block_count + 48u)
+                << "terminal-target dispatch normalization must have bounded "
+                   "CFG growth";
+            expect(xir_verify_module(
+                       &module,
+                       {.require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                       .succeeded());
+            auto ast = xir_to_ast_translate(*kernel, {});
+            expect(ast != nullptr);
+            if (ast != nullptr) {
+                auto hash = ast->hash();
+                if (!expected_hash) {
+                    expected_hash.emplace(hash);
+                } else {
+                    expect(hash == *expected_hash)
+                        << "terminal targets must keep the same direct-arm "
+                           "polarity for both block ownership orders";
+                }
+            }
+
+            auto stable_block_count = count_owned_blocks(definition);
+            auto second = restructure_cfg_pass_run_on_function(
+                kernel,
+                {.main_iteration_limit = 64u,
+                 .post_iteration_limit = 12u});
+            expect(second.succeeded());
+            expect(!second.changed());
+            expect(count_owned_blocks(definition) == stable_block_count)
+                << "terminal-target dispatch normalization must be a fixed "
+                   "point for both target ownership orders";
+        }
+        expect(terminal_target_count > 0u)
+            << "the fixture must route a terminal target through an exit "
+               "selector";
+        expect(terminal_fallback_reorder_count > 0u)
+            << "one ownership order must prove that semantic sink priority "
+               "overrides the stable block-order fallback";
+    };
+
     "restructure_exit_selector_order_is_deterministic"_test = [] {
         std::optional<uint64_t> expected_hash;
         for (auto iteration = 0u; iteration < 24u; ++iteration) {

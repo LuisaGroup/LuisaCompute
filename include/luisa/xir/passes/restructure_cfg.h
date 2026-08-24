@@ -162,6 +162,12 @@ struct RestructureCFGInfo {
     // selection exits. There is exactly one node per reachable structured
     // loop per observed CFG version, never one loop-exit set per block.
     size_t selection_exit_loop_context_count{0u};
+    // Multi-target exit dispatches keep terminal sinks on direct selector arms
+    // and reserve the final forwarding fallback for an ordinary continuation.
+    // The first count exposes coverage; the second records cases where stable
+    // block order alone would have put a sink in that fallback slot.
+    size_t selection_exit_terminal_target_count{0u};
+    size_t selection_exit_terminal_fallback_reorder_count{0u};
     // Selection-exit rewrites invalidate dominance immediately because the
     // next site query consumes it. Post-dominance is not observed inside the
     // drain, so one refresh is deferred until the complete mutation batch has

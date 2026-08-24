@@ -1518,10 +1518,16 @@ classify_exclusive_loop_boundary_arm(
         }
     }
     if (candidates.empty()) {
-        // A generated dispatch is a loop-boundary guard only if at least one
-        // structurally containing loop proves that relation. This point is
-        // reached only after the exhaustive region scan above.
+        // Raw generated dispatches that no longer guard a loop boundary may
+        // release their marker after the exhaustive region scan above. A
+        // dispatch that has already become a physical IfInst deliberately
+        // retains the marker: later construct-exit validation still needs to
+        // recognize that structured guard as generated rather than rewrap it.
         for (auto *header : exit_dispatch_headers) {
+            if (header == nullptr || !header->is_terminated() ||
+                !header->terminator()->isa<ConditionalBranchInst>()) {
+                continue;
+            }
             exit_dispatch_headers.erase(header);
             return true;
         }
@@ -3981,10 +3987,27 @@ void repair_target_state_dispatch_ssa(
     for (auto edge : normalized_edges) {
         (void)add_target(edge.target);
     }
-    // Canonicalize the state-dispatch ladder so loop boundaries are tested
-    // before ordinary in-loop continuations. This gives each generated guard
-    // exactly one break/continue arm and one fallthrough/merge arm, avoiding a
-    // non-progressing "normal vs. (break-or-continue)" MIXED dispatch.
+    // Canonicalize the state-dispatch ladder so non-local exits are tested
+    // before ordinary in-construct continuations. Every target except the last
+    // is a direct conditional arm; the last one is reached through the
+    // ladder's forwarding fallback. Keeping loop/switch boundaries and terminal
+    // sinks on direct arms lets the ordinary target serve as the declarative
+    // merge. Putting Return/Unreachable behind the fallback instead makes the
+    // forwarding edge look like a fresh illegal selection exit, so the next
+    // post round would reconstruct an equivalent dispatch forever.
+    auto has_ordinary_target = false;
+    BasicBlock *stable_fallback = nullptr;
+    for (auto *target : targets) {
+        auto boundary = is_legal_structured_exit(target);
+        auto sink = is_sink(target);
+        info.selection_exit_terminal_target_count += sink ? 1u : 0u;
+        has_ordinary_target |= !boundary && !sink;
+        if (!boundary &&
+            (stable_fallback == nullptr ||
+             block_index(stable_fallback) < block_index(target))) {
+            stable_fallback = target;
+        }
+    }
     std::sort(
         targets.begin(), targets.end(),
         [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
@@ -3995,8 +4018,22 @@ void repair_target_state_dispatch_ssa(
             if (lhs_boundary != rhs_boundary) {
                 return lhs_boundary && !rhs_boundary;
             }
+            auto lhs_sink = is_sink(lhs);
+            auto rhs_sink = is_sink(rhs);
+            if (lhs_sink != rhs_sink) {
+                return lhs_sink && !rhs_sink;
+            }
             return block_index(lhs) < block_index(rhs);
         });
+    if (has_ordinary_target && stable_fallback != nullptr &&
+        is_sink(stable_fallback)) {
+        ++info.selection_exit_terminal_fallback_reorder_count;
+    }
+    LUISA_DEBUG_ASSERT(
+        !has_ordinary_target || targets.empty() ||
+            !is_sink(targets.back()),
+        "A terminal selection-exit target must not occupy the forwarding "
+        "fallback while an ordinary continuation is available.");
     target_ids.clear();
     for (auto i = size_t{0u}; i < targets.size(); ++i) {
         target_ids.emplace(
@@ -8433,6 +8470,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_loop_context",
             info.selection_exit_loop_context_count);
         report->set(
+            "selection_exit_terminal_target",
+            info.selection_exit_terminal_target_count);
+        report->set(
+            "selection_exit_terminal_fallback_reorder",
+            info.selection_exit_terminal_fallback_reorder_count);
+        report->set(
             "selection_exit_cfg_invalidation",
             info.selection_exit_cfg_invalidation_count);
         report->set(
@@ -8673,6 +8716,10 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_exit_merge_canonicalization_count;
         dst.selection_exit_loop_context_count +=
             src.selection_exit_loop_context_count;
+        dst.selection_exit_terminal_target_count +=
+            src.selection_exit_terminal_target_count;
+        dst.selection_exit_terminal_fallback_reorder_count +=
+            src.selection_exit_terminal_fallback_reorder_count;
         dst.selection_exit_cfg_invalidation_count +=
             src.selection_exit_cfg_invalidation_count;
         dst.selection_exit_local_invalidation_count +=
