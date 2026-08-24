@@ -1368,7 +1368,8 @@ public:
                 _sort_hint = radix_sort::instance<
                     Buffer<uint>, ByteBuffer, uint>{
                     device, _config.thread_count, _sort_temp_storage,
-                    &get_hint, &keep_index, &get_hint, 1u, hint_digit};
+                    &get_hint, &keep_index, &get_hint, 1u, hint_digit,
+                    0u, 31u, "graph_wavefront_hint_sort"};
             } else {
                 auto high_bit = 0u;
                 while ((_config.hint_range >> high_bit) != 1u) {
@@ -1378,7 +1379,8 @@ public:
                     Buffer<uint>, ByteBuffer, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_hint, &keep_index, &get_hint, 0u,
-                    radix_sort::hist_block_size, 0u, high_bit};
+                    radix_sort::hist_block_size, 0u, high_bit,
+                    "graph_wavefront_hint_sort"};
             }
         }
         _queue_indices = device.create_buffer<uint>(queue_element_count);

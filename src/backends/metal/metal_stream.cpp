@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -32,6 +33,7 @@ private:
     std::mutex _mutex;
     std::unordered_map<std::string, MetalCommandBufferProfileStats> _gpu_stats;
     std::unordered_map<std::string, MetalCommandBufferProfileStats> _host_stats;
+    bool _scope_started{false};
 
 private:
     static void _record(
@@ -51,6 +53,14 @@ private:
     }
 
 public:
+    void begin_scope_once() noexcept {
+        std::scoped_lock lock{_mutex};
+        if (_scope_started) { return; }
+        _gpu_stats.clear();
+        _host_stats.clear();
+        _scope_started = true;
+    }
+
     ~MetalCommandBufferProfiler() noexcept {
         std::vector<std::pair<std::string, MetalCommandBufferProfileStats>> gpu_stats;
         std::vector<std::pair<std::string, MetalCommandBufferProfileStats>> host_stats;
@@ -112,6 +122,12 @@ public:
 [[nodiscard]] MetalCommandBufferProfiler &metal_command_buffer_profiler() noexcept {
     static MetalCommandBufferProfiler profiler;
     return profiler;
+}
+
+[[nodiscard]] const char *metal_command_buffer_profile_start_stage() noexcept {
+    static const auto stage =
+        std::getenv("LUISA_METAL_COMMAND_BUFFER_PROFILE_START_STAGE");
+    return stage;
 }
 
 [[nodiscard]] double elapsed_milliseconds(
@@ -294,9 +310,15 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
             auto end = cb->GPUEndTime();
             auto label = cb->label();
             if (end > begin) {
-                metal_command_buffer_profiler().record_gpu(
-                    label == nullptr ? "<unlabeled>" : label->utf8String(),
-                    (end - begin) * 1.0e3);
+                auto &profiler = metal_command_buffer_profiler();
+                auto label_name =
+                    label == nullptr ? "<unlabeled>" : label->utf8String();
+                auto start_stage = metal_command_buffer_profile_start_stage();
+                if (start_stage != nullptr &&
+                    std::string_view{label_name} == start_stage) {
+                    profiler.begin_scope_once();
+                }
+                profiler.record_gpu(label_name, (end - begin) * 1.0e3);
             }
         });
     }

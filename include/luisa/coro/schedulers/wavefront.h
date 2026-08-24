@@ -373,7 +373,8 @@ private:
             _sort_token = radix_sort::instance<ByteBuffer, uint>{
                 device, _config.thread_count, _sort_temp_storage,
                 &get_scheduler_token, &identity_index, &get_scheduler_token,
-                1u, static_cast<uint>(nc)};
+                1u, static_cast<uint>(nc), 0u, 31u,
+                "wavefront_token_sort"};
         }
         if (_has_hint_sort) {
             Callable<uint(uint, Buffer<uint>, ByteBuffer, uint)> keep_index = [](
@@ -396,14 +397,16 @@ private:
                 _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_coro_hint, &keep_index, &get_coro_hint,
-                    1u, hint_digit};
+                    1u, hint_digit, 0u, 31u,
+                    "wavefront_hint_sort"};
             } else {
                 auto high_bit = 0u;
                 while ((_config.hint_range >> high_bit) != 1u) { high_bit++; }
                 _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_coro_hint, &keep_index, &get_coro_hint,
-                    0u, radix_sort::hist_block_size, 0u, high_bit};
+                    0u, radix_sort::hist_block_size, 0u, high_bit,
+                    "wavefront_hint_sort"};
             }
         }
 
