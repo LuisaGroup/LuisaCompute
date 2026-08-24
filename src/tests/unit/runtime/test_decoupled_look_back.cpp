@@ -388,15 +388,35 @@ void test_decoupled_look_back(Device &device) {
     Stream stream = device.create_stream();
 
     constexpr size_t WARP_SIZE = 32;
-    constexpr size_t BLOCK_SIZE = 256;
-    constexpr size_t NUM_TILES = 102400;
+    constexpr uint BLOCK_SIZE = 256;
+
+    // The look-back spin-waits on the status of predecessor tiles, and there is
+    // one thread block per tile. A block can only be unblocked by a block that
+    // is actually running, and no backend guarantees that blocks which have not
+    // been scheduled yet will ever be scheduled, so a single grid covering all
+    // tiles deadlocks as soon as it exceeds what the device can hold resident
+    // (on an Apple M4 that happens between 512 and 1024 blocks of 256 threads).
+    // Tiles are therefore processed in resident-sized batches: inside a batch
+    // the look-back spins as intended, and predecessors from earlier batches
+    // are already committed because the batches are submitted in order.
+    constexpr uint BATCH_BLOCK_COLS = 32u;
+    constexpr uint BATCH_BLOCK_ROWS = 8u;
+    constexpr uint TILES_PER_BATCH = BATCH_BLOCK_COLS * BATCH_BLOCK_ROWS;
+    constexpr uint NUM_BATCHES = 400u;
+    constexpr size_t NUM_TILES = static_cast<size_t>(TILES_PER_BATCH) * NUM_BATCHES;
+
+    // the look-back walks 32 predecessors at a time and relies on the padding
+    // entries in front of tile 0 to terminate, so the padding has to be
+    // initialized as well
+    static_assert(NUM_TILES >= ScanTileStateViewer<int>::TILE_STATUS_PADDING);
 
     auto scan_tile_status_buffer = device.create_buffer<uint>(WARP_SIZE + NUM_TILES);
     auto scan_tile_value_partial_buffer = device.create_buffer<int>(WARP_SIZE + NUM_TILES);
     auto scan_tile_value_inclusive_buffer = device.create_buffer<int>(WARP_SIZE + NUM_TILES);
 
-    constexpr uint INIT_DISPATCH_X = 400u;
-    constexpr uint INIT_DISPATCH_Y = 256u;
+    // one thread per tile; the first 32 threads also fill the padding entries
+    constexpr uint INIT_DISPATCH_X = TILES_PER_BATCH;
+    constexpr uint INIT_DISPATCH_Y = NUM_BATCHES;
     Kernel2D init_kernel = [&](BufferVar<uint> tile_status_buffer, BufferVar<int> tile_value_partial_buffer, BufferVar<int> tile_value_inclusive_buffer) noexcept {
         InitializeWardStatus2D(NUM_TILES, tile_status_buffer);
     };
@@ -406,18 +426,22 @@ void test_decoupled_look_back(Device &device) {
 
     auto scan_op = [](const Var<int> &a, const Var<int> &b) noexcept { return a + b; };
 
-    constexpr uint DECOUPLED_DISPATCH_X = 51200u; // 200 blocks * 256 threads
-    constexpr uint DECOUPLED_DISPATCH_Y = 512u;   // 512 blocks
-    constexpr uint NUM_BLOCK_ROWS = 200u;
+    // one batch: BATCH_BLOCK_COLS blocks along x, BATCH_BLOCK_ROWS along y
+    constexpr uint DECOUPLED_DISPATCH_X = BATCH_BLOCK_COLS * BLOCK_SIZE;
+    constexpr uint DECOUPLED_DISPATCH_Y = BATCH_BLOCK_ROWS;
     Kernel2D decoupled_look_back_kernel = [&](BufferVar<uint> tile_status,
                                               BufferVar<int> tile_partial,
                                               BufferVar<int> tile_inclusive,
                                               BufferVar<int> exclusive_output,
-                                              BufferVar<int> inclusive_output) noexcept {
+                                              BufferVar<int> inclusive_output,
+                                              UInt tile_offset) noexcept {
         luisa::compute::set_block_size(BLOCK_SIZE, 1u);
         luisa::compute::set_warp_size(WARP_SIZE);
         compute::UInt tid = compute::thread_x();
-        compute::UInt tile_idx = compute::block_id().y * NUM_BLOCK_ROWS + compute::block_id().x;
+        // linearized in x-major order, matching the order blocks are launched
+        // so that a tile's predecessors are always launched before it
+        compute::UInt tile_idx =
+            tile_offset + compute::block_id().y * BATCH_BLOCK_COLS + compute::block_id().x;
 
         ScanTileStateViewer<int> viewer{tile_status, tile_partial, tile_inclusive};
 
@@ -451,13 +475,20 @@ void test_decoupled_look_back(Device &device) {
     auto exclusive_output = device.create_buffer<int>(NUM_TILES);
     auto inclusive_output = device.create_buffer<int>(NUM_TILES);
     auto decoupled_look_back_shader = device.compile(decoupled_look_back_kernel);
-    cmdlist << decoupled_look_back_shader(scan_tile_status_buffer.view(),
-                                          scan_tile_value_partial_buffer.view(),
-                                          scan_tile_value_inclusive_buffer.view(),
-                                          exclusive_output.view(),
-                                          inclusive_output.view())
-                   .dispatch(DECOUPLED_DISPATCH_X, DECOUPLED_DISPATCH_Y);
-    stream << cmdlist.commit() << synchronize();
+    // one submission per batch, so that the batches are strictly ordered and a
+    // batch only ever spins on predecessors that are resident or already done
+    for (auto batch = 0u; batch < NUM_BATCHES; batch++) {
+        CommandList batch_cmdlist;
+        batch_cmdlist << decoupled_look_back_shader(scan_tile_status_buffer.view(),
+                                                    scan_tile_value_partial_buffer.view(),
+                                                    scan_tile_value_inclusive_buffer.view(),
+                                                    exclusive_output.view(),
+                                                    inclusive_output.view(),
+                                                    batch * TILES_PER_BATCH)
+                             .dispatch(DECOUPLED_DISPATCH_X, DECOUPLED_DISPATCH_Y);
+        stream << batch_cmdlist.commit();
+    }
+    stream << synchronize();
 
     luisa::vector<int> exclusive_result(NUM_TILES);
     luisa::vector<int> inclusive_result(NUM_TILES);
