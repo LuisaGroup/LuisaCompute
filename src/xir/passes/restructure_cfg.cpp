@@ -3928,6 +3928,46 @@ void repair_target_state_dispatch_ssa(
     };
     luisa::vector<RerouteEdge> normalized_edges;
     normalized_edges.reserve(reroute_edges.size());
+    for (auto edge : reroute_edges) {
+        auto *target = canonical_exit_target(edge.dst);
+        normalized_edges.emplace_back(RerouteEdge{edge.src, edge.dst, target});
+    }
+    // The exit analysis stores membership in pointer-keyed sets, and
+    // predecessor use-list order reflects mutation history rather than CFG
+    // semantics. Neither is a valid selector-id order: allowing it to leak
+    // into this ladder makes equivalent break/continue dispatches alternate
+    // polarity across processes and changes downstream shader cache keys.
+    // Canonicalize both the edge rewrite order and target order by the
+    // function-owned block sequence, which is stable for an identical XIR
+    // program.
+    luisa::unordered_map<BasicBlock *, size_t> stable_block_indices;
+    stable_block_indices.reserve(
+        def->basic_blocks().count_size());
+    auto next_block_index = size_t{0u};
+    for (auto *block : def->basic_blocks()) {
+        stable_block_indices.emplace(
+            block, next_block_index++);
+    }
+    auto block_index = [&](BasicBlock *block) noexcept {
+        auto iter = stable_block_indices.find(block);
+        LUISA_DEBUG_ASSERT(
+            iter != stable_block_indices.end(),
+            "Selection-exit target must belong to its function.");
+        return iter->second;
+    };
+    std::sort(
+        normalized_edges.begin(), normalized_edges.end(),
+        [&](const RerouteEdge &lhs,
+            const RerouteEdge &rhs) noexcept {
+            auto lhs_src = block_index(lhs.src);
+            auto rhs_src = block_index(rhs.src);
+            if (lhs_src != rhs_src) { return lhs_src < rhs_src; }
+            auto lhs_dst = block_index(lhs.dst);
+            auto rhs_dst = block_index(rhs.dst);
+            if (lhs_dst != rhs_dst) { return lhs_dst < rhs_dst; }
+            return block_index(lhs.target) <
+                   block_index(rhs.target);
+        });
 
     luisa::unordered_map<BasicBlock *, uint32_t> target_ids;
     luisa::vector<BasicBlock *> targets;
@@ -3938,23 +3978,24 @@ void repair_target_state_dispatch_ssa(
         targets.emplace_back(target);
         return id;
     };
-    for (auto edge : reroute_edges) {
-        auto *target = canonical_exit_target(edge.dst);
-        normalized_edges.emplace_back(RerouteEdge{edge.src, edge.dst, target});
-        (void)add_target(target);
+    for (auto edge : normalized_edges) {
+        (void)add_target(edge.target);
     }
     // Canonicalize the state-dispatch ladder so loop boundaries are tested
     // before ordinary in-loop continuations. This gives each generated guard
     // exactly one break/continue arm and one fallthrough/merge arm, avoiding a
     // non-progressing "normal vs. (break-or-continue)" MIXED dispatch.
-    std::stable_sort(
+    std::sort(
         targets.begin(), targets.end(),
         [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
             auto lhs_boundary =
                 is_legal_structured_exit(lhs);
             auto rhs_boundary =
                 is_legal_structured_exit(rhs);
-            return lhs_boundary && !rhs_boundary;
+            if (lhs_boundary != rhs_boundary) {
+                return lhs_boundary && !rhs_boundary;
+            }
+            return block_index(lhs) < block_index(rhs);
         });
     target_ids.clear();
     for (auto i = size_t{0u}; i < targets.size(); ++i) {
@@ -4469,7 +4510,15 @@ struct SelectionExitDrainResult {
                                         RestructureCFGInfo &info) noexcept {
     ScopedTimer _timer_try_loop("try_restructure_loop");
     luisa::vector<BasicBlock *> all_blocks;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept { all_blocks.emplace_back(bb); });
+    all_blocks.reserve(def->basic_blocks().count_size());
+    for (auto *block : def->basic_blocks()) {
+        all_blocks.emplace_back(block);
+    }
+    luisa::unordered_map<BasicBlock *, size_t> block_indices;
+    block_indices.reserve(all_blocks.size());
+    for (auto i = size_t{0u}; i < all_blocks.size(); ++i) {
+        block_indices.emplace(all_blocks[i], i);
+    }
 
     luisa::unordered_set<BasicBlock *> already_loop_headers;
     for (auto *bb : all_blocks) {
@@ -4529,9 +4578,16 @@ struct SelectionExitDrainResult {
 
     if (candidates.empty()) { return false; }
 
-    luisa::sort(candidates.begin(), candidates.end(), [](const LoopCandidate &a, const LoopCandidate &b) noexcept {
-        return a.depth > b.depth;
-    });
+    luisa::sort(
+        candidates.begin(), candidates.end(),
+        [&](const LoopCandidate &a,
+            const LoopCandidate &b) noexcept {
+            if (a.depth != b.depth) {
+                return a.depth > b.depth;
+            }
+            return block_indices.at(a.header) <
+                   block_indices.at(b.header);
+        });
 
     bool any = false;
     luisa::unordered_set<BasicBlock *> newly_restructured_headers;
@@ -4737,7 +4793,8 @@ struct SelectionExitDrainResult {
         }
 
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> pre_exit_edges;
-        for (auto *lb : loop_blocks) {
+        for (auto *lb : all_blocks) {
+            if (!loop_blocks.contains(lb)) { continue; }
             if (!lb->is_terminated()) { continue; }
             lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
                 if (succ == header) { return; }
@@ -4746,8 +4803,12 @@ struct SelectionExitDrainResult {
             });
         }
         luisa::unordered_set<BasicBlock *> pre_exit_targets_set;
-        for (auto &[src, tgt] : pre_exit_edges) { pre_exit_targets_set.emplace(tgt); }
-        luisa::vector<BasicBlock *> pre_exit_targets{pre_exit_targets_set.begin(), pre_exit_targets_set.end()};
+        luisa::vector<BasicBlock *> pre_exit_targets;
+        for (auto &[src, tgt] : pre_exit_edges) {
+            if (pre_exit_targets_set.emplace(tgt).second) {
+                pre_exit_targets.emplace_back(tgt);
+            }
+        }
 
         BasicBlock *dispatch_merge_or_null = nullptr;
         if (pre_exit_targets.size() > 1) {
@@ -4789,6 +4850,12 @@ struct SelectionExitDrainResult {
             if (!dom.contains(pred)) { return; }
             if (!loop_blocks.contains(pred)) { entry_preds.emplace_back(pred); }
         });
+        luisa::sort(
+            entry_preds.begin(), entry_preds.end(),
+            [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
+                return block_indices.at(lhs) <
+                       block_indices.at(rhs);
+            });
 
         auto *preheader = def->create_basic_block();
         if (def->body_block() == header) { def->set_body_block(preheader); }
@@ -4804,8 +4871,21 @@ struct SelectionExitDrainResult {
 
         auto *loop_merge = def->create_basic_block();
 
+        luisa::vector<BasicBlock *> ordered_loop_blocks;
+        ordered_loop_blocks.reserve(loop_blocks.size());
+        for (auto *block : all_blocks) {
+            if (loop_blocks.contains(block)) {
+                ordered_loop_blocks.emplace_back(block);
+            }
+        }
+        if (std::find(
+                ordered_loop_blocks.begin(),
+                ordered_loop_blocks.end(),
+                canonical_latch) == ordered_loop_blocks.end()) {
+            ordered_loop_blocks.emplace_back(canonical_latch);
+        }
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> exit_edges;
-        for (auto *lb : loop_blocks) {
+        for (auto *lb : ordered_loop_blocks) {
             if (!lb->is_terminated()) { continue; }
             lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
                 if (succ == loop_merge) { return; }
@@ -4816,8 +4896,12 @@ struct SelectionExitDrainResult {
         }
 
         luisa::unordered_set<BasicBlock *> exit_targets_set;
-        for (auto &[src, tgt] : exit_edges) { exit_targets_set.emplace(tgt); }
-        luisa::vector<BasicBlock *> exit_targets{exit_targets_set.begin(), exit_targets_set.end()};
+        luisa::vector<BasicBlock *> exit_targets;
+        for (auto &[src, tgt] : exit_edges) {
+            if (exit_targets_set.emplace(tgt).second) {
+                exit_targets.emplace_back(tgt);
+            }
+        }
 
         auto *mod = def->parent_module();
 
@@ -6714,6 +6798,29 @@ struct RemainingDivergentOverlay {
     auto modified = false;
 
     for (;;) {
+        // Basic blocks are owned in creation order. Unlike executable DFS or
+        // predecessor use lists, that order does not depend on pointer-hash
+        // iteration or on the history of edge rewrites. Use it as the sole
+        // tie-breaker for selector target numbering in this CFG version.
+        luisa::vector<BasicBlock *> stable_blocks;
+        stable_blocks.reserve(
+            def->basic_blocks().count_size());
+        luisa::unordered_map<BasicBlock *, size_t>
+            stable_block_indices;
+        stable_block_indices.reserve(
+            def->basic_blocks().count_size());
+        for (auto *block : def->basic_blocks()) {
+            stable_block_indices.emplace(
+                block, stable_blocks.size());
+            stable_blocks.emplace_back(block);
+        }
+        auto block_index = [&](BasicBlock *block) noexcept {
+            auto iter = stable_block_indices.find(block);
+            LUISA_DEBUG_ASSERT(
+                iter != stable_block_indices.end(),
+                "Construct-exit block must belong to its function.");
+            return iter->second;
+        };
         // No mutation occurs while a candidate is selected. Materialize the
         // boundary relation once for this CFG version; the successful rewrite
         // at the bottom invalidates it together with dominance.
@@ -6895,8 +7002,12 @@ struct RemainingDivergentOverlay {
         }
         luisa::sort(
             construct_order.begin(), construct_order.end(),
-            [](auto *lhs, auto *rhs) noexcept {
-                return lhs->depth > rhs->depth;
+            [&](auto *lhs, auto *rhs) noexcept {
+                if (lhs->depth != rhs->depth) {
+                    return lhs->depth > rhs->depth;
+                }
+                return block_index(lhs->header) <
+                       block_index(rhs->header);
             });
 
         Construct *candidate = nullptr;
@@ -6967,7 +7078,8 @@ struct RemainingDivergentOverlay {
             }
 
             luisa::vector<SelectionExitEdge> exits;
-            for (auto *block : blocks) {
+            for (auto *block : stable_blocks) {
+                if (!blocks.contains(block)) { continue; }
                 traverse_executable_successors(
                     block, [&](BasicBlock *successor) noexcept {
                         if (!blocks.contains(successor)) {
@@ -7004,6 +7116,19 @@ struct RemainingDivergentOverlay {
             }
         }
         if (candidate == nullptr) { break; }
+
+        luisa::sort(
+            candidate_exits.begin(), candidate_exits.end(),
+            [&](SelectionExitEdge lhs,
+                SelectionExitEdge rhs) noexcept {
+                auto lhs_src = block_index(lhs.src);
+                auto rhs_src = block_index(rhs.src);
+                if (lhs_src != rhs_src) {
+                    return lhs_src < rhs_src;
+                }
+                return block_index(lhs.dst) <
+                       block_index(rhs.dst);
+            });
 
         luisa::unordered_map<BasicBlock *, uint32_t> target_ids;
         luisa::vector<BasicBlock *> targets;

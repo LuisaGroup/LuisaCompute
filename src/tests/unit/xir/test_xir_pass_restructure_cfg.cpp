@@ -37,6 +37,7 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/verifier.h>
 
 #include <array>
@@ -1057,6 +1058,98 @@ void reg_restructure_cfg() {
         expect(!second.changed());
         expect(count_owned_blocks(kernel) ==
                stable_block_count);
+    };
+
+    "restructure_exit_selector_order_is_deterministic"_test = [] {
+        std::optional<uint64_t> expected_hash;
+        for (auto iteration = 0u; iteration < 24u; ++iteration) {
+            // Keep a differently sized block allocation alive while building
+            // the fixture. Pointer-keyed unordered containers then receive a
+            // different address distribution on every iteration, while the
+            // fixture's owned-block order and executable CFG stay identical.
+            Module allocation_perturbation;
+            auto *padding_kernel =
+                allocation_perturbation.create_kernel();
+            padding_kernel->create_body_block();
+            for (auto i = 0u; i < iteration * 7u; ++i) {
+                static_cast<void>(
+                    padding_kernel->create_basic_block());
+            }
+
+            Module module;
+            BasicBlock *entry;
+            auto *kernel = make_kernel_with_body(module, entry);
+            auto *loop_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *outer_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *dispatch_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *buffer = kernel->create_resource_argument(
+                Type::buffer(Type::of<uint32_t>()));
+            auto *zero = module.create_constant_zero(
+                Type::of<uint32_t>());
+            XIRBuilder builder;
+
+            builder.set_insertion_point(entry);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *loop_merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(loop_condition, body, loop_merge);
+
+            builder.set_insertion_point(body);
+            auto *outer = builder.if_(outer_condition);
+            auto *nested_header = outer->create_true_block();
+            auto *payload = outer->create_false_block();
+            auto *outer_merge = outer->create_merge_block();
+
+            builder.set_insertion_point(nested_header);
+            auto *nested = builder.if_(dispatch_condition);
+            auto *direct_continue = nested->create_true_block();
+            nested->set_false_target(payload);
+            auto *nested_merge = nested->create_merge_block();
+            builder.set_insertion_point(direct_continue);
+            builder.br(prepare);
+            builder.set_insertion_point(nested_merge);
+            builder.unreachable_();
+
+            builder.set_insertion_point(payload);
+            builder.call(ResourceWriteOp::BUFFER_WRITE,
+                         {buffer, zero, zero});
+            builder.br(prepare);
+            builder.set_insertion_point(outer_merge);
+            builder.unreachable_();
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            builder.set_insertion_point(loop_merge);
+            builder.return_void();
+
+            auto info = restructure_cfg_pass_run_on_function(
+                kernel,
+                {.main_iteration_limit = 64u,
+                 .post_iteration_limit = 8u});
+            expect(info.succeeded());
+            expect(info.iteration_limit_count == 0u);
+            auto verification = xir_verify_module(
+                &module,
+                {.require_unique_merge_blocks = true,
+                 .require_canonical_break_continue_targets = true});
+            expect(verification.succeeded());
+            auto ast = xir_to_ast_translate(*kernel, {});
+            expect(ast != nullptr);
+            if (ast == nullptr) { continue; }
+            auto hash = ast->hash();
+            if (!expected_hash) {
+                expected_hash.emplace(hash);
+            } else {
+                expect(hash == *expected_hash)
+                    << "selector target IDs must depend on stable CFG order, "
+                       "not pointer-hash iteration";
+            }
+        }
     };
 
     "restructure_module_late_failure_is_atomic_across_functions"_test = [] {
