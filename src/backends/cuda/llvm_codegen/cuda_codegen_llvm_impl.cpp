@@ -285,7 +285,7 @@ public:
     void add(llvm::Pass *pass) override {
         constexpr llvm::StringRef replace_image_handles_pass_name = "NVPTX Replace Image Handles";
         if (pass->getPassName() == replace_image_handles_pass_name) {
-            LUISA_WARNING_WITH_LOCATION("Skipping buggy pass: {}", replace_image_handles_pass_name);
+            // LUISA_WARNING_WITH_LOCATION("Skipping buggy pass: {}", replace_image_handles_pass_name);
         } else {
             PassManager::add(pass);
         }

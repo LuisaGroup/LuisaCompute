@@ -56,6 +56,7 @@ const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMI
 namespace luisa::compute::cuda {
 namespace {
 const bool LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN = [] {
+    return true;
     if (auto env = getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN")) {
         return std::string_view{env} == "1";
     }
@@ -890,6 +891,10 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
                         kernel.block_size().y,
                         kernel.block_size().z},
                     .cuda_arch = _handle.compute_capability(),
+                    // Keep the experimental path responsive for large,
+                    // animation-varying ray-tracing kernels. O0 makes NVPTX
+                    // emission slower than O1 for the Smaray MegaKernel.
+                    .opt_level = CUDACodegenLLVMConfig::OptLevel::LEVEL_LESS,
                     .enable_fast_math = option.enable_fast_math,
                     .enable_debug_info = option.enable_debug_info,
                 };

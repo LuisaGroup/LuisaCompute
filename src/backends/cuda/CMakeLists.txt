@@ -45,7 +45,14 @@ if (CUDAToolkit_FOUND)
             optix_api.cpp optix_api.h
             default_binary_io.cpp)
 
+    set_source_files_properties(
+            ${CMAKE_CURRENT_LIST_DIR}/cuda_builtin_embedded.cpp
+            PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION TRUE)
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+    add_dependencies(luisa-compute-backend-cuda luisa-compute-backend-cuda-embed)
+    set_target_properties(luisa-compute-backend-cuda PROPERTIES
+            UNITY_BUILD ON
+            UNITY_BUILD_BATCH_SIZE 8)
 
     # extensions
     target_sources(luisa-compute-backend-cuda PRIVATE
@@ -82,7 +89,11 @@ if (CUDAToolkit_FOUND)
                 WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
                 COMMENT "Embedding CUDA built-in sources..."
                 VERBATIM)
+        set_source_files_properties(
+                ${CMAKE_CURRENT_LIST_DIR}/cuda_devrt_embedded.cpp
+                PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION TRUE)
         target_sources(luisa-compute-backend-cuda PRIVATE cuda_devrt_embedded.cpp cuda_devrt_embedded.h)
+        add_dependencies(luisa-compute-backend-cuda luisa-compute-backend-cudadevrt-embed)
         target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_CUDADEVRT=1)
     else ()
         message(WARNING "Could not find CUDA device runtime library (cudadevrt) in ${CUDAToolkit_LIBRARY_DIR}. CUDA indirect launches may not work.")

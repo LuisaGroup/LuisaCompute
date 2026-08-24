@@ -9,6 +9,7 @@
 #include "cuda_shader_optix.h"
 #include "cuda_shader_printer.h"
 
+
 namespace luisa::compute::cuda {
 
 struct alignas(optix::SBT_RECORD_ALIGNMENT) OptiXSBTRecord {
