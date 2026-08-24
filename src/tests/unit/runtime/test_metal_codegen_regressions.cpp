@@ -153,6 +153,29 @@ void test_metal_codegen_regressions(
     expect(close(result[0], make_float4(1.0f, 0.0f, 0.0f, 1.0f)))
         << "A sampled and storage texture must use separate Metal access views";
 
+    auto bindless_input = device.create_buffer<uint>(2u);
+    auto bindless_output = device.create_buffer<uint>(4u);
+    auto bindless = device.create_bindless_array(4u);
+    bindless.emplace_on_update(1u, bindless_input);
+    bindless.emplace_on_update(2u, bindless_output);
+    std::array<uint, 2u> bindless_values{17u, 29u};
+    std::array<uint, 4u> bindless_result{};
+    Kernel1D uniform_bindless = [](BindlessVar heap) noexcept {
+        auto id = dispatch_id().x;
+        auto untyped = heap.buffer<uint>(1u, false, true).read(id);
+        auto typed = heap.buffer<uint>(1u, true, true).read(id);
+        heap.buffer<uint>(2u, false, true).write(id, untyped + typed);
+        heap.buffer<uint>(2u, true, true).write(id + 2u, untyped + typed + 1u);
+    };
+    auto uniform_bindless_shader = device.compile(uniform_bindless);
+    stream << bindless_input.copy_from(luisa::span{bindless_values})
+           << bindless.update()
+           << uniform_bindless_shader(bindless).dispatch(2u)
+           << bindless_output.copy_to(luisa::span{bindless_result})
+           << synchronize();
+    expect(bindless_result == std::array<uint, 4u>{34u, 58u, 35u, 59u})
+        << "Metal uniform and typed-uniform bindless buffers must compile and execute";
+
     if (device.backend_name() == "metal") {
         auto add_one = Callable<float(float)>{[](Float value) noexcept {
             return value + 1.0f;
