@@ -714,11 +714,29 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         case xir::ArithmeticOp::BINARY_DIV:
             if (is_float) {
-                id = binary(spv::Op::OpFDiv);
+                if (elem->is_float16() && (t->is_scalar() || t->is_vector())) {
+                    // Some SPIR-V drivers mishandle float16 division of
+                    // denormal operands (e.g. denormal/denormal returns inf
+                    // instead of the correctly-rounded normal quotient).
+                    // Compute the division in float32 and narrow the result;
+                    // the extra float32 rounding is negligible compared with
+                    // the driver defect it avoids.
+                    auto f32_scalar = _builder.makeFloatType(32);
+                    auto f32_type = is_scalar ? f32_scalar :
+                                                _builder.makeVectorType(f32_scalar, t->dimension());
+                    auto a32 = _ensure_type(operand(0), f32_type);
+                    auto b32 = _ensure_type(operand(1), f32_type);
+                    auto q32 = _builder.createBinOp(
+                        spv::Op::OpFDiv, f32_type, a32, b32);
+                    id = _ensure_type(q32, type);
+                } else {
+                    id = binary(spv::Op::OpFDiv);
+                }
             } else if (is_signed_int) {
                 id = binary(spv::Op::OpSDiv);
-            } else
+            } else {
                 id = binary(spv::Op::OpUDiv);
+            }
             break;
         case xir::ArithmeticOp::BINARY_MOD:
             if (elem->is_float32())

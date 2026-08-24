@@ -849,6 +849,7 @@ struct Layout {
         return scope == o.scope && dtype == o.dtype && dims == o.dims;
     }
 };
+// TODO implement a LayoutHash class, compute Layout hash use luisa::hash
 
 // ---------------------------------------------------------------------------
 // The lowering engine
@@ -914,6 +915,11 @@ public:
                 builder->set_block_size(uint3{meta.block_size[0], meta.block_size[1], _batch_block_z});
                 if (_batching) { _emit_batch_prologue(); }
                 _prescan_gemm_fragments(tile_fn->body()->statements());
+                // F1 (perf_report): small fragments used by elementwise
+                // statements are forced onto the block-shared backing so the
+                // statements partition across threads instead of the
+                // replicated-per-thread full-loop pathology.
+                _prescan_elementwise_fragments(tile_fn->body()->statements());
                 _emit_all(tile_fn->body()->statements());
             });
         }
@@ -993,6 +999,16 @@ private:
       // _prescan_gemm_fragments (matched by name first, layout as fallback).
       luisa::unordered_set<luisa::string> _forced_shared_names;
       luisa::vector<Layout> _forced_shared_layouts;
+
+      // Fragments that MUST keep the per-thread replicated layout (recorded by
+      // _prescan_elementwise_fragments): warp shuffles / warp reduces read the
+      // per-LANE replica (a shared-backed fragment would give every lane the
+      // same element), an ATOMIC value tensor carries a per-thread scalar, and
+      // a GEMM accumulator on the warp-K-split path uses the barrier-free
+      // per-lane replica write-back.  These names/layouts are excluded from
+      // the F1 elementwise forced-shared set (see _prescan_elementwise_fragments).
+      luisa::unordered_set<luisa::string> _replicated_fragment_names;
+      luisa::vector<Layout> _replicated_fragment_layouts; // TODO: change to unordered_set
 
       // Lazy fragment values (lc_optimize for the replicated-fragment layout):
       // a whole-tile STORE into a small per-thread Fragment is recorded as an
@@ -1716,6 +1732,49 @@ private:
     // (plan 1.3: removes the per-element div/mod for rank-2 tiles.)
     template<typename Body>
     void _partition_2d(uint32_t rows, uint32_t cols, Body &&body) {
+        // Exact-coverage condition (perf_report F2): the 2D strided partition
+        // below covers every cell iff cols >= threads (the fast axis dominates
+        // and every column is reached by the tid-strided c loop) or
+        // threads % cols == 0 (every row-group has the full column-thread
+        // complement).  When cols < threads and threads % cols != 0, the last
+        // row-group runs out of threads before the last columns and whole
+        // columns of some rows are silently never processed — e.g. a 72x72
+        // tile with 256 threads (tw = 72, th = 4): threads 216-255 map to
+        // row 3 with columns 0-39 only, so rows == 3 (mod 4) lose their last
+        // 32 columns.  Fall back to a flattened linear partition in that case:
+        //   UInt idx = i * threads + thread_id().x;  // row-major decompose
+        // which assigns every cell exactly once and stays coalesced along the
+        // fast axis (consecutive threads -> consecutive linear indices).
+        if (cols < _threads && _threads % cols != 0u) [[unlikely]] {
+            auto total = rows * cols;
+            auto iters = (total + _threads - 1u) / _threads;
+            auto tid = Expr<uint3>{_fb->thread_id()}.x;
+            auto emit_one = [&](const Expression *idx) {
+                // row-major decompose over (rows, cols): c = idx % cols,
+                // r = idx / cols (r < rows is implied by idx < rows*cols).
+                auto rem = Var<uint>{Expr<uint>{idx}};
+                auto c = (rem % cols).expression();
+                rem = rem / cols;
+                body(rem.expression(), c);
+            };
+            if (total % _threads != 0u) [[unlikely]] {
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(iters)}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *i) {
+                        auto idx = (Expr<uint>{i} * _threads + tid).expression();
+                        auto cond = (Expr<uint>{idx} < total).expression();
+                        if_(Expr<bool>{cond}, [&] { emit_one(idx); });
+                    }(_range_i_.expression());
+                }
+            } else {
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(iters)}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *i) {
+                        auto idx = (Expr<uint>{i} * _threads + tid).expression();
+                        emit_one(idx);
+                    }(_range_i_.expression());
+                }
+            }
+            return;
+        }
         // DSL form: decompose the linear thread id once, then stride both axes.
         //   UInt tid = thread_id().x;
         //   UInt r0 = tid / tw; UInt c0 = tid % tw;
@@ -1885,6 +1944,180 @@ private:
             if (l == key) { return true; }
         }
         return false;
+    }
+
+    // True when a fragment must keep the per-thread replicated layout (see
+    // _replicated_fragment_names / _prescan_elementwise_fragments).
+    [[nodiscard]] bool _is_replicated_fragment(const TensorExpr *t) const {
+        if (t == nullptr || t->scope() != TensorScope::Fragment) { return false; }
+        if (auto name = t->name(); !name.empty()) {
+            return _replicated_fragment_names.contains(luisa::string{name});
+        }
+        Layout key{t->scope(), t->dtype(),
+                   luisa::fixed_vector<int32_t, 4>{t->dims().begin(), t->dims().end()}};
+        for (auto &l : _replicated_fragment_layouts) {
+            if (l == key) { return true; }
+        }
+        return false;
+    }
+
+    // Mark a fragment for the block-shared backing unless it is one of the
+    // replicated-layout fragments (warp shuffle/reduce, atomic value, or a
+    // warp-K-split GEMM accumulator).  Name match first, layout as fallback.
+    void _force_fragment_shared(const TensorExpr *t) {
+        if (t == nullptr || t->scope() != TensorScope::Fragment) { return; }
+        if (_is_replicated_fragment(t)) { return; }
+        if (auto name = t->name(); !name.empty()) {
+            _forced_shared_names.emplace(luisa::string{name});
+        } else {
+            _forced_shared_layouts.emplace_back(
+                Layout{TensorScope::Fragment, t->dtype(),
+                       luisa::fixed_vector<int32_t, 4>{t->dims().begin(), t->dims().end()}});
+        }
+    }
+
+    // F1 (perf_report.md): fragments below kFragmentSharedThreshold (512) are
+    // backed by a per-thread replicated local array.  For elementwise work that
+    // layout is pathological: a global->fragment COPY stages the tile through a
+    // shared staging tile and then EVERY thread refills its whole replica
+    // (_replicate_from_staging: product(extent) shared loads + local writes per
+    // thread, ~1 KB of register-spilling local memory for a 16x16 tile), and
+    // in-place fragment statements (CLAMP / FILL / CLEAR / non-lazy STORE) run
+    // a _full_loop so every thread evaluates the whole tile (256x redundant
+    // work).  Measured: bench_clamp 39.0 ms, bench_exp 21.3 ms, bench_pow
+    // 45.5 ms at 8192x512 (0.7-1.6 GB/s, 108-230x slower than shared-backed
+    // copies).  Forcing such fragments onto the block-shared backing makes the
+    // elementwise statements partition the tile across threads exactly like a
+    // Shared tile (one compute per element), matching the report's control
+    // experiment (bench_clamp 39.0 -> 0.218 ms, bench_exp 21.3 -> 0.296 ms).
+    //
+    // The prescan runs after _prescan_gemm_fragments, so non-warp GEMM
+    // accumulators are already forced shared there; here we additionally force
+    // every fragment participating in an elementwise statement, while EXCLUDING
+    // fragments whose semantics require the per-thread replica:
+    //   - WARP_REDUCE / SHUFFLE values (lane-local data, plan 2.7/2.13),
+    //   - ATOMIC value tensors (per-thread scalar),
+    //   - GEMM c on the warp-K-split path (barrier-free per-lane write-back,
+    //     lc_optimize 2.1/2.6 — _prescan_gemm_fragments deliberately leaves
+    //     them replicated).
+    void _prescan_elementwise_fragments(luisa::span<const TensorStmt *const> stmts) {
+        // Pass 1: record the fragments that must stay per-thread replicated.
+        for (auto *stmt : stmts) {
+            auto replicate = [this](const TensorExpr *t) {
+                if (t == nullptr || t->scope() != TensorScope::Fragment) { return; }
+                if (auto name = t->name(); !name.empty()) {
+                    _replicated_fragment_names.emplace(luisa::string{name});
+                } else {
+                    _replicated_fragment_layouts.emplace_back(
+                        Layout{TensorScope::Fragment, t->dtype(),
+                               luisa::fixed_vector<int32_t, 4>{t->dims().begin(), t->dims().end()}});
+                }
+            };
+            switch (stmt->op()) {
+                case TileOpKind::WARP_REDUCE:
+                    replicate(static_cast<const WarpReduceStmt *>(stmt)->value());
+                    break;
+                case TileOpKind::SHUFFLE:
+                    replicate(static_cast<const ShuffleStmt *>(stmt)->value_tensor());
+                    break;
+                case TileOpKind::ATOMIC:
+                    replicate(static_cast<const AtomicStmt *>(stmt)->value_tensor());
+                    break;
+                case TileOpKind::GEMM: {
+                    // mirror the warp-K-split gate of _emit_gemm /
+                    // _prescan_gemm_fragments exactly; warp-path accumulators
+                    // stay replicated (barrier-free single-warp write-back).
+                    auto *g = static_cast<const GemmStmt *>(stmt);
+                    auto *a = g->a();
+                    auto *c = g->c();
+                    if (a != nullptr && c != nullptr &&
+                        c->scope() == TensorScope::Fragment &&
+                        a->rank() == 2u && c->rank() == 2u &&
+                        extent_known(a) && extent_known(c)) {
+                        auto M = static_cast<uint32_t>(axis_extent(c, 0u));
+                        auto N = static_cast<uint32_t>(axis_extent(c, 1u));
+                        auto K = static_cast<uint32_t>(axis_extent(a, 1u));
+                        auto TM = (M % 4u == 0u) ? 4u : ((M % 2u == 0u) ? 2u : 1u);
+                        auto TN = (N % 4u == 0u) ? 4u : ((N % 2u == 0u) ? 2u : 1u);
+                        auto use_warp = !_use_cooperative && !_batching &&
+                                        _threads >= 32u &&
+                                        (M / TM) * (N / TN) < _threads &&
+                                        K >= 256u;
+                        if (use_warp) { replicate(c); }
+                    }
+                    break;
+                }
+                default: break;
+            }
+        }
+        // Pass 2: force block-shared backing for fragments used by elementwise
+        // statements (the F1 pathology), skipping replicated-layout fragments.
+        // Deliberately NOT forced (they already partition or stay lazy):
+        //   - COPY src (fragment->global / fragment->shared reads are already
+        //     partitioned per owned element);
+        //   - STORE op==0 lhs (the whole-tile lazy-store fast path records the
+        //     expression and the consumer copy evaluates only its own partition
+        //     — forcing shared would disable it and materialize a shared tile
+        //     that is never needed, e.g. bench_add C_local = A+B).
+        // STORE op==1 (`*=` row-broadcast) IS forced: it is a read-modify-write
+        // that always materializes through _full_loop on a replicated fragment.
+        for (auto *stmt : stmts) {
+            switch (stmt->op()) {
+                case TileOpKind::COPY:
+                    _force_fragment_shared(static_cast<const CopyStmt *>(stmt)->dst());
+                    break;
+                case TileOpKind::CLEAR:
+                    _force_fragment_shared(static_cast<const ClearStmt *>(stmt)->t());
+                    break;
+                case TileOpKind::FILL:
+                    _force_fragment_shared(static_cast<const FillStmt *>(stmt)->buf());
+                    break;
+                case TileOpKind::CLAMP:
+                    _force_fragment_shared(static_cast<const ClampStmt *>(stmt)->dst());
+                    break;
+                case TileOpKind::STORE: {
+                    auto *s = static_cast<const TileStoreStmt *>(stmt);
+                    if (s->op() != 0) { _force_fragment_shared(s->lhs()); }
+                    _force_fragment_shared(s->rhs_tensor());
+                    break;
+                }
+                case TileOpKind::BINARY: {
+                    auto *b = static_cast<const TileBinaryStmt *>(stmt);
+                    _force_fragment_shared(b->lhs());
+                    _force_fragment_shared(b->rhs_tensor());
+                    break;
+                }
+                case TileOpKind::MAX:
+                    _force_fragment_shared(static_cast<const MaxStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::MIN:
+                    _force_fragment_shared(static_cast<const MinStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::ABS:
+                    _force_fragment_shared(static_cast<const AbsStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::RSQRT:
+                    _force_fragment_shared(static_cast<const RsqrtStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::TRANSPOSE: {
+                    auto *t = static_cast<const TransposeStmt *>(stmt);
+                    _force_fragment_shared(t->src());
+                    _force_fragment_shared(t->dst());
+                    break;
+                }
+                case TileOpKind::FAST_MATH:
+                    _force_fragment_shared(static_cast<const FastMathStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::IEEE_MATH: {
+                    auto *m = static_cast<const IeeeMathStmt *>(stmt);
+                    _force_fragment_shared(m->a());
+                    _force_fragment_shared(m->b());
+                    _force_fragment_shared(m->c());
+                    break;
+                }
+                default: break;
+            }
+        }
     }
 
     /*
@@ -2419,6 +2652,10 @@ private:
                     auto r = (Expr<uint>{cid} / chunks_per_row).expression();
                     auto cb = (Expr<uint>{cid} % chunks_per_row) * chunk;
                     // `chunk` independent global loads materialized in locals
+                    // (a vectorized float4 BUFFER_READ was prototyped for f32
+                    // tiles but XIR rejects reading a Buffer<float> as float4 —
+                    // the typed buffer element must match the read type, and a
+                    // rebind is not available at lowering time).
                     std::array<const Expression *, 8> v{};
                     for (uint32_t u = 0u; u < chunk; ++u) {
                         Coord cc = _zero_coord();
@@ -3246,6 +3483,173 @@ private:
                         _threads >= 32u &&
                         (MT * NT) < _threads &&
                         K >= 256u;
+        // ---- thread-K-split register-tiling path (F4) -----------------------
+        // When the C micro-tile grid is smaller than the block, the shrink
+        // loop below drops TM/TN to 1x1 so every thread owns one element —
+        // a single serial accumulator chain (2 shared loads per FMA, no ILP),
+        // which is the naive-SIMT profile of the f16 512^3 GEMM (16x16 C,
+        // 256 threads, K=32; perf_report F4: 77 GFLOP/s, ~1% of the RTX 4060
+        // FP32 peak).  Instead keep a TM x TN register micro-tile and split K
+        // across `ksplit` consecutive lanes: every lane accumulates its
+        // K-slice into TM*TN independent FMA chains (ILP), then a power-of-two
+        // XOR butterfly over the group combines the partials and lane 0 of the
+        // group writes the tile.  Measured on vk: neutral vs the 1x1 shrink
+        // (3.61 ms both ways at 512^3 f16); kept because it is the report's
+        // register-tiling direction and wins on shapes with longer K.
+        uint32_t ksplit_TM = 0u, ksplit_TN = 0u, ksplit = 0u;
+        if (!use_warp) {
+            // Prefer the tile shape with the best op balance (TM*TN FMA chains
+            // for ILP, (TM+TN)/(TM*TN) LDS per FMA, TM*TN*log2(split) butterfly
+            // ops), then fall back to the shrink loop when no valid split
+            // exists (non-divisible grid, split not a power of two <= 32, or
+            // K too short to amortize the butterfly).
+            auto consider = [&](uint32_t tm, uint32_t tn) {
+                if (ksplit_TM != 0u) { return; }// keep the first (best) candidate
+                if (M % tm != 0u || N % tn != 0u) { return; }
+                auto mt = M / tm, nt = N / tn;
+                auto grid = mt * nt;
+                if (grid >= _threads || _threads % grid != 0u) { return; }
+                auto sp = _threads / grid;
+                if (sp < 2u || sp > 32u || (sp & (sp - 1u)) != 0u) { return; }
+                if (K / sp < 4u) { return; }// amortize the butterfly rounds
+                ksplit_TM = tm;
+                ksplit_TN = tn;
+                ksplit = sp;
+            };
+            consider(2u, 2u);
+            if (ksplit == 0u) { consider(2u, 1u); }
+            if (ksplit == 0u) { consider(1u, 2u); }
+            if (ksplit == 0u) { consider(4u, 1u); }
+            if (ksplit == 0u) { consider(1u, 4u); }
+            if (ksplit == 0u) { consider(4u, 2u); }
+            if (ksplit == 0u) { consider(2u, 4u); }
+        }
+        if (ksplit != 0u) {
+            auto lanes = _lane_count();// runtime expr (pinned 32)
+            auto lane = _lane();       // warp_lane_id()
+            auto l_in_group = (Expr<uint>{lane} % ksplit).expression();
+            auto group_base = (Expr<uint>{lane} - Expr<uint>{l_in_group}).expression();
+            auto k_iters_s = (K + ksplit - 1u) / ksplit;
+            auto tid = Expr<uint3>{_fb->thread_id()}.x;
+            // tile id = tid / ksplit (ksplit is a host power of two -> shift)
+            auto tile_id = (Expr<uint>{tid} / ksplit).expression();
+            auto nt_s = N / ksplit_TN;
+            auto rt = (Expr<uint>{tile_id} / nt_s).expression();
+            auto ct = (Expr<uint>{tile_id} % nt_s).expression();
+            auto r = (Expr<uint>{rt} * ksplit_TM).expression();
+            auto c0 = (Expr<uint>{ct} * ksplit_TN).expression();
+            // TM*TN f32 accumulator locals (max 4x4 = 16; see micro_tile)
+            std::array<Var<float>, 16> acc{};
+            if (frag) {
+                staging = _staging_for(c, out_t);
+                _sync_block();// staging write-after-read hazard
+            }
+            // lane-strided K loop over the group's K-slice; host-unrolled for
+            // small slices so kk*ksplit folds into literals (like the warp path)
+            auto emit_k = [&](const Expression *k) {
+                // TM A loads + TN B loads, then TM*TN FMAs
+                std::array<const Expression *, 16> a_row{};
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    Coord ac = _zero_coord();
+                    auto ri = (Expr<uint>{r} + i).expression();
+                    if (s->trans_a() != 0) {
+                        ac[0] = k;
+                        ac[1] = ri;
+                    } else {
+                        ac[0] = ri;
+                        ac[1] = k;
+                    }
+                    a_row[i] = Var<float>{Expr<float>{_maybe_cast(_value_at(a, ac), wide_t)}}.expression();
+                }
+                std::array<const Expression *, 16> b_col{};
+                for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                    Coord bc = _zero_coord();
+                    auto cj = (Expr<uint>{c0} + j).expression();
+                    if (s->trans_b() != 0) {
+                        bc[0] = cj;
+                        bc[1] = k;
+                    } else {
+                        bc[0] = k;
+                        bc[1] = cj;
+                    }
+                    b_col[j] = Var<float>{Expr<float>{_maybe_cast(_value_at(b, bc), wide_t)}}.expression();
+                }
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                        acc[i * ksplit_TN + j] = fma(Expr<float>{a_row[i]},
+                                                     Expr<float>{b_col[j]},
+                                                     Expr<float>{acc[i * ksplit_TN + j].expression()});
+                    }
+                }
+            };
+            if (K % ksplit == 0u && k_iters_s <= 16u) {
+                for (uint32_t kk = 0u; kk < k_iters_s; ++kk) {
+                    emit_k((Expr<uint>{l_in_group} + kk * ksplit).expression());
+                }
+            } else {
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(k_iters_s)}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *kk) {
+             // DSL: k = kk * ksplit + l_in_group
+             auto k = (Expr<uint>{kk} * ksplit + Expr<uint>{l_in_group}).expression();
+             if (K % ksplit != 0u) {// k may run past K on the last kk
+                 if_(Expr<bool>{(Expr<uint>{k} < K).expression()}, [&] { emit_k(k); });
+             } else {
+                 emit_k(k);
+             }
+         }(_range_i_.expression());
+                }
+            }
+            // XOR butterfly over the ksplit-lane group: every lane receives the
+            // full TM x TN tile (the peer stays inside the group because ksplit
+            // is a power of two and d < ksplit; no divergence, no barrier).
+            for (uint32_t d = 1u; d < ksplit; d <<= 1u) {
+                auto peer = (Expr<uint>{group_base} + (Expr<uint>{l_in_group} ^ d)).expression();
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                        auto e = i * ksplit_TN + j;
+                        auto other = warp_read_lane(acc[e], Expr<uint>{peer});
+                        acc[e] = Expr<float>{acc[e].expression()} + Expr<float>{other.expression()};
+                    }
+                }
+            }
+            // clear_accum == 0: add the existing C element (uniform; the
+            // per-lane K-slice partial is already all-reduced)
+            if (s->clear_accum() == 0) {
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                        Coord cc = _zero_coord();
+                        cc[0] = (Expr<uint>{r} + i).expression();
+                        cc[1] = (Expr<uint>{c0} + j).expression();
+                        acc[i * ksplit_TN + j] = Expr<float>{acc[i * ksplit_TN + j].expression()} +
+                                                  Expr<float>{_maybe_cast(_value_at(c, cc), wide_t)};
+                    }
+                }
+            }
+            // write-back: group lane 0 writes each tile element exactly once
+            // (fragment C -> staging, then the replica refresh below)
+            if_(Expr<bool>{(Expr<uint>{l_in_group} == 0u).expression()}, [&] {
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                        Coord cc = _zero_coord();
+                        cc[0] = (Expr<uint>{r} + i).expression();
+                        cc[1] = (Expr<uint>{c0} + j).expression();
+                        if (frag) {
+                            auto sidx = Expr<uint>{_staging_index(c, cc)};
+                            auto cval = _maybe_cast(acc[i * ksplit_TN + j].expression(), out_t);
+                            with_elem_type(c->dtype(), [&]<typename U>() {
+                                Var<std::array<U, 1>> s{staging};
+                                s[sidx] = Expr<U>{cval};
+                            });
+                        } else {
+                            _write_to(c, cc, acc[i * ksplit_TN + j].expression());
+                        }
+                    }
+                }
+            });
+            if (frag) { _replicate_from_staging(c, c->dtype(), staging); }
+            _current_extent = saved;
+            return;
+        }
         if (!use_warp) {
             // Occupancy (lc_optimize: thread-group tuning): when the
             // micro-tile grid is smaller than the block, the remaining
