@@ -920,6 +920,9 @@ public:
                 // statements partition across threads instead of the
                 // replicated-per-thread full-loop pathology.
                 _prescan_elementwise_fragments(tile_fn->body()->statements());
+                // F2: reduce-input copy elision (must run after the shared-
+                // backing decisions above are final).
+                _prescan_reduce_elision(tile_fn->body()->statements());
                 _emit_all(tile_fn->body()->statements());
             });
         }
@@ -1009,6 +1012,14 @@ private:
       // the F1 elementwise forced-shared set (see _prescan_elementwise_fragments).
       luisa::unordered_set<luisa::string> _replicated_fragment_names;
       luisa::vector<Layout> _replicated_fragment_layouts; // TODO: change to unordered_set
+
+      // F2 (reduce input copy-elision): fragment tensors whose ONLY producer is
+      // an identity global->fragment copy and whose ONLY consumer is a reduce.
+      // The reduce then reads the global source directly and the producing copy
+      // is skipped entirely (no shared round-trip).  Keyed by the fragment's
+      // alloc name (all statement operands are views sharing that name).
+      luisa::unordered_map<luisa::string, const TensorExpr *> _reduce_elision_src;
+      luisa::unordered_set<const CopyStmt *> _elided_copy_stmts;
 
       // Lazy fragment values (lc_optimize for the replicated-fragment layout):
       // a whole-tile STORE into a small per-thread Fragment is recorded as an
@@ -2120,6 +2131,136 @@ private:
         }
     }
 
+    // F2 (reduce input copy-elision): when a shared-backed fragment is produced
+    // by exactly one identity global->fragment copy and its ONLY other reference
+    // is a reduce over the fast axis, the reduce can read the global source
+    // directly and the producing copy becomes dead (skip it in _emit).  This
+    // removes the shared round-trip: global load -> shared store (copy) -> shared
+    // load (reduce) collapses to a single global load in the reduce's own
+    // warp/block partition loop.  The prescan runs after
+    // _prescan_elementwise_fragments so the forced-shared sets are final.
+    void _prescan_reduce_elision(luisa::span<const TensorStmt *const> stmts) {
+        luisa::unordered_map<luisa::string, const CopyStmt *> producer_copy;
+        luisa::unordered_map<luisa::string, const TensorExpr *> producer_src;
+        luisa::unordered_map<luisa::string, uint32_t> producer_count;
+        luisa::unordered_map<luisa::string, uint32_t> appear_count;
+        luisa::unordered_map<luisa::string, bool> reduce_input;
+        luisa::unordered_map<luisa::string, const TensorExpr *> reduce_x_view;
+        luisa::unordered_map<luisa::string, uint32_t> reduce_dim;
+        auto name_of = [](const TensorExpr *t) noexcept -> luisa::string_view {
+            return t == nullptr ? luisa::string_view{} : t->name();
+        };
+        // count every reference to a fragment tensor (output or input) except
+        // the ALLOC itself, which is the definition, not a use.
+        auto count_appearance = [&](const TensorExpr *t) {
+            if (t == nullptr || t->scope() != TensorScope::Fragment) { return; }
+            auto name = name_of(t);
+            if (!name.empty()) { appear_count[luisa::string{name}]++; }
+        };
+        for (auto *stmt : stmts) {
+            switch (stmt->op()) {
+                case TileOpKind::ALLOC:
+                    // allocation is not a use of the fragment
+                    break;
+                case TileOpKind::COPY: {
+                    auto *c = static_cast<const CopyStmt *>(stmt);
+                    auto *src = c->src();
+                    auto *dst = c->dst();
+                    // NOTE: global input views carry UNKNOWN extents (0) on
+                    // `T.all()` axes (and point anchors), so the source extents
+                    // cannot be compared with the fragment's; the op extent is
+                    // the fragment's (dst is always fully known).  Identity is
+                    // guaranteed by construction (the copy body is dst[c]=src[c])
+                    // and the reduce-input extent check below re-validates that
+                    // the reduce reads exactly the copied tile.
+                    if (src != nullptr && dst != nullptr &&
+                        src->scope() == TensorScope::Global &&
+                        dst->scope() == TensorScope::Fragment &&
+                        extent_known(dst) &&
+                        src->dtype() == dst->dtype() &&
+                        src->rank() == dst->rank()) {
+                        auto name = name_of(dst);
+                        if (!name.empty()) {
+                            auto key = luisa::string{name};
+                            producer_count[key]++;
+                            if (producer_count[key] == 1u) {
+                                producer_copy[key] = c;
+                                producer_src[key] = src;
+                            }
+                        }
+                    }
+                    // the destination is a write (an appearance); the source may
+                    // itself be a fragment read
+                    count_appearance(dst);
+                    count_appearance(src);
+                    break;
+                }
+                case TileOpKind::REDUCE:
+                case TileOpKind::REDUCE_SUM: {
+                    const TensorExpr *x = stmt->op() == TileOpKind::REDUCE
+                                              ? static_cast<const ReduceStmt *>(stmt)->buf()
+                                              : static_cast<const ReduceSumStmt *>(stmt)->x();
+                    const TensorExpr *y = stmt->output();
+                    auto reduce_op_dim = stmt->op() == TileOpKind::REDUCE
+                                             ? static_cast<const ReduceStmt *>(stmt)->dim()
+                                             : static_cast<const ReduceSumStmt *>(stmt)->dim();
+                    if (auto n = name_of(x); !n.empty()) {
+                        auto key = luisa::string{n};
+                        reduce_input[key] = true;
+                        // keep the first input view / reduce dim for the checks
+                        // below (appear_count == 2 guarantees at most one reduce)
+                        reduce_x_view.emplace(key, x);
+                        reduce_dim[key] = reduce_op_dim;
+                    }
+                    count_appearance(x);
+                    count_appearance(y);
+                    break;
+                }
+                default: {
+                    // generic: output + inputs cover every statement's tensor
+                    // operands (GEMM a/b/c, STORE lhs/rhs, BINARY lhs/rhs, ...)
+                    count_appearance(stmt->output());
+                    for (auto *in : stmt->inputs()) { count_appearance(in); }
+                    break;
+                }
+            }
+        }
+        for (auto &[name, count] : producer_count) {
+            if (count != 1u) { continue; }// multiple writers: not elidable
+            if (appear_count[name] != 2u) { continue; }// must be copy + one read
+            if (!reduce_input[name]) { continue; }// the one read must be a reduce
+            auto *producer = producer_copy[name];
+            auto *dst = producer->dst();
+            auto *rx = reduce_x_view[name];
+            if (rx == nullptr || rx->rank() != dst->rank()) { continue; }
+            // the reduce must read exactly the tile the copy wrote
+            bool same_extents = true;
+            for (auto i = 0u; i < static_cast<uint32_t>(dst->rank()); ++i) {
+                if (axis_extent(rx, i) != axis_extent(dst, i)) {
+                    same_extents = false;
+                    break;
+                }
+            }
+            if (!same_extents) { continue; }
+            // reduce over the fast axis only: the global read in the reduce's
+            // lane-strided loop is then coalesced (dim == rank-1)
+            if (auto it = reduce_dim.find(name);
+                it == reduce_dim.end() ||
+                it->second != static_cast<uint32_t>(dst->rank()) - 1u) {
+                continue;
+            }
+            // only shared-backed fragments (large or elementwise-forced) are
+            // worth eliding; replicated per-thread fragments keep their path
+            if (_is_replicated_fragment(dst)) { continue; }
+            if (tile_element_count(dst) < kFragmentSharedThreshold &&
+                !_is_forced_shared_fragment(dst)) {
+                continue;
+            }
+            _reduce_elision_src[name] = producer_src[name];
+            _elided_copy_stmts.emplace(producer);
+        }
+    }
+
     /*
      * _emit_all(stmts) pseudo-code (host-side statement walk; each emitted
      * device body is luisa-dsl, see _partition_loop and the _emit_* helpers):
@@ -2400,8 +2541,11 @@ private:
         _emit_core(stmt);
         // barrier discipline: sync after every statement that touches shared
         // memory (never inside a thread-divergent branch — all our shared
-        // accesses live inside $for/$if bodies, the sync is at top level)
-        if (_accesses_shared(stmt)) { _sync_block(); }
+        // accesses live inside $for/$if bodies, the sync is at top level).
+        // F2-elided copies are no-ops and need no barrier.
+        auto elided_copy = stmt->op() == TileOpKind::COPY &&
+                           _elided_copy_stmts.contains(static_cast<const CopyStmt *>(stmt));
+        if (_accesses_shared(stmt) && !elided_copy) { _sync_block(); }
     }
 
     // The statement dispatch of _emit WITHOUT the conservative trailing
@@ -2411,7 +2555,14 @@ private:
         switch (stmt->op()) {
             case TileOpKind::ALLOC: _emit_alloc(static_cast<const AllocStmt *>(stmt)); break;
             case TileOpKind::CLEAR: _emit_clear(static_cast<const ClearStmt *>(stmt)); break;
-            case TileOpKind::COPY: _emit_copy(static_cast<const CopyStmt *>(stmt)); break;
+            case TileOpKind::COPY:
+                if (_elided_copy_stmts.contains(static_cast<const CopyStmt *>(stmt))) {
+                    // F2: this global->fragment copy feeds only a reduce that
+                    // now reads the global source directly — skip the shared
+                    // round-trip entirely.
+                    break;
+                }
+                _emit_copy(static_cast<const CopyStmt *>(stmt)); break;
             case TileOpKind::STORE: _emit_store(static_cast<const TileStoreStmt *>(stmt)); break;
             case TileOpKind::BINARY: _emit_binary(static_cast<const TileBinaryStmt *>(stmt)); break;
             case TileOpKind::MAX: _emit_max(static_cast<const MaxStmt *>(stmt)); break;
@@ -3146,6 +3297,18 @@ private:
                            uint32_t dim, TileReduceOp op) {
         auto saved = _current_extent;
         _current_extent = x;
+        // F2 (reduce input copy-elision): when x is a shared-backed fragment
+        // produced by exactly one identity global copy and consumed only by
+        // this reduce, read the global source directly (the copy is skipped by
+        // _emit_core).  _current_extent stays x, so _global_index computes the
+        // same block/base offsets the elided copy would have used.
+        const TensorExpr *reduce_input = x;
+        if (auto name = x->name(); !name.empty()) {
+            if (auto it = _reduce_elision_src.find(luisa::string{name});
+                it != _reduce_elision_src.end()) {
+                reduce_input = it->second;
+            }
+        }
         auto reduce_len = static_cast<uint32_t>(axis_extent(x, dim));
         // output space = x without the reduce axis
         uint32_t out_count = 1u;
@@ -3206,7 +3369,7 @@ private:
                  auto k = (Expr<uint>{ki} * _threads + Expr<uint>{_tid_x()}).expression();
                  auto load = [&] {
                      xc[dim] = k;
-                     auto xv = _maybe_cast(_value_at(x, xc), Type::of<T>());
+                     auto xv = _maybe_cast(_value_at(reduce_input, xc), Type::of<T>());
                      if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
                          xv = abs(Expr<T>{xv}).expression();
                      }
@@ -3290,7 +3453,7 @@ private:
                      [&](const Expression *ki) {
               auto k = (Expr<uint>{ki} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
               xc[dim] = k;
-              auto xv = _maybe_cast(_value_at(x, xc), Type::of<T>());
+              auto xv = _maybe_cast(_value_at(reduce_input, xc), Type::of<T>());
               if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
                   xv = abs(Expr<T>{xv}).expression();
               }
@@ -3304,7 +3467,7 @@ private:
                          auto k_valid = (Expr<uint>{k} < reduce_len).expression();
                          if_(Expr<bool>{k_valid}, [&] {
                              xc[dim] = k;
-                             auto xv = _maybe_cast(_value_at(x, xc), Type::of<T>());
+                             auto xv = _maybe_cast(_value_at(reduce_input, xc), Type::of<T>());
                              if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
                                  xv = abs(Expr<T>{xv}).expression();
                              }
