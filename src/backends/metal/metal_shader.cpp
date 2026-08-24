@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <cstdlib>
 #include "metal_device.h"
 #include "metal_buffer.h"
 #include "metal_texture.h"
@@ -57,18 +58,24 @@ void MetalShader::set_name(luisa::string_view name) noexcept {
         _indirect_name = nullptr;
     }
     if (!name.empty()) {
+        auto name_copy = luisa::string{name};
         _name = NS::String::alloc()->init(
-            const_cast<char *>(name.data()), name.size(),
-            NS::UTF8StringEncoding, false);
+            name_copy.c_str(), NS::UTF8StringEncoding);
         auto indirect = luisa::format("{} (indirect)", name);
         _indirect_name = NS::String::alloc()->init(
-            const_cast<char *>(indirect.data()), indirect.size(),
-            NS::UTF8StringEncoding, false);
+            indirect.c_str(), NS::UTF8StringEncoding);
     }
 }
 
 void MetalShader::launch(MetalCommandEncoder &encoder,
                          ShaderDispatchCommand *command) const noexcept {
+
+    static const auto profile_command_buffer =
+        std::getenv("LUISA_METAL_COMMAND_BUFFER_PROFILE") != nullptr;
+    if (profile_command_buffer) {
+        std::scoped_lock lock{_name_mutex};
+        if (_name) { encoder.command_buffer()->setLabel(_name); }
+    }
 
     static constexpr auto argument_buffer_size = 65536u;
     static constexpr auto argument_alignment = 16u;

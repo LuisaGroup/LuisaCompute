@@ -1,6 +1,12 @@
 #include <luisa/core/logging.h>
 
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include "metal_event.h"
 #include "metal_texture.h"
@@ -9,6 +15,75 @@
 #include "metal_stream.h"
 
 namespace luisa::compute::metal {
+
+namespace {
+
+struct MetalCommandBufferProfileStats {
+    uint64_t count{};
+    double total_ms{};
+    double min_ms{};
+    double max_ms{};
+};
+
+class MetalCommandBufferProfiler {
+
+private:
+    std::mutex _mutex;
+    std::unordered_map<std::string, MetalCommandBufferProfileStats> _stats;
+
+public:
+    ~MetalCommandBufferProfiler() noexcept {
+        std::vector<std::pair<std::string, MetalCommandBufferProfileStats>> stats;
+        {
+            std::scoped_lock lock{_mutex};
+            stats.reserve(_stats.size());
+            for (auto &&item : _stats) { stats.emplace_back(item); }
+        }
+        std::sort(stats.begin(), stats.end(), [](auto &&lhs, auto &&rhs) noexcept {
+            return lhs.second.total_ms > rhs.second.total_ms;
+        });
+        for (auto &&[stage, profile] : stats) {
+            std::fprintf(
+                stderr,
+                "LUISA_METAL_COMMAND_BUFFER_PROFILE stage='%s' dispatches=%llu "
+                "total_ms=%.6f average_ms=%.6f min_ms=%.6f max_ms=%.6f\n",
+                stage.c_str(),
+                static_cast<unsigned long long>(profile.count),
+                profile.total_ms,
+                profile.total_ms / static_cast<double>(profile.count),
+                profile.min_ms,
+                profile.max_ms);
+        }
+    }
+
+    void record(const char *stage, double elapsed_ms) noexcept {
+        if (stage == nullptr || stage[0] == '\0' || elapsed_ms <= 0.0) { return; }
+        std::scoped_lock lock{_mutex};
+        auto &profile = _stats[stage];
+        if (profile.count == 0u) {
+            profile.min_ms = elapsed_ms;
+            profile.max_ms = elapsed_ms;
+        } else {
+            profile.min_ms = std::min(profile.min_ms, elapsed_ms);
+            profile.max_ms = std::max(profile.max_ms, elapsed_ms);
+        }
+        profile.count++;
+        profile.total_ms += elapsed_ms;
+    }
+};
+
+[[nodiscard]] bool metal_command_buffer_profiling_enabled() noexcept {
+    static const auto enabled =
+        std::getenv("LUISA_METAL_COMMAND_BUFFER_PROFILE") != nullptr;
+    return enabled;
+}
+
+[[nodiscard]] MetalCommandBufferProfiler &metal_command_buffer_profiler() noexcept {
+    static MetalCommandBufferProfiler profiler;
+    return profiler;
+}
+
+}// namespace
 
 MetalStream::MetalStream(MTL::Device *device,
                          size_t max_commands) noexcept
@@ -156,6 +231,18 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
                 error->localizedDescription()->utf8String());
         }
     });
+    if (metal_command_buffer_profiling_enabled() &&
+        command_buffer->label() != nullptr) {
+        command_buffer->addCompletedHandler(^(MTL::CommandBuffer *cb) noexcept {
+            auto begin = cb->GPUStartTime();
+            auto end = cb->GPUEndTime();
+            auto label = cb->label();
+            if (label != nullptr && end > begin) {
+                metal_command_buffer_profiler().record(
+                    label->utf8String(), (end - begin) * 1.0e3);
+            }
+        });
+    }
     command_buffer->commit();
 }
 
