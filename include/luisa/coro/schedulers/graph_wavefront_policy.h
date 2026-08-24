@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 
 #include <luisa/core/basic_types.h>
 #include <luisa/core/dll_export.h>
@@ -8,6 +9,22 @@
 #include <luisa/core/stl/vector.h>
 
 namespace luisa::compute::coro {
+
+/// Sentinel selecting the host-side automatic hybrid-tail policy. Its
+/// nonzero magnitude never specializes a scheduler kernel; zero remains the
+/// structural opt-out that avoids compiling the optional tail state machine.
+inline constexpr auto graph_wavefront_auto_tail_threshold =
+    std::numeric_limits<uint>::max();
+
+/// Resolve a configured hybrid-tail threshold for one logical dispatch.
+/// Explicit values are capped to the active frame capacity. Automatic mode
+/// uses three eighths of active capacity, rounded down to a complete execution
+/// block (or the whole capacity when it is smaller than one block).
+[[nodiscard]] LUISA_CORO_API uint
+graph_wavefront_resolve_tail_threshold(
+    uint configured_threshold,
+    uint active_frame_capacity,
+    uint execution_block_size) noexcept;
 
 /// Host-side state estimate used by the graph-wavefront action scheduler.
 /// Queue zero is the stable free-frame stack; queue i > 0 belongs to CoroGraph
