@@ -1,6 +1,7 @@
 #include <luisa/core/logging.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -29,20 +30,43 @@ class MetalCommandBufferProfiler {
 
 private:
     std::mutex _mutex;
-    std::unordered_map<std::string, MetalCommandBufferProfileStats> _stats;
+    std::unordered_map<std::string, MetalCommandBufferProfileStats> _gpu_stats;
+    std::unordered_map<std::string, MetalCommandBufferProfileStats> _host_stats;
+
+private:
+    static void _record(
+        std::unordered_map<std::string, MetalCommandBufferProfileStats> &stats,
+        const char *name, double elapsed_ms) noexcept {
+        if (name == nullptr || name[0] == '\0' || elapsed_ms <= 0.0) { return; }
+        auto &profile = stats[name];
+        if (profile.count == 0u) {
+            profile.min_ms = elapsed_ms;
+            profile.max_ms = elapsed_ms;
+        } else {
+            profile.min_ms = std::min(profile.min_ms, elapsed_ms);
+            profile.max_ms = std::max(profile.max_ms, elapsed_ms);
+        }
+        profile.count++;
+        profile.total_ms += elapsed_ms;
+    }
 
 public:
     ~MetalCommandBufferProfiler() noexcept {
-        std::vector<std::pair<std::string, MetalCommandBufferProfileStats>> stats;
+        std::vector<std::pair<std::string, MetalCommandBufferProfileStats>> gpu_stats;
+        std::vector<std::pair<std::string, MetalCommandBufferProfileStats>> host_stats;
         {
             std::scoped_lock lock{_mutex};
-            stats.reserve(_stats.size());
-            for (auto &&item : _stats) { stats.emplace_back(item); }
+            gpu_stats.reserve(_gpu_stats.size());
+            for (auto &&item : _gpu_stats) { gpu_stats.emplace_back(item); }
+            host_stats.reserve(_host_stats.size());
+            for (auto &&item : _host_stats) { host_stats.emplace_back(item); }
         }
-        std::sort(stats.begin(), stats.end(), [](auto &&lhs, auto &&rhs) noexcept {
+        auto by_total = [](auto &&lhs, auto &&rhs) noexcept {
             return lhs.second.total_ms > rhs.second.total_ms;
-        });
-        for (auto &&[stage, profile] : stats) {
+        };
+        std::sort(gpu_stats.begin(), gpu_stats.end(), by_total);
+        std::sort(host_stats.begin(), host_stats.end(), by_total);
+        for (auto &&[stage, profile] : gpu_stats) {
             std::fprintf(
                 stderr,
                 "LUISA_METAL_COMMAND_BUFFER_PROFILE stage='%s' dispatches=%llu "
@@ -54,21 +78,28 @@ public:
                 profile.min_ms,
                 profile.max_ms);
         }
+        for (auto &&[operation, profile] : host_stats) {
+            std::fprintf(
+                stderr,
+                "LUISA_METAL_STREAM_PROFILE operation='%s' calls=%llu "
+                "total_ms=%.6f average_ms=%.6f min_ms=%.6f max_ms=%.6f\n",
+                operation.c_str(),
+                static_cast<unsigned long long>(profile.count),
+                profile.total_ms,
+                profile.total_ms / static_cast<double>(profile.count),
+                profile.min_ms,
+                profile.max_ms);
+        }
     }
 
-    void record(const char *stage, double elapsed_ms) noexcept {
-        if (stage == nullptr || stage[0] == '\0' || elapsed_ms <= 0.0) { return; }
+    void record_gpu(const char *stage, double elapsed_ms) noexcept {
         std::scoped_lock lock{_mutex};
-        auto &profile = _stats[stage];
-        if (profile.count == 0u) {
-            profile.min_ms = elapsed_ms;
-            profile.max_ms = elapsed_ms;
-        } else {
-            profile.min_ms = std::min(profile.min_ms, elapsed_ms);
-            profile.max_ms = std::max(profile.max_ms, elapsed_ms);
-        }
-        profile.count++;
-        profile.total_ms += elapsed_ms;
+        _record(_gpu_stats, stage, elapsed_ms);
+    }
+
+    void record_host(const char *operation, double elapsed_ms) noexcept {
+        std::scoped_lock lock{_mutex};
+        _record(_host_stats, operation, elapsed_ms);
     }
 };
 
@@ -81,6 +112,12 @@ public:
 [[nodiscard]] MetalCommandBufferProfiler &metal_command_buffer_profiler() noexcept {
     static MetalCommandBufferProfiler profiler;
     return profiler;
+}
+
+[[nodiscard]] double elapsed_milliseconds(
+    std::chrono::steady_clock::time_point begin,
+    std::chrono::steady_clock::time_point end) noexcept {
+    return std::chrono::duration<double, std::milli>{end - begin}.count();
 }
 
 }// namespace
@@ -132,9 +169,16 @@ void MetalStream::wait(MetalEvent *event, uint64_t value) noexcept {
 }
 
 void MetalStream::synchronize() noexcept {
+    auto profile = metal_command_buffer_profiling_enabled();
+    auto synchronize_begin = profile ?
+                                 std::chrono::steady_clock::now() :
+                                 std::chrono::steady_clock::time_point{};
     auto command_buffer = _queue->commandBufferWithUnretainedReferences();
     command_buffer->commit();
     command_buffer->waitUntilCompleted();
+    auto command_buffer_done = profile ?
+                                   std::chrono::steady_clock::now() :
+                                   std::chrono::steady_clock::time_point{};
     if (auto error = command_buffer->error()) {
         LUISA_ERROR_WITH_LOCATION(
             "Metal synchronization command buffer failed: {}.",
@@ -145,6 +189,19 @@ void MetalStream::synchronize() noexcept {
     while (_completed_callback_lists.load(std::memory_order_acquire) <
            callback_target) {
         std::this_thread::yield();
+    }
+    if (profile) {
+        auto synchronize_done = std::chrono::steady_clock::now();
+        auto &profiler = metal_command_buffer_profiler();
+        profiler.record_host(
+            "synchronize_total",
+            elapsed_milliseconds(synchronize_begin, synchronize_done));
+        profiler.record_host(
+            "synchronize_wait_until_completed",
+            elapsed_milliseconds(synchronize_begin, command_buffer_done));
+        profiler.record_host(
+            "synchronize_callback_drain",
+            elapsed_milliseconds(command_buffer_done, synchronize_done));
     }
 }
 
@@ -231,15 +288,15 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
                 error->localizedDescription()->utf8String());
         }
     });
-    if (metal_command_buffer_profiling_enabled() &&
-        command_buffer->label() != nullptr) {
+    if (metal_command_buffer_profiling_enabled()) {
         command_buffer->addCompletedHandler(^(MTL::CommandBuffer *cb) noexcept {
             auto begin = cb->GPUStartTime();
             auto end = cb->GPUEndTime();
             auto label = cb->label();
-            if (label != nullptr && end > begin) {
-                metal_command_buffer_profiler().record(
-                    label->utf8String(), (end - begin) * 1.0e3);
+            if (end > begin) {
+                metal_command_buffer_profiler().record_gpu(
+                    label == nullptr ? "<unlabeled>" : label->utf8String(),
+                    (end - begin) * 1.0e3);
             }
         });
     }
