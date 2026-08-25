@@ -74,13 +74,15 @@ struct SpirvFunctionArgumentAnalysisStatistics {
     size_t dependency_visit_count{0u};
 };
 
-// A surviving callable buffer/bindless argument need not become an SPIR-V
-// function parameter when every reachable call forwards the same kernel
-// resource. In that case the descriptor (and all of its metadata side
-// channels) is already a module-level kernel binding. This map records the
-// unique origin proved by the resource-flow fixed point. Missing entries are
-// deliberately "unknown or conflicting", never an alias proof.
-using SpirvReadonlyResourceOriginMap = luisa::unordered_map<
+// A surviving callable resource argument need not become an SPIR-V function
+// parameter when every reachable call forwards the same kernel resource. In
+// that case its readable/writable descriptors and resource-specific side
+// channels are already module-level kernel bindings. This map records the
+// unique origin proved over the complete reachable call graph.
+// Missing entries are deliberately "unknown or conflicting", never an alias
+// proof. Usage is immaterial: mapping reads and writes back to the same proven
+// kernel argument preserves both aliasing and side effects.
+using SpirvUniqueResourceOriginMap = luisa::unordered_map<
     const luisa::compute::xir::Argument *,
     const luisa::compute::xir::Argument *>;
 
@@ -91,16 +93,16 @@ analyze_spirv_function_argument_usage(
     SpirvFunctionArgumentAnalysisOptions options = {},
     SpirvFunctionCallSiteList *call_sites = nullptr) noexcept;
 
-[[nodiscard]] SpirvReadonlyResourceOriginMap
-analyze_spirv_readonly_resource_origins(
+[[nodiscard]] SpirvUniqueResourceOriginMap
+analyze_spirv_unique_resource_origins(
     const luisa::compute::xir::Module *module,
     const SpirvFunctionArgumentAnalysisMap &usage) noexcept;
 
 // `call_sites` must be the complete structural index produced together with
 // `usage`; omitting an incoming edge would make a unique-origin proof unsound.
 // The separate module overload remains the safe standalone API.
-[[nodiscard]] SpirvReadonlyResourceOriginMap
-analyze_spirv_readonly_resource_origins_from_call_sites(
+[[nodiscard]] SpirvUniqueResourceOriginMap
+analyze_spirv_unique_resource_origins_from_call_sites(
     const SpirvFunctionArgumentAnalysisMap &usage,
     luisa::span<const luisa::compute::xir::CallInst *const>
         call_sites) noexcept;

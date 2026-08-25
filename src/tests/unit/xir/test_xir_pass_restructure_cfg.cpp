@@ -12,6 +12,7 @@
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
@@ -4506,7 +4507,7 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
-    "restructure_structurizes_one_sided_branch_before_nested_selection"_test = [] {
+    "restructure_preserves_parent_boundary_guard_before_nested_selection"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -4520,7 +4521,8 @@ void reg_restructure_cfg() {
         auto *nested_header = k->create_basic_block();
 
         b.set_insertion_point(raw_header);
-        b.cond_br(condition, nested_header, outer_merge);
+        auto *raw_guard =
+            b.cond_br(condition, nested_header, outer_merge);
         b.set_insertion_point(nested_header);
         auto *nested = b.if_(condition);
         auto *nested_true = nested->create_true_block();
@@ -4537,17 +4539,34 @@ void reg_restructure_cfg() {
         b.set_insertion_point(outer_merge);
         b.return_void();
 
+        const auto initial_block_count =
+            count_owned_blocks(k->definition());
         auto info = restructure_cfg_pass_run_on_function(k);
         auto verification = xir_verify_module(
             &m, {.require_unique_merge_blocks = true});
         expect(info.succeeded());
-        expect(info.restructured_if_count >= 1u);
-        expect(raw_header->terminator()->isa<IfInst>());
-        auto *structured = static_cast<IfInst *>(raw_header->terminator());
-        expect(structured->merge_block() != outer_merge);
+        expect(info.iteration_limit_count == 0u);
+        expect(info.restructured_if_count == 0u);
+        expect(raw_header->terminator() == raw_guard);
+        expect(raw_header->terminator()->isa<ConditionalBranchInst>());
         expect(nested_header->terminator() == nested);
-        expect(count_terminator_kind(k->definition(), DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        expect(count_terminator_kind(
+                   k->definition(),
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) == 1u)
+            << "a raw guard with one ordinary arm and one direct enclosing "
+               "merge arm is the residual LLVM SPIRVStructurizer form";
+        expect(count_owned_blocks(k->definition()) ==
+               initial_block_count)
+            << "parent-boundary classification must not grow the CFG";
         expect(verification.succeeded());
+
+        auto second = restructure_cfg_pass_run_on_function(k);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(raw_header->terminator() == raw_guard);
+        expect(count_owned_blocks(k->definition()) ==
+               initial_block_count)
+            << "the accepted parent-boundary guard must be a fixed point";
     };
 
     "restructure_does_not_reenter_selection_after_its_merge"_test = [] {
@@ -5384,6 +5403,302 @@ void reg_restructure_cfg() {
             expect(invalid_indexed->case_value(0u) == 0u);
             expect(invalid_indexed->case_value(1u) == 0u);
         }
+    };
+
+    "restructure_orphan_loop_body_role_does_not_hide_reachable_cycle"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *cycle_header = definition->create_basic_block();
+        auto *cycle_latch = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+        auto *orphan_owner = definition->create_basic_block();
+        auto *orphan_update = definition->create_basic_block();
+        auto *orphan_merge = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.br(cycle_header);
+        builder.set_insertion_point(cycle_header);
+        builder.cond_br(condition, cycle_latch, exit);
+        builder.set_insertion_point(cycle_latch);
+        builder.br(cycle_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        // This disconnected descriptor names the reachable cycle header as
+        // Loop.body. Loop.body is not a physical SPIR-V loop header, and an
+        // unreachable owner cannot establish a lexical loop scope for any
+        // reachable source edge. The old global target set nevertheless hid
+        // cycle_latch -> cycle_header from natural-loop recovery.
+        builder.set_insertion_point(orphan_owner);
+        auto *orphan_loop = builder.loop();
+        orphan_loop->set_prepare_block(cycle_latch);
+        orphan_loop->set_body_block(cycle_header);
+        orphan_loop->set_update_block(orphan_update);
+        orphan_loop->set_merge_block(orphan_merge);
+        builder.set_insertion_point(orphan_update);
+        builder.br(cycle_latch);
+        builder.set_insertion_point(orphan_merge);
+        builder.unreachable_();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.restructured_loop_count >= 1u);
+
+        auto dom = compute_dom_tree(kernel);
+        auto reachable_owner = false;
+        for (auto *block : definition->basic_blocks()) {
+            if (!dom.contains(block) || !block->is_terminated()) {
+                continue;
+            }
+            auto *terminator = block->terminator();
+            if (terminator->isa<LoopInst>()) {
+                reachable_owner |=
+                    static_cast<LoopInst *>(terminator)
+                            ->prepare_block() == cycle_header;
+            } else if (terminator->isa<SimpleLoopInst>()) {
+                reachable_owner |=
+                    static_cast<SimpleLoopInst *>(terminator)
+                            ->body_block() == cycle_header;
+            }
+        }
+        expect(reachable_owner)
+            << "the reachable dominance cycle must be owned by a reachable "
+               "physical loop header, not by the orphan descriptor";
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(!rerun.changed());
+    };
+
+    "restructure_separates_preceding_selection_merge_from_loop_header"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *false_arm = definition->create_basic_block();
+        auto *loop_header = definition->create_basic_block();
+        auto *loop_body = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *selection = builder.if_(condition);
+        // Exercise both executable retargeting forms: one selection arm names
+        // the merge directly, while the other reaches it through Branch.
+        selection->set_true_target(loop_header);
+        selection->set_false_target(false_arm);
+        selection->set_merge_block(loop_header);
+        builder.set_insertion_point(false_arm);
+        builder.br(loop_header);
+        builder.set_insertion_point(loop_header);
+        builder.cond_br(condition, loop_body, exit);
+        builder.set_insertion_point(loop_body);
+        builder.br(loop_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(selection->merge_block() != loop_header)
+            << "the selection must end before the loop begins; keeping the "
+               "natural-loop header as its merge makes every backedge a "
+               "post-merge selection re-entry";
+        expect(selection->merge_block()->is_terminated());
+        expect(selection->merge_block()->terminator()->isa<LoopInst>() ||
+               selection->merge_block()->terminator()->isa<SimpleLoopInst>())
+            << "the relocated merge is the sequential owner of the loop";
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        const auto block_count = count_owned_blocks(definition);
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(!rerun.changed());
+        expect(count_owned_blocks(definition) == block_count);
+    };
+
+    "restructure_does_not_retarget_declarative_merge_as_executable_edge"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *true_arm = definition->create_basic_block();
+        auto *false_arm = definition->create_basic_block();
+        auto *loop_header = definition->create_basic_block();
+        auto *loop_body = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *selection = builder.if_(condition);
+        selection->set_true_target(true_arm);
+        selection->set_false_target(false_arm);
+        selection->set_merge_block(loop_header);
+        builder.set_insertion_point(true_arm);
+        builder.br(loop_header);
+        builder.set_insertion_point(false_arm);
+        builder.br(loop_header);
+        builder.set_insertion_point(loop_header);
+        builder.cond_br(condition, loop_body, exit);
+        builder.set_insertion_point(loop_body);
+        builder.br(loop_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        // The selection owner names loop_header only through its raw
+        // declarative merge link; its encoded executable successors are the
+        // two arm blocks. Relocating the merge must therefore leave both arm
+        // choices intact while subdividing only their Branch edges.
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(selection->true_block() == true_arm);
+        expect(selection->false_block() == false_arm);
+        expect(selection->merge_block() != loop_header);
+        expect(selection->merge_block()->is_terminated());
+        expect(selection->merge_block()->terminator()->isa<LoopInst>() ||
+               selection->merge_block()->terminator()->isa<SimpleLoopInst>());
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        const auto block_count = count_owned_blocks(definition);
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(!rerun.changed());
+        expect(count_owned_blocks(definition) == block_count);
+    };
+
+    "restructure_retargets_structured_break_when_merge_precedes_loop"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *outer_body = definition->create_basic_block();
+        auto *loop_header = definition->create_basic_block();
+        auto *loop_body = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *preceding = builder.simple_loop();
+        preceding->set_body_block(outer_body);
+        preceding->set_merge_block(loop_header);
+        builder.set_insertion_point(outer_body);
+        auto *outer_break = builder.break_(loop_header);
+        builder.set_insertion_point(loop_header);
+        builder.cond_br(condition, loop_body, exit);
+        builder.set_insertion_point(loop_body);
+        builder.br(loop_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module,
+                   {.require_canonical_break_continue_targets = true})
+                   .succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(preceding->merge_block() != loop_header);
+        expect(outer_break->target_block() == preceding->merge_block())
+            << "the executable predecessor relation includes Break; moving "
+               "the declared merge without moving that edge would split the "
+               "semantic and structural CFGs";
+        expect(preceding->merge_block()->is_terminated());
+        expect(preceding->merge_block()->terminator()->isa<LoopInst>() ||
+               preceding->merge_block()->terminator()->isa<SimpleLoopInst>());
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        const auto block_count = count_owned_blocks(definition);
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(!rerun.changed());
+        expect(count_owned_blocks(definition) == block_count);
+    };
+
+    "restructure_retargets_ray_query_dispatch_entry_to_recovered_loop"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *query = kernel->create_reference_argument(
+            Type::custom("LC_RayQueryAll"));
+        auto *definition = kernel->definition();
+        auto *loop_header = definition->create_basic_block();
+        auto *loop_body = definition->create_basic_block();
+        auto *procedural = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *dispatch = builder.ray_query_dispatch(query);
+        dispatch->set_exit_block(exit);
+        dispatch->set_on_surface_candidate_block(loop_header);
+        dispatch->set_on_procedural_candidate_block(procedural);
+        builder.set_insertion_point(loop_header);
+        builder.cond_br(condition, loop_body, exit);
+        builder.set_insertion_point(loop_body);
+        builder.br(loop_header);
+        builder.set_insertion_point(procedural);
+        builder.br(exit);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.restructured_loop_count >= 1u);
+        expect(dispatch->on_surface_candidate_block() != loop_header)
+            << "predecessor discovery and executable-edge retargeting must "
+               "cover the same terminator domain";
+        expect(dispatch->on_surface_candidate_block()->is_terminated());
+        expect(dispatch->on_surface_candidate_block()
+                   ->terminator()
+                   ->isa<LoopInst>() ||
+               dispatch->on_surface_candidate_block()
+                   ->terminator()
+                   ->isa<SimpleLoopInst>());
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
     };
 }
 

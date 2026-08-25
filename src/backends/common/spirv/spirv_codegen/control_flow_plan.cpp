@@ -1514,6 +1514,15 @@ ControlFlowPlan ControlFlowPlan::_create(
             return false;
         };
 
+    // SPIR-V permits a conditional to branch directly out of an enclosing
+    // construct without declaring a nested OpSelectionMerge. This is the
+    // residual case in LLVM SPIRVStructurizer::
+    // addHeaderToRemainingDivergentDAG: after empty forwarding paths have been
+    // contracted, at most one distinct successor is an ordinary block; every
+    // other successor is already an enclosing merge or continue role. A child
+    // construct header is deliberately ordinary: it structures its own body,
+    // not the conditional edge that chose whether to enter it.
+    //
     // Third pass: resolve every executable edge against the frozen role table.
     for (auto &block_plan : plan._blocks) {
         auto *block = block_plan.block;
@@ -1657,22 +1666,52 @@ ControlFlowPlan ControlFlowPlan::_create(
             case xir::DerivedInstructionTag::CONDITIONAL_BRANCH: {
                 auto *inst = static_cast<const xir::ConditionalBranchInst *>(terminator);
                 auto loop_iter = plan._loop_prepare_indices.find(block);
-                if (loop_iter == plan._loop_prepare_indices.end()) {
+                if (loop_iter != plan._loop_prepare_indices.end()) {
+                    auto &loop = plan._loop_regions[loop_iter->second];
+                    LUISA_ASSERT(loop.prepare_kind ==
+                                         SpirvLoopPrepareKind::CONDITIONAL &&
+                                     inst->condition() != nullptr && inst->condition()->type() == Type::of<bool>() &&
+                                     inst->true_block() == loop.body && inst->false_block() == loop.merge,
+                                 "SPIR-V control-flow plan rejected noncanonical Loop.prepare ConditionalBranch; "
+                                 "expected true=body and false=merge.");
+                    plan._conditional_branch_targets.emplace(
+                        inst,
+                        std::array{loop.body_target,
+                                   loop.merge_target});
+                    break;
+                }
+
+                auto targets = std::array{
+                    inst->true_block(), inst->false_block()};
+                auto boundary_count = size_t{0u};
+                luisa::unordered_set<const xir::BasicBlock *>
+                    ordinary_targets;
+                for (auto *target : targets) {
+                    if (is_enclosing_boundary_target(inst, target)) {
+                        ++boundary_count;
+                    } else {
+                        ordinary_targets.emplace(target);
+                    }
+                }
+                if (boundary_count == 0u ||
+                    ordinary_targets.size() > 1u) {
                     if (reject_planning_precondition(
                             "SPIR-V control-flow plan rejected raw "
-                            "ConditionalBranch outside a canonical conditional "
-                            "Loop.prepare. "
-                            "restructure_cfg must convert it to IfInst.")) {
+                            "ConditionalBranch that is neither a canonical "
+                            "Loop.prepare nor a direct parent-construct "
+                            "boundary guard. restructure_cfg must convert "
+                            "ordinary divergence to IfInst and contract empty "
+                            "boundary forwarding paths.")) {
                         return plan;
                     }
                 }
-                auto &loop = plan._loop_regions[loop_iter->second];
-                LUISA_ASSERT(loop.prepare_kind ==
-                                     SpirvLoopPrepareKind::CONDITIONAL &&
-                                 inst->condition() != nullptr && inst->condition()->type() == Type::of<bool>() &&
-                                 inst->true_block() == loop.body && inst->false_block() == loop.merge,
-                             "SPIR-V control-flow plan rejected noncanonical Loop.prepare ConditionalBranch; "
-                             "expected true=body and false=merge.");
+                plan._conditional_branch_targets.emplace(
+                    inst,
+                    std::array{
+                        plan._resolve_ordinary_target(
+                            block, targets[0u]),
+                        plan._resolve_ordinary_target(
+                            block, targets[1u])});
                 break;
             }
             default: break;
@@ -1724,13 +1763,15 @@ ControlFlowPlan ControlFlowPlan::_create(
                 visit(plan._edge_targets.at(terminator));
                 break;
             case xir::DerivedInstructionTag::CONDITIONAL_BRANCH: {
-                auto loop_iter = plan._loop_prepare_indices.find(
-                    source_plan.block);
-                LUISA_ASSERT(loop_iter != plan._loop_prepare_indices.end(),
-                             "SPIR-V physical target enumeration found an unplanned ConditionalBranch.");
-                auto &region = plan._loop_regions.at(loop_iter->second);
-                visit(region.body_target);
-                visit(region.merge_target);
+                auto *inst = static_cast<
+                    const xir::ConditionalBranchInst *>(terminator);
+                auto iter = plan._conditional_branch_targets.find(inst);
+                LUISA_ASSERT(
+                    iter != plan._conditional_branch_targets.end(),
+                    "SPIR-V physical target enumeration found an "
+                    "unplanned ConditionalBranch.");
+                visit(iter->second[0u]);
+                visit(iter->second[1u]);
                 break;
             }
             default: break;
@@ -1857,6 +1898,49 @@ ControlFlowPlan ControlFlowPlan::_create(
             }
         }
         if (!changed) { break; }
+    }
+
+    // SPIR-V defines a backedge structurally: for every reachable physical
+    // edge S -> H, H dominates S. Such an edge is legal only when H is an
+    // actual physical loop header carrying OpLoopMerge. Auditing only the
+    // predecessors of declared loops is incomplete: an ordinary cycle can
+    // target a selection/loop merge (or any other block) and never appear in
+    // a declared loop's predecessor set. Freeze the complete header set and
+    // prove the property over every resolved physical edge before emission.
+    luisa::unordered_set<size_t> physical_loop_headers;
+    for (auto &loop : plan._loop_regions) {
+        physical_loop_headers.emplace(
+            plan._block_indices.at(loop.prepare));
+    }
+    for (auto &loop : plan._simple_loop_regions) {
+        physical_loop_headers.emplace(
+            physical_index(Target::synthetic(
+                loop.header_synthetic_index)));
+    }
+    for (auto &region : plan._switch_regions) {
+        if (region.loop_wrapped) {
+            physical_loop_headers.emplace(
+                plan._block_indices.at(region.header));
+        }
+    }
+    for (auto source = size_t{0u};
+         source < physical_block_count; ++source) {
+        if (physical_reachable[source] == 0u) { continue; }
+        for (auto target : physical_successors[source]) {
+            if (physical_reachable[target] == 0u ||
+                physical_dominators[source][target] == 0u ||
+                physical_loop_headers.contains(target)) {
+                continue;
+            }
+            if (reject_planning_precondition(luisa::format(
+                    "SPIR-V control-flow plan rejected physical backedge "
+                    "{} -> {} because its target is not a planned loop "
+                    "header. restructure_cfg must recover every reachable "
+                    "dominance cycle before codegen.",
+                    source, target))) {
+                return plan;
+            }
+        }
     }
 
     // A structured continue region may contain branches/selections, but all of
@@ -2249,16 +2333,19 @@ ControlFlowPlan ControlFlowPlan::_create(
             }
             case xir::DerivedInstructionTag::CONDITIONAL_BRANCH: {
                 auto *inst = static_cast<const xir::ConditionalBranchInst *>(terminator);
-                auto loop_iter = plan._loop_prepare_indices.find(predecessor);
-                LUISA_ASSERT(loop_iter != plan._loop_prepare_indices.end(),
-                             "SPIR-V Phi incoming crossed an unplanned ConditionalBranch.");
-                auto &loop = plan._loop_regions.at(loop_iter->second);
+                auto target_iter =
+                    plan._conditional_branch_targets.find(inst);
+                LUISA_ASSERT(
+                    target_iter !=
+                        plan._conditional_branch_targets.end(),
+                    "SPIR-V Phi incoming crossed an unplanned "
+                    "ConditionalBranch.");
                 if (inst->true_block() == logical_target) {
-                    return loop.body_target;
+                    return target_iter->second[0u];
                 }
                 LUISA_ASSERT(inst->false_block() == logical_target,
                              "SPIR-V Phi incoming is not a ConditionalBranch successor.");
-                return loop.merge_target;
+                return target_iter->second[1u];
             }
             default:
                 static_cast<void>(reject_planning_precondition(luisa::format(
@@ -2493,6 +2580,16 @@ ControlFlowPlan::Target ControlFlowPlan::edge_target(const xir::Instruction *ins
     LUISA_ASSERT(iter != _edge_targets.end(),
                  "SPIR-V control-flow plan has no executable edge for {}.",
                  xir::to_string(instruction->derived_instruction_tag()));
+    return iter->second;
+}
+
+const std::array<ControlFlowPlan::Target, 2u> &
+ControlFlowPlan::conditional_branch_targets(
+    const xir::ConditionalBranchInst *instruction) const noexcept {
+    auto iter = _conditional_branch_targets.find(instruction);
+    LUISA_ASSERT(
+        iter != _conditional_branch_targets.end(),
+        "SPIR-V control-flow plan has no conditional targets.");
     return iter->second;
 }
 

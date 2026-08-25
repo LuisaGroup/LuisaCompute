@@ -1521,15 +1521,18 @@ private:
             iter != _active_loop_prepare_owners.end()) {
             owner_count = iter->second.size();
         }
-        if (owner_count == 1u) { return; }
+        // Shape and physical-target legality are decided by ControlFlowPlan
+        // after every construct role is frozen. Besides a canonical
+        // Loop.prepare, structured SPIR-V admits a raw conditional that jumps
+        // directly to a parent construct boundary and has at most one ordinary
+        // successor. The planner proves that exact quotient-graph predicate;
+        // this local walk only rejects the intrinsically ambiguous shared
+        // prepare role.
+        if (owner_count <= 1u) { return; }
         _error(
             function, block, branch,
-            owner_count == 0u ?
-                "Native XIR-to-SPIR-V rejects raw ConditionalBranch "
-                "outside canonical Loop.prepare; restructure_cfg must "
-                "convert it to IfInst before codegen." :
-                "Native XIR-to-SPIR-V rejects a ConditionalBranch in a "
-                "prepare block shared by multiple LoopInst constructs.");
+            "Native XIR-to-SPIR-V rejects a ConditionalBranch in a "
+            "prepare block shared by multiple LoopInst constructs.");
     }
 
     void _validate_instruction(const xir::Function *function,
@@ -1831,8 +1834,8 @@ public:
         if (call_graph.succeeded()) {
             auto argument_analysis =
                 analyze_spirv_function_argument_usage(module);
-            auto readonly_resource_origins =
-                analyze_spirv_readonly_resource_origins(
+            auto unique_resource_origins =
+                analyze_spirv_unique_resource_origins(
                     module, argument_analysis);
             // Match the emitter's hidden dispatch-metadata parameter
             // propagation exactly. The call graph is callee-before-caller.
@@ -1954,10 +1957,16 @@ public:
                         auto argument_usage =
                             spirv_function_argument_usage_of(
                                 argument_analysis, function, argument);
+                        if (unique_resource_origins.contains(argument)) {
+                            // The callable ABI omits this formal. Every use,
+                            // including descriptor side channels, resolves to
+                            // the proven module-level kernel binding.
+                            continue;
+                        }
                         if ((type->is_buffer() ||
                              type->is_bindless_array()) &&
                             argument_usage != Usage::NONE &&
-                            !readonly_resource_origins
+                            !unique_resource_origins
                                  .contains(argument)) {
                             _error(function, nullptr, nullptr,
                                    luisa::format(
@@ -2021,7 +2030,7 @@ public:
                             argument_analysis, function, argument);
                         if (argument->is_resource() &&
                             (usage == Usage::NONE ||
-                             readonly_resource_origins
+                             unique_resource_origins
                                  .contains(argument))) {
                             continue;
                         }

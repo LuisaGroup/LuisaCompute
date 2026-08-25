@@ -1833,8 +1833,8 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(
     if (auto it = _value_map.find(arg); it != _value_map.end()) {
         return it->second;
     }
-    if (auto origin = _readonly_resource_origins.find(arg);
-        origin != _readonly_resource_origins.end()) {
+    if (auto origin = _unique_resource_origins.find(arg);
+        origin != _unique_resource_origins.end()) {
         auto id = _resolve_resource_argument(origin->second);
         _value_map.emplace(arg, id);
         return id;
@@ -1883,8 +1883,8 @@ size_t SpirvCodegenEntry::_direct_buffer_bias_alignment(
         iter != _bound_direct_buffer_bias_alignments.end()) {
         return iter->second;
     }
-    if (auto origin = _readonly_resource_origins.find(argument);
-        origin != _readonly_resource_origins.end()) {
+    if (auto origin = _unique_resource_origins.find(argument);
+        origin != _unique_resource_origins.end()) {
         return _direct_buffer_bias_alignment(origin->second);
     }
     return 1u;
@@ -1899,6 +1899,10 @@ spv::Id SpirvCodegenEntry::_resolve_writable_resource(
                  "SPIR-V writable resource was not an argument; resource "
                  "specialization must run before code generation.");
     auto *argument = static_cast<const xir::Argument *>(resource);
+    if (auto origin = _unique_resource_origins.find(argument);
+        origin != _unique_resource_origins.end()) {
+        return _resolve_writable_resource(origin->second);
+    }
     auto *function = argument->parent_function();
     if (function != nullptr &&
         function->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
@@ -1935,6 +1939,10 @@ spv::Id SpirvCodegenEntry::_resolve_accel_instance_buffer(
                  "SPIR-V accel instance access was not specialized to a "
                  "resource argument before code generation.");
     auto *argument = static_cast<const xir::Argument *>(accel);
+    if (auto origin = _unique_resource_origins.find(argument);
+        origin != _unique_resource_origins.end()) {
+        return _resolve_accel_instance_buffer(origin->second);
+    }
     auto &binding = _kernel_resource_binding(argument);
     LUISA_ASSERT(binding.accel_instance_property_index !=
                      invalid_resource_property_index,

@@ -95,7 +95,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _global_invocation_id_var = spv::NoResult;
     _dispatch_metadata = {};
     _functions_requiring_dispatch_metadata.clear();
-    _readonly_resource_origins.clear();
+    _unique_resource_origins.clear();
 }
 
 bool SpirvCodegenEntry::_is_indirect_dispatch_type(
@@ -1360,16 +1360,16 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
         bool used = analyzed_usage != Usage::NONE;
         auto module_specialized =
             arg->is_resource() &&
-            _readonly_resource_origins.contains(arg);
+            _unique_resource_origins.contains(arg);
         arg_used.push_back(used && !module_specialized);
         if ((!used || module_specialized) &&
             _is_kernel_resource_argument(arg)) {
             // Skip unused resource arguments to avoid type mismatches
             // between kernel globals (which may be arrays or have different
             // sampled/storage qualifiers) and callable parameters. A
-            // module-specialized read-only resource is skipped for the same
-            // ABI reason and resolved to its unique kernel binding at each
-            // use inside the callable.
+            // module-specialized resource is skipped for the same ABI reason
+            // and each read/write is resolved to its proven unique kernel
+            // binding inside the callable.
             continue;
         }
         auto usage = _function_argument_usage_of(callable, arg);
@@ -1516,8 +1516,8 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     auto analysis = _analyze_module_usage(module);
     _analyze_dispatch_metadata_requirements(analysis);
     _analyze_function_argument_usage(module);
-    _readonly_resource_origins =
-        analyze_spirv_readonly_resource_origins(
+    _unique_resource_origins =
+        analyze_spirv_unique_resource_origins(
             module, _function_argument_usage);
     LUISA_ASSERT(!analysis.used_functions_post_order.empty() &&
                      analysis.used_functions_post_order.back()->isa<xir::KernelFunction>(),

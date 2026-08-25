@@ -167,11 +167,9 @@ make_pointer_switch_callable(
     Module &module, PointerSwitchOrphan orphan_kind) noexcept {
     auto *uint_type = Type::of<uint32_t>();
     auto *callable = module.create_callable(Type::of<void>());
-    auto *buffer = callable->create_resource_argument(
-        Type::buffer(uint_type));
+    auto *value = callable->create_reference_argument(uint_type);
     auto *selector = callable->create_value_argument(uint_type);
     auto *entry = callable->create_body_block();
-    auto *zero = module.create_constant_zero(uint_type);
     auto *one = module.create_constant_one(uint_type);
     XIRBuilder builder;
     builder.set_insertion_point(entry);
@@ -187,8 +185,7 @@ make_pointer_switch_callable(
     builder.set_insertion_point(default_block);
     builder.br(merge_block);
     builder.set_insertion_point(merge_block);
-    builder.call(ResourceWriteOp::BUFFER_WRITE,
-                 {buffer, zero, one});
+    builder.store(value, one);
     builder.return_void();
 
     BasicBlock *orphan = nullptr;
@@ -295,7 +292,7 @@ int main(int argc, char *argv[]) {
                    analysis, kernel, kernel_buffer) == Usage::READ);
         expect(eq(call_sites.size(), chain_length));
         auto origins = lc::spirv::
-            analyze_spirv_readonly_resource_origins_from_call_sites(
+            analyze_spirv_unique_resource_origins_from_call_sites(
                 analysis, luisa::span{call_sites});
         expect(eq(origins.size(), chain_length));
         for (auto *argument : arguments) {
@@ -663,6 +660,132 @@ int main(int argc, char *argv[]) {
             << "the read-only callable must remain outlined";
     };
 
+    "spirv_pointer_legalization_outlines_unique_read_write_buffer_origin"_test = [] {
+        Callable update = [](BufferUInt values, UInt index) noexcept {
+            values.write(index, values.read(index) + 1u);
+        };
+        Kernel1D kernel = [&update](BufferUInt values) noexcept {
+            update(values, 0u);
+            update(values, 1u);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+
+        lc::spirv::SpirvFunctionCallSiteList call_sites;
+        auto analysis =
+            lc::spirv::analyze_spirv_function_argument_usage(
+                module.get(), nullptr, {}, &call_sites);
+        auto origins = lc::spirv::
+            analyze_spirv_unique_resource_origins_from_call_sites(
+                analysis, luisa::span{call_sites});
+        const ResourceArgument *callable_buffer = nullptr;
+        const ResourceArgument *kernel_buffer = nullptr;
+        for (auto *function : module->function_list()) {
+            for (auto *argument : function->arguments()) {
+                if (!argument->is_resource() ||
+                    !argument->type()->is_buffer()) {
+                    continue;
+                }
+                auto *resource =
+                    static_cast<ResourceArgument *>(argument);
+                if (function->isa<CallableFunction>()) {
+                    callable_buffer = resource;
+                } else if (function->isa<KernelFunction>()) {
+                    kernel_buffer = resource;
+                }
+            }
+        }
+        expect(callable_buffer != nullptr);
+        expect(kernel_buffer != nullptr);
+        expect(origins.at(callable_buffer) == kernel_buffer)
+            << "a complete equal-origin proof is independent of resource "
+               "usage direction";
+
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 0u))
+            << "reads and writes of one proven kernel buffer must not force "
+               "call-site specialization";
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto dialect =
+            lc::spirv::validate_spirv_xir_codegen_dialect(
+                module.get());
+        expect(dialect.succeeded())
+            << (dialect.diagnostics.empty() ?
+                    "unknown dialect failure" :
+                    dialect.diagnostics.front().message);
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get());
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(count_opcode(
+                   luisa::span{compiled.spv_bin},
+                   spv::Op::OpFunctionCall) >= 2u)
+            << "both read/write calls must remain outlined";
+    };
+
+    "spirv_pointer_legalization_specializes_conflicting_read_write_buffer_origins"_test = [] {
+        Callable update = [](BufferUInt values, UInt index) noexcept {
+            values.write(index, values.read(index) + 1u);
+        };
+        Kernel1D kernel = [&update](BufferUInt values_a,
+                                    BufferUInt values_b) noexcept {
+            update(values_a, 0u);
+            update(values_b, 0u);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+
+        lc::spirv::SpirvFunctionCallSiteList call_sites;
+        auto analysis =
+            lc::spirv::analyze_spirv_function_argument_usage(
+                module.get(), nullptr, {}, &call_sites);
+        auto origins = lc::spirv::
+            analyze_spirv_unique_resource_origins_from_call_sites(
+                analysis, luisa::span{call_sites});
+        const ResourceArgument *callable_buffer = nullptr;
+        for (auto *function : module->function_list()) {
+            if (!function->isa<CallableFunction>()) { continue; }
+            for (auto *argument : function->arguments()) {
+                if (argument->is_resource() &&
+                    argument->type()->is_buffer()) {
+                    callable_buffer =
+                        static_cast<ResourceArgument *>(argument);
+                }
+            }
+        }
+        expect(callable_buffer != nullptr);
+        expect(!origins.contains(callable_buffer))
+            << "two distinct kernel descriptors must reach the conflicting "
+               "lattice element, independent of resource usage direction";
+
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 2u));
+        expect(eq(legalized.inline_info.inlined_call_count, 2u));
+        expect(eq(legalized.remaining_pointer_call_count, 0u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get());
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(eq(count_opcode(
+                      luisa::span{compiled.spv_bin},
+                      spv::Op::OpFunctionCall),
+                  0u))
+            << "a conflicting read/write descriptor origin must retain the "
+               "conservative call-site specialization fallback";
+    };
+
     "spirv_pointer_legalization_proves_transitive_readonly_buffer_origin"_test = [] {
         Callable read = [](BufferUInt input, UInt index) noexcept {
             return input.read(index);
@@ -819,7 +942,7 @@ int main(int argc, char *argv[]) {
                 << "an orphan physical function operand must not enter the sparse call-site index";
         }
         auto live_origins = lc::spirv::
-            analyze_spirv_readonly_resource_origins_from_call_sites(
+            analyze_spirv_unique_resource_origins_from_call_sites(
                 live_usage, luisa::span{live_call_sites});
         expect(eq(live_origins.size(), 3u));
         expect(!live_origins.contains(orphan_input))
@@ -951,7 +1074,54 @@ int main(int argc, char *argv[]) {
             << "the read-only bindless callable must remain outlined";
     };
 
-    "spirv_pointer_legalization_specializes_writable_accel_callable"_test = [] {
+    "spirv_pointer_legalization_outlines_unique_read_write_bindless_origin"_test = [] {
+        Callable update = [](BindlessVar bindless,
+                             UInt index) noexcept {
+            auto buffer = bindless.buffer<uint32_t>(0u);
+            buffer.write(index, buffer.read(index) + 1u);
+        };
+        Kernel1D kernel = [&update](BindlessVar bindless) noexcept {
+            update(bindless, 0u);
+            update(bindless, 1u);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 0u))
+            << "a uniquely rooted read/write bindless array must use its "
+               "kernel descriptor and metadata without inlining";
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto dialect =
+            lc::spirv::validate_spirv_xir_codegen_dialect(
+                module.get());
+        expect(dialect.succeeded())
+            << (dialect.diagnostics.empty() ?
+                    "unknown dialect failure" :
+                    dialect.diagnostics.front().message);
+        lc::spirv::SpirvTargetFeatures features{
+            .descriptor_indexing = true,
+            .runtime_descriptor_array = true,
+            .descriptor_binding_partially_bound = true,
+            .storage_buffer_array_non_uniform_indexing = true,
+            .descriptor_binding_storage_buffer_update_after_bind = true,
+            .storage_buffer_array_dynamic_indexing = true};
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get(), features);
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(count_opcode(
+                   luisa::span{compiled.spv_bin},
+                   spv::Op::OpFunctionCall) >= 2u)
+            << "both read/write bindless calls must remain outlined";
+    };
+
+    "spirv_pointer_legalization_outlines_unique_writable_accel_origin"_test = [] {
         Callable update = [](AccelVar accel) noexcept {
             accel.set_instance_user_id(0u, 19u);
         };
@@ -966,8 +1136,10 @@ int main(int argc, char *argv[]) {
         auto legalized =
             lc::spirv::legalize_spirv_pointer_arguments(module.get());
         expect(legalized.succeeded()) << legalized.diagnostic;
-        expect(eq(legalized.planned_pointer_call_count, 1u));
-        expect(eq(legalized.inline_info.inlined_call_count, 1u));
+        expect(eq(legalized.planned_pointer_call_count, 0u))
+            << "the writable instance buffer is a side channel of the same "
+               "uniquely rooted accel resource";
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
         expect(eq(legalized.remaining_pointer_call_count, 0u));
         expect(xir_verify_module(module.get()).succeeded());
 
@@ -976,12 +1148,12 @@ int main(int argc, char *argv[]) {
         auto compiled = compile_exact_xir(
             kernel.function()->function(), module.get(), features);
         expect(validates(luisa::span{compiled.spv_bin}));
-        expect(eq(count_opcode(luisa::span{compiled.spv_bin},
-                               spv::Op::OpFunctionCall),
-                  0u));
+        expect(count_opcode(luisa::span{compiled.spv_bin},
+                            spv::Op::OpFunctionCall) > 0u)
+            << "the writable accel callable must remain outlined";
     };
 
-    "spirv_pointer_legalization_specializes_accel_instance_read_callable"_test = [] {
+    "spirv_pointer_legalization_outlines_unique_accel_instance_read_origin"_test = [] {
         Callable query = [](AccelVar accel) noexcept {
             return accel.instance_user_id(0u);
         };
@@ -997,8 +1169,44 @@ int main(int argc, char *argv[]) {
         auto legalized =
             lc::spirv::legalize_spirv_pointer_arguments(module.get());
         expect(legalized.succeeded()) << legalized.diagnostic;
-        expect(eq(legalized.planned_pointer_call_count, 1u));
-        expect(eq(legalized.inline_info.inlined_call_count, 1u));
+        expect(eq(legalized.planned_pointer_call_count, 0u))
+            << "the readable instance buffer is a side channel of the same "
+               "uniquely rooted accel resource";
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
+        expect(eq(legalized.remaining_pointer_call_count, 0u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        lc::spirv::SpirvTargetFeatures features{};
+        features.ray_query = true;
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get(), features);
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(count_opcode(luisa::span{compiled.spv_bin},
+                            spv::Op::OpFunctionCall) > 0u)
+            << "the accel instance-query callable must remain outlined";
+    };
+
+    "spirv_pointer_legalization_specializes_conflicting_accel_instance_origins"_test = [] {
+        Callable query = [](AccelVar accel) noexcept {
+            return accel.instance_user_id(0u);
+        };
+        Kernel1D kernel = [&query](AccelVar accel_a,
+                                   AccelVar accel_b,
+                                   BufferUInt output) noexcept {
+            output.write(
+                0u, query(accel_a) + query(accel_b));
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 2u))
+            << "two accel instance buffers have conflicting kernel origins";
+        expect(eq(legalized.inline_info.inlined_call_count, 2u));
         expect(eq(legalized.remaining_pointer_call_count, 0u));
         expect(xir_verify_module(module.get()).succeeded());
 
@@ -1009,7 +1217,9 @@ int main(int argc, char *argv[]) {
         expect(validates(luisa::span{compiled.spv_bin}));
         expect(eq(count_opcode(luisa::span{compiled.spv_bin},
                                spv::Op::OpFunctionCall),
-                  0u));
+                  0u))
+            << "conflicting accel side channels must retain call-site "
+               "specialization";
     };
 
     "spirv_pointer_legalization_preserves_trace_only_accel_callable"_test = [] {
@@ -1043,7 +1253,7 @@ int main(int argc, char *argv[]) {
         expect(validates(luisa::span{compiled.spv_bin}));
     };
 
-    "spirv_pointer_legalization_specializes_dual_role_texture_callable"_test = [] {
+    "spirv_pointer_legalization_outlines_unique_dual_role_texture_origin"_test = [] {
         Callable update = [](ImageFloat image) noexcept {
             auto coord = make_uint2(0u);
             image.write(coord, image.read(coord));
@@ -1059,8 +1269,46 @@ int main(int argc, char *argv[]) {
         auto legalized =
             lc::spirv::legalize_spirv_pointer_arguments(module.get());
         expect(legalized.succeeded()) << legalized.diagnostic;
-        expect(eq(legalized.planned_pointer_call_count, 1u));
-        expect(eq(legalized.inline_info.inlined_call_count, 1u));
+        expect(eq(legalized.planned_pointer_call_count, 0u))
+            << "read and write texture descriptors are side channels of the "
+               "same uniquely rooted texture resource";
+        expect(eq(legalized.inline_info.inlined_call_count, 0u));
+        expect(eq(legalized.remaining_pointer_call_count, 0u));
+        expect(xir_verify_module(module.get()).succeeded());
+
+        lc::spirv::SpirvTargetFeatures features{};
+        features.storage_image_read_without_format = true;
+        features.storage_image_write_without_format = true;
+        auto compiled = compile_exact_xir(
+            kernel.function()->function(), module.get(), features);
+        expect(validates(luisa::span{compiled.spv_bin}));
+        expect(count_opcode(luisa::span{compiled.spv_bin},
+                            spv::Op::OpFunctionCall) > 0u)
+            << "the dual-role texture callable must remain outlined";
+    };
+
+    "spirv_pointer_legalization_specializes_conflicting_dual_role_texture_origins"_test = [] {
+        Callable update = [](ImageFloat image) noexcept {
+            auto coord = make_uint2(0u);
+            image.write(coord, image.read(coord));
+        };
+        Kernel1D kernel = [&update](ImageFloat image_a,
+                                    ImageFloat image_b) noexcept {
+            update(image_a);
+            update(image_b);
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        auto destructured =
+            destructure_cfg_pass_run_on_module(module.get());
+        expect(destructured.succeeded());
+        auto legalized =
+            lc::spirv::legalize_spirv_pointer_arguments(module.get());
+        expect(legalized.succeeded()) << legalized.diagnostic;
+        expect(eq(legalized.planned_pointer_call_count, 2u))
+            << "two dual-role texture descriptor pairs have conflicting "
+               "kernel origins";
+        expect(eq(legalized.inline_info.inlined_call_count, 2u));
         expect(eq(legalized.remaining_pointer_call_count, 0u));
         expect(xir_verify_module(module.get()).succeeded());
 
@@ -1072,7 +1320,9 @@ int main(int argc, char *argv[]) {
         expect(validates(luisa::span{compiled.spv_bin}));
         expect(eq(count_opcode(luisa::span{compiled.spv_bin},
                                spv::Op::OpFunctionCall),
-                  0u));
+                  0u))
+            << "conflicting texture descriptor pairs must retain call-site "
+               "specialization";
     };
 
     "spirv_pointer_switch_retry_failure_is_deterministic"_test = [] {
@@ -1140,18 +1390,16 @@ int main(int argc, char *argv[]) {
     "spirv_pointer_switch_orphan_failure_is_atomic"_test = [] {
         Module module;
         auto *uint_type = Type::of<uint32_t>();
-        auto *buffer_type = Type::buffer(uint_type);
         auto fixture = make_pointer_switch_callable(
             module, PointerSwitchOrphan::UNTERMINATED);
         XIRBuilder builder;
         auto *kernel = module.create_kernel();
-        auto *kernel_buffer =
-            kernel->create_resource_argument(buffer_type);
         auto *kernel_selector = kernel->create_value_argument(uint_type);
         builder.set_insertion_point(kernel->create_body_block());
+        auto *kernel_value = builder.alloca_shared(uint_type);
         auto *call = builder.call(
             nullptr, fixture.callable,
-            {kernel_buffer, kernel_selector});
+            {kernel_value, kernel_selector});
         builder.return_void();
 
         auto result =
@@ -1177,7 +1425,6 @@ int main(int argc, char *argv[]) {
     "spirv_pointer_switch_later_orphan_failure_rolls_back_all_functions"_test = [] {
         Module module;
         auto *uint_type = Type::of<uint32_t>();
-        auto *buffer_type = Type::buffer(uint_type);
         auto first = make_pointer_switch_callable(
             module, PointerSwitchOrphan::NONE);
         auto second = make_pointer_switch_callable(
@@ -1185,16 +1432,15 @@ int main(int argc, char *argv[]) {
 
         XIRBuilder builder;
         auto *kernel = module.create_kernel();
-        auto *kernel_buffer =
-            kernel->create_resource_argument(buffer_type);
         auto *kernel_selector = kernel->create_value_argument(uint_type);
         builder.set_insertion_point(kernel->create_body_block());
+        auto *kernel_value = builder.alloca_shared(uint_type);
         auto *first_call = builder.call(
             nullptr, first.callable,
-            {kernel_buffer, kernel_selector});
+            {kernel_value, kernel_selector});
         auto *second_call = builder.call(
             nullptr, second.callable,
-            {kernel_buffer, kernel_selector});
+            {kernel_value, kernel_selector});
         builder.return_void();
 
         auto result =
@@ -1219,18 +1465,16 @@ int main(int argc, char *argv[]) {
     "spirv_pointer_switch_malformed_orphan_failure_is_atomic"_test = [] {
         Module module;
         auto *uint_type = Type::of<uint32_t>();
-        auto *buffer_type = Type::buffer(uint_type);
         auto fixture = make_pointer_switch_callable(
             module, PointerSwitchOrphan::MALFORMED_SWITCH);
         XIRBuilder builder;
         auto *kernel = module.create_kernel();
-        auto *kernel_buffer =
-            kernel->create_resource_argument(buffer_type);
         auto *kernel_selector = kernel->create_value_argument(uint_type);
         builder.set_insertion_point(kernel->create_body_block());
+        auto *kernel_value = builder.alloca_shared(uint_type);
         auto *call = builder.call(
             nullptr, fixture.callable,
-            {kernel_buffer, kernel_selector});
+            {kernel_value, kernel_selector});
         builder.return_void();
 
         auto result =
@@ -1257,7 +1501,6 @@ int main(int argc, char *argv[]) {
     "spirv_pointer_switch_later_malformed_orphan_preserves_all_functions"_test = [] {
         Module module;
         auto *uint_type = Type::of<uint32_t>();
-        auto *buffer_type = Type::buffer(uint_type);
         auto first = make_pointer_switch_callable(
             module, PointerSwitchOrphan::NONE);
         auto second = make_pointer_switch_callable(
@@ -1265,16 +1508,15 @@ int main(int argc, char *argv[]) {
 
         XIRBuilder builder;
         auto *kernel = module.create_kernel();
-        auto *kernel_buffer =
-            kernel->create_resource_argument(buffer_type);
         auto *kernel_selector = kernel->create_value_argument(uint_type);
         builder.set_insertion_point(kernel->create_body_block());
+        auto *kernel_value = builder.alloca_shared(uint_type);
         auto *first_call = builder.call(
             nullptr, first.callable,
-            {kernel_buffer, kernel_selector});
+            {kernel_value, kernel_selector});
         auto *second_call = builder.call(
             nullptr, second.callable,
-            {kernel_buffer, kernel_selector});
+            {kernel_value, kernel_selector});
         builder.return_void();
 
         auto result =

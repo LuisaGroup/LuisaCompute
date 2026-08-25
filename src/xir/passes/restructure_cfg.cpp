@@ -9,6 +9,7 @@
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/autodiff.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/indexed_branch.h>
@@ -20,6 +21,7 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/instructions/raster_discard.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/reg2mem.h>
@@ -1035,6 +1037,12 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     XIRBuilder b;
     b.set_insertion_point(bb);
     b.break_(break_target);
+    if (restructure_trace_enabled()) {
+        LUISA_VERBOSE_WITH_LOCATION(
+            "[restructure_cfg] created break: origin=replace_branch, "
+            "block={}, target={}.",
+            static_cast<void *>(bb), static_cast<void *>(break_target));
+    }
     return true;
 }
 
@@ -1056,6 +1064,12 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     XIRBuilder b;
     b.set_insertion_point(proxy);
     b.break_(break_target);
+    if (restructure_trace_enabled()) {
+        LUISA_VERBOSE_WITH_LOCATION(
+            "[restructure_cfg] created break: origin=retarget_edge_proxy, "
+            "block={}, target={}.",
+            static_cast<void *>(proxy), static_cast<void *>(break_target));
+    }
     if (!retarget_terminator(term, from, proxy)) {
         proxy->remove_self();
         return false;
@@ -1307,6 +1321,17 @@ classify_exclusive_loop_boundary_arm(
                                                                   const luisa::unordered_set<BasicBlock *> &
                                                                       generated_exit_dispatch_headers) noexcept {
     auto dom = compute_restructure_dom(def);
+    luisa::unordered_map<BasicBlock *, size_t> trace_block_indices;
+    if (restructure_trace_enabled()) {
+        auto index = size_t{0u};
+        for (auto *block : def->basic_blocks()) {
+            trace_block_indices.emplace(block, index++);
+        }
+    }
+    auto trace_index = [&](BasicBlock *block) noexcept {
+        auto iter = trace_block_indices.find(block);
+        return iter == trace_block_indices.end() ? SIZE_MAX : iter->second;
+    };
     struct LoopSite {
         BasicBlock *owner{nullptr};
         BasicBlock *entry{nullptr};
@@ -1338,7 +1363,6 @@ classify_exclusive_loop_boundary_arm(
                 dom.contains(bb) ? dom_depth(dom, bb) : 0u);
         }
     });
-
     struct Candidate {
         BasicBlock *branch_block{nullptr};
         BasicBlock *true_target{nullptr};
@@ -1441,6 +1465,22 @@ classify_exclusive_loop_boundary_arm(
                     generated_dispatch &&
                     (physical_one_sided_boundary ||
                      physical_opposing_boundaries);
+                if (restructure_trace_enabled() && generated_dispatch) {
+                    LUISA_VERBOSE_WITH_LOCATION(
+                        "[restructure_cfg] generated loop-boundary query: "
+                        "header={}, loop_owner={}, entry={}, update={}, merge={}, "
+                        "true={} (semantic {}, physical {}), false={} "
+                        "(semantic {}, physical {}), candidate={}.",
+                        trace_index(branch_block), trace_index(site.owner),
+                        trace_index(site.entry),
+                        trace_index(site.continue_target),
+                        trace_index(site.merge), trace_index(t),
+                        static_cast<uint32_t>(true_kind),
+                        static_cast<uint32_t>(physical_true_kind),
+                        trace_index(f), static_cast<uint32_t>(false_kind),
+                        static_cast<uint32_t>(physical_false_kind),
+                        generated_boundary_guard);
+                }
                 if (generated_boundary_guard ||
                     (!generated_dispatch &&
                      (opposing ||
@@ -1476,6 +1516,16 @@ classify_exclusive_loop_boundary_arm(
                 prepare_branch->false_block() != site.merge) {
                 append_candidate(site.entry, true);
             }
+        }
+        // A LoopInst update block is a declared structural member, not an
+        // executable successor of the loop header. In partially structured
+        // input, an intervening non-local exit can also keep the body walk
+        // from reaching it. Inspect the update explicitly: a bottom-checked
+        // loop places its break/continue condition exactly here, and treating
+        // that generated dispatch as an unrelated selection recreates the
+        // same natural loop in every post-restructure round.
+        if (site.continue_target != site.entry) {
+            append_candidate(site.continue_target, false);
         }
         luisa::unordered_set<BasicBlock *> visited;
         luisa::vector<BasicBlock *> work;
@@ -1529,6 +1579,12 @@ classify_exclusive_loop_boundary_arm(
                 continue;
             }
             exit_dispatch_headers.erase(header);
+            if (restructure_trace_enabled()) {
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[restructure_cfg] released generated dispatch marker: "
+                    "header={}.",
+                    static_cast<void *>(header));
+            }
             return true;
         }
         return false;
@@ -1557,6 +1613,16 @@ classify_exclusive_loop_boundary_arm(
         singular_boundary(false_kind);
     auto generated_boundary_guard =
         cand.generated_boundary_guard;
+    if (restructure_trace_enabled()) {
+        LUISA_VERBOSE_WITH_LOCATION(
+            "[restructure_cfg] normalized loop-boundary branch: "
+            "header={}, generated={}, true={}, false={}, merge={}.",
+            static_cast<void *>(cand.branch_block),
+            generated_boundary_guard,
+            static_cast<void *>(cand.true_target),
+            static_cast<void *>(cand.false_target),
+            static_cast<void *>(cand.selection_merge));
+    }
     old_term->remove_self();
     // Keep the exit-dispatch role when a raw dispatch becomes a loop-boundary
     // guard. The IfInst is the structured XIR spelling of a physical branch
@@ -1575,6 +1641,13 @@ classify_exclusive_loop_boundary_arm(
         bb.set_insertion_point(block);
         if (break_arm) {
             bb.break_(cand.merge);
+            if (restructure_trace_enabled()) {
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[restructure_cfg] created break: origin=boundary_branch, "
+                    "block={}, target={}.",
+                    static_cast<void *>(block),
+                    static_cast<void *>(cand.merge));
+            }
         } else {
             bb.continue_(cand.continue_target);
         }
@@ -1853,6 +1926,13 @@ void remove_write_only_dispatch_selectors(
                 break;
             case ExitEffect::BREAK:
                 replacement = builder.break_(true_exit.target);
+                if (restructure_trace_enabled()) {
+                    LUISA_VERBOSE_WITH_LOCATION(
+                        "[restructure_cfg] created break: origin=dispatch_collapse, "
+                        "block={}, target={}.",
+                        static_cast<void *>(header),
+                        static_cast<void *>(true_exit.target));
+                }
                 break;
             case ExitEffect::CONTINUE:
                 replacement = builder.continue_(true_exit.target);
@@ -2318,11 +2398,25 @@ collect_loop_boundary_selection_entries(
                 new_true = def->create_basic_block();
                 builder.set_insertion_point(new_true);
                 builder.break_(rewrite.loop_merge);
+                if (restructure_trace_enabled()) {
+                    LUISA_VERBOSE_WITH_LOCATION(
+                        "[restructure_cfg] created break: origin=boundary_merge_true, "
+                        "block={}, target={}.",
+                        static_cast<void *>(new_true),
+                        static_cast<void *>(rewrite.loop_merge));
+                }
             }
             if (rewrite.false_break_proxy) {
                 new_false = def->create_basic_block();
                 builder.set_insertion_point(new_false);
                 builder.break_(rewrite.loop_merge);
+                if (restructure_trace_enabled()) {
+                    LUISA_VERBOSE_WITH_LOCATION(
+                        "[restructure_cfg] created break: origin=boundary_merge_false, "
+                        "block={}, target={}.",
+                        static_cast<void *>(new_false),
+                        static_cast<void *>(rewrite.loop_merge));
+                }
             }
             if (new_true != rewrite.true_target) {
                 rewrite.if_inst->set_true_target(new_true);
@@ -2906,6 +3000,41 @@ void traverse_executable_successors(BasicBlock *block,
                 static_cast<SimpleLoopInst *>(terminator);
             if (loop->body_block() == from) {
                 loop->set_body_block(to);
+                changed = true;
+            }
+            break;
+        }
+        case DerivedInstructionTag::RAY_QUERY_LOOP: {
+            auto *loop =
+                static_cast<RayQueryLoopInst *>(terminator);
+            if (loop->dispatch_block() == from) {
+                loop->set_dispatch_block(to);
+                changed = true;
+            }
+            break;
+        }
+        case DerivedInstructionTag::RAY_QUERY_DISPATCH: {
+            auto *dispatch =
+                static_cast<RayQueryDispatchInst *>(terminator);
+            if (dispatch->exit_block() == from) {
+                dispatch->set_exit_block(to);
+                changed = true;
+            }
+            if (dispatch->on_surface_candidate_block() == from) {
+                dispatch->set_on_surface_candidate_block(to);
+                changed = true;
+            }
+            if (dispatch->on_procedural_candidate_block() == from) {
+                dispatch->set_on_procedural_candidate_block(to);
+                changed = true;
+            }
+            break;
+        }
+        case DerivedInstructionTag::AUTODIFF_SCOPE: {
+            auto *scope =
+                static_cast<AutodiffScopeInst *>(terminator);
+            if (scope->entry_block() == from) {
+                scope->set_entry_block(to);
                 changed = true;
             }
             break;
@@ -3771,6 +3900,59 @@ void incrementally_update_switch_selection_exit_relations(
         return entry != nullptr && dom.contains(entry) &&
                dom.dominates(header, entry);
     };
+    // A nested selection is an opaque node in its parent's construct quotient
+    // exactly when every executable path either reaches its own merge, ends in
+    // a terminal instruction, or remains forever inside the child. This is a
+    // graph property, not a reachability guess based on the merge alone: an
+    // unreachable merge can mean either "all arms terminate" (safe to
+    // contract) or "an arm escapes non-locally" (must be exposed).
+    //
+    // The walk below decides the property directly. Its finite visited set is
+    // also the termination proof for internal cycles. Dominance by the child
+    // header and exclusion of the merge's dominated subtree are the exact
+    // child-construct boundary; crossing either predicate witnesses a real
+    // non-local exit.
+    auto nested_construct_is_closed_or_terminal =
+        [&](BasicBlock *nested_header,
+            Instruction *nested_term,
+            BasicBlock *nested_merge) noexcept {
+            luisa::unordered_set<BasicBlock *> visited;
+            auto work = selection_entries(nested_term);
+            auto escaped = false;
+            while (!work.empty() && !escaped) {
+                auto *block = work.back();
+                work.pop_back();
+                if (block == nested_merge) { continue; }
+                if (block == nullptr || !dom.contains(block) ||
+                    !dom.dominates(nested_header, block) ||
+                    (dom.contains(nested_merge) &&
+                     dom.dominates(nested_merge, block))) {
+                    escaped = true;
+                    break;
+                }
+                if (!visited.emplace(block).second) { continue; }
+                if (!block->is_terminated()) {
+                    escaped = true;
+                    break;
+                }
+                traverse_executable_successors(
+                    block, [&](BasicBlock *successor) noexcept {
+                        if (escaped || successor == nested_merge) {
+                            return;
+                        }
+                        if (successor == nullptr ||
+                            !dom.contains(successor) ||
+                            !dom.dominates(nested_header, successor) ||
+                            (dom.contains(nested_merge) &&
+                             dom.dominates(nested_merge, successor))) {
+                            escaped = true;
+                            return;
+                        }
+                        work.emplace_back(successor);
+                    });
+            }
+            return !escaped;
+        };
     for (auto *entry : analysis.entries) {
         if (entry == merge) {
             append_unique_exit_edge(
@@ -3805,13 +3987,37 @@ void incrementally_update_switch_selection_exit_relations(
                 !exit_dispatch_headers.contains(bb) &&
                 !cfg_relations.loop_boundary_selection_entries
                      .contains(bb)) {
-                if (nested_merge == merge) {
-                    append_unique_exit_edge(
-                        analysis.merge_exits, bb, nested_merge);
-                } else {
-                    work.emplace_back(nested_merge);
+                // Contract a nested construct only when its declared merge
+                // remains in this exact arm interior. If the merge is shared
+                // with another arm, equals this construct's own merge, or is
+                // outside the current header's dominance region, contraction
+                // would replace the child's physical exit cut by a fictitious
+                // header-to-merge edge. The subsequent dominance guard would
+                // then silently discard a real non-local exit, and the
+                // single-exit protocol could move only one arm of a generated
+                // target-state dispatch.
+                //
+                // In the non-contractible case, descend through the child's
+                // executable entries. Inner-to-outer structurization makes
+                // every physical edge found this way retargetable, while each
+                // interior block is still visited at most once by `region`.
+                auto merge_is_strictly_inside_arm =
+                    nested_merge != merge &&
+                    dom.contains(nested_merge) &&
+                    dom.dominates(header, nested_merge) &&
+                    dom.dominates(entry, nested_merge);
+                auto child_is_closed =
+                    nested_construct_is_closed_or_terminal(
+                        bb, bb->terminator(), nested_merge);
+                if (merge_is_strictly_inside_arm || child_is_closed) {
+                    if (nested_merge == merge) {
+                        append_unique_exit_edge(
+                            analysis.merge_exits, bb, nested_merge);
+                    } else {
+                        work.emplace_back(nested_merge);
+                    }
+                    continue;
                 }
-                continue;
             }
             traverse_executable_successors(
                 bb, [&](BasicBlock *successor) noexcept {
@@ -4141,6 +4347,95 @@ void repair_target_state_dispatch_ssa(
         }
     }
     auto local_dependency_only = targets.size() == 1u;
+    if (restructure_trace_enabled()) {
+        LUISA_VERBOSE_WITH_LOCATION(
+            "[restructure_cfg] selection-exit rewrite: "
+            "header={} (block {}), term={}, old_merge={}, invalid={}, merge_exits={}, "
+            "targets={}, local={}.",
+            static_cast<void *>(header),
+            block_index(header),
+            static_cast<void *>(term),
+            static_cast<void *>(merge),
+            invalid_exits.size(), merge_exits.size(),
+            targets.size(), local_dependency_only);
+        for (auto *target : targets) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] selection-exit target: "
+                "block={} (owned {}), canonical={}, legal={}, sink={}, "
+                "structured_role={}, terminator={}.",
+                static_cast<void *>(target), block_index(target),
+                static_cast<void *>(canonical_exit_target(target)),
+                is_legal_structured_exit(target), is_sink(target),
+                cfg_relations.structured_exit_boundaries.contains(target),
+                target != nullptr && target->is_terminated() ?
+                    static_cast<uint32_t>(
+                        target->terminator()->derived_instruction_tag()) :
+                    UINT32_MAX);
+            if (cfg_relations.structured_exit_boundaries
+                    .contains(target)) {
+                for (auto *owner : def->basic_blocks()) {
+                    if (owner != nullptr && owner->is_terminated() &&
+                        structured_statement_merge(
+                            owner->terminator()) == target) {
+                        LUISA_VERBOSE_WITH_LOCATION(
+                            "[restructure_cfg] selection-exit target owner: "
+                            "target={} (owned {}), header={} (owned {}), "
+                            "kind={}, header_dominates_target={}, "
+                            "site_dominates_target={}.",
+                            static_cast<void *>(target), block_index(target),
+                            static_cast<void *>(owner), block_index(owner),
+                            xir::to_string(owner->terminator()
+                                               ->derived_instruction_tag()),
+                            dom.contains(owner) && dom.contains(target) &&
+                                dom.dominates(owner, target),
+                            dom.contains(header) && dom.contains(target) &&
+                                dom.dominates(header, target));
+                    }
+                }
+            }
+        }
+        for (auto context = enclosing_context;
+             context != SIZE_MAX;
+             context = cfg_relations.contexts[context].parent) {
+            auto &&node = cfg_relations.contexts[context];
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] selection-exit context: "
+                "id={}, kind={}, break={} (owned {}), continue={} (owned {}), "
+                "entry={} (owned {}), parent={}.",
+                context,
+                node.kind == SelectionExitCFGRelations::ContextKind::LOOP ?
+                    "loop" : "switch",
+                static_cast<void *>(node.break_target),
+                block_index(node.break_target),
+                static_cast<void *>(node.continue_target),
+                node.continue_target == nullptr ? SIZE_MAX :
+                                                   block_index(node.continue_target),
+                static_cast<void *>(node.loop_entry),
+                node.loop_entry == nullptr ? SIZE_MAX :
+                                             block_index(node.loop_entry),
+                node.parent);
+        }
+        for (auto *entry : entries) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] selection-exit entry: "
+                "block={} (owned {}).",
+                static_cast<void *>(entry), block_index(entry));
+        }
+        for (auto edge : invalid_exits) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] selection-exit invalid edge: "
+                "{} (owned {}) -> {} (owned {}).",
+                static_cast<void *>(edge.src), block_index(edge.src),
+                static_cast<void *>(edge.dst), block_index(edge.dst));
+        }
+        for (auto edge : merge_exits) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] selection-exit merge edge: "
+                "{} (owned {}) -> {} (owned {}).",
+                static_cast<void *>(edge.src), block_index(edge.src),
+                static_cast<void *>(edge.dst), block_index(edge.dst));
+        }
+    }
     luisa::vector<BasicBlock *> mutated_edge_sources;
     luisa::vector<BasicBlock *> bypassed_forwarding_blocks;
     mutated_edge_sources.reserve(normalized_edges.size());
@@ -4633,7 +4928,36 @@ struct SelectionExitDrainResult {
         // analyze_selection_exits uses the same structured-exit predicate as
         // the mutating phase; any surviving edge is therefore illegal by the
         // exact proof obligation, with no weaker audit-side exception.
-        invalid_count += analysis.invalid_exits.empty() ? 0u : 1u;
+        if (!analysis.invalid_exits.empty()) {
+            if (restructure_trace_enabled()) {
+                auto ordinal = [&](BasicBlock *candidate) noexcept {
+                    auto index = size_t{0u};
+                    for (auto *owned : def->basic_blocks()) {
+                        if (owned == candidate) { return index; }
+                        ++index;
+                    }
+                    return SIZE_MAX;
+                };
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[restructure_cfg] noncanonical selection exit: "
+                    "header={}@{}, merge={}@{}, witness_count={}.",
+                    ordinal(header),
+                    static_cast<void *>(header),
+                    ordinal(merge),
+                    static_cast<void *>(merge),
+                    analysis.invalid_exits.size());
+                for (auto edge : analysis.invalid_exits) {
+                    LUISA_VERBOSE_WITH_LOCATION(
+                        "[restructure_cfg] noncanonical selection witness: "
+                        "{}@{} -> {}@{}.",
+                        ordinal(edge.src),
+                        static_cast<void *>(edge.src),
+                        ordinal(edge.dst),
+                        static_cast<void *>(edge.dst));
+                }
+            }
+            ++invalid_count;
+        }
     }
     info.selection_exit_audit_invalid_count +=
         invalid_count;
@@ -4656,18 +4980,78 @@ struct SelectionExitDrainResult {
         block_indices.emplace(all_blocks[i], i);
     }
 
-    luisa::unordered_set<BasicBlock *> already_loop_headers;
+    // A dominance backedge is already represented only by the loop whose
+    // *active lexical instance* contains its source. Target identity alone is
+    // insufficient: an unreachable/orphan LoopInst may still name reachable
+    // blocks, and Loop.body is not the physical header of a full LoopInst.
+    // Treating either case as a global exemption leaves an ordinary backedge
+    // after inactive-role cleanup.
+    struct ExistingLoopScope {
+        BasicBlock *owner{nullptr};
+        BasicBlock *physical_header{nullptr};
+        BasicBlock *merge{nullptr};
+    };
+    luisa::vector<ExistingLoopScope> existing_loop_scopes;
+    struct ExistingMergeScope {
+        BasicBlock *owner{nullptr};
+        ControlFlowMerge *merge{nullptr};
+        BasicBlock *target{nullptr};
+    };
+    luisa::vector<ExistingMergeScope> existing_merge_scopes;
     for (auto *bb : all_blocks) {
         if (!bb->is_terminated()) { continue; }
         auto *term = bb->terminator();
+        if (auto *merge = term->control_flow_merge();
+            merge != nullptr && merge->merge_block() != nullptr) {
+            existing_merge_scopes.emplace_back(
+                ExistingMergeScope{
+                    .owner = bb,
+                    .merge = merge,
+                    .target = merge->merge_block()});
+        }
         if (term->isa<LoopInst>()) {
             auto *li = static_cast<LoopInst *>(term);
-            if (li->prepare_block()) { already_loop_headers.emplace(li->prepare_block()); }
+            if (li->prepare_block()) {
+                existing_loop_scopes.emplace_back(
+                    ExistingLoopScope{
+                        .owner = bb,
+                        .physical_header = li->prepare_block(),
+                        .merge = li->merge_block()});
+            }
         } else if (term->isa<SimpleLoopInst>()) {
             auto *sl = static_cast<SimpleLoopInst *>(term);
-            if (sl->body_block()) { already_loop_headers.emplace(sl->body_block()); }
+            if (sl->body_block()) {
+                existing_loop_scopes.emplace_back(
+                    ExistingLoopScope{
+                        .owner = bb,
+                        .physical_header = sl->body_block(),
+                        .merge = sl->merge_block()});
+            }
         }
     }
+    auto is_owned_existing_loop_backedge =
+        [&](BasicBlock *source,
+            BasicBlock *target) noexcept {
+            for (auto scope : existing_loop_scopes) {
+                if (scope.physical_header != target ||
+                    scope.owner == nullptr ||
+                    !dom.contains(scope.owner) ||
+                    !dom.contains(source) ||
+                    !dom.dominates(scope.owner, source)) {
+                    continue;
+                }
+                // The merge begins the next lexical epoch. An edge from the
+                // merge or its dominance subtree back to the same header is a
+                // new natural loop, not a continue of this construct.
+                if (scope.merge != nullptr &&
+                    dom.contains(scope.merge) &&
+                    dom.dominates(scope.merge, source)) {
+                    continue;
+                }
+                return true;
+            }
+            return false;
+        };
 
     struct LoopCandidate {
         BasicBlock *header{nullptr};
@@ -4693,7 +5077,9 @@ struct SelectionExitDrainResult {
         }
         if (back_target == nullptr) { continue; }
         if (!dom.dominates(back_target, bb)) { continue; }
-        if (already_loop_headers.contains(back_target)) { continue; }
+        if (is_owned_existing_loop_backedge(bb, back_target)) {
+            continue;
+        }
 
         bool found = false;
         for (auto &c : candidates) {
@@ -4734,7 +5120,14 @@ struct SelectionExitDrainResult {
 
         // Re-validate: header may have been restructured by a previous candidate in this batch.
         if (!header->is_terminated()) { continue; }
-        if (already_loop_headers.contains(header)) { continue; }
+        auto all_latches_owned_by_existing_loop = true;
+        for (auto *latch : latches) {
+            if (!is_owned_existing_loop_backedge(latch, header)) {
+                all_latches_owned_by_existing_loop = false;
+                break;
+            }
+        }
+        if (all_latches_owned_by_existing_loop) { continue; }
         if (newly_restructured_headers.contains(header)) { continue; }
 
         // Re-validate latches: they may have been modified by earlier restructuring.
@@ -4981,8 +5374,59 @@ struct SelectionExitDrainResult {
             loop_blocks.emplace(canonical_latch);
         }
 
+        // A natural-loop header H may also be the merge of the unique active
+        // construct C that immediately precedes the loop. C and the loop are
+        // sequential in the dynamic CFG, but assigning H both roles makes the
+        // loop backedge re-enter C's merge. The correct subdivision is
+        //
+        //   C -> M -> Loop(H ... latch -> H)
+        //
+        // where M is both C's fresh merge and the loop owner/preheader. It is
+        // not `C -> Loop(P -> H)` while C.merge remains H: that spelling puts
+        // the loop inside C and recreates the same post-merge re-entry after
+        // every node split.
+        //
+        // Dominators of one reachable block are totally ordered. Together
+        // with the pass' unique-merge postcondition, this gives at most one
+        // active owner for H. Disconnected descriptors do not participate:
+        // they cannot own a reachable execution epoch and are removed by the
+        // inactive-structure cleanup in the SPIR-V pipeline.
+        ControlFlowMerge *active_header_merge = nullptr;
+        for (auto scope : existing_merge_scopes) {
+            if (scope.target != header || scope.owner == nullptr ||
+                !dom.contains(scope.owner) ||
+                !dom.dominates(scope.owner, header) ||
+                dom.dominates(header, scope.owner)) {
+                continue;
+            }
+            if (active_header_merge != nullptr &&
+                active_header_merge != scope.merge) {
+                // The transform below is proved for a unique preceding merge
+                // owner. Shared ownership is already outside the pass'
+                // structured-output contract; fail closed so the surrounding
+                // transaction restores the original graph instead of choosing
+                // an arbitrary owner or creating another shared merge.
+                ++info.invalid_construct_count;
+                return false;
+            }
+            active_header_merge = scope.merge;
+        }
+        auto split_header_role = active_header_merge != nullptr;
+        if (restructure_trace_enabled()) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] natural-loop recovery: header={}, "
+                "latch={}, loop_blocks={}, entry_preds_pending, "
+                "exit_edges={}, exit_targets={}, split_merge_role={}.",
+                block_indices.at(header), static_cast<void *>(canonical_latch),
+                loop_blocks.size(), pre_exit_edges.size(),
+                pre_exit_targets.size(), split_header_role);
+        }
         luisa::vector<BasicBlock *> entry_preds;
         header->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+            // XIR's Use relation contains encoded executable block operands;
+            // declarative merge/body/update roles are raw structural links.
+            // The exhaustive retargeter below must therefore cover the same
+            // terminator domain as predecessor discovery.
             if (!dom.contains(pred)) { return; }
             if (!loop_blocks.contains(pred)) { entry_preds.emplace_back(pred); }
         });
@@ -4997,7 +5441,14 @@ struct SelectionExitDrainResult {
         if (def->body_block() == header) { def->set_body_block(preheader); }
         for (auto *pred : entry_preds) {
             if (!pred->is_terminated()) { continue; }
-            retarget_terminator(pred->terminator(), header, preheader);
+            LUISA_ASSERT(
+                retarget_executable_edge(
+                    pred->terminator(), header, preheader),
+                "A natural-loop entry reported by the executable predecessor "
+                "relation could not be retargeted.");
+        }
+        if (active_header_merge != nullptr) {
+            active_header_merge->set_merge_block(preheader);
         }
         {
             XIRBuilder b;
@@ -5962,6 +6413,198 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
     return true;
 }
 
+// CFG structurization preserves executable edges up to cloning and
+// subdivision, but creating or moving a construct boundary can change which
+// structured construct lexically owns an old block. BreakInst and ContinueInst
+// are not merely target-carrying branch spellings: they denote the nearest
+// active break/continue scope. Therefore a boundary terminator that was
+// canonical in an earlier CFG version may no longer be canonical even though
+// its executable target is still exactly the intended one.
+//
+// Reconstruct the nearest active scope relation with one sparse dominator-tree
+// event walk. A scope becomes active strictly below its header and is suspended
+// for the complete subtree rooted at its merge. This is equivalent to the
+// verifier predicate
+//
+//   H dom B && !(M dom B)
+//
+// with maximum dominator depth. If a terminator's explicit target disagrees
+// with that unique nearest scope (or no such scope exists), lower only its
+// structural spelling to BranchInst. The executable edge is unchanged. Any
+// newly exposed backedge is then visible to ordinary natural-loop recovery
+// instead of being hidden behind a stale lexical annotation.
+[[nodiscard]] bool lower_noncanonical_structured_boundaries(
+    FunctionDefinition *def,
+    const DomTree &dom) noexcept {
+    if (def == nullptr || dom.root() == nullptr) { return false; }
+    enum class ScopeKind : uint8_t {
+        LOOP,
+        SWITCH,
+    };
+    struct Scope {
+        BasicBlock *header{nullptr};
+        BasicBlock *merge{nullptr};
+        BasicBlock *continue_target{nullptr};
+        ScopeKind kind{ScopeKind::LOOP};
+        size_t depth{0u};
+        bool can_be_active{true};
+    };
+    luisa::vector<Scope> scopes;
+    luisa::unordered_map<BasicBlock *, size_t>
+        scope_by_header;
+    luisa::unordered_map<BasicBlock *, luisa::vector<size_t>>
+        merge_events;
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr || !block->is_terminated() ||
+            !dom.contains(block)) {
+            continue;
+        }
+        auto *term = block->terminator();
+        auto scope = Scope{.header = block,
+                           .depth = dom_depth(dom, block)};
+        if (term->isa<LoopInst>()) {
+            auto *loop = static_cast<LoopInst *>(term);
+            scope.merge = loop->merge_block();
+            scope.continue_target = loop->update_block();
+        } else if (term->isa<SimpleLoopInst>()) {
+            auto *loop = static_cast<SimpleLoopInst *>(term);
+            scope.merge = loop->merge_block();
+            scope.continue_target = loop->body_block();
+        } else if (term->isa<SwitchInst>()) {
+            scope.kind = ScopeKind::SWITCH;
+            scope.merge =
+                static_cast<SwitchInst *>(term)->merge_block();
+        } else {
+            continue;
+        }
+        auto index = scopes.size();
+        scope_by_header.emplace(block, index);
+        scopes.emplace_back(scope);
+        if (scope.merge == nullptr ||
+            !dom.contains(scope.merge)) {
+            continue;
+        }
+        if (dom.dominates(scope.merge, block)) {
+            scopes[index].can_be_active = false;
+        } else if (dom.dominates(block, scope.merge)) {
+            merge_events[scope.merge].emplace_back(index);
+        }
+    }
+
+    using ActiveScopeKey =
+        std::pair<size_t, size_t>;// (dom depth, scope index)
+    std::set<ActiveScopeKey> active_break_scopes;
+    std::set<ActiveScopeKey> active_continue_scopes;
+    struct WalkFrame {
+        const DomTreeNode *node{nullptr};
+        size_t next_child{0u};
+        size_t activated_scope{SIZE_MAX};
+        luisa::vector<size_t> suspended_scopes;
+    };
+    struct Rewrite {
+        BasicBlock *block{nullptr};
+        BranchTerminatorInstruction *terminator{nullptr};
+        BasicBlock *target{nullptr};
+    };
+    luisa::vector<Rewrite> rewrites;
+    luisa::vector<WalkFrame> walk{
+        WalkFrame{.node = dom.root()}};
+    while (!walk.empty()) {
+        auto &frame = walk.back();
+        auto *block = frame.node->block();
+        if (frame.next_child == 0u) {
+            if (auto iter = merge_events.find(block);
+                iter != merge_events.end()) {
+                for (auto scope_index : iter->second) {
+                    auto key = ActiveScopeKey{
+                        scopes[scope_index].depth, scope_index};
+                    if (active_break_scopes.erase(key) != 0u) {
+                        active_continue_scopes.erase(key);
+                        frame.suspended_scopes.emplace_back(
+                            scope_index);
+                    }
+                }
+            }
+            if (block->is_terminated() &&
+                (block->terminator()->isa<BreakInst>() ||
+                 block->terminator()->isa<ContinueInst>())) {
+                auto *term = static_cast<
+                    BranchTerminatorInstruction *>(
+                    block->terminator());
+                auto is_continue = term->isa<ContinueInst>();
+                auto &active = is_continue ?
+                                   active_continue_scopes :
+                                   active_break_scopes;
+                auto *expected = active.empty() ?
+                                     nullptr :
+                                     (is_continue ?
+                                          scopes[active.rbegin()->second]
+                                              .continue_target :
+                                          scopes[active.rbegin()->second]
+                                              .merge);
+                if (expected == nullptr ||
+                    term->target_block() != expected) {
+                    rewrites.emplace_back(Rewrite{
+                        .block = block,
+                        .terminator = term,
+                        .target = term->target_block()});
+                }
+            }
+            if (auto iter = scope_by_header.find(block);
+                iter != scope_by_header.end() &&
+                scopes[iter->second].can_be_active) {
+                auto scope_index = iter->second;
+                auto key = ActiveScopeKey{
+                    scopes[scope_index].depth, scope_index};
+                active_break_scopes.emplace(key);
+                if (scopes[scope_index].kind == ScopeKind::LOOP) {
+                    active_continue_scopes.emplace(key);
+                }
+                frame.activated_scope = scope_index;
+            }
+        }
+        auto children = frame.node->children();
+        if (frame.next_child < children.size()) {
+            walk.emplace_back(WalkFrame{
+                .node = children[frame.next_child++]});
+            continue;
+        }
+        if (frame.activated_scope != SIZE_MAX) {
+            auto scope_index = frame.activated_scope;
+            auto key = ActiveScopeKey{
+                scopes[scope_index].depth, scope_index};
+            active_break_scopes.erase(key);
+            active_continue_scopes.erase(key);
+        }
+        for (auto scope_index : frame.suspended_scopes) {
+            auto key = ActiveScopeKey{
+                scopes[scope_index].depth, scope_index};
+            active_break_scopes.emplace(key);
+            if (scopes[scope_index].kind == ScopeKind::LOOP) {
+                active_continue_scopes.emplace(key);
+            }
+        }
+        walk.pop_back();
+    }
+
+    XIRBuilder builder;
+    for (auto rewrite : rewrites) {
+        if (rewrite.block == nullptr ||
+            !rewrite.block->is_terminated() ||
+            rewrite.block->terminator() != rewrite.terminator) {
+            continue;
+        }
+        auto removed = rewrite.terminator->remove_self();
+        builder.set_insertion_point(rewrite.block);
+        auto *replacement = builder.br(rewrite.target);
+        for (auto *metadata : removed->metadata_list()) {
+            replacement->metadata_list().push_front(
+                metadata->clone());
+        }
+    }
+    return !rewrites.empty();
+}
+
 struct PostMergeSelectionReentry {
     BasicBlock *header{nullptr};
     BasicBlock *merge{nullptr};
@@ -6104,6 +6747,30 @@ analyze_post_merge_selection_reentries(
                     }
                 });
             if (offender == nullptr) { continue; }
+            if (restructure_trace_enabled()) {
+                auto ordinal = [&](BasicBlock *candidate) noexcept {
+                    auto index = size_t{0u};
+                    for (auto *owned : def->basic_blocks()) {
+                        if (owned == candidate) { return index; }
+                        ++index;
+                    }
+                    return SIZE_MAX;
+                };
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[restructure_cfg] post-merge selection re-entry: "
+                    "header={}@{}, merge={}@{}, witness={}@{} -> {}@{}, "
+                    "purpose={}.",
+                    ordinal(header),
+                    static_cast<void *>(header),
+                    ordinal(merge),
+                    static_cast<void *>(merge),
+                    ordinal(offender),
+                    static_cast<void *>(offender),
+                    ordinal(reentered),
+                    static_cast<void *>(reentered),
+                    purpose == SelectionReentryAnalysisPurpose::AUDIT ?
+                        "audit" : "transform");
+            }
             result.emplace_back(PostMergeSelectionReentry{
                 .header = header,
                 .merge = merge,
@@ -6124,9 +6791,7 @@ analyze_post_merge_selection_reentries(
 //
 // For every edge (P, E) on a side-effect-free forwarding chain starting at a
 // dispatch arm, find the deepest selection (H, M) for which H and M dominate
-// P, H dominates E, and M does not dominate E. This dominance predicate is
-// exactly the definition of crossing from the post-merge region back into the
-// selection interior; it does not depend on E being a declared arm entry.
+// P, while H but not M dominates E.
 //
 // Split the E-owned subgraph with H, M, and sibling entries as its frontier,
 // then retarget P to the copy. The copy is dominated by M, while the original
@@ -6267,6 +6932,11 @@ analyze_post_merge_selection_reentries(
             ++info.canonicalized_cfg_count;
             dom = compute_restructure_dom(def);
             pdom = compute_post_dom(def, info);
+            if (lower_noncanonical_structured_boundaries(
+                    def, dom)) {
+                dom = compute_restructure_dom(def);
+                pdom = compute_post_dom(def, info);
+            }
             return true;
         }
     }
@@ -6310,6 +6980,10 @@ analyze_post_merge_selection_reentries(
     ++info.canonicalized_cfg_count;
     dom = compute_restructure_dom(def);
     pdom = compute_post_dom(def, info);
+    if (lower_noncanonical_structured_boundaries(def, dom)) {
+        dom = compute_restructure_dom(def);
+        pdom = compute_post_dom(def, info);
+    }
     return true;
 }
 
@@ -6514,13 +7188,157 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 // nearest common post-dominator of all successors as the merge block.
 // Ported from LLVM SPIRVStructurizer::addHeaderToRemainingDivergentDAG.
 struct RemainingDivergentIndex {
+    struct BoundaryOwner {
+        BasicBlock *header{nullptr};
+        BasicBlock *merge{nullptr};
+        [[nodiscard]] friend bool operator==(
+            const BoundaryOwner &,
+            const BoundaryOwner &) noexcept = default;
+    };
+
     luisa::unordered_set<BasicBlock *> header_set;
     luisa::unordered_set<BasicBlock *> continue_set;
     luisa::unordered_set<BasicBlock *> loop_prepare_set;
     luisa::unordered_set<BasicBlock *> loop_merge_set;
+    // Merge blocks are barriers in the quotient graph regardless of whether
+    // they are boundaries for a particular source. Boundary legality itself
+    // is the source-relative relation encoded in boundary_owners below.
+    luisa::unordered_set<BasicBlock *> structured_merge_set;
+    luisa::unordered_map<
+        BasicBlock *, luisa::vector<BoundaryOwner>>
+        boundary_owners;
+    // Every block named by a structured terminator, including arm entries and
+    // merges. Quotient analysis may look through some of these roles, but a
+    // physical CFG rewrite must never bypass one: the role is observable by
+    // SPIR-V structured-control emission even when its block has no payload.
+    luisa::unordered_set<BasicBlock *> physical_role_barrier_set;
     luisa::vector<BasicBlock *> candidates;
     size_t indexed_block_count{0u};
 };
+
+// LLVM SPIRVStructurizer::removeUselessBlocks followed by
+// addHeaderToRemainingDivergentDAG reasons about the quotient CFG in which
+// empty forwarding blocks have been contracted, but never contracts through
+// a construct role. Compute the same representative without mutating XIR.
+// A conditional needs its own selection header iff more than one distinct arm
+// remains ordinary after this quotient. Whether a role is a legal boundary is
+// not a property of the target alone: it is a relation between the source and
+// a construct that lexically encloses that source. Selection and Switch merges
+// therefore stop contraction here just like loop roles, but are classified by
+// the source-relative predicate below rather than by a global role test.
+// An existing construct header remains an ordinary successor here: entering a
+// child construct does not provide convergence for the branch that selected
+// it. LLVM's final HeaderBlocks exclusion relies on stronger invariants from
+// its preceding merge-placement phases; making that assumption independently
+// in XIR emits an unmerged `header versus ordinary` OpBranchConditional, which
+// Vulkan's structured-control validator correctly rejects.
+[[nodiscard]] BasicBlock *remaining_divergent_quotient_target(
+    BasicBlock *target,
+    const RemainingDivergentIndex &index) noexcept {
+    luisa::unordered_set<BasicBlock *> visited;
+    auto *current = target;
+    while (current != nullptr &&
+           visited.emplace(current).second &&
+           !index.header_set.contains(current) &&
+           !index.continue_set.contains(current) &&
+           !index.structured_merge_set.contains(current)) {
+        auto *next = trivial_branch_target(current);
+        if (next == nullptr) { break; }
+        current = next;
+    }
+    return current;
+}
+
+// Materialize only those contractions that preserve the structured-role
+// graph. Let R be the set of blocks referenced by any structured terminator.
+// For a raw branch target t, this returns the first vertex in R or the first
+// non-forwarding vertex on the unique empty-branch path from t. Replacing the
+// edge by that representative removes only payload-free degree-one vertices;
+// it cannot cross a construct entry, merge, or continue boundary.
+[[nodiscard]] BasicBlock *remaining_divergent_physical_target(
+    BasicBlock *target,
+    const RemainingDivergentIndex &index) noexcept {
+    luisa::unordered_set<BasicBlock *> visited;
+    auto *current = target;
+    while (current != nullptr &&
+           visited.emplace(current).second &&
+           !index.physical_role_barrier_set.contains(current)) {
+        auto *next = trivial_branch_target(current);
+        if (next == nullptr) { break; }
+        current = next;
+    }
+    return current;
+}
+
+void add_remaining_divergent_boundary_owner(
+    RemainingDivergentIndex &index,
+    BasicBlock *target,
+    BasicBlock *header,
+    BasicBlock *merge) noexcept {
+    if (target == nullptr || header == nullptr || merge == nullptr) {
+        return;
+    }
+    auto owner = RemainingDivergentIndex::BoundaryOwner{
+        .header = header, .merge = merge};
+    auto &owners = index.boundary_owners[target];
+    if (std::find(owners.begin(), owners.end(), owner) == owners.end()) {
+        owners.emplace_back(owner);
+    }
+}
+
+// Let C=(H,M) be a structured construct and B a raw conditional source. A
+// target role R owned by C is an enclosing boundary for B exactly when
+//
+//   H != B, H dom B, and (M == B or M !dom B).
+//
+// The first two clauses put B strictly below the construct header. The final
+// clause excludes the post-merge region, where the same physical role is no
+// longer an exit from C. This source-target relation is the missing premise in
+// a global `merge_set.contains(R)` test: globally identical roles may be legal
+// for one source and ordinary divergence for another.
+template<typename Dominates>
+[[nodiscard]] bool is_enclosing_remaining_divergent_boundary(
+    BasicBlock *source,
+    BasicBlock *target,
+    const RemainingDivergentIndex &index,
+    Dominates &&dominates) noexcept {
+    if (source == nullptr || target == nullptr) { return false; }
+    auto iter = index.boundary_owners.find(target);
+    if (iter == index.boundary_owners.end()) { return false; }
+    for (auto owner : iter->second) {
+        if (owner.header != source &&
+            dominates(owner.header, source) &&
+            (owner.merge == source ||
+             !dominates(owner.merge, source))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template<typename Dominates>
+[[nodiscard]] bool requires_remaining_divergent_header(
+    ConditionalBranchInst *branch,
+    const RemainingDivergentIndex &index,
+    Dominates &&dominates) noexcept {
+    if (branch == nullptr) { return false; }
+    auto *source = branch->parent_block();
+    auto ordinary_target_count = size_t{0u};
+    luisa::unordered_set<BasicBlock *> distinct_targets;
+    for (auto *target :
+         std::array{branch->true_block(), branch->false_block()}) {
+        auto *representative =
+            remaining_divergent_quotient_target(target, index);
+        if (representative == nullptr ||
+            !distinct_targets.emplace(representative).second ||
+            is_enclosing_remaining_divergent_boundary(
+                source, representative, index, dominates)) {
+            continue;
+        }
+        ++ordinary_target_count;
+    }
+    return ordinary_target_count > 1u;
+}
 
 [[nodiscard]] static RemainingDivergentIndex
 index_remaining_divergent_candidates(
@@ -6539,26 +7357,84 @@ index_remaining_divergent_candidates(
             tag == DerivedInstructionTag::LOOP ||
             tag == DerivedInstructionTag::SIMPLE_LOOP) {
             index.header_set.emplace(block);
+            index.physical_role_barrier_set.emplace(block);
         }
-        if (terminator->isa<LoopInst>()) {
+        if (terminator->isa<IfInst>()) {
+            auto *selection = static_cast<IfInst *>(terminator);
+            auto *merge = selection->merge_block();
+            index.physical_role_barrier_set.emplace(
+                selection->true_block());
+            index.physical_role_barrier_set.emplace(
+                selection->false_block());
+            index.physical_role_barrier_set.emplace(
+                merge);
+            if (merge != nullptr) {
+                index.structured_merge_set.emplace(merge);
+                add_remaining_divergent_boundary_owner(
+                    index, merge, block, merge);
+            }
+        } else if (terminator->isa<SwitchInst>()) {
+            auto *selection = static_cast<SwitchInst *>(terminator);
+            auto *merge = selection->merge_block();
+            index.physical_role_barrier_set.emplace(
+                selection->default_block());
+            for (auto i = size_t{0u};
+                 i < selection->case_count(); ++i) {
+                index.physical_role_barrier_set.emplace(
+                    selection->case_block(i));
+            }
+            index.physical_role_barrier_set.emplace(
+                merge);
+            if (merge != nullptr) {
+                index.structured_merge_set.emplace(merge);
+                add_remaining_divergent_boundary_owner(
+                    index, merge, block, merge);
+            }
+        } else if (terminator->isa<LoopInst>()) {
             auto *loop = static_cast<LoopInst *>(terminator);
-            if (loop->merge_block() != nullptr) {
-                index.loop_merge_set.emplace(loop->merge_block());
+            auto *merge = loop->merge_block();
+            index.physical_role_barrier_set.emplace(
+                loop->prepare_block());
+            index.physical_role_barrier_set.emplace(
+                loop->body_block());
+            index.physical_role_barrier_set.emplace(
+                loop->update_block());
+            index.physical_role_barrier_set.emplace(
+                merge);
+            if (merge != nullptr) {
+                index.loop_merge_set.emplace(merge);
+                index.structured_merge_set.emplace(merge);
+                add_remaining_divergent_boundary_owner(
+                    index, merge, block, merge);
             }
             if (loop->update_block() != nullptr) {
                 index.continue_set.emplace(loop->update_block());
+                add_remaining_divergent_boundary_owner(
+                    index, loop->update_block(), block, merge);
             }
             if (loop->prepare_block() != nullptr) {
                 index.continue_set.emplace(loop->prepare_block());
                 index.loop_prepare_set.emplace(loop->prepare_block());
+                add_remaining_divergent_boundary_owner(
+                    index, loop->prepare_block(), block, merge);
             }
         } else if (terminator->isa<SimpleLoopInst>()) {
             auto *loop = static_cast<SimpleLoopInst *>(terminator);
-            if (loop->merge_block() != nullptr) {
-                index.loop_merge_set.emplace(loop->merge_block());
+            auto *merge = loop->merge_block();
+            index.physical_role_barrier_set.emplace(
+                loop->body_block());
+            index.physical_role_barrier_set.emplace(
+                merge);
+            if (merge != nullptr) {
+                index.loop_merge_set.emplace(merge);
+                index.structured_merge_set.emplace(merge);
+                add_remaining_divergent_boundary_owner(
+                    index, merge, block, merge);
             }
             if (loop->body_block() != nullptr) {
                 index.continue_set.emplace(loop->body_block());
+                add_remaining_divergent_boundary_owner(
+                    index, loop->body_block(), block, merge);
             }
         }
     });
@@ -6591,12 +7467,37 @@ index_remaining_divergent_candidates(
         }
         return true;
     };
+    auto equal_boundary_owners = [](const auto &lhs,
+                                    const auto &rhs) noexcept {
+        if (lhs.size() != rhs.size()) { return false; }
+        for (auto &&[target, lhs_owners] : lhs) {
+            auto iter = rhs.find(target);
+            if (iter == rhs.end() ||
+                lhs_owners.size() != iter->second.size()) {
+                return false;
+            }
+            for (auto owner : lhs_owners) {
+                if (std::find(iter->second.begin(),
+                              iter->second.end(), owner) ==
+                    iter->second.end()) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
     if (!equal_set(index.header_set, oracle.header_set) ||
         !equal_set(index.continue_set, oracle.continue_set) ||
         !equal_set(index.loop_prepare_set,
                    oracle.loop_prepare_set) ||
         !equal_set(index.loop_merge_set,
-                   oracle.loop_merge_set)) {
+                   oracle.loop_merge_set) ||
+        !equal_set(index.structured_merge_set,
+                   oracle.structured_merge_set) ||
+        !equal_boundary_owners(index.boundary_owners,
+                               oracle.boundary_owners) ||
+        !equal_set(index.physical_role_barrier_set,
+                   oracle.physical_role_barrier_set)) {
         return false;
     }
     luisa::vector<BasicBlock *> live_candidates;
@@ -6672,10 +7573,8 @@ struct RemainingDivergentOverlay {
         auto *t = cbr->true_block();
         auto *f = cbr->false_block();
         if (t == nullptr || f == nullptr || t == f) { continue; }
-        if (index.continue_set.contains(t) ||
-            index.continue_set.contains(f) ||
-            index.loop_merge_set.contains(t) ||
-            index.loop_merge_set.contains(f)) {
+        if (!requires_remaining_divergent_header(
+                cbr, index, dominates)) {
             continue;
         }
 
@@ -6749,6 +7648,17 @@ struct RemainingDivergentOverlay {
 
     if (found_bb == nullptr) { return false; }
 
+    if (restructure_trace_enabled()) {
+        LUISA_VERBOSE_WITH_LOCATION(
+            "[restructure_cfg] remaining-divergent rewrite: "
+            "header={}, true={}, false={}, merge={}, synthetic={}.",
+            static_cast<void *>(found_bb),
+            static_cast<void *>(found_t),
+            static_cast<void *>(found_f),
+            static_cast<void *>(found_merge),
+            found_is_synthetic);
+    }
+
     // Apply one transparent quotient-graph fixup. The drain rebuilds the
     // concrete analyses once after all candidates have been consumed.
     auto *merge = found_merge;
@@ -6810,6 +7720,19 @@ struct RemainingDivergentOverlay {
     info.restructured_if_count++;
     ++info.remaining_divergent_rewrite_count;
     index.header_set.emplace(bb);
+    index.physical_role_barrier_set.emplace(bb);
+    index.physical_role_barrier_set.emplace(t);
+    index.physical_role_barrier_set.emplace(f);
+    index.physical_role_barrier_set.emplace(structural_merge);
+    index.structured_merge_set.emplace(structural_merge);
+    add_remaining_divergent_boundary_owner(
+        index, structural_merge, bb, structural_merge);
+    // The immutable candidate vector remains valid because the rewrite only
+    // replaces one raw terminator and inserts a transparent branch block. The
+    // role and owner indices are otherwise maintained incrementally. The newly
+    // declared selection merge is a quotient barrier, and its enclosing
+    // relation to each remaining candidate is evaluated lazily through the
+    // exact dominance overlay on the next query.
 
     if (!found_is_synthetic) {
         BasicBlock *anchor = nullptr;
@@ -6902,6 +7825,70 @@ struct RemainingDivergentOverlay {
         def, dom, pdom, info, index,
         overlay, exit_dispatch_headers, verify_index)) {
         modified = true;
+    }
+    return modified;
+}
+
+// LLVM's SPIR-V structurizer removes empty forwarding blocks before deciding
+// whether a remaining divergent node needs OpSelectionMerge. XIR keeps owned
+// blocks stable for later diagnostics, so perform the equivalent contraction
+// on the raw branch operands instead of deleting blocks.
+//
+// Let P(t) be the first structured-role block (or first non-forwarding block)
+// reached from target t. For every residual conditional accepted by the
+// remaining-divergent quotient, replacing t by P(t) is semantics preserving:
+// every removed edge segment contains exactly one unconditional terminator and
+// no instruction. The measure
+//
+//   sum over residual branch arms of forwarding-chain length
+//
+// decreases strictly on each replacement; no block or raw branch is created,
+// so the normalization terminates in one snapshot pass. Keeping construct-role
+// blocks opaque is essential: crossing one would change structured ownership,
+// not merely contract representation.
+[[nodiscard]] bool canonicalize_remaining_divergent_targets(
+    FunctionDefinition *def) noexcept {
+    const luisa::unordered_set<BasicBlock *> no_ignored_headers;
+    auto index = index_remaining_divergent_candidates(
+        def, no_ignored_headers);
+    auto dom = compute_restructure_dom(def);
+    auto dominates = [&](BasicBlock *source,
+                         BasicBlock *target) noexcept {
+        return source != nullptr && target != nullptr &&
+               dom.contains(source) && dom.contains(target) &&
+               dom.dominates(source, target);
+    };
+    auto modified = false;
+    for (auto *block : index.candidates) {
+        if (block == nullptr || !block->is_terminated() ||
+            !block->terminator()->isa<ConditionalBranchInst>()) {
+            continue;
+        }
+        auto *branch = static_cast<ConditionalBranchInst *>(
+            block->terminator());
+        if (requires_remaining_divergent_header(
+                branch, index, dominates)) {
+            continue;
+        }
+        auto *true_target = branch->true_block();
+        auto *false_target = branch->false_block();
+        auto *true_representative =
+            remaining_divergent_physical_target(
+                true_target, index);
+        auto *false_representative =
+            remaining_divergent_physical_target(
+                false_target, index);
+        if (true_representative != nullptr &&
+            true_representative != true_target) {
+            branch->set_true_target(true_representative);
+            modified = true;
+        }
+        if (false_representative != nullptr &&
+            false_representative != false_target) {
+            branch->set_false_target(false_representative);
+            modified = true;
+        }
+        fix_degenerate_terminator(block);
     }
     return modified;
 }
@@ -7179,6 +8166,8 @@ struct RemainingDivergentOverlay {
             }
 
             luisa::unordered_set<BasicBlock *> blocks;
+            luisa::unordered_set<BasicBlock *>
+                contracted_child_headers;
             luisa::vector<BasicBlock *> region_blocks;
             luisa::vector<BasicBlock *> work{node.header};
             while (!work.empty()) {
@@ -7209,6 +8198,33 @@ struct RemainingDivergentOverlay {
                 }
                 if (!blocks.emplace(block).second) { continue; }
                 region_blocks.emplace_back(block);
+                // The construct tree is the semantic quotient used by the
+                // inner-to-outer proof. Once a child construct has been
+                // checked, its internal executable graph is represented in
+                // its parent solely by the child's declared exit. Walking
+                // through the child's physical arms here would rediscover
+                // structural header/merge edges as parent exits; those edges
+                // are descriptors rather than retargetable branch sites and
+                // break both the single-exit construction and its decreasing
+                // hierarchy-distance measure.
+                if (block != node.header) {
+                    if (auto child_iter =
+                            construct_index_by_header.find(block);
+                        child_iter !=
+                        construct_index_by_header.end()) {
+                        auto *child = &constructs[child_iter->second];
+                        auto *ancestor = child->parent;
+                        while (ancestor != nullptr &&
+                               ancestor != &node) {
+                            ancestor = ancestor->parent;
+                        }
+                        if (ancestor == &node) {
+                            contracted_child_headers.emplace(block);
+                            work.emplace_back(child->merge);
+                            continue;
+                        }
+                    }
+                }
                 traverse_executable_successors(
                     block, [&](BasicBlock *successor) noexcept {
                         work.emplace_back(successor);
@@ -7224,6 +8240,9 @@ struct RemainingDivergentOverlay {
             // before target IDs or CFG mutations are produced.
             for (auto *block : region_blocks) {
                 ++info.construct_exit_region_block_visit_count;
+                if (contracted_child_headers.contains(block)) {
+                    continue;
+                }
                 traverse_executable_successors(
                     block, [&](BasicBlock *successor) noexcept {
                         ++info.construct_exit_region_edge_visit_count;
@@ -7289,6 +8308,26 @@ struct RemainingDivergentOverlay {
         LUISA_ASSERT(
             !targets.empty(),
             "Construct fixup selected a construct without exit targets.");
+        if (restructure_trace_enabled()) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] construct-exit rewrite: header={}, kind={}, "
+                "merge={}, parent_header={}, parent_merge={}, exits={}, targets={}.",
+                block_index(candidate->header),
+                xir::to_string(candidate->term->derived_instruction_tag()),
+                block_index(candidate->merge),
+                block_index(candidate->parent->header),
+                block_index(candidate->parent->merge),
+                candidate_exits.size(), targets.size());
+            for (auto edge : candidate_exits) {
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[restructure_cfg] construct-exit edge: {} -> {}, "
+                    "terminator={}, retargetable={}.",
+                    block_index(edge.src), block_index(edge.dst),
+                    xir::to_string(edge.src->terminator()
+                                       ->derived_instruction_tag()),
+                    terminator_targets(edge.src->terminator(), edge.dst));
+            }
+        }
 
         auto *new_exit = def->create_basic_block();
         auto retargeted_any = false;
@@ -7379,18 +8418,26 @@ struct RemainingDivergentOverlay {
 
 [[nodiscard]] size_t count_unstructured_conditional_branches(
     FunctionDefinition *def) noexcept {
-    luisa::unordered_map<BasicBlock *, LoopInst *> loop_prepares;
-    for (auto *block : def->basic_blocks()) {
-        if (block == nullptr || !block->is_terminated() ||
-            !block->terminator()->isa<LoopInst>()) {
-            continue;
-        }
-        auto *loop = static_cast<LoopInst *>(block->terminator());
-        if (loop->prepare_block() != nullptr) {
-            loop_prepares.emplace(loop->prepare_block(), loop);
+    const luisa::unordered_set<BasicBlock *>
+        no_ignored_dispatch_headers;
+    auto index = index_remaining_divergent_candidates(
+        def, no_ignored_dispatch_headers);
+    auto dom = compute_restructure_dom(def);
+    auto dominates = [&](BasicBlock *source,
+                         BasicBlock *target) noexcept {
+        return source != nullptr && target != nullptr &&
+               dom.contains(source) && dom.contains(target) &&
+               dom.dominates(source, target);
+    };
+    luisa::unordered_map<BasicBlock *, size_t> owned_indices;
+    if (restructure_trace_enabled()) {
+        auto owned_index = size_t{0u};
+        for (auto *block : def->basic_blocks()) {
+            owned_indices.emplace(block, owned_index++);
         }
     }
     size_t count = 0u;
+    auto raw_count = size_t{0u};
     for (auto *block : def->basic_blocks()) {
         if (block == nullptr || !block->is_terminated()) {
             continue;
@@ -7400,14 +8447,76 @@ struct RemainingDivergentOverlay {
             continue;
         }
         if (!block->terminator()->isa<ConditionalBranchInst>()) { continue; }
-        auto *branch = static_cast<ConditionalBranchInst *>(block->terminator());
-        auto iter = loop_prepares.find(block);
-        auto canonical_loop_prepare = iter != loop_prepares.end() &&
-                                      branch->condition() != nullptr &&
-                                      branch->condition()->type() == Type::of<bool>() &&
-                                      branch->true_block() == iter->second->body_block() &&
-                                      branch->false_block() == iter->second->merge_block();
-        count += canonical_loop_prepare ? 0u : 1u;
+        ++raw_count;
+        auto *branch =
+            static_cast<ConditionalBranchInst *>(
+                block->terminator());
+        auto *condition = branch->condition();
+        auto *true_target = branch->true_block();
+        auto *false_target = branch->false_block();
+        // The quotient predicate is defined only for a well-formed raw
+        // conditional. A malformed one is still syntactically unstructured
+        // and must remain visible in the failure report; otherwise preflight
+        // rejection would misleadingly claim that no raw branch survived.
+        if (condition == nullptr || condition->type() == nullptr ||
+            !condition->type()->is_bool() || true_target == nullptr ||
+            false_target == nullptr ||
+            true_target->parent_function() != def ||
+            false_target->parent_function() != def) {
+            ++count;
+            continue;
+        }
+        if (restructure_trace_enabled()) {
+            auto index_of = [&](BasicBlock *candidate) noexcept {
+                auto iter = owned_indices.find(candidate);
+                return iter == owned_indices.end() ?
+                           SIZE_MAX : iter->second;
+            };
+            auto *true_quotient =
+                remaining_divergent_quotient_target(
+                    true_target, index);
+            auto *false_quotient =
+                remaining_divergent_quotient_target(
+                    false_target, index);
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[restructure_cfg] final raw-cbr function@{} block={}@{} "
+                "prepare={}, needs_header={}; true={}@{} -> {}@{} "
+                "roles[h={},c={},m={}]; false={}@{} -> {}@{} "
+                "roles[h={},c={},m={}].",
+                static_cast<const void *>(
+                    static_cast<Function *>(def)),
+                index_of(block), static_cast<const void *>(block),
+                index.loop_prepare_set.contains(block),
+                requires_remaining_divergent_header(
+                    branch, index, dominates),
+                index_of(true_target),
+                static_cast<const void *>(true_target),
+                index_of(true_quotient),
+                static_cast<const void *>(true_quotient),
+                index.header_set.contains(true_quotient),
+                index.continue_set.contains(true_quotient),
+                index.loop_merge_set.contains(true_quotient),
+                index_of(false_target),
+                static_cast<const void *>(false_target),
+                index_of(false_quotient),
+                static_cast<const void *>(false_quotient),
+                index.header_set.contains(false_quotient),
+                index.continue_set.contains(false_quotient),
+                index.loop_merge_set.contains(false_quotient));
+        }
+        count += requires_remaining_divergent_header(
+                     branch, index, dominates) ?
+                     1u :
+                     0u;
+    }
+    if (restructure_trace_enabled() && raw_count != 0u &&
+        def->basic_blocks().count_size() <= 128u) {
+        luisa::string dump;
+        XIRDebugPrinter printer;
+        printer.emit_function(dump, def);
+        LUISA_VERBOSE_WITH_LOCATION(
+            "[restructure_cfg] residual raw-cbr function dump:\n{}",
+            dump);
     }
     return count;
 }
@@ -7927,6 +9036,59 @@ restructure_cfg_on_definition_in_place(
         ScopedTimer _timer_post("post_restructure_fixed_point");
         auto dom = compute_restructure_dom(def);
         auto pdom = compute_post_dom(def, info);
+        auto drain_natural_loops = [&]() noexcept {
+            auto modified = false;
+            auto iteration = size_t{0u};
+            // Natural-loop recovery and boundary normalization form one
+            // closure, not two independent phases. Recovering a loop changes
+            // the nearest active break/continue scope below its new header;
+            // lowering an annotation that no longer names that scope exposes
+            // its exact executable edge, which can itself be a natural
+            // backedge. Alternate until neither relation changes.
+            //
+            // Every successful try_restructure_loop consumes one ordinary
+            // dominance backedge by assigning it a structured loop owner.
+            // Every boundary rewrite consumes one noncanonical structural
+            // annotation without changing the executable edge. Consequently
+            // an arbitrary per-drain iteration cap is neither necessary nor
+            // sound: it could return between lowering an edge and recovering
+            // the loop that edge proves.
+            for (;;) {
+                while (try_restructure_loop(
+                    def, dom, pdom, info)) {
+                    modified = true;
+                    dom = compute_restructure_dom(def);
+                    pdom = compute_post_dom(def, info);
+                    if (restructure_trace_enabled()) {
+                        auto stats = trace_stats(def);
+                        LUISA_VERBOSE_WITH_LOCATION(
+                            "[restructure_cfg] natural-loop drain iteration {}: "
+                            "blocks={}, instructions={}, raw_conditional={}, "
+                            "structured_selections={}.",
+                            iteration, stats.block_count,
+                            stats.instruction_count,
+                            stats.raw_conditional_count,
+                            stats.structured_selection_count);
+                    }
+                    ++iteration;
+                }
+                // Loop discovery changes the lexical meaning of every
+                // existing Break/Continue annotation below the new owner.
+                // Re-establish the nearest-active-scope invariant even when
+                // this closure initially found no loop: a construct created
+                // by an earlier post phase may have left a stale annotation
+                // hiding an ordinary edge.
+                if (!lower_noncanonical_structured_boundaries(
+                        def, dom)) {
+                    break;
+                }
+                modified = true;
+                ++info.canonicalized_cfg_count;
+                dom = compute_restructure_dom(def);
+                pdom = compute_post_dom(def, info);
+            }
+            return modified;
+        };
         for (size_t iteration = 0u;
              iteration < options.post_iteration_limit;
              ++iteration) {
@@ -7935,12 +9097,40 @@ restructure_cfg_on_definition_in_place(
                                     trace_stats(def) :
                                     CFGTraceStats{};
             bool local = false;
-            auto loop_changed =
-                try_restructure_loop(def, dom, pdom, info);
+            auto limits_before_fixup = info.iteration_limit_count;
+            auto loop_changed = drain_natural_loops();
             if (loop_changed) {
                 local = true;
-                dom = compute_restructure_dom(def);
-                pdom = compute_post_dom(def, info);
+            }
+            // A generated target-state dispatch is the continuation after a
+            // construct's single exit. Before recovering that raw branch as
+            // another selection, transport every edge that still crosses a
+            // parent construct through that parent's exit. This is the
+            // inner-to-outer order of SPIR-V construct fixup: each successful
+            // rewrite removes at least one crossed parent boundary from the
+            // dispatch, whereas header recovery cannot increase that
+            // hierarchy distance once it reaches zero.
+            auto has_raw_exit_dispatch = false;
+            for (auto *dispatch : exit_dispatch_headers) {
+                if (dispatch != nullptr && dispatch->is_terminated() &&
+                    dispatch->terminator()
+                        ->isa<ConditionalBranchInst>()) {
+                    has_raw_exit_dispatch = true;
+                    break;
+                }
+            }
+            auto construct_exit_changed = false;
+            if (has_raw_exit_dispatch) {
+                construct_exit_changed =
+                    fixup_construct_exits(
+                        def, dom, pdom, info,
+                        exit_dispatch_headers);
+                if (construct_exit_changed) {
+                    ++info.canonicalized_cfg_count;
+                    local = true;
+                    dom = compute_restructure_dom(def);
+                    pdom = compute_post_dom(def, info);
+                }
             }
             auto header_changed =
                 add_headers_to_remaining_divergent(
@@ -7978,6 +9168,34 @@ restructure_cfg_on_definition_in_place(
                     def, dom, pdom, info,
                     exit_dispatch_headers);
             if (selection_reentry_changed) {
+                local = true;
+            }
+            // Selection-exit repair can create a fresh target-state dispatch.
+            // Move that dispatch through every still-crossed construct while
+            // its generated role is explicit, before any generic phase turns
+            // it into another selection header.
+            auto selection_construct_exit_changed =
+                fixup_construct_exits(
+                    def, dom, pdom, info,
+                    exit_dispatch_headers);
+            construct_exit_changed |=
+                selection_construct_exit_changed;
+            if (selection_construct_exit_changed) {
+                ++info.canonicalized_cfg_count;
+                local = true;
+                dom = compute_restructure_dom(def);
+                pdom = compute_post_dom(def, info);
+            }
+            // A target-state dispatch emitted by selection/construct exit
+            // repair can close a natural loop that did not exist at the
+            // beginning of this post round. Recover that loop while the raw
+            // dispatch still carries its generated role; otherwise generic
+            // header recovery in the next round turns the latch into a nested
+            // selection and recreates an equivalent dispatch indefinitely.
+            auto selection_loop_changed =
+                drain_natural_loops();
+            loop_changed |= selection_loop_changed;
+            if (selection_loop_changed) {
                 local = true;
             }
             for (auto *header : exit_dispatch_headers) {
@@ -8028,17 +9246,6 @@ restructure_cfg_on_definition_in_place(
             auto loop_update_changed =
                 canonicalize_loop_update_blocks(def);
             if (loop_update_changed) {
-                ++info.canonicalized_cfg_count;
-                local = true;
-                dom = compute_restructure_dom(def);
-                pdom = compute_post_dom(def, info);
-            }
-            auto limits_before_fixup = info.iteration_limit_count;
-            auto construct_exit_changed =
-                fixup_construct_exits(
-                    def, dom, pdom, info,
-                    exit_dispatch_headers);
-            if (construct_exit_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
                 dom = compute_restructure_dom(def);
@@ -8101,6 +9308,13 @@ restructure_cfg_on_definition_in_place(
     }
     if (post_last_modified) { ++info.iteration_limit_count; }
     if (split_shared_simple_loop_continues(def)) {
+        ++info.canonicalized_cfg_count;
+    }
+    // The quotient analysis above deliberately does not mutate forwarding
+    // blocks while construct ownership is still changing. Once the fixed point
+    // is closed, make every accepted parent-boundary conditional physically
+    // direct as required by structured SPIR-V.
+    if (canonicalize_remaining_divergent_targets(def)) {
         ++info.canonicalized_cfg_count;
     }
     {
