@@ -11,8 +11,11 @@ class CallInst;
 
 // Ordinary inlining is a performance heuristic, not a legalization step.
 // Keep a finite single-use budget so one-use shader stages remain compiler
-// partitions instead of creating an arbitrarily large caller CFG. Explicit
-// inline-all and selected-call-site legalization deliberately ignore it.
+// partitions instead of creating an arbitrarily large caller CFG. Ordinary
+// inlining stabilizes callees before callers, so this budget applies to the
+// transitive body that would actually be cloned and is independent of callable
+// creation order. Explicit inline-all and selected-call-site legalization
+// deliberately ignore it.
 inline constexpr size_t default_inline_single_use_instruction_budget = 1024u;
 inline constexpr size_t default_inline_multi_use_instruction_budget = 50u;
 inline constexpr size_t default_inline_multi_use_call_site_budget = 3u;

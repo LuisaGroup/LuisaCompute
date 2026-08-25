@@ -1068,9 +1068,18 @@ public:
             callee_version->dense_fallback_count());
 }
 
-[[nodiscard]] static luisa::unordered_set<Function *>
-find_recursive_callables(luisa::span<Function *const> callables,
-                         InlineInfo &info) noexcept {
+struct InlineCallGraphAnalysis {
+    luisa::unordered_set<Function *> recursive_callables;
+    // For every edge caller -> callee outside a recursive SCC, the callee
+    // precedes the caller. Ordinary inlining can therefore measure a caller
+    // only after all transitively inlineable descendants have reached their
+    // fixed versions.
+    luisa::vector<Function *> callees_before_callers;
+};
+
+[[nodiscard]] static InlineCallGraphAnalysis
+analyze_inline_call_graph(luisa::span<Function *const> callables,
+                          InlineInfo &info) noexcept {
     const auto function_count = callables.size();
     info.recursion_analysis_function_count += function_count;
     luisa::unordered_map<Function *, size_t> function_ids;
@@ -1176,8 +1185,13 @@ find_recursive_callables(luisa::span<Function *const> callables,
     worklist.reserve(function_count);
     luisa::vector<size_t> component;
     component.reserve(function_count);
-    luisa::unordered_set<Function *> recursive;
-    recursive.reserve(function_count);
+    InlineCallGraphAnalysis result;
+    result.recursive_callables.reserve(function_count);
+    result.callees_before_callers.reserve(function_count);
+    for (auto function_id : finish_order) {
+        result.callees_before_callers.emplace_back(
+            callables[function_id]);
+    }
     for (auto order_index = finish_order.size(); order_index != 0u;
          --order_index) {
         auto root = finish_order[order_index - 1u];
@@ -1205,11 +1219,12 @@ find_recursive_callables(luisa::span<Function *const> callables,
         if (component.size() > 1u ||
             has_self_edge[component.front()]) {
             for (auto function_id : component) {
-                recursive.emplace(callables[function_id]);
+                result.recursive_callables.emplace(
+                    callables[function_id]);
             }
         }
     }
-    return recursive;
+    return result;
 }
 
 static void inline_run(Module *module, InlineInfo &info) noexcept {
@@ -1230,15 +1245,15 @@ static void inline_run(Module *module, InlineInfo &info) noexcept {
         if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE)
             callables.push_back(f);
 
-    auto recursive = find_recursive_callables(callables, info);
+    auto call_graph = analyze_inline_call_graph(callables, info);
     InlineCallerBarrierCache caller_barriers{info, callables.size()};
 
     // Defer removal to after iteration to avoid corrupting the list
     luisa::vector<Function *> to_remove;
-    for (auto callee : callables) {
+    for (auto callee : call_graph.callees_before_callers) {
         auto def = callee->definition();
         if (!def) continue;
-        if (recursive.contains(callee)) {
+        if (call_graph.recursive_callables.contains(callee)) {
             ++info.skipped_recursive_callable_count;
             continue;
         }
@@ -1371,11 +1386,12 @@ InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, 
             if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE)
                 callables.push_back(f);
         if (callables.empty()) break;
-        auto recursive = detail::find_recursive_callables(callables, info);
+        auto call_graph =
+            detail::analyze_inline_call_graph(callables, info);
         luisa::unordered_set<Function *> callable_set{callables.begin(), callables.end()};
         luisa::vector<Function *> leaves;
         for (auto callee : callables) {
-            if (recursive.contains(callee)) {
+            if (call_graph.recursive_callables.contains(callee)) {
                 ++info.skipped_recursive_callable_count;
                 continue;
             }
@@ -1445,8 +1461,8 @@ InlineInfo inline_call_sites_pass_run_on_module(
             all_callables.emplace_back(function);
         }
     }
-    auto recursive =
-        detail::find_recursive_callables(all_callables, info);
+    auto call_graph =
+        detail::analyze_inline_call_graph(all_callables, info);
     luisa::unordered_map<Function *, detail::InlineFunctionSummary>
         function_summaries;
     auto summary_of = [&](Function *function) noexcept {
@@ -1504,7 +1520,7 @@ InlineInfo inline_call_sites_pass_run_on_module(
             ++info.rejected_malformed_call_count;
             continue;
         }
-        if (recursive.contains(callee)) {
+        if (call_graph.recursive_callables.contains(callee)) {
             if (reported_recursive.emplace(callee).second) {
                 ++info.skipped_recursive_callable_count;
             }
