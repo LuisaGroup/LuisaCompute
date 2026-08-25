@@ -868,6 +868,7 @@ void test_tile_lowered_tensor_ops(Device &device, Stream &stream) {
         auto bufB = device.create_buffer<luisa::half>(GK * GN);
         auto bufC = device.create_buffer<float>(GM * GN);
         std::vector<luisa::half> a(GM * GK), b(GK * GN);
+        std::vector<float> initial_c(GM * GN, 7.0f);
         std::vector<float> ref(GM * GN), got(GM * GN), got2(GM * GN);
         for (auto i = 0u; i < a.size(); ++i) { a[i] = luisa::half{static_cast<float>((i % 8) * 0.25f)}; }
         for (auto i = 0u; i < b.size(); ++i) { b[i] = luisa::half{static_cast<float>((i % 4) * 0.5f)}; }
@@ -882,7 +883,7 @@ void test_tile_lowered_tensor_ops(Device &device, Stream &stream) {
             }
         }
         stream << bufA.copy_from(luisa::span{a}) << bufB.copy_from(luisa::span{b})
-               << bufC.copy_from(luisa::span{std::vector<float>(GM * GN, 7.0f)})
+               << bufC.copy_from(luisa::span{initial_c})
                << synchronize();
         kernel.validate(bufA, bufB, bufC);
         using K = decltype(kernel.to_kernel<2>());
