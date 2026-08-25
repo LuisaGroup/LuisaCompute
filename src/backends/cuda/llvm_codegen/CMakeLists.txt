@@ -24,10 +24,6 @@ if (LUISA_COMPUTE_CUDA_LINKED_LLVM)
             WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
             COMMENT "Embedding CUDA built-in sources..."
             VERBATIM)
-    set_source_files_properties(
-            ${CMAKE_CURRENT_LIST_DIR}/cuda_codegen_llvm_device_bitcode.cpp
-            PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION TRUE)
-    add_dependencies(luisa-compute-backend-cuda luisa-compute-backend-cuda-embed-libdevice)
     target_sources(luisa-compute-backend-cuda PRIVATE
             cuda_codegen_llvm_device_bitcode.cpp cuda_codegen_llvm_device_bitcode.h
             cuda_codegen_llvm_config.h
