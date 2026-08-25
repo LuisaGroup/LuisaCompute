@@ -2139,6 +2139,13 @@ void remove_write_only_dispatch_selectors(
            (false_is_merge && singular_boundary(true_kind));
 }
 
+struct LoopBoundarySelectionCandidate {
+    BasicBlock *header{nullptr};
+    BasicBlock *continue_target{nullptr};
+    BasicBlock *loop_entry{nullptr};
+    BasicBlock *merge{nullptr};
+};
+
 // Invert is_loop_boundary_selection_entry's repeated membership query. For
 // one immutable CFG, the predicate is the exact existential relation
 //
@@ -2150,9 +2157,12 @@ void remove_write_only_dispatch_selectors(
 [[nodiscard]] luisa::unordered_set<BasicBlock *>
 collect_loop_boundary_selection_entries(
     FunctionDefinition *def,
-    RestructureCFGInfo *info = nullptr) noexcept {
+    RestructureCFGInfo *info = nullptr,
+    luisa::vector<LoopBoundarySelectionCandidate> *
+        candidates = nullptr) noexcept {
     luisa::unordered_set<BasicBlock *> entries;
     if (def == nullptr) { return entries; }
+    if (candidates != nullptr) { candidates->clear(); }
     LoopBoundaryPathDataflow dataflow{def};
     def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
         if (block == nullptr || !block->is_terminated()) {
@@ -2203,6 +2213,14 @@ collect_loop_boundary_selection_entries(
             }
             auto *if_inst = static_cast<IfInst *>(
                 candidate->terminator());
+            if (candidates != nullptr) {
+                candidates->emplace_back(
+                    LoopBoundarySelectionCandidate{
+                        .header = candidate,
+                        .continue_target = continue_target,
+                        .loop_entry = loop_entry,
+                        .merge = merge});
+            }
             if (info != nullptr) {
                 info->selection_exit_boundary_classification_count +=
                     2u;
@@ -3003,11 +3021,22 @@ struct SelectionExitCFGRelations {
     };
     luisa::unordered_set<BasicBlock *>
         loop_boundary_selection_entries;
+    // A local single-target selection-exit rewrite inserts or bypasses only
+    // forwarding blocks. It cannot add/remove an If header from a structured
+    // loop region, so this exact candidate relation remains stable for the
+    // lifetime of one drain. Re-evaluating its local physical predicates is
+    // sufficient to refresh loop-boundary membership without rerunning every
+    // loop's reachability dataflow.
+    luisa::vector<LoopBoundarySelectionCandidate>
+        loop_boundary_candidates;
     luisa::vector<Context> contexts;
-    // If-only relation updates never create or mutate a Loop/Switch
-    // terminator, so these descriptors are the stable input from which the
-    // exact context maps are rebuilt after dominance changes.
+    // Local one-target relation updates never create or remove a Loop/Switch
+    // terminator. A Switch update changes only its merge descriptor in place,
+    // so these sites remain the exact input from which the context maps are
+    // rebuilt after dominance changes.
     luisa::vector<ContextSite> context_sites;
+    luisa::unordered_map<BasicBlock *, size_t>
+        context_site_indices;
     luisa::unordered_map<BasicBlock *, size_t>
         selection_contexts;
     // The only block-level context consumer normalizes BreakInst spellings.
@@ -3036,8 +3065,6 @@ void rebuild_selection_exit_context_relations(
     relations.selection_contexts.clear();
     relations.block_contexts.clear();
     auto &sites = relations.context_sites;
-    luisa::unordered_map<BasicBlock *, size_t>
-        site_index_by_header;
     luisa::unordered_map<BasicBlock *, luisa::vector<size_t>>
         merge_events;
     relations.contexts.reserve(sites.size());
@@ -3049,8 +3076,6 @@ void rebuild_selection_exit_context_relations(
         site.can_be_active = true;
         if (!dom.contains(site.header)) { continue; }
         site.dom_depth = dom_depth(dom, site.header);
-        site_index_by_header.emplace(
-            site.header, site_index);
         if (site.merge == nullptr ||
             !dom.contains(site.merge)) {
             continue;
@@ -3119,8 +3144,10 @@ void rebuild_selection_exit_context_relations(
                         block, current_context);
                 }
             }
-            if (auto site_iter = site_index_by_header.find(block);
-                site_iter != site_index_by_header.end() &&
+            if (auto site_iter =
+                    relations.context_site_indices.find(block);
+                site_iter !=
+                    relations.context_site_indices.end() &&
                 sites[site_iter->second].can_be_active) {
                 auto site_index = site_iter->second;
                 auto &site = sites[site_index];
@@ -3181,7 +3208,9 @@ build_selection_exit_cfg_relations(
         ScopedTimer _timer_selection_exit_loop_boundaries(
             "selection_exit_build_loop_boundaries");
         relations.loop_boundary_selection_entries =
-            collect_loop_boundary_selection_entries(def, &info);
+            collect_loop_boundary_selection_entries(
+                def, &info,
+                &relations.loop_boundary_candidates);
     }
     auto &sites = relations.context_sites;
     auto add_role = [](
@@ -3235,7 +3264,15 @@ build_selection_exit_cfg_relations(
             } else {
                 return;
             }
+            auto site_index = sites.size();
             sites.emplace_back(std::move(site));
+            auto [iter, inserted] =
+                relations.context_site_indices.emplace(
+                    block, site_index);
+            LUISA_ASSERT(
+                inserted,
+                "A structured context header was collected more than once.");
+            static_cast<void>(iter);
         });
     }
     rebuild_selection_exit_context_relations(
@@ -3315,27 +3352,25 @@ void replace_selection_exit_structured_role(
     ++role_counts[new_block];
 }
 
-void refresh_loop_boundary_selection_entry(
+void refresh_loop_boundary_selection_entries(
     SelectionExitCFGRelations &relations,
-    BasicBlock *header,
-    IfInst *if_inst,
     RestructureCFGInfo &info) noexcept {
-    relations.loop_boundary_selection_entries.erase(header);
-    for (auto context = selection_context(relations, header);
-         context != SIZE_MAX;
-         context = relations.contexts[context].parent) {
-        auto &&node = relations.contexts[context];
-        if (node.kind !=
-            SelectionExitCFGRelations::ContextKind::LOOP) {
-            continue;
-        }
+    relations.loop_boundary_selection_entries.clear();
+    for (auto candidate :
+         relations.loop_boundary_candidates) {
+        auto *header = candidate.header;
+        LUISA_ASSERT(
+            header != nullptr && header->is_terminated() &&
+                header->terminator()->isa<IfInst>(),
+            "A cached loop-boundary selection candidate ceased to be an If.");
+        auto *if_inst =
+            static_cast<IfInst *>(header->terminator());
         info.selection_exit_boundary_classification_count += 2u;
         if (is_physically_lowerable_loop_boundary_if(
-                if_inst, node.continue_target,
-                node.loop_entry, node.break_target)) {
+                if_inst, candidate.continue_target,
+                candidate.loop_entry, candidate.merge)) {
             relations.loop_boundary_selection_entries.emplace(
                 header);
-            return;
         }
     }
 }
@@ -3468,12 +3503,40 @@ void refresh_loop_boundary_selection_entry(
                "block_contexts");
 }
 
+void verify_incremental_selection_exit_relations(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    const SelectionExitCFGRelations &relations,
+    BasicBlock *header,
+    BasicBlock *old_merge,
+    BasicBlock *new_merge,
+    const char *kind) noexcept {
+    if (!restructure_verify_selection_exit_relation_updates_enabled()) {
+        return;
+    }
+    RestructureCFGInfo oracle_work;
+    auto oracle = build_selection_exit_cfg_relations(
+        def, dom, oracle_work);
+    auto equivalent =
+        equivalent_selection_exit_relations(relations, oracle);
+    if (!equivalent) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Incremental {} selection-exit update site: header={}, "
+            "old_merge={}, new_merge={}.",
+            kind, static_cast<void *>(header),
+            static_cast<void *>(old_merge),
+            static_cast<void *>(new_merge));
+    }
+    LUISA_ASSERT(
+        equivalent,
+        "Incremental selection-exit relation update diverged from a fresh rebuild.");
+}
+
 void incrementally_update_if_selection_exit_relations(
     FunctionDefinition *def,
     const DomTree &dom,
     SelectionExitCFGRelations &relations,
     BasicBlock *header,
-    IfInst *if_inst,
     BasicBlock *old_merge,
     BasicBlock *new_merge,
     bool executable_cfg_modified,
@@ -3485,8 +3548,11 @@ void incrementally_update_if_selection_exit_relations(
     // Ordinary continuation blocks may nevertheless gain or lose dominance,
     // so a CFG-changing funnel rebuilds the exact observable
     // selection/Break context maps from the stable Loop/Switch descriptors.
-    // Structured-role ownership and this If's physical loop-boundary
-    // classification are then updated independently.
+    // Structured-role ownership is independent. Loop-region candidate
+    // membership is stable because the rewrite inserts or bypasses only
+    // forwarding blocks; re-evaluating every candidate's physical predicate
+    // therefore gives the exact new boundary set without rerunning loop
+    // reachability dataflow.
     replace_selection_exit_structured_role(
         relations.structured_merge_blocks,
         old_merge, new_merge);
@@ -3497,28 +3563,56 @@ void incrementally_update_if_selection_exit_relations(
         rebuild_selection_exit_context_relations(
             relations, dom, info);
     }
-    refresh_loop_boundary_selection_entry(
-        relations, header, if_inst, info);
+    refresh_loop_boundary_selection_entries(
+        relations, info);
     ++info.selection_exit_relation_incremental_update_count;
+    verify_incremental_selection_exit_relations(
+        def, dom, relations, header,
+        old_merge, new_merge, "If");
+}
 
-    if (restructure_verify_selection_exit_relation_updates_enabled()) {
-        RestructureCFGInfo oracle_work;
-        auto oracle = build_selection_exit_cfg_relations(
-            def, dom, oracle_work);
-        auto equivalent =
-            equivalent_selection_exit_relations(relations, oracle);
-        if (!equivalent) {
-            LUISA_WARNING_WITH_LOCATION(
-                "Incremental selection-exit update site: header={}, "
-                "old_merge={}, new_merge={}.",
-                static_cast<void *>(header),
-                static_cast<void *>(old_merge),
-                static_cast<void *>(new_merge));
-        }
-        LUISA_ASSERT(
-            equivalent,
-            "Incremental selection-exit relation update diverged from a fresh rebuild.");
-    }
+void incrementally_update_switch_selection_exit_relations(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    SelectionExitCFGRelations &relations,
+    BasicBlock *header,
+    BasicBlock *old_merge,
+    BasicBlock *new_merge,
+    RestructureCFGInfo &info) noexcept {
+    // A Switch's merge is both a structured role and the lexical break target
+    // of its context. Update those two products together, then rematerialize
+    // the dominance-derived parent chains from the stable Loop/Switch site
+    // descriptors. The local one-target rewrite creates no Loop/Switch/If
+    // header, and bypasses only trivial forwarding blocks, so the cached
+    // loop-boundary candidate relation remains exact just as in the If case.
+    replace_selection_exit_structured_role(
+        relations.structured_merge_blocks,
+        old_merge, new_merge);
+    replace_selection_exit_structured_role(
+        relations.structured_exit_boundaries,
+        old_merge, new_merge);
+    auto site_iter =
+        relations.context_site_indices.find(header);
+    LUISA_ASSERT(
+        site_iter != relations.context_site_indices.end(),
+        "Incremental Switch relation update could not find its context site.");
+    auto &site = relations.context_sites[site_iter->second];
+    LUISA_ASSERT(
+        site.kind ==
+                SelectionExitCFGRelations::ContextKind::SWITCH &&
+            site.merge == old_merge &&
+            site.break_target == old_merge,
+        "Incremental Switch relation update observed a stale context site.");
+    site.merge = new_merge;
+    site.break_target = new_merge;
+    rebuild_selection_exit_context_relations(
+        relations, dom, info);
+    refresh_loop_boundary_selection_entries(
+        relations, info);
+    ++info.selection_exit_relation_incremental_update_count;
+    verify_incremental_selection_exit_relations(
+        def, dom, relations, header,
+        old_merge, new_merge, "Switch");
 }
 
 // SPIR-V structured exits for a selection form a lexical prefix, not the set
@@ -4379,14 +4473,14 @@ struct SelectionExitDrainResult {
                         incrementally_update_if_selection_exit_relations(
                             def, dom, cfg_relations,
                             site.header,
-                            static_cast<IfInst *>(site.term),
                             merge, current_merge(site), false, info);
                     } else {
-                        // A Switch merge is also its lexical break target and
-                        // changes the extent of that context. Rebuild instead
-                        // of pretending this is an If-only role update.
-                        cfg_relations_valid = false;
+                        incrementally_update_switch_selection_exit_relations(
+                            def, dom, cfg_relations,
+                            site.header,
+                            merge, current_merge(site), info);
                     }
+                    nonlocal_switch_breaks_canonical = false;
                     break;
                 }
                 drain.cfg_modified = true;
@@ -4396,8 +4490,7 @@ struct SelectionExitDrainResult {
                     ++info.selection_exit_ssa_repair_request_count;
                 }
                 auto incrementally_update_relations =
-                    result.local_dependency_only &&
-                    site.term->isa<IfInst>();
+                    result.local_dependency_only;
                 if (result.local_dependency_only) {
                     ++info.selection_exit_local_invalidation_count;
                     mark_enclosing_dependencies(
@@ -4441,11 +4534,17 @@ struct SelectionExitDrainResult {
                         dom, site.header);
                 }
                 if (incrementally_update_relations) {
-                    incrementally_update_if_selection_exit_relations(
-                        def, dom, cfg_relations,
-                        site.header,
-                        static_cast<IfInst *>(site.term),
-                        merge, current_merge(site), true, info);
+                    if (site.term->isa<IfInst>()) {
+                        incrementally_update_if_selection_exit_relations(
+                            def, dom, cfg_relations,
+                            site.header,
+                            merge, current_merge(site), true, info);
+                    } else {
+                        incrementally_update_switch_selection_exit_relations(
+                            def, dom, cfg_relations,
+                            site.header,
+                            merge, current_merge(site), info);
+                    }
                     nonlocal_switch_breaks_canonical = false;
                 } else {
                     cfg_relations_valid = false;
