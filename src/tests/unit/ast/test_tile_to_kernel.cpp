@@ -22,6 +22,7 @@
 #include <luisa/dsl/tensor.h>
 #include <luisa/ast/tile_to_kernel.h>
 #include <luisa/ast/expression.h>
+#include <luisa/ast/op.h>
 #include <luisa/ast/statement.h>
 #include <luisa/ast/variable.h>
 #if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
@@ -161,6 +162,137 @@ Tensor<tile_f32, 2> reduce32_kernel(Tensor<tile_f32, 2> A) {
     return B;
 }
 
+// ---------------------------------------------------------------------------
+// Whole-tensor tile kernels (tensor-op fast path): Global-only operands (no
+// shared/fragment staging), dispatched on a 1x1 tile grid so the full tensor
+// is exactly the op's domain.  These currently ERROR in the partition path
+// (op_extent_of rejects extent-less global views) and become supported via
+// the full-tensor reconstruction of the TENSOR_* path.
+// ---------------------------------------------------------------------------
+
+Tensor<tile_f32, 2> global_copy(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    Tensor<tile_f32, 2> C = T.empty(T.shape(M, N), tile_f32{});
+    for (auto [bx, by] : T.Kernel(1, 1, threads)) {
+        T.copy(A, C);
+    }
+    return C;
+}
+
+Tensor<tile_f32, 2> global_fill_clear() {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    Tensor<tile_f32, 2> C = T.empty(T.shape(M, N), tile_f32{});
+    for (auto [bx, by] : T.Kernel(1, 1, threads)) {
+        T.clear(C);
+        T.fill(C, 0.5f);
+    }
+    return C;
+}
+
+Tensor<tile_f32, 2> global_add(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    Tensor<tile_f32, 2> C = T.empty(T.shape(M, N), tile_f32{});
+    for (auto [bx, by] : T.Kernel(1, 1, threads)) {
+        C(T.range(0, M), T.all()) =
+            A(T.range(0, M), T.all()) + B(T.range(0, M), T.all());
+    }
+    return C;
+}
+
+Tensor<tile_f32, 2> global_abs(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    Tensor<tile_f32, 2> C = T.empty(T.shape(M, N), tile_f32{});
+    for (auto [bx, by] : T.Kernel(1, 1, threads)) {
+        C(T.range(0, M), T.all()) = T.abs(A(T.range(0, M), T.all()));
+    }
+    return C;
+}
+
+Tensor<tile_f32, 2> global_clamp(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    Tensor<tile_f32, 2> C = T.empty(T.shape(M, N), tile_f32{});
+    for (auto [bx, by] : T.Kernel(1, 1, threads)) {
+        T.copy(A, C);
+        T.clamp(C(T.range(0, M), T.all()), 0.1f, 0.9f);
+    }
+    return C;
+}
+
+Tensor<tile_f32, 2> global_transpose(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 16;
+    constexpr tile_i32 threads = 32;
+    Tensor<tile_f32, 2> C = T.empty(T.shape(N, M), tile_f32{});
+    for (auto [bx, by] : T.Kernel(1, 1, threads)) {
+        T.transpose(A(T.range(0, M), T.range(0, N)),
+                    C(T.range(0, N), T.range(0, M)));
+    }
+    return C;
+}
+
+Tensor<tile_f32, 1> global_reduce_sum(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    Tensor<tile_f32, 1> B = T.empty(T.shape(M), tile_f32{});
+    for (auto [bx, by] : T.Kernel(1, 1, threads)) {
+        T.reduce_sum(A(T.range(0, M), T.range(0, N)), B, /*dim=*/1);
+    }
+    return B;
+}
+
+// The classic tiled GEMM pattern (shared staging + PIPELINED K-loop + register
+// fragment accumulator + final C copy).  With use_tensor=true this is ONE
+// MxNxK GEMM partitioned into a 2D tile grid, so it rewrites to a single
+// grid-wide TENSOR_MATMUL (the shared staging and pipeline dissolve).
+Tensor<tile_f32, 2> tiled_gemm(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> B) {
+    constexpr tile_i32 M = 64, N = 64, K = 32;
+    constexpr tile_i32 block_M = 16, block_N = 16, block_K = 8;
+    constexpr tile_i32 threads = 32;
+    constexpr tile_i32 num_stages = 2;
+    Tensor<tile_f32, 2> C = T.empty(T.shape(M, N), tile_f32{});
+    for (auto [bx, by] : T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads)) {
+        auto A_shared = T.alloc_shared(T.shape(block_M, block_K), tile_f16{});
+        auto B_shared = T.alloc_shared(T.shape(block_K, block_N), tile_f16{});
+        auto C_local = T.alloc_fragment(T.shape(block_M, block_N), tile_f32{});
+        T.clear(C_local);
+        for (auto ko : T.Pipelined(T.ceildiv(K, block_K), num_stages)) {
+            T.copy(A(by * block_M, ko * block_K), A_shared);
+            T.copy(B(ko * block_K, bx * block_N), B_shared);
+            T.gemm(A_shared, B_shared, C_local);
+        }
+        T.copy(C_local, C(by * block_M, bx * block_N));
+    }
+    return C;
+}
+
+// Same classic tiled GEMM with F32 inputs/outputs.  The whole-tensor rewrite is
+// deliberately F16-only (the F32 device path is a naive scalar loop slower than
+// the SIMT warp-K-split partition path), so this program must fall back.
+Tensor<tile_f32, 2> tiled_gemm_f32(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
+    constexpr tile_i32 M = 64, N = 64, K = 32;
+    constexpr tile_i32 block_M = 16, block_N = 16, block_K = 8;
+    constexpr tile_i32 threads = 32;
+    constexpr tile_i32 num_stages = 2;
+    Tensor<tile_f32, 2> C = T.empty(T.shape(M, N), tile_f32{});
+    for (auto [bx, by] : T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads)) {
+        auto A_shared = T.alloc_shared(T.shape(block_M, block_K), tile_f32{});
+        auto B_shared = T.alloc_shared(T.shape(block_K, block_N), tile_f32{});
+        auto C_local = T.alloc_fragment(T.shape(block_M, block_N), tile_f32{});
+        T.clear(C_local);
+        for (auto ko : T.Pipelined(T.ceildiv(K, block_K), num_stages)) {
+            T.copy(A(by * block_M, ko * block_K), A_shared);
+            T.copy(B(ko * block_K, bx * block_N), B_shared);
+            T.gemm(A_shared, B_shared, C_local);
+        }
+        T.copy(C_local, C(by * block_M, bx * block_N));
+    }
+    return C;
+}
+
 // ---- structural AST walkers (batching tests) --------------------------------
 // The batch machinery is visible in the emitted AST as: block_id().z /
 // thread_id().z member access (batch_index mapping), dispatch_size().z inside
@@ -260,6 +392,30 @@ bool stmt_contains_batch_valid_less(const Statement *s) {
                expr_walk(b->rhs(), is_dispatch_size_z);
     };
     return stmt_walk(s, is_less_with_dispatch_size_z);
+}
+
+// Collect every TENSOR_* CallExpr in the statement tree (the tensor-op
+// emitters append them as void ExprStmts to the kernel body).
+void collect_tensor_calls(const Statement *s, luisa::vector<const CallExpr *> &out) {
+    if (s == nullptr) { return; }
+    switch (s->tag()) {
+        case Statement::Tag::SCOPE: {
+            for (auto *c : static_cast<const ScopeStmt *>(s)->statements()) {
+                collect_tensor_calls(c, out);
+            }
+            return;
+        }
+        case Statement::Tag::EXPR: {
+            auto *e = static_cast<const ExprStmt *>(s)->expression();
+            if (e != nullptr && e->tag() == Expression::Tag::CALL) {
+                auto *call = static_cast<const CallExpr *>(e);
+                if (is_tensor_operation(call->op())) { out.emplace_back(call); }
+            }
+            return;
+        }
+        default:
+            return;
+    }
 }
 
 #if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
@@ -535,5 +691,230 @@ int main(int argc, char *argv[]) {
                                  TileToKernelConfig{.min_batching_size = 8u, .max_batching_size = 4u});
         }));
 #endif
+    };
+
+    // ---- tensor-op fast path (use_tensor) -----------------------------------
+    // Each whole-tensor kernel must lower to exactly ONE TENSOR_* call with
+    // valid descriptor arg layouts (check_builtin_call_valid) and NO
+    // per-element BUFFER_READ/BUFFER_WRITE.
+
+    "tensor_op_global_copy"_test = [] {
+        tile::Kernel kernel{global_copy};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        // Phase A + vector dispatch: the whole-tensor f32 copy processes one
+        // float4 per thread, so ceil(1024/4/32)*32 = 256 threads on the flat
+        // 1D grid.
+        expect(result.dispatch_size.x == 32u * 8u && result.dispatch_size.y == 1u);
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::TENSOR_COPY));
+        expect(!calls.test(CallOp::BUFFER_READ));
+        expect(!calls.test(CallOp::BUFFER_WRITE));
+        luisa::vector<const CallExpr *> tensor_calls;
+        collect_tensor_calls(result.function->body(), tensor_calls);
+        expect(tensor_calls.size() == 1u);
+        expect(tensor_calls[0]->op() == CallOp::TENSOR_COPY);
+        check_builtin_call_valid(tensor_calls[0]->op(), tensor_calls[0]->type(),
+                                 tensor_calls[0]->arguments());
+        // A, C -> two buffer arguments (unchanged contract)
+        auto args = result.function->arguments();
+        expect(args.size() == 2u);
+        for (auto v : args) { expect(v.tag() == Variable::Tag::BUFFER); }
+    };
+
+    "tensor_op_global_fill_clear"_test = [] {
+        tile::Kernel kernel{global_fill_clear};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::TENSOR_FILL));
+        expect(!calls.test(CallOp::BUFFER_WRITE));
+        luisa::vector<const CallExpr *> tensor_calls;
+        collect_tensor_calls(result.function->body(), tensor_calls);
+        // T.clear(C) + T.fill(C, 0.5) -> two whole-tensor fills
+        expect(tensor_calls.size() == 2u);
+        for (auto *c : tensor_calls) {
+            expect(c->op() == CallOp::TENSOR_FILL);
+            check_builtin_call_valid(c->op(), c->type(), c->arguments());
+        }
+    };
+
+    "tensor_op_global_add"_test = [] {
+        tile::Kernel kernel{global_add};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::TENSOR_ADD));
+        expect(!calls.test(CallOp::BUFFER_READ));
+        expect(!calls.test(CallOp::BUFFER_WRITE));
+        luisa::vector<const CallExpr *> tensor_calls;
+        collect_tensor_calls(result.function->body(), tensor_calls);
+        expect(tensor_calls.size() == 1u);
+        expect(tensor_calls[0]->op() == CallOp::TENSOR_ADD);
+        check_builtin_call_valid(tensor_calls[0]->op(), tensor_calls[0]->type(),
+                                 tensor_calls[0]->arguments());
+    };
+
+    "tensor_op_global_abs"_test = [] {
+        tile::Kernel kernel{global_abs};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::TENSOR_ABS));
+        expect(!calls.test(CallOp::BUFFER_READ));
+        expect(!calls.test(CallOp::BUFFER_WRITE));
+        luisa::vector<const CallExpr *> tensor_calls;
+        collect_tensor_calls(result.function->body(), tensor_calls);
+        expect(tensor_calls.size() == 1u);
+        expect(tensor_calls[0]->op() == CallOp::TENSOR_ABS);
+        check_builtin_call_valid(tensor_calls[0]->op(), tensor_calls[0]->type(),
+                                 tensor_calls[0]->arguments());
+    };
+
+    "tensor_op_global_clamp"_test = [] {
+        tile::Kernel kernel{global_clamp};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::TENSOR_COPY));
+        expect(calls.test(CallOp::TENSOR_CLAMP));
+        expect(!calls.test(CallOp::BUFFER_READ));
+        expect(!calls.test(CallOp::BUFFER_WRITE));
+        luisa::vector<const CallExpr *> tensor_calls;
+        collect_tensor_calls(result.function->body(), tensor_calls);
+        expect(tensor_calls.size() == 2u);
+        expect(tensor_calls[0]->op() == CallOp::TENSOR_COPY);
+        expect(tensor_calls[1]->op() == CallOp::TENSOR_CLAMP);
+        for (auto *c : tensor_calls) {
+            check_builtin_call_valid(c->op(), c->type(), c->arguments());
+        }
+    };
+
+    "tensor_op_global_transpose"_test = [] {
+        tile::Kernel kernel{global_transpose};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        // Phase A: f32 transpose iterates the dst domain (512 elements) with
+        // float4 vector dispatch -> ceil(512/4/32)*32 = 128 threads.
+        expect(result.dispatch_size.x == 32u * 4u && result.dispatch_size.y == 1u);
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::TENSOR_PERMUTE));
+        expect(!calls.test(CallOp::BUFFER_READ));
+        expect(!calls.test(CallOp::BUFFER_WRITE));
+        luisa::vector<const CallExpr *> tensor_calls;
+        collect_tensor_calls(result.function->body(), tensor_calls);
+        expect(tensor_calls.size() == 1u);
+        expect(tensor_calls[0]->op() == CallOp::TENSOR_PERMUTE);
+        check_builtin_call_valid(tensor_calls[0]->op(), tensor_calls[0]->type(),
+                                 tensor_calls[0]->arguments());
+    };
+
+    "tensor_op_global_reduce_sum"_test = [] {
+        tile::Kernel kernel{global_reduce_sum};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        // Phase A: reduce iterates the OUTPUT domain (32 rows -> 32 threads).
+        expect(result.dispatch_size.x == 32u && result.dispatch_size.y == 1u);
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::TENSOR_REDUCE_SUM));
+        expect(!calls.test(CallOp::BUFFER_READ));
+        expect(!calls.test(CallOp::BUFFER_WRITE));
+        luisa::vector<const CallExpr *> tensor_calls;
+        collect_tensor_calls(result.function->body(), tensor_calls);
+        expect(tensor_calls.size() == 1u);
+        expect(tensor_calls[0]->op() == CallOp::TENSOR_REDUCE_SUM);
+        check_builtin_call_valid(tensor_calls[0]->op(), tensor_calls[0]->type(),
+                                 tensor_calls[0]->arguments());
+    };
+
+    "tensor_op_tiled_gemm_rewrites"_test = [] {
+        // The classic tiled GEMM (shared staging + PIPELINED K-loop + fragment
+        // accumulator + final C copy) is recognized as ONE grid-wide GEMM and
+        // rewritten to a single TENSOR_MATMUL when use_tensor=true.  The
+        // rewrite is end-to-end verified on the CUDA backend (F16 WMMA
+        // tensor-core path, FP32 accumulator; beta=0 because the final copy
+        // overwrites C_global).  The shared/fragment/pipelined staging must
+        // dissolve entirely.
+        tile::Kernel kernel{tiled_gemm};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        auto calls = result.function->direct_builtin_callables();
+        expect(calls.test(CallOp::TENSOR_MATMUL));
+        expect(calls.uses_tensor_ops());
+        expect(!result.function->shared_variables().empty() == false);
+        expect(!result.function->local_variables().empty() == false);
+        luisa::vector<const CallExpr *> tensor_calls;
+        collect_tensor_calls(result.function->body(), tensor_calls);
+        expect(tensor_calls.size() == 1u);
+        expect(tensor_calls[0]->op() == CallOp::TENSOR_MATMUL);
+        check_builtin_call_valid(tensor_calls[0]->op(), tensor_calls[0]->type(),
+                                 tensor_calls[0]->arguments());
+        // 64x64x32 GEMM -> 16 16x16 tiles, one warp (32 threads) per tile.
+        expect(result.dispatch_size.x == 16u * 32u);
+        expect(result.dispatch_size.y == 1u);
+    };
+
+    "tensor_op_to_kernel_config_forwarding"_test = [] {
+        // tile::jit(...).compile().to_kernel<Dim>(TileToKernelConfig) must
+        // forward the config into tile_to_kernel — calling it WITHOUT the
+        // config silently re-lowers with use_tensor=false (partition path),
+        // which previously invalidated CUDA e2e verification.
+        auto kernel = luisa::compute::tile::jit(global_copy).compile();
+        auto typed = kernel.to_kernel<2>(TileToKernelConfig{.use_tensor = true});
+        expect(typed.function() != nullptr);
+        expect(typed.function()->direct_builtin_callables().test(CallOp::TENSOR_COPY));
+        auto typed_default = kernel.to_kernel<2>();
+        expect(typed_default.function() != nullptr);
+        expect(!typed_default.function()->direct_builtin_callables().uses_tensor_ops());
+    };
+
+    "tensor_op_f32_gemm_falls_back"_test = [] {
+        // The whole-tensor rewrite is deliberately F16-only: the backend's F32
+        // GEMM device function is a naive scalar loop that is slower than the
+        // SIMT warp-K-split partition path, so an F32 tiled GEMM with
+        // use_tensor=true must keep the partition path (shared/fragment/
+        // pipelined loops, zero TENSOR_*).
+        tile::Kernel kernel{tiled_gemm_f32};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        auto calls = result.function->direct_builtin_callables();
+        expect(!calls.uses_tensor_ops());
+        expect(!result.function->shared_variables().empty());
+        expect(!result.function->local_variables().empty());
+    };
+
+    "tensor_op_default_config_keeps_partition_path"_test = [] {
+        // use_tensor defaults to false: tiled_gemm lowers through the existing
+        // partition path (shared + fragment + pipelined loops), no TENSOR_*.
+        tile::Kernel kernel{tiled_gemm};
+        auto result = tile_to_kernel(kernel.function());
+        expect(result.function != nullptr);
+        auto calls = result.function->direct_builtin_callables();
+        expect(!calls.uses_tensor_ops());
+        expect(!result.function->shared_variables().empty());
+        expect(!result.function->local_variables().empty());
+    };
+
+    "tensor_op_ineligible_program_falls_back"_test = [] {
+        // elementwise_add uses shared/fragment staging -> the whole program is
+        // ineligible for the tensor-op path -> zero TENSOR_* calls even with
+        // use_tensor=true.
+        tile::Kernel kernel{elementwise_add};
+        auto result = tile_to_kernel(kernel.function(),
+                                     TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        auto calls = result.function->direct_builtin_callables();
+        expect(!calls.uses_tensor_ops());
+        expect(calls.test(CallOp::BUFFER_READ));
+        expect(calls.test(CallOp::BUFFER_WRITE));
     };
 }

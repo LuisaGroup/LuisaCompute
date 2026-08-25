@@ -86,6 +86,7 @@ private:
         // to a regular Luisa kernel and manage it like a normal shader.
         TileToKernelConfig config{
             .use_cooperative = option.use_cooperative,
+            .use_tensor = option.use_tensor,
             .min_batching_size = option.min_batching_size,
             .max_batching_size = option.max_batching_size};
         auto lowered = tile_to_kernel(tile_kernel, config);

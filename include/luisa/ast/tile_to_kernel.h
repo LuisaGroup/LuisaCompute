@@ -66,6 +66,14 @@ struct LUISA_AST_API TileCompileResult {
 };
 struct TileToKernelConfig {
     bool use_cooperative : 1 {false};
+    // Tensor-op fast path: when enabled, eligible whole-tensor tile programs
+    // (Global-only operands with F16/F32/I32 dtypes, no batching, no
+    // shared/fragment storage) lower each op to a single side-effecting
+    // TENSOR_* CallOp (see include/luisa/ast/op.h) instead of per-element
+    // partition loops.  Only the CUDA AST codegen implements TENSOR_* ops, so
+    // this defaults to false; ineligible ops fall back per op to the
+    // partition path.
+    bool use_tensor : 1 {false};
     // Dynamic batching: when enabled (min != 1 || max != 1), each thread
     // group computes `block_size().z` batch items at once — one per z-thread —
     // and the z axis of the dispatch carries the runtime batch count

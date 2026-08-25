@@ -1944,17 +1944,24 @@ public:
 // are derived from the tile function signature.  `Dim` is the dispatch
 // dimensionality (1, 2, or 3) expected by the caller.
 //
+// `config` forwards TileToKernelConfig into the lowering.  IMPORTANT: the
+// default config has use_tensor=false, so callers that traced with
+// tile::Kernel::compile(..., TileToKernelConfig{.use_tensor=true}) (or the
+// tile_shader option) MUST pass the same config here — to_kernel() does not
+// remember it — otherwise the kernel silently lowers to the partition path
+// and its dispatch_size disagrees with the tensor-op lowering.
+//
 // NOTE: dynamic batching (TileToKernelConfig min/max batching size != (1,1))
 // lowers the kernel with a z block size > 1 and dispatches the runtime batch
 // count on the z axis, so batched kernels MUST be wrapped with `Dim = 3` and
 // dispatched as `sh(...).dispatch(x, y, batch_count)`.
 template<size_t Dim>
-[[nodiscard]] auto to_kernel() const {
+[[nodiscard]] auto to_kernel(TileToKernelConfig config = {}) const {
           using kernel_type = typename detail::make_typed_kernel<
               Dim,
               typename traits::arg_tuple,
               typename traits::return_type>::type;
-          auto lowered = ::luisa::compute::tile_to_kernel(this->builder);
+          auto lowered = ::luisa::compute::tile_to_kernel(this->builder, config);
           auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(lowered.function);
           return kernel_type{std::move(fb)};
       }

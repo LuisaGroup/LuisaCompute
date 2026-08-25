@@ -198,6 +198,68 @@ Tensor<tile_f32, 2> bench_add(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
     return C;
 }
 
+// Global-only whole-tensor variants that exercise the TENSOR_* fast path
+// directly (pure-Global operands, 1x1 tile grid so the whole tensor is the
+// op domain).  These kernels ERROR on the default partition path (extent-less
+// global views), so the benchmark gates them behind --tensor; the "before"
+// counterpart is the staged kernel above (same math / byte count).
+Tensor<tile_f32, 2> bench_add_global(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
+    constexpr tile_i32 M = 2048, N = 2048;
+    constexpr tile_i32 threads = 256;
+    Tensor<tile_f32, 2> C = LuisaTensor.empty(LuisaTensor.shape(M, N), tile_f32{});
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, threads)) {
+        C(LuisaTensor.range(0, M), LuisaTensor.all()) =
+            A(LuisaTensor.range(0, M), LuisaTensor.all()) +
+            B(LuisaTensor.range(0, M), LuisaTensor.all());
+    }
+    return C;
+}
+
+Tensor<tile_f32, 2> bench_copy_global(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 2048, N = 2048;
+    constexpr tile_i32 threads = 256;
+    Tensor<tile_f32, 2> C = LuisaTensor.empty(LuisaTensor.shape(M, N), tile_f32{});
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, threads)) {
+        LuisaTensor.copy(A, C);
+    }
+    return C;
+}
+
+// Global-only whole-tensor variants (TENSOR_* fast path) for the section-5
+// operators; the whole container is OP_M x OP_N with a 1x1 tile grid so the
+// tensor is the op domain.  These kernels ERROR on the default partition path
+// (extent-less global views), so the benchmark gates them behind --tensor.
+constexpr tile_i32 OP_M = 8192, OP_N = 512;// 4,194,304 elements per container
+Tensor<tile_f32, 2> bench_clamp_global(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 threads = 256;
+    Tensor<tile_f32, 2> C = LuisaTensor.empty(LuisaTensor.shape(OP_M, OP_N), tile_f32{});
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, threads)) {
+        LuisaTensor.copy(A, C);
+        LuisaTensor.clamp(C(LuisaTensor.range(0, OP_M), LuisaTensor.all()), -0.5f, 0.5f);
+    }
+    return C;
+}
+
+Tensor<tile_f32, 2> bench_unary_exp_global(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 threads = 256;
+    Tensor<tile_f32, 2> C = LuisaTensor.empty(LuisaTensor.shape(OP_M, OP_N), tile_f32{});
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, threads)) {
+        C(LuisaTensor.range(0, OP_M), LuisaTensor.all()) =
+            LuisaTensor.exp(A(LuisaTensor.range(0, OP_M), LuisaTensor.all()));
+    }
+    return C;
+}
+
+Tensor<tile_f32, 1> bench_reduce_sum_global(Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 threads = 256;
+    Tensor<tile_f32, 1> R = LuisaTensor.empty(LuisaTensor.shape(OP_M), tile_f32{});
+    for (auto [bx, by] : LuisaTensor.Kernel(1, 1, threads)) {
+        LuisaTensor.reduce_sum(A(LuisaTensor.range(0, OP_M), LuisaTensor.range(0, OP_N)),
+                               R, /*dim=*/1);
+    }
+    return R;
+}
+
 // =============================================================================
 // 5. Per-operator micro-benchmarks (op isolation).
 // =============================================================================
@@ -218,10 +280,9 @@ Tensor<tile_f32, 2> bench_add(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B) {
 // bench_atomic_add   one atomic fetch-add per element (ATOMIC)
 // bench_unary_op<N>  exp / sqrt / tanh / erf (FAST_MATH / IEEE math)
 // bench_pow          C = pow(A, 0.5) (binary IEEE math POW)
-// =============================================================================
-constexpr tile_i32 OP_M = 8192, OP_N = 512;// 4,194,304 elements per container
+  // =============================================================================
 
-// ---- 5a. pure copy: C = A staged through shared ---------------------------
+  // ---- 5a. pure copy: C = A staged through shared ---------------------------
 Tensor<tile_f32, 2> bench_copy(Tensor<tile_f32, 2> A) {
     constexpr tile_i32 block_M = 32, block_N = 32;
     constexpr tile_i32 threads = 256;
@@ -452,6 +513,20 @@ int main(int argc, char *argv[]) {
     luisa::string_view backend = argc > 1 && argv != nullptr && argv[1] != nullptr ? luisa::string_view{argv[1]} : luisa::string_view{"cuda"};
     uint32_t iters = 20u;
     if (argc > 2 && argv[2] != nullptr) { iters = static_cast<uint32_t>(std::max(1, atoi(argv[2]))); }
+    // --tensor: lower every eligible bench through the TENSOR_* CallOp path
+    // (TileToKernelConfig::use_tensor).  Ineligible kernels keep the
+    // partition path, so the two runs stay apples-to-apples per bench.
+    bool use_tensor = false;
+    for (auto i = 3; i < argc; ++i) {
+        if (argv[i] != nullptr && luisa::string_view{argv[i]} == "--tensor") { use_tensor = true; }
+    }
+    TileToKernelConfig tile_config{.use_tensor = use_tensor};
+    // NOTE: do NOT dispatch kernel.to_kernel<2>() when use_tensor is enabled —
+    // it re-lowers with the DEFAULT config (use_tensor=false, partition path)
+    // and its dispatch_size disagrees with the tensor-op lowering (e.g. the
+    // rewritten GEMM uses tiles_m*tiles_n*threads).  The typed kernel below is
+    // built from the SAME `result` (the tile_config-aware lowering) so the
+    // --tensor path is actually benchmarked.
 
     Context ctx(executable);
     Device device = ctx.create_device(backend);
@@ -480,7 +555,7 @@ int main(int argc, char *argv[]) {
     {
         constexpr uint32_t M = 512u, N = 512u, K = 512u;
         auto kernel = luisa::compute::tile::jit(bench_gemm).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<luisa::half>(M * K);
         auto bufB = device.create_buffer<luisa::half>(K * N);
         auto bufC = device.create_buffer<luisa::half>(M * N);
@@ -490,7 +565,9 @@ int main(int argc, char *argv[]) {
         stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
 
         kernel.validate(bufA, bufB, bufC);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         // warmup + verify
         stream << sh(bufA, bufB, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
@@ -527,7 +604,7 @@ int main(int argc, char *argv[]) {
     {
         constexpr uint32_t M = 4096u, N = 4096u, K = 4096u;
         auto kernel = luisa::compute::tile::jit(bench_gemm_4096).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(M * K);
         auto bufB = device.create_buffer<float>(K * N);
         auto bufC = device.create_buffer<float>(M * N);
@@ -543,7 +620,9 @@ int main(int argc, char *argv[]) {
         stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
 
         kernel.validate(bufA, bufB, bufC);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         // warmup + verify
         stream << sh(bufA, bufB, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
@@ -594,7 +673,7 @@ int main(int argc, char *argv[]) {
     {
         constexpr uint32_t M = 2048u, N = 256u;
         auto kernel = luisa::compute::tile::jit(bench_rms_norm).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(M * N);
         auto bufB = device.create_buffer<float>(M * N);
         luisa::vector<float> hA(M * N), hB(M * N);
@@ -629,7 +708,7 @@ int main(int argc, char *argv[]) {
     {
         constexpr uint32_t M = 1024u, N = 256u;
         auto kernel = luisa::compute::tile::jit(bench_scan).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(M * N);
         auto bufS = device.create_buffer<float>(M * N);
         luisa::vector<float> hA(M * N), hS(M * N);
@@ -667,7 +746,7 @@ int main(int argc, char *argv[]) {
     {
         constexpr uint32_t N = 2048u;
         auto kernel = luisa::compute::tile::jit(bench_scan_1d).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(N);
         auto bufS = device.create_buffer<float>(N);
         luisa::vector<float> hA(N, 1.0f), hS(N);
@@ -696,7 +775,7 @@ int main(int argc, char *argv[]) {
     {
         constexpr uint32_t M = 2048u, N = 2048u;
         auto kernel = luisa::compute::tile::jit(bench_add).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(M * N);
         auto bufB = device.create_buffer<float>(M * N);
         auto bufC = device.create_buffer<float>(M * N);
@@ -708,7 +787,9 @@ int main(int argc, char *argv[]) {
         stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
 
         kernel.validate(bufA, bufB, bufC);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         stream << sh(bufA, bufB, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
                << bufC.copy_to(luisa::span{hC}) << synchronize();
@@ -727,17 +808,180 @@ int main(int argc, char *argv[]) {
         report("bench_add", ms, static_cast<double>(M) * N / (ms * 1e6), iters);
     }
 
+    // ---- bench_add_global / bench_copy_global (tensor-op path only) ----------
+    // Pure-Global whole-tensor variants; the default partition path rejects
+    // extent-less global views, so these run only under --tensor.
+    constexpr uint32_t OM = 8192u, ON = 512u;// 4,194,304 elements per container
+    constexpr double op_elems = static_cast<double>(OM) * static_cast<double>(ON);
+    if (use_tensor) {
+        {
+            constexpr uint32_t M = 2048u, N = 2048u;
+            auto kernel = luisa::compute::tile::jit(bench_add_global).compile();
+            auto result = tile_to_kernel(kernel.function(), tile_config);
+            auto bufA = device.create_buffer<float>(M * N);
+            auto bufB = device.create_buffer<float>(M * N);
+            auto bufC = device.create_buffer<float>(M * N);
+            luisa::vector<float> hA(M * N), hB(M * N), hC(M * N);
+            for (auto i = 0u; i < M * N; ++i) {
+                hA[i] = static_cast<float>(i % 31) * 0.125f;
+                hB[i] = static_cast<float>(i % 17) * 0.25f;
+            }
+            stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
+
+            kernel.validate(bufA, bufB, bufC);
+            using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
+            auto sh = device.compile(typed);
+            stream << sh(bufA, bufB, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < M * N; i += 4099u) {
+                err = luisa::max(err, luisa::abs(hC[i] - (hA[i] + hB[i])));
+            }
+            check("bench_add_global", err, 1e-3f);
+
+            clock.tic();
+            for (auto i = 0u; i < iters; ++i) {
+                stream << sh(bufA, bufB, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y);
+            }
+            stream << synchronize();
+            auto ms = clock.toc() / iters;
+            report("bench_add_global", ms, static_cast<double>(M) * N / (ms * 1e6), iters);
+        }
+        {
+            constexpr uint32_t M = 2048u, N = 2048u;
+            auto kernel = luisa::compute::tile::jit(bench_copy_global).compile();
+            auto result = tile_to_kernel(kernel.function(), tile_config);
+            auto bufA = device.create_buffer<float>(M * N);
+            auto bufC = device.create_buffer<float>(M * N);
+            luisa::vector<float> hA(M * N), hC(M * N);
+            for (auto i = 0u; i < M * N; ++i) { hA[i] = static_cast<float>(i % 7u) * 0.5f; }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            kernel.validate(bufA, bufC);
+            using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
+            auto sh = device.compile(typed);
+            stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < M * N; i += 4099u) { err = luisa::max(err, luisa::abs(hC[i] - hA[i])); }
+            check("bench_copy_global", err, 1e-6f);
+
+            clock.tic();
+            for (auto i = 0u; i < iters; ++i) {
+                stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y);
+            }
+            stream << synchronize();
+            auto ms = clock.toc() / iters;
+            report("bench_copy_global", ms, 2.0 * static_cast<double>(M) * N / (ms * 1e6), iters);
+        }
+        // ---- bench_clamp_global / bench_unary_exp_global / bench_reduce_sum_global
+        {
+            auto kernel = luisa::compute::tile::jit(bench_clamp_global).compile();
+            auto result = tile_to_kernel(kernel.function(), tile_config);
+            auto bufA = device.create_buffer<float>(OM * ON);
+            auto bufC = device.create_buffer<float>(OM * ON);
+            luisa::vector<float> hA(OM * ON), hC(OM * ON);
+            for (auto i = 0u; i < OM * ON; ++i) { hA[i] = static_cast<float>(i % 31u) * 0.25f - 3.0f; }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            kernel.validate(bufA, bufC);
+            using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
+            auto sh = device.compile(typed);
+            stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < OM * ON; i += 4099u) {
+                auto ref = luisa::clamp(hA[i], -0.5f, 0.5f);
+                err = luisa::max(err, luisa::abs(hC[i] - ref));
+            }
+            check("bench_clamp_global", err, 1e-6f);
+
+            clock.tic();
+            for (auto i = 0u; i < iters; ++i) {
+                stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y);
+            }
+            stream << synchronize();
+            auto ms = clock.toc() / iters;
+            report_bw("bench_clamp_global", ms, 8.0 * op_elems, iters);
+        }
+        {
+            auto kernel = luisa::compute::tile::jit(bench_unary_exp_global).compile();
+            auto result = tile_to_kernel(kernel.function(), tile_config);
+            auto bufA = device.create_buffer<float>(OM * ON);
+            auto bufC = device.create_buffer<float>(OM * ON);
+            luisa::vector<float> hA(OM * ON), hC(OM * ON);
+            for (auto i = 0u; i < OM * ON; ++i) { hA[i] = 0.25f + static_cast<float>(i % 100u) * 0.001f; }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            kernel.validate(bufA, bufC);
+            using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
+            auto sh = device.compile(typed);
+            stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+                   << bufC.copy_to(luisa::span{hC}) << synchronize();
+            auto err = 0.0f;
+            for (auto i = 0u; i < OM * ON; i += 4099u) {
+                err = luisa::max(err, luisa::abs(hC[i] - std::exp(hA[i])));
+            }
+            check("bench_unary_exp_global", err, 1e-3f);
+
+            clock.tic();
+            for (auto i = 0u; i < iters; ++i) {
+                stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y);
+            }
+            stream << synchronize();
+            auto ms = clock.toc() / iters;
+            report_bw("bench_unary_exp_global", ms, 8.0 * op_elems, iters);
+        }
+        {
+            auto kernel = luisa::compute::tile::jit(bench_reduce_sum_global).compile();
+            auto result = tile_to_kernel(kernel.function(), tile_config);
+            auto bufA = device.create_buffer<float>(OM * ON);
+            auto bufR = device.create_buffer<float>(OM);
+            luisa::vector<float> hA(OM * ON), hR(OM);
+            for (auto i = 0u; i < OM * ON; ++i) { hA[i] = static_cast<float>(i % 13u) * 0.25f; }
+            stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+
+            kernel.validate(bufA, bufR);
+            using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
+            auto sh = device.compile(typed);
+            stream << sh(bufA, bufR).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+                   << bufR.copy_to(luisa::span{hR}) << synchronize();
+            auto err = 0.0f;
+            for (auto r = 0u; r < OM; r += 64u) {
+                auto s = 0.0f;
+                for (auto c = 0u; c < ON; ++c) { s += hA[r * ON + c]; }
+                err = luisa::max(err, luisa::abs(hR[r] - s));
+            }
+            check("bench_reduce_sum_global", err, 1e-3f);
+
+            clock.tic();
+            for (auto i = 0u; i < iters; ++i) {
+                stream << sh(bufA, bufR).dispatch(result.dispatch_size.x, result.dispatch_size.y);
+            }
+            stream << synchronize();
+            auto ms = clock.toc() / iters;
+            report_bw("bench_reduce_sum_global", ms, 4.0 * op_elems, iters);
+        }
+    }
+
     // =========================================================================
     // Per-operator micro-benchmarks (section 5 kernels above).  Every container
     // is 8192 x 512 = 4,194,304 elements so memory-system shortages are visible.
     // =========================================================================
-    constexpr uint32_t OM = 8192u, ON = 512u;
-    constexpr double op_elems = static_cast<double>(OM) * static_cast<double>(ON);
-
     // ---- bench_copy ----------------------------------------------------------
     {
         auto kernel = luisa::compute::tile::jit(bench_copy).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(OM * ON);
         auto bufC = device.create_buffer<float>(OM * ON);
         luisa::vector<float> hA(OM * ON), hC(OM * ON);
@@ -745,7 +989,9 @@ int main(int argc, char *argv[]) {
         stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
         kernel.validate(bufA, bufC);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
                << bufC.copy_to(luisa::span{hC}) << synchronize();
@@ -764,12 +1010,14 @@ int main(int argc, char *argv[]) {
     // ---- bench_clear ---------------------------------------------------------
     {
         auto kernel = luisa::compute::tile::jit(bench_clear).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufC = device.create_buffer<float>(OM * ON);
         luisa::vector<float> hC(OM * ON, 1.0f);
 
         kernel.validate(bufC);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         stream << sh(bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
                << bufC.copy_to(luisa::span{hC}) << synchronize();
@@ -788,12 +1036,14 @@ int main(int argc, char *argv[]) {
     // ---- bench_fill ----------------------------------------------------------
     {
         auto kernel = luisa::compute::tile::jit(bench_fill).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufC = device.create_buffer<float>(OM * ON);
         luisa::vector<float> hC(OM * ON);
 
         kernel.validate(bufC);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         stream << sh(bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
                << bufC.copy_to(luisa::span{hC}) << synchronize();
@@ -812,7 +1062,7 @@ int main(int argc, char *argv[]) {
     // ---- bench_clamp ---------------------------------------------------------
     {
         auto kernel = luisa::compute::tile::jit(bench_clamp).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(OM * ON);
         auto bufC = device.create_buffer<float>(OM * ON);
         luisa::vector<float> hA(OM * ON), hC(OM * ON);
@@ -820,7 +1070,9 @@ int main(int argc, char *argv[]) {
         stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
         kernel.validate(bufA, bufC);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
                << bufC.copy_to(luisa::span{hC}) << synchronize();
@@ -842,7 +1094,7 @@ int main(int argc, char *argv[]) {
     // ---- bench_saxpy ---------------------------------------------------------
     {
         auto kernel = luisa::compute::tile::jit(bench_saxpy).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(OM * ON);
         auto bufB = device.create_buffer<float>(OM * ON);
         auto bufC = device.create_buffer<float>(OM * ON);
@@ -854,7 +1106,9 @@ int main(int argc, char *argv[]) {
         stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
 
         kernel.validate(bufA, bufB, bufC);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         stream << sh(bufA, bufB, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
                << bufC.copy_to(luisa::span{hC}) << synchronize();
@@ -883,7 +1137,7 @@ int main(int argc, char *argv[]) {
     {
         constexpr uint32_t TM = 72u, TN = 72u;// 5184 elements each (> 4096)
         auto kernel = luisa::compute::tile::jit(bench_transpose).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(TM * TN);
         auto bufB = device.create_buffer<float>(TM * TN);
         luisa::vector<float> hA(TM * TN), hB(TM * TN);
@@ -891,7 +1145,9 @@ int main(int argc, char *argv[]) {
         stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
         kernel.validate(bufA, bufB);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         stream << sh(bufA, bufB).dispatch(result.dispatch_size.x, result.dispatch_size.y)
                << bufB.copy_to(luisa::span{hB}) << synchronize();
@@ -925,7 +1181,7 @@ int main(int argc, char *argv[]) {
 
         auto run_reduce = [&]<int Tag>(const char *name, float tol) {
             auto kernel = luisa::compute::tile::jit(bench_reduce_op<Tag>).compile();
-            auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+            auto result = tile_to_kernel(kernel.function(), tile_config);
             kernel.validate(bufA, bufR);
             auto typed = kernel.template to_kernel<1>();
             auto sh = device.compile(typed);
@@ -974,7 +1230,7 @@ int main(int argc, char *argv[]) {
     // ---- bench_cummax --------------------------------------------------------
     {
         auto kernel = luisa::compute::tile::jit(bench_cummax).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(OM * ON);
         auto bufS = device.create_buffer<float>(OM * ON);
         luisa::vector<float> hA(OM * ON), hS(OM * ON);
@@ -1010,7 +1266,7 @@ int main(int argc, char *argv[]) {
     // timing loop.
     {
         auto kernel = luisa::compute::tile::jit(bench_atomic_add).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufD = device.create_buffer<int>(OM * ON);
         luisa::vector<int> hD(OM * ON, 0);
         stream << bufD.copy_from(luisa::span{hD}) << synchronize();
@@ -1053,7 +1309,7 @@ int main(int argc, char *argv[]) {
 
         auto run_unary = [&]<int Tag>(const char *name, float tol) {
             auto kernel = luisa::compute::tile::jit(bench_unary_op<Tag>).compile();
-            auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+            auto result = tile_to_kernel(kernel.function(), tile_config);
             kernel.validate(bufA, bufC);
             auto typed = kernel.template to_kernel<2>();
             auto sh = device.compile(typed);
@@ -1087,7 +1343,7 @@ int main(int argc, char *argv[]) {
     // ---- bench_pow -----------------------------------------------------------
     {
         auto kernel = luisa::compute::tile::jit(bench_pow).compile();
-        auto result = tile_to_kernel(kernel.function(), TileToKernelConfig{});
+        auto result = tile_to_kernel(kernel.function(), tile_config);
         auto bufA = device.create_buffer<float>(OM * ON);
         auto bufC = device.create_buffer<float>(OM * ON);
         luisa::vector<float> hA(OM * ON), hC(OM * ON);
@@ -1095,7 +1351,9 @@ int main(int argc, char *argv[]) {
         stream << bufA.copy_from(luisa::span{hA}) << synchronize();
 
         kernel.validate(bufA, bufC);
-        auto typed = kernel.to_kernel<2>();
+        using KTensor = decltype(kernel.to_kernel<2>());
+        auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+        KTensor typed{std::move(fb)};
         auto sh = device.compile(typed);
         stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
                << bufC.copy_to(luisa::span{hC}) << synchronize();

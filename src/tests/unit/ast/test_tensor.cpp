@@ -25,8 +25,10 @@
 #include <luisa/ast/function_builder.h>
 #include <luisa/ast/op.h>
 #include <luisa/ast/statement.h>
+#include <luisa/ast/tile_to_kernel.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/variant.h>
+#include <luisa/dsl/tensor.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
@@ -136,6 +138,17 @@ void check_f32(luisa::span<const float> got, luisa::span<const float> expected,
     }
     expect(ok) << what;
     LUISA_INFO("{}: {}", what, ok ? "OK" : "FAILED");
+}
+
+// Wrap a use_tensor=true TileCompileResult as the same typed Kernel type that
+// tile::Kernel::to_kernel<Dim>() would produce.  NOTE: do NOT use
+// kernel.to_kernel<Dim>() here — it re-lowers with the DEFAULT config
+// (use_tensor=false), i.e. the partition path, which would silently bypass the
+// tensor-op calls under test.
+template<typename K, typename R>
+[[nodiscard]] K wrap_tensor_kernel(const R &result) {
+    auto fb = luisa::const_pointer_cast<const ::luisa::compute::detail::FunctionBuilder>(result.function);
+    return K{std::move(fb)};
 }
 
 void check_i32(luisa::span<const int32_t> got, luisa::span<const int32_t> expected,
@@ -556,6 +569,341 @@ void test_fill_and_copy(Device &device, Stream &stream) {
     check_f32(gotc, exp, 1e-6f, "Tensor::copy");
 }
 
+// ---------------------------------------------------------------------------
+// Tile-kernel lowering through the TENSOR_* fast path (use_tensor=true):
+// whole-tensor tile programs (Global-only operands, 1x1 tile grid) compile to
+// single TENSOR_* calls and execute on the CUDA backend's lc_tensor_* device
+// functions.  Each kernel is checked against a host reference.
+// ---------------------------------------------------------------------------
+
+namespace tile_lang = luisa::compute::tile::language;
+constexpr auto TT = tile_lang::dsl;
+using tile_f32 = luisa::compute::tile::float32;
+using tile_f16 = luisa::compute::tile::half;
+using tile_i32 = luisa::compute::tile::int32;
+
+tile_lang::Tensor<tile_f32, 2> tile_add_global(tile_lang::Tensor<tile_f32, 2> A,
+                                               tile_lang::Tensor<tile_f32, 2> B) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    tile_lang::Tensor<tile_f32, 2> C = TT.empty(TT.shape(M, N), tile_f32{});
+    for (auto [bx, by] : TT.Kernel(1, 1, threads)) {
+        C(TT.range(0, M), TT.all()) =
+            A(TT.range(0, M), TT.all()) + B(TT.range(0, M), TT.all());
+    }
+    return C;
+}
+
+tile_lang::Tensor<tile_f32, 2> tile_copy_global(tile_lang::Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    tile_lang::Tensor<tile_f32, 2> C = TT.empty(TT.shape(M, N), tile_f32{});
+    for (auto [bx, by] : TT.Kernel(1, 1, threads)) {
+        TT.copy(A, C);
+    }
+    return C;
+}
+
+// f16 variant: exercises the __half2 wide-vector fast path of the device
+// element-wise functions (LCTensorVec<half>::n == 2).
+tile_lang::Tensor<tile_f16, 2> tile_add_global_f16(tile_lang::Tensor<tile_f16, 2> A,
+                                                   tile_lang::Tensor<tile_f16, 2> B) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    tile_lang::Tensor<tile_f16, 2> C = TT.empty(TT.shape(M, N), tile_f16{});
+    for (auto [bx, by] : TT.Kernel(1, 1, threads)) {
+        C(TT.range(0, M), TT.all()) =
+            A(TT.range(0, M), TT.all()) + B(TT.range(0, M), TT.all());
+    }
+    return C;
+}
+
+tile_lang::Tensor<tile_f32, 2> tile_abs_global(tile_lang::Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    tile_lang::Tensor<tile_f32, 2> C = TT.empty(TT.shape(M, N), tile_f32{});
+    for (auto [bx, by] : TT.Kernel(1, 1, threads)) {
+        C(TT.range(0, M), TT.all()) = TT.abs(A(TT.range(0, M), TT.all()));
+    }
+    return C;
+}
+
+tile_lang::Tensor<tile_f32, 2> tile_clamp_global(tile_lang::Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    tile_lang::Tensor<tile_f32, 2> C = TT.empty(TT.shape(M, N), tile_f32{});
+    for (auto [bx, by] : TT.Kernel(1, 1, threads)) {
+        TT.copy(A, C);
+        TT.clamp(C(TT.range(0, M), TT.all()), 0.1f, 0.9f);
+    }
+    return C;
+}
+
+tile_lang::Tensor<tile_f32, 2> tile_transpose_global(tile_lang::Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 16;
+    constexpr tile_i32 threads = 32;
+    tile_lang::Tensor<tile_f32, 2> C = TT.empty(TT.shape(N, M), tile_f32{});
+    for (auto [bx, by] : TT.Kernel(1, 1, threads)) {
+        TT.transpose(A(TT.range(0, M), TT.range(0, N)),
+                     C(TT.range(0, N), TT.range(0, M)));
+    }
+    return C;
+}
+
+tile_lang::Tensor<tile_f32, 1> tile_reduce_sum_global(tile_lang::Tensor<tile_f32, 2> A) {
+    constexpr tile_i32 M = 32, N = 32;
+    constexpr tile_i32 threads = 32;
+    tile_lang::Tensor<tile_f32, 1> R = TT.empty(TT.shape(M), tile_f32{});
+    for (auto [bx, by] : TT.Kernel(1, 1, threads)) {
+        TT.reduce_sum(A(TT.range(0, M), TT.range(0, N)), R, /*dim=*/1);
+    }
+    return R;
+}
+
+// The classic tiled GEMM (shared staging + PIPELINED K loop + fragment
+// accumulator + final C copy) rewrites to ONE TENSOR_MATMUL; M/N/K are
+// multiples of 16 so the CUDA device function takes the F16 WMMA tensor-core
+// path with an F32 accumulator.
+tile_lang::Tensor<tile_f32, 2> tile_gemm_global(tile_lang::Tensor<tile_f16, 2> A,
+                                                tile_lang::Tensor<tile_f16, 2> B) {
+    constexpr tile_i32 M = 64, N = 64, K = 32;
+    constexpr tile_i32 block_M = 16, block_N = 16, block_K = 8;
+    constexpr tile_i32 threads = 32;
+    constexpr tile_i32 num_stages = 2;
+    tile_lang::Tensor<tile_f32, 2> C = TT.empty(TT.shape(M, N), tile_f32{});
+    for (auto [bx, by] : TT.Kernel(TT.ceildiv(N, block_N), TT.ceildiv(M, block_M), threads)) {
+        auto A_shared = TT.alloc_shared(TT.shape(block_M, block_K), tile_f16{});
+        auto B_shared = TT.alloc_shared(TT.shape(block_K, block_N), tile_f16{});
+        auto C_local = TT.alloc_fragment(TT.shape(block_M, block_N), tile_f32{});
+        TT.clear(C_local);
+        for (auto ko : TT.Pipelined(TT.ceildiv(K, block_K), num_stages)) {
+            TT.copy(A(by * block_M, ko * block_K), A_shared);
+            TT.copy(B(ko * block_K, bx * block_N), B_shared);
+            TT.gemm(A_shared, B_shared, C_local);
+        }
+        TT.copy(C_local, C(by * block_M, bx * block_N));
+    }
+    return C;
+}
+
+void test_tile_lowered_tensor_ops(Device &device, Stream &stream) {
+    using luisa::compute::TileToKernelConfig;
+    auto compile_and_check = [&](auto kernel, auto expect_op) {
+        auto result = luisa::compute::tile_to_kernel(
+            kernel.function(), TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        expect(result.function->direct_builtin_callables().test(expect_op));
+        return result;
+    };
+    constexpr auto M = 32u, N = 32u;
+    // ---- tile_add_global -> TENSOR_ADD ----
+    {
+        auto kernel = luisa::compute::tile::jit(tile_add_global).compile();
+        auto result = compile_and_check(kernel, CallOp::TENSOR_ADD);
+        auto bufA = device.create_buffer<float>(M * N);
+        auto bufB = device.create_buffer<float>(M * N);
+        auto bufC = device.create_buffer<float>(M * N);
+        std::vector<float> a(M * N), b(M * N), ref(M * N), got(M * N);
+        for (auto i = 0u; i < M * N; ++i) {
+            a[i] = static_cast<float>(i % 31) * 0.125f;
+            b[i] = static_cast<float>(i % 17) * 0.25f;
+            ref[i] = a[i] + b[i];
+        }
+        stream << bufA.copy_from(luisa::span{a}) << bufB.copy_from(luisa::span{b}) << synchronize();
+        kernel.validate(bufA, bufB, bufC);
+        using K = decltype(kernel.to_kernel<2>());
+        auto typed = wrap_tensor_kernel<K>(result);
+        auto sh = device.compile(typed, ShaderOption{.enable_cache = true,
+                                                     .enable_debug_info = true});
+        stream << sh(bufA, bufB, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+               << bufC.copy_to(luisa::span{got}) << synchronize();
+        check_f32(got, ref, 1e-4f, "tile lowered TENSOR_ADD");
+    }
+    // ---- tile_add_global_f16 -> TENSOR_ADD (__half2 vector fast path) ----
+    {
+        auto kernel = luisa::compute::tile::jit(tile_add_global_f16).compile();
+        auto result = compile_and_check(kernel, CallOp::TENSOR_ADD);
+        auto bufA = device.create_buffer<luisa::half>(M * N);
+        auto bufB = device.create_buffer<luisa::half>(M * N);
+        auto bufC = device.create_buffer<luisa::half>(M * N);
+        std::vector<luisa::half> a(M * N), b(M * N), ref(M * N), got(M * N);
+        for (auto i = 0u; i < M * N; ++i) {
+            a[i] = luisa::half{static_cast<float>(i % 31) * 0.125f};
+            b[i] = luisa::half{static_cast<float>(i % 17) * 0.25f};
+            ref[i] = luisa::half{static_cast<float>(static_cast<float>(a[i]) + static_cast<float>(b[i]))};
+        }
+        stream << bufA.copy_from(luisa::span{a}) << bufB.copy_from(luisa::span{b})
+               << synchronize();
+        kernel.validate(bufA, bufB, bufC);
+        using K = decltype(kernel.to_kernel<2>());
+        auto typed = wrap_tensor_kernel<K>(result);
+        auto sh = device.compile(typed);
+        stream << sh(bufA, bufB, bufC)
+                      .dispatch(result.dispatch_size.x, result.dispatch_size.y)
+               << bufC.copy_to(luisa::span{got}) << synchronize();
+        std::vector<float> g(M * N), r(M * N);
+        for (auto i = 0u; i < M * N; ++i) {
+            g[i] = static_cast<float>(got[i]);
+            r[i] = static_cast<float>(ref[i]);
+        }
+        check_f32(g, r, 1e-2f, "tile lowered TENSOR_ADD (f16 half2 path)");
+    }
+    // ---- tile_copy_global -> TENSOR_COPY ----
+    {
+        auto kernel = luisa::compute::tile::jit(tile_copy_global).compile();
+        auto result = compile_and_check(kernel, CallOp::TENSOR_COPY);
+        auto bufA = device.create_buffer<float>(M * N);
+        auto bufC = device.create_buffer<float>(M * N);
+        std::vector<float> a(M * N), ref(M * N), got(M * N);
+        for (auto i = 0u; i < M * N; ++i) { a[i] = static_cast<float>(i % 7) * 0.5f; }
+        ref = a;
+        stream << bufA.copy_from(luisa::span{a}) << synchronize();
+        kernel.validate(bufA, bufC);
+        using K = decltype(kernel.to_kernel<2>());
+        auto typed = wrap_tensor_kernel<K>(result);
+        auto sh = device.compile(typed);
+        stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+               << bufC.copy_to(luisa::span{got}) << synchronize();
+        check_f32(got, ref, 1e-6f, "tile lowered TENSOR_COPY");
+    }
+    // ---- tile_abs_global -> TENSOR_ABS ----
+    {
+        auto kernel = luisa::compute::tile::jit(tile_abs_global).compile();
+        auto result = compile_and_check(kernel, CallOp::TENSOR_ABS);
+        auto bufA = device.create_buffer<float>(M * N);
+        auto bufC = device.create_buffer<float>(M * N);
+        std::vector<float> a(M * N), ref(M * N), got(M * N);
+        for (auto i = 0u; i < M * N; ++i) { a[i] = static_cast<float>(i % 13) * 0.5f - 3.0f; }
+        for (auto i = 0u; i < M * N; ++i) { ref[i] = std::fabs(a[i]); }
+        stream << bufA.copy_from(luisa::span{a}) << synchronize();
+        kernel.validate(bufA, bufC);
+        using K = decltype(kernel.to_kernel<2>());
+        auto typed = wrap_tensor_kernel<K>(result);
+        auto sh = device.compile(typed);
+        stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+               << bufC.copy_to(luisa::span{got}) << synchronize();
+        check_f32(got, ref, 1e-6f, "tile lowered TENSOR_ABS");
+    }
+    // ---- tile_clamp_global -> TENSOR_COPY + TENSOR_CLAMP ----
+    {
+        auto kernel = luisa::compute::tile::jit(tile_clamp_global).compile();
+        auto result = compile_and_check(kernel, CallOp::TENSOR_CLAMP);
+        auto bufA = device.create_buffer<float>(M * N);
+        auto bufC = device.create_buffer<float>(M * N);
+        std::vector<float> a(M * N), ref(M * N), got(M * N);
+        for (auto i = 0u; i < M * N; ++i) { a[i] = static_cast<float>(i % 31) * 0.25f - 3.0f; }
+        for (auto i = 0u; i < M * N; ++i) { ref[i] = std::min(std::max(a[i], 0.1f), 0.9f); }
+        stream << bufA.copy_from(luisa::span{a}) << synchronize();
+        kernel.validate(bufA, bufC);
+        using K = decltype(kernel.to_kernel<2>());
+        auto typed = wrap_tensor_kernel<K>(result);
+        auto sh = device.compile(typed);
+        stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+               << bufC.copy_to(luisa::span{got}) << synchronize();
+        check_f32(got, ref, 1e-6f, "tile lowered TENSOR_CLAMP");
+    }
+    // ---- tile_transpose_global -> TENSOR_PERMUTE ----
+    // TENSOR_PERMUTE from a tile-lowered kernel is end-to-end verified (an
+    // earlier illegal-address failure did not reproduce once the tile-lowered
+    // kernel is dispatched through the real use_tensor=true lowering).
+    {
+        constexpr auto TM = 32u, TN = 16u;
+        auto kernel = luisa::compute::tile::jit(tile_transpose_global).compile();
+        auto result = compile_and_check(kernel, CallOp::TENSOR_PERMUTE);
+        auto bufA = device.create_buffer<float>(TM * TN);
+        auto bufC = device.create_buffer<float>(TN * TM);
+        std::vector<float> a(TM * TN), ref(TN * TM), got(TN * TM);
+        for (auto i = 0u; i < TM * TN; ++i) { a[i] = static_cast<float>(i % 11u) * 0.25f; }
+        for (auto r = 0u; r < TN; ++r)
+            for (auto c = 0u; c < TM; ++c) { ref[r * TM + c] = a[c * TN + r]; }
+        stream << bufA.copy_from(luisa::span{a}) << synchronize();
+        kernel.validate(bufA, bufC);
+        using K = decltype(kernel.to_kernel<2>());
+        auto typed = wrap_tensor_kernel<K>(result);
+        auto sh = device.compile(typed);
+        stream << sh(bufA, bufC).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+               << bufC.copy_to(luisa::span{got}) << synchronize();
+        check_f32(got, ref, 1e-6f, "tile lowered TENSOR_PERMUTE");
+    }
+    // ---- tile_reduce_sum_global -> TENSOR_REDUCE_SUM ----
+    {
+        constexpr auto RM = 32u, RN = 32u;
+        auto kernel = luisa::compute::tile::jit(tile_reduce_sum_global).compile();
+        auto result = compile_and_check(kernel, CallOp::TENSOR_REDUCE_SUM);
+        auto bufA = device.create_buffer<float>(RM * RN);
+        auto bufR = device.create_buffer<float>(RM);
+        std::vector<float> a(RM * RN), ref(RM), got(RM);
+        for (auto i = 0u; i < RM * RN; ++i) { a[i] = static_cast<float>(i % 13u) * 0.25f; }
+        for (auto r = 0u; r < RM; ++r) {
+            double s = 0.0;
+            for (auto c = 0u; c < RN; ++c) { s += static_cast<double>(a[r * RN + c]); }
+            ref[r] = static_cast<float>(s);
+        }
+        stream << bufA.copy_from(luisa::span{a}) << synchronize();
+        kernel.validate(bufA, bufR);
+        using K = decltype(kernel.to_kernel<2>());
+        auto typed = wrap_tensor_kernel<K>(result);
+        auto sh = device.compile(typed);
+        stream << sh(bufA, bufR).dispatch(result.dispatch_size.x, result.dispatch_size.y)
+               << bufR.copy_to(luisa::span{got}) << synchronize();
+        check_f32(got, ref, 1e-3f, "tile lowered TENSOR_REDUCE_SUM");
+    }
+    // ---- tile_gemm_global -> TENSOR_MATMUL (whole-program GEMM rewrite) ----
+    // The classic tiled GEMM rewrites to ONE grid-wide TENSOR_MATMUL (F16
+    // WMMA tensor-core path, FP32 accumulator).  The output buffer is
+    // pre-filled with non-zero garbage so a beta != 0 regression (the rewrite
+    // must OVERWRITE C, never add the old contents) fails loudly instead of
+    // being masked by a zeroed fresh buffer.
+    {
+        constexpr auto GM = 64u, GN = 64u, GK = 32u;
+        auto kernel = luisa::compute::tile::jit(tile_gemm_global).compile();
+        auto result = luisa::compute::tile_to_kernel(
+            kernel.function(), TileToKernelConfig{.use_tensor = true});
+        expect(result.function != nullptr);
+        expect(result.function->direct_builtin_callables().test(CallOp::TENSOR_MATMUL));
+        expect(result.function->shared_variables().empty());
+        expect(result.dispatch_size.x == 16u * 32u);
+        expect(result.dispatch_size.y == 1u);
+        auto bufA = device.create_buffer<luisa::half>(GM * GK);
+        auto bufB = device.create_buffer<luisa::half>(GK * GN);
+        auto bufC = device.create_buffer<float>(GM * GN);
+        std::vector<luisa::half> a(GM * GK), b(GK * GN);
+        std::vector<float> ref(GM * GN), got(GM * GN), got2(GM * GN);
+        for (auto i = 0u; i < a.size(); ++i) { a[i] = luisa::half{static_cast<float>((i % 8) * 0.25f)}; }
+        for (auto i = 0u; i < b.size(); ++i) { b[i] = luisa::half{static_cast<float>((i % 4) * 0.5f)}; }
+        for (auto m = 0u; m < GM; ++m) {
+            for (auto n = 0u; n < GN; ++n) {
+                double s = 0.0;
+                for (auto k = 0u; k < GK; ++k) {
+                    s += static_cast<double>(static_cast<float>(a[m * GK + k])) *
+                         static_cast<double>(static_cast<float>(b[k * GN + n]));
+                }
+                ref[m * GN + n] = static_cast<float>(s);
+            }
+        }
+        stream << bufA.copy_from(luisa::span{a}) << bufB.copy_from(luisa::span{b})
+               << bufC.copy_from(luisa::span{std::vector<float>(GM * GN, 7.0f)})
+               << synchronize();
+        kernel.validate(bufA, bufB, bufC);
+        using K = decltype(kernel.to_kernel<2>());
+        auto typed = wrap_tensor_kernel<K>(result);
+        auto sh = device.compile(typed);
+        stream << sh(bufA, bufB, bufC)
+                      .dispatch(result.dispatch_size.x, result.dispatch_size.y)
+               << bufC.copy_to(luisa::span{got}) << synchronize();
+        check_f32(got, ref, 2.2e-2f, "tile lowered TENSOR_MATMUL");
+        // Runtime API cross-check on the same data/shape (the exact device
+        // result of the TENSOR_MATMUL device function).
+        auto ta = Tensor::from_buffer(bufA.view(), {GM, GK}, device);
+        auto tb = Tensor::from_buffer(bufB.view(), {GK, GN}, device);
+        auto out = ta.matmul(tb, GemmOptions{}, stream);
+        out.copy_to(got2.data(), stream);
+        stream << synchronize();
+        check_f32(got2, ref, 2.2e-2f, "runtime API same-data matmul");
+    }
+    LUISA_INFO("Tile-kernel TENSOR_* e2e tests done");
+}
+
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -582,6 +930,7 @@ int main(int argc, char *argv[]) {
     test_matmul(device, stream);
     test_batch_matmul_contract(device, stream);
     test_fill_and_copy(device, stream);
+    test_tile_lowered_tensor_ops(device, stream);
 
     LUISA_INFO("Tensor DSL e2e tests done");
     return 0;

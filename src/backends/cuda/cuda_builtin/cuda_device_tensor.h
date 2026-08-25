@@ -184,6 +184,27 @@ __device__ __forceinline__ bool lc_tensor_contiguous(const LCTensorDesc &d) noex
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Wide-vector fast paths (plan §5.7.5): contiguous element-wise ops process
+// float4 / int4 / __half2 chunks per thread when the storage is aligned,
+// cutting memory instructions ~4x (2x for half) versus the scalar grid-stride
+// loop.  `LCTensorVec<T>::n == 1` (scalar) is used for dtypes without a wide
+// vector mapping.
+// ---------------------------------------------------------------------------
+template<typename T> struct LCTensorVec { using vec_t = T; static constexpr int n = 1; };
+template<> struct LCTensorVec<float> { using vec_t = float4; static constexpr int n = 4; };
+template<> struct LCTensorVec<int> { using vec_t = int4; static constexpr int n = 4; };
+template<> struct LCTensorVec<half> { using vec_t = __half2; static constexpr int n = 2; };
+
+/// True when `p + offset * sizeof(T)` is aligned for the wide vector load.
+template<typename T>
+__device__ __forceinline__ bool lc_tensor_vec_aligned(const T *p, lc_uint offset) noexcept {
+    using V = typename LCTensorVec<T>::vec_t;
+    auto addr = reinterpret_cast<lc_ulong>(p) +
+                static_cast<lc_ulong>(offset) * static_cast<lc_ulong>(sizeof(T));
+    return (addr & (static_cast<lc_ulong>(sizeof(V)) - 1u)) == 0u;
+}
+
 // Row-major logical flat index -> storage offset (in elements), honoring the
 // descriptor strides and storage offset. Only the first `rank` entries of
 // `coords` are used.
@@ -227,6 +248,20 @@ __device__ __forceinline__ void lc_tensor_copy_typed(
     auto *dptr = reinterpret_cast<T *>(dst.addr);
     auto *sptr = reinterpret_cast<const T *>(src.addr);
     if (lc_tensor_contiguous(dst) && lc_tensor_contiguous(src)) {
+        using V = typename LCTensorVec<T>::vec_t;
+        constexpr int N = LCTensorVec<T>::n;
+        if (N > 1 && lc_tensor_vec_aligned(dptr, dst.offset) &&
+            lc_tensor_vec_aligned(sptr, src.offset)) {
+            auto *vdptr = reinterpret_cast<V *>(dptr + dst.offset);
+            auto *vsptr = reinterpret_cast<const V *>(sptr + src.offset);
+            auto nvec = count / static_cast<lc_uint>(N);
+            for (lc_uint i = tid; i < nvec; i += total) { vdptr[i] = vsptr[i]; }
+            auto tail_base = nvec * static_cast<lc_uint>(N);
+            for (lc_uint i = tail_base + tid; i < count; i += total) {
+                dptr[dst.offset + i] = sptr[src.offset + i];
+            }
+            return;
+        }
         for (lc_uint i = tid; i < count; i += total) {
             dptr[dst.offset + i] = sptr[src.offset + i];
         }
@@ -262,6 +297,21 @@ __device__ __forceinline__ void lc_tensor_fill_typed(
     auto *dptr = reinterpret_cast<T *>(dst.addr);
     auto value = lc_tensor_bits_to<T>(value_bits);
     if (lc_tensor_contiguous(dst)) {
+        using V = typename LCTensorVec<T>::vec_t;
+        constexpr int N = LCTensorVec<T>::n;
+        if (N > 1 && lc_tensor_vec_aligned(dptr, dst.offset)) {
+            auto *vdptr = reinterpret_cast<V *>(dptr + dst.offset);
+            V vv;
+#pragma unroll
+            for (int k = 0; k < N; ++k) { reinterpret_cast<T *>(&vv)[k] = value; }
+            auto nvec = count / static_cast<lc_uint>(N);
+            for (lc_uint i = tid; i < nvec; i += total) { vdptr[i] = vv; }
+            auto tail_base = nvec * static_cast<lc_uint>(N);
+            for (lc_uint i = tail_base + tid; i < count; i += total) {
+                dptr[dst.offset + i] = value;
+            }
+            return;
+        }
         for (lc_uint i = tid; i < count; i += total) {
             dptr[dst.offset + i] = value;
         }
@@ -497,6 +547,28 @@ __device__ __forceinline__ void lc_tensor_unary_loop(
     auto *optr = reinterpret_cast<T *>(out.addr);
     auto *iptr = reinterpret_cast<const T *>(in.addr);
     if (lc_tensor_contiguous(out) && lc_tensor_contiguous(in)) {
+        using V = typename LCTensorVec<T>::vec_t;
+        constexpr int N = LCTensorVec<T>::n;
+        if (N > 1 && lc_tensor_vec_aligned(optr, out.offset) &&
+            lc_tensor_vec_aligned(iptr, in.offset)) {
+            auto *voptr = reinterpret_cast<V *>(optr + out.offset);
+            auto *viptr = reinterpret_cast<const V *>(iptr + in.offset);
+            auto nvec = count / static_cast<lc_uint>(N);
+            for (lc_uint i = tid; i < nvec; i += total) {
+                V vo;
+                auto vi = viptr[i];
+                auto *op = reinterpret_cast<T *>(&vo);
+                auto *ip = reinterpret_cast<const T *>(&vi);
+#pragma unroll
+                for (int k = 0; k < N; ++k) { op[k] = fn(ip[k]); }
+                voptr[i] = vo;
+            }
+            auto tail_base = nvec * static_cast<lc_uint>(N);
+            for (lc_uint i = tail_base + tid; i < count; i += total) {
+                optr[out.offset + i] = fn(iptr[in.offset + i]);
+            }
+            return;
+        }
         for (lc_uint i = tid; i < count; i += total) {
             optr[out.offset + i] = fn(iptr[in.offset + i]);
         }
@@ -520,6 +592,32 @@ __device__ __forceinline__ void lc_tensor_binary_loop(
     auto *aptr = reinterpret_cast<const T *>(a.addr);
     auto *bptr = reinterpret_cast<const T *>(b.addr);
     if (lc_tensor_contiguous(out) && lc_tensor_contiguous(a) && lc_tensor_contiguous(b)) {
+        using V = typename LCTensorVec<T>::vec_t;
+        constexpr int N = LCTensorVec<T>::n;
+        if (N > 1 && lc_tensor_vec_aligned(optr, out.offset) &&
+            lc_tensor_vec_aligned(aptr, a.offset) &&
+            lc_tensor_vec_aligned(bptr, b.offset)) {
+            auto *voptr = reinterpret_cast<V *>(optr + out.offset);
+            auto *vaptr = reinterpret_cast<const V *>(aptr + a.offset);
+            auto *vbptr = reinterpret_cast<const V *>(bptr + b.offset);
+            auto nvec = count / static_cast<lc_uint>(N);
+            for (lc_uint i = tid; i < nvec; i += total) {
+                V vo;
+                auto va = vaptr[i];
+                auto vb = vbptr[i];
+                auto *op = reinterpret_cast<T *>(&vo);
+                auto *ap = reinterpret_cast<const T *>(&va);
+                auto *bp = reinterpret_cast<const T *>(&vb);
+#pragma unroll
+                for (int k = 0; k < N; ++k) { op[k] = fn(ap[k], bp[k]); }
+                voptr[i] = vo;
+            }
+            auto tail_base = nvec * static_cast<lc_uint>(N);
+            for (lc_uint i = tail_base + tid; i < count; i += total) {
+                optr[out.offset + i] = fn(aptr[a.offset + i], bptr[b.offset + i]);
+            }
+            return;
+        }
         for (lc_uint i = tid; i < count; i += total) {
             optr[out.offset + i] = fn(aptr[a.offset + i], bptr[b.offset + i]);
         }
@@ -546,6 +644,36 @@ __device__ __forceinline__ void lc_tensor_ternary_loop(
     auto *cptr = reinterpret_cast<const T *>(c.addr);
     if (lc_tensor_contiguous(out) && lc_tensor_contiguous(a) &&
         lc_tensor_contiguous(b) && lc_tensor_contiguous(c)) {
+        using V = typename LCTensorVec<T>::vec_t;
+        constexpr int N = LCTensorVec<T>::n;
+        if (N > 1 && lc_tensor_vec_aligned(optr, out.offset) &&
+            lc_tensor_vec_aligned(aptr, a.offset) &&
+            lc_tensor_vec_aligned(bptr, b.offset) &&
+            lc_tensor_vec_aligned(cptr, c.offset)) {
+            auto *voptr = reinterpret_cast<V *>(optr + out.offset);
+            auto *vaptr = reinterpret_cast<const V *>(aptr + a.offset);
+            auto *vbptr = reinterpret_cast<const V *>(bptr + b.offset);
+            auto *vcptr = reinterpret_cast<const V *>(cptr + c.offset);
+            auto nvec = count / static_cast<lc_uint>(N);
+            for (lc_uint i = tid; i < nvec; i += total) {
+                V vo;
+                auto va = vaptr[i];
+                auto vb = vbptr[i];
+                auto vc = vcptr[i];
+                auto *op = reinterpret_cast<T *>(&vo);
+                auto *ap = reinterpret_cast<const T *>(&va);
+                auto *bp = reinterpret_cast<const T *>(&vb);
+                auto *cp = reinterpret_cast<const T *>(&vc);
+#pragma unroll
+                for (int k = 0; k < N; ++k) { op[k] = fn(ap[k], bp[k], cp[k]); }
+                voptr[i] = vo;
+            }
+            auto tail_base = nvec * static_cast<lc_uint>(N);
+            for (lc_uint i = tail_base + tid; i < count; i += total) {
+                optr[out.offset + i] = fn(aptr[a.offset + i], bptr[b.offset + i], cptr[c.offset + i]);
+            }
+            return;
+        }
         for (lc_uint i = tid; i < count; i += total) {
             optr[out.offset + i] = fn(aptr[a.offset + i], bptr[b.offset + i], cptr[c.offset + i]);
         }

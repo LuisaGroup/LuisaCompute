@@ -206,6 +206,10 @@ struct ShaderOption {
 
 struct TileShaderOption : ShaderOption {
     bool use_cooperative : 1 {false};
+    // Tensor-op fast path (see TileToKernelConfig::use_tensor): forwarded to
+    // tile_to_kernel on the non-native-tile fallback.  Default false — only
+    // the CUDA backend implements the TENSOR_* ops.
+    bool use_tensor : 1 {false};
     // Dynamic batching: when enabled (min != 1 || max != 1), each thread
     // group computes `block_size().z` batch items at once — one per z-thread —
     // and the z axis of the dispatch carries the runtime batch count

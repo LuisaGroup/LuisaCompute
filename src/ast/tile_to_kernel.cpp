@@ -727,6 +727,99 @@ barriers/atomics where TileLang's passes would inject them).
 // TensorExpr pointer).  Clones are resolved back to their allocation by the
 // host-side tensor name (added to TensorExpr / AllocStmt by the tile DSL);
 // name-less IR falls back to a first-layout-match heuristic.
+//
+// ---------------------------------------------------------------------------
+// Tensor-op fast path (plan §5) — use_tensor = true
+// ---------------------------------------------------------------------------
+// When TileToKernelConfig::use_tensor is enabled, eligible whole-tensor tile
+// programs lower each op to ONE side-effecting TENSOR_* CallOp
+// (include/luisa/ast/op.h) instead of per-element partition loops, so the
+// CUDA backend runs its optimized cooperative device implementation
+// (lc_tensor_* in src/backends/cuda/cuda_builtin/cuda_device_tensor.h: tight
+// grid-stride loops, F16 WMMA tensor-core GEMM).  This is the same AST
+// surface the runtime tensor API (include/luisa/dsl/tensor_ops.h) uses.
+//
+// Eligibility (all must hold; ineligible ops fall back per op):
+//   * _use_tensor && !_batching && !(inside a PIPELINED body);
+//   * the program allocates NO Shared/Fragment tensor (the whole-program GEMM
+//     rewrite below is the carve-out: it drops the shared staging entirely);
+//   * every non-metadata statement is a mappable op whose operands are ALL
+//     Global with dtype F16/F32/I32 (tensor_element_type_supported);
+//   * a shape-changing REDUCE/CUMSUM (if any) is the program's SINGLE
+//     global-writing op (different thread->element partitions would race
+//     without a grid barrier — §4.5).
+//
+// Whole-tensor descriptors: global views are extent-less in the traced IR, so
+// the TENSOR_* path reconstructs full extents/strides from the T.Kernel grid
+// x the tile extents (the same full_len math as _global_index/_tensor_volume)
+// plus the host slice offsets folded into the storage offset.  The op is then
+// emitted as ONE grid-wide call with full-tensor descriptors — the per-block
+// decomposition dissolves and every block cooperates on the whole tensor
+// (grid-stride over the X axis only; extra threads are no-ops).
+//
+// Mapping (see _prescan_tensor_ops / _emit_tensor_*):
+//   CLEAR/FILL/STORE-literal -> TENSOR_FILL
+//   COPY global->global       -> TENSOR_COPY / TENSOR_CAST (dtype change)
+//   TRANSPOSE (rank 2)        -> TENSOR_PERMUTE {1,0,0,0}
+//   CLAMP (literal lo/hi)     -> TENSOR_CLAMP (in-place)
+//   STORE(BINARY) fusion      -> TENSOR_ADD/SUB/MUL/DIV
+//   STORE(ABS/RSQRT/FAST_MATH/IEEE_MATH) fusion -> matching TENSOR_* unary
+//   REDUCE/REDUCE_SUM          -> TENSOR_REDUCE_SUM/MAX/MIN (final op)
+//   CUMSUM                     -> TENSOR_CUMSUM (final op, dim)
+//   fallback (no mapping): STORE op==1 row-broadcast, MAX/MIN literal rhs,
+//     FAST_RCP, PACKED_MATH, MOD/BIT_*, DP4A, ATOMIC, WARP_*/SHUFFLE/SYNC,
+//     ABS_SUM/ABS_MAX/BIT_* reduces, CUMMAX, IM2COL, ASYNC_COPY/TMA_*,
+//     ALLOC_SPECIAL, ACCESS_PTR, PRINT, LOOP_BREAK, IEEE FRCP and rz/ru/rd
+//     rounding modes, and any op touching Shared/Fragment storage.
+//
+// GEMM via tensor ops (plan §5.6) — _prescan_tensor_gemm:
+// A classic tiled GEMM program — T.Kernel + global->shared copies +
+// T.Pipelined(K) + T.gemm(A_sh, B_sh, C_local) + copy C_local -> C_global —
+// is ONE MxNxK GEMM partitioned into a 2D tile grid, NOT independent
+// batches, so it rewrites to a single grid-wide TENSOR_MATMUL with full-tensor
+// rank-2 descriptors (A: MxK, B: KxN, C: MxN).  The shared staging copies,
+// the PIPELINED K loop, the register micro-tiles / warp-K-split and the
+// staging+replica refresh all dissolve; beta is ALWAYS 0 (the final C copy
+// overwrites C_global) and the accumulator must be cleared (T.clear or gemm
+// clear_accum) or the program is not rewritten.  The rewrite is F16-input-only
+// (F32 accumulator C): the device tensor-core WMMA path wins there, while the
+// F32 device path is a naive scalar loop measurably slower than the SIMT
+// warp-K-split partition path — F32 GEMMs keep the partition path until the
+// backend grows a tiled/cuBLAS F32 tensor path (cuda_device_tensor.h).
+// trans_a/trans_b are only emitted when the backend supports them (the CUDA
+// device impl currently asserts both 0, §5.6.5).  Dispatch is restructured
+// for the WMMA tile grid: the F16 device path maps one warp per 16x16 output
+// tile by flat blockIdx.x, so a rewritten GEMM returns dispatch_size =
+// (tiles_m*tiles_n*threads, 1) — intentionally different from the tile
+// kernel's (gx*threads, gy) and only when use_tensor is enabled (§5.6.6).
+// VERIFIED on CUDA end-to-end: the rewritten TENSOR_MATMUL (F16 WMMA
+// tensor-core path, FP32 accumulator) and TENSOR_PERMUTE execute correctly
+// from tile-lowered kernels once the e2e test dispatches the real
+// use_tensor=true lowering (the earlier "backend device-function interaction"
+// was root-cased as a beta mapping defect in this recognizer — see
+// _prescan_tensor_gemm — plus a test harness that silently re-lowered with
+// use_tensor=false via kernel.to_kernel<2>()).
+// BATCH_MATMUL / alpha-beta-epilogue fusion / transposed operands remain
+// documented future work (§5.6.2-5.6.5).
+//
+// Whole-tensor dispatch (plan §5.7.4) — Phase A: the elementwise /
+// data-movement / reduce TENSOR_* device functions are cooperative grid-stride
+// loops over a FLAT 1D index (blockIdx.x only), so a tensor-op program
+// dispatches ceil(work/divisor/threads) blocks on x with y=1, where work is
+// the op's device-side loop bound (dst numel for elementwise; OUTPUT numel for
+// reduce; src numel for cumsum) and divisor is the wide-vector width of the
+// element dtype (float4/int4 = 4, __half2 = 2; 1 for the not-yet-vectorized
+// reduce/cumsum).  This covers the whole tensor instead of the tile grid's
+// (gx*threads, gy), which both under-dispatched and re-ran every y-block, and
+// sends one wide vector per thread (dispatching one thread per ELEMENT leaves
+// (divisor-1)/divisor of the grid idle, a measured regression).
+//
+// Gaps & risks: only the CUDA AST codegen implements TENSOR_* ops, so the
+// flag defaults to false and non-CUDA backends stay on the partition path;
+// I8/FP8/I4/FP4 dtypes, batching, literal-rhs MAX/MIN, per-tile (block-local)
+// tensor ops and PAD/CONCAT have no TENSOR_* mapping yet.  The F16 WMMA path
+// requires M/N/K multiples of 16 (else the device function silently falls
+// back to scalar — verify results, not just the opcode, in end-to-end tests).
 
 #include <luisa/ast/tile_to_kernel.h>
 
@@ -738,6 +831,7 @@ barriers/atomics where TileLang's passes would inject them).
 #include <luisa/ast/op.h>
 #include <luisa/ast/type.h>
 #include <luisa/dsl/syntax.h>// DSL writing: Expr/Var sugar, if_/dynamic_range, builtins
+#include <luisa/tensor/tensor_descriptor.h>
 
 #include <algorithm>
 #include <array>
@@ -860,6 +954,7 @@ public:
     TileCompileResult lower(const luisa::shared_ptr<const TileFunctionBuilder> &tile_fn,
                             const TileToKernelConfig &config) {
         _use_cooperative = config.use_cooperative;
+        _use_tensor = config.use_tensor;
         _tile = tile_fn.get();
         // Dynamic-batching config contract (the failure branches are the
         // strongly-skewed "almost never" side, so mark them [[unlikely]]).
@@ -923,6 +1018,11 @@ public:
                 // F2: reduce-input copy elision (must run after the shared-
                 // backing decisions above are final).
                 _prescan_reduce_elision(tile_fn->body()->statements());
+                // Tensor-op fast path (plan §5): recognize whole-program GEMM
+                // rewrites first, then the elementwise/data-movement/reduce
+                // eligibility (the GEMM rewrite wins and disables the latter).
+                _prescan_tensor_gemm(tile_fn->body()->statements());
+                _prescan_tensor_ops(tile_fn->body()->statements());
                 _emit_all(tile_fn->body()->statements());
             });
         }
@@ -932,6 +1032,30 @@ public:
         // dispatch size is (gx * threads, gy).  z is reserved for the runtime
         // batch count when batching is enabled and never appears here.
         auto dispatch = uint2{meta.dispatch_size[0] * _threads, meta.dispatch_size[1]};
+        // Tensor-op GEMM dispatch restructure (plan §5.6.6): the F16 WMMA
+        // device path maps work by flat blockIdx.x (one warp per 16x16 output
+        // tile), NOT by the tile kernel's (gx*threads, gy) grid, so a pure
+        // tensor-op GEMM program dispatches tiles_m*tiles_n blocks of
+        // `threads` threads (batch multiplies the tile count).
+        if (_tensor_gemm_rewritten) {
+            auto tiles = _tensor_gemm_tiles_m * _tensor_gemm_tiles_n;
+            auto batch = _tensor_gemm_batch != 0u ? _tensor_gemm_batch : 1u;
+            dispatch = uint2{batch * tiles * _threads, 1u};
+        }
+        // Phase A (plan §5.7.4): whole-tensor elementwise / data-movement /
+        // reduce programs are cooperative 1D grid-stride loops over the op
+        // domain (blockIdx.x only), so dispatch ceil(work/divisor/threads)
+        // blocks on x with y=1 — covering the whole tensor instead of the tile
+        // grid's (gx*threads, gy), which both under-dispatches and re-runs
+        // y-blocks.  The divisor makes elementwise programs send one wide
+        // vector per thread (float4/int4/half2); dispatching one thread per
+        // ELEMENT would leave (divisor-1)/divisor of the grid idle.
+        else if (_tensor_dispatch_work != 0u) {
+            auto vwork = (_tensor_dispatch_work + _tensor_dispatch_divisor - 1u) /
+                         _tensor_dispatch_divisor;
+            auto blocks = (vwork + _threads - 1u) / _threads;
+            dispatch = uint2{blocks * _threads, 1u};
+        }
         return {builder, dispatch};
     }
 
@@ -959,6 +1083,7 @@ private:
     const TileFunctionBuilder *_tile = nullptr;
     // lowering configuration
     bool _use_cooperative = false;
+    bool _use_tensor = false;
     // launch metadata
     uint32_t _threads = 1u;
     uint32_t _gx = 1u;
@@ -1035,6 +1160,60 @@ private:
       // the materialized storage; names in this set skip the lazy lookup so the
       // read falls through to _try_storage (no infinite recursion, old value).
       luisa::vector<luisa::string> _lazy_evaluating;
+
+      // ---- tensor-op fast path (plan §5) -----------------------------------
+      // When `_use_tensor` is on and a statement is in `_tensor_ops`,
+      // `_emit_core` dispatches to the TENSOR_* emitters instead of the
+      // partition-loop emitters.  `_tensor_fusion_consumer` maps a value-temp
+      // producer (BINARY/ABS/RSQRT/FAST_MATH/IEEE_MATH) whose temporary has
+      // exactly one consuming Global STORE/COPY to that consumer; the producer
+      // is not emitted standalone and its expression is folded into the
+      // consumer's TENSOR_* call (`_tensor_fusion_producer` is the inverse).
+      luisa::unordered_set<const TensorStmt *> _tensor_ops;
+      luisa::unordered_map<const TensorStmt *, const TensorStmt *> _tensor_fusion_consumer;
+      luisa::unordered_map<const TensorStmt *, const TensorStmt *> _tensor_fusion_producer;
+
+      // Total iteration-domain work of the whole-tensor elementwise /
+      // data-movement / reduce path (Phase A, plan §5.7.4).  The CUDA
+      // lc_tensor_* device functions are cooperative grid-stride loops over a
+      // FLAT 1D index (blockIdx.x*blockDim.x + threadIdx.x) that IGNORE
+      // gridDim.y, so a tensor-op program must dispatch ceil(work/threads)
+      // blocks on x with y=1 — NOT the tile kernel's (gx*threads, gy), which
+      // would both under-cover the whole tensor and re-run every y-block.
+      // 0 = no tensor-op path (fall back to the tile grid).
+      uint32_t _tensor_dispatch_work = 0u;
+      // Phase A dispatch divisor: whole-tensor elementwise device functions
+      // process wide vectors (float4 / int4 = 4 lanes, __half2 = 2 lanes) per
+      // thread, so the grid should dispatch ceil(work/divisor) threads — one
+      // vector per thread — instead of one element per thread.  Dispatching
+      // work threads leaves (divisor-1)/divisor of the grid IDLE, which is a
+      // net regression for these latency-bound kernels.  Shape-changing ops
+      // (reduce/cumsum) are NOT vectorized and keep divisor = 1 (their device
+      // loop iterates the OUTPUT numel).
+      uint32_t _tensor_dispatch_divisor = 1u;
+
+      // Whole-program GEMM rewrite (plan §5.6.1): when set, the traced
+      // shared-staged tiled GEMM program is rewritten into ONE grid-wide
+      // TENSOR_MATMUL with full-tensor descriptors.  The statements in
+      // `_tensor_rewritten_stmts` (the Shared/Fragment allocs, the CLEAR, the
+      // pipelined global->shared copies, the GEMM itself and the final
+      // C_local->C copy) are skipped; the single call is emitted at the GEMM
+      // statement.  Dispatch is restructured for the WMMA tile grid (§5.6.6).
+      bool _tensor_gemm_rewritten = false;
+      const GemmStmt *_tensor_gemm_stmt = nullptr;
+      const TensorExpr *_tensor_gemm_a_expr = nullptr;
+      const TensorExpr *_tensor_gemm_b_expr = nullptr;
+      const TensorExpr *_tensor_gemm_c_expr = nullptr;
+      luisa::unordered_set<const TensorStmt *> _tensor_rewritten_stmts;
+      TensorDescriptor _tensor_gemm_a;
+      TensorDescriptor _tensor_gemm_b;
+      TensorDescriptor _tensor_gemm_c;
+      uint32_t _tensor_gemm_tiles_m = 0u;
+      uint32_t _tensor_gemm_tiles_n = 0u;
+      uint32_t _tensor_gemm_batch = 0u;// 0 = whole-tensor (non-batch)
+      float _tensor_gemm_alpha = 1.0f;
+      float _tensor_gemm_beta = 0.0f;
+      uint32_t _tensor_gemm_epilogue = 0u;
 
       // Drop the lazy value of a fragment (if any) because a statement
       // materializes real storage for it (CLEAR/FILL/CLAMP/TRANSPOSE/COPY into
@@ -1169,6 +1348,199 @@ private:
         uint32_t v = 1u;
         for (auto i = 0u; i < static_cast<uint32_t>(t->rank()); ++i) { v *= full_len(i); }
         return v;
+    }
+
+    // ---- tensor-op descriptor helpers (plan §5.3) ---------------------------
+    // The TENSOR_* CallOps (include/luisa/ast/op.h) address device memory by
+    // a uint64 BUFFER_ADDRESS and encode each operand as a host-side
+    // descriptor: [dtype:uint, rank:uint, extents:uint4, strides:uint4,
+    // offset:uint, addr:uint64] (validated by check_builtin_call_valid).  The
+    // helpers below mirror dsl/tensor_ops.h::detail locally so src/ast does
+    // NOT drag the runtime/byte_buffer.h dependency into the AST module.
+
+    /// Runtime tensor operators currently support F16 / F32 / I32 only.
+    [[nodiscard]] static constexpr bool _is_tensor_dtype(TensorElementType e) noexcept {
+        return tensor_element_type_supported(e);
+    }
+
+    /// True when the tensor's full extent is recoverable (either a traced
+    /// extent or a non-zero T.empty dims list; function-input tensors carry
+    /// {0,0} dims and are resolved through the op's other operand).
+    [[nodiscard]] static bool _dims_known(const TensorExpr *t) noexcept {
+        if (t == nullptr || t->rank() == 0) { return false; }
+        for (auto i = 0u; i < static_cast<uint32_t>(t->rank()); ++i) {
+            if (axis_extent(t, i) <= 0) { return false; }
+        }
+        return true;
+    }
+
+    /// Pick the operand that provides the op's tile extent for the whole-tensor
+    /// reconstruction: an extent-known operand wins, else the operand whose
+    /// T.empty dims are known, else nullptr (ineligible for the tensor path).
+    [[nodiscard]] static const TensorExpr *_tensor_extent_of(const TensorExpr *a,
+                                                             const TensorExpr *b) noexcept {
+        if (a != nullptr && extent_known(a)) { return a; }
+        if (b != nullptr && extent_known(b)) { return b; }
+        if (a != nullptr && _dims_known(a)) { return a; }
+        if (b != nullptr && _dims_known(b)) { return b; }
+        return nullptr;
+    }
+
+    /// Full logical extents of a Global operand, mirroring the full_len math
+    /// of _global_index / _tensor_volume (grid x tile extent per axis; the
+    /// pipeline axis scales by the pipeline count).  An unrecoverable axis
+    /// (unknown dims) reports 0; callers treat it as ineligible.
+    [[nodiscard]] std::array<uint32_t, 4> _tensor_full_extents(const TensorExpr *t,
+                                                               const TensorExpr *ext) const noexcept {
+        auto E = [&](uint32_t i) { return static_cast<uint32_t>(axis_extent(ext, i)); };
+        auto full_len = [&](uint32_t i) -> uint32_t {
+            if (_pipeline_var != nullptr && i == _pipeline_axis) {
+                return _pipeline_count * E(i);
+            }
+            if (_kernel2d) { return i == 0u ? _gy * E(i) : _gx * E(i); }
+            return i == 0u ? _gx * E(i) : E(i);
+        };
+        std::array<uint32_t, 4> out{0u, 0u, 0u, 0u};
+        for (auto i = 0u; i < static_cast<uint32_t>(t->rank()); ++i) {
+            out[i] = full_len(i);
+        }
+        return out;
+    }
+
+    /// Full row-major strides (in elements) from the reconstructed extents.
+    [[nodiscard]] std::array<uint32_t, 4> _tensor_full_strides(const TensorExpr *t,
+                                                               const TensorExpr *ext) const noexcept {
+        auto lengths = _tensor_full_extents(t, ext);
+        std::array<uint32_t, 4> strides{1u, 1u, 1u, 1u};
+        uint32_t s = 1u;
+        for (int32_t i = static_cast<int32_t>(t->rank()) - 1; i >= 0; --i) {
+            strides[static_cast<uint32_t>(i)] = s;
+            s *= lengths[static_cast<uint32_t>(i)];
+        }
+        return strides;
+    }
+
+    /// Total element count of the full (grid-wide) tensor view, or 0 when any
+    /// axis extent is unrecoverable.
+    [[nodiscard]] uint32_t _tensor_numel_full(const TensorExpr *t,
+                                              const TensorExpr *ext) const noexcept {
+        auto lengths = _tensor_full_extents(t, ext);
+        uint32_t n = 1u;
+        for (auto i = 0u; i < static_cast<uint32_t>(t->rank()); ++i) {
+            if (lengths[i] == 0u) { return 0u; }
+            n *= lengths[i];
+        }
+        return n;
+    }
+
+    /// A tensor operand inside the AST: the host-side descriptor plus the
+    /// 64-bit device address expression (BUFFER_ADDRESS of the Buffer arg).
+    struct TensorOperand {
+        TensorDescriptor desc;
+        const Expression *address = nullptr;
+    };
+
+    /// Build the full-tensor operand for a Global tensor.  `ext` is the op's
+    /// extent-providing operand (usually the same tensor or the other operand
+    /// of the op); the host slice offsets (traced with the representative
+    /// block, so normally zero) are folded into the storage offset by the
+    /// full row strides.
+    [[nodiscard]] TensorOperand _tensor_operand(const TensorExpr *t,
+                                                const TensorExpr *ext) {
+        auto &st = _storage_for(t);
+        if (st.scope != TensorScope::Global || st.buffer == nullptr) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: tensor-op operands must be Global buffers "
+                "(scope={}).", scope_name(st.scope));
+        }
+        auto shape_ext = ext != nullptr ? ext : t;
+        TensorDescriptor d;
+        d.dtype = t->dtype();
+        d.rank = static_cast<uint32_t>(t->rank());
+        auto lengths = _tensor_full_extents(t, shape_ext);
+        auto strides = _tensor_full_strides(t, shape_ext);
+        for (auto i = 0u; i < d.rank; ++i) {
+            d.extents[i] = lengths[i];
+            d.strides[i] = strides[i];
+        }
+        auto offs = t->offset();
+        for (auto i = 0u; i < d.rank && i < offs.size(); ++i) {
+            if (offs[i] > 0) { d.storage_offset += static_cast<uint32_t>(offs[i]) * strides[i]; }
+        }
+        for (auto i = 0u; i < d.rank; ++i) {
+            if (d.extents[i] == 0u) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION(
+                    "tile_to_kernel: tensor-op operand has an unrecoverable "
+                    "full extent on axis {} (the whole-tensor path requires "
+                    "known dims or a traced tile extent).", i);
+            }
+        }
+        auto addr = _fb->call(Type::of<uint64_t>(), CallOp::BUFFER_ADDRESS, {st.buffer});
+        return TensorOperand{d, addr};
+    }
+
+    [[nodiscard]] const Expression *_tensor_literal_u4(uint4 v) const {
+        return _fb->literal(Type::of<uint4>(), v);
+    }
+
+    [[nodiscard]] const Expression *_tensor_literal_f(float v) const {
+        return _fb->literal(Type::of<float>(), v);
+    }
+
+    [[nodiscard]] const Expression *_tensor_literal_u64(uint64_t v) const {
+        return _fb->literal(Type::of<uint64_t>(), v);
+    }
+
+    /// Push the six descriptor arguments of one operand (mirrors
+    /// dsl/tensor_ops.h::detail::tensor_push_operand).
+    void _tensor_push_operand(luisa::vector<const Expression *> &args,
+                              const TensorOperand &operand) const {
+        auto &d = operand.desc;
+        LUISA_ASSERT(operand.address != nullptr,
+                     "tensor-op operand has no device address expression.");
+        args.emplace_back(_literal_u(to_underlying(d.dtype)));
+        args.emplace_back(_literal_u(d.rank));
+        args.emplace_back(_tensor_literal_u4(uint4{d.extents[0], d.extents[1], d.extents[2], d.extents[3]}));
+        args.emplace_back(_tensor_literal_u4(uint4{d.strides[0], d.strides[1], d.strides[2], d.strides[3]}));
+        args.emplace_back(_literal_u(d.storage_offset));
+        args.emplace_back(operand.address);
+    }
+
+    /// Emit one side-effecting TENSOR_* call (all threads execute it).
+    void _tensor_emit(CallOp op, luisa::span<const Expression *const> args) {
+        static_cast<void>(_fb->call(Type::of<void>(), op, args));
+    }
+
+    /// Raw dtype bit pattern for a fill / clamp bound (mirrors
+    /// dsl/tensor_ops.h::detail::tensor_fill_bits).
+    [[nodiscard]] uint32_t _tensor_fill_bits(TensorElementType dtype, double value) const {
+        switch (dtype) {
+            case TensorElementType::F16: {
+                auto h = half{static_cast<float>(value)};
+                return static_cast<uint32_t>(luisa::bit_cast<uint16_t>(h));
+            }
+            case TensorElementType::F32:
+                return luisa::bit_cast<uint32_t>(static_cast<float>(value));
+            case TensorElementType::I32:
+                return luisa::bit_cast<uint32_t>(static_cast<int32_t>(value));
+            default:
+                LUISA_ERROR_WITH_LOCATION(
+                    "tile_to_kernel: tensor-op fill with unsupported dtype '{}'.",
+                    tensor_element_type_name(dtype));
+        }
+    }
+
+    /// Numeric double of a host-side literal (for FILL / CLAMP bounds).
+    [[nodiscard]] static double _literal_as_double(const LiteralExpr *lit) {
+        return luisa::visit([](auto &&x) -> double {
+            using T = std::decay_t<decltype(x)>;
+            if constexpr (std::is_same_v<T, half>) {
+                return static_cast<double>(static_cast<float>(x));
+            } else if constexpr (std::is_arithmetic_v<T>) {
+                return static_cast<double>(x);
+            }
+            return 0.0;
+        }, lit->value().to_variant());
     }
 
     // True when the tile body allocates any block-shared storage: a Shared
@@ -2261,6 +2633,849 @@ private:
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // tensor-op fast path (plan §5)
+    // ---------------------------------------------------------------------------
+
+    // Map a value-temp producer statement to its TENSOR_* CallOp when the
+    // producer has a 1:1 whole-tensor mapping (used by the fusion prescan).
+    [[nodiscard]] static CallOp _tensor_producer_call_op(const TensorStmt *s) noexcept {
+        switch (s->op()) {
+            case TileOpKind::BINARY: {
+                auto *b = static_cast<const TileBinaryStmt *>(s);
+                if (b->rhs_tensor() == nullptr || b->rhs_ref() != nullptr) { return CallOp::CUSTOM; }
+                switch (b->op()) {
+                    case BinaryOp::ADD: return CallOp::TENSOR_ADD;
+                    case BinaryOp::SUB: return CallOp::TENSOR_SUB;
+                    case BinaryOp::MUL: return CallOp::TENSOR_MUL;
+                    case BinaryOp::DIV: return CallOp::TENSOR_DIV;
+                    default: return CallOp::CUSTOM;// MOD / BIT_* have no mapping
+                }
+            }
+            case TileOpKind::MAX:
+            case TileOpKind::MIN:
+                return CallOp::CUSTOM;// literal rhs, no single-bound tensor op
+            case TileOpKind::ABS: return CallOp::TENSOR_ABS;
+            case TileOpKind::RSQRT: return CallOp::TENSOR_RSQRT;
+            case TileOpKind::FAST_MATH: {
+                auto *f = static_cast<const FastMathStmt *>(s);
+                switch (f->op()) {
+                    case TileFastMathOp::EXP: return CallOp::TENSOR_EXP;
+                    case TileFastMathOp::LOG: return CallOp::TENSOR_LOG;
+                    case TileFastMathOp::SIN: return CallOp::TENSOR_SIN;
+                    case TileFastMathOp::COS: return CallOp::TENSOR_COS;
+                    case TileFastMathOp::TAN: return CallOp::TENSOR_TAN;
+                    case TileFastMathOp::TANH: return CallOp::TENSOR_TANH;
+                    case TileFastMathOp::ERF: return CallOp::TENSOR_ERF;
+                    default: return CallOp::CUSTOM;// EXP10 / LOG2 / LOG10
+                }
+            }
+            case TileOpKind::IEEE_MATH: {
+                auto *ie = static_cast<const IeeeMathStmt *>(s);
+                if (ie->rounding_mode() != 0) { return CallOp::CUSTOM; }
+                switch (ie->op()) {
+                    case TileIeeeOp::SQRT:
+                    case TileIeeeOp::FSQRT: return CallOp::TENSOR_SQRT;
+                    case TileIeeeOp::POW: return CallOp::TENSOR_POW;
+                    case TileIeeeOp::CEIL: return CallOp::TENSOR_CEIL;
+                    case TileIeeeOp::FLOOR: return CallOp::TENSOR_FLOOR;
+                    case TileIeeeOp::ROUND: return CallOp::TENSOR_ROUND;
+                    case TileIeeeOp::ISINF: return CallOp::TENSOR_ISINF;
+                    case TileIeeeOp::ISNAN: return CallOp::TENSOR_ISNAN;
+                    case TileIeeeOp::ADD: return CallOp::TENSOR_ADD;
+                    case TileIeeeOp::SUB: return CallOp::TENSOR_SUB;
+                    case TileIeeeOp::MUL: return CallOp::TENSOR_MUL;
+                    case TileIeeeOp::FMAF: return CallOp::TENSOR_FMA;
+                    case TileIeeeOp::FDIV: return CallOp::TENSOR_DIV;
+                    case TileIeeeOp::CAST: return CallOp::TENSOR_CAST;
+                    default: return CallOp::CUSTOM;// FRCP / FRSQRT
+                }
+            }
+            default: return CallOp::CUSTOM;
+        }
+    }
+
+    // Whole-program tensor-op eligibility prescan (plan §5.2 / Phase 1-2).
+    // A tile program is tensor-op eligible only when ALL of: _use_tensor,
+    // !_batching, no Shared/Fragment allocs, no PIPELINED (the GEMM rewrite
+    // handles those separately), every non-metadata statement is a mappable
+    // op with Global-only operands of a supported dtype, and a shape-changing
+    // REDUCE/CUMSUM (if any) is the program's single global-writing op.
+    void _prescan_tensor_ops(luisa::span<const TensorStmt *const> stmts) {
+        _tensor_ops.clear();
+        _tensor_fusion_consumer.clear();
+        _tensor_fusion_producer.clear();
+        _tensor_dispatch_work = 0u;
+        _tensor_dispatch_divisor = 1u;
+        if (!_use_tensor || _batching || _tensor_gemm_rewritten) { return; }
+        auto global_operand = [](const TensorExpr *t) noexcept {
+            return t != nullptr && t->scope() == TensorScope::Global &&
+                   _is_tensor_dtype(t->dtype());
+        };
+        auto full_shape = [&](const TensorExpr *t, const TensorExpr *ext,
+                              std::array<uint32_t, 4> &out) -> bool {
+            if (t == nullptr || ext == nullptr || !global_operand(t)) { return false; }
+            auto e = _tensor_full_extents(t, ext);
+            for (auto i = 0u; i < static_cast<uint32_t>(t->rank()); ++i) {
+                if (e[i] == 0u) { return false; }
+            }
+            out = e;
+            return true;
+        };
+        auto shapes_equal = [&](const TensorExpr *a, const TensorExpr *b,
+                                const TensorExpr *ext) -> bool {
+            std::array<uint32_t, 4> sa{}, sb{};
+            return full_shape(a, ext, sa) && full_shape(b, ext, sb) && sa == sb;
+        };
+        // Program-level purity: only Global allocs of supported dtypes and
+        // metadata no-ops; PIPELINED / Shared / Fragment allocate => fall back.
+        bool pure = true;
+        for (auto *stmt : stmts) {
+            switch (stmt->op()) {
+                case TileOpKind::ALLOC: {
+                    auto *a = static_cast<const AllocStmt *>(stmt);
+                    auto *t = a->tensor();
+                    if (t->scope() != TensorScope::Global || !_is_tensor_dtype(t->dtype())) {
+                        pure = false;
+                    }
+                    break;
+                }
+                case TileOpKind::KERNEL_1D:
+                case TileOpKind::KERNEL_2D:
+                case TileOpKind::CEILDIV:
+                case TileOpKind::RESHAPE:
+                case TileOpKind::VIEW:
+                case TileOpKind::DYNAMIC:
+                case TileOpKind::SYMBOLIC:
+                case TileOpKind::ANNOTATE:
+                case TileOpKind::LOOP_ANNOTATION:
+                case TileOpKind::INLINE:
+                case TileOpKind::META_CLASS:
+                    break;// metadata no-ops
+                case TileOpKind::PIPELINED:
+                    pure = false;// only the GEMM rewrite handles pipelines
+                    break;
+                default:
+                    break;// per-op checks below
+            }
+        }
+        if (!pure) { return; }
+        // Direct (non-fused) mappable statements.
+        for (auto *stmt : stmts) {
+            bool eligible = false;
+            switch (stmt->op()) {
+                case TileOpKind::CLEAR: {
+                    auto *s = static_cast<const ClearStmt *>(stmt);
+                    eligible = global_operand(s->t()) &&
+                               _tensor_extent_of(s->t(), nullptr) != nullptr;
+                    break;
+                }
+                case TileOpKind::FILL: {
+                    auto *s = static_cast<const FillStmt *>(stmt);
+                    eligible = s->value_literal() != nullptr && s->value_ref() == nullptr &&
+                               global_operand(s->buf()) &&
+                               _tensor_extent_of(s->buf(), nullptr) != nullptr;
+                    break;
+                }
+                case TileOpKind::COPY: {
+                    auto *s = static_cast<const CopyStmt *>(stmt);
+                    auto *ext = _tensor_extent_of(s->src(), s->dst());
+                    eligible = global_operand(s->src()) && global_operand(s->dst()) &&
+                               s->src()->rank() == s->dst()->rank() && ext != nullptr &&
+                               shapes_equal(s->src(), s->dst(), ext);
+                    break;
+                }
+                case TileOpKind::STORE: {
+                    auto *s = static_cast<const TileStoreStmt *>(stmt);
+                    if (s->op() == 0 && s->rhs_literal() != nullptr && s->rhs_ref() == nullptr &&
+                        global_operand(s->lhs()) &&
+                        _tensor_extent_of(s->lhs(), nullptr) != nullptr) {
+                        eligible = true;// TENSOR_FILL
+                    }
+                    // tensor-rhs STOREs become eligible via the fusion pass.
+                    break;
+                }
+                case TileOpKind::TRANSPOSE: {
+                    auto *s = static_cast<const TransposeStmt *>(stmt);
+                    auto *ext_src = _tensor_extent_of(s->src(), s->dst());
+                    auto *ext_dst = _tensor_extent_of(s->dst(), s->src());
+                    auto se = _tensor_full_extents(s->src(), ext_src);
+                    auto de = _tensor_full_extents(s->dst(), ext_dst);
+                    eligible = s->src()->rank() == 2u && s->dst()->rank() == 2u &&
+                               global_operand(s->src()) && global_operand(s->dst()) &&
+                               ext_src != nullptr && ext_dst != nullptr &&
+                               se[0] * se[1] == de[0] * de[1];// element count
+                    break;
+                }
+                case TileOpKind::CLAMP: {
+                    auto *s = static_cast<const ClampStmt *>(stmt);
+                    eligible = s->lo_literal() != nullptr && s->hi_literal() != nullptr &&
+                               s->lo_ref() == nullptr && s->hi_ref() == nullptr &&
+                               global_operand(s->dst()) &&
+                               _tensor_extent_of(s->dst(), nullptr) != nullptr;
+                    break;
+                }
+                case TileOpKind::REDUCE_SUM: {
+                    auto *s = static_cast<const ReduceSumStmt *>(stmt);
+                    auto *ext = _tensor_extent_of(s->y(), s->x());
+                    eligible = global_operand(s->x()) && global_operand(s->y()) &&
+                               ext != nullptr &&
+                               s->dim() < static_cast<uint32_t>(s->x()->rank());
+                    break;
+                }
+                case TileOpKind::REDUCE: {
+                    auto *s = static_cast<const ReduceStmt *>(stmt);
+                    auto *ext = _tensor_extent_of(s->out(), s->buf());
+                    eligible = (s->op() == TileReduceOp::SUM ||
+                                s->op() == TileReduceOp::MAX ||
+                                s->op() == TileReduceOp::MIN) &&
+                               global_operand(s->buf()) && global_operand(s->out()) &&
+                               ext != nullptr &&
+                               s->dim() < static_cast<uint32_t>(s->buf()->rank());
+                    break;
+                }
+                case TileOpKind::CUMSUM: {
+                    auto *s = static_cast<const CumSumStmt *>(stmt);
+                    auto *ext = _tensor_extent_of(s->dst(), s->src());
+                    eligible = s->reverse() == 0 &&
+                               global_operand(s->src()) && global_operand(s->dst()) &&
+                               s->src()->rank() == s->dst()->rank() && ext != nullptr &&
+                               shapes_equal(s->src(), s->dst(), ext);
+                    break;
+                }
+                default:
+                    break;
+            }
+            if (eligible) { _tensor_ops.emplace(stmt); }
+        }
+        // Fusion pass: value-temp producers (BINARY/ABS/RSQRT/FAST_MATH/
+        // IEEE_MATH) whose temporary has exactly one consuming Global
+        // STORE/COPY are folded into the consumer's TENSOR_* call.  The
+        // producer is NOT emitted standalone.
+        for (auto *stmt : stmts) {
+            switch (stmt->op()) {
+                case TileOpKind::BINARY:
+                case TileOpKind::MAX:
+                case TileOpKind::MIN:
+                case TileOpKind::ABS:
+                case TileOpKind::RSQRT:
+                case TileOpKind::FAST_MATH:
+                case TileOpKind::IEEE_MATH: {
+                    auto temp = _tile->temp_output(stmt);
+                    if (temp == nullptr || _tensor_producer_call_op(stmt) == CallOp::CUSTOM) {
+                        continue;
+                    }
+                    bool producer_global = true;
+                    for (auto *in : stmt->inputs()) {
+                        if (!global_operand(in)) { producer_global = false; break; }
+                    }
+                    if (!producer_global) { continue; }
+                    const TensorStmt *consumer = nullptr;
+                    for (auto *cand : stmts) {
+                        const TensorExpr *ref = nullptr;
+                        if (cand->op() == TileOpKind::STORE) {
+                            ref = static_cast<const TileStoreStmt *>(cand)->rhs_tensor();
+                        } else if (cand->op() == TileOpKind::COPY) {
+                            ref = static_cast<const CopyStmt *>(cand)->src();
+                        }
+                        if (ref == temp) {
+                            if (consumer != nullptr) { consumer = nullptr; break; }
+                            consumer = cand;
+                        }
+                    }
+                    if (consumer == nullptr) { continue; }
+                    const TensorExpr *dst = consumer->op() == TileOpKind::STORE
+                                               ? static_cast<const TileStoreStmt *>(consumer)->lhs()
+                                               : static_cast<const CopyStmt *>(consumer)->dst();
+                    if (consumer->op() == TileOpKind::STORE &&
+                        static_cast<const TileStoreStmt *>(consumer)->op() != 0) {
+                        continue;// row-broadcast scale has no mapping
+                    }
+                    auto *ext = _tensor_extent_of(dst, temp);
+                    if (!global_operand(dst) || ext == nullptr) { continue; }
+                    std::array<uint32_t, 4> dshape{};
+                    if (!full_shape(dst, ext, dshape)) { continue; }
+                    bool shape_ok = true;
+                    for (auto *in : stmt->inputs()) {
+                        std::array<uint32_t, 4> ishape{};
+                        if (!full_shape(in, ext, ishape) || ishape != dshape) {
+                            shape_ok = false;
+                            break;
+                        }
+                    }
+                    if (!shape_ok) { continue; }
+                    _tensor_fusion_consumer.emplace(stmt, consumer);
+                    _tensor_fusion_producer.emplace(consumer, stmt);
+                    _tensor_ops.emplace(consumer);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        // Shape-changing final-op rule (plan §4.5): a REDUCE / CUMSUM maps a
+        // different thread->element partition than the elementwise calls, so
+        // it is race-free only as the program's SINGLE global-writing op.
+        bool has_shape_changing = false;
+        for (auto *stmt : _tensor_ops) {
+            if (stmt->op() == TileOpKind::REDUCE ||
+                stmt->op() == TileOpKind::REDUCE_SUM ||
+                stmt->op() == TileOpKind::CUMSUM) {
+                has_shape_changing = true;
+                break;
+            }
+        }
+        if (has_shape_changing) {
+            uint32_t writers = 0u;
+            for (auto *stmt : _tensor_ops) {
+                if (_writes_global(stmt)) { ++writers; }
+            }
+            if (writers != 1u) {
+                _tensor_ops.clear();
+                _tensor_fusion_consumer.clear();
+                _tensor_fusion_producer.clear();
+            }
+        }
+        // Phase A: the tensor-op dispatch must cover the whole-tensor iteration
+        // domain on the flat 1D grid (the lc_tensor_* device functions ignore
+        // gridDim.y).  Each op's work is its device-side loop bound:
+        // elementwise/data-movement -> dst numel; reduce -> OUTPUT numel;
+        // cumsum -> src numel.  The GEMM rewrite computes its own tiles*threads
+        // dispatch and never reaches this point.
+        if (!_tensor_ops.empty()) {
+            uint32_t work = 0u;
+            auto add_work = [&](uint32_t w) noexcept { work = luisa::max(work, w); };
+            // Shape-changing ops are not wide-vectorized in the device
+            // functions, so the whole program keeps the one-element-per-thread
+            // dispatch (divisor 1) when any is present.
+            bool has_shape_changing = false;
+            TensorElementType elem_dtype = TensorElementType::F32;
+            for (auto *stmt : _tensor_ops) {
+                switch (stmt->op()) {
+                    case TileOpKind::REDUCE:
+                    case TileOpKind::REDUCE_SUM:
+                    case TileOpKind::CUMSUM:
+                        has_shape_changing = true;
+                        break;
+                    default:
+                        break;
+                }
+            }
+            for (auto *stmt : _tensor_ops) {
+                const TensorExpr *dst = nullptr;
+                switch (stmt->op()) {
+                    case TileOpKind::CLEAR: {
+                        auto *s = static_cast<const ClearStmt *>(stmt);
+                        dst = s->t();
+                        add_work(_tensor_numel_full(
+                            s->t(), _tensor_extent_of(s->t(), nullptr)));
+                        break;
+                    }
+                    case TileOpKind::FILL: {
+                        auto *s = static_cast<const FillStmt *>(stmt);
+                        dst = s->buf();
+                        add_work(_tensor_numel_full(
+                            s->buf(), _tensor_extent_of(s->buf(), nullptr)));
+                        break;
+                    }
+                    case TileOpKind::COPY: {
+                        auto *s = static_cast<const CopyStmt *>(stmt);
+                        dst = s->dst();
+                        add_work(_tensor_numel_full(s->dst(), _tensor_extent_of(s->src(), s->dst())));
+                        break;
+                    }
+                    case TileOpKind::STORE: {
+                        auto *s = static_cast<const TileStoreStmt *>(stmt);
+                        dst = s->lhs();
+                        add_work(_tensor_numel_full(
+                            s->lhs(), _tensor_extent_of(s->lhs(), nullptr)));
+                        break;
+                    }
+                    case TileOpKind::TRANSPOSE: {
+                        auto *s = static_cast<const TransposeStmt *>(stmt);
+                        dst = s->dst();
+                        add_work(_tensor_numel_full(s->dst(), _tensor_extent_of(s->src(), s->dst())));
+                        break;
+                    }
+                    case TileOpKind::CLAMP: {
+                        auto *s = static_cast<const ClampStmt *>(stmt);
+                        dst = s->dst();
+                        add_work(_tensor_numel_full(
+                            s->dst(), _tensor_extent_of(s->dst(), nullptr)));
+                        break;
+                    }
+                    case TileOpKind::REDUCE_SUM: {
+                        auto *s = static_cast<const ReduceSumStmt *>(stmt);
+                        dst = s->y();
+                        add_work(_tensor_numel_full(s->y(), _tensor_extent_of(s->x(), s->y())));
+                        break;
+                    }
+                    case TileOpKind::REDUCE: {
+                        auto *s = static_cast<const ReduceStmt *>(stmt);
+                        dst = s->out();
+                        add_work(_tensor_numel_full(s->out(), _tensor_extent_of(s->buf(), s->out())));
+                        break;
+                    }
+                    case TileOpKind::CUMSUM: {
+                        auto *s = static_cast<const CumSumStmt *>(stmt);
+                        dst = s->dst();
+                        add_work(_tensor_numel_full(s->src(), _tensor_extent_of(s->dst(), s->src())));
+                        break;
+                    }
+                    default:
+                        break;
+                }
+                if (dst != nullptr) { elem_dtype = dst->dtype(); }
+            }
+            _tensor_dispatch_work = work;
+            if (!has_shape_changing) {
+                // Whole-tensor elementwise programs: one wide vector per thread.
+                switch (elem_dtype) {
+                    case TensorElementType::F32:
+                    case TensorElementType::I32: _tensor_dispatch_divisor = 4u; break;
+                    case TensorElementType::F16: _tensor_dispatch_divisor = 2u; break;
+                    default: _tensor_dispatch_divisor = 1u; break;
+                }
+            }
+        }
+    }
+
+    // Whole-program GEMM rewrite recognizer (plan §5.6.1 / Phase 2G): the
+    // classic tiled GEMM program — T.Kernel + global->shared copies +
+    // T.Pipelined(K) + T.gemm(A_sh, B_sh, C_local) + copy C_local -> C_global —
+    // is ONE MxNxK GEMM partitioned into a 2D tile grid, so it rewrites to a
+    // single grid-wide TENSOR_MATMUL with full-tensor descriptors.  The
+    // shared staging copies / PIPELINED loop / register micro-tiles all
+    // dissolve; the backend runs its tensor-core (F16 WMMA) or scalar path.
+    //
+    // ENABLED (2026-08): this rewrite is end-to-end verified on CUDA (the F16
+    // WMMA tensor-core path, FP32 accumulator) once the earlier "wrong
+    // results" were root-caused as TWO lowering-side defects, not a backend
+    // device-function interaction:
+    //   1. beta was derived from gemm->clear_accum() (0 -> beta=1), but the
+    //      recognized pattern's final C_local -> C_global copy OVERWRITES the
+    //      output, so beta must always be 0 — a beta=1 emission silently adds
+    //      the old C_global contents (masked only while the output buffer
+    //      happens to be zeroed).  Fixed below.
+    //   2. The CUDA e2e test dispatched kernel.to_kernel<2>() which re-lowers
+    //      with the DEFAULT config (use_tensor=false, partition path), so the
+    //      "working" elementwise/reduce TENSOR_* e2e never exercised the
+    //      tensor path on device; the matmul/permute e2e did dispatch the
+    //      real tensor path.  Both now dispatch the use_tensor=true lowering
+    //      and verify MATMUL/PERMUTE end-to-end as well.
+    void _prescan_tensor_gemm(luisa::span<const TensorStmt *const> stmts) {
+        _tensor_gemm_rewritten = false;
+        _tensor_gemm_stmt = nullptr;
+        _tensor_gemm_a_expr = nullptr;
+        _tensor_gemm_b_expr = nullptr;
+        _tensor_gemm_c_expr = nullptr;
+        _tensor_rewritten_stmts.clear();
+        if (!_use_tensor || _batching) { return; }
+        // Identity of cloned tile views: every view of one alloc shares the
+        // alloc's host-side name.
+        auto same_tensor = [](const TensorExpr *x, const TensorExpr *y) noexcept {
+            return x != nullptr && y != nullptr && x->scope() == y->scope() &&
+                   !x->name().empty() && x->name() == y->name();
+        };
+        const GemmStmt *gemm = nullptr;
+        for (auto *s : stmts) {
+            if (s->op() == TileOpKind::GEMM) {
+                if (gemm != nullptr) { return; }// more than one GEMM
+                gemm = static_cast<const GemmStmt *>(s);
+            }
+        }
+        if (gemm == nullptr) { return; }
+        auto *a = gemm->a();
+        auto *b = gemm->b();
+        auto *c = gemm->c();
+        if (a == nullptr || b == nullptr || c == nullptr ||
+            a->scope() != TensorScope::Shared || b->scope() != TensorScope::Shared ||
+            c->scope() != TensorScope::Fragment ||
+            a->rank() != 2u || b->rank() != 2u || c->rank() != 2u ||
+            !extent_known(a) || !extent_known(b) || !extent_known(c)) {
+            return;
+        }
+        // trans_a / trans_b are asserted 0 by the CUDA device impl (§5.6.5).
+        if (gemm->trans_a() != 0 || gemm->trans_b() != 0) { return; }
+        if (!_is_tensor_dtype(a->dtype()) || a->dtype() != b->dtype()) { return; }
+        if (!_is_tensor_dtype(c->dtype())) { return; }
+        // Only F16 inputs with an F32 accumulator C are rewritten: that is the
+        // case where the device tensor-core WMMA path wins.  F32 inputs keep
+        // the SIMT partition path — the backend's F32 GEMM device function is
+        // a naive one-thread-per-output scalar loop that is measurably SLOWER
+        // than the warp-K-split SIMT lowering (e.g. 4096^3 f32: ~221 vs ~382
+        // GFLOP/s), so rewriting F32 would regress users who enable
+        // use_tensor.  A fast F32 tensor path (tiled shared-memory or cuBLAS/
+        // cuBLASLt) is future work in cuda_device_tensor.h.
+        if (a->dtype() != TensorElementType::F16 ||
+            c->dtype() != TensorElementType::F32) { return; }
+        auto block_M = static_cast<uint32_t>(axis_extent(c, 0u));
+        auto block_N = static_cast<uint32_t>(axis_extent(c, 1u));
+        auto block_K = static_cast<uint32_t>(axis_extent(a, 1u));
+        if (block_M == 0u || block_N == 0u || block_K == 0u) { return; }
+        if (axis_extent(a, 0u) != static_cast<int32_t>(block_M) ||
+            axis_extent(b, 0u) != static_cast<int32_t>(block_K) ||
+            axis_extent(b, 1u) != static_cast<int32_t>(block_N)) {
+            return;// not a block_M x block_K x block_N tile
+        }
+        // Locate the global sources / final C copy / pipeline statement.
+        const CopyStmt *a_copy = nullptr;
+        const CopyStmt *b_copy = nullptr;
+        const CopyStmt *c_copy = nullptr;
+        const AllocStmt *a_alloc = nullptr;
+        const AllocStmt *b_alloc = nullptr;
+        const AllocStmt *c_alloc = nullptr;
+        const PipelinedStmt *pipelined = nullptr;
+        size_t pipelined_index = SIZE_MAX;
+        size_t gemm_index = SIZE_MAX;
+        size_t c_copy_index = SIZE_MAX;
+        for (auto i = 0u; i < stmts.size(); ++i) {
+            auto *s = stmts[i];
+            switch (s->op()) {
+                case TileOpKind::PIPELINED: {
+                    auto *p = static_cast<const PipelinedStmt *>(s);
+                    if (pipelined == nullptr) {
+                        pipelined = p;
+                        pipelined_index = i;
+                    }
+                    break;
+                }
+                case TileOpKind::ALLOC: {
+                    auto *al = static_cast<const AllocStmt *>(s);
+                    if (same_tensor(al->tensor(), a)) { a_alloc = al; }
+                    else if (same_tensor(al->tensor(), b)) { b_alloc = al; }
+                    else if (same_tensor(al->tensor(), c)) { c_alloc = al; }
+                    break;
+                }
+                case TileOpKind::COPY: {
+                    auto *cp = static_cast<const CopyStmt *>(s);
+                    if (same_tensor(cp->dst(), a) &&
+                        cp->src() != nullptr && cp->src()->scope() == TensorScope::Global) {
+                        a_copy = cp;
+                        if (_tensor_gemm_a_expr == nullptr) { _tensor_gemm_a_expr = cp->src(); }
+                    } else if (same_tensor(cp->dst(), b) &&
+                               cp->src() != nullptr && cp->src()->scope() == TensorScope::Global) {
+                        b_copy = cp;
+                        if (_tensor_gemm_b_expr == nullptr) { _tensor_gemm_b_expr = cp->src(); }
+                    } else if (same_tensor(cp->src(), c) &&
+                               cp->dst() != nullptr && cp->dst()->scope() == TensorScope::Global) {
+                        c_copy = cp;
+                        if (_tensor_gemm_c_expr == nullptr) { _tensor_gemm_c_expr = cp->dst(); }
+                        c_copy_index = i;
+                    }
+                    break;
+                }
+                case TileOpKind::GEMM:
+                    if (s == gemm) { gemm_index = i; }
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (a_copy == nullptr || b_copy == nullptr || c_copy == nullptr ||
+            a_alloc == nullptr || b_alloc == nullptr || c_alloc == nullptr ||
+            pipelined == nullptr || gemm_index == SIZE_MAX) {
+            return;
+        }
+        // The final C copy must write the same dtype the GEMM device function
+        // produces (FP32 for F16 inputs; the FP32-accumulator rule).  A
+        // different output dtype (e.g. f16 C with f16 A/B) would make the
+        // device function reinterpret the buffer as float and corrupt memory,
+        // so such programs keep the SIMT partition path.
+        if (_tensor_gemm_c_expr != nullptr &&
+            _tensor_gemm_c_expr->dtype() != c->dtype()) {
+            return;
+        }
+        // The pipeline must precede the GEMM and the final C copy must follow.
+        if (pipelined_index == SIZE_MAX || pipelined_index > gemm_index ||
+            c_copy_index == SIZE_MAX || c_copy_index < gemm_index) {
+            return;
+        }
+        // Reconstruct the full tensor shapes (the same full_len math as
+        // _global_index): M = gy*block_M, N = gx*block_N, K = count*block_K.
+        auto full_len = [&](const TensorExpr *ext, uint32_t axis) -> uint32_t {
+            auto E = axis_extent(ext, axis);
+            if (_kernel2d) { return axis == 0u ? _gy * static_cast<uint32_t>(E)
+                                               : _gx * static_cast<uint32_t>(E); }
+            return axis == 0u ? _gx * static_cast<uint32_t>(E)
+                              : static_cast<uint32_t>(E);
+        };
+        auto M = full_len(c, 0u);
+        auto N = full_len(c, 1u);
+        auto K = static_cast<uint32_t>(pipelined->count()) * block_K;
+        if (M == 0u || N == 0u || K == 0u) { return; }
+        auto set_desc = [](TensorDescriptor &d, TensorElementType dtype,
+                           uint32_t e0, uint32_t e1,
+                           uint32_t s0, uint32_t s1) noexcept {
+            d.dtype = dtype;
+            d.rank = 2u;
+            d.extents = {e0, e1, 1u, 1u};
+            d.strides = {s0, s1, 1u, 1u};
+            d.storage_offset = 0u;
+        };
+        set_desc(_tensor_gemm_a, a->dtype(), M, K, K, 1u);
+        set_desc(_tensor_gemm_b, b->dtype(), K, N, N, 1u);
+        set_desc(_tensor_gemm_c, c->dtype(), M, N, N, 1u);
+        _tensor_gemm_alpha = 1.0f;
+        // beta is ALWAYS 0 for the recognized pattern: the final C_local ->
+        // C_global copy OVERWRITES the output, so the whole-tensor GEMM must
+        // not read any pre-existing C_global elements (a beta=1 emission would
+        // silently add the old buffer contents to every output — a wrong
+        // result that is masked only while the output buffer happens to be
+        // zeroed).  The per-block accumulator is a fresh Fragment; the
+        // rewrite is only valid when the program clears it (T.clear(C_local)
+        // and/or the gemm's own clear_accum), which the guard below enforces.
+        _tensor_gemm_beta = 0.0f;
+        _tensor_gemm_epilogue = 0u;
+        _tensor_gemm_tiles_m = (M + 15u) / 16u;
+        _tensor_gemm_tiles_n = (N + 15u) / 16u;
+        _tensor_gemm_batch = 0u;
+        // Mark every staged statement for elision: the Shared/Fragment allocs,
+        // the pipelined loop with its global->shared copies + the GEMM, and
+        // the final C_local -> C copy (the matmul writes C directly).
+        _tensor_rewritten_stmts.emplace(a_alloc);
+        _tensor_rewritten_stmts.emplace(b_alloc);
+        _tensor_rewritten_stmts.emplace(c_alloc);
+        _tensor_rewritten_stmts.emplace(pipelined);
+        _tensor_rewritten_stmts.emplace(a_copy);
+        _tensor_rewritten_stmts.emplace(b_copy);
+        _tensor_rewritten_stmts.emplace(gemm);
+        _tensor_rewritten_stmts.emplace(c_copy);
+        // The Fragment accumulator must be cleared (T.clear(C_local) or the
+        // gemm's own clear_accum); otherwise the partition path itself would
+        // read an uninitialized fragment, so the rewrite is not a correct
+        // representation of the program.
+        bool c_cleared = gemm->clear_accum() != 0;
+        for (auto *s : stmts) {
+            if (s->op() == TileOpKind::CLEAR && same_tensor(static_cast<const ClearStmt *>(s)->t(), c)) {
+                c_cleared = true;
+                _tensor_rewritten_stmts.emplace(s);
+            }
+        }
+        if (!c_cleared) { return; }
+        _tensor_gemm_stmt = gemm;
+        _tensor_gemm_rewritten = true;
+    }
+
+    // ---- tensor-op emitters (plan §5.7) --------------------------------------
+
+    void _emit_tensor_fill(const TensorExpr *dst, double value) {
+        auto operand = _tensor_operand(dst, _tensor_extent_of(dst, nullptr));
+        luisa::vector<const Expression *> args;
+        args.reserve(8u);
+        _tensor_push_operand(args, operand);
+        args.emplace_back(_literal_u(_tensor_fill_bits(dst->dtype(), value)));
+        args.emplace_back(_literal_u(static_cast<uint32_t>(operand.desc.numel())));
+        _tensor_emit(CallOp::TENSOR_FILL, args);
+    }
+
+    void _emit_tensor_copy(const CopyStmt *s) {
+        auto dst = _tensor_operand(s->dst(), _tensor_extent_of(s->dst(), s->src()));
+        auto src = _tensor_operand(s->src(), _tensor_extent_of(s->src(), s->dst()));
+        auto op = s->src()->dtype() == s->dst()->dtype() ? CallOp::TENSOR_COPY : CallOp::TENSOR_CAST;
+        luisa::vector<const Expression *> args;
+        args.reserve(13u);
+        _tensor_push_operand(args, dst);
+        _tensor_push_operand(args, src);
+        args.emplace_back(_literal_u(static_cast<uint32_t>(dst.desc.numel())));
+        _tensor_emit(op, args);
+    }
+
+    void _emit_tensor_permute(const TransposeStmt *s) {
+        auto dst = _tensor_operand(s->dst(), _tensor_extent_of(s->dst(), s->src()));
+        auto src = _tensor_operand(s->src(), _tensor_extent_of(s->src(), s->dst()));
+        luisa::vector<const Expression *> args;
+        args.reserve(13u);
+        _tensor_push_operand(args, dst);
+        _tensor_push_operand(args, src);
+        args.emplace_back(_tensor_literal_u4(uint4{1u, 0u, 0u, 0u}));
+        _tensor_emit(CallOp::TENSOR_PERMUTE, args);
+    }
+
+    void _emit_tensor_clamp(const ClampStmt *s) {
+        auto *ext = _tensor_extent_of(s->dst(), nullptr);
+        auto dst = _tensor_operand(s->dst(), ext);
+        luisa::vector<const Expression *> args;
+        args.reserve(15u);
+        _tensor_push_operand(args, dst);
+        _tensor_push_operand(args, dst);// in-place: out == in
+        args.emplace_back(_literal_u(_tensor_fill_bits(s->dst()->dtype(),
+                                                      _literal_as_double(s->lo_literal()))));
+        args.emplace_back(_literal_u(_tensor_fill_bits(s->dst()->dtype(),
+                                                      _literal_as_double(s->hi_literal()))));
+        args.emplace_back(_literal_u(static_cast<uint32_t>(dst.desc.numel())));
+        _tensor_emit(CallOp::TENSOR_CLAMP, args);
+    }
+
+    void _emit_tensor_reduce(const TensorExpr *x, const TensorExpr *y,
+                             uint32_t dim, TileReduceOp op) {
+        auto out = _tensor_operand(y, _tensor_extent_of(y, x));
+        auto in = _tensor_operand(x, _tensor_extent_of(x, y));
+        uint4 dims{0u, 0u, 0u, 0u};
+        dims[dim] = 1u;
+        auto call = op == TileReduceOp::MAX ? CallOp::TENSOR_REDUCE_MAX
+                    : op == TileReduceOp::MIN ? CallOp::TENSOR_REDUCE_MIN
+                                              : CallOp::TENSOR_REDUCE_SUM;
+        luisa::vector<const Expression *> args;
+        args.reserve(14u);
+        _tensor_push_operand(args, out);
+        _tensor_push_operand(args, in);
+        args.emplace_back(_literal_u(1u));
+        args.emplace_back(_tensor_literal_u4(dims));
+        _tensor_emit(call, args);
+    }
+
+    void _emit_tensor_cumsum(const CumSumStmt *s) {
+        auto out = _tensor_operand(s->dst(), _tensor_extent_of(s->dst(), s->src()));
+        auto in = _tensor_operand(s->src(), _tensor_extent_of(s->src(), s->dst()));
+        luisa::vector<const Expression *> args;
+        args.reserve(13u);
+        _tensor_push_operand(args, out);
+        _tensor_push_operand(args, in);
+        args.emplace_back(_literal_u(s->dim()));
+        _tensor_emit(CallOp::TENSOR_CUMSUM, args);
+    }
+
+    // Fused producer -> consumer emission for the elementwise chain: the
+    // consumer STORE is emitted as ONE TENSOR_* call whose input operands are
+    // the producer's Global inputs (the producer expression is never
+    // materialized into the kernel AST).
+    void _emit_tensor_binary(const TileStoreStmt *store, const TensorStmt *producer) {
+        auto *b = static_cast<const TileBinaryStmt *>(producer);
+        auto out = _tensor_operand(store->lhs(), _tensor_extent_of(store->lhs(), b->lhs()));
+        auto a = _tensor_operand(b->lhs(), _tensor_extent_of(b->lhs(), store->lhs()));
+        auto rhs = _tensor_operand(b->rhs_tensor(), _tensor_extent_of(b->rhs_tensor(), store->lhs()));
+        auto call = _tensor_producer_call_op(producer);
+        luisa::vector<const Expression *> args;
+        args.reserve(19u);
+        _tensor_push_operand(args, out);
+        _tensor_push_operand(args, a);
+        _tensor_push_operand(args, rhs);
+        args.emplace_back(_literal_u(static_cast<uint32_t>(out.desc.numel())));
+        _tensor_emit(call, args);
+    }
+
+    void _emit_tensor_unary(const TileStoreStmt *store, const TensorStmt *producer) {
+        auto out = _tensor_operand(store->lhs(), _tensor_extent_of(store->lhs(), producer->inputs()[0]));
+        auto in = _tensor_operand(producer->inputs()[0], _tensor_extent_of(producer->inputs()[0], store->lhs()));
+        auto call = _tensor_producer_call_op(producer);
+        if (producer->op() == TileOpKind::IEEE_MATH) {
+            auto *ie = static_cast<const IeeeMathStmt *>(producer);
+            if (ie->op() == TileIeeeOp::FMAF) {
+                auto c = _tensor_operand(ie->c(), _tensor_extent_of(ie->c(), store->lhs()));
+                luisa::vector<const Expression *> args;
+                args.reserve(25u);
+                _tensor_push_operand(args, out);
+                _tensor_push_operand(args, in);
+                _tensor_push_operand(args, _tensor_operand(ie->b(), _tensor_extent_of(ie->b(), store->lhs())));
+                _tensor_push_operand(args, c);
+                args.emplace_back(_literal_u(static_cast<uint32_t>(out.desc.numel())));
+                _tensor_emit(call, args);
+                return;
+            }
+            if (ie->b() != nullptr) {
+                auto rhs = _tensor_operand(ie->b(), _tensor_extent_of(ie->b(), store->lhs()));
+                luisa::vector<const Expression *> args;
+                args.reserve(19u);
+                _tensor_push_operand(args, out);
+                _tensor_push_operand(args, in);
+                _tensor_push_operand(args, rhs);
+                args.emplace_back(_literal_u(static_cast<uint32_t>(out.desc.numel())));
+                _tensor_emit(call, args);
+                return;
+            }
+        }
+        luisa::vector<const Expression *> args;
+        args.reserve(13u);
+        _tensor_push_operand(args, out);
+        _tensor_push_operand(args, in);
+        args.emplace_back(_literal_u(static_cast<uint32_t>(out.desc.numel())));
+        _tensor_emit(call, args);
+    }
+
+    // One grid-wide TENSOR_MATMUL with the full-tensor descriptors recorded
+    // by _prescan_tensor_gemm (the whole staged GEMM program dissolves).
+    void _emit_tensor_matmul() {
+        auto addr_of = [&](const TensorExpr *t) -> const Expression * {
+            auto &st = _storage_for(t);
+            return _fb->call(Type::of<uint64_t>(), CallOp::BUFFER_ADDRESS, {st.buffer});
+        };
+        TensorOperand c{_tensor_gemm_c, addr_of(_tensor_gemm_c_expr)};
+        TensorOperand a{_tensor_gemm_a, addr_of(_tensor_gemm_a_expr)};
+        TensorOperand b{_tensor_gemm_b, addr_of(_tensor_gemm_b_expr)};
+        luisa::vector<const Expression *> args;
+        args.reserve(24u);
+        _tensor_push_operand(args, c);
+        _tensor_push_operand(args, a);
+        _tensor_push_operand(args, b);
+        args.emplace_back(_literal_u(to_underlying(TensorElementType::F32)));
+        args.emplace_back(_literal_u(0u));// trans_a
+        args.emplace_back(_literal_u(0u));// trans_b
+        args.emplace_back(_tensor_literal_f(_tensor_gemm_alpha));
+        args.emplace_back(_tensor_literal_f(_tensor_gemm_beta));
+        args.emplace_back(_literal_u(_tensor_gemm_epilogue));
+        _tensor_emit(CallOp::TENSOR_MATMUL, args);
+    }
+
+    // Emit one statement through the tensor-op path; returns false when the
+    // statement has no tensor-op mapping (the partition path runs instead).
+    bool _emit_tensor_if_eligible(const TensorStmt *stmt) {
+        if (!_tensor_ops.contains(stmt)) { return false; }
+        switch (stmt->op()) {
+            case TileOpKind::CLEAR:
+                _emit_tensor_fill(static_cast<const ClearStmt *>(stmt)->t(), 0.0);
+                return true;
+            case TileOpKind::FILL:
+                _emit_tensor_fill(static_cast<const FillStmt *>(stmt)->buf(),
+                                  _literal_as_double(static_cast<const FillStmt *>(stmt)->value_literal()));
+                return true;
+            case TileOpKind::COPY:
+                _emit_tensor_copy(static_cast<const CopyStmt *>(stmt));
+                return true;
+            case TileOpKind::STORE: {
+                auto *s = static_cast<const TileStoreStmt *>(stmt);
+                if (s->rhs_literal() != nullptr) {
+                    _emit_tensor_fill(s->lhs(), _literal_as_double(s->rhs_literal()));
+                    return true;
+                }
+                if (auto it = _tensor_fusion_producer.find(stmt); it != _tensor_fusion_producer.end()) {
+                    auto *producer = it->second;
+                    if (producer->op() == TileOpKind::BINARY) {
+                        _emit_tensor_binary(s, producer);
+                    } else {
+                        _emit_tensor_unary(s, producer);
+                    }
+                    return true;
+                }
+                return false;
+            }
+            case TileOpKind::TRANSPOSE:
+                _emit_tensor_permute(static_cast<const TransposeStmt *>(stmt));
+                return true;
+            case TileOpKind::CLAMP:
+                _emit_tensor_clamp(static_cast<const ClampStmt *>(stmt));
+                return true;
+            case TileOpKind::REDUCE_SUM: {
+                auto *r = static_cast<const ReduceSumStmt *>(stmt);
+                _emit_tensor_reduce(r->x(), r->y(), r->dim(), TileReduceOp::SUM);
+                return true;
+            }
+            case TileOpKind::REDUCE: {
+                auto *r = static_cast<const ReduceStmt *>(stmt);
+                _emit_tensor_reduce(r->buf(), r->out(), r->dim(), r->op());
+                return true;
+            }
+            case TileOpKind::CUMSUM: {
+                auto *s = static_cast<const CumSumStmt *>(stmt);
+                if (s->reverse() != 0) { return false; }
+                _emit_tensor_cumsum(s);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
     /*
      * _emit_all(stmts) pseudo-code (host-side statement walk; each emitted
      * device body is luisa-dsl, see _partition_loop and the _emit_* helpers):
@@ -2282,6 +3497,33 @@ private:
     void _emit_all(luisa::span<const TensorStmt *const> stmts) {
         for (auto i = 0u; i < stmts.size();) {
             auto *stmt = stmts[i];
+            // Tensor-op GEMM rewrite: the staged copies / pipeline / gemm /
+            // final C copy are elided (one TENSOR_MATMUL replaces them).  The
+            // GEMM lives inside the pipelined body run, so the single call is
+            // emitted when the PIPELINED statement itself is skipped.
+            if (_tensor_rewritten_stmts.contains(stmt)) {
+                if (stmt == _tensor_gemm_stmt ||
+                    (stmt->op() == TileOpKind::PIPELINED && _tensor_gemm_rewritten)) {
+                    _emit_tensor_matmul();// the one grid-wide GEMM call
+                }
+                if (stmt->op() == TileOpKind::PIPELINED) {
+                    auto end = i + 1u;
+                    while (end < stmts.size()) {
+                        auto *candidate = stmts[end];
+                        if (candidate->op() == TileOpKind::PIPELINED ||
+                            candidate->op() == TileOpKind::KERNEL_1D ||
+                            candidate->op() == TileOpKind::KERNEL_2D) {
+                            break;
+                        }
+                        if (!_accesses_shared(candidate) || _writes_global(candidate)) { break; }
+                        ++end;
+                    }
+                    i = end;
+                } else {
+                    ++i;
+                }
+                continue;
+            }
             if (stmt->op() == TileOpKind::PIPELINED) {
                 auto *p = static_cast<const PipelinedStmt *>(stmt);
                 // flat IR: the pipelined body is the run of statements that
@@ -2383,6 +3625,9 @@ private:
             case TileOpKind::TRANSPOSE: return global(static_cast<const TransposeStmt *>(s)->dst());
             case TileOpKind::CLAMP: return global(static_cast<const ClampStmt *>(s)->dst());
             case TileOpKind::ATOMIC: return global(static_cast<const AtomicStmt *>(s)->dst());
+            case TileOpKind::REDUCE: return global(static_cast<const ReduceStmt *>(s)->out());
+            case TileOpKind::REDUCE_SUM: return global(static_cast<const ReduceSumStmt *>(s)->y());
+            case TileOpKind::CUMSUM: return global(static_cast<const CumSumStmt *>(s)->dst());
             default: return false;
         }
     }
@@ -2552,6 +3797,10 @@ private:
     // _sync_block: _emit_pipelined calls this directly and places the body
     // barriers itself via hazard tracking (see _emit_pipelined).
     void _emit_core(const TensorStmt *stmt) {
+        // Tensor-op fast path: fused producers emit no standalone code; every
+        // eligible statement is emitted as ONE grid-wide TENSOR_* call.
+        if (_tensor_fusion_consumer.contains(stmt)) { return; }
+        if (_emit_tensor_if_eligible(stmt)) { return; }
         switch (stmt->op()) {
             case TileOpKind::ALLOC: _emit_alloc(static_cast<const AllocStmt *>(stmt)); break;
             case TileOpKind::CLEAR: _emit_clear(static_cast<const ClearStmt *>(stmt)); break;
@@ -2568,7 +3817,12 @@ private:
             case TileOpKind::MAX: _emit_max(static_cast<const MaxStmt *>(stmt)); break;
             case TileOpKind::RSQRT: _emit_rsqrt(static_cast<const RsqrtStmt *>(stmt)); break;
             case TileOpKind::REDUCE_SUM: _emit_reduce_sum(static_cast<const ReduceSumStmt *>(stmt)); break;
-            case TileOpKind::GEMM: _emit_gemm(static_cast<const GemmStmt *>(stmt)); break;
+            case TileOpKind::GEMM:
+                if (_tensor_gemm_stmt == stmt) {
+                    _emit_tensor_matmul();
+                    break;
+                }
+                _emit_gemm(static_cast<const GemmStmt *>(stmt)); break;
             case TileOpKind::PRINT: _emit_print(static_cast<const TilePrintStmt *>(stmt)); break;
             case TileOpKind::FILL: _emit_fill(static_cast<const FillStmt *>(stmt)); break;
             case TileOpKind::TRANSPOSE: _emit_transpose(static_cast<const TransposeStmt *>(stmt)); break;
