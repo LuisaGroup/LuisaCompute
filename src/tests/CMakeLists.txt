@@ -600,6 +600,7 @@ luisa_compute_add_test(test_xir_pass_reconstruct_ray_query_loop unit/xir/test_xi
 luisa_compute_add_test(test_xir_pass_lower_irreducible_cfg unit/xir/test_xir_pass_lower_irreducible_cfg.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_fuse_consecutive_buffer_reads unit/xir/test_xir_pass_fuse_consecutive_buffer_reads.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_restructure_cfg unit/xir/test_xir_pass_restructure_cfg.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_restructure_cfg_construct_exits unit/xir/test_xir_pass_restructure_cfg_construct_exits.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_convergence_region unit/xir/test_xir_pass_convergence_region.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_post_dom_tree unit/xir/test_xir_pass_post_dom_tree.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_autodiff_cfg unit/xir/test_xir_pass_autodiff_cfg.cpp LABELS "unit;unit_xir")

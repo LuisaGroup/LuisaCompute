@@ -7080,6 +7080,7 @@ struct RemainingDivergentOverlay {
             }
 
             luisa::unordered_set<BasicBlock *> blocks;
+            luisa::vector<BasicBlock *> region_blocks;
             luisa::vector<BasicBlock *> work{node.header};
             while (!work.empty()) {
                 auto *block = work.back();
@@ -7108,6 +7109,7 @@ struct RemainingDivergentOverlay {
                     continue;
                 }
                 if (!blocks.emplace(block).second) { continue; }
+                region_blocks.emplace_back(block);
                 traverse_executable_successors(
                     block, [&](BasicBlock *successor) noexcept {
                         work.emplace_back(successor);
@@ -7115,10 +7117,18 @@ struct RemainingDivergentOverlay {
             }
 
             luisa::vector<SelectionExitEdge> exits;
-            for (auto *block : stable_blocks) {
-                if (!blocks.contains(block)) { continue; }
+            // `region_blocks` is exactly the support of `blocks`. Enumerating
+            // that sparse support is equivalent to filtering stable_blocks,
+            // while avoiding one hash lookup for every function block and
+            // every construct. Discovery order is not observable: a selected
+            // candidate's exits are sorted by stable creation index below
+            // before target IDs or CFG mutations are produced.
+            for (auto *block : region_blocks) {
+                ++info.construct_exit_region_block_visit_count;
                 traverse_executable_successors(
                     block, [&](BasicBlock *successor) noexcept {
+                        ++info.construct_exit_region_edge_visit_count;
+                        ++info.construct_exit_region_membership_query_count;
                         if (!blocks.contains(successor)) {
                             append_unique_exit_edge(
                                 exits, block, successor);
@@ -8284,6 +8294,15 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "construct_exit_parent_query",
             info.construct_exit_parent_query_count);
         report->set(
+            "construct_exit_region_block_visit",
+            info.construct_exit_region_block_visit_count);
+        report->set(
+            "construct_exit_region_edge_visit",
+            info.construct_exit_region_edge_visit_count);
+        report->set(
+            "construct_exit_region_membership_query",
+            info.construct_exit_region_membership_query_count);
+        report->set(
             "if_batch_analysis",
             info.if_batch_analysis_count);
         report->set(
@@ -8592,6 +8611,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.construct_exit_boundary_analysis_count;
         dst.construct_exit_parent_query_count +=
             src.construct_exit_parent_query_count;
+        dst.construct_exit_region_block_visit_count +=
+            src.construct_exit_region_block_visit_count;
+        dst.construct_exit_region_edge_visit_count +=
+            src.construct_exit_region_edge_visit_count;
+        dst.construct_exit_region_membership_query_count +=
+            src.construct_exit_region_membership_query_count;
         dst.if_batch_analysis_count +=
             src.if_batch_analysis_count;
         dst.if_batch_candidate_query_count +=

@@ -317,8 +317,9 @@ void reg_pass_entry_totality() {
             (void)audit_reg2mem_spills_on_module(nullptr, report);
         });
         // A null module publishes the complete zero-valued operation schema,
-        // including sparse postdom and remaining-divergent indexing work.
-        check_zero_report(97u, [](PassReport *report) noexcept {
+        // including sparse postdom, remaining-divergent indexing, and exact
+        // construct-region enumeration work.
+        check_zero_report(102u, [](PassReport *report) noexcept {
             (void)restructure_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {
