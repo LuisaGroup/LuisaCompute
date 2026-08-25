@@ -9,23 +9,6 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 static auto suite = [] {
-    "HIP post-IPO cleanup never promotes ordinary callables to ABI boundaries"_test = [] {
-        expect(!preserve_hip_backend_noinline_boundary(
-            "callable", false));
-        expect(!preserve_hip_backend_noinline_boundary(
-            "callable", true));
-        expect(!preserve_hip_backend_noinline_boundary(
-            "luisa_pipeline_ray_query_trace_surface", true));
-        expect(!preserve_hip_backend_noinline_boundary(
-            "luisa_ray_query_proceed", false));
-        expect(preserve_hip_backend_noinline_boundary(
-            "luisa_ray_query_proceed", true));
-        expect(preserve_hip_backend_noinline_boundary(
-            "luisa_motion_ray_query_proceed", true));
-        expect(preserve_hip_backend_noinline_boundary(
-            "luisa_hiprt_stack_overflow_fallback_trace", true));
-    };
-
     "HIP ray-query pipeline preserves only the canonical-loop option"_test = [] {
         auto pipeline = std::string{
             "module(function(loop-vectorize),"

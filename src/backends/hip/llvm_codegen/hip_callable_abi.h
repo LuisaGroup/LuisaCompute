@@ -9,6 +9,7 @@
 #include <llvm/ADT/StringRef.h>
 
 namespace llvm {
+class Function;
 class Module;
 }// namespace llvm
 
@@ -25,6 +26,23 @@ inline constexpr auto llvm_constant_argument_specialization_attribute =
 // explicit; it is a calling-convention limit, not a tuning parameter.
 inline constexpr size_t amdgpu_callable_return_vgpr_limit = 32u;
 
+// CC_AMDGPU_Func exposes the same fixed VGPR0--VGPR31 window for legalized
+// value arguments. Keep the argument and return constants distinct: although
+// the numerical limit is currently identical, the two transforms model
+// independent halves of the ABI.
+inline constexpr size_t amdgpu_callable_argument_vgpr_limit = 32u;
+
+// Finalizes the attributes of an IPO-optimized function without discarding
+// any semantic, ABI, or optimizer-proven facts. Luisa's temporary provenance
+// marker and any inlining directive attached to a generated Callable are
+// removed; source-owned low-level wrapper attributes are preserved. Target
+// controls are replaced by the final shader configuration for every definition.
+void finalize_hip_function_attributes(
+    llvm::Function &function,
+    llvm::StringRef target_cpu,
+    llvm::StringRef target_features,
+    llvm::StringRef max_vgpr_count) noexcept;
+
 struct AggregateArgumentSpecializationStats {
     size_t rewritten_function_count{};
     size_t removed_aggregate_bytes{};
@@ -35,6 +53,14 @@ struct LargeReturnDemotionStats {
     size_t rewritten_call_count{};
     size_t shared_result_slot_count{};
     size_t demoted_return_bytes{};
+};
+
+struct LargeArgumentDemotionStats {
+    size_t rewritten_function_count{};
+    size_t rewritten_call_count{};
+    size_t shared_argument_slot_count{};
+    size_t packed_argument_count{};
+    size_t argument_record_bytes{};
 };
 
 struct ConstantArgumentSpecializationStats {
@@ -95,6 +121,26 @@ specialize_generated_callable_aggregate_arguments(
 // allocsize) are rejected atomically.
 [[nodiscard]] LargeReturnDemotionStats
 demote_generated_callable_large_returns(
+    llvm::Module &module,
+    llvm::StringRef callable_attribute =
+        llvm_generated_callable_attribute) noexcept;
+
+// Normalizes a generated callable whose legalized arguments exceed
+// CC_AMDGPU_Func's 32-VGPR input window. Let p be the longest parameter prefix
+// for which locations(p) + locations(private-record-pointer) <= 32. The exact
+// rewrite is
+//
+//   Ret f(p..., s...)  ->  Ret f(p..., private {s...} *suffix),
+//
+// with one max-sized caller-owned record slot, populated immediately before
+// each synchronous direct call. A suffix record is alive until that call
+// returns; these intervals are pairwise disjoint within one caller, while
+// nested and recursive invocations are isolated by their machine frames. The pass runs after
+// large-return demotion so an explicit result pointer participates in the same
+// argument budget. Unsupported indirect/musttail/ABI-bearing uses reject the
+// complete function atomically.
+[[nodiscard]] LargeArgumentDemotionStats
+demote_generated_callable_large_arguments(
     llvm::Module &module,
     llvm::StringRef callable_attribute =
         llvm_generated_callable_attribute) noexcept;

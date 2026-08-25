@@ -248,6 +248,137 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         }
     };
 
+    "graph_wavefront_runtime_policy_does_not_split_shader_cache"_test = [options] {
+        constexpr uint N = 41u;
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        auto coroutine = Coroutine<void(Buffer<uint>)>{
+            [](BufferUInt output) noexcept {
+                auto i = dispatch_x();
+                auto value = def(i * 19u + 5u);
+                $suspend("live");
+                output.write(i, value);
+            }};
+
+        struct RuntimePolicy {
+            uint capacity;
+            uint worker_count;
+            bool selective;
+            uint refill_threshold;
+            bool named_refill;
+            uint64_t max_queue_wait_actions;
+            uint readback_batch_size;
+            uint readback_pipeline_depth;
+            uint tail_threshold;
+            bool report_stats;
+        };
+        auto make_scheduler = [&](RuntimePolicy policy) {
+            return GraphWavefrontCoroScheduler<Buffer<uint>>{
+                device, coroutine,
+                GraphWavefrontCoroSchedulerConfig{
+                    .thread_count = policy.capacity,
+                    .global_memory_soa = true,
+                    .execution_block_size = 32u,
+                    .worker_count = policy.worker_count,
+                    .selective_scheduling = policy.selective,
+                    .refill_threshold = policy.refill_threshold,
+                    .refill_continuations =
+                        policy.named_refill ?
+                            luisa::vector<luisa::string>{"live"} :
+                            luisa::vector<luisa::string>{},
+                    .max_queue_wait_actions =
+                        policy.max_queue_wait_actions,
+                    .counter_readback_batch_size =
+                        policy.readback_batch_size,
+                    .counter_readback_pipeline_depth =
+                        policy.readback_pipeline_depth,
+                    .tail_megakernel_threshold = policy.tail_threshold,
+                    .report_stats = policy.report_stats}};
+        };
+        auto small = make_scheduler(RuntimePolicy{
+            .capacity = 17u,
+            .worker_count = 3u,
+            .selective = false,
+            .refill_threshold = 1u,
+            .named_refill = false,
+            .max_queue_wait_actions = 1u,
+            .readback_batch_size = 4u,
+            .readback_pipeline_depth = 2u,
+            .tail_threshold = 1u,
+            .report_stats = false});
+        auto large = make_scheduler(RuntimePolicy{
+            .capacity = 257u,
+            .worker_count = 41u,
+            .selective = true,
+            .refill_threshold = 31u,
+            .named_refill = true,
+            .max_queue_wait_actions = 64u,
+            .readback_batch_size = 1u,
+            .readback_pipeline_depth = 1u,
+            .tail_threshold = 4096u,
+            .report_stats = true});
+        auto automatic = make_scheduler(RuntimePolicy{
+            .capacity = 257u,
+            .worker_count = 0u,
+            .selective = false,
+            .refill_threshold = 0u,
+            .named_refill = false,
+            .max_queue_wait_actions = 32u,
+            .readback_batch_size = 4u,
+            .readback_pipeline_depth = 2u,
+            .tail_threshold =
+                graph_wavefront_auto_tail_threshold,
+            .report_stats = false});
+
+        auto small_hashes = small.shader_structure_hashes();
+        auto large_hashes = large.shader_structure_hashes();
+        auto automatic_hashes =
+            automatic.shader_structure_hashes();
+        expect(!small_hashes.empty());
+        expect(small_hashes.size() == large_hashes.size());
+        expect(small_hashes.size() == automatic_hashes.size());
+        expect(std::equal(small_hashes.begin(), small_hashes.end(),
+                          large_hashes.begin(), large_hashes.end()))
+            << "frame capacity, worker count, refill/readback policy, "
+               "nonzero tail threshold, and stats are runtime or host "
+               "parameters and must not split graph-wavefront shader caches";
+        expect(std::equal(small_hashes.begin(), small_hashes.end(),
+                          automatic_hashes.begin(),
+                          automatic_hashes.end()))
+            << "automatic and explicit nonzero tail thresholds must share "
+               "scheduler shader identities";
+
+        auto small_output = device.create_buffer<uint>(N);
+        auto large_output = device.create_buffer<uint>(N);
+        auto automatic_output = device.create_buffer<uint>(N);
+        auto stream = device.create_stream();
+        small(small_output).dispatch(N)(stream);
+        large(large_output).dispatch(N)(stream);
+        automatic(automatic_output).dispatch(N)(stream);
+        luisa::vector<uint> small_host(N);
+        luisa::vector<uint> large_host(N);
+        luisa::vector<uint> automatic_host(N);
+        stream << small_output.copy_to(luisa::span{small_host})
+               << large_output.copy_to(luisa::span{large_host})
+               << automatic_output.copy_to(
+                      luisa::span{automatic_host})
+               << synchronize();
+        auto correct = true;
+        for (auto i = 0u; i < N; ++i) {
+            auto expected = i * 19u + 5u;
+            correct &= small_host[i] == expected &&
+                       large_host[i] == expected &&
+                       automatic_host[i] == expected;
+        }
+        expect(correct)
+            << "graph-wavefront runtime policy changes must preserve exact "
+               "logical results";
+        expect(automatic.last_dispatch_stats()
+                   .tail_megakernel_threshold == 32u)
+            << "automatic tail policy must resolve from the active dispatch "
+               "capacity, not the scheduler's maximum storage capacity";
+    };
+
     "graph_wavefront_selective_actions_preserve_queues_and_self_edges"_test = [options] {
         constexpr uint N = 257u;
         constexpr uint capacity = 32u;
@@ -376,6 +507,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                    << visits.copy_to(luisa::span{host_visits}) << synchronize();
             auto exact = true;
             auto expected_resumes = uint64_t{0u};
+            auto mismatch_count = 0u;
             for (auto tid = 0u; tid < N; ++tid) {
                 auto expected = tid * 17u + 5u;
                 auto iteration_count = tid % 5u + 1u;
@@ -385,8 +517,18 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     auto hint = (tid * 13u + iteration * 7u) & 63u;
                     expected = (expected ^ (hint + 1u)) + iteration * 3u;
                 }
-                exact &= host_output[tid] == expected;
-                exact &= host_visits[tid] == iteration_count;
+                if (host_output[tid] != expected ||
+                    host_visits[tid] != iteration_count) {
+                    if (mismatch_count < 8u) {
+                        LUISA_WARNING(
+                            "Graph hint-sort mismatch: tid={} output={}/{} "
+                            "visits={}/{}.",
+                            tid, host_output[tid], expected,
+                            host_visits[tid], iteration_count);
+                    }
+                    mismatch_count++;
+                    exact = false;
+                }
             }
             expect(exact)
                 << "sorting stable frame-slot indices must neither omit, "
@@ -1579,44 +1721,47 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             auto output = device.create_buffer<uint>(N);
             auto visits = device.create_buffer<uint>(N);
             luisa::vector<uint> zero(N);
-            stream << output.copy_from(luisa::span{zero})
-                   << visits.copy_from(luisa::span{zero})
-                   << synchronize();
+            for (auto compaction : {false, true}) {
+                stream << output.copy_from(luisa::span{zero})
+                       << visits.copy_from(luisa::span{zero})
+                       << synchronize();
 
-            WavefrontCoroSchedulerConfig cfg{
-                .thread_count = capacity,
-                .global_memory_soa = true,
-                .gather_by_sorting = true,
-                .frame_buffer_compaction = true,
-                .execution_block_size = 32u,
-                .largest_continuation_first = true,
-                .refill_continuations = {"refill"},
-                .refill_threshold = capacity / 2u,
-                .incremental_continuation_counts = true,
-            };
-            WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
-                device, coro, cfg};
-            scheduler(output, visits).dispatch(N)(stream);
+                WavefrontCoroSchedulerConfig cfg{
+                    .thread_count = capacity,
+                    .global_memory_soa = true,
+                    .gather_by_sorting = true,
+                    .frame_buffer_compaction = compaction,
+                    .execution_block_size = 32u,
+                    .largest_continuation_first = true,
+                    .refill_continuations = {"refill"},
+                    .refill_threshold = capacity / 2u,
+                    .incremental_continuation_counts = true,
+                };
+                WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+                    device, coro, cfg};
+                scheduler(output, visits).dispatch(N)(stream);
 
-            luisa::vector<uint> host_output(N);
-            luisa::vector<uint> host_visits(N);
-            stream << output.copy_to(luisa::span{host_output})
-                   << visits.copy_to(luisa::span{host_visits})
-                   << synchronize();
+                luisa::vector<uint> host_output(N);
+                luisa::vector<uint> host_visits(N);
+                stream << output.copy_to(luisa::span{host_output})
+                       << visits.copy_to(luisa::span{host_visits})
+                       << synchronize();
 
-            auto correct = true;
-            for (auto i = 0u; i < N; ++i) {
-                auto expected = i * 17u + 3u +
-                                (i % 3u == 0u ? 5u : 11u);
-                for (auto r = i & 3u; r != 0u; --r) {
-                    expected += r;
+                auto correct = true;
+                for (auto i = 0u; i < N; ++i) {
+                    auto expected = i * 17u + 3u +
+                                    (i % 3u == 0u ? 5u : 11u);
+                    for (auto r = i & 3u; r != 0u; --r) {
+                        expected += r;
+                    }
+                    correct &= host_output[i] == expected;
+                    correct &= host_visits[i] == 1u;
                 }
-                correct &= host_output[i] == expected;
-                correct &= host_visits[i] == 1u;
+                expect(correct)
+                    << "incremental queue counts must preserve every "
+                       "sparse-token branch and self-loop transition under "
+                       "refill, with or without frame relocation";
             }
-            expect(correct)
-                << "incremental queue counts must preserve every sparse-token "
-                   "branch and self-loop transition under refill/compaction";
         };
 
     "wavefront_incremental_counts_do_not_perturb_user_kernels"_test =

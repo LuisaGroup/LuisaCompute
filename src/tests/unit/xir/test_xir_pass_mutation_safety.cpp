@@ -536,6 +536,43 @@ void reg_xir_pass_mutation_safety() {
         expect(xir_verify_module(&module).succeeded());
     };
 
+    "if_conversion_accepts_total_integer_to_float_cast"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *integer =
+            kernel->create_value_argument(Type::of<int>());
+        auto *zero =
+            module.create_constant_zero(Type::of<float>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        auto *converted =
+            builder.static_cast_(Type::of<float>(), integer);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.phi(
+            Type::of<float>(),
+            {{converted, true_block}, {zero, false_block}});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = if_conversion_pass_run_on_function(kernel);
+        expect(info.converted_diamond_count == 1u);
+        expect(converted->parent_block() == body);
+        expect(body->terminator()->derived_instruction_tag() ==
+               DerivedInstructionTag::BRANCH);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "if_conversion_rejects_speculative_dynamic_extract"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -565,9 +602,62 @@ void reg_xir_pass_mutation_safety() {
         expect(xir_verify_module(&module).succeeded());
         auto info = if_conversion_pass_run_on_function(kernel);
         expect(info.converted_diamond_count == 0u);
+        auto opt_in_info = if_conversion_pass_run_on_function(
+            kernel, {.allow_speculative_static_extract = true});
+        expect(opt_in_info.converted_diamond_count == 0u);
         expect(extracted->parent_block() == true_block);
         expect(body->terminator()->derived_instruction_tag() ==
                DerivedInstructionTag::CONDITIONAL_BRANCH);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "if_conversion_accepts_opt_in_bounded_static_extract"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *aggregate_type = Type::structure(
+            {Type::of<uint>(), Type::of<float2>()});
+        auto *aggregate = kernel->create_value_argument(aggregate_type);
+        auto member_index_value = uint32_t{1u};
+        auto component_index_value = uint32_t{0u};
+        auto *member_index = module.create_constant(
+            Type::of<uint>(), &member_index_value);
+        auto *component_index = module.create_constant(
+            Type::of<uint>(), &component_index_value);
+        auto *zero = module.create_constant_zero(Type::of<float>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        auto *member = builder.call(
+            Type::of<float2>(), ArithmeticOp::EXTRACT,
+            {aggregate, member_index});
+        auto *component = builder.call(
+            Type::of<float>(), ArithmeticOp::EXTRACT,
+            {member, component_index});
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.phi(Type::of<float>(),
+                    {{component, true_block}, {zero, false_block}});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto default_info = if_conversion_pass_run_on_function(kernel);
+        expect(default_info.converted_diamond_count == 0u);
+        auto opt_in_info = if_conversion_pass_run_on_function(
+            kernel,
+            {.allow_speculative_static_extract = true});
+        expect(opt_in_info.converted_diamond_count == 1u);
+        expect(member->parent_block() == body);
+        expect(component->parent_block() == body);
+        expect(body->terminator()->derived_instruction_tag() ==
+               DerivedInstructionTag::BRANCH);
         expect(xir_verify_module(&module).succeeded());
     };
 
@@ -822,9 +912,11 @@ void reg_xir_pass_mutation_safety() {
         expect(valid->operand(0u) == valid);
         expect(invalid->operand(2u) == invalid);
         expect(valid_kernel->body_block()
-                   ->instructions().count_size() == valid_count);
+                   ->instructions()
+                   .count_size() == valid_count);
         expect(invalid_kernel->body_block()
-                   ->instructions().count_size() == invalid_count);
+                   ->instructions()
+                   .count_size() == invalid_count);
         expect(count_instructions(
                    valid_kernel,
                    DerivedInstructionTag::LOAD) == 0u);

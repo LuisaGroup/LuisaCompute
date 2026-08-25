@@ -19,6 +19,30 @@ namespace {
 
 int main() {
 
+    "graph_wavefront_tail_threshold_resolves_runtime_capacity"_test = [] {
+        expect(graph_wavefront_resolve_tail_threshold(
+                   0u, 131072u, 32u) == 0u);
+        expect(graph_wavefront_resolve_tail_threshold(
+                   4096u, 131072u, 32u) == 4096u);
+        expect(graph_wavefront_resolve_tail_threshold(
+                   262144u, 131072u, 32u) == 131072u);
+        expect(graph_wavefront_resolve_tail_threshold(
+                   graph_wavefront_auto_tail_threshold,
+                   131072u, 32u) == 49152u);
+        expect(graph_wavefront_resolve_tail_threshold(
+                   graph_wavefront_auto_tail_threshold,
+                   4096u, 32u) == 1536u);
+        expect(graph_wavefront_resolve_tail_threshold(
+                   graph_wavefront_auto_tail_threshold,
+                   1000u, 256u) == 256u);
+        expect(graph_wavefront_resolve_tail_threshold(
+                   graph_wavefront_auto_tail_threshold,
+                   17u, 32u) == 17u);
+        expect(graph_wavefront_resolve_tail_threshold(
+                   graph_wavefront_auto_tail_threshold,
+                   0u, 32u) == 0u);
+    };
+
     "graph_wavefront_action_selection_is_deterministic_and_aligned"_test = [] {
         GraphWavefrontPopulation p{
             .queues = {20.0, 10.0, 40.0, 30.0},

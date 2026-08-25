@@ -31,7 +31,8 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/inline.h>
@@ -56,7 +57,7 @@ static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
 static constexpr auto hip_shader_cache_artifact_version = 2u;
 // Increment whenever the HIP AST/XIR/LLVM lowering contract changes in a way
 // that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 76u;
+static constexpr auto hip_shader_cache_codegen_revision = 82u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -718,16 +719,11 @@ HIPDevice::HIPDevice(Context &&ctx, const DeviceConfig *config) noexcept
                version_major(runtime_version), version_minor(runtime_version), version_patch(runtime_version),
                HIP_VERSION_MAJOR, HIP_VERSION_MINOR, HIP_VERSION_PATCH);
 
-    // hipLimitStackSize controls per-thread scratch allocation for uses_dynamic_stack=true kernels.
-    // HIPRT traversal uses its hardware stack or a dedicated dynamic stack buffer, not this.
-    // With full LTO inlining of HIPRT functions, no dynamic call stack is needed.
-    with_device([&] {
-        auto ret = hipDeviceSetLimit(hipLimitStackSize, 0u);
-        if (ret != hipSuccess) {
-            LUISA_WARNING("hipDeviceSetLimit(hipLimitStackSize) failed: {}",
-                          hipGetErrorString(ret));
-        }
-    });
+    // Keep HIP's non-zero per-thread stack limit. The backend permits LLVM to
+    // retain ordinary device calls, so a generated code object may legitimately
+    // declare `uses_dynamic_stack` even when HIPRT traversal itself uses the
+    // hardware or dedicated traversal stack. Setting hipLimitStackSize to zero
+    // here would make every such code object invalid at runtime.
 }
 
 HIPDevice::~HIPDevice() noexcept {
@@ -1208,6 +1204,17 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
             "AST to XIR translation done in {} ms.",
             translate_clk.toc());
 
+        auto inline_ray_query_info =
+            xir::reconstruct_ray_query_loop_pass_run_on_module(
+                xir_module.get());
+        if (!inline_ray_query_info.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "HIP XIR rejected {} malformed explicit ray-query loop(s).",
+                inline_ray_query_info.error_count);
+        }
+        verify_xir_or_error(
+            xir_module.get(), "explicit ray-query reconstruction");
+
         if (kernel.requires_autodiff()) {
             auto inline_info =
                 xir::inline_all_pass_run_on_module(
@@ -1280,7 +1287,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
         {
             xir::PassReport report;
             auto ray_query_info =
-                xir::lower_ray_query_loop_pass_run_on_module(
+                xir::lower_ray_query_to_pipeline_pass_run_on_module(
                     xir_module.get(), &report);
             if (!ray_query_info.succeeded()) {
                 LUISA_ERROR_WITH_LOCATION(

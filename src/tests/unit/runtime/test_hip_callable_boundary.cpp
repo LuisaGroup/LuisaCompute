@@ -821,9 +821,6 @@ int main(int argc, char *argv[]) {
             const auto observing_before_root =
                 amdgpu_kernel_body(observing_before_module);
             const auto root = amdgpu_kernel_body(module);
-            const auto observing_dispatcher = llvm_function_body(
-                observing_module,
-                "@luisa_ray_query_pipeline_dispatch");
             const auto handler_only_before_root =
                 amdgpu_kernel_body(handler_only_before_module);
             const auto observed_large_before_root =
@@ -891,7 +888,6 @@ int main(int argc, char *argv[]) {
                     "hip_mixed_resumable_query_state_domain");
             expect(!before_root.empty() &&
                    !observing_before_root.empty() && !root.empty() &&
-                   !observing_dispatcher.empty() &&
                    !handler_only_before_root.empty() &&
                    !observed_large_before_root.empty() &&
                    !full_candidate_large_before_root.empty() &&
@@ -988,12 +984,20 @@ int main(int argc, char *argv[]) {
             // retain the full query transaction, while constant specialization
             // still removes pipeline identity from its three-argument
             // {query, context, candidate-kind} ABI.
-            expect(observing_dispatcher.find("load i32, ptr %0") !=
+            // LLVM is free to inline the generated dispatcher into HIPRT's
+            // linked callbacks and then delete the dispatcher symbol. The
+            // semantic invariant is the round trip itself: the root publishes
+            // one lane-private query identity and callback code reconstructs
+            // the addrspace(5) state from that 32-bit identity. Do not tie the
+            // regression to an optimizer-specific function boundary.
+            expect(observing_module.find("ray.query.state") !=
                        std::string_view::npos &&
-                   observing_dispatcher.find("i32 44") !=
+                   observing_module.find(" = inttoptr i32 ") !=
+                       std::string_view::npos &&
+                   observing_module.find(" to ptr addrspace(5)") !=
                        std::string_view::npos)
-                << "nested world-ray observation was not decoded from the "
-                   "dedicated query identity";
+                << "nested world-ray observation did not reconstruct the "
+                   "lane-private query state from its dedicated identity";
             expect(observing_before_root.find(
                        "ray.query.identity.address") !=
                        std::string_view::npos &&
@@ -1151,10 +1155,14 @@ int main(int argc, char *argv[]) {
             // certificate during the same traversal.
             const auto expected_effect_only_trace =
                 uses_gfx12_hardware_stack ?
-                    "@luisa_pipeline_ray_query_trace_all_hardware_effect(" :
+                    "@luisa_pipeline_ray_query_trace_all_native_effect_"
+                    "global_stack(" :
                     "@luisa_pipeline_ray_query_trace_all_native_effect(";
             expect(effect_only_before_root.find(
                        expected_effect_only_trace) !=
+                       std::string_view::npos &&
+                   effect_only_before_root.find(
+                       "@luisa_pipeline_ray_query_trace_all_hardware_effect(") ==
                        std::string_view::npos &&
                    effect_only_before_module.find(
                        "@luisa_ray_query_proceed(") ==

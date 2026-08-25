@@ -30,7 +30,8 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/lower_irreducible_cfg.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -379,9 +380,13 @@ void verify_coro_xir_or_error(
           });
     p.add("coro-rematerialize-local-state",
           [coroutine](xir::Module *, xir::PassReport &r) {
+              xir::CoroRematerializeOptions options;
+              options.verify_dense_reaching_values =
+                  environment_flag_enabled(
+                      "LUISA_CORO_VERIFY_DENSE_REACHING_VALUES");
               auto i = xir::
                   coro_rematerialize_local_state_pass_run_on_function(
-                      coroutine);
+                      coroutine, options);
               r.set("semantic_block", i.semantic_block_count);
               r.set("semantic_edge", i.semantic_edge_count);
               r.set("scanned_alloca", i.scanned_alloca_count);
@@ -393,6 +398,8 @@ void verify_coro_xir_or_error(
                     i.nonreplayable_candidate_count);
               r.set("reaching_dataflow_alloca",
                     i.reaching_dataflow_alloca_count);
+              r.set("reaching_dataflow_active_block",
+                    i.reaching_dataflow_active_block_count);
               r.set("reaching_dataflow_block_evaluation",
                     i.reaching_dataflow_block_evaluation_count);
               r.set("promoted_multi_store_alloca",
@@ -423,7 +430,8 @@ void verify_coro_xir_or_error(
                       "Coroutine local-state rematerialization: "
                       "allocas={} single_store={} multi_store={} "
                       "nonreplayable_candidates={} "
-                      "dataflow_allocas={} block_evaluations={} "
+                      "dataflow_allocas={} active_blocks={} "
+                      "block_evaluations={} "
                       "unresolved_loads={} rejected_nonreplayable_projection={} "
                       "rejected_nonreplayable_scope_local={} "
                       "rejected_forwarding_cycles={} promoted_allocas={} "
@@ -435,6 +443,7 @@ void verify_coro_xir_or_error(
                       i.replayable_multi_store_count,
                       i.nonreplayable_candidate_count,
                       i.reaching_dataflow_alloca_count,
+                      i.reaching_dataflow_active_block_count,
                       i.reaching_dataflow_block_evaluation_count,
                       i.unresolved_load_count,
                       i.rejected_nonreplayable_projection_count,
@@ -550,8 +559,12 @@ void verify_coro_xir_or_error(
     // instead of preserving bytes from the previous iteration.
     p.add("coro-alloca-scope",
           [coroutine](xir::Module *, xir::PassReport &r) {
+              xir::CoroAllocaScopeOptions options;
+              options.verify_instruction_order =
+                  environment_flag_enabled(
+                      "LUISA_CORO_VERIFY_ALLOCA_ORDER");
               auto i = xir::coro_alloca_scope_pass_run_on_function(
-                  coroutine);
+                  coroutine, options);
               r.set("semantic_block", i.semantic_block_count);
               r.set("semantic_edge", i.semantic_edge_count);
               r.set("scanned_local_alloca",
@@ -576,14 +589,22 @@ void verify_coro_xir_or_error(
                     i.definite_initialization_proof_count);
               r.set("guarded_initialization_proof",
                     i.guarded_initialization_proof_count);
+              r.set("initialized_prefix_proof",
+                    i.initialized_prefix_proof_count);
               r.set("rejected_prior_lifetime_observation",
                     i.rejected_prior_lifetime_observation_count);
               r.set("definite_initialization_block_evaluation",
                     i.definite_initialization_block_evaluation_count);
               r.set("guarded_initialization_state_evaluation",
                     i.guarded_initialization_state_evaluation_count);
+              r.set("initialized_prefix_block_evaluation",
+                    i.initialized_prefix_block_evaluation_count);
               r.set("predicate_widening",
                     i.predicate_widening_count);
+              r.set("instruction_order_query",
+                    i.instruction_order_query_count);
+              r.set("placement_user_inspection",
+                    i.placement_user_inspection_count);
               r.set("invalid_semantic_cfg",
                     i.invalid_semantic_cfg_count);
               if (environment_flag_enabled(
@@ -594,9 +615,11 @@ void verify_coro_xir_or_error(
                       "intra_block={} delayed_first_defs={} "
                       "definite_proofs={} "
                       "guarded_proofs={} "
+                      "prefix_proofs={} "
                       "rejected_prior_lifetime={} "
                       "proof_block_evaluations={} "
-                      "guarded_state_evaluations={} widenings={}.",
+                      "guarded_state_evaluations={} "
+                      "prefix_block_evaluations={} widenings={}.",
                       i.scanned_local_alloca_count,
                       i.contracted_alloca_count,
                       i.cross_block_contraction_count,
@@ -604,9 +627,11 @@ void verify_coro_xir_or_error(
                       i.delayed_first_definition_count,
                       i.definite_initialization_proof_count,
                       i.guarded_initialization_proof_count,
+                      i.initialized_prefix_proof_count,
                       i.rejected_prior_lifetime_observation_count,
                       i.definite_initialization_block_evaluation_count,
                       i.guarded_initialization_state_evaluation_count,
+                      i.initialized_prefix_block_evaluation_count,
                       i.predicate_widening_count);
               }
               return i.changed();
@@ -661,13 +686,45 @@ CoroutineCompileResult compile_coroutine_pipeline(
     // remains free to choose callback pipelines (HIP/fallback) or an inline
     // query loop (native SPIR-V). The transform is module-transactional, so a
     // rejected handler shape cannot leave a partially outlined module.
+    auto inline_ray_query_info =
+        xir::reconstruct_ray_query_loop_pass_run_on_module(
+            module.get());
+    if (!inline_ray_query_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Coroutine ray-query normalization rejected {} malformed "
+            "explicit ray-query loop(s).",
+            inline_ray_query_info.error_count);
+    }
+    xir::PassReport ray_query_report;
+    xir::LowerRayQueryToPipelineOptions ray_query_options;
+    ray_query_options.verify_handler_scratch_graph =
+        environment_flag_enabled(
+            "LUISA_CORO_VERIFY_HANDLER_SCRATCH_GRAPH");
     auto ray_query_info =
-        xir::lower_ray_query_loop_pass_run_on_module(module.get());
+        xir::lower_ray_query_to_pipeline_pass_run_on_module(
+            module.get(), &ray_query_report, ray_query_options);
     if (!ray_query_info.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Coroutine ray-query normalization rejected {} unsupported "
             "ray-query loop(s).",
             ray_query_info.error_count);
+    }
+    if (environment_flag_enabled("LUISA_CORO_PROFILE_COMPILATION")) {
+        auto report_value = [&](luisa::string_view key) noexcept {
+            for (auto &&entry : ray_query_report.entries()) {
+                if (entry.key == key) { return entry.value; }
+            }
+            return uint64_t{0u};
+        };
+        LUISA_INFO(
+            "Coroutine ray-query handler scratch: analyses={} "
+            "indexed_instructions={} relevant_instructions={} "
+            "avoided_linear_scans={} block_evaluations={}.",
+            report_value("handler_localization_analysis"),
+            report_value("handler_localization_indexed_instruction"),
+            report_value("handler_localization_relevant_instruction"),
+            report_value("handler_localization_avoided_instruction_scan"),
+            report_value("handler_localization_block_evaluation"));
     }
     profiler.checkpoint("ray-query normalization");
     auto ordinary_callable_snapshots =
@@ -857,6 +914,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
         }
     }
     profiler.checkpoint("irreducible-CFG lowering");
+    xir::RestructureCFGInfo continuation_restructure_work;
+    const auto verify_remaining_divergent_index =
+        environment_flag_enabled(
+            "LUISA_XIR_VERIFY_REMAINING_DIVERGENT_INDEX");
     for (auto &subroutine : split_info.subroutines) {
         auto restructure_info =
             xir::restructure_cfg_pass_run_on_function(
@@ -865,7 +926,75 @@ CoroutineCompileResult compile_coroutine_pipeline(
                      xir::RestructureCFGMutationMode::
                          IN_PLACE_DISCARDABLE,
                  .verification_transaction =
-                     nested_pass_verification_transaction});
+                     nested_pass_verification_transaction,
+                 .verify_remaining_divergent_index =
+                     verify_remaining_divergent_index});
+        continuation_restructure_work.postdom_analysis_count +=
+            restructure_info.postdom_analysis_count;
+        continuation_restructure_work.postdom_common_ancestor_query_count +=
+            restructure_info.postdom_common_ancestor_query_count;
+        continuation_restructure_work.postdom_common_ancestor_step_count +=
+            restructure_info.postdom_common_ancestor_step_count;
+        continuation_restructure_work.remaining_divergent_analysis_count +=
+            restructure_info.remaining_divergent_analysis_count;
+        continuation_restructure_work.remaining_divergent_indexed_block_count +=
+            restructure_info.remaining_divergent_indexed_block_count;
+        continuation_restructure_work.remaining_divergent_candidate_count +=
+            restructure_info.remaining_divergent_candidate_count;
+        continuation_restructure_work.remaining_divergent_candidate_query_count +=
+            restructure_info.remaining_divergent_candidate_query_count;
+        continuation_restructure_work.remaining_divergent_region_block_visit_count +=
+            restructure_info.remaining_divergent_region_block_visit_count;
+        continuation_restructure_work.remaining_divergent_region_edge_visit_count +=
+            restructure_info.remaining_divergent_region_edge_visit_count;
+        continuation_restructure_work.remaining_divergent_rewrite_count +=
+            restructure_info.remaining_divergent_rewrite_count;
+        continuation_restructure_work.remaining_divergent_dominance_rebuild_count +=
+            restructure_info.remaining_divergent_dominance_rebuild_count;
+        continuation_restructure_work.remaining_divergent_postdom_incremental_update_count +=
+            restructure_info.remaining_divergent_postdom_incremental_update_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_candidate_block_count +=
+            restructure_info.remaining_divergent_postdom_update_candidate_block_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_block_evaluation_count +=
+            restructure_info.remaining_divergent_postdom_update_block_evaluation_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_edge_visit_count +=
+            restructure_info.remaining_divergent_postdom_update_edge_visit_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_covered_block_count +=
+            restructure_info.remaining_divergent_postdom_update_covered_block_count;
+        continuation_restructure_work.remaining_divergent_postdom_update_reparented_root_count +=
+            restructure_info.remaining_divergent_postdom_update_reparented_root_count;
+        continuation_restructure_work.remaining_divergent_postdom_rebuild_count +=
+            restructure_info.remaining_divergent_postdom_rebuild_count;
+        continuation_restructure_work.selection_exit_boundary_analysis_count +=
+            restructure_info.selection_exit_boundary_analysis_count;
+        continuation_restructure_work.selection_exit_boundary_dataflow_count +=
+            restructure_info.selection_exit_boundary_dataflow_count;
+        continuation_restructure_work.selection_exit_boundary_block_visit_count +=
+            restructure_info.selection_exit_boundary_block_visit_count;
+        continuation_restructure_work.selection_exit_boundary_edge_visit_count +=
+            restructure_info.selection_exit_boundary_edge_visit_count;
+        continuation_restructure_work.selection_exit_boundary_classification_count +=
+            restructure_info.selection_exit_boundary_classification_count;
+        continuation_restructure_work.selection_exit_site_query_count +=
+            restructure_info.selection_exit_site_query_count;
+        continuation_restructure_work.selection_exit_region_block_visit_count +=
+            restructure_info.selection_exit_region_block_visit_count;
+        continuation_restructure_work.selection_exit_region_edge_visit_count +=
+            restructure_info.selection_exit_region_edge_visit_count;
+        continuation_restructure_work.selection_exit_merge_canonicalization_count +=
+            restructure_info.selection_exit_merge_canonicalization_count;
+        continuation_restructure_work.selection_exit_cfg_invalidation_count +=
+            restructure_info.selection_exit_cfg_invalidation_count;
+        continuation_restructure_work.selection_exit_local_invalidation_count +=
+            restructure_info.selection_exit_local_invalidation_count;
+        continuation_restructure_work.selection_exit_global_invalidation_count +=
+            restructure_info.selection_exit_global_invalidation_count;
+        continuation_restructure_work.selection_exit_relation_incremental_update_count +=
+            restructure_info.selection_exit_relation_incremental_update_count;
+        continuation_restructure_work.selection_exit_dependency_requery_count +=
+            restructure_info.selection_exit_dependency_requery_count;
+        continuation_restructure_work.selection_exit_postdom_refresh_count +=
+            restructure_info.selection_exit_postdom_refresh_count;
         nested_pass_boundary_verifier_count +=
             restructure_info.boundary_verifier_count;
         if (!restructure_info.succeeded()) {
@@ -883,6 +1012,59 @@ CoroutineCompileResult compile_coroutine_pipeline(
             subroutine.callable);
         (void)xir::reg2mem_pass_run_on_function(
             subroutine.callable);
+    }
+    if (environment_flag_enabled("LUISA_CORO_PROFILE_COMPILATION")) {
+        LUISA_INFO(
+            "Coroutine continuation restructuring work: "
+            "continuations={} postdom_analyses={} common_ancestor_queries={} "
+            "common_ancestor_steps={} remaining_analyses={} indexed_blocks={} "
+            "candidates={} candidate_queries={} region_blocks={} "
+            "region_edges={} rewrites={} dominance_rebuilds={} "
+            "postdom_updates={} update_candidates={} update_evaluations={} "
+            "update_edges={} update_covered={} update_reparented_roots={} "
+            "postdom_rebuilds={}.",
+            split_info.subroutines.size(),
+            continuation_restructure_work.postdom_analysis_count,
+            continuation_restructure_work.postdom_common_ancestor_query_count,
+            continuation_restructure_work.postdom_common_ancestor_step_count,
+            continuation_restructure_work.remaining_divergent_analysis_count,
+            continuation_restructure_work.remaining_divergent_indexed_block_count,
+            continuation_restructure_work.remaining_divergent_candidate_count,
+            continuation_restructure_work.remaining_divergent_candidate_query_count,
+            continuation_restructure_work.remaining_divergent_region_block_visit_count,
+            continuation_restructure_work.remaining_divergent_region_edge_visit_count,
+            continuation_restructure_work.remaining_divergent_rewrite_count,
+            continuation_restructure_work.remaining_divergent_dominance_rebuild_count,
+            continuation_restructure_work.remaining_divergent_postdom_incremental_update_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_candidate_block_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_block_evaluation_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_edge_visit_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_covered_block_count,
+            continuation_restructure_work.remaining_divergent_postdom_update_reparented_root_count,
+            continuation_restructure_work.remaining_divergent_postdom_rebuild_count);
+        LUISA_INFO(
+            "Coroutine selection-exit restructuring work: "
+            "relation_builds={} loop_dataflows={} boundary_blocks={} "
+            "boundary_edges={} classifications={} site_queries={} "
+            "region_blocks={} region_edges={} merge_only={} "
+            "cfg_invalidations={} local_invalidations={} "
+            "global_invalidations={} relation_updates={} dependency_requeries={} "
+            "postdom_refreshes={}.",
+            continuation_restructure_work.selection_exit_boundary_analysis_count,
+            continuation_restructure_work.selection_exit_boundary_dataflow_count,
+            continuation_restructure_work.selection_exit_boundary_block_visit_count,
+            continuation_restructure_work.selection_exit_boundary_edge_visit_count,
+            continuation_restructure_work.selection_exit_boundary_classification_count,
+            continuation_restructure_work.selection_exit_site_query_count,
+            continuation_restructure_work.selection_exit_region_block_visit_count,
+            continuation_restructure_work.selection_exit_region_edge_visit_count,
+            continuation_restructure_work.selection_exit_merge_canonicalization_count,
+            continuation_restructure_work.selection_exit_cfg_invalidation_count,
+            continuation_restructure_work.selection_exit_local_invalidation_count,
+            continuation_restructure_work.selection_exit_global_invalidation_count,
+            continuation_restructure_work.selection_exit_relation_incremental_update_count,
+            continuation_restructure_work.selection_exit_dependency_requery_count,
+            continuation_restructure_work.selection_exit_postdom_refresh_count);
     }
     profiler.checkpoint("continuation restructuring");
     auto argument_projection_info =

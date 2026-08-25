@@ -135,6 +135,12 @@ void register_post_dom_tree_tests() {
         auto tree = compute_post_dom_tree(kernel);
         expect(tree.immediate_post_dominator(body) == nullptr);
         expect(!tree.post_dominates(return_block, body));
+
+        auto terminating_tree = compute_post_dom_tree(
+            kernel, {.account_for_infinite_paths = false});
+        expect(terminating_tree.immediate_post_dominator(body) ==
+               return_block);
+        expect(terminating_tree.post_dominates(return_block, body));
     };
 
     "dom_tree_queries_reject_blocks_outside_the_analysis"_test = [] {

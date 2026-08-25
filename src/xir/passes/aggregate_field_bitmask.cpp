@@ -143,14 +143,22 @@ AggregateFieldBitmask::~AggregateFieldBitmask() {
 }
 
 AggregateFieldBitmask::AggregateFieldBitmask(const AggregateFieldBitmask &other) noexcept
-    : AggregateFieldBitmask{other.type()} { *this = other; }
-
-AggregateFieldBitmask::AggregateFieldBitmask(AggregateFieldBitmask &&other) noexcept
-    : AggregateFieldBitmask{other.type()} {
+    : _field_tree{other._field_tree}, _bits_small{} {
     if (_is_small()) {
         _bits_small = other._bits_small;
     } else {
-        std::swap(_bits_large, other._bits_large);
+        _bits_large = luisa::allocate_with_allocator<uint64_t>(size_buckets());
+        std::memcpy(_bits_large, other._bits_large, size_bytes());
+    }
+}
+
+AggregateFieldBitmask::AggregateFieldBitmask(AggregateFieldBitmask &&other) noexcept
+    : _field_tree{other._field_tree}, _bits_small{} {
+    if (_is_small()) {
+        _bits_small = other._bits_small;
+    } else {
+        _bits_large = other._bits_large;
+        other._bits_large = nullptr;
     }
 }
 

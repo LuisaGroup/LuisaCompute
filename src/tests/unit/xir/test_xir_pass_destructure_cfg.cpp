@@ -19,7 +19,7 @@
 #include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/destructure_cfg.h>
-#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/verifier.h>
 
 using namespace luisa;
@@ -49,6 +49,20 @@ namespace {
 [[nodiscard]] size_t count_owned_blocks(FunctionDefinition *def) noexcept {
     size_t n = 0u;
     for ([[maybe_unused]] auto *block : def->basic_blocks()) { ++n; }
+    return n;
+}
+
+[[nodiscard]] size_t count_ray_query_read_op(
+    FunctionDefinition *def, RayQueryObjectReadOp op) noexcept {
+    size_t n = 0u;
+    for (auto *block : def->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            if (inst->isa<RayQueryObjectReadInst>() &&
+                static_cast<RayQueryObjectReadInst *>(inst)->op() == op) {
+                ++n;
+            }
+        }
+    }
     return n;
 }
 
@@ -302,6 +316,9 @@ void reg_destructure_cfg() {
         auto *on_proc = dispatch_inst->create_on_procedural_candidate_block();
         dispatch_inst->set_exit_block(merge);
         b.set_insertion_point(on_surf);
+        b.call(
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE,
+            {rq_obj});
         b.br(disp);
         b.set_insertion_point(on_proc);
         b.br(disp);
@@ -309,13 +326,17 @@ void reg_destructure_cfg() {
         auto *exit_phi = b.phi(Type::of<int>());
         exit_phi->add_incoming(m.create_constant_one(Type::of<int>()), disp);
         b.return_void();
-        auto lower_info = lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        auto source_block_count = count_owned_blocks(k->definition());
+        auto lower_info = lower_ray_query_to_loop_pass_run_on_function(k);
         expect(lower_info.lowered_ray_query_loop_count == 1u);
         expect(lower_info.error_count == 0u);
         expect(lower_info.succeeded());
         expect(xir_verify_module(&m).succeeded());
-        expect(disp->is_terminated());
-        expect(disp->terminator()->isa<UnreachableInst>());
+        expect(count_owned_blocks(k->definition()) == source_block_count + 1u);
+        expect(count_ray_query_read_op(
+                   k->definition(),
+                   RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE) ==
+               0u);
         auto *lowered_loop = static_cast<LoopInst *>(body->terminator());
         expect(lowered_loop->name().has_value());
         if (lowered_loop->name()) {
@@ -325,6 +346,12 @@ void reg_destructure_cfg() {
         auto *candidate_dispatch =
             lowered_loop->body_block()->terminator();
         expect(candidate_dispatch->isa<IfInst>());
+        auto *candidate_if = static_cast<IfInst *>(candidate_dispatch);
+        expect(candidate_if->true_block() == on_surf);
+        expect(candidate_if->false_block() == lowered_loop->update_block());
+        expect(candidate_if->merge_block() == lowered_loop->update_block());
+        expect(static_cast<BranchInst *>(on_surf->terminator())->target_block() ==
+               candidate_if->merge_block());
         expect(candidate_dispatch->name().has_value());
         if (candidate_dispatch->name()) {
             expect(*candidate_dispatch->name() ==
@@ -344,6 +371,55 @@ void reg_destructure_cfg() {
         expect(count_terminator_kind(def, DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
         expect(count_terminator_kind(def, DerivedInstructionTag::RAY_QUERY_DISPATCH) == 0u);
         expect(count_terminator_kind(def, DerivedInstructionTag::LOOP) == 0u);
+    };
+
+    "ray_query_to_loop_elides_noop_candidate_dispatch"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *query = b.alloca_local(Type::of<RayQueryAll>());
+        auto *ray_query = b.ray_query_loop();
+        auto *dispatch = ray_query->create_dispatch_block();
+        auto *merge = ray_query->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(query);
+        dispatch_inst->set_name("noop_candidate_dispatch");
+        dispatch_inst->set_exit_block(merge);
+        auto *surface =
+            dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural =
+            dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        b.br(dispatch);
+        b.set_insertion_point(procedural);
+        b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto source_block_count = count_owned_blocks(k->definition());
+
+        auto info =
+            lower_ray_query_to_loop_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(info.lowered_ray_query_loop_count == 1u);
+        expect(count_owned_blocks(k->definition()) ==
+               source_block_count);
+        auto *loop = static_cast<LoopInst *>(body->terminator());
+        expect(loop->body_block()->terminator()->isa<BranchInst>());
+        expect(static_cast<BranchInst *>(
+                   loop->body_block()->terminator())
+                   ->target_block() == loop->update_block());
+        expect(loop->body_block()->terminator()->name().has_value());
+        if (loop->body_block()->terminator()->name()) {
+            expect(*loop->body_block()->terminator()->name() ==
+                   "noop_candidate_dispatch");
+        }
+        expect(count_ray_query_read_op(
+                   k->definition(),
+                   RayQueryObjectReadOp::
+                       RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE) == 0u);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "ray_query_to_loop_rejects_non_query_lvalue_atomically"_test = [] {
@@ -372,7 +448,7 @@ void reg_destructure_cfg() {
         auto block_count = count_owned_blocks(k->definition());
 
         auto info =
-            lower_ray_query_loop_to_loop_pass_run_on_function(k);
+            lower_ray_query_to_loop_pass_run_on_function(k);
         expect(!info.succeeded());
         expect(info.error_count == 1u);
         expect(info.lowered_ray_query_loop_count == 0u);
@@ -408,7 +484,7 @@ void reg_destructure_cfg() {
         b.return_void();
 
         auto info =
-            lower_ray_query_loop_to_loop_pass_run_on_function(k);
+            lower_ray_query_to_loop_pass_run_on_function(k);
         expect(info.succeeded());
         expect(info.error_count == 0u);
         expect(info.lowered_ray_query_loop_count == 1u);
@@ -443,7 +519,7 @@ void reg_destructure_cfg() {
         b.return_void();
         auto block_count = count_owned_blocks(k->definition());
 
-        auto info = lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        auto info = lower_ray_query_to_loop_pass_run_on_function(k);
         expect(info.lowered_ray_query_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());
@@ -478,7 +554,7 @@ void reg_destructure_cfg() {
         b.return_void();
         auto block_count = count_owned_blocks(k->definition());
 
-        auto info = lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        auto info = lower_ray_query_to_loop_pass_run_on_function(k);
         expect(info.lowered_ray_query_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(body->terminator() == rq);
@@ -509,7 +585,7 @@ void reg_destructure_cfg() {
         b.return_void();
         auto block_count = count_owned_blocks(k->definition());
 
-        auto info = lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        auto info = lower_ray_query_to_loop_pass_run_on_function(k);
         expect(info.lowered_ray_query_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());
@@ -543,7 +619,7 @@ void reg_destructure_cfg() {
         b.return_void();
         auto block_count = count_owned_blocks(k->definition());
 
-        auto info = lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        auto info = lower_ray_query_to_loop_pass_run_on_function(k);
         expect(!info.succeeded());
         expect(info.error_count == 1u);
         expect(info.lowered_ray_query_loop_count == 0u);
@@ -576,7 +652,7 @@ void reg_destructure_cfg() {
         b.return_void();
         auto block_count = count_owned_blocks(k->definition());
 
-        auto info = lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        auto info = lower_ray_query_to_loop_pass_run_on_function(k);
         expect(!info.succeeded());
         expect(info.error_count == 1u);
         expect(info.lowered_ray_query_loop_count == 0u);
@@ -615,7 +691,7 @@ void reg_destructure_cfg() {
         auto block_count = count_owned_blocks(k->definition());
 
         auto info =
-            lower_ray_query_loop_to_loop_pass_run_on_function(k);
+            lower_ray_query_to_loop_pass_run_on_function(k);
 
         expect(!info.succeeded());
         expect(info.error_count == 1u);
@@ -657,7 +733,7 @@ void reg_destructure_cfg() {
         auto block_count = count_owned_blocks(k->definition());
 
         auto info =
-            lower_ray_query_loop_to_loop_pass_run_on_function(k);
+            lower_ray_query_to_loop_pass_run_on_function(k);
 
         expect(!info.succeeded());
         expect(info.error_count == 1u);
@@ -713,7 +789,7 @@ void reg_destructure_cfg() {
         b.return_void();
         auto block_count = count_owned_blocks(k->definition());
 
-        auto info = lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        auto info = lower_ray_query_to_loop_pass_run_on_function(k);
         expect(info.lowered_ray_query_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());
@@ -784,7 +860,7 @@ void reg_destructure_cfg() {
         auto invalid_block_count =
             count_owned_blocks(invalid_kernel->definition());
         auto info =
-            lower_ray_query_loop_to_loop_pass_run_on_module(&m);
+            lower_ray_query_to_loop_pass_run_on_module(&m);
         expect(info.lowered_ray_query_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());

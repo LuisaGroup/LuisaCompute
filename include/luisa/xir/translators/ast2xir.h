@@ -11,7 +11,12 @@ namespace luisa::compute::xir {
 
 class AST2XIRContext;
 
-struct AST2XIRConfig {};
+struct AST2XIRConfig {
+    // Preserve a canonical DSL `$while (query.proceed())` candidate dispatch
+    // directly as RayQueryLoopInst. Disabling this is a diagnostic oracle for
+    // the legacy generic-loop plus reconstruction route.
+    bool preserve_inline_ray_query_loops{true};
+};
 
 using ASTFunction = compute::Function;
 using ASTExternalFunction = compute::ExternalFunction;

@@ -56,9 +56,11 @@ struct GraphWavefrontCoroSchedulerConfig {
     // is cheaper to finish in one graph-derived state-machine kernel than in
     // one guarded launch per continuation. This is a host policy parameter:
     // its nonzero magnitude does not participate in shader construction or
-    // cache identity. Zero disables the hybrid tail drain and avoids compiling
-    // the optional state-machine shader altogether.
-    uint tail_megakernel_threshold = 4096u;
+    // cache identity. The automatic sentinel resolves to three eighths of the
+    // active capacity, aligned to an execution block. Zero disables the hybrid
+    // tail drain and avoids compiling the optional state-machine shader.
+    uint tail_megakernel_threshold =
+        graph_wavefront_auto_tail_threshold;
     bool report_stats = false;
     ShaderOption shader_option{};
     // Optional queue-local coherence key. `hint_fields` names CoroGraph
@@ -84,6 +86,7 @@ struct GraphWavefrontCoroDispatchStats {
     uint max_readbacks_in_flight{0u};
     uint tail_dispatch_count{0u};
     uint tail_instance_count{0u};
+    uint tail_megakernel_threshold{0u};
     uint worker_count{0u};
     uint64_t entry_dispatch_count{0u};
     uint64_t fairness_dispatch_count{0u};
@@ -250,10 +253,12 @@ private:
         luisa::string_view stage) noexcept {
         _shader_structure_hashes.emplace_back(
             kernel.function()->function().hash());
-        return device.compile(
-            kernel,
-            detail::coro_scheduler_shader_option(
-                _config.shader_option, stage));
+        return detail::coro_scheduler_label_shader(
+            device.compile(
+                kernel,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option, stage)),
+            stage);
     }
 
     void _create_shaders(Device &device, const Coro &coro) {
@@ -814,6 +819,11 @@ private:
         if (logical_count == 0u) { return; }
         _active_frame_capacity =
             std::min(_config.thread_count, logical_count);
+        auto tail_megakernel_threshold =
+            graph_wavefront_resolve_tail_threshold(
+                _config.tail_megakernel_threshold,
+                _active_frame_capacity,
+                _config.execution_block_size);
         auto worker_count = _config.worker_count == 0u ?
                                 _active_frame_capacity :
                                 std::min(_config.worker_count,
@@ -832,6 +842,8 @@ private:
         _last_dispatch_stats = {};
         _last_dispatch_stats.collected = report_stats;
         _last_dispatch_stats.worker_count = worker_count;
+        _last_dispatch_stats.tail_megakernel_threshold =
+            tail_megakernel_threshold;
         _last_dispatch_stats.queued_count_sum.resize(_node_count, 0u);
         _last_dispatch_stats.nonempty_snapshot_count.resize(_node_count, 0u);
         _last_dispatch_stats.peak_queued_count.resize(_node_count, 0u);
@@ -914,9 +926,9 @@ private:
                 _last_dispatch_stats.generated_count = generated;
                 done |= generated == logical_count && live_count == 0u;
                 tail_candidate =
-                    _config.tail_megakernel_threshold != 0u &&
+                    tail_megakernel_threshold != 0u &&
                     generated == logical_count && live_count != 0u &&
-                    live_count <= _config.tail_megakernel_threshold;
+                    live_count <= tail_megakernel_threshold;
             }
             consumed++;
             return true;
@@ -1097,9 +1109,9 @@ private:
                 done = true;
                 break;
             }
-            if (_config.tail_megakernel_threshold != 0u &&
+            if (tail_megakernel_threshold != 0u &&
                 latest_generated_count == logical_count &&
-                latest_live_count <= _config.tail_megakernel_threshold) {
+                latest_live_count <= tail_megakernel_threshold) {
                 auto source_bank = static_cast<uint>(observed_sweeps & 1u);
                 stream << _prepare_tail_offsets_shader(source_bank)
                               .dispatch(1u)
@@ -1132,7 +1144,7 @@ private:
                 "Graph wavefront stats: sweeps={} snapshots={} "
                 "readbacks={} bytes={} waits={} max_in_flight={} generated={} "
                 "max_live={} workers={} tail_dispatches={} tail_instances={} "
-                "fairness_dispatches={} elapsed_ms={:.3f}.",
+                "tail_threshold={} fairness_dispatches={} elapsed_ms={:.3f}.",
                 _last_dispatch_stats.sweep_count,
                 _last_dispatch_stats.counter_snapshot_count,
                 _last_dispatch_stats.counter_readback_count,
@@ -1144,6 +1156,7 @@ private:
                 _last_dispatch_stats.worker_count,
                 _last_dispatch_stats.tail_dispatch_count,
                 _last_dispatch_stats.tail_instance_count,
+                _last_dispatch_stats.tail_megakernel_threshold,
                 _last_dispatch_stats.fairness_dispatch_count,
                 _last_dispatch_stats.elapsed_ms);
             for (auto node = 1u; node < _node_count; ++node) {
@@ -1366,7 +1379,8 @@ public:
                 _sort_hint = radix_sort::instance<
                     Buffer<uint>, ByteBuffer, uint>{
                     device, _config.thread_count, _sort_temp_storage,
-                    &get_hint, &keep_index, &get_hint, 1u, hint_digit};
+                    &get_hint, &keep_index, &get_hint, 1u, hint_digit,
+                    0u, 31u, "graph_wavefront_hint_sort"};
             } else {
                 auto high_bit = 0u;
                 while ((_config.hint_range >> high_bit) != 1u) {
@@ -1376,7 +1390,8 @@ public:
                     Buffer<uint>, ByteBuffer, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_hint, &keep_index, &get_hint, 0u,
-                    radix_sort::hist_block_size, 0u, high_bit};
+                    radix_sort::hist_block_size, 0u, high_bit,
+                    "graph_wavefront_hint_sort"};
             }
         }
         _queue_indices = device.create_buffer<uint>(queue_element_count);

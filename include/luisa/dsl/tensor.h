@@ -62,7 +62,7 @@
 #include <luisa/core/stl/memory.h>// luisa::unique_ptr / shared_ptr / span
 #include <luisa/core/stl/string.h>// luisa::string
 #include <luisa/ast/tile_function_builder.h>// TileFunctionBuilder / TensorExpr / TensorStmt
-#include <luisa/ast/tile_to_kernel.h>        // tile_to_kernel / TileCompileResult
+#include <luisa/ast/tile_to_kernel.h> // tile_to_kernel / TileCompileResult
 #include <luisa/dsl/func.h>                  // luisa::compute::Kernel for typed tile kernels
 
 #include <array>

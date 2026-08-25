@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--iterations N] [-c <reference.png>]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         exit(1);
     }
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
@@ -52,6 +52,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     auto force_offline = opts.offline;
+    auto offline_iterations = opts.iterations;
     auto compare_path = opts.compare_path;
 #if !ENABLE_DISPLAY
     if (!force_offline) {
@@ -263,19 +264,29 @@ int main(int argc, char *argv[]) {
     // Generate initial test pattern
     stream << pattern_shader(source_image).dispatch(width, height);
 
-    // Run the pipeline once
-    stream << blur_h_shader(source_image, temp_image).dispatch(width, height)
-           << blur_v_shader(temp_image, blurred_image).dispatch(width, height)
-           << sobel_shader(source_image, edge_image).dispatch(width, height);
-
     // Main loop with animated edge intensity
     Clock clock;
     if (force_offline) {
+        // Keep one-time pattern generation outside the repeated pipeline
+        // timing window.
+        stream << synchronize();
         float time = 0.0f;
         float edge_intensity = (sinf(time) + 1.0f) * 0.5f;
-        stream << composite_shader(source_image, blurred_image, edge_image,
-                                   display, edge_intensity)
-                      .dispatch(width, height);
+        Clock benchmark_clock;
+        for (auto iteration = 0u; iteration < offline_iterations; iteration++) {
+            stream << blur_h_shader(source_image, temp_image).dispatch(width, height)
+                   << blur_v_shader(temp_image, blurred_image).dispatch(width, height)
+                   << sobel_shader(source_image, edge_image).dispatch(width, height)
+                   << composite_shader(source_image, blurred_image, edge_image,
+                                       display, edge_intensity)
+                          .dispatch(width, height);
+        }
+        stream << synchronize();
+        auto elapsed_ms = benchmark_clock.toc();
+        LUISA_INFO(
+            "Offline image pipeline: {} iterations in {:.3f} ms ({:.3f} ms/iteration).",
+            offline_iterations, elapsed_ms,
+            elapsed_ms / static_cast<double>(offline_iterations));
         luisa::vector<uint8_t> host_image(width * height * 4u);
         stream << display.copy_to(luisa::span{host_image}) << synchronize();
         stbi_write_png("test_image_processing.png", width, height, 4, host_image.data(), 0);
@@ -289,6 +300,9 @@ int main(int argc, char *argv[]) {
         }
     } else {
 #if ENABLE_DISPLAY
+        stream << blur_h_shader(source_image, temp_image).dispatch(width, height)
+               << blur_v_shader(temp_image, blurred_image).dispatch(width, height)
+               << sobel_shader(source_image, edge_image).dispatch(width, height);
         while (!window->should_close()) {
             window->poll_events();
 

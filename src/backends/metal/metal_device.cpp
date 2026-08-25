@@ -28,6 +28,7 @@
 #endif
 
 #include <cstdlib>
+#include <algorithm>
 
 namespace luisa::compute::metal {
 
@@ -427,9 +428,11 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         }
 
         // codegen
+        Clock codegen_clock;
         StringScratch scratch;
         MetalCodegenAST codegen{scratch};
         codegen.emit(kernel, option.native_include);
+        auto codegen_ms = codegen_clock.toc();
         metadata.argument_sampled.assign(
             codegen.argument_sampled().begin(), codegen.argument_sampled().end());
 
@@ -446,14 +449,20 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         } else {
             source = luisa::string{scratch.string_view()};
         }
+        auto source_line_count = static_cast<size_t>(
+            std::count(source.begin(), source.end(), '\n')) +
+                                 static_cast<size_t>(!source.empty());
+        Clock compile_clock;
         auto pipeline = _compiler->compile(source, option, metadata);
+        auto compile_ms = compile_clock.toc();
         auto shader = luisa::new_with_allocator<MetalShader>(
             this, std::move(pipeline),
             std::move(metadata.argument_usages),
             std::move(metadata.argument_sampled),
             std::move(bound_arguments),
             std::move(metadata.format_types),
-            kernel.block_size());
+            kernel.block_size(), metadata.checksum, source.size(),
+            source_line_count, codegen_ms, compile_ms);
         ShaderCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pso();
@@ -485,7 +494,8 @@ ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span
             std::move(metadata.argument_sampled),
             luisa::vector<MetalShader::Argument>{},
             std::move(metadata.format_types),
-            metadata.block_size);
+            metadata.block_size, metadata.checksum,
+            0u, 0u, 0.0, 0.0);
         ShaderCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pso();

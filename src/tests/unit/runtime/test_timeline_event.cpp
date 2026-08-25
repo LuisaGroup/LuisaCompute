@@ -11,8 +11,11 @@
 #include <luisa/luisa-compute.h>
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <limits>
+#include <thread>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -68,6 +71,38 @@ void test_stream_wait_at_uint64_max(Device &device) {
         << "UINT64_MAX must remain observable as a completed fence.";
 }
 
+void test_host_callbacks_precede_event_completion(Device &device) {
+    if (device.backend_name() != "metal") { return; }
+
+    auto event = device.create_timeline_event();
+    auto stream = device.create_stream();
+    std::atomic_bool callback_started{false};
+    std::atomic_bool release_callback{false};
+    std::atomic_bool callback_completed{false};
+    stream << luisa::move_only_function<void()>{[&]() noexcept {
+                  callback_started.store(true, std::memory_order_release);
+                  while (!release_callback.load(std::memory_order_acquire)) {
+                      std::this_thread::yield();
+                  }
+                  callback_completed.store(true, std::memory_order_release);
+              }}
+           << event.signal(1u);
+    while (!callback_started.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{50u});
+    auto completed_before_callback = event.is_completed(1u);
+    release_callback.store(true, std::memory_order_release);
+    event.synchronize(1u);
+
+    expect(!completed_before_callback)
+        << "A Metal event must not report host completion while an earlier "
+           "stream callback is still pending";
+    expect(callback_completed.load(std::memory_order_acquire))
+        << "Metal event synchronization must include earlier download and "
+           "user callbacks";
+}
+
 void test_cross_stream_monotonicity(Device &device) {
     // A late lower-valued signal is the HIP race being tested here. Some
     // native external-timeline APIs reject that execution pattern outright.
@@ -105,5 +140,6 @@ int main(int argc, char *argv[]) {
     test_initial_state(dc->device);
     test_unsigned_fence_domain(dc->device);
     test_stream_wait_at_uint64_max(dc->device);
+    test_host_callbacks_precede_event_completion(dc->device);
     test_cross_stream_monotonicity(dc->device);
 }

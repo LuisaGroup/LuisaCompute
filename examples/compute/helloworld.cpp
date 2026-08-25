@@ -9,11 +9,13 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-// Test structure with half-precision float
-struct Test1 {
+// Aggregate alignment stays at four bytes for the cross-backend/DXC ABI even
+// though both individual fields only require two-byte alignment on the host.
+struct alignas(4) Test1 {
     half a;
     uint16_t b;
 };
+static_assert(sizeof(Test1) == 4u && alignof(Test1) == 4u);
 LUISA_STRUCT(Test1, a, b) {};
 
 int main(int argc, char *argv[]) {

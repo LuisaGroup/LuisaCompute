@@ -342,6 +342,22 @@ void reg_coro_radix_sort(luisa::test::coro_test::Options options) {
         run_sort_case(dc.device, keys, 0u, radix_sort::hist_block_size, 0u, 10u,
                       SortDispatch::switch_buffers, "radix sort_switch multiblock");
     };
+
+    "coro_radix_sort_radix_switch_scheduler_scale"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        if (dc.device.compute_warp_size() != radix_sort::warp_size) {
+            expect(true);
+            return;
+        }
+        // Psycles submits at most 130560 path states in one Metal-safe
+        // dispatch. This creates enough one-sweep blocks to exceed normal GPU
+        // residency and exercises the inter-block publication protocol that
+        // a two-block smoke test cannot cover.
+        auto keys = make_radix_keys(130560u);
+        run_sort_case(dc.device, keys, 0u, radix_sort::hist_block_size, 0u, 9u,
+                      SortDispatch::switch_buffers,
+                      "radix sort_switch scheduler scale");
+    };
 }
 
 }// namespace

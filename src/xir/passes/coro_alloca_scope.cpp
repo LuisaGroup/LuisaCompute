@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdlib>
 
 #include <luisa/ast/type.h>
@@ -22,6 +23,7 @@
 #include <luisa/xir/passes/pointer_usage.h>
 
 #include "coro_frame_access.h"
+#include "coro_initialized_prefix.h"
 #include "coro_predicate_analysis.h"
 #include "coro_semantic_graph.h"
 
@@ -38,6 +40,30 @@ struct AllocaUseRegion {
     luisa::unordered_set<Instruction *> users;
     luisa::vector<BasicBlock *> blocks;
 };
+
+struct InstructionLocation {
+    size_t block_id;
+    size_t ordinal;
+};
+
+using InstructionLocationMap =
+    luisa::unordered_map<Instruction *, InstructionLocation>;
+
+[[nodiscard]] InstructionLocationMap make_instruction_locations(
+    FunctionDefinition *definition,
+    const CoroSemanticGraph &graph) noexcept {
+    InstructionLocationMap locations;
+    for (auto *block : definition->basic_blocks()) {
+        auto block_id = graph.block_id(block);
+        auto ordinal = size_t{0u};
+        for (auto *instruction : block->instructions()) {
+            locations.emplace(
+                instruction,
+                InstructionLocation{block_id, ordinal++});
+        }
+    }
+    return locations;
+}
 
 [[nodiscard]] AllocaUseRegion collect_alloca_use_region(
     AllocaInst *alloca, FunctionDefinition *definition,
@@ -86,7 +112,7 @@ struct InsertionPoint {
     bool has_gap_after_alloca{false};
 };
 
-[[nodiscard]] bool instruction_strictly_precedes(
+[[nodiscard]] bool instruction_strictly_precedes_linear(
     Instruction *before, Instruction *after) noexcept {
     if (before == nullptr || after == nullptr ||
         before->parent_block() != after->parent_block()) {
@@ -106,16 +132,10 @@ struct InsertionPoint {
         before->parent_block() != after->parent_block()) {
         return false;
     }
-    auto found_before = false;
-    for (auto *instruction :
-         before->parent_block()->instructions()) {
-        if (found_before) { return instruction == after; }
-        found_before = instruction == before;
-    }
-    return false;
+    return before->next() == after;
 }
 
-[[nodiscard]] InsertionPoint find_latest_insertion_point(
+[[nodiscard]] InsertionPoint find_latest_insertion_point_linear(
     BasicBlock *target, AllocaInst *alloca,
     const luisa::unordered_set<Instruction *> &users) noexcept {
     InsertionPoint result;
@@ -140,6 +160,100 @@ struct InsertionPoint {
     return result;
 }
 
+// The pass freezes its candidate set before mutation and moves only the
+// candidate alloca and, when proved unique, its whole-object defining store.
+// Neither instruction can be an observation of a different valid candidate.
+// Consequently the relative order of every pair queried for an unprocessed
+// candidate is invariant under earlier contractions. Snapshot ordinals answer
+// strict-order queries exactly; current intrusive-list adjacency answers the
+// one property that can change when unrelated nodes are inserted in a gap.
+[[nodiscard]] bool instruction_strictly_precedes(
+    Instruction *before, Instruction *after,
+    const InstructionLocationMap &locations,
+    bool verify_instruction_order,
+    size_t &instruction_order_query_count) noexcept {
+    ++instruction_order_query_count;
+    auto result = false;
+    if (before != nullptr && after != nullptr &&
+        before->parent_block() == after->parent_block()) {
+        auto before_iter = locations.find(before);
+        auto after_iter = locations.find(after);
+        result = before_iter != locations.end() &&
+                 after_iter != locations.end() &&
+                 before_iter->second.block_id ==
+                     after_iter->second.block_id &&
+                 before_iter->second.ordinal <
+                     after_iter->second.ordinal;
+    }
+    if (verify_instruction_order) {
+        LUISA_ASSERT(
+            result == instruction_strictly_precedes_linear(
+                          before, after),
+            "Snapshot instruction order disagrees with the current "
+            "intrusive list.");
+    }
+    return result;
+}
+
+[[nodiscard]] InsertionPoint find_latest_insertion_point(
+    BasicBlock *target, AllocaInst *alloca,
+    const luisa::unordered_set<Instruction *> &users,
+    const InstructionLocationMap &locations,
+    bool verify_instruction_order,
+    size_t &instruction_order_query_count,
+    size_t &placement_user_inspection_count) noexcept {
+    ++instruction_order_query_count;
+    InsertionPoint result;
+    if (target == nullptr) { return result; }
+    auto *insertion = static_cast<Instruction *>(
+        target->terminator());
+    auto insertion_iter = locations.find(insertion);
+    if (insertion == nullptr ||
+        insertion_iter == locations.end()) {
+        return result;
+    }
+    auto insertion_ordinal = insertion_iter->second.ordinal;
+    for (auto *user : users) {
+        ++placement_user_inspection_count;
+        if (user == nullptr || user->parent_block() != target) {
+            continue;
+        }
+        auto iter = locations.find(user);
+        if (iter == locations.end() ||
+            iter->second.block_id !=
+                insertion_iter->second.block_id) {
+            continue;
+        }
+        if (iter->second.ordinal < insertion_ordinal) {
+            insertion = user;
+            insertion_ordinal = iter->second.ordinal;
+        }
+    }
+    result.instruction = insertion;
+    if (alloca != nullptr && alloca->parent_block() == target) {
+        auto alloca_iter = locations.find(alloca);
+        result.follows_alloca =
+            alloca_iter != locations.end() &&
+            alloca_iter->second.block_id ==
+                insertion_iter->second.block_id &&
+            alloca_iter->second.ordinal < insertion_ordinal;
+        result.has_gap_after_alloca =
+            result.follows_alloca && alloca->next() != insertion;
+    }
+    if (verify_instruction_order) {
+        auto oracle = find_latest_insertion_point_linear(
+            target, alloca, users);
+        LUISA_ASSERT(
+            result.instruction == oracle.instruction &&
+                result.follows_alloca == oracle.follows_alloca &&
+                result.has_gap_after_alloca ==
+                    oracle.has_gap_after_alloca,
+            "Snapshot insertion-point query disagrees with the current "
+            "intrusive list.");
+    }
+    return result;
+}
+
 struct FirstDefinitionPlan {
     StoreInst *definition{nullptr};
     BasicBlock *target{nullptr};
@@ -148,7 +262,11 @@ struct FirstDefinitionPlan {
 
 [[nodiscard]] FirstDefinitionPlan plan_first_definition_delay(
     AllocaInst *alloca, const AllocaUseRegion &region,
-    const CoroSemanticGraph &graph) noexcept {
+    const CoroSemanticGraph &graph,
+    const InstructionLocationMap &instruction_locations,
+    bool verify_instruction_order,
+    size_t &instruction_order_query_count,
+    size_t &placement_user_inspection_count) noexcept {
     FirstDefinitionPlan plan;
     StoreInst *definition = nullptr;
     luisa::unordered_set<Instruction *> observations;
@@ -192,11 +310,15 @@ struct FirstDefinitionPlan {
         return plan;
     }
     auto insertion = find_latest_insertion_point(
-        target, alloca, observations);
+        target, alloca, observations, instruction_locations,
+        verify_instruction_order, instruction_order_query_count,
+        placement_user_inspection_count);
     if (insertion.instruction == nullptr) { return plan; }
     if (definition_block == target &&
         !instruction_strictly_precedes(
-            definition, insertion.instruction)) {
+            definition, insertion.instruction,
+            instruction_locations, verify_instruction_order,
+            instruction_order_query_count)) {
         return plan;
     }
     if (source == target &&
@@ -219,7 +341,9 @@ struct FirstDefinitionPlan {
             !graph.dominates(value_block, target) ||
             (value_block == target &&
              !instruction_strictly_precedes(
-                 value_instruction, insertion.instruction))) {
+                 value_instruction, insertion.instruction,
+                 instruction_locations, verify_instruction_order,
+                 instruction_order_query_count))) {
             return plan;
         }
     } else if (value->derived_value_tag() !=
@@ -281,6 +405,17 @@ struct LifetimeProofResult {
     size_t predicate_widening_count{0u};
 };
 
+struct LifetimeProofTimings {
+    double problem_ms{0.0};
+    double slice_ms{0.0};
+    double layout_ms{0.0};
+    double events_ms{0.0};
+    double event_order_ms{0.0};
+    double event_transfer_ms{0.0};
+    double unconditional_ms{0.0};
+    double guarded_ms{0.0};
+};
+
 using LifetimeFactState = luisa::vector<uint8_t>;
 
 struct LifetimeProofProblem {
@@ -289,6 +424,9 @@ struct LifetimeProofProblem {
     LifetimeFactLayout layout;
     luisa::vector<uint8_t> active;
     luisa::vector<size_t> active_blocks;
+    // Parallel to active_blocks. Keeping the event domain sparse is
+    // essential after SROA: a large coroutine may contain thousands of CFG
+    // blocks while one scalar local touches only a handful of them.
     luisa::vector<luisa::vector<LifetimeEvent>> events;
 };
 
@@ -305,6 +443,8 @@ class ReferenceArgumentEffectAnalysis {
 private:
     luisa::unordered_map<Argument *, ReferenceArgumentEffect> _effects;
     luisa::unordered_set<FunctionDefinition *> _analyzed;
+    size_t _analysis_count{0u};
+    double _analysis_ms{0.0};
 
 private:
     void _analyze(FunctionDefinition *definition) noexcept {
@@ -312,75 +452,107 @@ private:
             !_analyzed.emplace(definition).second) {
             return;
         }
+        auto begin = std::chrono::steady_clock::now();
+        ++_analysis_count;
+        PointerUsageAnalysisInfo analysis_info;
 
-        // PointerUsageAnalysis is a field-sensitive pair of finite dataflow
-        // problems. At function entry, LIVE is exactly the set of aggregate
-        // leaves that may be read before a definite overwrite. At each normal
-        // return, KILL is exactly the set definitely written on every path to
-        // that return. Calls inside the callee remain conservative opaque
-        // read/writes, so an unsupported or recursive dependency can only make
-        // this summary less precise, never unsound.
-        luisa::vector<Value *> reference_arguments;
-        for (auto *argument : definition->arguments()) {
-            if (argument->is_reference()) {
-                _effects.try_emplace(argument, ReferenceArgumentEffect{});
-                reference_arguments.emplace_back(argument);
-            }
-        }
-        if (reference_arguments.empty()) { return; }
-
-        // Pointer usage is a product lattice over pointer views. Reference
-        // summaries query only formal-reference coordinates, so solving those
-        // coordinates is exactly equivalent to solving every local alloca/GEP
-        // view and projecting afterward. Pointer discovery and malformed-use
-        // validation remain whole-function and therefore fail closed.
-        PointerUsageAnalysis analysis;
-        auto info = analysis.analyze(
-            definition, luisa::span<Value *const>{reference_arguments});
-        if (!info.succeeded()) { return; }
-        // The summary pass below is read-only. Validate the captured IR
-        // version once, then query the immutable block-result table directly;
-        // validating the whole instruction snapshot for every argument and
-        // return block would turn extraction into O(queries * instructions).
-        LUISA_ASSERT(analysis.is_current(),
-                     "Fresh pointer-usage analysis is unexpectedly stale.");
-
-        for (auto *argument : definition->arguments()) {
-            if (!argument->is_reference()) { continue; }
-            auto *entry_block = analysis.current_block_usage(
-                definition->body_block());
-            auto entry_iter = entry_block == nullptr ?
-                                  PointerUsageMap::const_iterator{} :
-                                  entry_block->in.find(argument);
-            if (entry_block == nullptr ||
-                entry_iter == entry_block->in.end()) {
-                continue;
-            }
-            auto *entry = entry_iter->second.get();
-
-            auto has_normal_return = false;
-            auto defines_at_every_return = true;
-            for (auto *block : definition->basic_blocks()) {
-                if (!block->is_terminated() ||
-                    !block->terminator()->isa<ReturnInst>()) {
-                    continue;
+        const auto analyze = [&]() noexcept {
+            // PointerUsageAnalysis is a field-sensitive pair of finite
+            // dataflow problems. At function entry, LIVE is exactly the set
+            // of aggregate leaves that may be read before a definite
+            // overwrite. At each normal return, KILL is exactly the set
+            // definitely written on every path to that return. Calls inside
+            // the callee remain conservative opaque read/writes, so an
+            // unsupported or recursive dependency can only make this summary
+            // less precise, never unsound.
+            luisa::vector<Value *> reference_arguments;
+            for (auto *argument : definition->arguments()) {
+                if (argument->is_reference()) {
+                    _effects.try_emplace(
+                        argument, ReferenceArgumentEffect{});
+                    reference_arguments.emplace_back(argument);
                 }
-                auto *block_usage = analysis.current_block_usage(block);
-                auto usage_iter = block_usage == nullptr ?
+            }
+            if (reference_arguments.empty()) { return; }
+
+            // Pointer usage is a product lattice over pointer views. Reference
+            // summaries query only formal-reference coordinates, so solving
+            // those coordinates is exactly equivalent to solving every local
+            // alloca/GEP view and projecting afterward. Pointer discovery and
+            // malformed-use validation remain whole-function and therefore
+            // fail closed.
+            PointerUsageAnalysis analysis;
+            analysis_info = analysis.analyze(
+                definition, luisa::span<Value *const>{reference_arguments});
+            if (!analysis_info.succeeded()) { return; }
+            // The summary pass below is read-only. Validate the captured IR
+            // version once, then query the immutable block-result table
+            // directly; validating the whole instruction snapshot for every
+            // argument and return block would turn extraction into
+            // O(queries * instructions).
+            LUISA_ASSERT(
+                analysis.is_current(),
+                "Fresh pointer-usage analysis is unexpectedly stale.");
+
+            for (auto *argument : definition->arguments()) {
+                if (!argument->is_reference()) { continue; }
+                auto *entry_block = analysis.current_block_usage(
+                    definition->body_block());
+                auto entry_iter = entry_block == nullptr ?
                                       PointerUsageMap::const_iterator{} :
-                                      block_usage->out.find(argument);
-                if (block_usage == nullptr ||
-                    usage_iter == block_usage->out.end()) {
+                                      entry_block->in.find(argument);
+                if (entry_block == nullptr ||
+                    entry_iter == entry_block->in.end()) {
                     continue;
                 }
-                auto *usage = usage_iter->second.get();
-                has_normal_return = true;
-                defines_at_every_return &= usage->kill.access().all();
+                auto *entry = entry_iter->second.get();
+
+                auto has_normal_return = false;
+                auto defines_at_every_return = true;
+                for (auto *block : definition->basic_blocks()) {
+                    if (!block->is_terminated() ||
+                        !block->terminator()->isa<ReturnInst>()) {
+                        continue;
+                    }
+                    auto *block_usage =
+                        analysis.current_block_usage(block);
+                    auto usage_iter = block_usage == nullptr ?
+                                          PointerUsageMap::const_iterator{} :
+                                          block_usage->out.find(argument);
+                    if (block_usage == nullptr ||
+                        usage_iter == block_usage->out.end()) {
+                        continue;
+                    }
+                    auto *usage = usage_iter->second.get();
+                    has_normal_return = true;
+                    defines_at_every_return &= usage->kill.access().all();
+                }
+                _effects[argument] = ReferenceArgumentEffect{
+                    .may_read_prior_value = entry->live.access().any(),
+                    .fully_defines_on_return =
+                        has_normal_return && defines_at_every_return};
             }
-            _effects[argument] = ReferenceArgumentEffect{
-                .may_read_prior_value = entry->live.access().any(),
-                .fully_defines_on_return =
-                    has_normal_return && defines_at_every_return};
+        };
+        analyze();
+        auto elapsed_ms =
+            std::chrono::duration<double, std::milli>{
+                std::chrono::steady_clock::now() - begin}
+                .count();
+        _analysis_ms += elapsed_ms;
+        if (auto profile = std::getenv(
+                "LUISA_CORO_PROFILE_COMPILATION");
+            profile != nullptr && luisa::string_view{profile} == "1") {
+            LUISA_INFO(
+                "Coroutine reference-effect summary: function='{}' "
+                "tracked={} materialized={} blocks={} conservative={} "
+                "invalid={} time={:.3f} ms.",
+                definition->name().value_or("<unnamed>"),
+                analysis_info.tracked_pointer_count,
+                analysis_info.materialized_pointer_count,
+                analysis_info.analyzed_block_count,
+                analysis_info.conservative_access_count,
+                analysis_info.invalid_access_count,
+                elapsed_ms);
         }
     }
 
@@ -395,6 +567,14 @@ public:
             return iter->second;
         }
         return {};
+    }
+
+    [[nodiscard]] size_t analysis_count() const noexcept {
+        return _analysis_count;
+    }
+
+    [[nodiscard]] double analysis_ms() const noexcept {
+        return _analysis_ms;
     }
 };
 
@@ -619,13 +799,79 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
     return found_pointer_operand;
 }
 
+[[nodiscard]] bool append_instruction_lifetime_events(
+    Instruction *instruction, const AllocaUseRegion &region,
+    ReferenceArgumentEffectAnalysis &reference_effects,
+    luisa::vector<LifetimeEvent> &events) noexcept {
+    if (instruction->isa<GEPInst>()) {
+        events.emplace_back(LifetimeEvent{
+            LifetimeEventKind::redefine_pointer, instruction,
+            instruction});
+        return true;
+    }
+    if (instruction->isa<LoadInst>()) {
+        auto *pointer =
+            static_cast<LoadInst *>(instruction)->variable();
+        if (!region.pointers.contains(pointer)) { return false; }
+        events.emplace_back(LifetimeEvent{
+            LifetimeEventKind::read, pointer, instruction});
+        return true;
+    }
+    if (instruction->isa<StoreInst>()) {
+        auto *pointer =
+            static_cast<StoreInst *>(instruction)->variable();
+        if (!region.pointers.contains(pointer)) { return false; }
+        events.emplace_back(LifetimeEvent{
+            LifetimeEventKind::store, pointer, instruction});
+        return true;
+    }
+    if (instruction->isa<CallInst>()) {
+        return append_call_lifetime_events(
+            static_cast<CallInst *>(instruction), region,
+            reference_effects, events);
+    }
+    if (instruction->isa<RayQueryPipelineInst>()) {
+        return append_ray_query_pipeline_lifetime_events(
+            static_cast<RayQueryPipelineInst *>(instruction),
+            region, reference_effects, events);
+    }
+    auto found_pointer_operand = false;
+    luisa::unordered_set<Value *> seen_pointers;
+    for (auto *operand_use : instruction->operand_uses()) {
+        auto *pointer =
+            operand_use == nullptr ? nullptr : operand_use->value();
+        if (!region.pointers.contains(pointer) ||
+            !seen_pointers.emplace(pointer).second) {
+            continue;
+        }
+        found_pointer_operand = true;
+        // Atomics and unknown pointer operations may observe the old value
+        // before any possible write. Ordinary reference calls are handled
+        // above by their field-sensitive callee summary.
+        events.emplace_back(LifetimeEvent{
+            LifetimeEventKind::read, pointer, instruction});
+    }
+    return found_pointer_operand;
+}
+
+struct OrderedLifetimeUser {
+    Instruction *instruction;
+    InstructionLocation location;
+};
+
 [[nodiscard]] LifetimeProofProblem make_lifetime_proof_problem(
     BasicBlock *target, Instruction *insertion_instruction,
     const AllocaUseRegion &region,
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain,
     ReferenceArgumentEffectAnalysis &reference_effects,
-    luisa::span<const size_t> atom_indices) noexcept {
+    const InstructionLocationMap &instruction_locations,
+    luisa::span<const size_t> atom_indices,
+    LifetimeProofTimings *timings) noexcept {
+    using Clock = std::chrono::steady_clock;
+    auto phase_begin = timings == nullptr ?
+                           Clock::time_point{} :
+                           Clock::now();
     LifetimeProofProblem problem;
     auto target_id = graph.block_id(target);
     if (target_id >= graph.block_count() ||
@@ -649,7 +895,10 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
             worklist.emplace_back(id);
         }
     }
-    problem.active[target_id] = 1u;
+    if (problem.active[target_id] == 0u) {
+        problem.active[target_id] = 1u;
+        worklist.emplace_back(target_id);
+    }
     for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
         auto block_id = worklist[cursor];
         if (block_id == target_id) { continue; }
@@ -664,83 +913,89 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
             }
         }
     }
+    if (timings != nullptr) {
+        auto now = Clock::now();
+        timings->slice_ms +=
+            std::chrono::duration<double, std::milli>{
+                now - phase_begin}
+                .count();
+        phase_begin = now;
+    }
 
     problem.layout = make_lifetime_fact_layout(atom_indices, region);
     if (problem.layout.fact_count == 0u) { return problem; }
-    problem.events.resize(graph.block_count());
-    for (size_t block_id = 0u;
-         block_id < graph.block_count(); ++block_id) {
-        if (problem.active[block_id] == 0u) { continue; }
-        problem.active_blocks.emplace_back(block_id);
-        auto *block = graph.block(block_id);
-        auto after_lifetime_start = block_id != target_id;
-        auto found_lifetime_start = after_lifetime_start;
-        for (auto *instruction : block->instructions()) {
-            if (!after_lifetime_start) {
-                if (instruction != insertion_instruction) { continue; }
-                after_lifetime_start = true;
-                found_lifetime_start = true;
-            }
-            if (!region.users.contains(instruction)) { continue; }
-            auto &block_events = problem.events[block_id];
-            if (instruction->isa<GEPInst>()) {
-                block_events.emplace_back(LifetimeEvent{
-                    LifetimeEventKind::redefine_pointer, instruction,
-                    instruction});
-                continue;
-            }
-            if (instruction->isa<LoadInst>()) {
-                auto *pointer =
-                    static_cast<LoadInst *>(instruction)->variable();
-                if (!region.pointers.contains(pointer)) { return problem; }
-                block_events.emplace_back(LifetimeEvent{
-                    LifetimeEventKind::read, pointer, instruction});
-                continue;
-            }
-            if (instruction->isa<StoreInst>()) {
-                auto *pointer =
-                    static_cast<StoreInst *>(instruction)->variable();
-                if (!region.pointers.contains(pointer)) { return problem; }
-                block_events.emplace_back(LifetimeEvent{
-                    LifetimeEventKind::store, pointer, instruction});
-                continue;
-            }
-            if (instruction->isa<CallInst>()) {
-                if (!append_call_lifetime_events(
-                        static_cast<CallInst *>(instruction), region,
-                        reference_effects, problem.events[block_id])) {
-                    return problem;
-                }
-                continue;
-            }
-            if (instruction->isa<RayQueryPipelineInst>()) {
-                if (!append_ray_query_pipeline_lifetime_events(
-                        static_cast<RayQueryPipelineInst *>(instruction),
-                        region, reference_effects,
-                        problem.events[block_id])) {
-                    return problem;
-                }
-                continue;
-            }
-            auto found_pointer_operand = false;
-            luisa::unordered_set<Value *> seen_pointers;
-            for (auto *operand_use : instruction->operand_uses()) {
-                auto *pointer =
-                    operand_use == nullptr ? nullptr : operand_use->value();
-                if (!region.pointers.contains(pointer) ||
-                    !seen_pointers.emplace(pointer).second) {
-                    continue;
-                }
-                found_pointer_operand = true;
-                // Atomics and unknown pointer operations may observe the old
-                // value before any possible write. Ordinary reference calls
-                // are handled above by their field-sensitive callee summary.
-                block_events.emplace_back(LifetimeEvent{
-                    LifetimeEventKind::read, pointer, instruction});
-            }
-            if (!found_pointer_operand) { return problem; }
+    // The fixed-point equations are order independent. Sort the sparse
+    // reverse slice by semantic block id to retain the previous deterministic
+    // traversal order without materializing one empty vector per CFG block.
+    std::sort(worklist.begin(), worklist.end());
+    problem.active_blocks = std::move(worklist);
+    problem.events.resize(problem.active_blocks.size());
+    if (timings != nullptr) {
+        auto now = Clock::now();
+        timings->layout_ms +=
+            std::chrono::duration<double, std::milli>{
+                now - phase_begin}
+                .count();
+        phase_begin = now;
+    }
+    auto insertion_iter = instruction_locations.find(
+        insertion_instruction);
+    if (insertion_iter == instruction_locations.end() ||
+        insertion_iter->second.block_id != target_id) {
+        return problem;
+    }
+    luisa::vector<OrderedLifetimeUser> ordered_users;
+    auto event_order_elapsed = 0.0;
+    ordered_users.reserve(region.users.size());
+    for (auto *instruction : region.users) {
+        auto iter = instruction_locations.find(instruction);
+        if (iter == instruction_locations.end()) { return problem; }
+        ordered_users.emplace_back(
+            OrderedLifetimeUser{instruction, iter->second});
+    }
+    std::sort(
+        ordered_users.begin(), ordered_users.end(),
+        [](auto lhs, auto rhs) noexcept {
+            return lhs.location.block_id < rhs.location.block_id ||
+                   (lhs.location.block_id == rhs.location.block_id &&
+                    lhs.location.ordinal < rhs.location.ordinal);
+        });
+    if (timings != nullptr) {
+        auto now = Clock::now();
+        event_order_elapsed =
+            std::chrono::duration<double, std::milli>{
+                now - phase_begin}
+                .count();
+        timings->event_order_ms += event_order_elapsed;
+        phase_begin = now;
+    }
+    for (auto user : ordered_users) {
+        if (user.location.block_id == target_id &&
+            user.location.ordinal < insertion_iter->second.ordinal) {
+            return problem;
         }
-        if (!found_lifetime_start) { return problem; }
+        auto block_iter = std::lower_bound(
+            problem.active_blocks.begin(),
+            problem.active_blocks.end(),
+            user.location.block_id);
+        if (block_iter == problem.active_blocks.end() ||
+            *block_iter != user.location.block_id) {
+            return problem;
+        }
+        auto active_index = static_cast<size_t>(
+            block_iter - problem.active_blocks.begin());
+        if (!append_instruction_lifetime_events(
+                user.instruction, region, reference_effects,
+                problem.events[active_index])) {
+            return problem;
+        }
+    }
+    if (timings != nullptr) {
+        auto elapsed = std::chrono::duration<double, std::milli>{
+            Clock::now() - phase_begin}
+                           .count();
+        timings->event_transfer_ms += elapsed;
+        timings->events_ms += event_order_elapsed + elapsed;
     }
     problem.valid = true;
     return problem;
@@ -759,7 +1014,9 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
         problem.layout.fact_count, uint8_t{0u});
     luisa::vector<LifetimeFactState> in_states(graph.block_count());
     luisa::vector<LifetimeFactState> out_states(graph.block_count());
-    for (auto block_id : problem.active_blocks) {
+    for (size_t active_index = 0u;
+         active_index < problem.active_blocks.size(); ++active_index) {
+        auto block_id = problem.active_blocks[active_index];
         in_states[block_id] = top;
         out_states[block_id] = top;
     }
@@ -772,7 +1029,9 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
     // finite and no traversal order can invent a definite initialization.
     for (;;) {
         auto changed = false;
-        for (auto block_id : problem.active_blocks) {
+        for (size_t active_index = 0u;
+             active_index < problem.active_blocks.size(); ++active_index) {
+            auto block_id = problem.active_blocks[active_index];
             ++result.block_evaluation_count;
             LifetimeFactState next_in;
             if (block_id == problem.target_id) {
@@ -797,7 +1056,7 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
             }
             auto next_out = next_in;
             static_cast<void>(apply_lifetime_events(
-                problem.events[block_id], next_out,
+                problem.events[active_index], next_out,
                 problem.layout, domain, false));
             if (in_states[block_id] != next_in ||
                 out_states[block_id] != next_out) {
@@ -809,10 +1068,12 @@ void define_pointer(Value *pointer, LifetimeFactState &state,
         if (!changed) { break; }
     }
 
-    for (auto block_id : problem.active_blocks) {
+    for (size_t active_index = 0u;
+         active_index < problem.active_blocks.size(); ++active_index) {
+        auto block_id = problem.active_blocks[active_index];
         auto state = in_states[block_id];
         if (!apply_lifetime_events(
-                problem.events[block_id], state,
+                problem.events[active_index], state,
                 problem.layout, domain, true,
                 &result.failing_read)) {
             return result;
@@ -951,14 +1212,16 @@ make_guarded_transfer_events(
     const CoroSemanticGraph &graph,
     const CoroPredicateAnalysis &predicates) noexcept {
     luisa::vector<luisa::vector<GuardedTransferEvent>> transfers(
-        graph.block_count());
-    for (auto block_id : problem.active_blocks) {
+        problem.active_blocks.size());
+    for (size_t active_index = 0u;
+         active_index < problem.active_blocks.size(); ++active_index) {
+        auto block_id = problem.active_blocks[active_index];
         auto *block = graph.block(block_id);
         auto lifetime_index = size_t{0u};
         auto *first_lifetime_instruction =
-            problem.events[block_id].empty() ?
+            problem.events[active_index].empty() ?
                 nullptr :
-                problem.events[block_id].front().instruction;
+                problem.events[active_index].front().instruction;
         auto active = block_id != problem.target_id ||
                       first_lifetime_instruction == nullptr;
         for (auto *instruction : block->instructions()) {
@@ -970,26 +1233,26 @@ make_guarded_transfer_events(
                 !predicates.killed_predicates(instruction).empty();
             const LifetimeEvent *lifetimes = nullptr;
             auto lifetime_count = size_t{0u};
-            if (lifetime_index < problem.events[block_id].size() &&
-                problem.events[block_id][lifetime_index].instruction ==
+            if (lifetime_index < problem.events[active_index].size() &&
+                problem.events[active_index][lifetime_index].instruction ==
                     instruction) {
-                lifetimes = &problem.events[block_id][lifetime_index];
+                lifetimes = &problem.events[active_index][lifetime_index];
                 do {
                     ++lifetime_index;
                     ++lifetime_count;
                 } while (
-                    lifetime_index < problem.events[block_id].size() &&
-                    problem.events[block_id][lifetime_index].instruction ==
+                    lifetime_index < problem.events[active_index].size() &&
+                    problem.events[active_index][lifetime_index].instruction ==
                         instruction);
             }
             if (has_kills || lifetime_count != 0u) {
-                transfers[block_id].emplace_back(
+                transfers[active_index].emplace_back(
                     GuardedTransferEvent{
                         instruction, lifetimes, lifetime_count});
             }
         }
         LUISA_DEBUG_ASSERT(
-            lifetime_index == problem.events[block_id].size(),
+            lifetime_index == problem.events[active_index].size(),
             "Failed to order lifetime events in their XIR block.");
     }
     return transfers;
@@ -1032,6 +1295,12 @@ make_guarded_transfer_events(
     }
     auto transfers = make_guarded_transfer_events(
         problem, graph, predicates);
+    constexpr auto invalid_active_index = ~size_t{0u};
+    luisa::vector<size_t> active_indices(
+        graph.block_count(), invalid_active_index);
+    for (size_t i = 0u; i < problem.active_blocks.size(); ++i) {
+        active_indices[problem.active_blocks[i]] = i;
+    }
     luisa::vector<luisa::vector<GuardedLifetimeState>>
         in_states(graph.block_count());
     in_states[problem.target_id].emplace_back(
@@ -1048,9 +1317,23 @@ make_guarded_transfer_events(
         auto states = in_states[block_id];
         for (auto state : states) {
             ++result.guarded_state_evaluation_count;
-            static_cast<void>(apply_guarded_transfer(
-                transfers[block_id], state, predicates,
-                problem.layout, domain, false));
+            // The guarded domain is a forward May partition of paths whose
+            // fact component is a Must property. Merging states only
+            // intersects facts, predicate widening only admits more paths,
+            // and no later fixed-point update can turn a missing fact at an
+            // already reached read into a definite fact. Therefore a failed
+            // read is a monotone proof failure and may terminate the analysis
+            // immediately. This is not a concrete counterexample after
+            // widening, but rejecting the contraction remains conservative.
+            // Deferring the check until convergence needlessly explores the
+            // complete downstream predicate product for known-bad lifetimes.
+            if (!apply_guarded_transfer(
+                    transfers[active_indices[block_id]], state, predicates,
+                    problem.layout, domain, true,
+                    &result.failing_read)) {
+                result.failing_predicate_count = state.cube.size();
+                return result;
+            }
             for (auto successor : graph.successors(block_id)) {
                 if (successor == problem.target_id ||
                     problem.active[successor] == 0u) {
@@ -1074,10 +1357,12 @@ make_guarded_transfer_events(
         }
     }
 
-    for (auto block_id : problem.active_blocks) {
+    for (size_t active_index = 0u;
+         active_index < problem.active_blocks.size(); ++active_index) {
+        auto block_id = problem.active_blocks[active_index];
         for (auto state : in_states[block_id]) {
             if (!apply_guarded_transfer(
-                    transfers[block_id], state, predicates,
+                    transfers[active_index], state, predicates,
                     problem.layout, domain, true,
                     &result.failing_read)) {
                 result.failing_predicate_count =
@@ -1097,15 +1382,40 @@ make_guarded_transfer_events(
     const CoroFrameAtomDomain &domain,
     const CoroPredicateAnalysis &predicates,
     ReferenceArgumentEffectAnalysis &reference_effects,
-    luisa::span<const size_t> atom_indices) noexcept {
+    const InstructionLocationMap &instruction_locations,
+    luisa::span<const size_t> atom_indices,
+    LifetimeProofTimings *timings) noexcept {
+    using Clock = std::chrono::steady_clock;
+    auto begin = timings == nullptr ?
+                     Clock::time_point{} :
+                     Clock::now();
     auto problem = make_lifetime_proof_problem(
         target, insertion_instruction, region, graph,
-        domain, reference_effects, atom_indices);
+        domain, reference_effects, instruction_locations,
+        atom_indices, timings);
+    if (timings != nullptr) {
+        auto now = Clock::now();
+        timings->problem_ms +=
+            std::chrono::duration<double, std::milli>{now - begin}.count();
+        begin = now;
+    }
     auto unconditional = prove_unconditional_fresh_lifetime(
         problem, graph, domain);
+    if (timings != nullptr) {
+        auto now = Clock::now();
+        timings->unconditional_ms +=
+            std::chrono::duration<double, std::milli>{now - begin}.count();
+        begin = now;
+    }
     if (unconditional.succeeded) { return unconditional; }
     auto guarded = prove_guarded_fresh_lifetime(
         problem, graph, domain, predicates);
+    if (timings != nullptr) {
+        timings->guarded_ms +=
+            std::chrono::duration<double, std::milli>{
+                Clock::now() - begin}
+                .count();
+    }
     guarded.block_evaluation_count =
         unconditional.block_evaluation_count;
     return guarded;
@@ -1116,7 +1426,8 @@ make_guarded_transfer_events(
 }// namespace detail
 
 CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
-    Function *function) noexcept {
+    Function *function,
+    const CoroAllocaScopeOptions &options) noexcept {
     CoroAllocaScopeInfo info;
     auto *definition =
         function == nullptr ? nullptr : function->definition();
@@ -1132,6 +1443,8 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     info.semantic_edge_count = graph.edge_count();
     detail::CoroPredicateAnalysis predicates{graph};
     detail::ReferenceArgumentEffectAnalysis reference_effects;
+    auto instruction_locations =
+        detail::make_instruction_locations(definition, graph);
     const auto dump_scope_rejections = []() noexcept {
         if (auto value = std::getenv(
                 "LUISA_CORO_DUMP_ALLOCA_SCOPE")) {
@@ -1139,6 +1452,34 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
         }
         return false;
     }();
+    const auto profile_compilation = []() noexcept {
+        if (auto value = std::getenv(
+                "LUISA_CORO_PROFILE_COMPILATION")) {
+            return luisa::string_view{value} == "1";
+        }
+        return false;
+    }();
+    using ProfileClock = std::chrono::steady_clock;
+    using ProfileTick = ProfileClock::time_point;
+    const auto profile_begin = [profile_compilation]() noexcept {
+        return profile_compilation ?
+                   ProfileClock::now() :
+                   ProfileTick{};
+    };
+    const auto profile_elapsed_ms =
+        [profile_compilation](ProfileTick begin) noexcept {
+            return profile_compilation ?
+                       std::chrono::duration<double, std::milli>{
+                           ProfileClock::now() - begin}
+                           .count() :
+                       0.0;
+        };
+    auto collect_region_ms = 0.0;
+    auto first_definition_ms = 0.0;
+    auto placement_ms = 0.0;
+    auto proof_ms = 0.0;
+    auto mutation_ms = 0.0;
+    detail::LifetimeProofTimings proof_timings;
 
     // Reuse the same type-shaped May/Must partition as coroutine liveness.
     // The definite-initialization proof and the eventual frame transfer must
@@ -1166,8 +1507,10 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
 
     for (auto *alloca : allocas) {
         ++info.scanned_local_alloca_count;
+        auto phase_begin = profile_begin();
         auto region = detail::collect_alloca_use_region(
             alloca, definition, graph);
+        collect_region_ms += profile_elapsed_ms(phase_begin);
         if (!region.valid) {
             ++info.rejected_unreachable_use_count;
             continue;
@@ -1178,13 +1521,20 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
         }
         if (region.blocks.empty()) { continue; }
 
-        if (auto first_definition =
-                detail::plan_first_definition_delay(
-                    alloca, region, graph);
-            first_definition.definition != nullptr) {
+        phase_begin = profile_begin();
+        auto first_definition =
+            detail::plan_first_definition_delay(
+                alloca, region, graph, instruction_locations,
+                options.verify_instruction_order,
+                info.instruction_order_query_count,
+                info.placement_user_inspection_count);
+        first_definition_ms += profile_elapsed_ms(phase_begin);
+        if (first_definition.definition != nullptr) {
             auto *source = alloca->parent_block();
+            phase_begin = profile_begin();
             detail::apply_first_definition_plan(
                 alloca, first_definition);
+            mutation_ms += profile_elapsed_ms(phase_begin);
             ++info.contracted_alloca_count;
             ++info.delayed_first_definition_count;
             if (source == first_definition.target) {
@@ -1197,6 +1547,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             continue;
         }
 
+        phase_begin = profile_begin();
         auto *target = graph.nearest_common_dominator(
             luisa::span{region.blocks});
         auto *source = alloca->parent_block();
@@ -1206,7 +1557,12 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             continue;
         }
         auto insertion = detail::find_latest_insertion_point(
-            target, alloca, region.users);
+            target, alloca, region.users,
+            instruction_locations,
+            options.verify_instruction_order,
+            info.instruction_order_query_count,
+            info.placement_user_inspection_count);
+        placement_ms += profile_elapsed_ms(phase_begin);
         if (insertion.instruction == nullptr) {
             ++info.rejected_unreachable_use_count;
             continue;
@@ -1223,16 +1579,38 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                                     luisa::span<const size_t>{} :
                                     luisa::span<const size_t>{
                                         atom_iter->second};
+            phase_begin = profile_begin();
             auto proof = detail::prove_fresh_lifetime(
                 target, insertion.instruction, region, graph,
                 frame_domain, predicates, reference_effects,
-                atom_indices);
+                instruction_locations,
+                atom_indices,
+                profile_compilation ? &proof_timings : nullptr);
+            proof_ms += profile_elapsed_ms(phase_begin);
             info.definite_initialization_block_evaluation_count +=
                 proof.block_evaluation_count;
             info.guarded_initialization_state_evaluation_count +=
                 proof.guarded_state_evaluation_count;
             info.predicate_widening_count +=
                 proof.predicate_widening_count;
+            if (!proof.succeeded) {
+                phase_begin = profile_begin();
+                auto prefix_proof = detail::
+                    prove_initialized_prefix_fresh_lifetime(
+                        alloca, target, insertion.instruction,
+                        graph, frame_domain);
+                proof_ms += profile_elapsed_ms(phase_begin);
+                info.initialized_prefix_block_evaluation_count +=
+                    prefix_proof.block_evaluation_count;
+                if (prefix_proof.succeeded) {
+                    proof.succeeded = true;
+                    proof.guarded = false;
+                    proof.failing_read = nullptr;
+                    ++info.initialized_prefix_proof_count;
+                } else if (prefix_proof.failing_read != nullptr) {
+                    proof.failing_read = prefix_proof.failing_read;
+                }
+            }
             if (!proof.succeeded) {
                 if (dump_scope_rejections) {
                     const auto alloca_name =
@@ -1278,17 +1656,41 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             }
         }
 
+        phase_begin = profile_begin();
         auto owned = alloca->remove_self();
         auto *moved = insertion.instruction->insert_before_self(
             std::move(owned));
         LUISA_DEBUG_ASSERT(moved == alloca,
                            "Alloca scope contraction changed identity.");
+        mutation_ms += profile_elapsed_ms(phase_begin);
         ++info.contracted_alloca_count;
         if (source == target) {
             ++info.intra_block_contraction_count;
         } else {
             ++info.cross_block_contraction_count;
         }
+    }
+    if (profile_compilation) {
+        LUISA_INFO(
+            "Coroutine alloca lifetime timing: region={:.3f} ms "
+            "first_definition={:.3f} ms placement={:.3f} ms "
+            "order_queries={} user_inspections={} "
+            "proof={:.3f} ms (problem={:.3f} ms: slice={:.3f} ms "
+            "layout={:.3f} ms events={:.3f} ms (order={:.3f} ms "
+            "transfer={:.3f} ms, reference_effects={} functions/{:.3f} ms); "
+            "unconditional={:.3f} ms "
+            "guarded={:.3f} ms) mutation={:.3f} ms.",
+            collect_region_ms, first_definition_ms, placement_ms,
+            info.instruction_order_query_count,
+            info.placement_user_inspection_count,
+            proof_ms, proof_timings.problem_ms, proof_timings.slice_ms,
+            proof_timings.layout_ms, proof_timings.events_ms,
+            proof_timings.event_order_ms,
+            proof_timings.event_transfer_ms,
+            reference_effects.analysis_count(),
+            reference_effects.analysis_ms(),
+            proof_timings.unconditional_ms, proof_timings.guarded_ms,
+            mutation_ms);
     }
     return info;
 }

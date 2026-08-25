@@ -881,3 +881,71 @@ Classify each branch by *how often it runs at runtime*, then hint accordingly:
 2. For each `if`/`else`, ask: *“which side runs almost always / almost never?”*
 3. Annotate only branches with a clear answer; leave the rest untouched.
 4. Verify syntax with the project checker: `python scripts/check_cpp_syntax.py <file>` (C++20 is the default; these attributes compile on all supported toolchains).
+
+---
+
+## 10. Codegen / Kernel-Lowering-Time Optimizations
+
+Sections 1–9 optimize hand-written kernels. When you instead write or optimize **kernel-generating code** (a lowering pass, a DSL emitter, or host code that builds kernels from an IR), a different class of opportunities appears: the generator runs on the host and knows things the device compiler cannot (compile-time extents, divisibility, launch shape). Exploit that knowledge; the device binary should contain only work that is genuinely runtime-dependent.
+
+### 10.1 Audit for replicated work first
+
+The most pathological slowdowns come from **each thread redundantly doing the whole tile's work** instead of a partitioned slice:
+
+- Any per-thread data structure (register array, local array) that is *materialized in full by every thread* but only *consumed per-element* multiplies cost by the block size. Either partition the producer loop across threads, or back the structure with a single block-shared array so each element is computed once.
+- A useful smell test: if a loop's trip count is the *tile size* but the block has *many threads*, ask who consumes each element. If consumers only read their own slice, the producer must be partitioned too.
+- Eliminating replicated work is routinely worth more than every arithmetic micro-optimization combined (order-of-magnitude, not percent).
+
+### 10.2 Defer stores: lazy expression evaluation
+
+When the IR describes "tile B = f(tile A)" and B is only read elementwise later, the generator can **record the expression and re-evaluate it at each read site** instead of materializing B. Rules:
+
+- Only safe when the value is a pure function of its inputs (no intervening mutation) and the read pattern matches the producer's indexing.
+- Keep a **re-entrancy guard**: self-referential statements (`x = f(x)`) must read the *old* materialized value, not recurse into the lazy one.
+- **Invalidate** the lazy entry on every later mutation of the same tile (clear, fill, copy-into, accumulate). Miss one invalidation site and you get silent stale data — enumerate every writer before enabling laziness.
+
+### 10.3 Full/tail loop splitting and guard elision
+
+Partitioned loops usually carry a bounds guard (`if (idx < total)`) that is false in at most the last iteration. The generator should:
+
+- Emit **unguarded full chunks** plus **one guarded tail chunk**; the tail is a uniform branch, not a per-element predicate.
+- When extents and block/warp size are host-known, prove `total % stride == 0` at generation time and **omit the tail entirely** — same for per-lane guards in warp-strided loops (`k < K` vanishes when `K % lanes == 0`).
+- Apply the same elision to identity-initialization of accumulators: if the guard is gone, the "else: identity" path is gone too.
+- Never elide based on the *runtime* warp size unless it was pinned with `set_warp_size`; eliding against a fixed host constant is only sound because warp sizes are powers of two within the DSL's contract.
+
+### 10.4 Memory-level parallelism in generated copy loops
+
+A naive generated copy loop alternates dependent `global load → shared store` per element, so each element pays full memory latency and the loop is latency-bound. Restructure into **batched chunks**: load K elements into locals (K independent loads in flight), then store all K. Choose K = 4–8; partition the chunk grid across threads (guard when `chunk_count % threads != 0`). This is the single biggest fix for copy-dominated kernels and applies to any generated gather/scatter loop, not just copies.
+
+### 10.5 Accumulation into per-thread state across a device loop
+
+When a device `$for` loop body accumulates into per-thread registers, remember the body is **emitted once on the host**: any storage decision (local array vs shared backing vs lazy value) is baked at emission time and applies to every iteration. Consequences:
+
+- Tricks that change *where* a value lives between iterations (e.g. publish to shared, read back next iteration) cannot be expressed by rebinding host-side handles — they silently bind to the emission-time storage and lose accumulation.
+- If per-thread register replicas force an expensive re-synchronization per loop iteration (broadcast + refill), consider **promoting the accumulator to shared-backed storage** so the loop body reads/writes each element exactly once. Weigh the added shared-memory budget against the eliminated per-iteration round trip.
+
+### 10.6 Strength-reduce generated address math
+
+Per-element index computation (div/mod decompositions, stride multiplies) is invisible in the source but dominates generated inner loops:
+
+- Decompose multi-dimensional coordinates **once per thread** (from the linear thread id), then stride both axes — never per element.
+- Hoist loop-invariant base addresses (block offsets, row bases) out of the `$for`; a codegen bug where an outer-loop induction variable leaks into a hoisted offset silently scatters all writes.
+- Unroll inner loops by a small host-known factor (`k_pack` = 4–8) when the trip count divides evenly; unrolled iterations need no guards.
+
+### 10.7 Barriers in generated code
+
+- Keep the conservative rule: `sync_block()` after shared stores before any cross-thread read, and **never inside a `thread_id`-divergent branch**.
+- Elision is only safe with a precise hazard analysis (which statements write shared, which read it, who publishes what); historically such elision yields ~nothing in single-warp blocks where barriers are nearly free — prefer correctness.
+- In single-warp blocks, warp collectives replace shared staging entirely and remove the barrier question (section 3.7).
+
+### 10.8 Host emission hygiene
+
+- `[[likely]]`/`[[unlikely]]` on the *host-side* emission branches (section 9) is free and appropriate: common shapes (fragment dest, rank-2 tile) are strongly skewed.
+- Small per-dispatch kernels (< 0.2 ms) are dominated by fixed launch overheads and measurement noise (±50% run-to-run is normal); evaluate them with min-of-N runs and distrust single-run deltas. Large kernels are stable within ~5%.
+- A structural fix (replication removal, MLP batching, guard elision) beats micro-tuning of tile sizes; once the structure is right, tile-size parameters usually stop mattering.
+
+### 10.9 Verification discipline for lowering changes
+
+- Always gate on an **end-to-end correctness check against a host reference**, per kernel, after every change — lowering bugs produce plausible-but-wrong numbers far more often than crashes.
+- Exercise **ragged extents** (sizes not divisible by the block/warp/segment size): guard-elision and segment-bound bugs hide behind evenly-dividing test sizes. Ragged segment boundaries are a classic source of cross-thread races (one thread writes into a neighbor's region).
+- Revert-fast: keep each transformation independently toggleable during development; a change that regresses or breaks one kernel shape gets reverted, not patched over.

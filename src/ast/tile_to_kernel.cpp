@@ -737,6 +737,7 @@ barriers/atomics where TileLang's passes would inject them).
 #include <luisa/ast/expression.h>
 #include <luisa/ast/op.h>
 #include <luisa/ast/type.h>
+#include <luisa/dsl/syntax.h>// DSL writing: Expr/Var sugar, if_/dynamic_range, builtins
 
 #include <algorithm>
 #include <array>
@@ -749,6 +750,33 @@ namespace {
 
 using detail::FunctionBuilder;
 using detail::TileFunctionBuilder;
+
+// ---------------------------------------------------------------------------
+// DSL type dispatch
+// ---------------------------------------------------------------------------
+// The tile IR carries the element dtype as a runtime tag (TensorElementType),
+// while the Luisa DSL expressions (Expr<T>/Var<T>) are typed at compile time.
+// `with_elem_type` instantiates the passed template lambda for the concrete
+// C++ element type so the element-level code can be written in the DSL sugar
+// (Expr<T> operators, max/min/abs/rsqrt, warp_* intrinsics, cast, ...) instead
+// of raw FunctionBuilder::binary/call calls.  FP8 has no C++ scalar type in
+// the core (it is created via Type::from("float8e4m3")), so FP8 stays on the
+// dtype-erased raw path (see _value_at/_write_to).
+template<typename F>
+[[nodiscard]] static decltype(auto) with_elem_type(TensorElementType e, F &&f) {
+    switch (e) {
+        case TensorElementType::F16: return std::forward<F>(f).template operator()<half>();
+        case TensorElementType::F32: return std::forward<F>(f).template operator()<float>();
+        case TensorElementType::I32: return std::forward<F>(f).template operator()<int>();
+        case TensorElementType::I8: return std::forward<F>(f).template operator()<byte>();
+        case TensorElementType::FP8:
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: fp8 has no C++ scalar type; use the raw "
+                "dtype-erased access path instead of with_elem_type.");
+    }
+    LUISA_ERROR_WITH_LOCATION("Unsupported tensor element type {}.",
+                              static_cast<uint32_t>(e));
+}
 
 // ---------------------------------------------------------------------------
 // dtype / layout helpers (R1 tags of <luisa/ast/tensor.h>)
@@ -821,6 +849,7 @@ struct Layout {
         return scope == o.scope && dtype == o.dtype && dims == o.dims;
     }
 };
+// TODO implement a LayoutHash class, compute Layout hash use luisa::hash
 
 // ---------------------------------------------------------------------------
 // The lowering engine
@@ -885,6 +914,15 @@ public:
                 // size (1 when batching is disabled).
                 builder->set_block_size(uint3{meta.block_size[0], meta.block_size[1], _batch_block_z});
                 if (_batching) { _emit_batch_prologue(); }
+                _prescan_gemm_fragments(tile_fn->body()->statements());
+                // F1 (perf_report): small fragments used by elementwise
+                // statements are forced onto the block-shared backing so the
+                // statements partition across threads instead of the
+                // replicated-per-thread full-loop pathology.
+                _prescan_elementwise_fragments(tile_fn->body()->statements());
+                // F2: reduce-input copy elision (must run after the shared-
+                // backing decisions above are final).
+                _prescan_reduce_elision(tile_fn->body()->statements());
                 _emit_all(tile_fn->body()->statements());
             });
         }
@@ -960,6 +998,53 @@ private:
       // shared staging tiles backing block-partitioned fragment producers
       luisa::unordered_map<const TensorExpr *, const RefExpr *> _fragment_staging;
 
+      // GEMM-accumulator fragments forced to a block-shared backing by
+      // _prescan_gemm_fragments (matched by name first, layout as fallback).
+      luisa::unordered_set<luisa::string> _forced_shared_names;
+      luisa::vector<Layout> _forced_shared_layouts;
+
+      // Fragments that MUST keep the per-thread replicated layout (recorded by
+      // _prescan_elementwise_fragments): warp shuffles / warp reduces read the
+      // per-LANE replica (a shared-backed fragment would give every lane the
+      // same element), an ATOMIC value tensor carries a per-thread scalar, and
+      // a GEMM accumulator on the warp-K-split path uses the barrier-free
+      // per-lane replica write-back.  These names/layouts are excluded from
+      // the F1 elementwise forced-shared set (see _prescan_elementwise_fragments).
+      luisa::unordered_set<luisa::string> _replicated_fragment_names;
+      luisa::vector<Layout> _replicated_fragment_layouts; // TODO: change to unordered_set
+
+      // F2 (reduce input copy-elision): fragment tensors whose ONLY producer is
+      // an identity global->fragment copy and whose ONLY consumer is a reduce.
+      // The reduce then reads the global source directly and the producing copy
+      // is skipped entirely (no shared round-trip).  Keyed by the fragment's
+      // alloc name (all statement operands are views sharing that name).
+      luisa::unordered_map<luisa::string, const TensorExpr *> _reduce_elision_src;
+      luisa::unordered_set<const CopyStmt *> _elided_copy_stmts;
+
+      // Lazy fragment values (lc_optimize for the replicated-fragment layout):
+      // a whole-tile STORE into a small per-thread Fragment is recorded as an
+      // expression evaluator keyed by the tensor NAME (operands are clones, so
+      // the pointer-keyed _temps map cannot resolve them) instead of being
+      // materialized into the per-thread local array with a _full_loop (which
+      // would replicate product(extent) local-array writes on EVERY thread).
+      // The consumer (typically a partitioned fragment->global COPY) then
+      // evaluates the expression only for the elements it actually owns.
+      luisa::unordered_map<luisa::string, TempValue> _temps_by_name;
+      // Re-entrancy guard while evaluating a lazy fragment value: a store like
+      // `x = rsqrt(x / N + eps)` reads the PREVIOUS value of x, which lives in
+      // the materialized storage; names in this set skip the lazy lookup so the
+      // read falls through to _try_storage (no infinite recursion, old value).
+      luisa::vector<luisa::string> _lazy_evaluating;
+
+      // Drop the lazy value of a fragment (if any) because a statement
+      // materializes real storage for it (CLEAR/FILL/CLAMP/TRANSPOSE/COPY into
+      // a fragment, a materialized STORE, or a staging replicate).
+      void _invalidate_lazy(const TensorExpr *t) {
+          if (t != nullptr && t->scope() == TensorScope::Fragment && !t->name().empty()) {
+              _temps_by_name.erase(luisa::string{t->name()});
+          }
+      }
+
       // Fragments with at least this many elements are backed by a block-shared
       // array instead of a per-thread local array.  A per-thread local array of
       // that size would spill to local/global memory on the GPU (the dominant
@@ -982,39 +1067,33 @@ private:
     // ---- expression helpers -------------------------------------------------
 
     [[nodiscard]] const Expression *_literal_u(uint32_t v) const noexcept {
-        return _fb->literal(Type::of<uint>(), v);
+        // DSL literal: Expr<uint>{v} traces FunctionBuilder::current()->literal.
+        return Expr<uint>{v}.expression();
     }
 
     [[nodiscard]] Coord _zero_coord() const noexcept {
         return Coord{_literal_u(0u), _literal_u(0u), _literal_u(0u), _literal_u(0u)};
     }
 
-    [[nodiscard]] const Expression *_bin(BinaryOp op, const Expression *l, const Expression *r) const noexcept {
-        return _fb->binary(l->type(), op, l, r);
-    }
-
-    // single-component vector access: swizzle size 1, code = component index
-    // (x = 0, y = 1, ...); matches the DSL thread_id().x / block_id().y sugar.
-    [[nodiscard]] const Expression *_vec_comp(const Expression *v, uint index) const noexcept {
-        return _fb->swizzle(Type::of<uint>(), v, 1u, index);
-    }
-
     void _sync_block() const noexcept {
-        _fb->call(CallOp::SYNCHRONIZE_BLOCK, {});
+        sync_block();
     }
 
     // ---- warp/wave helpers (lc_optimize: warp collectives) -------------------
 
     [[nodiscard]] const Expression *_tid_x() const noexcept {
-        return _vec_comp(_fb->thread_id(), 0u);
+        // Wrap the raw builtin ref so the emitted AST keeps a direct
+        // thread_id() swizzle (the test suite asserts builtin refs, and it
+        // avoids the local-alias Var that the dsl::thread_id() helper creates).
+        return Expr<uint3>{_fb->thread_id()}.x.expression();
     }
 
     [[nodiscard]] const Expression *_lane_count() const noexcept {
-        return _fb->warp_lane_count();
+        return Expr<uint>{_fb->warp_lane_count()}.expression();
     }
 
     [[nodiscard]] const Expression *_lane() const noexcept {
-        return _fb->warp_lane_id();
+        return Expr<uint>{_fb->warp_lane_id()}.expression();
     }
 
     // Flat warp math (decision 5): with batching the block is
@@ -1022,15 +1101,19 @@ private:
     // the flat linear thread index tid_x + tid_z * _threads, so each warp lies
     // entirely inside one batch slice (enforced by the % 64 alignment guard).
     // Disabled batching keeps the legacy _threads-only path bit-identical.
+    //
+    // DSL form (see the pseudo-code in the header plan):
+    //   UInt linear = thread_id().x;
+    //   if (batching) linear += thread_id().z * _threads;
+    //   return linear / warp_lane_count();
     [[nodiscard]] const Expression *_warp_id() const noexcept {
-        auto linear = _tid_x();
+        // Var<uint> accumulator: Expr<uint> is not assignable, and the
+        // initializer keeps the direct thread_id() swizzles in the AST.
+        auto linear = Var<uint>{Expr<uint3>{_fb->thread_id()}.x};
         if (_batching) {
-            auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                  _vec_comp(_fb->thread_id(), 2u),
-                                  _literal_u(_threads));
-            linear = _fb->binary(Type::of<uint>(), BinaryOp::ADD, linear, t1);
+            linear = linear + Expr<uint3>{_fb->thread_id()}.z * _threads;
         }
-        return _fb->binary(Type::of<uint>(), BinaryOp::DIV, linear, _lane_count());
+        return (linear / Expr<uint>{_lane_count()}).expression();
     }
 
     // Warps per batch slice: reduce/scan partition each batch item's output
@@ -1041,8 +1124,7 @@ private:
     // With batching disabled _threads == _block_threads, so this is the legacy
     // `_threads / lanes` count.
     [[nodiscard]] const Expression *_num_warps() const noexcept {
-        return _fb->binary(Type::of<uint>(), BinaryOp::DIV,
-                           _literal_u(_threads), _lane_count());
+        return (Expr<uint>{_threads} / Expr<uint>{_lane_count()}).expression();
     }
 
     // Warp id local to the batch slice: the flat _warp_id ranges over the
@@ -1053,14 +1135,14 @@ private:
     // path, bit-identical kernel).
     [[nodiscard]] const Expression *_slice_warp() const noexcept {
         if (!_batching) [[likely]] { return _warp_id(); }
-        return _fb->binary(Type::of<uint>(), BinaryOp::MOD,
-                           _warp_id(), _num_warps());
+        return (Expr<uint>{_warp_id()} % Expr<uint>{_num_warps()}).expression();
     }
 
     [[nodiscard]] const Expression *_ceildiv_expr(const Expression *a, const Expression *b) const noexcept {
-        auto t = _fb->binary(Type::of<uint>(), BinaryOp::ADD, a, b);
-        t = _fb->binary(Type::of<uint>(), BinaryOp::SUB, t, _literal_u(1u));
-        return _fb->binary(Type::of<uint>(), BinaryOp::DIV, t, b);
+        // DSL: (a + b - 1u) / b
+        auto ae = Expr<uint>{a};
+        auto be = Expr<uint>{b};
+        return ((ae + be - 1u) / be).expression();
     }
 
     // ---- dynamic batching helpers -------------------------------------------
@@ -1167,37 +1249,87 @@ private:
      * touch live data.
      */
     void _emit_batch_prologue() {
-        auto bid_z = _vec_comp(_fb->block_id(), 2u);
-        auto tid_z = _vec_comp(_fb->thread_id(), 2u);
-        auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                              bid_z, _literal_u(_batch_block_z));
-        _batch_index = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, tid_z);
-        auto dsz_z = _vec_comp(_fb->dispatch_size(), 2u);
-        _batch_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                   _batch_index, dsz_z);
+        // DSL form (pseudo-code above):
+        //   UInt batch_index = block_id().z * B_z + thread_id().z;
+        //   Bool batch_valid = batch_index < dispatch_size().z;
+        // The builtin refs are wrapped directly (Expr<uint3>{_fb->...}) so the
+        // AST keeps direct block_id()/thread_id()/dispatch_size() swizzles.
+        auto block_z = Expr<uint3>{_fb->block_id()}.z;
+        auto thread_z = Expr<uint3>{_fb->thread_id()}.z;
+        auto batch_index = block_z * _batch_block_z + thread_z;
+        auto batch_valid = batch_index < Expr<uint3>{_fb->dispatch_size()}.z;
+        _batch_index = batch_index.expression();
+        _batch_valid = batch_valid.expression();
+    }
+
+    // combine step of a TileReduceOp for a compile-time element type T
+    // (DSL form of _reduce_combine; used by the typed warp/scan helpers).
+    template<typename T>
+    [[nodiscard]] static const Expression *_combine_expr(TileReduceOp op,
+                                                        const Expression *acc,
+                                                        const Expression *v) {
+        auto a = Expr<T>{acc};
+        auto b = Expr<T>{v};
+        switch (op) {
+            case TileReduceOp::SUM:
+            case TileReduceOp::ABS_SUM:
+                return (a + b).expression();
+            case TileReduceOp::MAX:
+            case TileReduceOp::ABS_MAX:
+                return max(a, b).expression();
+            case TileReduceOp::MIN:
+                return min(a, b).expression();
+            case TileReduceOp::BIT_AND:
+                if constexpr (std::is_integral_v<T>) { return (a & b).expression(); }
+                break;
+            case TileReduceOp::BIT_OR:
+                if constexpr (std::is_integral_v<T>) { return (a | b).expression(); }
+                break;
+            case TileReduceOp::BIT_XOR:
+                if constexpr (std::is_integral_v<T>) { return (a ^ b).expression(); }
+                break;
+        }
+        LUISA_ERROR_WITH_LOCATION("tile_to_kernel: invalid tile reduce op.");
     }
 
     // all-lane warp reduction matching a TileReduceOp (lc_optimize 2.2/2.5:
-    // XOR butterfly via WARP_READ_LANE; every lane ends with the total).
+    // XOR butterfly via warp_read_lane; every lane ends with the total).
     // ABS_* must be pre-folded per element by the caller.
-    [[nodiscard]] const Expression *_warp_reduce(TileReduceOp op, const Type *elem_t,
-                                                 const Expression *v) {
-        auto lane = _lane();
-        auto lanes = _lane_count();
-        auto result = _fb->local(elem_t);
-        _fb->assign(result, v);
+    //
+    // DSL form:
+    //   UInt lane = warp_lane_id(); UInt lanes = warp_lane_count();
+    //   T result = v;
+    //   for (d = 1, 2, 4, ...) {
+    //       $if (d < lanes) {
+    //           UInt peer = lane ^ d;
+    //           T other = warp_read_lane(result, peer);
+    //           result = combine(op, result, other);
+    //       };
+    //   };
+    template<typename T>
+    [[nodiscard]] const Expression *_warp_reduce_typed(TileReduceOp op,
+                                                       const Expression *v) {
+        auto lane = Expr<uint>{_lane()};
+        auto lanes = Expr<uint>{_lane_count()};
+        auto result = Var<T>{Expr<T>{v}};
         for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
             // warp-uniform guard: skip the steps above the actual warp size
-            auto d_active = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                        _literal_u(d), lanes);
-            _if(d_active, [&] {
-                auto peer = _fb->binary(Type::of<uint>(), BinaryOp::BIT_XOR,
-                                        lane, _literal_u(d));
-                auto other = _fb->call(elem_t, CallOp::WARP_READ_LANE, {result, peer});
-                _fb->assign(result, _reduce_combine(op, elem_t, result, other));
+            if_(Expr<uint>{d} < lanes, [&] {
+                auto peer = lane ^ Expr<uint>{d};
+                auto other = warp_read_lane(result, peer);
+                result = Expr<T>{_combine_expr<T>(op, result.expression(),
+                                                  other.expression())};
             });
         }
-        return result;
+        return result.expression();
+    }
+
+    // combine step of a TileReduceOp: acc <- acc `op` v (runtime-dtype entry)
+    [[nodiscard]] const Expression *_reduce_combine(TileReduceOp op, TensorElementType e,
+                                                    const Expression *acc, const Expression *v) const {
+        return with_elem_type(e, [&]<typename T>() -> const Expression * {
+            return _combine_expr<T>(op, acc, v);
+        });
     }
 
     // ---- fragment staging ------------------------------------------------------
@@ -1223,38 +1355,25 @@ private:
     }
 
     // refresh every thread's fragment replica from the staging tile
-    void _replicate_from_staging(const TensorExpr *t, const Type *elem_t,
+    void _replicate_from_staging(const TensorExpr *t, TensorElementType e,
                                  const RefExpr *staging) {
+        _invalidate_lazy(t);
         _sync_block();
         _full_loop(t, [&](const Coord &c) {
             auto idx = _staging_index(t, c);
-            _write_to(t, c, _fb->access(elem_t, staging, idx));
+            auto value = with_elem_type(e, [&]<typename T>() -> const Expression * {
+                // DSL access: staging[idx] (array element read).  A named
+                // Var<std::array<T,1>> wrapper is required: the rvalue
+                // Expr<std::array<T,1>>{...}[idx] form is rejected for half /
+                // byte (array element must be >= 4-byte aligned) and its
+                // operator[] returns a temporary whose assignment is deleted.
+                Var<std::array<T, 1>> arr{staging};
+                return arr[Expr<uint>{idx}].expression();
+            });
+            _write_to(t, c, value);
         });
     }
 
-    // emit `if (cond) { body() }` (the AST-level equivalent of the DSL $if)
-    template<typename Body>
-    void _if(const Expression *cond, Body &&body) {
-        auto *stmt = _fb->if_(cond);
-        _fb->push_scope(stmt->true_branch());
-        body();
-        _fb->pop_scope(stmt->true_branch());
-    }
-
-    // emit `for (var = begin; var < end; var += step) { body(var) }`
-    // (the AST-level equivalent of the DSL dynamic_range); `var` is a fresh
-    // local created at the current scope, exactly like the DSL loop variable.
-    template<typename Body>
-    void _for_range(const Expression *begin, const Expression *end,
-                    const Expression *step, Body &&body) {
-        auto *var = _fb->local(Type::of<uint>());
-        _fb->assign(var, begin);
-        auto *cond = _fb->binary(Type::of<bool>(), BinaryOp::LESS, var, end);
-        auto *stmt = _fb->for_(var, cond, step);
-        _fb->push_scope(stmt->body());
-        body(var);
-        _fb->pop_scope(stmt->body());
-    }
 
     [[nodiscard]] const Expression *_zero_of(TensorElementType e) const noexcept {
         switch (e) {
@@ -1312,28 +1431,6 @@ private:
             static_cast<uint32_t>(op), tensor_element_type_name(e));
     }
 
-    // combine step of a TileReduceOp: acc <- acc `op` v
-    [[nodiscard]] const Expression *_reduce_combine(TileReduceOp op, const Type *elem_t,
-                                                    const Expression *acc, const Expression *v) const {
-        switch (op) {
-            case TileReduceOp::SUM:
-            case TileReduceOp::ABS_SUM:
-                return _fb->binary(elem_t, BinaryOp::ADD, acc, v);
-            case TileReduceOp::MAX:
-            case TileReduceOp::ABS_MAX:
-                return _fb->call(elem_t, CallOp::MAX, {acc, v});
-            case TileReduceOp::MIN:
-                return _fb->call(elem_t, CallOp::MIN, {acc, v});
-            case TileReduceOp::BIT_AND:
-                return _fb->binary(elem_t, BinaryOp::BIT_AND, acc, v);
-            case TileReduceOp::BIT_OR:
-                return _fb->binary(elem_t, BinaryOp::BIT_OR, acc, v);
-            case TileReduceOp::BIT_XOR:
-                return _fb->binary(elem_t, BinaryOp::BIT_XOR, acc, v);
-        }
-        LUISA_ERROR_WITH_LOCATION("tile_to_kernel: invalid tile reduce op.");
-    }
-
     [[nodiscard]] const Expression *_maybe_cast(const Expression *v, const Type *t) const noexcept {
         return v->type() == t ? v : _fb->cast(t, CastOp::STATIC, v);
     }
@@ -1381,12 +1478,13 @@ private:
     // replicated per thread (each thread already owns its own batch item's
     // tile), so they get no slice.
     [[nodiscard]] const Expression *_local_index(const TensorExpr *t, const Coord &c) {
-        auto idx = _literal_u(0u);
+        // DSL form: row-major linear index inside a shared/fragment tile
+        // (Var<uint> is the assignable DSL accumulator; Expr<uint> cannot be
+        // reassigned).
+        auto idx = Var<uint>{Expr<uint>{0u}};
         uint32_t stride = 1u;
         for (int32_t i = static_cast<int32_t>(t->rank()) - 1; i >= 0; --i) {
-            auto term = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                    c[i], _literal_u(stride));
-            idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, term);
+            idx = idx + Expr<uint>{c[i]} * stride;
             stride *= static_cast<uint32_t>(axis_extent(t, i));
         }
         if (_batching) {
@@ -1394,14 +1492,11 @@ private:
                 auto shared_backed = st->scope == TensorScope::Shared ||
                                      (st->scope == TensorScope::Fragment && st->shared != nullptr);
                 if (shared_backed) {
-                    auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                          _vec_comp(_fb->thread_id(), 2u),
-                                          _literal_u(tile_element_count(t)));
-                    idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, t1);
+                    idx = idx + Expr<uint3>{_fb->thread_id()}.z * tile_element_count(t);
                 }
             }
         }
-        return idx;
+        return idx.expression();
     }
 
     // Staging-tile index for a fragment producer.  The staging tile is
@@ -1410,14 +1505,11 @@ private:
     // tz offset is added here; shared-backed fragments already include it via
     // _local_index (2.5), so they must not be offset twice.
     [[nodiscard]] const Expression *_staging_index(const TensorExpr *t, const Coord &c) {
-        auto idx = _local_index(t, c);
+        auto idx = Var<uint>{Expr<uint>{_local_index(t, c)}};
         if (_batching && !_is_fragment_shared_backed(t)) {
-            auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                  _vec_comp(_fb->thread_id(), 2u),
-                                  _literal_u(tile_element_count(t)));
-            idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, t1);
+            idx = idx + Expr<uint3>{_fb->thread_id()}.z * tile_element_count(t);
         }
-        return idx;
+        return idx.expression();
     }
 
     [[nodiscard]] uint32_t _min_extent_axis(const TensorExpr *t) const noexcept {
@@ -1430,35 +1522,31 @@ private:
         return best_axis;
     }
 
-    // reconstructed global buffer index (plan: base-offset reconstruction)
+    // reconstructed global buffer index (plan: base-offset reconstruction).
+    // DSL form: each per-axis base is built with block_id()/pipeline arithmetic
+    // on Expr<uint>, then summed with row strides exactly like the raw version.
     [[nodiscard]] const Expression *_global_index(const TensorExpr *t, const Coord &c) const {
         auto rank = t->rank();
         auto ext = _current_extent != nullptr ? _current_extent : t;
         auto E = [&](uint32_t i) { return static_cast<uint32_t>(axis_extent(ext, i)); };
         // per-axis runtime base
         auto base_expr = [&](uint32_t i) -> const Expression * {
-            auto b = _literal_u(0u);
+            auto b = Var<uint>{Expr<uint>{0u}};
             auto off = t->offset();
             auto host_off = i < off.size() && off[i] > 0 ? static_cast<uint32_t>(off[i]) : 0u;
             if (_pipeline_var != nullptr && i == _pipeline_axis) {
-                auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                      _pipeline_var, _literal_u(E(i)));
-                b = _fb->binary(Type::of<uint>(), BinaryOp::ADD, b, t1);
+                b = b + Expr<uint>{_pipeline_var} * E(i);
             } else if (_kernel2d) {
-                auto bid = i == 0u ? _vec_comp(_fb->block_id(), 1u)
-                                       : _vec_comp(_fb->block_id(), 0u);
-                auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                      bid, _literal_u(E(i)));
-                b = _fb->binary(Type::of<uint>(), BinaryOp::ADD, b, t1);
+                auto bid = i == 0u ? Expr<uint3>{_fb->block_id()}.y
+                                   : Expr<uint3>{_fb->block_id()}.x;
+                b = b + bid * E(i);
             } else if (i == 0u) {
-                auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                      _vec_comp(_fb->block_id(), 0u), _literal_u(E(i)));
-                b = _fb->binary(Type::of<uint>(), BinaryOp::ADD, b, t1);
+                b = b + Expr<uint3>{_fb->block_id()}.x * E(i);
             }
             if (host_off != 0u) {
-                b = _fb->binary(Type::of<uint>(), BinaryOp::ADD, b, _literal_u(host_off));
+                b = b + Expr<uint>{host_off};
             }
-            return b;
+            return b.expression();
         };
         // per-axis full length (host), used as row stride
         auto full_len = [&](uint32_t i) -> uint32_t {
@@ -1473,57 +1561,97 @@ private:
             for (uint32_t j = i + 1u; j < rank; ++j) { s *= full_len(j); }
             return s;
         };
-        auto idx = _literal_u(0u);
+        auto idx = Var<uint>{Expr<uint>{0u}};
         for (uint32_t i = 0u; i < rank; ++i) {
-            auto base_i = base_expr(i);
-            auto sum = _fb->binary(Type::of<uint>(), BinaryOp::ADD, base_i, c[i]);
-            auto term = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                    sum, _literal_u(row_stride(i)));
-            idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, term);
+            auto base_i = Expr<uint>{base_expr(i)};
+            auto sum = base_i + Expr<uint>{c[i]};
+            auto term = sum * row_stride(i);
+            idx = idx + term;
         }
         if (_batching) {
             // Clamped batch offset: invalid threads (the tail z-block) read
             // batch 0's in-bounds data; every downstream global WRITE is
             // guarded by `_batch_valid`, so those reads are discarded and no
             // out-of-bounds access can happen.
-            auto safe = _fb->call(Type::of<uint>(), CallOp::SELECT,
-                                  {_literal_u(0u), _batch_index, _batch_valid});
+            // DSL: select(0u, batch_index, batch_valid) = batch_valid ? batch_index : 0u
+            auto safe = select(Expr<uint>{0u}, Expr<uint>{_batch_index},
+                               Expr<bool>{_batch_valid});
             auto volume = _tensor_volume(t);
             if (volume != 0u) {
-                auto off = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                       safe, _literal_u(volume));
-                idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, idx, off);
+                idx = idx + safe * volume;
             }
         }
-        return idx;
+        return idx.expression();
     }
 
     // ---- value access --------------------------------------------------------
 
     [[nodiscard]] const Expression *_value_at(const TensorExpr *t, const Coord &c) {
         if (_is_temp(t)) { return _temps[t].eval(c); }
+        // Lazy fragment value (whole-tile STORE into a replicated fragment,
+        // recorded by _emit_store): evaluate the stored expression instead of
+        // reading a materialized local array.  Skipped while that very value
+        // is being evaluated (self-referential stores read the OLD value from
+        // storage via the fall-through below).
+        if (auto name = t->name(); !name.empty()) {
+            luisa::string key{name};
+            auto guarded = std::find(_lazy_evaluating.begin(), _lazy_evaluating.end(), key) != _lazy_evaluating.end();
+            if (!guarded) {
+                if (auto it = _temps_by_name.find(key); it != _temps_by_name.end()) {
+                    _lazy_evaluating.emplace_back(key);
+                    auto *v = it->second.eval(c);
+                    _lazy_evaluating.pop_back();
+                    return v;
+                }
+            }
+        }
         if (auto *st = _try_storage(t)) {
-            auto elem_t = tensor_element_type(st->dtype);
-            switch (st->scope) {
-                case TensorScope::Global: {
-                    auto idx = _global_index(t, c);
-                    return _fb->call(elem_t, CallOp::BUFFER_READ, {st->buffer, idx});
-                }
-                case TensorScope::Shared: {
-                    auto idx = _local_index(t, c);
-                    return _fb->access(elem_t, st->shared, idx);
-                }
-                case TensorScope::Fragment: {
-                    // large fragments are backed by a block-shared array
-                    if (st->shared != nullptr) {
+            // fp8 has no C++ scalar type: keep the dtype-erased raw access
+            // (byte storage + later cast to the fp8 element type).
+            if (st->dtype == TensorElementType::FP8) {
+                auto elem_t = tensor_element_type(st->dtype);
+                switch (st->scope) {
+                    case TensorScope::Global: {
+                        auto idx = _global_index(t, c);
+                        return _fb->call(elem_t, CallOp::BUFFER_READ, {st->buffer, idx});
+                    }
+                    case TensorScope::Shared: {
                         auto idx = _local_index(t, c);
                         return _fb->access(elem_t, st->shared, idx);
                     }
-                    auto idx = _local_index(t, c);
-                    return _fb->access(elem_t, st->fragment, idx);
+                    case TensorScope::Fragment: {
+                        auto idx = _local_index(t, c);
+                        return _fb->access(elem_t, st->shared != nullptr ? st->shared : st->fragment, idx);
+                    }
                 }
+                LUISA_ERROR_WITH_LOCATION("Invalid tensor scope.");
             }
-            LUISA_ERROR_WITH_LOCATION("Invalid tensor scope.");
+            // DSL access: Buffer<T>{ref}.read(idx) / shared_array[idx] /
+            // fragment_array[idx].  Use a named Var<std::array<T,1>> wrapper
+            // for array reads: the rvalue Expr<std::array<T,1>>{...}[idx] form
+            // is rejected for half/byte (array element >= 4-byte alignment).
+            return with_elem_type(st->dtype, [&]<typename T>() -> const Expression * {
+                switch (st->scope) {
+                    case TensorScope::Global: {
+                        auto idx = Expr<uint>{_global_index(t, c)};
+                        return Expr<Buffer<T>>{st->buffer}.read(idx).expression();
+                    }
+                    case TensorScope::Shared: {
+                        auto idx = Expr<uint>{_local_index(t, c)};
+                        Var<std::array<T, 1>> arr{st->shared};
+                        return arr[idx].expression();
+                    }
+                    case TensorScope::Fragment: {
+                        // large fragments are backed by a block-shared array
+                        auto idx = Expr<uint>{_local_index(t, c)};
+                        auto ref = st->shared != nullptr ? st->shared : st->fragment;
+                        Var<std::array<T, 1>> arr{ref};
+                        return arr[idx].expression();
+                    }
+                }
+                LUISA_ERROR_WITH_LOCATION("Invalid tensor scope.");
+                return nullptr;
+            });
         }
         LUISA_ERROR_WITH_LOCATION(
             "Tile lowering: a statement references a value temporary that was "
@@ -1535,52 +1663,75 @@ private:
         auto &st = _storage_for(t);
         auto elem_t = tensor_element_type(st.dtype);
         value = _maybe_cast(value, elem_t);
-        switch (st.scope) {
-            case TensorScope::Global: {
-                auto idx = _global_index(t, c);
-                // Guard every global write with the batch-validity predicate
-                // (decision 4): idle tz threads in the tail z-block must not
-                // write; the guard sits inside the existing element guards and
-                // contains no barrier, so it is divergence-safe.  Global reads
-                // are intentionally unguarded (clamped index, values discarded).
-                if (_batching) {
-                    _if(_batch_valid, [&] {
+        if (st.dtype == TensorElementType::FP8) {
+            // dtype-erased raw path (fp8 has no C++ scalar type)
+            switch (st.scope) {
+                case TensorScope::Global: {
+                    auto idx = _global_index(t, c);
+                    if (_batching) {
+                        if_(Expr<bool>{_batch_valid}, [&] { _fb->call(CallOp::BUFFER_WRITE, {st.buffer, idx, value}); });
+                    } else {
                         _fb->call(CallOp::BUFFER_WRITE, {st.buffer, idx, value});
-                    });
-                } else {
-                    _fb->call(CallOp::BUFFER_WRITE, {st.buffer, idx, value});
+                    }
+                    break;
                 }
-                break;
-            }
-            case TensorScope::Shared: {
-                auto idx = _local_index(t, c);
-                _fb->assign(_fb->access(elem_t, st.shared, idx), value);
-                break;
-            }
-            case TensorScope::Fragment: {
-                // large fragments are backed by a block-shared array
-                if (st.shared != nullptr) {
+                case TensorScope::Shared: {
                     auto idx = _local_index(t, c);
                     _fb->assign(_fb->access(elem_t, st.shared, idx), value);
                     break;
                 }
-                auto idx = _local_index(t, c);
-                _fb->assign(_fb->access(elem_t, st.fragment, idx), value);
-                break;
+                case TensorScope::Fragment: {
+                    auto idx = _local_index(t, c);
+                    _fb->assign(_fb->access(elem_t, st.shared != nullptr ? st.shared : st.fragment, idx), value);
+                    break;
+                }
             }
+            return;
         }
+        with_elem_type(st.dtype, [&]<typename T>() {
+            auto v = Expr<T>{value};
+            switch (st.scope) {
+                case TensorScope::Global: {
+                    auto idx = Expr<uint>{_global_index(t, c)};
+                    // Guard every global write with the batch-validity predicate
+                    // (decision 4): idle tz threads in the tail z-block must not
+                    // write; the guard sits inside the existing element guards and
+                    // contains no barrier, so it is divergence-safe.  Global reads
+                    // are intentionally unguarded (clamped index, values discarded).
+                    auto write = [&] { Expr<Buffer<T>>{st.buffer}.write(idx, v); };
+                    if (_batching) { if_(Expr<bool>{_batch_valid}, write); } else { write(); }
+                    break;
+                }
+                case TensorScope::Shared: {
+                    auto idx = Expr<uint>{_local_index(t, c)};
+                    Var<std::array<T, 1>> arr{st.shared};
+                    arr[idx] = v;
+                    break;
+                }
+                case TensorScope::Fragment: {
+                    // large fragments are backed by a block-shared array
+                    auto idx = Expr<uint>{_local_index(t, c)};
+                    auto ref = st.shared != nullptr ? st.shared : st.fragment;
+                    Var<std::array<T, 1>> arr{ref};
+                    arr[idx] = v;
+                    break;
+                }
+            }
+        });
     }
 
     [[nodiscard]] Coord _decompose(const TensorExpr *t, const Expression *idx) const {
+        // DSL form: row-major linear index -> per-axis coords with % and /
+        // (Var<uint> is the assignable DSL accumulator).  This is the standard
+        // decomposition: c[i] = rem % extent_i; rem = rem / extent_i, walking
+        // the axes from the fastest (last) to the slowest (first).
         auto c = _zero_coord();
-        uint32_t stride = 1u;
+        auto rem = Var<uint>{Expr<uint>{idx}};
         for (int32_t i = static_cast<int32_t>(t->rank()) - 1; i >= 0; --i) {
-            auto div = _fb->binary(Type::of<uint>(), BinaryOp::DIV,
-                                   idx, _literal_u(stride));
-            auto rem = _fb->binary(Type::of<uint>(), BinaryOp::MOD,
-                                   div, _literal_u(static_cast<uint32_t>(axis_extent(t, i))));
-            c[i] = rem;
-            stride *= static_cast<uint32_t>(axis_extent(t, i));
+            auto e = static_cast<uint32_t>(axis_extent(t, i));
+            auto coord = rem % e;
+            c[i] = coord.expression();
+            rem = rem / e;
         }
         return c;
     }
@@ -1592,24 +1743,76 @@ private:
     // (plan 1.3: removes the per-element div/mod for rank-2 tiles.)
     template<typename Body>
     void _partition_2d(uint32_t rows, uint32_t cols, Body &&body) {
-        auto tid = _tid_x();
+        // Exact-coverage condition (perf_report F2): the 2D strided partition
+        // below covers every cell iff cols >= threads (the fast axis dominates
+        // and every column is reached by the tid-strided c loop) or
+        // threads % cols == 0 (every row-group has the full column-thread
+        // complement).  When cols < threads and threads % cols != 0, the last
+        // row-group runs out of threads before the last columns and whole
+        // columns of some rows are silently never processed — e.g. a 72x72
+        // tile with 256 threads (tw = 72, th = 4): threads 216-255 map to
+        // row 3 with columns 0-39 only, so rows == 3 (mod 4) lose their last
+        // 32 columns.  Fall back to a flattened linear partition in that case:
+        //   UInt idx = i * threads + thread_id().x;  // row-major decompose
+        // which assigns every cell exactly once and stays coalesced along the
+        // fast axis (consecutive threads -> consecutive linear indices).
+        if (cols < _threads && _threads % cols != 0u) [[unlikely]] {
+            auto total = rows * cols;
+            auto iters = (total + _threads - 1u) / _threads;
+            auto tid = Expr<uint3>{_fb->thread_id()}.x;
+            auto emit_one = [&](const Expression *idx) {
+                // row-major decompose over (rows, cols): c = idx % cols,
+                // r = idx / cols (r < rows is implied by idx < rows*cols).
+                auto rem = Var<uint>{Expr<uint>{idx}};
+                auto c = (rem % cols).expression();
+                rem = rem / cols;
+                body(rem.expression(), c);
+            };
+            if (total % _threads != 0u) [[unlikely]] {
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(iters)}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *i) {
+                        auto idx = (Expr<uint>{i} * _threads + tid).expression();
+                        auto cond = (Expr<uint>{idx} < total).expression();
+                        if_(Expr<bool>{cond}, [&] { emit_one(idx); });
+                    }(_range_i_.expression());
+                }
+            } else {
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(iters)}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *i) {
+                        auto idx = (Expr<uint>{i} * _threads + tid).expression();
+                        emit_one(idx);
+                    }(_range_i_.expression());
+                }
+            }
+            return;
+        }
+        // DSL form: decompose the linear thread id once, then stride both axes.
+        //   UInt tid = thread_id().x;
+        //   UInt r0 = tid / tw; UInt c0 = tid % tw;
+        //   for (auto r : dynamic_range(r0, rows, th)) {
+        //       if (r < rows) {
+        //           for (auto c : dynamic_range(c0, cols, tw)) { body(r, c); }
+        //       }
+        //   }
+        auto tid = Expr<uint3>{_fb->thread_id()}.x;
         auto tw = std::min(_threads, cols);// threads along the fast axis
         auto th = (_threads + tw - 1u) / tw;// threads along the slow axis
-        auto r0 = _fb->binary(Type::of<uint>(), BinaryOp::DIV, tid, _literal_u(tw));
-        auto c0 = _fb->binary(Type::of<uint>(), BinaryOp::MOD, tid, _literal_u(tw));
-        // $for (r, r0, rows, th) { $if (r < rows) { $for (c, c0, cols, tw) { body(r, c); } } }
-        _for_range(r0, _literal_u(rows), _literal_u(th), [&](const Expression *r) {
-            auto emit_cols = [&] {
-                _for_range(c0, _literal_u(cols), _literal_u(tw), [&](const Expression *c) {
-                    body(r, c);
-                });
-            };
-            if (rows % th != 0u) {// some threads start at r0 >= rows
-                _if(_fb->binary(Type::of<bool>(), BinaryOp::LESS, r, _literal_u(rows)), emit_cols);
-            } else {
-                emit_cols();
-            }
-        });
+        auto r0 = tid / tw;
+        auto c0 = tid % tw;
+        for (auto _range_i_ : dynamic_range(Expr<uint>{r0.expression()}, Expr<uint>{_literal_u(rows)}, Expr<uint>{_literal_u(th)})) {
+            [&](const Expression *r) {
+     auto emit_cols = [&] {
+         for (auto _range_i_ : dynamic_range(Expr<uint>{c0.expression()}, Expr<uint>{_literal_u(cols)}, Expr<uint>{_literal_u(tw)})) {
+             [&](const Expression *c) { body(r, c); }(_range_i_.expression());
+         }
+     };
+     if (rows % th != 0u) [[unlikely]] {// some threads start at r0 >= rows
+         if_(Expr<bool>{(Expr<uint>{r} < rows).expression()}, emit_cols);
+     } else {
+         emit_cols();
+     }
+ }(_range_i_.expression());
+        }
     }
 
     // rank-2 partition loop: adapts the Coord-based body used everywhere else.
@@ -1642,28 +1845,33 @@ private:
      */
     template<typename Body>
     void _partition_loop(const TensorExpr *t, Body &&body) {
+        // DSL form (pseudo-code above):
+        //   UInt total = product(extent of t);
+        //   UInt iters = ceildiv(total, block_size().x);
+        //   UInt tid = thread_id().x;
+        //   for (auto i : dynamic_range(0u, iters)) {
+        //       UInt idx = i * _threads + tid;
+        //       if (idx < total) { body(decompose(idx)); }
+        //   }
         auto total = tile_element_count(t);
         auto iters = (total + _threads - 1u) / _threads;
-        auto tid = _vec_comp(_fb->thread_id(), 0u);
+        auto tid = Expr<uint3>{_fb->thread_id()}.x;
         auto emit_body = [&](const Expression *idx) { body(_decompose(t, idx)); };
-        if (total % _threads != 0u) {
-            _for_range(_literal_u(0u), _literal_u(iters), _literal_u(1u),
-                       [&](const Expression *i) {
-                           auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                                 i, _literal_u(_threads));
-                           auto idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, tid);
-                           auto cond = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                                   idx, _literal_u(total));
-                           _if(cond, [&] { emit_body(idx); });
-                       });
+        if (total % _threads != 0u) [[unlikely]] {
+            for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(iters)}, Expr<uint>{_literal_u(1u)})) {
+                [&](const Expression *i) {
+                    auto idx = (Expr<uint>{i} * _threads + tid).expression();
+                    auto cond = (Expr<uint>{idx} < total).expression();
+                    if_(Expr<bool>{cond}, [&] { emit_body(idx); });
+                }(_range_i_.expression());
+            }
         } else {
-            _for_range(_literal_u(0u), _literal_u(iters), _literal_u(1u),
-                       [&](const Expression *i) {
-                           auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                                 i, _literal_u(_threads));
-                           auto idx = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, tid);
-                           emit_body(idx);
-                       });
+            for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(iters)}, Expr<uint>{_literal_u(1u)})) {
+                [&](const Expression *i) {
+                    auto idx = (Expr<uint>{i} * _threads + tid).expression();
+                    emit_body(idx);
+                }(_range_i_.expression());
+            }
         }
     }
 
@@ -1680,13 +1888,378 @@ private:
     template<typename Body>
     void _full_loop(const TensorExpr *t, Body &&body) {
         auto total = tile_element_count(t);
-        _for_range(_literal_u(0u), _literal_u(total), _literal_u(1u),
-                   [&](const Expression *i) { body(_decompose(t, i)); });
+        for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(total)}, Expr<uint>{_literal_u(1u)})) {
+            [&](const Expression *i) { body(_decompose(t, i)); }(_range_i_.expression());
+        }
     }
 
     // ---------------------------------------------------------------------------
     // statement emission
     // ---------------------------------------------------------------------------
+
+    // Prescan: GEMM statements whose C operand is a small per-thread
+    // (replicated) fragment AND which do NOT qualify for the warp-K-split
+    // path get their fragment forced to a block-shared backing (the
+    // kFragmentSharedThreshold mechanism of _emit_alloc).  Rationale: such a
+    // fragment is typically accumulated across pipeline iterations, and the
+    // replicated-fragment lowering forces every GEMM to publish its
+    // partitioned result through a shared staging tile and then refresh
+    // EVERY thread's replica (_replicate_from_staging: product(extent)
+    // shared loads + local-array writes per thread per iteration) — the
+    // dominant cost of pipelined small-tile GEMMs.  With a shared backing
+    // the gemm partition loop writes each element exactly once and reads it
+    // back directly; no staging tile, no replica refresh.  Warp-path
+    // fragments keep the per-thread replica: the single-warp write-back is
+    // deliberately barrier-free (each lane writes its own replica).
+    void _prescan_gemm_fragments(luisa::span<const TensorStmt *const> stmts) {
+        for (auto *stmt : stmts) {
+            if (stmt->op() != TileOpKind::GEMM) { continue; }
+            auto *g = static_cast<const GemmStmt *>(stmt);
+            auto *a = g->a();
+            auto *c = g->c();
+            if (a == nullptr || c == nullptr ||
+                c->scope() != TensorScope::Fragment ||
+                a->rank() != 2u || c->rank() != 2u ||
+                !extent_known(a) || !extent_known(c)) [[unlikely]] {
+                continue;
+            }
+            // mirror the warp-K-split gate of _emit_gemm exactly
+            auto M = static_cast<uint32_t>(axis_extent(c, 0u));
+            auto N = static_cast<uint32_t>(axis_extent(c, 1u));
+            auto K = static_cast<uint32_t>(axis_extent(a, 1u));
+            auto TM = (M % 4u == 0u) ? 4u : ((M % 2u == 0u) ? 2u : 1u);
+            auto TN = (N % 4u == 0u) ? 4u : ((N % 2u == 0u) ? 2u : 1u);
+            auto use_warp = !_use_cooperative && !_batching &&
+                            _threads >= 32u &&
+                            (M / TM) * (N / TN) < _threads &&
+                            K >= 256u;
+            if (use_warp) { continue; }
+            if (auto name = c->name(); !name.empty()) {
+                _forced_shared_names.emplace(luisa::string{name});
+            } else {
+                _forced_shared_layouts.emplace_back(
+                    Layout{TensorScope::Fragment, c->dtype(),
+                           luisa::fixed_vector<int32_t, 4>{c->dims().begin(), c->dims().end()}});
+            }
+        }
+    }
+
+    [[nodiscard]] bool _is_forced_shared_fragment(const TensorExpr *t) const {
+        if (t == nullptr || t->scope() != TensorScope::Fragment) { return false; }
+        if (auto name = t->name(); !name.empty()) {
+            return _forced_shared_names.contains(luisa::string{name});
+        }
+        Layout key{t->scope(), t->dtype(),
+                   luisa::fixed_vector<int32_t, 4>{t->dims().begin(), t->dims().end()}};
+        for (auto &l : _forced_shared_layouts) {
+            if (l == key) { return true; }
+        }
+        return false;
+    }
+
+    // True when a fragment must keep the per-thread replicated layout (see
+    // _replicated_fragment_names / _prescan_elementwise_fragments).
+    [[nodiscard]] bool _is_replicated_fragment(const TensorExpr *t) const {
+        if (t == nullptr || t->scope() != TensorScope::Fragment) { return false; }
+        if (auto name = t->name(); !name.empty()) {
+            return _replicated_fragment_names.contains(luisa::string{name});
+        }
+        Layout key{t->scope(), t->dtype(),
+                   luisa::fixed_vector<int32_t, 4>{t->dims().begin(), t->dims().end()}};
+        for (auto &l : _replicated_fragment_layouts) {
+            if (l == key) { return true; }
+        }
+        return false;
+    }
+
+    // Mark a fragment for the block-shared backing unless it is one of the
+    // replicated-layout fragments (warp shuffle/reduce, atomic value, or a
+    // warp-K-split GEMM accumulator).  Name match first, layout as fallback.
+    void _force_fragment_shared(const TensorExpr *t) {
+        if (t == nullptr || t->scope() != TensorScope::Fragment) { return; }
+        if (_is_replicated_fragment(t)) { return; }
+        if (auto name = t->name(); !name.empty()) {
+            _forced_shared_names.emplace(luisa::string{name});
+        } else {
+            _forced_shared_layouts.emplace_back(
+                Layout{TensorScope::Fragment, t->dtype(),
+                       luisa::fixed_vector<int32_t, 4>{t->dims().begin(), t->dims().end()}});
+        }
+    }
+
+    // F1 (perf_report.md): fragments below kFragmentSharedThreshold (512) are
+    // backed by a per-thread replicated local array.  For elementwise work that
+    // layout is pathological: a global->fragment COPY stages the tile through a
+    // shared staging tile and then EVERY thread refills its whole replica
+    // (_replicate_from_staging: product(extent) shared loads + local writes per
+    // thread, ~1 KB of register-spilling local memory for a 16x16 tile), and
+    // in-place fragment statements (CLAMP / FILL / CLEAR / non-lazy STORE) run
+    // a _full_loop so every thread evaluates the whole tile (256x redundant
+    // work).  Measured: bench_clamp 39.0 ms, bench_exp 21.3 ms, bench_pow
+    // 45.5 ms at 8192x512 (0.7-1.6 GB/s, 108-230x slower than shared-backed
+    // copies).  Forcing such fragments onto the block-shared backing makes the
+    // elementwise statements partition the tile across threads exactly like a
+    // Shared tile (one compute per element), matching the report's control
+    // experiment (bench_clamp 39.0 -> 0.218 ms, bench_exp 21.3 -> 0.296 ms).
+    //
+    // The prescan runs after _prescan_gemm_fragments, so non-warp GEMM
+    // accumulators are already forced shared there; here we additionally force
+    // every fragment participating in an elementwise statement, while EXCLUDING
+    // fragments whose semantics require the per-thread replica:
+    //   - WARP_REDUCE / SHUFFLE values (lane-local data, plan 2.7/2.13),
+    //   - ATOMIC value tensors (per-thread scalar),
+    //   - GEMM c on the warp-K-split path (barrier-free per-lane write-back,
+    //     lc_optimize 2.1/2.6 — _prescan_gemm_fragments deliberately leaves
+    //     them replicated).
+    void _prescan_elementwise_fragments(luisa::span<const TensorStmt *const> stmts) {
+        // Pass 1: record the fragments that must stay per-thread replicated.
+        for (auto *stmt : stmts) {
+            auto replicate = [this](const TensorExpr *t) {
+                if (t == nullptr || t->scope() != TensorScope::Fragment) { return; }
+                if (auto name = t->name(); !name.empty()) {
+                    _replicated_fragment_names.emplace(luisa::string{name});
+                } else {
+                    _replicated_fragment_layouts.emplace_back(
+                        Layout{TensorScope::Fragment, t->dtype(),
+                               luisa::fixed_vector<int32_t, 4>{t->dims().begin(), t->dims().end()}});
+                }
+            };
+            switch (stmt->op()) {
+                case TileOpKind::WARP_REDUCE:
+                    replicate(static_cast<const WarpReduceStmt *>(stmt)->value());
+                    break;
+                case TileOpKind::SHUFFLE:
+                    replicate(static_cast<const ShuffleStmt *>(stmt)->value_tensor());
+                    break;
+                case TileOpKind::ATOMIC:
+                    replicate(static_cast<const AtomicStmt *>(stmt)->value_tensor());
+                    break;
+                case TileOpKind::GEMM: {
+                    // mirror the warp-K-split gate of _emit_gemm /
+                    // _prescan_gemm_fragments exactly; warp-path accumulators
+                    // stay replicated (barrier-free single-warp write-back).
+                    auto *g = static_cast<const GemmStmt *>(stmt);
+                    auto *a = g->a();
+                    auto *c = g->c();
+                    if (a != nullptr && c != nullptr &&
+                        c->scope() == TensorScope::Fragment &&
+                        a->rank() == 2u && c->rank() == 2u &&
+                        extent_known(a) && extent_known(c)) {
+                        auto M = static_cast<uint32_t>(axis_extent(c, 0u));
+                        auto N = static_cast<uint32_t>(axis_extent(c, 1u));
+                        auto K = static_cast<uint32_t>(axis_extent(a, 1u));
+                        auto TM = (M % 4u == 0u) ? 4u : ((M % 2u == 0u) ? 2u : 1u);
+                        auto TN = (N % 4u == 0u) ? 4u : ((N % 2u == 0u) ? 2u : 1u);
+                        auto use_warp = !_use_cooperative && !_batching &&
+                                        _threads >= 32u &&
+                                        (M / TM) * (N / TN) < _threads &&
+                                        K >= 256u;
+                        if (use_warp) { replicate(c); }
+                    }
+                    break;
+                }
+                default: break;
+            }
+        }
+        // Pass 2: force block-shared backing for fragments used by elementwise
+        // statements (the F1 pathology), skipping replicated-layout fragments.
+        // Deliberately NOT forced (they already partition or stay lazy):
+        //   - COPY src (fragment->global / fragment->shared reads are already
+        //     partitioned per owned element);
+        //   - STORE op==0 lhs (the whole-tile lazy-store fast path records the
+        //     expression and the consumer copy evaluates only its own partition
+        //     — forcing shared would disable it and materialize a shared tile
+        //     that is never needed, e.g. bench_add C_local = A+B).
+        // STORE op==1 (`*=` row-broadcast) IS forced: it is a read-modify-write
+        // that always materializes through _full_loop on a replicated fragment.
+        for (auto *stmt : stmts) {
+            switch (stmt->op()) {
+                case TileOpKind::COPY:
+                    _force_fragment_shared(static_cast<const CopyStmt *>(stmt)->dst());
+                    break;
+                case TileOpKind::CLEAR:
+                    _force_fragment_shared(static_cast<const ClearStmt *>(stmt)->t());
+                    break;
+                case TileOpKind::FILL:
+                    _force_fragment_shared(static_cast<const FillStmt *>(stmt)->buf());
+                    break;
+                case TileOpKind::CLAMP:
+                    _force_fragment_shared(static_cast<const ClampStmt *>(stmt)->dst());
+                    break;
+                case TileOpKind::STORE: {
+                    auto *s = static_cast<const TileStoreStmt *>(stmt);
+                    if (s->op() != 0) { _force_fragment_shared(s->lhs()); }
+                    _force_fragment_shared(s->rhs_tensor());
+                    break;
+                }
+                case TileOpKind::BINARY: {
+                    auto *b = static_cast<const TileBinaryStmt *>(stmt);
+                    _force_fragment_shared(b->lhs());
+                    _force_fragment_shared(b->rhs_tensor());
+                    break;
+                }
+                case TileOpKind::MAX:
+                    _force_fragment_shared(static_cast<const MaxStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::MIN:
+                    _force_fragment_shared(static_cast<const MinStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::ABS:
+                    _force_fragment_shared(static_cast<const AbsStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::RSQRT:
+                    _force_fragment_shared(static_cast<const RsqrtStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::TRANSPOSE: {
+                    auto *t = static_cast<const TransposeStmt *>(stmt);
+                    _force_fragment_shared(t->src());
+                    _force_fragment_shared(t->dst());
+                    break;
+                }
+                case TileOpKind::FAST_MATH:
+                    _force_fragment_shared(static_cast<const FastMathStmt *>(stmt)->a());
+                    break;
+                case TileOpKind::IEEE_MATH: {
+                    auto *m = static_cast<const IeeeMathStmt *>(stmt);
+                    _force_fragment_shared(m->a());
+                    _force_fragment_shared(m->b());
+                    _force_fragment_shared(m->c());
+                    break;
+                }
+                default: break;
+            }
+        }
+    }
+
+    // F2 (reduce input copy-elision): when a shared-backed fragment is produced
+    // by exactly one identity global->fragment copy and its ONLY other reference
+    // is a reduce over the fast axis, the reduce can read the global source
+    // directly and the producing copy becomes dead (skip it in _emit).  This
+    // removes the shared round-trip: global load -> shared store (copy) -> shared
+    // load (reduce) collapses to a single global load in the reduce's own
+    // warp/block partition loop.  The prescan runs after
+    // _prescan_elementwise_fragments so the forced-shared sets are final.
+    void _prescan_reduce_elision(luisa::span<const TensorStmt *const> stmts) {
+        luisa::unordered_map<luisa::string, const CopyStmt *> producer_copy;
+        luisa::unordered_map<luisa::string, const TensorExpr *> producer_src;
+        luisa::unordered_map<luisa::string, uint32_t> producer_count;
+        luisa::unordered_map<luisa::string, uint32_t> appear_count;
+        luisa::unordered_map<luisa::string, bool> reduce_input;
+        luisa::unordered_map<luisa::string, const TensorExpr *> reduce_x_view;
+        luisa::unordered_map<luisa::string, uint32_t> reduce_dim;
+        auto name_of = [](const TensorExpr *t) noexcept -> luisa::string_view {
+            return t == nullptr ? luisa::string_view{} : t->name();
+        };
+        // count every reference to a fragment tensor (output or input) except
+        // the ALLOC itself, which is the definition, not a use.
+        auto count_appearance = [&](const TensorExpr *t) {
+            if (t == nullptr || t->scope() != TensorScope::Fragment) { return; }
+            auto name = name_of(t);
+            if (!name.empty()) { appear_count[luisa::string{name}]++; }
+        };
+        for (auto *stmt : stmts) {
+            switch (stmt->op()) {
+                case TileOpKind::ALLOC:
+                    // allocation is not a use of the fragment
+                    break;
+                case TileOpKind::COPY: {
+                    auto *c = static_cast<const CopyStmt *>(stmt);
+                    auto *src = c->src();
+                    auto *dst = c->dst();
+                    // NOTE: global input views carry UNKNOWN extents (0) on
+                    // `T.all()` axes (and point anchors), so the source extents
+                    // cannot be compared with the fragment's; the op extent is
+                    // the fragment's (dst is always fully known).  Identity is
+                    // guaranteed by construction (the copy body is dst[c]=src[c])
+                    // and the reduce-input extent check below re-validates that
+                    // the reduce reads exactly the copied tile.
+                    if (src != nullptr && dst != nullptr &&
+                        src->scope() == TensorScope::Global &&
+                        dst->scope() == TensorScope::Fragment &&
+                        extent_known(dst) &&
+                        src->dtype() == dst->dtype() &&
+                        src->rank() == dst->rank()) {
+                        auto name = name_of(dst);
+                        if (!name.empty()) {
+                            auto key = luisa::string{name};
+                            producer_count[key]++;
+                            if (producer_count[key] == 1u) {
+                                producer_copy[key] = c;
+                                producer_src[key] = src;
+                            }
+                        }
+                    }
+                    // the destination is a write (an appearance); the source may
+                    // itself be a fragment read
+                    count_appearance(dst);
+                    count_appearance(src);
+                    break;
+                }
+                case TileOpKind::REDUCE:
+                case TileOpKind::REDUCE_SUM: {
+                    const TensorExpr *x = stmt->op() == TileOpKind::REDUCE
+                                              ? static_cast<const ReduceStmt *>(stmt)->buf()
+                                              : static_cast<const ReduceSumStmt *>(stmt)->x();
+                    const TensorExpr *y = stmt->output();
+                    auto reduce_op_dim = stmt->op() == TileOpKind::REDUCE
+                                             ? static_cast<const ReduceStmt *>(stmt)->dim()
+                                             : static_cast<const ReduceSumStmt *>(stmt)->dim();
+                    if (auto n = name_of(x); !n.empty()) {
+                        auto key = luisa::string{n};
+                        reduce_input[key] = true;
+                        // keep the first input view / reduce dim for the checks
+                        // below (appear_count == 2 guarantees at most one reduce)
+                        reduce_x_view.emplace(key, x);
+                        reduce_dim[key] = reduce_op_dim;
+                    }
+                    count_appearance(x);
+                    count_appearance(y);
+                    break;
+                }
+                default: {
+                    // generic: output + inputs cover every statement's tensor
+                    // operands (GEMM a/b/c, STORE lhs/rhs, BINARY lhs/rhs, ...)
+                    count_appearance(stmt->output());
+                    for (auto *in : stmt->inputs()) { count_appearance(in); }
+                    break;
+                }
+            }
+        }
+        for (auto &[name, count] : producer_count) {
+            if (count != 1u) { continue; }// multiple writers: not elidable
+            if (appear_count[name] != 2u) { continue; }// must be copy + one read
+            if (!reduce_input[name]) { continue; }// the one read must be a reduce
+            auto *producer = producer_copy[name];
+            auto *dst = producer->dst();
+            auto *rx = reduce_x_view[name];
+            if (rx == nullptr || rx->rank() != dst->rank()) { continue; }
+            // the reduce must read exactly the tile the copy wrote
+            bool same_extents = true;
+            for (auto i = 0u; i < static_cast<uint32_t>(dst->rank()); ++i) {
+                if (axis_extent(rx, i) != axis_extent(dst, i)) {
+                    same_extents = false;
+                    break;
+                }
+            }
+            if (!same_extents) { continue; }
+            // reduce over the fast axis only: the global read in the reduce's
+            // lane-strided loop is then coalesced (dim == rank-1)
+            if (auto it = reduce_dim.find(name);
+                it == reduce_dim.end() ||
+                it->second != static_cast<uint32_t>(dst->rank()) - 1u) {
+                continue;
+            }
+            // only shared-backed fragments (large or elementwise-forced) are
+            // worth eliding; replicated per-thread fragments keep their path
+            if (_is_replicated_fragment(dst)) { continue; }
+            if (tile_element_count(dst) < kFragmentSharedThreshold &&
+                !_is_forced_shared_fragment(dst)) {
+                continue;
+            }
+            _reduce_elision_src[name] = producer_src[name];
+            _elided_copy_stmts.emplace(producer);
+        }
+    }
 
     /*
      * _emit_all(stmts) pseudo-code (host-side statement walk; each emitted
@@ -1722,7 +2295,7 @@ private:
                         candidate->op() == TileOpKind::KERNEL_2D) {
                         break;
                     }
-                    if (!_accesses_shared(candidate)) { break; }
+                    if (!_accesses_shared(candidate) || _writes_global(candidate)) { break; }
                     ++end;
                 }
                 _emit_pipelined(p, luisa::span<const TensorStmt *const>{stmts.data() + i + 1u, end - i - 1u});
@@ -1779,14 +2352,39 @@ private:
                 if (ai0 == bj1) { _pipeline_copy_axes[copies[i]] = 0u; _pipeline_copy_axes[copies[j]] = 1u; break; }
             }
         }
-        _for_range(_literal_u(0u), _literal_u(count), _literal_u(1u),
-                   [&](const Expression *ko) {
-                       _pipeline_var = ko;
-                       for (auto *s : body) { _emit(s); }
-                   });
+        for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(count)}, Expr<uint>{_literal_u(1u)})) {
+            [&](const Expression *ko) {
+                _pipeline_var = ko;
+                for (auto *s : body) { _emit(s); }
+            }(_range_i_.expression());
+        }
         _pipeline_copy_axes.clear();
         _pipeline_var = nullptr;
         _pipeline_count = 0u;
+    }
+
+    // True when the statement WRITES to a Global tensor (the destination of
+    // a copy / store / fill / transpose / clamp / atomic).  The flat IR bakes
+    // block-derived global offsets as host constants, so a global-writing
+    // statement can never be part of a pipelined loop body: the pipeline-axis
+    // reconstruction in _global_index would replace the block offset with
+    // pipeline arithmetic and mis-place every write.  _emit_all therefore
+    // stops the pipeline body run before such a statement (e.g. the final
+    // fragment->global tile store after a pipelined GEMM whose C fragment is
+    // shared-backed — it "touches shared" but belongs AFTER the loop).
+    [[nodiscard]] bool _writes_global(const TensorStmt *s) const noexcept {
+        auto global = [](const TensorExpr *t) noexcept {
+            return t != nullptr && t->scope() == TensorScope::Global;
+        };
+        switch (s->op()) {
+            case TileOpKind::COPY: return global(static_cast<const CopyStmt *>(s)->dst());
+            case TileOpKind::STORE: return global(static_cast<const TileStoreStmt *>(s)->lhs());
+            case TileOpKind::FILL: return global(static_cast<const FillStmt *>(s)->buf());
+            case TileOpKind::TRANSPOSE: return global(static_cast<const TransposeStmt *>(s)->dst());
+            case TileOpKind::CLAMP: return global(static_cast<const ClampStmt *>(s)->dst());
+            case TileOpKind::ATOMIC: return global(static_cast<const AtomicStmt *>(s)->dst());
+            default: return false;
+        }
     }
 
   [[nodiscard]] bool _accesses_shared(const TensorStmt *s) {
@@ -1940,10 +2538,31 @@ private:
      *       sync_block()
      */
     void _emit(const TensorStmt *stmt) {
+        _emit_core(stmt);
+        // barrier discipline: sync after every statement that touches shared
+        // memory (never inside a thread-divergent branch — all our shared
+        // accesses live inside $for/$if bodies, the sync is at top level).
+        // F2-elided copies are no-ops and need no barrier.
+        auto elided_copy = stmt->op() == TileOpKind::COPY &&
+                           _elided_copy_stmts.contains(static_cast<const CopyStmt *>(stmt));
+        if (_accesses_shared(stmt) && !elided_copy) { _sync_block(); }
+    }
+
+    // The statement dispatch of _emit WITHOUT the conservative trailing
+    // _sync_block: _emit_pipelined calls this directly and places the body
+    // barriers itself via hazard tracking (see _emit_pipelined).
+    void _emit_core(const TensorStmt *stmt) {
         switch (stmt->op()) {
             case TileOpKind::ALLOC: _emit_alloc(static_cast<const AllocStmt *>(stmt)); break;
             case TileOpKind::CLEAR: _emit_clear(static_cast<const ClearStmt *>(stmt)); break;
-            case TileOpKind::COPY: _emit_copy(static_cast<const CopyStmt *>(stmt)); break;
+            case TileOpKind::COPY:
+                if (_elided_copy_stmts.contains(static_cast<const CopyStmt *>(stmt))) {
+                    // F2: this global->fragment copy feeds only a reduce that
+                    // now reads the global source directly — skip the shared
+                    // round-trip entirely.
+                    break;
+                }
+                _emit_copy(static_cast<const CopyStmt *>(stmt)); break;
             case TileOpKind::STORE: _emit_store(static_cast<const TileStoreStmt *>(stmt)); break;
             case TileOpKind::BINARY: _emit_binary(static_cast<const TileBinaryStmt *>(stmt)); break;
             case TileOpKind::MAX: _emit_max(static_cast<const MaxStmt *>(stmt)); break;
@@ -1996,10 +2615,6 @@ private:
                     "regular-kernel lowering (see the gap list in the plan).",
                     static_cast<uint32_t>(stmt->op()));
         }
-        // barrier discipline: sync after every statement that touches shared
-        // memory (never inside a thread-divergent branch — all our shared
-        // accesses live inside $for/$if bodies, the sync is at top level)
-        if (_accesses_shared(stmt)) { _sync_block(); }
     }
 
     /*
@@ -2067,11 +2682,13 @@ private:
               if (n == 0u) [[unlikely]] {
                   LUISA_ERROR_WITH_LOCATION("Fragment tile allocation with zero elements: {}", t->describe());
               }
-              if (n >= kFragmentSharedThreshold) {
-                  // Large fragment: back it with a block-shared array instead of a
-                  // per-thread local array.  Ops on it use partition loops (one
-                  // compute per element across the block) and the shared barrier
-                  // discipline; see _is_fragment_shared_backed.  With batching
+              if (n >= kFragmentSharedThreshold || _is_forced_shared_fragment(t)) {
+                  // Large fragment (or a GEMM accumulator forced by
+                  // _prescan_gemm_fragments): back it with a block-shared
+                  // array instead of a per-thread local array.  Ops on it
+                  // use partition loops (one compute per element across the
+                  // block) and the shared barrier discipline; see
+                  // _is_fragment_shared_backed.  With batching
                   // the array is B_z * n (one slice per batch item).
                   auto alloc_n = _batching ? n * _batch_block_z : n;
                   st.shared = _fb->shared(Type::array(elem_t, alloc_n));
@@ -2110,6 +2727,7 @@ private:
         auto zero = _zero_of(t->dtype());
       if (t->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(t)) {
           _full_loop(t, [&](const Coord &c) { _write_to(t, c, zero); });
+          _invalidate_lazy(t);
       } else if (t->rank() == 2u) {
           _partition_loop_2d(t, [&](const Coord &c) { _write_to(t, c, zero); });
       } else {
@@ -2158,7 +2776,71 @@ private:
         auto body = [&](const Coord &c) {
             _write_to(dst, c, _value_at(src, c));
         };
-          if (dst->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(dst)) {
+        if (auto pit = _pipeline_copy_axes.find(s);
+            pit != _pipeline_copy_axes.end() &&
+            src->scope() == TensorScope::Global &&
+            dst->scope() == TensorScope::Shared &&
+            ext->rank() == 2u && extent_known(ext)) [[likely]] {
+            auto rows = static_cast<uint32_t>(axis_extent(ext, 0u));
+            auto cols = static_cast<uint32_t>(axis_extent(ext, 1u));
+            auto chunk = cols % 8u == 0u ? 8u : (cols % 4u == 0u ? 4u : 1u);
+            if (chunk > 1u) {
+                // GEMM-feeding global->shared tile copy (lc_optimize: memory-
+                // level parallelism).  The generic partition loop alternates
+                // a dependent global load -> shared store per element, so
+                // every element pays the full memory latency; this dominates
+                // the pipelined GEMM cost (e.g. the 8x256 f32 tiles of
+                // bench_gemm_4096: 64 dependent loads per thread per copy).
+                // Copy 4 consecutive fast-axis elements per chunk instead:
+                // the 4 independent global loads issue back-to-back (their
+                // latencies overlap in the memory pipeline) before the 4
+                // shared stores.  The fast axis is contiguous in both the
+                // global row and the shared tile (row-major, stride 1).
+                auto chunks_per_row = cols / chunk;
+                auto nchunks = rows * chunks_per_row;
+                auto tid = Expr<uint3>{_fb->thread_id()}.x;
+                auto emit_chunk = [&](const Expression *cid) {
+                    auto r = (Expr<uint>{cid} / chunks_per_row).expression();
+                    auto cb = (Expr<uint>{cid} % chunks_per_row) * chunk;
+                    // `chunk` independent global loads materialized in locals
+                    // (a vectorized float4 BUFFER_READ was prototyped for f32
+                    // tiles but XIR rejects reading a Buffer<float> as float4 —
+                    // the typed buffer element must match the read type, and a
+                    // rebind is not available at lowering time).
+                    std::array<const Expression *, 8> v{};
+                    for (uint32_t u = 0u; u < chunk; ++u) {
+                        Coord cc = _zero_coord();
+                        cc[0] = r;
+                        cc[1] = (Expr<uint>{cb} + u).expression();
+                        v[u] = with_elem_type(src->dtype(), [&]<typename T>() -> const Expression * {
+                            return Var<T>{Expr<T>{_value_at(src, cc)}}.expression();
+                        });
+                    }
+                    for (uint32_t u = 0u; u < chunk; ++u) {
+                        Coord cc = _zero_coord();
+                        cc[0] = r;
+                        cc[1] = (Expr<uint>{cb} + u).expression();
+                        _write_to(dst, cc, v[u]);
+                    }
+                };
+                if (nchunks % _threads != 0u) {
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{tid.expression()}, Expr<uint>{_literal_u(nchunks)}, Expr<uint>{_literal_u(_threads)})) {
+                        [&](const Expression *cid) {
+                            if_(Expr<bool>{(Expr<uint>{cid} < nchunks).expression()}, [&] { emit_chunk(cid); });
+                        }(_range_i_.expression());
+                    }
+                } else {
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{tid.expression()}, Expr<uint>{_literal_u(nchunks)}, Expr<uint>{_literal_u(_threads)})) {
+                        [&](const Expression *cid) { emit_chunk(cid); }(_range_i_.expression());
+                    }
+                }
+                _pipeline_axis = saved_axis;
+                _current_extent = saved;
+                return;
+            }
+        }
+          if (dst->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(dst)) [[unlikely]] {
+              _invalidate_lazy(dst);
               if (src->scope() == TensorScope::Global) {
                   // coalesced global->fragment staging (lc_optimize 4): the block
                   // cooperatively streams the tile through shared memory instead
@@ -2167,10 +2849,15 @@ private:
                   auto staging = _staging_for(dst, elem_t);
                   _sync_block();// staging write-after-read hazard
                   _partition_loop(ext, [&](const Coord &c) {
-                      _fb->assign(_fb->access(elem_t, staging, _staging_index(dst, c)),
-                                  _maybe_cast(_value_at(src, c), elem_t));
+                      // DSL: staging[_staging_index(dst, c)] = cast(src[c], elem_t)
+                      auto idx = Expr<uint>{_staging_index(dst, c)};
+                      auto val = _maybe_cast(_value_at(src, c), elem_t);
+                      with_elem_type(dst->dtype(), [&]<typename T>() {
+                          Var<std::array<T, 1>> arr{staging};
+                          arr[idx] = Expr<T>{val};
+                      });
                   });
-                  _replicate_from_staging(dst, elem_t, staging);
+                  _replicate_from_staging(dst, dst->dtype(), staging);
               } else {
                   _full_loop(ext, body);
               }
@@ -2220,17 +2907,47 @@ private:
             if (s->op() == 1) {// lhs *= rhs (row-broadcast scale)
                 auto lhs_t = tensor_element_type(lhs->dtype());
                 rhs = _maybe_cast(rhs, lhs_t);
-                rhs = _bin(BinaryOp::MUL, _value_at(lhs, c), rhs);
+                // DSL: lhs[c] * cast(rhs, elem_t)
+                rhs = with_elem_type(lhs->dtype(), [&]<typename T>() -> const Expression * {
+                    return (Expr<T>{_value_at(lhs, c)} * Expr<T>{rhs}).expression();
+                });
             }
             _write_to(lhs, c, rhs);
         };
-          if (lhs->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(lhs)) {
-              _full_loop(ext, body);
-          } else if (ext->rank() == 2u) {
-              _partition_loop_2d(ext, body);
-          } else {
-              _partition_loop(ext, body);
-          }
+        // Lazy fragment store (see _temps_by_name): a whole-tile, non-
+        // read-modify-write store into a small replicated fragment emits NO
+        // device code; the value expression is inlined at the consumer, so a
+        // fragment->global copy computes only its own partitioned elements
+        // instead of every thread materializing the whole tile into a
+        // per-thread local array (the bench_add pathology: 256 threads x
+        // 256 elements of redundant local stores + spilling).
+        auto lazy_ok = lhs->scope() == TensorScope::Fragment &&
+                       !_is_fragment_shared_backed(lhs) &&
+                       s->op() == 0 && !lhs->name().empty() &&
+                       s->rhs_ref() == nullptr;
+        if (lazy_ok) [[likely]] {
+            _temps_by_name[luisa::string{lhs->name()}] = TempValue{
+                lhs->dtype(),
+                [this, s, lhs_elem_t = tensor_element_type(lhs->dtype())](const Coord &c) -> const Expression * {
+                    const Expression *rhs = nullptr;
+                    if (s->rhs_tensor() != nullptr) {
+                        rhs = _value_at(s->rhs_tensor(), c);
+                    } else {
+                        rhs = _recreate_literal(s->rhs_literal());
+                    }
+                    return _maybe_cast(rhs, lhs_elem_t);
+                }};
+            _current_extent = saved;
+            return;
+        }
+        if (lhs->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(lhs)) {
+            _full_loop(ext, body);
+            _invalidate_lazy(lhs);
+        } else if (ext->rank() == 2u) {
+            _partition_loop_2d(ext, body);
+        } else {
+            _partition_loop(ext, body);
+        }
         _current_extent = saved;
     }
 
@@ -2257,11 +2974,12 @@ private:
     void _emit_binary(const TileBinaryStmt *s) {
         auto *lhs = s->lhs();
         auto op = s->op();
-        auto elem_t = tensor_element_type(lhs->dtype());
+        auto dtype = lhs->dtype();
+        auto elem_t = tensor_element_type(dtype);
         auto temp = _tile->temp_output(s);
         _temps[temp] = TempValue{
-            lhs->dtype(),
-            [this, s, op, elem_t](const Coord &c) -> const Expression * {
+            dtype,
+            [this, s, op, dtype, elem_t](const Coord &c) -> const Expression * {
                 auto l = _value_at(s->lhs(), c);
                 const Expression *r = nullptr;
                 if (s->rhs_tensor() != nullptr) {
@@ -2274,58 +2992,71 @@ private:
                         "operands are not supported.");
                 }
                 r = _maybe_cast(r, elem_t);
-                switch (op) {
-                    case BinaryOp::ADD: return _bin(BinaryOp::ADD, l, r);
-                    case BinaryOp::SUB: return _bin(BinaryOp::SUB, l, r);
-                    case BinaryOp::MUL: return _bin(BinaryOp::MUL, l, r);
-                    case BinaryOp::DIV: return _bin(BinaryOp::DIV, l, r);
-                    case BinaryOp::MOD: return _bin(BinaryOp::MOD, l, r);
-                    case BinaryOp::BIT_AND: return _bin(BinaryOp::BIT_AND, l, r);
-                    case BinaryOp::BIT_OR: return _bin(BinaryOp::BIT_OR, l, r);
-                    case BinaryOp::BIT_XOR: return _bin(BinaryOp::BIT_XOR, l, r);
-                    default:
-                        LUISA_ERROR_WITH_LOCATION(
-                            "tile_to_kernel: unsupported tile binary op {}.",
-                            static_cast<uint32_t>(op));
-                }
-                return nullptr;// unreachable
+                // DSL: l OP r on the concrete element type
+                return with_elem_type(dtype, [&]<typename T>() -> const Expression * {
+                    auto le = Expr<T>{l};
+                    auto re = Expr<T>{r};
+                    switch (op) {
+                        case BinaryOp::ADD: return (le + re).expression();
+                        case BinaryOp::SUB: return (le - re).expression();
+                        case BinaryOp::MUL: return (le * re).expression();
+                        case BinaryOp::DIV: return (le / re).expression();
+                        case BinaryOp::MOD:
+                            if constexpr (std::is_integral_v<T>) { return (le % re).expression(); }
+                            break;
+                        case BinaryOp::BIT_AND:
+                            if constexpr (std::is_integral_v<T>) { return (le & re).expression(); }
+                            break;
+                        case BinaryOp::BIT_OR:
+                            if constexpr (std::is_integral_v<T>) { return (le | re).expression(); }
+                            break;
+                        case BinaryOp::BIT_XOR:
+                            if constexpr (std::is_integral_v<T>) { return (le ^ re).expression(); }
+                            break;
+                        default:
+                            LUISA_ERROR_WITH_LOCATION(
+                                "tile_to_kernel: unsupported tile binary op {}.",
+                                static_cast<uint32_t>(op));
+                    }
+                    return nullptr;// unreachable
+                });
             }};
     }
 
-    /*
-     * _emit_max(s) pseudo-code (luisa-dsl):
-     *
-     *   temp = temp_output(s)
-     *   _temps[temp] = lambda(c):
-     *       return max(a[c], cast(b_literal, elem_t))
-     */
     void _emit_max(const MaxStmt *s) {
         auto *a = s->a();
-        auto elem_t = tensor_element_type(a->dtype());
+        auto dtype = a->dtype();
+        auto elem_t = tensor_element_type(dtype);
         _temps[_tile->temp_output(s)] = TempValue{
-            a->dtype(),
-            [this, s, a, elem_t](const Coord &c) -> const Expression * {
+            dtype,
+            [this, s, a, dtype, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
                 auto bv = _maybe_cast(_recreate_literal(s->b()), elem_t);
-                return _fb->call(elem_t, CallOp::MAX, {av, bv});
+                // DSL: max(a[c], cast(b_literal, elem_t))
+                return with_elem_type(dtype, [&]<typename T>() -> const Expression * {
+                    return max(Expr<T>{av}, Expr<T>{bv}).expression();
+                });
             }};
     }
 
-    /*
-     * _emit_rsqrt(s) pseudo-code (luisa-dsl):
-     *
-     *   temp = temp_output(s)
-     *   _temps[temp] = lambda(c):
-     *       return rsqrt(a[c])
-     */
     void _emit_rsqrt(const RsqrtStmt *s) {
         auto *a = s->a();
-        auto elem_t = tensor_element_type(a->dtype());
+        auto dtype = a->dtype();
+        auto elem_t = tensor_element_type(dtype);
         _temps[_tile->temp_output(s)] = TempValue{
-            a->dtype(),
-            [this, s, a, elem_t](const Coord &c) -> const Expression * {
+            dtype,
+            [this, s, a, dtype, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
-                return _fb->call(elem_t, CallOp::RSQRT, {av});
+                // DSL: rsqrt(a[c]) — floating element types only; integral
+                // tiles fall back to the dtype-erased call (never exercised
+                // by the tile IR, which only rsqrt's F16/F32 tiles).
+                return with_elem_type(dtype, [&]<typename T>() -> const Expression * {
+                    if constexpr (std::is_floating_point_v<T>) {
+                        return rsqrt(Expr<T>{av}).expression();
+                    } else {
+                        return _fb->call(elem_t, CallOp::RSQRT, {av});
+                    }
+                });
             }};
     }
 
@@ -2340,157 +3071,162 @@ private:
     // is evaluated in f32 and cast back to the requested element type so the
     // approximation is not degraded by half-precision arithmetic.
     [[nodiscard]] const Expression *_erf(const Expression *x, const Type *result_t) const {
-        auto f32 = Type::of<float>();
-        auto xf = _maybe_cast(x, f32);
-        auto zero = _fb->literal(f32, 0.f);
-        auto one = _fb->literal(f32, 1.f);
+        // DSL form of the same Horner approximation (all f32 Expr ops).
+        auto xf = Expr<float>{_maybe_cast(x, Type::of<float>())};
+        auto zero = Expr<float>{0.f};
+        auto one = Expr<float>{1.f};
         // t = 1 / (1 + p*|x|)
-        auto absx = _fb->call(f32, CallOp::ABS, {xf});
-        auto p = _fb->literal(f32, 0.3275911f);
-        auto denom = _fb->binary(f32, BinaryOp::ADD, one,
-                                 _fb->binary(f32, BinaryOp::MUL, p, absx));
-        auto t = _fb->binary(f32, BinaryOp::DIV, one, denom);
+        auto absx = abs(xf);
+        auto p = Expr<float>{0.3275911f};
+        auto t = one / (one + p * absx);
         // Horner form of a1*t + a2*t^2 + a3*t^3 + a4*t^4 + a5*t^5
-        auto a5 = _fb->literal(f32, 1.061405429f);
-        auto a4 = _fb->literal(f32, -1.453152027f);
-        auto a3 = _fb->literal(f32, 1.421413741f);
-        auto a2 = _fb->literal(f32, -0.284496736f);
-        auto a1 = _fb->literal(f32, 0.254829592f);
-        const Expression *poly = a5;
-        poly = _fb->binary(f32, BinaryOp::ADD,
-                           _fb->binary(f32, BinaryOp::MUL, poly, t), a4);
-        poly = _fb->binary(f32, BinaryOp::ADD,
-                           _fb->binary(f32, BinaryOp::MUL, poly, t), a3);
-        poly = _fb->binary(f32, BinaryOp::ADD,
-                           _fb->binary(f32, BinaryOp::MUL, poly, t), a2);
-        poly = _fb->binary(f32, BinaryOp::ADD,
-                           _fb->binary(f32, BinaryOp::MUL, poly, t), a1);
-        poly = _fb->binary(f32, BinaryOp::MUL, poly, t);
+        auto a5 = Expr<float>{1.061405429f};
+        auto a4 = Expr<float>{-1.453152027f};
+        auto a3 = Expr<float>{1.421413741f};
+        auto a2 = Expr<float>{-0.284496736f};
+        auto a1 = Expr<float>{0.254829592f};
+        auto poly = ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t;
         // exp(-x^2)
-        auto x2 = _fb->binary(f32, BinaryOp::MUL, absx, absx);
-        auto neg_x2 = _fb->unary(f32, UnaryOp::MINUS, x2);
-        auto e = _fb->call(f32, CallOp::EXP, {neg_x2});
-        auto erf_abs = _fb->binary(f32, BinaryOp::SUB, one,
-                                   _fb->binary(f32, BinaryOp::MUL, poly, e));
+        auto x2 = absx * absx;
+        auto e = exp(-x2);
+        auto erf_abs = one - poly * e;
         // sign(x) * erf(|x|): (x < 0) ? -erf_abs : erf_abs
-        auto is_neg = _fb->binary(Type::of<bool>(), BinaryOp::LESS, xf, zero);
-        auto neg_erf_abs = _fb->unary(f32, UnaryOp::MINUS, erf_abs);
-        auto result = _fb->call(f32, CallOp::SELECT,
-                                {erf_abs, neg_erf_abs, is_neg});
-        return _maybe_cast(result, result_t);
+        auto result = select(erf_abs, -erf_abs, xf < zero);
+        return _maybe_cast(result.expression(), result_t);
     }
 
-    /*
-     * _emit_fast_math(s) pseudo-code (luisa-dsl):
-     *
-     *   temp = temp_output(s)
-     *   _temps[temp] = lambda(c):
-     *       x = a[c]
-     *       switch op:
-     *           EXP   -> exp(x)
-     *           EXP10 -> exp10(x)
-     *           LOG   -> log(x)
-     *           LOG2  -> log2(x)
-     *           LOG10 -> log10(x)
-     *           SIN   -> sin(x)
-     *           COS   -> cos(x)
-     *           TAN   -> tan(x)
-     *           TANH  -> tanh(x)
-     *           ERF   -> _erf(x)     // Abramowitz & Stegun 7.1.26 approximation
-     */
     void _emit_fast_math(const FastMathStmt *s) {
         auto *a = s->a();
-        auto elem_t = tensor_element_type(a->dtype());
+        auto dtype = a->dtype();
+        auto elem_t = tensor_element_type(dtype);
         _temps[_tile->temp_output(s)] = TempValue{
-            a->dtype(),
-            [this, s, a, elem_t](const Coord &c) -> const Expression * {
+            dtype,
+            [this, s, a, dtype, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
-                switch (s->op()) {
-                    case TileFastMathOp::EXP: return _fb->call(elem_t, CallOp::EXP, {av});
-                    case TileFastMathOp::EXP10: return _fb->call(elem_t, CallOp::EXP10, {av});
-                    case TileFastMathOp::LOG: return _fb->call(elem_t, CallOp::LOG, {av});
-                    case TileFastMathOp::LOG2: return _fb->call(elem_t, CallOp::LOG2, {av});
-                    case TileFastMathOp::LOG10: return _fb->call(elem_t, CallOp::LOG10, {av});
-                    case TileFastMathOp::SIN: return _fb->call(elem_t, CallOp::SIN, {av});
-                    case TileFastMathOp::COS: return _fb->call(elem_t, CallOp::COS, {av});
-                    case TileFastMathOp::TAN: return _fb->call(elem_t, CallOp::TAN, {av});
-                    case TileFastMathOp::TANH: return _fb->call(elem_t, CallOp::TANH, {av});
-                    case TileFastMathOp::ERF: return _erf(av, elem_t);
-                    default:
-                        LUISA_ERROR_WITH_LOCATION(
-                            "tile_to_kernel: unsupported fast math op {}.",
-                            static_cast<uint32_t>(s->op()));
-                }
+                // DSL: exp/exp10/log/log2/log10/sin/cos/tan/tanh on Expr<T>
+                return with_elem_type(dtype, [&]<typename T>() -> const Expression * {
+                    auto x = Expr<T>{av};
+                    if constexpr (std::is_floating_point_v<T>) {
+                        switch (s->op()) {
+                            case TileFastMathOp::EXP: return exp(x).expression();
+                            case TileFastMathOp::EXP10: return exp10(x).expression();
+                            case TileFastMathOp::LOG: return log(x).expression();
+                            case TileFastMathOp::LOG2: return log2(x).expression();
+                            case TileFastMathOp::LOG10: return log10(x).expression();
+                            case TileFastMathOp::SIN: return sin(x).expression();
+                            case TileFastMathOp::COS: return cos(x).expression();
+                            case TileFastMathOp::TAN: return tan(x).expression();
+                            case TileFastMathOp::TANH: return tanh(x).expression();
+                            case TileFastMathOp::ERF: return _erf(av, elem_t);
+                            default:
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "tile_to_kernel: unsupported fast math op {}.",
+                                    static_cast<uint32_t>(s->op()));
+                        }
+                    } else {
+                        // integral/byte tiles: dtype-erased fallback
+                        switch (s->op()) {
+                            case TileFastMathOp::EXP: return _fb->call(elem_t, CallOp::EXP, {av});
+                            case TileFastMathOp::EXP10: return _fb->call(elem_t, CallOp::EXP10, {av});
+                            case TileFastMathOp::LOG: return _fb->call(elem_t, CallOp::LOG, {av});
+                            case TileFastMathOp::LOG2: return _fb->call(elem_t, CallOp::LOG2, {av});
+                            case TileFastMathOp::LOG10: return _fb->call(elem_t, CallOp::LOG10, {av});
+                            case TileFastMathOp::SIN: return _fb->call(elem_t, CallOp::SIN, {av});
+                            case TileFastMathOp::COS: return _fb->call(elem_t, CallOp::COS, {av});
+                            case TileFastMathOp::TAN: return _fb->call(elem_t, CallOp::TAN, {av});
+                            case TileFastMathOp::TANH: return _fb->call(elem_t, CallOp::TANH, {av});
+                            case TileFastMathOp::ERF: return _erf(av, elem_t);
+                            default:
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "tile_to_kernel: unsupported fast math op {}.",
+                                    static_cast<uint32_t>(s->op()));
+                        }
+                    }
+                    return nullptr;
+                });
             }};
     }
 
-    /*
-     * _emit_ieee_math(s) pseudo-code (luisa-dsl):
-     *
-     *   result_dtype = (op == CAST) ? cast_dtype : a->dtype()
-     *   temp = temp_output(s)
-     *   _temps[temp] = lambda(c):
-     *       x = a[c]
-     *       switch op:
-     *           SQRT/FSQRT -> sqrt(x)
-     *           POW        -> pow(x, b[c])
-     *           CEIL       -> ceil(x)
-     *           FLOOR      -> floor(x)
-     *           ROUND      -> round(x)
-     *           ISINF      -> cast(isinf(x), elem_t)
-     *           ISNAN      -> cast(isnan(x), elem_t)
-     *           CAST       -> cast(x, result_elem_t)
-     *           default    -> error
-     */
     void _emit_ieee_math(const IeeeMathStmt *s) {
         auto *a = s->a();
         auto *b = s->b();
-        auto elem_t = tensor_element_type(a->dtype());
+        auto dtype = a->dtype();
+        auto elem_t = tensor_element_type(dtype);
         // For CAST, the result type is the cast target dtype.
         auto result_dtype = (s->op() == TileIeeeOp::CAST) ? s->cast_dtype() : a->dtype();
         auto result_elem_t = tensor_element_type(result_dtype);
         _temps[_tile->temp_output(s)] = TempValue{
             result_dtype,
-            [this, s, a, b, elem_t, result_elem_t](const Coord &c) -> const Expression * {
+            [this, s, a, b, dtype, elem_t, result_dtype, result_elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
-                switch (s->op()) {
-                    case TileIeeeOp::SQRT:
-                    case TileIeeeOp::FSQRT:
-                        return _fb->call(elem_t, CallOp::SQRT, {av});
-                    case TileIeeeOp::POW: {
-                        LUISA_ASSERT(b != nullptr,
-                                     "tile_to_kernel: ieee POW requires a second "
-                                     "input tensor (b).");
-                        auto bv = _value_at(b, c);
-                        return _fb->call(elem_t, CallOp::POW, {av, bv});
-                    }
-                    case TileIeeeOp::CEIL:
-                        return _fb->call(elem_t, CallOp::CEIL, {av});
-                    case TileIeeeOp::FLOOR:
-                        return _fb->call(elem_t, CallOp::FLOOR, {av});
-                    case TileIeeeOp::ROUND:
-                        return _fb->call(elem_t, CallOp::ROUND, {av});
-                    case TileIeeeOp::ISINF:
-                    case TileIeeeOp::ISNAN: {
-                        // ISINF/ISNAN produce a *boolean* predicate in the core
-                        // IR (the XIR verifier rejects a float-typed result),
-                        // so emit the call typed bool and cast back to the
-                        // fragment's element type; downstream copies then cast
-                        // to the destination dtype (e.g. int32) via _maybe_cast.
-                        auto pred = _fb->call(
-                            Type::of<bool>(),
-                            s->op() == TileIeeeOp::ISINF ? CallOp::ISINF : CallOp::ISNAN,
-                            {av});
-                        return _fb->cast(elem_t, CastOp::STATIC, pred);
-                    }
-                    case TileIeeeOp::CAST:
-                        // Use a CastExpr to convert the value to the target type.
-                        return _fb->cast(result_elem_t, CastOp::STATIC, av);
-                    default:
-                        LUISA_ERROR_WITH_LOCATION(
-                            "tile_to_kernel: unsupported ieee math op {}.",
-                            static_cast<uint32_t>(s->op()));
+                // CAST changes the value type: the source and result dtypes
+                // differ, so keep the dtype-erased cast expression.
+                if (s->op() == TileIeeeOp::CAST) {
+                    return _fb->cast(result_elem_t, CastOp::STATIC, av);
                 }
+                // DSL form of the remaining ops on the result element type
+                // (for ISINF/ISNAN the result dtype equals the source dtype).
+                return with_elem_type(result_dtype, [&]<typename T>() -> const Expression * {
+                    auto x = Expr<T>{av};
+                    if constexpr (std::is_floating_point_v<T>) {
+                        switch (s->op()) {
+                            case TileIeeeOp::SQRT:
+                            case TileIeeeOp::FSQRT:
+                                return sqrt(x).expression();
+                            case TileIeeeOp::POW: {
+                                LUISA_ASSERT(b != nullptr,
+                                             "tile_to_kernel: ieee POW requires a second "
+                                             "input tensor (b).");
+                                auto bv = Expr<T>{_value_at(b, c)};
+                                return pow(x, bv).expression();
+                            }
+                            case TileIeeeOp::CEIL:
+                                return ceil(x).expression();
+                            case TileIeeeOp::FLOOR:
+                                return floor(x).expression();
+                            case TileIeeeOp::ROUND:
+                                return round(x).expression();
+                            case TileIeeeOp::ISINF:
+                            case TileIeeeOp::ISNAN: {
+                                // ISINF/ISNAN produce a *boolean* predicate in the
+                                // core IR; cast it back to the element type.
+                                auto pred = s->op() == TileIeeeOp::ISINF ? isinf(x) : isnan(x);
+                                return cast<T>(pred).expression();
+                            }
+                            default:
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "tile_to_kernel: unsupported ieee math op {}.",
+                                    static_cast<uint32_t>(s->op()));
+                        }
+                    } else {
+                        // integral/byte tiles: dtype-erased fallback
+                        auto raw = [&](CallOp call) { return _fb->call(elem_t, call, {av}); };
+                        switch (s->op()) {
+                            case TileIeeeOp::SQRT:
+                            case TileIeeeOp::FSQRT: return raw(CallOp::SQRT);
+                            case TileIeeeOp::POW: {
+                                LUISA_ASSERT(b != nullptr,
+                                             "tile_to_kernel: ieee POW requires a second "
+                                             "input tensor (b).");
+                                return _fb->call(elem_t, CallOp::POW, {av, _value_at(b, c)});
+                            }
+                            case TileIeeeOp::CEIL: return raw(CallOp::CEIL);
+                            case TileIeeeOp::FLOOR: return raw(CallOp::FLOOR);
+                            case TileIeeeOp::ROUND: return raw(CallOp::ROUND);
+                            case TileIeeeOp::ISINF:
+                            case TileIeeeOp::ISNAN:
+                                return _fb->cast(elem_t, CastOp::STATIC,
+                                                 _fb->call(Type::of<bool>(),
+                                                           s->op() == TileIeeeOp::ISINF ? CallOp::ISINF : CallOp::ISNAN,
+                                                           {av}));
+                            default:
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "tile_to_kernel: unsupported ieee math op {}.",
+                                    static_cast<uint32_t>(s->op()));
+                        }
+                    }
+                    return nullptr;
+                });
             }};
     }
 
@@ -2559,9 +3295,20 @@ private:
      */
     void _emit_tile_reduce(const TensorExpr *x, const TensorExpr *y,
                            uint32_t dim, TileReduceOp op) {
-        auto elem_t = tensor_element_type(x->dtype());
         auto saved = _current_extent;
         _current_extent = x;
+        // F2 (reduce input copy-elision): when x is a shared-backed fragment
+        // produced by exactly one identity global copy and consumed only by
+        // this reduce, read the global source directly (the copy is skipped by
+        // _emit_core).  _current_extent stays x, so _global_index computes the
+        // same block/base offsets the elided copy would have used.
+        const TensorExpr *reduce_input = x;
+        if (auto name = x->name(); !name.empty()) {
+            if (auto it = _reduce_elision_src.find(luisa::string{name});
+                it != _reduce_elision_src.end()) {
+                reduce_input = it->second;
+            }
+        }
         auto reduce_len = static_cast<uint32_t>(axis_extent(x, dim));
         // output space = x without the reduce axis
         uint32_t out_count = 1u;
@@ -2580,143 +3327,175 @@ private:
         auto out_t = tensor_element_type(y->dtype());
         const RefExpr *staging = frag_out ? _staging_for(y, out_t) : nullptr;
         if (frag_out) { _sync_block(); }// staging write-after-read hazard
-        // Block-wide two-level reduction (plan 2.5 / lc_optimize 4.5): when
-        // the output space is smaller than the warp count, the default
-        // warp-per-output partition would leave most warps idle.  Instead
-        // every warp reduces its own strided slice of the reduce axis, lane 0
-        // publishes the per-warp partial into a shared workspace, and warp 0
-        // combines the partials and writes the output.
-        const uint32_t nw_est = _threads / 32u;// host, upper bound for warps
-        if (out_count < nw_est && !_batching) {
-            auto workspace = _fb->shared(Type::array(elem_t, nw_est));
-            auto block_k_iters = (reduce_len + _threads - 1u) / _threads;
-            for (uint32_t o = 0u; o < out_count; ++o) {// out_count is small
-                // decompose host-constant o -> coords for all axes except dim
-                Coord xc = _zero_coord();
-                Coord yc = _zero_coord();
-                auto rem = o;
-                for (int32_t i = static_cast<int32_t>(x->rank()) - 1; i >= 0; --i) {
-                    auto ui = static_cast<uint32_t>(i);
-                    if (ui == dim) { continue; }
-                    auto e = static_cast<uint32_t>(axis_extent(x, ui));
-                    auto ci = rem % e;
-                    rem /= e;
-                    xc[ui] = _literal_u(ci);
-                    yc[ui < dim ? ui : ui - 1u] = _literal_u(ci);
-                }
-                // per-thread partial over the whole slice's strided reduce axis
-                auto acc = _fb->local(elem_t);
-                _fb->assign(acc, _reduce_identity(op, x->dtype()));
-                _for_range(_literal_u(0u), _literal_u(block_k_iters), _literal_u(1u),
-                           [&](const Expression *ki) {
-                    auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                          ki, _literal_u(_threads));
-                    auto k = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, _tid_x());
-                    auto v = _fb->local(elem_t);
-                    _fb->assign(v, _reduce_identity(op, x->dtype()));
-                    auto k_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                               k, _literal_u(reduce_len));
-                    _if(k_valid, [&] {
-                        xc[dim] = k;
-                        auto xv = _maybe_cast(_value_at(x, xc), elem_t);
-                        if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
-                            xv = _fb->call(elem_t, CallOp::ABS, {xv});
-                        }
-                        _fb->assign(v, xv);
-                    });
-                    _fb->assign(acc, _reduce_combine(op, elem_t, acc, v));
-                });
-                // warp-level combine, lane 0 publishes to the workspace
-                auto total = _warp_reduce(op, elem_t, acc);
-                auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                            lane, _literal_u(0u));
-                _if(is_lane0, [&] {
-                    _fb->assign(_fb->access(elem_t, workspace, warp), total);
-                });
-                _sync_block();// publish workspace before warp 0 reads it
-                // warp 0 reduces the per-warp partials and writes the output
-                auto is_warp0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                            warp, _literal_u(0u));
-                _if(is_warp0, [&] {
-                    auto val = _fb->local(elem_t);
-                    _fb->assign(val, _reduce_identity(op, x->dtype()));
-                    auto lane_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                                  lane, nw);
-                    _if(lane_valid, [&] {
-                        _fb->assign(val, _fb->access(elem_t, workspace, lane));
-                    });
-                    auto block = _warp_reduce(op, elem_t, val);
-                    auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                                lane, _literal_u(0u));
-                    _if(is_lane0, [&] {
-                        if (frag_out) {
-                            _fb->assign(_fb->access(out_t, staging, _staging_index(y, yc)),
-                                        _maybe_cast(block, out_t));
-                        } else {
-                            _write_to(y, yc, block);
-                        }
-                    });
-                });
-                _sync_block();// avoid WAR on workspace before the next o iteration
-            }
-        } else {
-        // ---- normal warp-per-output partition (existing path) ----
-        _for_range(_literal_u(0u), o_iters, _literal_u(1u),
-                   [&](const Expression *oi) {
-            auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, oi, nw);
-            auto o = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, warp);
-            auto o_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                       o, _literal_u(out_count));
-            _if(o_valid, [&] {
-                // decompose o over x's shape minus the reduce axis
-                Coord xc = _zero_coord();
-                Coord yc = _zero_coord();
-                auto rem = o;
-                for (int32_t i = static_cast<int32_t>(x->rank()) - 1; i >= 0; --i) {
-                    auto ui = static_cast<uint32_t>(i);
-                    if (ui == dim) { continue; }
-                    auto e = _literal_u(static_cast<uint32_t>(axis_extent(x, ui)));
-                    auto ci = _fb->binary(Type::of<uint>(), BinaryOp::MOD, rem, e);
-                    rem = _fb->binary(Type::of<uint>(), BinaryOp::DIV, rem, e);
-                    xc[ui] = ci;
-                    yc[ui < dim ? ui : ui - 1u] = ci;
-                }
-                // per-lane partial over the strided reduce axis
-                auto acc = _fb->local(elem_t);
-                _fb->assign(acc, _reduce_identity(op, x->dtype()));
-                _for_range(_literal_u(0u), k_iters, _literal_u(1u),
-                           [&](const Expression *ki) {
-                    auto t2 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, ki, lanes);
-                    auto k = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t2, lane);
-                    auto v = _fb->local(elem_t);
-                    _fb->assign(v, _reduce_identity(op, x->dtype()));
-                    auto k_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                               k, _literal_u(reduce_len));
-                    _if(k_valid, [&] {
-                        xc[dim] = k;
-                        auto xv = _maybe_cast(_value_at(x, xc), elem_t);
-                        if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
-                            xv = _fb->call(elem_t, CallOp::ABS, {xv});
-                        }
-                        _fb->assign(v, xv);
-                    });
-                    _fb->assign(acc, _reduce_combine(op, elem_t, acc, v));
-                });
-                auto total = _warp_reduce(op, elem_t, acc);
-                auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                            lane, _literal_u(0u));
-                _if(is_lane0, [&] {
-                    if (frag_out) {
-                        _fb->assign(_fb->access(out_t, staging, _staging_index(y, yc)),
-                                    _maybe_cast(total, out_t));
-                    } else {
-                        _write_to(y, yc, total);
+        // The element arithmetic is dtype-generic (runtime tag), so the whole
+        // device body is written in the DSL sugar inside with_elem_type:
+        //   Var<T> acc = identity; $for (...) { ...; acc = combine(op, acc, v); }
+        //   total = warp_reduce_typed<T>(op, acc); ...
+        with_elem_type(x->dtype(), [&]<typename T>() {
+            auto identity_v = [&]() -> const Expression * {
+                return _reduce_identity(op, x->dtype());
+            };
+            // Block-wide two-level reduction (plan 2.5 / lc_optimize 4.5): when
+            // the output space is smaller than the warp count, the default
+            // warp-per-output partition would leave most warps idle.  Instead
+            // every warp reduces its own strided slice of the reduce axis, lane 0
+            // publishes the per-warp partial into a shared workspace, and warp 0
+            // combines the partials and writes the output.
+            const uint32_t nw_est = _threads / 32u;// host, upper bound for warps
+            if (out_count < nw_est && !_batching) {
+                Shared<T> workspace{nw_est};
+                auto block_k_iters = (reduce_len + _threads - 1u) / _threads;
+                for (uint32_t o = 0u; o < out_count; ++o) {// out_count is small
+                    // decompose host-constant o -> coords for all axes except dim
+                    Coord xc = _zero_coord();
+                    Coord yc = _zero_coord();
+                    auto rem = o;
+                    for (int32_t i = static_cast<int32_t>(x->rank()) - 1; i >= 0; --i) {
+                        auto ui = static_cast<uint32_t>(i);
+                        if (ui == dim) { continue; }
+                        auto e = static_cast<uint32_t>(axis_extent(x, ui));
+                        auto ci = rem % e;
+                        rem /= e;
+                        xc[ui] = _literal_u(ci);
+                        yc[ui < dim ? ui : ui - 1u] = _literal_u(ci);
                     }
-                });
-            });
+                    // per-thread partial over the whole slice's strided reduce axis
+                    auto acc = Var<T>{Expr<T>{identity_v()}};
+                    // Guard elision: _threads is host-known, so when the
+                    // reduce extent divides evenly every strided k is valid.
+                    const bool k_tail_free = reduce_len % _threads == 0u;
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(block_k_iters)}, Expr<uint>{_literal_u(1u)})) {
+                        [&](const Expression *ki) {
+                 auto k = (Expr<uint>{ki} * _threads + Expr<uint>{_tid_x()}).expression();
+                 auto load = [&] {
+                     xc[dim] = k;
+                     auto xv = _maybe_cast(_value_at(reduce_input, xc), Type::of<T>());
+                     if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
+                         xv = abs(Expr<T>{xv}).expression();
+                     }
+                     return xv;
+                 };
+                 if (k_tail_free) [[likely]] {
+                     acc = Expr<T>{_combine_expr<T>(op, acc.expression(), load())};
+                 } else {
+                     auto v = Var<T>{Expr<T>{identity_v()}};
+                     auto k_valid = (Expr<uint>{k} < reduce_len).expression();
+                     if_(Expr<bool>{k_valid}, [&] { v = Expr<T>{load()}; });
+                     acc = Expr<T>{_combine_expr<T>(op, acc.expression(), v.expression())};
+                 }
+             }(_range_i_.expression());
+                    }
+                    // warp-level combine, lane 0 publishes to the workspace
+                    auto total = _warp_reduce_typed<T>(op, acc.expression());
+                    auto is_lane0 = (Expr<uint>{lane} == 0u).expression();
+                    if_(Expr<bool>{is_lane0}, [&] {
+                        workspace[Expr<uint>{warp}] = Expr<T>{total};
+                    });
+                    _sync_block();// publish workspace before warp 0 reads it
+                    // warp 0 reduces the per-warp partials and writes the output
+                    auto is_warp0 = (Expr<uint>{warp} == 0u).expression();
+                    if_(Expr<bool>{is_warp0}, [&] {
+                        auto val = Var<T>{Expr<T>{identity_v()}};
+                        auto lane_valid = (Expr<uint>{lane} < Expr<uint>{nw}).expression();
+                        if_(Expr<bool>{lane_valid}, [&] {
+                            val = Expr<T>{workspace[Expr<uint>{lane}].expression()};
+                        });
+                        auto block = _warp_reduce_typed<T>(op, val.expression());
+                        auto lane0 = (Expr<uint>{lane} == 0u).expression();
+                        if_(Expr<bool>{lane0}, [&] {
+                            if (frag_out) {
+                        auto sidx = Expr<uint>{_staging_index(y, yc)};
+                                auto bcast = _maybe_cast(block, out_t);
+                                with_elem_type(y->dtype(), [&]<typename U>() {
+                                    Var<std::array<U, 1>> arr{staging};
+                                    arr[sidx] = Expr<U>{bcast};
+                                });
+                            } else {
+                                _write_to(y, yc, block);
+                            }
+                        });
+                    });
+                    _sync_block();// avoid WAR on workspace before the next o iteration
+                }
+            } else {
+                // ---- normal warp-per-output partition (existing path) ----
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{o_iters}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *oi) {
+             auto o = (Expr<uint>{oi} * Expr<uint>{nw} + Expr<uint>{warp}).expression();
+             auto o_valid = (Expr<uint>{o} < out_count).expression();
+             if_(Expr<bool>{o_valid}, [&] {
+                 // decompose o over x's shape minus the reduce axis
+                 Coord xc = _zero_coord();
+                 Coord yc = _zero_coord();
+                 auto rem = Var<uint>{Expr<uint>{o}};
+                 for (int32_t i = static_cast<int32_t>(x->rank()) - 1; i >= 0; --i) {
+                     auto ui = static_cast<uint32_t>(i);
+                     if (ui == dim) { continue; }
+                     auto e = Expr<uint>{static_cast<uint32_t>(axis_extent(x, ui))};
+                     auto ci = (rem % e).expression();
+                     rem = rem / e;
+                     xc[ui] = ci;
+                     yc[ui < dim ? ui : ui - 1u] = ci;
+                 }
+                 // per-lane partial over the strided reduce axis.
+                 // Full/tail split (lc_optimize: guard elision): the
+                 // bounds guard is only needed in the last chunk, so the
+                 // hot full chunks load/combine unconditionally (no
+                 // identity-init, no predicated branch per element); the
+                 // tail chunk keeps the identity-padded guard.  When the
+                 // reduce extent is a host-known multiple of every
+                 // possible power-of-two warp size (<= 128), the tail is
+                 // provably empty and is not emitted at all.
+                 auto acc = Var<T>{Expr<T>{identity_v()}};
+                 auto full_k = (Expr<uint>{reduce_len} / Expr<uint>{lanes}).expression();
+                 const bool tail_free = reduce_len % 128u == 0u;
+                 for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{full_k}, Expr<uint>{_literal_u(1u)})) {
+                     [&](const Expression *ki) {
+              auto k = (Expr<uint>{ki} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+              xc[dim] = k;
+              auto xv = _maybe_cast(_value_at(reduce_input, xc), Type::of<T>());
+              if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
+                  xv = abs(Expr<T>{xv}).expression();
+              }
+              acc = Expr<T>{_combine_expr<T>(op, acc.expression(), xv)};
+          }(_range_i_.expression());
+                 }
+                 if (!tail_free) [[likely]] {
+                     if_(Expr<bool>{(Expr<uint>{full_k} < Expr<uint>{k_iters}).expression()}, [&] {
+                         auto k = (Expr<uint>{full_k} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+                         auto v = Var<T>{Expr<T>{identity_v()}};
+                         auto k_valid = (Expr<uint>{k} < reduce_len).expression();
+                         if_(Expr<bool>{k_valid}, [&] {
+                             xc[dim] = k;
+                             auto xv = _maybe_cast(_value_at(reduce_input, xc), Type::of<T>());
+                             if (op == TileReduceOp::ABS_SUM || op == TileReduceOp::ABS_MAX) {
+                                 xv = abs(Expr<T>{xv}).expression();
+                             }
+                             v = Expr<T>{xv};
+                         });
+                         acc = Expr<T>{_combine_expr<T>(op, acc.expression(), v.expression())};
+                     });
+                 }
+                 auto total = _warp_reduce_typed<T>(op, acc.expression());
+                 auto is_lane0 = (Expr<uint>{lane} == 0u).expression();
+                 if_(Expr<bool>{is_lane0}, [&] {
+                     if (frag_out) {
+                         auto sidx = Expr<uint>{_staging_index(y, yc)};
+                         auto tcast = _maybe_cast(total, out_t);
+                         with_elem_type(y->dtype(), [&]<typename U>() {
+                             Var<std::array<U, 1>> arr{staging};
+                             arr[sidx] = Expr<U>{tcast};
+                         });
+                     } else {
+                         _write_to(y, yc, total);
+                     }
+                 });
+             });
+         }(_range_i_.expression());
+                }
+            }
         });
-        }
-        if (frag_out) { _replicate_from_staging(y, out_t, staging); }
+        if (frag_out) { _replicate_from_staging(y, y->dtype(), staging); }
         _current_extent = saved;
     }
 
@@ -2844,6 +3623,11 @@ private:
         // so k_iters = 0 (the K loop is skipped, exactly like the old lowering)
         auto k_pack = static_cast<uint32_t>(std::min(std::max(s->k_pack(), 1),
                                                      static_cast<int32_t>(std::max(K, 1u))));
+        if (s->k_pack() <= 1 && K % 8u == 0u && K > k_pack) {
+            // the tile DSL defaulted k_pack to 1 (a fully dynamic K loop);
+            // unroll 8-deep to cut the loop/index overhead in the inner loop
+            k_pack = 8u;
+        }
         auto k_iters = (K + k_pack - 1u) / k_pack;
         const bool frag = c->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(c);
         const RefExpr *staging = nullptr;
@@ -2862,87 +3646,373 @@ private:
                         _threads >= 32u &&
                         (MT * NT) < _threads &&
                         K >= 256u;
+        // ---- thread-K-split register-tiling path (F4) -----------------------
+        // When the C micro-tile grid is smaller than the block, the shrink
+        // loop below drops TM/TN to 1x1 so every thread owns one element —
+        // a single serial accumulator chain (2 shared loads per FMA, no ILP),
+        // which is the naive-SIMT profile of the f16 512^3 GEMM (16x16 C,
+        // 256 threads, K=32; perf_report F4: 77 GFLOP/s, ~1% of the RTX 4060
+        // FP32 peak).  Instead keep a TM x TN register micro-tile and split K
+        // across `ksplit` consecutive lanes: every lane accumulates its
+        // K-slice into TM*TN independent FMA chains (ILP), then a power-of-two
+        // XOR butterfly over the group combines the partials and lane 0 of the
+        // group writes the tile.  Measured on vk: neutral vs the 1x1 shrink
+        // (3.61 ms both ways at 512^3 f16); kept because it is the report's
+        // register-tiling direction and wins on shapes with longer K.
+        uint32_t ksplit_TM = 0u, ksplit_TN = 0u, ksplit = 0u;
+        if (!use_warp) {
+            // Prefer the tile shape with the best op balance (TM*TN FMA chains
+            // for ILP, (TM+TN)/(TM*TN) LDS per FMA, TM*TN*log2(split) butterfly
+            // ops), then fall back to the shrink loop when no valid split
+            // exists (non-divisible grid, split not a power of two <= 32, or
+            // K too short to amortize the butterfly).
+            auto consider = [&](uint32_t tm, uint32_t tn) {
+                if (ksplit_TM != 0u) { return; }// keep the first (best) candidate
+                if (M % tm != 0u || N % tn != 0u) { return; }
+                auto mt = M / tm, nt = N / tn;
+                auto grid = mt * nt;
+                if (grid >= _threads || _threads % grid != 0u) { return; }
+                auto sp = _threads / grid;
+                if (sp < 2u || sp > 32u || (sp & (sp - 1u)) != 0u) { return; }
+                if (K / sp < 4u) { return; }// amortize the butterfly rounds
+                ksplit_TM = tm;
+                ksplit_TN = tn;
+                ksplit = sp;
+            };
+            consider(2u, 2u);
+            if (ksplit == 0u) { consider(2u, 1u); }
+            if (ksplit == 0u) { consider(1u, 2u); }
+            if (ksplit == 0u) { consider(4u, 1u); }
+            if (ksplit == 0u) { consider(1u, 4u); }
+            if (ksplit == 0u) { consider(4u, 2u); }
+            if (ksplit == 0u) { consider(2u, 4u); }
+        }
+        if (ksplit != 0u) {
+            auto lanes = _lane_count();// runtime expr (pinned 32)
+            auto lane = _lane();       // warp_lane_id()
+            auto l_in_group = (Expr<uint>{lane} % ksplit).expression();
+            auto group_base = (Expr<uint>{lane} - Expr<uint>{l_in_group}).expression();
+            auto k_iters_s = (K + ksplit - 1u) / ksplit;
+            auto tid = Expr<uint3>{_fb->thread_id()}.x;
+            // tile id = tid / ksplit (ksplit is a host power of two -> shift)
+            auto tile_id = (Expr<uint>{tid} / ksplit).expression();
+            auto nt_s = N / ksplit_TN;
+            auto rt = (Expr<uint>{tile_id} / nt_s).expression();
+            auto ct = (Expr<uint>{tile_id} % nt_s).expression();
+            auto r = (Expr<uint>{rt} * ksplit_TM).expression();
+            auto c0 = (Expr<uint>{ct} * ksplit_TN).expression();
+            // TM*TN f32 accumulator locals (max 4x4 = 16; see micro_tile)
+            std::array<Var<float>, 16> acc{};
+            if (frag) {
+                staging = _staging_for(c, out_t);
+                _sync_block();// staging write-after-read hazard
+            }
+            // lane-strided K loop over the group's K-slice; host-unrolled for
+            // small slices so kk*ksplit folds into literals (like the warp path)
+            auto emit_k = [&](const Expression *k) {
+                // TM A loads + TN B loads, then TM*TN FMAs
+                std::array<const Expression *, 16> a_row{};
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    Coord ac = _zero_coord();
+                    auto ri = (Expr<uint>{r} + i).expression();
+                    if (s->trans_a() != 0) {
+                        ac[0] = k;
+                        ac[1] = ri;
+                    } else {
+                        ac[0] = ri;
+                        ac[1] = k;
+                    }
+                    a_row[i] = Var<float>{Expr<float>{_maybe_cast(_value_at(a, ac), wide_t)}}.expression();
+                }
+                std::array<const Expression *, 16> b_col{};
+                for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                    Coord bc = _zero_coord();
+                    auto cj = (Expr<uint>{c0} + j).expression();
+                    if (s->trans_b() != 0) {
+                        bc[0] = cj;
+                        bc[1] = k;
+                    } else {
+                        bc[0] = k;
+                        bc[1] = cj;
+                    }
+                    b_col[j] = Var<float>{Expr<float>{_maybe_cast(_value_at(b, bc), wide_t)}}.expression();
+                }
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                        acc[i * ksplit_TN + j] = fma(Expr<float>{a_row[i]},
+                                                     Expr<float>{b_col[j]},
+                                                     Expr<float>{acc[i * ksplit_TN + j].expression()});
+                    }
+                }
+            };
+            if (K % ksplit == 0u && k_iters_s <= 16u) {
+                for (uint32_t kk = 0u; kk < k_iters_s; ++kk) {
+                    emit_k((Expr<uint>{l_in_group} + kk * ksplit).expression());
+                }
+            } else {
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(k_iters_s)}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *kk) {
+             // DSL: k = kk * ksplit + l_in_group
+             auto k = (Expr<uint>{kk} * ksplit + Expr<uint>{l_in_group}).expression();
+             if (K % ksplit != 0u) {// k may run past K on the last kk
+                 if_(Expr<bool>{(Expr<uint>{k} < K).expression()}, [&] { emit_k(k); });
+             } else {
+                 emit_k(k);
+             }
+         }(_range_i_.expression());
+                }
+            }
+            // XOR butterfly over the ksplit-lane group: every lane receives the
+            // full TM x TN tile (the peer stays inside the group because ksplit
+            // is a power of two and d < ksplit; no divergence, no barrier).
+            for (uint32_t d = 1u; d < ksplit; d <<= 1u) {
+                auto peer = (Expr<uint>{group_base} + (Expr<uint>{l_in_group} ^ d)).expression();
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                        auto e = i * ksplit_TN + j;
+                        auto other = warp_read_lane(acc[e], Expr<uint>{peer});
+                        acc[e] = Expr<float>{acc[e].expression()} + Expr<float>{other.expression()};
+                    }
+                }
+            }
+            // clear_accum == 0: add the existing C element (uniform; the
+            // per-lane K-slice partial is already all-reduced)
+            if (s->clear_accum() == 0) {
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                        Coord cc = _zero_coord();
+                        cc[0] = (Expr<uint>{r} + i).expression();
+                        cc[1] = (Expr<uint>{c0} + j).expression();
+                        acc[i * ksplit_TN + j] = Expr<float>{acc[i * ksplit_TN + j].expression()} +
+                                                  Expr<float>{_maybe_cast(_value_at(c, cc), wide_t)};
+                    }
+                }
+            }
+            // write-back: group lane 0 writes each tile element exactly once
+            // (fragment C -> staging, then the replica refresh below)
+            if_(Expr<bool>{(Expr<uint>{l_in_group} == 0u).expression()}, [&] {
+                for (uint32_t i = 0u; i < ksplit_TM; ++i) {
+                    for (uint32_t j = 0u; j < ksplit_TN; ++j) {
+                        Coord cc = _zero_coord();
+                        cc[0] = (Expr<uint>{r} + i).expression();
+                        cc[1] = (Expr<uint>{c0} + j).expression();
+                        if (frag) {
+                            auto sidx = Expr<uint>{_staging_index(c, cc)};
+                            auto cval = _maybe_cast(acc[i * ksplit_TN + j].expression(), out_t);
+                            with_elem_type(c->dtype(), [&]<typename U>() {
+                                Var<std::array<U, 1>> s{staging};
+                                s[sidx] = Expr<U>{cval};
+                            });
+                        } else {
+                            _write_to(c, cc, acc[i * ksplit_TN + j].expression());
+                        }
+                    }
+                }
+            });
+            if (frag) { _replicate_from_staging(c, c->dtype(), staging); }
+            _current_extent = saved;
+            return;
+        }
+        if (!use_warp) {
+            // Occupancy (lc_optimize: thread-group tuning): when the
+            // micro-tile grid is smaller than the block, the remaining
+            // threads idle for the whole K loop.  Shrink TM/TN (keeping
+            // exact division) until the grid covers the block — trading
+            // FMA:shared-load ratio for parallelism, a large win whenever
+            // MT*NT < threads (e.g. the 16x16 C tile / 256-thread
+            // bench_gemm: 4x4 micro-tiles keep only 16 of 256 threads
+            // busy; 1x1 micro-tiles engage all 256).
+            while ((TM > 1u || TN > 1u) && MT * NT < _threads) {
+                if (TM >= TN && TM > 1u) { TM >>= 1u; } else { TN >>= 1u; }
+                MT = M / TM;
+                NT = N / TN;
+            }
+        }
         if (use_warp) {
             auto lanes = _lane_count();// runtime expr
             auto lane = _lane();       // warp_lane_id()
             auto wid = _warp_id();     // runtime expr; batching disabled here
+            // ---- fused single-warp path (host_nw == 1) ---------------------
+            // The whole MT x NT micro-tile grid belongs to the single warp,
+            // so ALL micro-tiles accumulate in ONE lane-strided K loop and
+            // share their A-row / B-column shared loads: M + N loads per
+            // k-step feed M*N FMAs (vs. (TM+TN) loads per TM*TN FMAs when
+            // each tile loops separately).  Register-capped at 64 f32
+            // accumulators; larger grids use the per-tile loop below.
+            if (host_nw == 1u && M * N <= 64u) [[likely]] {
+                auto k_iters_w = (K + 32u - 1u) / 32u;
+                std::array<Var<float>, 64> acc{};
+                // one k-step: M A loads + N B loads feed all M*N FMAs (the A
+                // row / B col values are shared across the micro-tile grid)
+                auto emit_k = [&](const Expression *k) {
+                    std::array<const Expression *, 64> a_vals{};
+                    for (uint32_t rr = 0u; rr < M; ++rr) {
+                        Coord ac = _zero_coord();
+                        if (s->trans_a() != 0) {
+                            ac[0] = k;
+                            ac[1] = _literal_u(rr);
+                        } else {
+                            ac[0] = _literal_u(rr);
+                            ac[1] = k;
+                        }
+                        a_vals[rr] = Var<float>{Expr<float>{_maybe_cast(_value_at(a, ac), wide_t)}}.expression();
+                    }
+                    std::array<const Expression *, 64> b_vals{};
+                    for (uint32_t cc = 0u; cc < N; ++cc) {
+                        Coord bc = _zero_coord();
+                        if (s->trans_b() != 0) {
+                            bc[0] = _literal_u(cc);
+                            bc[1] = k;
+                        } else {
+                            bc[0] = k;
+                            bc[1] = _literal_u(cc);
+                        }
+                        b_vals[cc] = Var<float>{Expr<float>{_maybe_cast(_value_at(b, bc), wide_t)}}.expression();
+                    }
+                    for (uint32_t rr = 0u; rr < M; ++rr) {
+                        for (uint32_t cc = 0u; cc < N; ++cc) {
+                            acc[rr * N + cc] = fma(Expr<float>{a_vals[rr]},
+                                                   Expr<float>{b_vals[cc]},
+                                                   Expr<float>{acc[rr * N + cc].expression()});
+                        }
+                    }
+                };
+                if (K % 32u == 0u && k_iters_w <= 16u) {
+                    // host-unrolled K loop (lanes pinned to 32): removes the
+                    // dynamic $for overhead and folds kk*lanes into literals
+                    for (uint32_t kk = 0u; kk < k_iters_w; ++kk) {
+                        emit_k((Expr<uint>{lane} + kk * 32u).expression());
+                    }
+                } else {
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(k_iters_w)}, Expr<uint>{_literal_u(1u)})) {
+                        [&](const Expression *kk) {
+                 // DSL: k = kk * lanes + lane
+                 auto k = (Expr<uint>{kk} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+                 if (K % 32u != 0u) {// k may run past K on the last kk
+                     if_(Expr<bool>{(Expr<uint>{k} < K).expression()}, [&] { emit_k(k); });
+                 } else {
+                     emit_k(k);
+                 }
+             }(_range_i_.expression());
+                    }
+                }
+                // one scalar all-reduce per C element: every lane receives the
+                // finished tile (see the per-tile path for why this is not a
+                // packed vector reduce)
+                for (uint32_t rr = 0u; rr < M; ++rr) {
+                    for (uint32_t cc = 0u; cc < N; ++cc) {
+                        acc[rr * N + cc] = warp_active_sum(Expr<float>{acc[rr * N + cc].expression()});
+                    }
+                }
+                // clear_accum == 0: add the existing C element (uniform; the
+                // per-lane K-slice partial is already all-reduced)
+                if (s->clear_accum() == 0) {
+                    for (uint32_t rr = 0u; rr < M; ++rr) {
+                        for (uint32_t cc = 0u; cc < N; ++cc) {
+                            Coord cd = _zero_coord();
+                            cd[0] = _literal_u(rr);
+                            cd[1] = _literal_u(cc);
+                            acc[rr * N + cc] = Expr<float>{acc[rr * N + cc].expression()} +
+                                               Expr<float>{_maybe_cast(_value_at(c, cd), wide_t)};
+                        }
+                    }
+                }
+                // write-back: fragment C (single-warp block) -> every lane
+                // writes its OWN replica, barrier-free; otherwise lane 0
+                // writes each element exactly once
+                auto write_tile = [&] {
+                    for (uint32_t rr = 0u; rr < M; ++rr) {
+                        for (uint32_t cc = 0u; cc < N; ++cc) {
+                            Coord cd = _zero_coord();
+                            cd[0] = _literal_u(rr);
+                            cd[1] = _literal_u(cc);
+                            _write_to(c, cd, _maybe_cast(acc[rr * N + cc].expression(), out_t));
+                        }
+                    }
+                };
+                if (frag) {
+                    write_tile();
+                    // the direct replica writes above replace any lazy
+                    // fragment value recorded earlier (the documented
+                    // single-warp invalidation gap)
+                    _invalidate_lazy(c);
+                } else {
+                    if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, write_tile);
+                }
+                _current_extent = saved;
+                return;
+            }
             // warp-level 2D strided partition of the MT x NT micro-tile grid
             auto tw = std::min(host_nw, NT);
             auto th = (host_nw + tw - 1u) / tw;
-            auto r0 = _fb->binary(Type::of<uint>(), BinaryOp::DIV, wid, _literal_u(tw));
-            auto c0 = _fb->binary(Type::of<uint>(), BinaryOp::MOD, wid, _literal_u(tw));
+            // DSL: r0 = wid / tw; c0 = wid % tw
+            auto r0 = (Expr<uint>{wid} / Expr<uint>{tw}).expression();
+            auto c0 = (Expr<uint>{wid} % Expr<uint>{tw}).expression();
             // per-micro-tile, per-lane: K-slice partials + vector all-reduce
             auto warp_micro_tile = [&](const Expression *rt, const Expression *ct) {
-                auto r = _fb->binary(Type::of<uint>(), BinaryOp::MUL, rt, _literal_u(TM));
-                auto ct0 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, ct, _literal_u(TN));
+                // DSL: r = rt * TM; ct0 = ct * TN
+                auto r = (Expr<uint>{rt} * TM).expression();
+                auto ct0 = (Expr<uint>{ct} * TN).expression();
                 // TM*TN f32 accumulator locals; always start from 0.f because
                 // the per-lane partial covers only a K-slice (clear_accum==0
-                // C-addition happens after the all-reduce below)
-                std::array<const Expression *, 16> acc{};
-                for (uint32_t i = 0u; i < TM; ++i) {
-                    for (uint32_t j = 0u; j < TN; ++j) {
-                        auto *a_acc = _fb->local(wide_t);
-                        _fb->assign(a_acc, _fb->literal(wide_t, 0.f));
-                        acc[i * TN + j] = a_acc;
-                    }
-                }
+                // C-addition happens after the all-reduce below).  Var<float>
+                // default-init emits the same local + 0.f initializer as the
+                // old _fb->local/_fb->assign pair.
+                std::array<Var<float>, 16> acc{};
                 // lane-strided K loop (lanes pinned to 32); the tail guard only
                 // wraps the loads/FMAs, so every lane still reaches the reduce
                 auto k_iters_w = (K + 32u - 1u) / 32u;
-                _for_range(_literal_u(0u), _literal_u(k_iters_w), _literal_u(1u),
-                           [&](const Expression *kk) {
-                    auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, kk, lanes);
-                    auto k = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, lane);
-                    auto emit_k = [&] {
-                        // TM A loads + TN B loads, then TM*TN FMAs (same
-                        // trans_a/trans_b indexing as the per-thread path)
-                        std::array<const Expression *, 16> a_row{};
-                        for (uint32_t i = 0u; i < TM; ++i) {
-                            Coord ac = _zero_coord();
-                            auto ri = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
-                                                  r, _literal_u(i));
-                            if (s->trans_a() != 0) {
-                                ac[0] = k;
-                                ac[1] = ri;
-                            } else {
-                                ac[0] = ri;
-                                ac[1] = k;
-                            }
-                            auto *a_local = _fb->local(wide_t);
-                            _fb->assign(a_local, _maybe_cast(_value_at(a, ac), wide_t));
-                            a_row[i] = a_local;
-                        }
-                        std::array<const Expression *, 16> b_col{};
-                        for (uint32_t j = 0u; j < TN; ++j) {
-                            Coord bc = _zero_coord();
-                            auto cj = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
-                                                  ct0, _literal_u(j));
-                            if (s->trans_b() != 0) {
-                                bc[0] = cj;
-                                bc[1] = k;
-                            } else {
-                                bc[0] = k;
-                                bc[1] = cj;
-                            }
-                            auto *b_local = _fb->local(wide_t);
-                            _fb->assign(b_local, _maybe_cast(_value_at(b, bc), wide_t));
-                            b_col[j] = b_local;
-                        }
-                        for (uint32_t i = 0u; i < TM; ++i) {
-                            for (uint32_t j = 0u; j < TN; ++j) {
-                                auto *a_acc = acc[i * TN + j];
-                                _fb->assign(a_acc, _fb->call(wide_t, CallOp::FMA,
-                                                             {a_row[i], b_col[j], a_acc}));
-                            }
-                        }
-                    };
-                    if (K % 32u != 0u) {// k may run past K on the last kk
-                        _if(_fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                        k, _literal_u(K)), emit_k);
-                    } else {
-                        emit_k();
-                    }
-                });
+                for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(k_iters_w)}, Expr<uint>{_literal_u(1u)})) {
+                    [&](const Expression *kk) {
+             // DSL: k = kk * lanes + lane
+             auto k = (Expr<uint>{kk} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+             auto emit_k = [&] {
+                 // TM A loads + TN B loads, then TM*TN FMAs (same
+                 // trans_a/trans_b indexing as the per-thread path)
+                 std::array<const Expression *, 16> a_row{};
+                 for (uint32_t i = 0u; i < TM; ++i) {
+                     Coord ac = _zero_coord();
+                     auto ri = (Expr<uint>{r} + i).expression();
+                     if (s->trans_a() != 0) {
+                         ac[0] = k;
+                         ac[1] = ri;
+                     } else {
+                         ac[0] = ri;
+                         ac[1] = k;
+                     }
+                     // DSL local: Var<float> initialized from the cast A value
+                     a_row[i] = Var<float>{Expr<float>{_maybe_cast(_value_at(a, ac), wide_t)}}.expression();
+                 }
+                 std::array<const Expression *, 16> b_col{};
+                 for (uint32_t j = 0u; j < TN; ++j) {
+                     Coord bc = _zero_coord();
+                     auto cj = (Expr<uint>{ct0} + j).expression();
+                     if (s->trans_b() != 0) {
+                         bc[0] = cj;
+                         bc[1] = k;
+                     } else {
+                         bc[0] = k;
+                         bc[1] = cj;
+                     }
+                     // DSL local: Var<float> initialized from the cast B value
+                     b_col[j] = Var<float>{Expr<float>{_maybe_cast(_value_at(b, bc), wide_t)}}.expression();
+                 }
+                 for (uint32_t i = 0u; i < TM; ++i) {
+                     for (uint32_t j = 0u; j < TN; ++j) {
+                         // DSL: acc[i][j] = fma(a_row[i], b_col[j], acc[i][j])
+                         acc[i * TN + j] = fma(Expr<float>{a_row[i]},
+                                               Expr<float>{b_col[j]},
+                                               Expr<float>{acc[i * TN + j].expression()});
+                     }
+                 }
+             };
+             if (K % 32u != 0u) {// k may run past K on the last kk
+                 if_(Expr<bool>{(Expr<uint>{k} < K).expression()}, emit_k);
+             } else {
+                 emit_k();
+             }
+         }(_range_i_.expression());
+                }
                 // scalar all-reduce per micro-tile element: every lane receives
                 // the full TM x TN tile (uniform; no sync_block inside a $if).
                 // A packed vector WARP_ACTIVE_SUM would cut the reduction cost
@@ -2954,11 +4024,8 @@ private:
                 // (K >= ~256 at 8x8 blocks / 32 threads).
                 for (uint32_t i = 0u; i < TM; ++i) {
                     for (uint32_t j = 0u; j < TN; ++j) {
-                        auto *a_acc = acc[i * TN + j];
-                        auto red = _fb->local(wide_t);
-                        _fb->assign(red, _fb->call(wide_t, CallOp::WARP_ACTIVE_SUM,
-                                                   {a_acc}));
-                        _fb->assign(a_acc, red);
+                        // DSL: acc[i][j] = warp_active_sum(acc[i][j])
+                        acc[i * TN + j] = warp_active_sum(Expr<float>{acc[i * TN + j].expression()});
                     }
                 }
                 // clear_accum == 0: every lane adds the existing C element to
@@ -2967,12 +4034,12 @@ private:
                     for (uint32_t i = 0u; i < TM; ++i) {
                         for (uint32_t j = 0u; j < TN; ++j) {
                             Coord cc = _zero_coord();
-                            cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
-                            cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, ct0, _literal_u(j));
-                            _fb->assign(acc[i * TN + j],
-                                        _fb->binary(wide_t, BinaryOp::ADD,
-                                                    acc[i * TN + j],
-                                                    _maybe_cast(_value_at(c, cc), wide_t)));
+                            cc[0] = (Expr<uint>{r} + i).expression();
+                            cc[1] = (Expr<uint>{ct0} + j).expression();
+                            // DSL: acc[i][j] += cast(c[r+i][c+j], float)  (the
+                            // per-lane K-slice partial is already all-reduced)
+                            acc[i * TN + j] = Expr<float>{acc[i * TN + j].expression()} +
+                                              Expr<float>{_maybe_cast(_value_at(c, cc), wide_t)};
                         }
                     }
                 }
@@ -2984,25 +4051,29 @@ private:
                     for (uint32_t i = 0u; i < TM; ++i) {
                         for (uint32_t j = 0u; j < TN; ++j) {
                             Coord cc = _zero_coord();
-                            cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
-                            cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, ct0, _literal_u(j));
-                            _write_to(c, cc, _maybe_cast(acc[i * TN + j], out_t));
+                            cc[0] = (Expr<uint>{r} + i).expression();
+                            cc[1] = (Expr<uint>{ct0} + j).expression();
+                            _write_to(c, cc, _maybe_cast(acc[i * TN + j].expression(), out_t));
                         }
                     }
                 } else {
-                    auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                                lane, _literal_u(0u));
-                    _if(is_lane0, [&] {
+                    if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, [&] {
                         for (uint32_t i = 0u; i < TM; ++i) {
                             for (uint32_t j = 0u; j < TN; ++j) {
                                 Coord cc = _zero_coord();
-                                cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
-                                cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, ct0, _literal_u(j));
+                                cc[0] = (Expr<uint>{r} + i).expression();
+                                cc[1] = (Expr<uint>{ct0} + j).expression();
                                 if (frag) {
-                                    _fb->assign(_fb->access(out_t, staging, _staging_index(c, cc)),
-                                                _maybe_cast(acc[i * TN + j], out_t));
+                                    auto sidx = Expr<uint>{_staging_index(c, cc)};
+                                    auto cval = _maybe_cast(acc[i * TN + j].expression(), out_t);
+                                    // DSL staging write (output dtype may be half):
+                                    //   Var<std::array<U,1>> s{staging}; s[idx] = cast(value, U)
+                                    with_elem_type(c->dtype(), [&]<typename U>() {
+                                        Var<std::array<U, 1>> s{staging};
+                                        s[sidx] = Expr<U>{cval};
+                                    });
                                 } else {
-                                    _write_to(c, cc, _maybe_cast(acc[i * TN + j], out_t));
+                                    _write_to(c, cc, _maybe_cast(acc[i * TN + j].expression(), out_t));
                                 }
                             }
                         }
@@ -3017,20 +4088,28 @@ private:
                 _sync_block();// staging write-after-read hazard vs. previous use
             }
             // warp-level 2D partition of the MT x NT micro-tile grid
-            _for_range(r0, _literal_u(MT), _literal_u(th), [&](const Expression *r) {
-                auto emit_cols = [&] {
-                    _for_range(c0, _literal_u(NT), _literal_u(tw), [&](const Expression *c) {
-                        warp_micro_tile(r, c);
-                    });
-                };
-                if (MT % th != 0u) {// some warps start at r0 >= MT
-                    _if(_fb->binary(Type::of<bool>(), BinaryOp::LESS, r, _literal_u(MT)), emit_cols);
-                } else {
-                    emit_cols();
-                }
-            });
+            for (auto _range_i_ : dynamic_range(Expr<uint>{r0}, Expr<uint>{_literal_u(MT)}, Expr<uint>{_literal_u(th)})) {
+                [&](const Expression *r) {
+                               auto emit_cols = [&] {
+                                   for (auto _range_i_ : dynamic_range(Expr<uint>{c0}, Expr<uint>{_literal_u(NT)}, Expr<uint>{_literal_u(tw)})) {
+                                       [&](const Expression *c) {
+                                                                             warp_micro_tile(r, c);
+                                                                         }(_range_i_.expression());
+                                   }
+                               };
+                               if (MT % th != 0u) {// some warps start at r0 >= MT
+                                   if_(Expr<bool>{(Expr<uint>{r} < MT).expression()}, emit_cols);
+                               } else {
+                                   emit_cols();
+                               }
+                           }(_range_i_.expression());
+            }
             if (frag && host_nw > 1u) {
-                _replicate_from_staging(c, out_t, staging);
+                _replicate_from_staging(c, c->dtype(), staging);
+            } else if (frag) {
+                // single-warp replica writes above replace any lazy fragment
+                // value recorded earlier (the documented invalidation gap)
+                _invalidate_lazy(c);
             }
             _current_extent = saved;
             return;
@@ -3038,94 +4117,97 @@ private:
         // compute one TM x TN micro-tile with top-left (r, c) = rt*TM, ct*TN
         // (r/c are runtime expressions; TM/TN/MT/NT are host constants).
         auto micro_tile = [&](const Expression *rt, const Expression *ct) {
-            auto r = _fb->binary(Type::of<uint>(), BinaryOp::MUL, rt, _literal_u(TM));
-            auto c0 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, ct, _literal_u(TN));
+            // DSL: r = rt * TM; c0 = ct * TN
+            auto r = (Expr<uint>{rt} * TM).expression();
+            auto c0 = (Expr<uint>{ct} * TN).expression();
             // TM*TN f32 accumulator locals (max 4x4 = 16; TM/TN are runtime
-            // host values, so use the fixed upper bound and index i*TN+j)
-            std::array<const Expression *, 16> acc{};
-            for (uint32_t i = 0u; i < TM; ++i) {
-                for (uint32_t j = 0u; j < TN; ++j) {
-                    auto *a_acc = _fb->local(wide_t);
-                    if (s->clear_accum() != 0) {
-                        _fb->assign(a_acc, _fb->literal(wide_t, 0.f));
-                    } else {
+            // host values, so use the fixed upper bound and index i*TN+j).
+            // Var<float> default-init emits the same local + 0.f initializer
+            // as the old _fb->local/_fb->assign(0.f) for the clear_accum==1
+            // case; for clear_accum==0 the locals are overwritten below before
+            // any read.
+            std::array<Var<float>, 16> acc{};
+            if (s->clear_accum() == 0) {
+                for (uint32_t i = 0u; i < TM; ++i) {
+                    for (uint32_t j = 0u; j < TN; ++j) {
                         Coord cc = _zero_coord();
-                        cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
-                        cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, c0, _literal_u(j));
-                        _fb->assign(a_acc, _maybe_cast(_value_at(c, cc), wide_t));
+                        cc[0] = (Expr<uint>{r} + i).expression();
+                        cc[1] = (Expr<uint>{c0} + j).expression();
+                        // DSL: acc[i][j] = cast(c[r+i][c+j], float)
+                        acc[i * TN + j] = Expr<float>{_maybe_cast(_value_at(c, cc), wide_t)};
                     }
-                    acc[i * TN + j] = a_acc;
                 }
             }
             // K loop with k_pack host unrolling; tail guarded when K % k_pack != 0
-            _for_range(_literal_u(0u), _literal_u(k_iters), _literal_u(1u),
-                       [&](const Expression *kk) {
-                for (uint32_t u = 0u; u < k_pack; ++u) {
-                    auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                          kk, _literal_u(k_pack));
-                    auto k = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
-                                         t1, _literal_u(u));
-                    auto emit_k = [&] {
-                        // TM A loads + TN B loads, then TM*TN FMAs
-                        std::array<const Expression *, 16> a_row{};
-                        for (uint32_t i = 0u; i < TM; ++i) {
-                            Coord ac = _zero_coord();
-                            auto ri = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
-                                                  r, _literal_u(i));
-                            if (s->trans_a() != 0) {
-                                ac[0] = k;
-                                ac[1] = ri;
-                            } else {
-                                ac[0] = ri;
-                                ac[1] = k;
-                            }
-                            auto *a_local = _fb->local(wide_t);
-                            _fb->assign(a_local, _maybe_cast(_value_at(a, ac), wide_t));
-                            a_row[i] = a_local;
-                        }
-                        std::array<const Expression *, 16> b_col{};
-                        for (uint32_t j = 0u; j < TN; ++j) {
-                            Coord bc = _zero_coord();
-                            auto cj = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
-                                                  c0, _literal_u(j));
-                            if (s->trans_b() != 0) {
-                                bc[0] = cj;
-                                bc[1] = k;
-                            } else {
-                                bc[0] = k;
-                                bc[1] = cj;
-                            }
-                            auto *b_local = _fb->local(wide_t);
-                            _fb->assign(b_local, _maybe_cast(_value_at(b, bc), wide_t));
-                            b_col[j] = b_local;
-                        }
-                        for (uint32_t i = 0u; i < TM; ++i) {
-                            for (uint32_t j = 0u; j < TN; ++j) {
-                                auto *a_acc = acc[i * TN + j];
-                                _fb->assign(a_acc, _fb->call(wide_t, CallOp::FMA,
-                                                             {a_row[i], b_col[j], a_acc}));
-                            }
-                        }
-                    };
-                    if (K % k_pack != 0u) {// k may run past K on the last kk
-                        _if(_fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                        k, _literal_u(K)), emit_k);
-                    } else {
-                        emit_k();
-                    }
-                }
-            });
+            for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(k_iters)}, Expr<uint>{_literal_u(1u)})) {
+                [&](const Expression *kk) {
+         for (uint32_t u = 0u; u < k_pack; ++u) {
+             // DSL: k = kk * k_pack + u
+             auto k = (Expr<uint>{kk} * k_pack + u).expression();
+             auto emit_k = [&] {
+                 // TM A loads + TN B loads, then TM*TN FMAs
+                 std::array<const Expression *, 16> a_row{};
+                 for (uint32_t i = 0u; i < TM; ++i) {
+                     Coord ac = _zero_coord();
+                     auto ri = (Expr<uint>{r} + i).expression();
+                     if (s->trans_a() != 0) {
+                         ac[0] = k;
+                         ac[1] = ri;
+                     } else {
+                         ac[0] = ri;
+                         ac[1] = k;
+                     }
+                     // DSL local: Var<float> initialized from the cast A value
+                     a_row[i] = Var<float>{Expr<float>{_maybe_cast(_value_at(a, ac), wide_t)}}.expression();
+                 }
+                 std::array<const Expression *, 16> b_col{};
+                 for (uint32_t j = 0u; j < TN; ++j) {
+                     Coord bc = _zero_coord();
+                     auto cj = (Expr<uint>{c0} + j).expression();
+                     if (s->trans_b() != 0) {
+                         bc[0] = cj;
+                         bc[1] = k;
+                     } else {
+                         bc[0] = k;
+                         bc[1] = cj;
+                     }
+                     // DSL local: Var<float> initialized from the cast B value
+                     b_col[j] = Var<float>{Expr<float>{_maybe_cast(_value_at(b, bc), wide_t)}}.expression();
+                 }
+                 for (uint32_t i = 0u; i < TM; ++i) {
+                     for (uint32_t j = 0u; j < TN; ++j) {
+                         // DSL: acc[i][j] = fma(a_row[i], b_col[j], acc[i][j])
+                         acc[i * TN + j] = fma(Expr<float>{a_row[i]},
+                                               Expr<float>{b_col[j]},
+                                               Expr<float>{acc[i * TN + j].expression()});
+                     }
+                 }
+             };
+             if (K % k_pack != 0u) {// k may run past K on the last kk
+                 if_(Expr<bool>{(Expr<uint>{k} < K).expression()}, emit_k);
+             } else {
+                 emit_k();
+             }
+         }
+     }(_range_i_.expression());
+            }
             // write-back the micro-tile
             for (uint32_t i = 0u; i < TM; ++i) {
                 for (uint32_t j = 0u; j < TN; ++j) {
                     Coord cc = _zero_coord();
-                    cc[0] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, r, _literal_u(i));
-                    cc[1] = _fb->binary(Type::of<uint>(), BinaryOp::ADD, c0, _literal_u(j));
+                    cc[0] = (Expr<uint>{r} + i).expression();
+                    cc[1] = (Expr<uint>{c0} + j).expression();
                     if (frag) {
-                        _fb->assign(_fb->access(out_t, staging, _staging_index(c, cc)),
-                                    _maybe_cast(acc[i * TN + j], out_t));
+                        auto sidx = Expr<uint>{_staging_index(c, cc)};
+                        auto cval = _maybe_cast(acc[i * TN + j].expression(), out_t);
+                        // DSL staging write (output dtype may be half):
+                        //   Var<std::array<U,1>> s{staging}; s[idx] = cast(value, U)
+                        with_elem_type(c->dtype(), [&]<typename U>() {
+                            Var<std::array<U, 1>> s{staging};
+                            s[sidx] = Expr<U>{cval};
+                        });
                     } else {
-                        _write_to(c, cc, acc[i * TN + j]);
+                        _write_to(c, cc, acc[i * TN + j].expression());
                     }
                 }
             }
@@ -3137,21 +4219,23 @@ private:
         auto gemm_partition = [&](auto &&body) {
             switch (s->policy()) {
                 case GemmWarpPolicy::FullRow: {
-                    _for_range(_tid_x(), _literal_u(MT), _literal_u(_threads),
-                               [&](const Expression *rt) {
-                        for (uint32_t ct = 0u; ct < NT; ++ct) {
-                            body(rt, _literal_u(ct));
-                        }
-                    });
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{_tid_x()}, Expr<uint>{_literal_u(MT)}, Expr<uint>{_literal_u(_threads)})) {
+                        [&](const Expression *rt) {
+                 for (uint32_t ct = 0u; ct < NT; ++ct) {
+                     body(rt, _literal_u(ct));
+                 }
+             }(_range_i_.expression());
+                    }
                     break;
                 }
                 case GemmWarpPolicy::FullCol: {
-                    _for_range(_tid_x(), _literal_u(NT), _literal_u(_threads),
-                               [&](const Expression *ct) {
-                        for (uint32_t rt = 0u; rt < MT; ++rt) {
-                            body(_literal_u(rt), ct);
-                        }
-                    });
+                    for (auto _range_i_ : dynamic_range(Expr<uint>{_tid_x()}, Expr<uint>{_literal_u(NT)}, Expr<uint>{_literal_u(_threads)})) {
+                        [&](const Expression *ct) {
+                 for (uint32_t rt = 0u; rt < MT; ++rt) {
+                     body(_literal_u(rt), ct);
+                 }
+             }(_range_i_.expression());
+                    }
                     break;
                 }
                 default: {// Square
@@ -3168,7 +4252,7 @@ private:
             gemm_partition([&](const Expression *rt, const Expression *ct) {
                 micro_tile(rt, ct);
             });
-            _replicate_from_staging(c, out_t, staging);
+            _replicate_from_staging(c, c->dtype(), staging);// ISOLATE
         } else {
             // global C, or a large shared-backed fragment C: each element is
             // written exactly once across the block (the A/B tiles were staged
@@ -3275,6 +4359,17 @@ private:
         auto wide_t = Type::of<float>();// accumulate in f32 (f16 inputs too)
         auto in_t = tensor_element_type(in_e);
         auto out_t = tensor_element_type(out_e);
+        // NOTE: the cooperative-vector body below deliberately stays on the
+        // dtype-erased raw FunctionBuilder path (_fb->local/assign/call +
+        // _fb->access for the per-component loads/stores).  The DSL wrapper
+        // (CoopVector<float> / CoopVector<T>) requires the element type at
+        // compile time, while the cooperative GEMM supports F16/F32 inputs at
+        // runtime, and the mixed float-accumulator/half-operand staging is not
+        // worth the with_elem_type plumbing for a path that is NOT exercised by
+        // the default tests.  The raw calls are correct (Type::cooperative_vector
+        // + COOPERATIVE_VECTOR_SPLAT + per-component FMA expansion).  Only the
+        // index math and control flow use the DSL sugar (dynamic_range /
+        // if_ / _literal_u / _zero_coord).
         auto acc_vec_t = Type::cooperative_vector(wide_t, N);
         auto in_vec_t = Type::cooperative_vector(in_t, N);
         // component access / assignment of a cooperative vector (the AST-level
@@ -3284,56 +4379,58 @@ private:
         };
         // uniform (non-partitioned) row loop: every thread of the block
         // executes the same cooperative ops, block-wide
-        _for_range(_literal_u(0u), _literal_u(M), _literal_u(1u),
-                   [&](const Expression *r) {
-            auto acc = _fb->local(acc_vec_t);
-            if (s->clear_accum() != 0) {
-                _fb->assign(acc, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT,
-                                           {_fb->literal(wide_t, 0.f)}));
-            } else {
-                // load the existing C row into the accumulator
-                for (auto i = 0u; i < N; ++i) {
-                    Coord cc = _zero_coord();
-                    cc[0] = r;
-                    cc[1] = _literal_u(i);
-                    _fb->assign(vec_at(acc, wide_t, i),
-                                _maybe_cast(_value_at(c, cc), wide_t));
-                }
-            }
-            _for_range(_literal_u(0u), _literal_u(K), _literal_u(1u),
-                       [&](const Expression *k) {
-                // broadcast A[r][k] into a cooperative vector
-                Coord ac = _zero_coord();
-                ac[0] = r;
-                ac[1] = k;
-                auto av = _maybe_cast(_value_at(a, ac), wide_t);
-                auto a_vec = _fb->local(acc_vec_t);
-                _fb->assign(a_vec, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT, {av}));
-                // stage B[k][0:N] into a cooperative vector
-                auto b_vec = _fb->local(in_vec_t);
-                for (auto i = 0u; i < N; ++i) {
-                    Coord bc = _zero_coord();
-                    bc[0] = k;
-                    bc[1] = _literal_u(i);
-                    _fb->assign(vec_at(b_vec, in_t, i), _value_at(b, bc));
-                }
-                // acc += a_vec * b_vec (elementwise FMA expansion, as the DSL
-                // cooperative_vector_fma emits)
-                for (auto i = 0u; i < N; ++i) {
-                    auto ai = vec_at(a_vec, wide_t, i);
-                    auto bi = _maybe_cast(vec_at(b_vec, in_t, i), wide_t);
-                    auto ci = vec_at(acc, wide_t, i);
-                    _fb->assign(ci, _fb->call(wide_t, CallOp::FMA, {ai, bi, ci}));
-                }
-            });
-            // store the accumulated row back into the C tile
-            for (auto i = 0u; i < N; ++i) {
-                Coord cc = _zero_coord();
-                cc[0] = r;
-                cc[1] = _literal_u(i);
-                _write_to(c, cc, _maybe_cast(vec_at(acc, wide_t, i), out_t));
-            }
-        });
+        for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(M)}, Expr<uint>{_literal_u(1u)})) {
+            [&](const Expression *r) {
+     auto acc = _fb->local(acc_vec_t);
+     if (s->clear_accum() != 0) {
+         _fb->assign(acc, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT,
+                                    {_fb->literal(wide_t, 0.f)}));
+     } else {
+         // load the existing C row into the accumulator
+         for (auto i = 0u; i < N; ++i) {
+             Coord cc = _zero_coord();
+             cc[0] = r;
+             cc[1] = _literal_u(i);
+             _fb->assign(vec_at(acc, wide_t, i),
+                         _maybe_cast(_value_at(c, cc), wide_t));
+         }
+     }
+     for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(K)}, Expr<uint>{_literal_u(1u)})) {
+         [&](const Expression *k) {
+  // broadcast A[r][k] into a cooperative vector
+  Coord ac = _zero_coord();
+  ac[0] = r;
+  ac[1] = k;
+  auto av = _maybe_cast(_value_at(a, ac), wide_t);
+  auto a_vec = _fb->local(acc_vec_t);
+  _fb->assign(a_vec, _fb->call(acc_vec_t, CallOp::COOPERATIVE_VECTOR_SPLAT, {av}));
+  // stage B[k][0:N] into a cooperative vector
+  auto b_vec = _fb->local(in_vec_t);
+  for (auto i = 0u; i < N; ++i) {
+      Coord bc = _zero_coord();
+      bc[0] = k;
+      bc[1] = _literal_u(i);
+      _fb->assign(vec_at(b_vec, in_t, i), _value_at(b, bc));
+  }
+  // acc += a_vec * b_vec (elementwise FMA expansion, as the DSL
+  // cooperative_vector_fma emits)
+  for (auto i = 0u; i < N; ++i) {
+      auto ai = vec_at(a_vec, wide_t, i);
+      auto bi = _maybe_cast(vec_at(b_vec, in_t, i), wide_t);
+      auto ci = vec_at(acc, wide_t, i);
+      _fb->assign(ci, _fb->call(wide_t, CallOp::FMA, {ai, bi, ci}));
+  }
+}(_range_i_.expression());
+     }
+     // store the accumulated row back into the C tile
+     for (auto i = 0u; i < N; ++i) {
+         Coord cc = _zero_coord();
+         cc[0] = r;
+         cc[1] = _literal_u(i);
+         _write_to(c, cc, _maybe_cast(vec_at(acc, wide_t, i), out_t));
+     }
+ }(_range_i_.expression());
+        }
         _current_extent = saved;
     }
 
@@ -3353,15 +4450,18 @@ private:
         auto saved = _current_extent;
         _current_extent = t;
         auto c0 = _zero_coord();
-        auto tid_x = _vec_comp(_fb->thread_id(), 0u);
-        auto cond = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL, tid_x, _literal_u(0u));
+        // DSL: Bool cond = (thread_id().x == 0);
+        auto cond = (Expr<uint3>{_fb->thread_id()}.x == 0u).expression();
         if (_batching) {
             // Skip printing from idle tz threads of the tail z-block.
-            cond = _fb->binary(Type::of<bool>(), BinaryOp::AND, cond, _batch_valid);
+            // (Scalar bools use the bitwise & -- the DSL has no &&/|| for
+            // scalars; AND and BIT_AND coincide on {0,1}.)
+            cond = (Expr<bool>{cond} & Expr<bool>{_batch_valid}).expression();
         }
-        _if(cond, [&] {
+        if_(Expr<bool>{cond}, [&] {
             auto v = _value_at(t, c0);
             auto fmt = luisa::format("[tile] {} tile[0] = {{}}", luisa::string{s->msg()});
+            // no DSL equivalent for print_: keep the raw call
             _fb->print_(fmt, luisa::span<const Expression *const>{&v, 1u});
         });
         _current_extent = saved;
@@ -3389,6 +4489,7 @@ private:
         }
       if (buf->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(buf)) {
           _full_loop(buf, [&](const Coord &c) { _write_to(buf, c, value); });
+          _invalidate_lazy(buf);
       } else if (buf->rank() == 2u) {
           _partition_loop_2d(buf, [&](const Coord &c) { _write_to(buf, c, value); });
       } else {
@@ -3430,6 +4531,7 @@ private:
         };
         if (dst->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(dst)) {
             _full_loop(ext, body);
+            _invalidate_lazy(dst);
         } else if ((src->scope() == TensorScope::Global || dst->scope() == TensorScope::Global) &&
                    tile_element_count(ext) >= 64u &&
                    _pipeline_var == nullptr && !_batching) {
@@ -3439,24 +4541,27 @@ private:
             // read/write pattern for non-tiny Global operands.  The internal
             // sync covers the staging hazard; cross-statement hazards are
             // covered by _emit's trailing barrier logic via the operand scopes.
-            auto elem_t = tensor_element_type(ext->dtype());
-            auto n = tile_element_count(ext);
-            auto staging = _fb->shared(Type::array(elem_t, n));
-            // pass 1: coalesced read of src into staging
-            auto pass1 = [&](const Coord &c) {
-                _fb->assign(_fb->access(elem_t, staging, _local_index(ext, c)),
-                            _maybe_cast(_value_at(src, c), elem_t));
-            };
-            if (ext->rank() == 2u) { _partition_loop_2d(ext, pass1); } else { _partition_loop(ext, pass1); }
-            _sync_block();
-            // pass 2: coalesced write of dst from the transposed staging index
-            auto pass2 = [&](const Coord &cd) {
-                Coord cs = _zero_coord();
-                cs[0] = cd[1];
-                cs[1] = cd[0];
-                _write_to(dst, cd, _fb->access(elem_t, staging, _local_index(ext, cs)));
-            };
-            if (ext->rank() == 2u) { _partition_loop_2d(ext, pass2); } else { _partition_loop(ext, pass2); }
+            // DSL: Shared<T> staging{n} (element type is the runtime tag, so
+            // the whole staged block is dtype-generic inside with_elem_type).
+            with_elem_type(ext->dtype(), [&]<typename T>() {
+                auto n = tile_element_count(ext);
+                Shared<T> staging{n};
+                // pass 1: coalesced read of src into staging
+                auto pass1 = [&](const Coord &c) {
+                    auto idx = Expr<uint>{_local_index(ext, c)};
+                    staging[idx] = Expr<T>{_maybe_cast(_value_at(src, c), Type::of<T>())};
+                };
+                if (ext->rank() == 2u) { _partition_loop_2d(ext, pass1); } else { _partition_loop(ext, pass1); }
+                _sync_block();
+                // pass 2: coalesced write of dst from the transposed staging index
+                auto pass2 = [&](const Coord &cd) {
+                    Coord cs = _zero_coord();
+                    cs[0] = cd[1];
+                    cs[1] = cd[0];
+                    _write_to(dst, cd, staging[Expr<uint>{_local_index(ext, cs)}].expression());
+                };
+                if (ext->rank() == 2u) { _partition_loop_2d(ext, pass2); } else { _partition_loop(ext, pass2); }
+            });
         } else if (ext->rank() == 2u) {
             _partition_loop_2d(ext, body);
         } else {
@@ -3491,12 +4596,22 @@ private:
             if (s->lo_literal() != nullptr) { lo = _maybe_cast(_recreate_literal(s->lo_literal()), elem_t); }
             if (s->hi_literal() != nullptr) { hi = _maybe_cast(_recreate_literal(s->hi_literal()), elem_t); }
             auto clamped = v;
-            if (lo != nullptr) { clamped = _fb->call(elem_t, CallOp::MAX, {clamped, lo}); }
-            if (hi != nullptr) { clamped = _fb->call(elem_t, CallOp::MIN, {clamped, hi}); }
+            // DSL: max/min on the concrete element type
+            if (lo != nullptr) {
+                clamped = with_elem_type(dst->dtype(), [&]<typename T>() -> const Expression * {
+                    return max(Expr<T>{clamped}, Expr<T>{lo}).expression();
+                });
+            }
+            if (hi != nullptr) {
+                clamped = with_elem_type(dst->dtype(), [&]<typename T>() -> const Expression * {
+                    return min(Expr<T>{clamped}, Expr<T>{hi}).expression();
+                });
+            }
             _write_to(dst, c, clamped);
         };
         if (dst->scope() == TensorScope::Fragment && !_is_fragment_shared_backed(dst)) {
             _full_loop(dst, body);
+            _invalidate_lazy(dst);
         } else if (dst->rank() == 2u) {
             _partition_loop_2d(dst, body);
         } else {
@@ -3543,6 +4658,14 @@ private:
         auto body = [&](const Coord &c) {
             auto emit_body = [&] {
                 auto idx = _global_index(dst, c);
+                // NOTE: the DSL atomic surface (Expr<Buffer<T>>::atomic(i).
+                // fetch_add/max/min/or) is only defined for int/uint/slong/
+                // ulong/float, while the tile atomics also support F16/I8 with
+                // a runtime dtype tag (and fp8 goes through the raw byte path
+                // in _value_at).  The dtype-erased raw call path below is kept
+                // intact because it is correct for every supported element
+                // type; wrapping it in with_elem_type would fail to compile
+                // for half/byte (no AtomicRef specialization) and for fp8.
                 // execute the atomic; the returned old value (if any) is captured
                 // into a throw-away local so the call is type-correct and alive
                 auto tmp = _fb->local(elem_t);
@@ -3573,7 +4696,7 @@ private:
             };
             // All atomics target Global storage; guard them with the batch
             // validity predicate so idle tz threads never touch batch 0.
-            if (_batching) { _if(_batch_valid, emit_body); } else { emit_body(); }
+            if (_batching) { if_(Expr<bool>{_batch_valid}, emit_body); } else { emit_body(); }
         };
         if (dst->rank() == 2u) {
             _partition_loop_2d(dst, body);
@@ -3711,7 +4834,6 @@ private:
      */
     void _emit_scan(const TensorExpr *src, const TensorExpr *dst,
                     uint32_t dim, int32_t reverse, bool is_max) {
-        auto elem_t = tensor_element_type(src->dtype());
         auto saved = _current_extent;
         _current_extent = src;
         auto scan_len = static_cast<uint32_t>(axis_extent(src, dim));
@@ -3735,6 +4857,7 @@ private:
             return _reduce_identity(is_max ? TileReduceOp::MAX : TileReduceOp::SUM,
                                     src->dtype());
         };
+        const auto op = is_max ? TileReduceOp::MAX : TileReduceOp::SUM;
         // ---- two-pass block scan (plan 2.8 / lc_optimize 4.5) -----------------
         // Fewer scan lines than warps -> the warp-per-line partition leaves most
         // warps idle; split each line's scan axis across ALL warps instead.
@@ -3744,281 +4867,301 @@ private:
             const uint32_t seg_count = std::min<uint32_t>(nw_est, scan_len);
             const uint32_t seg_len = (scan_len + seg_count - 1u) / seg_count;
             const uint32_t seg_chunks = (seg_len + 32u - 1u) / 32u;// lanes pinned to 32
-            auto totals_s = _fb->shared(Type::array(elem_t, seg_count));
-            auto prefix_s = _fb->shared(Type::array(elem_t, seg_count));
-            for (uint32_t line = 0u; line < line_count; ++line) {
-                // decompose host-constant line -> coords for all axes except dim
-                Coord cc = _zero_coord();
-                auto rem = line;
-                for (int32_t i = static_cast<int32_t>(src->rank()) - 1; i >= 0; --i) {
-                    auto ui = static_cast<uint32_t>(i);
-                    if (ui == dim) { continue; }
-                    auto e = static_cast<uint32_t>(axis_extent(src, ui));
-                    auto ci = rem % e;
-                    rem /= e;
-                    cc[ui] = _literal_u(ci);
-                }
-                // per-line carry: pass 1 leaves the segment total here for the
-                // lane-0 publish; pass 3 accumulates its scan with the prefix
-                auto carry = _fb->local(elem_t);
-                // ONE local lambda for both passes: butterfly inclusive scan of
-                // the segment's off range [seg_start, seg_start + seg_w) with an
-                // initial `base` carry; writes output only when emit_writes.
-                auto scan_segment = [&](const Coord &cc0,
-                                        const Expression *seg_start,
-                                        uint32_t seg_w,
-                                        const Expression *base,
-                                        bool emit_writes) -> void {
-                    (void)seg_w;// chunk count is the host seg_chunks; tail guard is off<scan_len
-                    Coord scc = cc0;
-                    _fb->assign(carry, base);
-                    _for_range(_literal_u(0u), _literal_u(seg_chunks), _literal_u(1u),
-                               [&](const Expression *ch) {
-                        auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                              ch, lanes);
-                        auto t2 = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
-                                              seg_start, t1);
-                        auto off = _fb->binary(Type::of<uint>(), BinaryOp::ADD,
-                                               t2, lane);
-                        // element position along the scan axis (from the scan side)
-                        const Expression *pos = off;
-                        if (reverse != 0) {
-                            pos = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
-                                              _literal_u(scan_len - 1u), off);
+            // The element arithmetic is dtype-generic (runtime tag), so the
+            // device body is written in the DSL sugar inside with_elem_type.
+            with_elem_type(src->dtype(), [&]<typename T>() {
+                // DSL shared workspaces (element type T)
+                Shared<T> totals_s{seg_count};
+                Shared<T> prefix_s{seg_count};
+                for (uint32_t line = 0u; line < line_count; ++line) {
+                    // decompose host-constant line -> coords for all axes except dim
+                    Coord cc = _zero_coord();
+                    auto rem = line;
+                    for (int32_t i = static_cast<int32_t>(src->rank()) - 1; i >= 0; --i) {
+                        auto ui = static_cast<uint32_t>(i);
+                        if (ui == dim) { continue; }
+                        auto e = static_cast<uint32_t>(axis_extent(src, ui));
+                        auto ci = rem % e;
+                        rem /= e;
+                        cc[ui] = _literal_u(ci);
+                    }
+                    // per-line carry: pass 1 leaves the segment total here for the
+                    // lane-0 publish; pass 3 accumulates its scan with the prefix
+                    auto carry = Var<T>{Expr<T>{identity()}};
+                    // ONE local lambda for both passes: butterfly inclusive scan of
+                    // the segment's off range [seg_start, seg_start + seg_w) with an
+                    // initial `base` carry; writes output only when emit_writes.
+                    auto scan_segment = [&](const Coord &cc0,
+                                            const Expression *seg_start,
+                                            uint32_t seg_w,
+                                            const Expression *base,
+                                            bool emit_writes) -> void {
+                        // Segment bounds: the scan must stay inside
+                        // [seg_start, seg_start + seg_w) (clamped to scan_len).
+                        // Guarding with off < scan_len alone would let a ragged
+                        // tail chunk (seg_w % lanes != 0) read — and in pass 3
+                        // WRITE — elements owned by the NEXT segment, racing the
+                        // neighbour warp's correct values and contaminating this
+                        // segment's published total (lc_optimize: correctness of
+                        // partitioned scans).  With evenly-dividing extents the
+                        // extra min() folds away and the guards are always true.
+                        auto seg_end = (min(Expr<uint>{scan_len},
+                                            Expr<uint>{seg_start} + Expr<uint>{seg_w})).expression();
+                        // Host-provable guard elision: when seg_len is a
+                        // multiple of the (pinned 32) warp size and divides
+                        // scan_len evenly, every chunk of every segment is in
+                        // bounds, so the identity-padded guard is dead code.
+                        const bool seg_guard_free = (seg_len % 32u == 0u) && (scan_len % seg_len == 0u);
+                        Coord scc = cc0;
+                        carry = Expr<T>{base};
+                        for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(seg_chunks)}, Expr<uint>{_literal_u(1u)})) {
+                            [&](const Expression *ch) {
+                     // DSL: off = seg_start + ch * lanes + lane
+                     auto off = (Expr<uint>{seg_start} +
+                                 Expr<uint>{ch} * Expr<uint>{lanes} +
+                                 Expr<uint>{lane}).expression();
+                     // element position along the scan axis (from the scan side)
+                     const Expression *pos = off;
+                     if (reverse != 0) {
+                         pos = (Expr<uint>{scan_len - 1u} - Expr<uint>{off}).expression();
+                     }
+                     auto valid = (Expr<uint>{off} < Expr<uint>{seg_end}).expression();
+                     auto v = Var<T>{Expr<T>{identity()}};
+                     if (seg_guard_free) [[likely]] {
+                         scc[dim] = pos;
+                         v = Expr<T>{_maybe_cast(_value_at(src, scc), Type::of<T>())};
+                     } else {
+                         if_(Expr<bool>{valid}, [&] {
+                             scc[dim] = pos;
+                             v = Expr<T>{_maybe_cast(_value_at(src, scc), Type::of<T>())};
+                         });
+                     }
+                     // in-chunk inclusive scan across the warp: butterfly
+                     // inclusive scan via WARP_READ_LANE (lc_optimize 2.2;
+                     // the lane read is unconditional/clamped so it is never
+                     // divergent)
+                     auto incl = Var<T>{Expr<T>{v.expression()}};
+                     for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
+                         auto d_active = (Expr<uint>{d} < Expr<uint>{lanes}).expression();
+                         if_(Expr<bool>{d_active}, [&] {
+                             auto clamped = min(Expr<uint>{lane}, Expr<uint>{d});
+                             auto peer = (Expr<uint>{lane} - clamped).expression();
+                             // stage the unconditional wave read in a local
+                             auto other = Var<T>{warp_read_lane(incl, Expr<uint>{peer})};
+                             auto has_prev = (Expr<uint>{lane} >= Expr<uint>{d}).expression();
+                             if_(Expr<bool>{has_prev}, [&] {
+                                 incl = Expr<T>{_combine_expr<T>(op, incl.expression(),
+                                                                 other.expression())};
+                             });
+                         });
+                     }
+                     // chunk total = the last lane's inclusive value
+                     auto last = (Expr<uint>{lanes} - 1u).expression();
+                     auto total = warp_read_lane(incl, Expr<uint>{last}).expression();
+                     const Expression *res = _combine_expr<T>(op, carry.expression(),
+                                                              incl.expression());
+                     if (emit_writes) {
+                         if (seg_guard_free) [[likely]] {
+                             scc[dim] = pos;
+                             if (frag_out) {
+                                 auto sidx = Expr<uint>{_staging_index(dst, scc)};
+                                 auto res_cast = _maybe_cast(res, out_t);
+                                 // DSL staging write (dst dtype may differ):
+                                 //   Var<std::array<U,1>> s{staging}; s[idx] = cast(res, U)
+                                 with_elem_type(dst->dtype(), [&]<typename U>() {
+                                     Var<std::array<U, 1>> s{staging};
+                                     s[sidx] = Expr<U>{res_cast};
+                                 });
+                             } else {
+                                 _write_to(dst, scc, res);
+                             }
+                         } else {
+                             if_(Expr<bool>{valid}, [&] {
+                                 scc[dim] = pos;
+                                 if (frag_out) {
+                                     auto sidx = Expr<uint>{_staging_index(dst, scc)};
+                                     auto res_cast = _maybe_cast(res, out_t);
+                                     // DSL staging write (dst dtype may differ):
+                                     //   Var<std::array<U,1>> s{staging}; s[idx] = cast(res, U)
+                                     with_elem_type(dst->dtype(), [&]<typename U>() {
+                                         Var<std::array<U, 1>> s{staging};
+                                         s[sidx] = Expr<U>{res_cast};
+                                     });
+                                 } else {
+                                     _write_to(dst, scc, res);
+                                 }
+                             });
+                         }
+                     }
+                     carry = Expr<T>{_combine_expr<T>(op, carry.expression(), total)};
+                 }(_range_i_.expression());
                         }
-                        auto valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                                 off, _literal_u(scan_len));
-                        auto v = _fb->local(elem_t);
-                        _fb->assign(v, identity());
-                        _if(valid, [&] {
-                            scc[dim] = pos;
-                            _fb->assign(v, _maybe_cast(_value_at(src, scc), elem_t));
+                    };
+                    auto seg_valid = (Expr<uint>{warp} < seg_count).expression();
+                    if_(Expr<bool>{seg_valid}, [&] {
+                        // pass 1: scan segment, publish the segment total
+                        auto seg_start = (Expr<uint>{warp} * seg_len).expression();
+                        carry = Expr<T>{identity()};
+                        scan_segment(cc, seg_start, seg_len, identity(), false);
+                        if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, [&] {
+                            totals_s[Expr<uint>{warp}] = Expr<T>{carry.expression()};
                         });
-                        // in-chunk inclusive scan across the warp: butterfly
-                        // inclusive scan via WARP_READ_LANE (lc_optimize 2.2;
-                        // the lane read is unconditional/clamped so it is never
-                        // divergent)
-                        auto incl = _fb->local(elem_t);
-                        _fb->assign(incl, v);
+                    });
+                    _sync_block();// publish totals before warp 0 scans them
+                    // pass 2: warp 0 inclusive-scans the seg_count totals -> per-
+                    // segment exclusive prefixes
+                    if_(Expr<bool>{(Expr<uint>{warp} == 0u).expression()}, [&] {
+                        auto v = Var<T>{Expr<T>{identity()}};
+                        auto lane_valid = (Expr<uint>{lane} < seg_count).expression();
+                        if_(Expr<bool>{lane_valid}, [&] {
+                            v = Expr<T>{totals_s[Expr<uint>{lane}].expression()};
+                        });
+                        auto incl = Var<T>{Expr<T>{v.expression()}};
+                        // butterfly inclusive scan of totals (same loop as above)
                         for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
-                            auto d_active = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                                        _literal_u(d), lanes);
-                            _if(d_active, [&] {
-                                auto clamped = _fb->call(Type::of<uint>(), CallOp::MIN,
-                                                         {lane, _literal_u(d)});
-                                auto peer = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
-                                                        lane, clamped);
-                                auto other = _fb->local(elem_t);
-                                _fb->assign(other, _fb->call(elem_t, CallOp::WARP_READ_LANE,
-                                                             {incl, peer}));
-                                auto has_prev = _fb->binary(Type::of<bool>(),
-                                                            BinaryOp::GREATER_EQUAL,
-                                                            lane, _literal_u(d));
-                                _if(has_prev, [&] {
-                                    auto combined = is_max
-                                                        ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {incl, other}))
-                                                        : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, incl, other));
-                                    _fb->assign(incl, combined);
+                            auto d_active = (Expr<uint>{d} < Expr<uint>{lanes}).expression();
+                            if_(Expr<bool>{d_active}, [&] {
+                                auto clamped = min(Expr<uint>{lane}, Expr<uint>{d});
+                                auto peer = (Expr<uint>{lane} - clamped).expression();
+                                auto other = Var<T>{warp_read_lane(incl, Expr<uint>{peer})};
+                                auto has_prev = (Expr<uint>{lane} >= Expr<uint>{d}).expression();
+                                if_(Expr<bool>{has_prev}, [&] {
+                                    incl = Expr<T>{_combine_expr<T>(op, incl.expression(),
+                                                                    other.expression())};
                                 });
                             });
                         }
-                        // chunk total = the last lane's inclusive value
-                        auto last = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
-                                                lanes, _literal_u(1u));
-                        auto total = _fb->call(elem_t, CallOp::WARP_READ_LANE, {incl, last});
-                        const Expression *res = is_max
-                                                    ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {carry, incl}))
-                                                    : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, carry, incl));
-                        if (emit_writes) {
-                            _if(valid, [&] {
-                                scc[dim] = pos;
-                                if (frag_out) {
-                                    _fb->assign(_fb->access(out_t, staging, _staging_index(dst, scc)),
-                                                _maybe_cast(res, out_t));
-                                } else {
-                                    _write_to(dst, scc, res);
-                                }
-                            });
-                        }
-                        const Expression *new_carry = is_max
-                                                          ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {carry, total}))
-                                                          : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, carry, total));
-                        _fb->assign(carry, new_carry);
-                    });
-                };
-                auto seg_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                             warp, _literal_u(seg_count));
-                _if(seg_valid, [&] {
-                    // pass 1: scan segment, publish the segment total
-                    auto seg_start = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                                 warp, _literal_u(seg_len));
-                    _fb->assign(carry, identity());
-                    scan_segment(cc, seg_start, seg_len, identity(), false);
-                    _if(_fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                    lane, _literal_u(0u)), [&] {
-                        _fb->assign(_fb->access(elem_t, totals_s, warp), carry);
-                    });
-                });
-                _sync_block();// publish totals before warp 0 scans them
-                // pass 2: warp 0 inclusive-scans the seg_count totals -> per-
-                // segment exclusive prefixes
-                _if(_fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                warp, _literal_u(0u)), [&] {
-                    auto v = _fb->local(elem_t);
-                    _fb->assign(v, identity());
-                    auto lane_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                                  lane, _literal_u(seg_count));
-                    _if(lane_valid, [&] {
-                        _fb->assign(v, _fb->access(elem_t, totals_s, lane));
-                    });
-                    auto incl = _fb->local(elem_t);
-                    _fb->assign(incl, v);
-                    // butterfly inclusive scan of totals (same loop as above)
-                    for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
-                        auto d_active = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                                    _literal_u(d), lanes);
-                        _if(d_active, [&] {
-                            auto clamped = _fb->call(Type::of<uint>(), CallOp::MIN,
-                                                     {lane, _literal_u(d)});
-                            auto peer = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
-                                                    lane, clamped);
-                            auto other = _fb->local(elem_t);
-                            _fb->assign(other, _fb->call(elem_t, CallOp::WARP_READ_LANE,
-                                                         {incl, peer}));
-                            auto has_prev = _fb->binary(Type::of<bool>(),
-                                                        BinaryOp::GREATER_EQUAL,
-                                                        lane, _literal_u(d));
-                            _if(has_prev, [&] {
-                                auto combined = is_max
-                                                    ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {incl, other}))
-                                                    : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, incl, other));
-                                _fb->assign(incl, combined);
-                            });
+                        // exclusive prefix = predecessor lane's inclusive total
+                        auto pred = (Expr<uint>{lane} -
+                                     min(Expr<uint>{lane}, Expr<uint>{1u})).expression();
+                        auto prev = Var<T>{warp_read_lane(incl, Expr<uint>{pred})};
+                        if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, [&] {
+                            prev = Expr<T>{identity()};
                         });
-                    }
-                    // exclusive prefix = predecessor lane's inclusive total
-                    auto pred = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
-                                            lane, _fb->call(Type::of<uint>(), CallOp::MIN,
-                                                            {lane, _literal_u(1u)}));
-                    auto prev = _fb->local(elem_t);
-                    _fb->assign(prev, _fb->call(elem_t, CallOp::WARP_READ_LANE,
-                                                 {incl, pred}));
-                    _if(_fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                    lane, _literal_u(0u)), [&] {
-                        _fb->assign(prev, identity());
+                        if_(Expr<bool>{lane_valid}, [&] {
+                            prefix_s[Expr<uint>{lane}] = Expr<T>{prev.expression()};
+                        });
                     });
-                    _if(lane_valid, [&] {
-                        _fb->assign(_fb->access(elem_t, prefix_s, lane), prev);
+                    _sync_block();// publish prefixes before pass 3 reads them
+                    if_(Expr<bool>{seg_valid}, [&] {
+                        // pass 3: recompute the segment scan with the exclusive prefix
+                        auto seg_start = (Expr<uint>{warp} * seg_len).expression();
+                        auto base = Var<T>{Expr<T>{prefix_s[Expr<uint>{warp}].expression()}};
+                        scan_segment(cc, seg_start, seg_len, base.expression(), true);
                     });
-                });
-                _sync_block();// publish prefixes before pass 3 reads them
-                _if(seg_valid, [&] {
-                    // pass 3: recompute the segment scan with the exclusive prefix
-                    auto seg_start = _fb->binary(Type::of<uint>(), BinaryOp::MUL,
-                                                 warp, _literal_u(seg_len));
-                    auto base = _fb->local(elem_t);
-                    _fb->assign(base, _fb->access(elem_t, prefix_s, warp));
-                    scan_segment(cc, seg_start, seg_len, base, true);
-                });
-            }
-            if (frag_out) { _replicate_from_staging(dst, out_t, staging); }
+                }
+            });
+            if (frag_out) { _replicate_from_staging(dst, dst->dtype(), staging); }
             _current_extent = saved;
             return;
         }
-        _for_range(_literal_u(0u), line_iters, _literal_u(1u),
-                   [&](const Expression *li) {
-            auto t1 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, li, nw);
-            auto line = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t1, warp);
-            auto line_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                          line, _literal_u(line_count));
-            _if(line_valid, [&] {
-                // decompose the line index over src's shape minus the scan axis
-                Coord cc = _zero_coord();
-                auto rem = line;
-                for (int32_t i = static_cast<int32_t>(src->rank()) - 1; i >= 0; --i) {
-                    auto ui = static_cast<uint32_t>(i);
-                    if (ui == dim) { continue; }
-                    auto e = _literal_u(static_cast<uint32_t>(axis_extent(src, ui)));
-                    auto ci = _fb->binary(Type::of<uint>(), BinaryOp::MOD, rem, e);
-                    rem = _fb->binary(Type::of<uint>(), BinaryOp::DIV, rem, e);
-                    cc[ui] = ci;
-                }
-                auto carry = _fb->local(elem_t);
-                _fb->assign(carry, identity());
-                _for_range(_literal_u(0u), chunks, _literal_u(1u),
-                           [&](const Expression *ch) {
-                    auto t2 = _fb->binary(Type::of<uint>(), BinaryOp::MUL, ch, lanes);
-                    auto off = _fb->binary(Type::of<uint>(), BinaryOp::ADD, t2, lane);
-                    // element position along the scan axis (from the scan side)
-                    const Expression *pos = off;
-                    if (reverse != 0) {
-                        pos = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
-                                          _literal_u(scan_len - 1u), off);
-                    }
-                    auto valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                             off, _literal_u(scan_len));
-                    auto v = _fb->local(elem_t);
-                    _fb->assign(v, identity());
-                    _if(valid, [&] {
-                        cc[dim] = pos;
-                        _fb->assign(v, _maybe_cast(_value_at(src, cc), elem_t));
-                    });
-                    // in-chunk inclusive scan across the warp: butterfly
-                    // inclusive scan via WARP_READ_LANE (lc_optimize 2.2; the
-                    // lane read is unconditional/clamped so it is never
-                    // divergent — the built-in WARP_PREFIX_SUM miscompiles in
-                    // this nested control flow on some backends)
-                    auto incl = _fb->local(elem_t);
-                    _fb->assign(incl, v);
-                    for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
-                        auto d_active = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                                    _literal_u(d), lanes);
-                        _if(d_active, [&] {
-                            auto clamped = _fb->call(Type::of<uint>(), CallOp::MIN,
-                                                     {lane, _literal_u(d)});
-                            auto peer = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
-                                                    lane, clamped);
-                            // the wave read must stay UNCONDITIONAL (a
-                            // divergent wave intrinsic is UB): stage it in a
-                            // local and guard only the combine step
-                            auto other = _fb->local(elem_t);
-                            _fb->assign(other, _fb->call(elem_t, CallOp::WARP_READ_LANE,
-                                                         {incl, peer}));
-                            auto has_prev = _fb->binary(Type::of<bool>(),
-                                                        BinaryOp::GREATER_EQUAL,
-                                                        lane, _literal_u(d));
-                            _if(has_prev, [&] {
-                                auto combined = is_max
-                                                    ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {incl, other}))
-                                                    : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, incl, other));
-                                _fb->assign(incl, combined);
-                            });
-                        });
-                    }
-                    // chunk total = the last lane's inclusive value
-                    auto last = _fb->binary(Type::of<uint>(), BinaryOp::SUB,
-                                            lanes, _literal_u(1u));
-                    auto total = _fb->call(elem_t, CallOp::WARP_READ_LANE, {incl, last});
-                    const Expression *res = is_max
-                                                ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {carry, incl}))
-                                                : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, carry, incl));
-                    _if(valid, [&] {
-                        cc[dim] = pos;
-                        if (frag_out) {
-                            _fb->assign(_fb->access(out_t, staging, _staging_index(dst, cc)),
-                                        _maybe_cast(res, out_t));
-                        } else {
-                            _write_to(dst, cc, res);
-                        }
-                    });
-                    const Expression *new_carry = is_max
-                                                      ? static_cast<const Expression *>(_fb->call(elem_t, CallOp::MAX, {carry, total}))
-                                                      : static_cast<const Expression *>(_fb->binary(elem_t, BinaryOp::ADD, carry, total));
-                    _fb->assign(carry, new_carry);
-                });
-            });
+        // ---- normal warp-per-line scan (existing path) ----
+        with_elem_type(src->dtype(), [&]<typename T>() {
+            for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{line_iters}, Expr<uint>{_literal_u(1u)})) {
+                [&](const Expression *li) {
+         // DSL: line = li * nw + warp
+         auto line = (Expr<uint>{li} * Expr<uint>{nw} + Expr<uint>{warp}).expression();
+         auto line_valid = (Expr<uint>{line} < line_count).expression();
+         if_(Expr<bool>{line_valid}, [&] {
+             // decompose the line index over src's shape minus the scan axis
+             Coord cc = _zero_coord();
+             auto rem = Var<uint>{Expr<uint>{line}};
+             for (int32_t i = static_cast<int32_t>(src->rank()) - 1; i >= 0; --i) {
+                 auto ui = static_cast<uint32_t>(i);
+                 if (ui == dim) { continue; }
+                 auto e = Expr<uint>{static_cast<uint32_t>(axis_extent(src, ui))};
+                 auto ci = (rem % e).expression();
+                 rem = rem / e;
+                 cc[ui] = ci;
+             }
+             auto carry = Var<T>{Expr<T>{identity()}};
+             // Full/tail chunk split (lc_optimize: guard elision): the
+             // off < scan_len guard is only false in the last chunk, so
+             // full chunks load/scan/store unconditionally; the tail
+             // chunk keeps the identity-padded guards.  When scan_len is
+             // a host-known multiple of every possible power-of-two warp
+             // size (<= 128), the tail is provably empty and not emitted.
+             auto full_ch = (Expr<uint>{scan_len} / Expr<uint>{lanes}).expression();
+             const bool tail_free = scan_len % 128u == 0u;
+             auto chunk_body = [&](const Expression *ch, bool guarded) {
+                 // DSL: off = ch * lanes + lane
+                 auto off = (Expr<uint>{ch} * Expr<uint>{lanes} + Expr<uint>{lane}).expression();
+                 // element position along the scan axis (from the scan side)
+                 const Expression *pos = off;
+                 if (reverse != 0) {
+                     pos = (Expr<uint>{scan_len - 1u} - Expr<uint>{off}).expression();
+                 }
+                 auto valid = (Expr<uint>{off} < scan_len).expression();
+                 auto v = Var<T>{Expr<T>{identity()}};
+                 if (guarded) {
+                     if_(Expr<bool>{valid}, [&] {
+                         cc[dim] = pos;
+                         v = Expr<T>{_maybe_cast(_value_at(src, cc), Type::of<T>())};
+                     });
+                 } else {
+                     cc[dim] = pos;
+                     v = Expr<T>{_maybe_cast(_value_at(src, cc), Type::of<T>())};
+                 }
+                 // in-chunk inclusive scan across the warp: butterfly
+                 // inclusive scan via WARP_READ_LANE (lc_optimize 2.2; the
+                 // lane read is unconditional/clamped so it is never
+                 // divergent — the built-in WARP_PREFIX_SUM miscompiles in
+                 // this nested control flow on some backends)
+                 auto incl = Var<T>{Expr<T>{v.expression()}};
+                 for (uint32_t d = 1u; d <= 64u; d <<= 1u) {
+                     auto d_active = (Expr<uint>{d} < Expr<uint>{lanes}).expression();
+                     if_(Expr<bool>{d_active}, [&] {
+                         auto clamped = min(Expr<uint>{lane}, Expr<uint>{d});
+                         auto peer = (Expr<uint>{lane} - clamped).expression();
+                         // the wave read must stay UNCONDITIONAL (a
+                         // divergent wave intrinsic is UB): stage it in a
+                         // local and guard only the combine step
+                         auto other = Var<T>{warp_read_lane(incl, Expr<uint>{peer})};
+                         auto has_prev = (Expr<uint>{lane} >= Expr<uint>{d}).expression();
+                         if_(Expr<bool>{has_prev}, [&] {
+                             incl = Expr<T>{_combine_expr<T>(op, incl.expression(),
+                                                             other.expression())};
+                         });
+                     });
+                 }
+                 // chunk total = the last lane's inclusive value
+                 auto last = (Expr<uint>{lanes} - 1u).expression();
+                 auto total = warp_read_lane(incl, Expr<uint>{last}).expression();
+                 const Expression *res = _combine_expr<T>(op, carry.expression(),
+                                                          incl.expression());
+                 auto emit_write = [&] {
+                     cc[dim] = pos;
+                     if (frag_out) {
+                         auto sidx = Expr<uint>{_staging_index(dst, cc)};
+                         auto res_cast = _maybe_cast(res, out_t);
+                         with_elem_type(dst->dtype(), [&]<typename U>() {
+                             Var<std::array<U, 1>> s{staging};
+                             s[sidx] = Expr<U>{res_cast};
+                         });
+                     } else {
+                         _write_to(dst, cc, res);
+                     }
+                 };
+                 if (guarded) {
+                     if_(Expr<bool>{valid}, emit_write);
+                 } else {
+                     emit_write();
+                 }
+                 carry = Expr<T>{_combine_expr<T>(op, carry.expression(), total)};
+             };
+             for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{full_ch}, Expr<uint>{_literal_u(1u)})) {
+                 [&](const Expression *ch) { chunk_body(ch, false); }(_range_i_.expression());
+             }
+             if (!tail_free) [[likely]] {
+                 if_(Expr<bool>{(Expr<uint>{full_ch} < Expr<uint>{chunks}).expression()}, [&] {
+                     chunk_body(full_ch, true);
+                 });
+             }
+         });
+     }(_range_i_.expression());
+            }
         });
-        if (frag_out) { _replicate_from_staging(dst, out_t, staging); }
+        if (frag_out) { _replicate_from_staging(dst, dst->dtype(), staging); }
         _current_extent = saved;
     }
 
@@ -4049,14 +5192,26 @@ private:
         auto elem_t = tensor_element_type(buf->dtype());
         auto saved = _current_extent;
         _current_extent = buf;
-        auto acc = _fb->local(Type::of<bool>());
-        _fb->assign(acc, _fb->literal(Type::of<bool>(), is_all));
+        // DSL: Bool acc = is_all ? true : false;
+        auto acc = Var<bool>{Expr<bool>{is_all}};
         auto truth_at = [&](const Coord &c) {
             auto v = _value_at(buf, c);
-            auto truth = _fb->binary(Type::of<bool>(), BinaryOp::NOT_EQUAL,
-                                     v, _maybe_cast(_zero_of(buf->dtype()), elem_t));
-            _fb->assign(acc, _fb->binary(Type::of<bool>(),
-                                         is_all ? BinaryOp::AND : BinaryOp::OR, acc, truth));
+            const Expression *truth = nullptr;
+            if (buf->dtype() == TensorElementType::FP8) {
+                // fp8 has no C++ scalar type: keep the dtype-erased raw compare
+                truth = _fb->binary(Type::of<bool>(), BinaryOp::NOT_EQUAL,
+                                    v, _maybe_cast(_zero_of(buf->dtype()), elem_t));
+            } else {
+                // DSL: truth = (buf[c] != 0)
+                truth = with_elem_type(buf->dtype(), [&]<typename T>() -> const Expression * {
+                    auto zero = _maybe_cast(_zero_of(buf->dtype()), Type::of<T>());
+                    return (Expr<T>{v} != Expr<T>{zero}).expression();
+                });
+            }
+            // DSL: acc = is_all ? (acc & truth) : (acc | truth)
+            // (scalar bools use the bitwise ops; AND/OR coincide on {0,1})
+            auto a = Expr<bool>{acc.expression()};
+            acc = is_all ? (a & Expr<bool>{truth}) : (a | Expr<bool>{truth});
         };
         if (buf->scope() == TensorScope::Fragment || _batching) {
             // Replicated Fragment tiles keep the per-thread _full_loop (each
@@ -4064,42 +5219,40 @@ private:
             // this path for correctness (plan 2.12).
             _full_loop(buf, truth_at);
             // block-level vote keeps the folded value alive on every lane
-            auto voted = _fb->call(Type::of<bool>(),
-                                   is_all ? CallOp::WARP_ACTIVE_ALL : CallOp::WARP_ACTIVE_ANY, {acc});
-            auto tmp = _fb->local(Type::of<bool>());
-            _fb->assign(tmp, voted);
+            auto vote = [&] {
+                auto a = Expr<bool>{acc.expression()};
+                return is_all ? warp_active_all(a) : warp_active_any(a);
+            };
+            auto tmp = Var<bool>{vote()};
         } else {
             // Global / Shared tiles: partition the tile across threads (one
             // element per thread), then combine the per-thread partials with a
             // two-level block reduction (warp collective -> Shared -> block),
             // so the buffer is read once per element (plan 2.12).
             if (buf->rank() == 2u) { _partition_loop_2d(buf, truth_at); } else { _partition_loop(buf, truth_at); }
-            auto warp_acc = _fb->call(Type::of<bool>(),
-                                      is_all ? CallOp::WARP_ACTIVE_ALL : CallOp::WARP_ACTIVE_ANY, {acc});
+            auto vote = [&] {
+                auto a = Expr<bool>{acc.expression()};
+                return is_all ? warp_active_all(a) : warp_active_any(a);
+            };
+            auto warp_acc = vote();
             auto nw_est = std::max(1u, _threads / 32u);// host, upper bound for warps
-            auto workspace = _fb->shared(Type::array(Type::of<bool>(), nw_est));
+            // DSL: Shared<bool> workspace{nw_est}
+            Shared<bool> workspace{nw_est};
             auto lane = _lane();
             auto warp = _slice_warp();
-            auto is_lane0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                        lane, _literal_u(0u));
-            _if(is_lane0, [&] {
-                _fb->assign(_fb->access(Type::of<bool>(), workspace, warp), warp_acc);
+            if_(Expr<bool>{(Expr<uint>{lane} == 0u).expression()}, [&] {
+                workspace[Expr<uint>{warp}] = Expr<bool>{warp_acc.expression()};
             });
             _sync_block();// publish workspace before warp 0 reads it
-            auto is_warp0 = _fb->binary(Type::of<bool>(), BinaryOp::EQUAL,
-                                        warp, _literal_u(0u));
-            _if(is_warp0, [&] {
-                auto val = _fb->local(Type::of<bool>());
-                _fb->assign(val, _fb->literal(Type::of<bool>(), is_all));
-                auto lane_valid = _fb->binary(Type::of<bool>(), BinaryOp::LESS,
-                                              lane, _num_warps());
-                _if(lane_valid, [&] {
-                    _fb->assign(val, _fb->access(Type::of<bool>(), workspace, lane));
+            if_(Expr<bool>{(Expr<uint>{warp} == 0u).expression()}, [&] {
+                auto val = Var<bool>{Expr<bool>{is_all}};
+                auto lane_valid = (Expr<uint>{lane} < Expr<uint>{_num_warps()}).expression();
+                if_(Expr<bool>{lane_valid}, [&] {
+                    val = Expr<bool>{workspace[Expr<uint>{lane}].expression()};
                 });
-                auto voted = _fb->call(Type::of<bool>(),
-                                       is_all ? CallOp::WARP_ACTIVE_ALL : CallOp::WARP_ACTIVE_ANY, {val});
-                auto tmp = _fb->local(Type::of<bool>());
-                _fb->assign(tmp, voted);
+                auto a = Expr<bool>{val.expression()};
+                auto voted = is_all ? warp_active_all(a) : warp_active_any(a);
+                auto tmp = Var<bool>{voted};
             });
         }
         _current_extent = saved;
@@ -4128,18 +5281,19 @@ private:
         auto saved = _current_extent;
         _current_extent = v;
         auto val = _value_at(v, _zero_coord());
-        auto lane = _fb->warp_lane_id();
-        auto delta = _literal_u(static_cast<uint32_t>(s->delta()));
+        // DSL: UInt lane = warp_lane_id(); UInt delta = s->delta()
+        auto lane = warp_lane_id();
+        auto delta = Expr<uint>{static_cast<uint32_t>(s->delta())};
         const Expression *peer = nullptr;
         switch (s->op()) {
             case TileShuffleOp::XOR:
-                peer = _fb->binary(Type::of<uint>(), BinaryOp::BIT_XOR, lane, delta);
+                peer = (lane ^ delta).expression();
                 break;
             case TileShuffleOp::UP:
-                peer = _fb->binary(Type::of<uint>(), BinaryOp::SUB, lane, delta);
+                peer = (lane - delta).expression();
                 break;
             case TileShuffleOp::DOWN:
-                peer = _fb->binary(Type::of<uint>(), BinaryOp::ADD, lane, delta);
+                peer = (lane + delta).expression();
                 break;
             default:
                 LUISA_ERROR_WITH_LOCATION(
@@ -4147,8 +5301,16 @@ private:
                     "regular-kernel lowering.",
                     static_cast<uint32_t>(s->op()));
         }
-        auto tmp = _fb->local(elem_t);
-        _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_READ_LANE, {val, peer}));
+        if (v->dtype() == TensorElementType::FP8) {
+            // fp8 has no C++ scalar type: keep the dtype-erased raw path
+            auto tmp = _fb->local(elem_t);
+            _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_READ_LANE, {val, peer}));
+        } else {
+            // DSL: tmp = warp_read_lane(v, peer) (kept alive in a local)
+            with_elem_type(v->dtype(), [&]<typename T>() {
+                auto tmp = Var<T>{warp_read_lane(Expr<T>{val}, Expr<uint>{peer})};
+            });
+        }
         _current_extent = saved;
     }
 
@@ -4167,7 +5329,10 @@ private:
             [this, s, a, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
                 auto bv = _maybe_cast(_recreate_literal(s->b()), elem_t);
-                return _fb->call(elem_t, CallOp::MIN, {av, bv});
+                // DSL: min(a[c], cast(b_literal, elem_t))
+                return with_elem_type(a->dtype(), [&]<typename T>() -> const Expression * {
+                    return min(Expr<T>{av}, Expr<T>{bv}).expression();
+                });
             }};
     }
 
@@ -4180,11 +5345,13 @@ private:
      */
     void _emit_abs(const AbsStmt *s) {
         auto *a = s->a();
-        auto elem_t = tensor_element_type(a->dtype());
         _temps[_tile->temp_output(s)] = TempValue{
             a->dtype(),
-            [this, a, elem_t](const Coord &c) -> const Expression * {
-                return _fb->call(elem_t, CallOp::ABS, {_value_at(a, c)});
+            [this, a](const Coord &c) -> const Expression * {
+                // DSL: abs(a[c]) on the concrete element type
+                return with_elem_type(a->dtype(), [&]<typename T>() -> const Expression * {
+                    return abs(Expr<T>{_value_at(a, c)}).expression();
+                });
             }};
     }
 
@@ -4207,26 +5374,68 @@ private:
         auto saved = _current_extent;
         _current_extent = v;
         auto val = _value_at(v, _zero_coord());
-        auto tmp = _fb->local(elem_t);
-        switch (s->op()) {
-            case TileWarpReduceOp::SUM:
-                _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_SUM, {val}));
-                break;
-            case TileWarpReduceOp::MAX:
-                _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_MAX, {val}));
-                break;
-            case TileWarpReduceOp::MIN:
-                _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_MIN, {val}));
-                break;
-            case TileWarpReduceOp::BIT_AND:
-                _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_BIT_AND, {val}));
-                break;
-            case TileWarpReduceOp::BIT_OR:
-                _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_BIT_OR, {val}));
-                break;
-            default:
-                LUISA_ERROR_WITH_LOCATION("tile_to_kernel: invalid tile warp-reduce op.");
+        if (v->dtype() == TensorElementType::FP8) {
+            // fp8 has no C++ scalar type: keep the dtype-erased raw path
+            auto tmp = _fb->local(elem_t);
+            switch (s->op()) {
+                case TileWarpReduceOp::SUM:
+                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_SUM, {val}));
+                    break;
+                case TileWarpReduceOp::MAX:
+                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_MAX, {val}));
+                    break;
+                case TileWarpReduceOp::MIN:
+                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_MIN, {val}));
+                    break;
+                case TileWarpReduceOp::BIT_AND:
+                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_BIT_AND, {val}));
+                    break;
+                case TileWarpReduceOp::BIT_OR:
+                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_BIT_OR, {val}));
+                    break;
+                default:
+                    LUISA_ERROR_WITH_LOCATION("tile_to_kernel: invalid tile warp-reduce op.");
+            }
+            _current_extent = saved;
+            return;
         }
+        // DSL: tmp = warp_active_sum/max/min/bit_and/bit_or(val) (typed T);
+        // the bitwise collectives are integral-only, so they are guarded with
+        // if constexpr to keep the with_elem_type instantiations (half/float)
+        // compiling.
+        with_elem_type(v->dtype(), [&]<typename T>() {
+            auto e = Expr<T>{val};
+            Var<T> tmp;
+            switch (s->op()) {
+                case TileWarpReduceOp::SUM:
+                    tmp = warp_active_sum(e);
+                    break;
+                case TileWarpReduceOp::MAX:
+                    tmp = warp_active_max(e);
+                    break;
+                case TileWarpReduceOp::MIN:
+                    tmp = warp_active_min(e);
+                    break;
+                case TileWarpReduceOp::BIT_AND:
+                    if constexpr (std::is_integral_v<T>) {
+                        tmp = warp_active_bit_and(e);
+                    } else {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "tile_to_kernel: WARP_ACTIVE_BIT_AND requires an integral element type.");
+                    }
+                    break;
+                case TileWarpReduceOp::BIT_OR:
+                    if constexpr (std::is_integral_v<T>) {
+                        tmp = warp_active_bit_or(e);
+                    } else {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "tile_to_kernel: WARP_ACTIVE_BIT_OR requires an integral element type.");
+                    }
+                    break;
+                default:
+                    LUISA_ERROR_WITH_LOCATION("tile_to_kernel: invalid tile warp-reduce op.");
+            }
+        });
         _current_extent = saved;
     }
 };

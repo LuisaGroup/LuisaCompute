@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
@@ -18,16 +19,36 @@
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
 #include <algorithm>
 #include <limits>
 
 #include "helpers.h"
+#include "lower_ray_query_handler_graph.h"
 
 namespace luisa::compute::xir {
 
+// This result is returned by the established exported overloads. Growing it
+// changes the platform return convention (for example, register return to
+// sret on x86-64), so new optional outputs belong in the options overload.
+static_assert(sizeof(LowerRayQueryToPipelineInfo) ==
+              2u * sizeof(size_t));
+
 namespace detail {
+
+struct LowerRayQueryToPipelineRunInfo : LowerRayQueryToPipelineInfo {
+    size_t localized_alloca_count{0u};
+    size_t selection_localization_analysis_count{0u};
+    size_t handler_localization_instruction_evaluation_count{0u};
+    size_t handler_localization_analysis_count{0u};
+    size_t handler_localization_indexed_instruction_count{0u};
+    size_t handler_localization_relevant_instruction_count{0u};
+    size_t handler_localization_avoided_instruction_scan_count{0u};
+    size_t handler_localization_block_evaluation_count{0u};
+    bool verify_handler_scratch_graph{false};
+};
 
 struct RayQueryHandlerRegion {
     luisa::unordered_set<BasicBlock *> blocks;
@@ -100,8 +121,8 @@ static void clone_metadata(const MetadataListMixin &source,
             return false;
         }
     }
-    if (region.dispatch_exit_count != 1u) {
-        reason = "candidate handler does not have exactly one exit to dispatch";
+    if (region.dispatch_exit_count == 0u) {
+        reason = "candidate handler has no exit to dispatch";
         return false;
     }
     // Raw structured merge markers are not CFG operands and therefore are not
@@ -119,7 +140,7 @@ static void clone_metadata(const MetadataListMixin &source,
     return true;
 }
 
-[[nodiscard]] static bool lower_ray_query_loop_handler_regions_overlap(
+[[nodiscard]] static bool lower_ray_query_to_pipeline_handler_regions_overlap(
     const RayQueryHandlerRegion &lhs,
     const RayQueryHandlerRegion &rhs) noexcept {
     auto *smaller = &lhs.blocks;
@@ -131,7 +152,7 @@ static void clone_metadata(const MetadataListMixin &source,
     return false;
 }
 
-[[nodiscard]] static bool lower_ray_query_loop_handler_region_has_external_predecessor(
+[[nodiscard]] static bool lower_ray_query_to_pipeline_handler_region_has_external_predecessor(
     BasicBlock *entry, BasicBlock *dispatch,
     const RayQueryHandlerRegion &handler) noexcept {
     for (auto *block : handler.blocks) {
@@ -313,7 +334,7 @@ static void clone_metadata(const MetadataListMixin &source,
                                             procedural_region, reason)) {
         return false;
     }
-    if (lower_ray_query_loop_handler_regions_overlap(surface_region, procedural_region)) {
+    if (lower_ray_query_to_pipeline_handler_regions_overlap(surface_region, procedural_region)) {
         reason = "surface and procedural candidate handler regions overlap";
         return false;
     }
@@ -329,8 +350,8 @@ static void clone_metadata(const MetadataListMixin &source,
         reason = "ray-query dispatch has a predecessor outside the loop";
         return false;
     }
-    if (lower_ray_query_loop_handler_region_has_external_predecessor(surface, dispatch_block, surface_region) ||
-        lower_ray_query_loop_handler_region_has_external_predecessor(procedural, dispatch_block, procedural_region)) {
+    if (lower_ray_query_to_pipeline_handler_region_has_external_predecessor(surface, dispatch_block, surface_region) ||
+        lower_ray_query_to_pipeline_handler_region_has_external_predecessor(procedural, dispatch_block, procedural_region)) {
         reason = "candidate handler has a predecessor outside its outline region";
         return false;
     }
@@ -365,15 +386,15 @@ collect_ray_query_loops(Function *function) noexcept {
     return loops;
 }
 
-[[nodiscard]] static bool lower_ray_query_loop_preflight_ray_query_loops(
+[[nodiscard]] static bool lower_ray_query_to_pipeline_preflight_ray_query_loops(
     luisa::span<RayQueryLoopInst *const> loops,
-    RayQueryLoopLowerInfo &info) noexcept {
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
     auto rejected = false;
     for (auto *loop : loops) {
         luisa::string_view reason;
         if (!can_lower_ray_query_loop(loop, reason)) {
             LUISA_WARNING_WITH_LOCATION(
-                "lower_ray_query_loop: rejecting loop: {}", reason);
+                "lower_ray_query_to_pipeline: rejecting loop: {}", reason);
             ++info.error_count;
             rejected = true;
         }
@@ -444,6 +465,25 @@ struct RayQueryHandlerRootUseInfo {
     bool used_by_procedural{false};
 };
 
+// Pointer identity is already unique inside one XIR module. Hashing the bytes
+// of an address with the general content hash is unnecessary work for these
+// short-lived compiler analyses, especially when system STL is selected.
+// Deliberately omit `is_avalanching`: dense hash tables may still mix the raw
+// identity, while std::unordered_* receives the ordinary address hash.
+struct RayQueryHandlerPointerIdentityHash {
+    [[nodiscard]] size_t operator()(const void *pointer) const noexcept {
+        return static_cast<size_t>(reinterpret_cast<uintptr_t>(pointer));
+    }
+};
+
+template<typename T>
+using RayQueryHandlerPointerSet =
+    luisa::unordered_set<T *, RayQueryHandlerPointerIdentityHash>;
+
+template<typename T, typename V>
+using RayQueryHandlerPointerMap =
+    luisa::unordered_map<T *, V, RayQueryHandlerPointerIdentityHash>;
+
 // The root-use proof is deliberately separate from definite initialization.
 // It establishes ownership: outside-handler writes are killed incoming state,
 // while every observation or escape must belong to exactly one candidate kind.
@@ -453,7 +493,7 @@ static void collect_handler_alloca_root_uses(
     Value *pointer, const RayQueryHandlerRegion &surface_region,
     const RayQueryHandlerRegion &procedural_region,
     RayQueryHandlerRootUseInfo &info,
-    luisa::unordered_set<Value *> &visited) noexcept {
+    RayQueryHandlerPointerSet<const Value> &visited) noexcept {
     if (!info.valid || pointer == nullptr ||
         !visited.emplace(pointer).second) {
         return;
@@ -535,7 +575,15 @@ struct RayQueryHandlerPointerView {
 };
 
 using RayQueryHandlerPointerEnvironment =
-    luisa::unordered_map<const Value *, RayQueryHandlerPointerView>;
+    RayQueryHandlerPointerMap<const Value, RayQueryHandlerPointerView>;
+
+using RayQueryHandlerPointerSupport =
+    RayQueryHandlerPointerSet<const Value>;
+using RayQueryHandlerActiveFunctions =
+    RayQueryHandlerPointerSet<const Function>;
+using RayQueryHandlerInstructionSchedule =
+    RayQueryHandlerPointerMap<const BasicBlock,
+                              luisa::vector<const Instruction *>>;
 
 struct RayQueryHandlerPointerResolveResult {
     bool valid{true};
@@ -543,13 +591,27 @@ struct RayQueryHandlerPointerResolveResult {
     RayQueryHandlerPointerView view;
 };
 
+// `collect_handler_alloca_root_uses` follows every use edge from one root and
+// recurses through the only address-preserving XIR instruction, GEP. Any other
+// top-level use is either a classified load/store, an explicit reference-call
+// boundary, or rejects localization. Its visited set is therefore the exact
+// support of this root in the parent function's pointer product lattice. An
+// instruction whose lvalue operands lie outside that support has the identity
+// effect for this coordinate. Callable bodies are analyzed without this
+// parent-function filter after binding their reference formals.
+
 struct RayQueryHandlerScratchEffect {
-    AggregateFieldBitmask need;
-    AggregateFieldBitmask define;
+    const Type *type;
+    luisa::optional<AggregateFieldBitmask> need;
+    luisa::optional<AggregateFieldBitmask> define;
     bool valid{true};
 
     explicit RayQueryHandlerScratchEffect(const Type *type) noexcept
-        : need{type}, define{type} {}
+        : type{type} {}
+
+    [[nodiscard]] bool needs_input() const noexcept {
+        return need && need->access().any();
+    }
 };
 
 // Candidate-local scratch is a path effect over primitive aggregate leaves.
@@ -558,16 +620,33 @@ struct RayQueryHandlerScratchEffect {
 //   define = A.define union B.define.
 // At a CFG join, need is path union and define is path intersection. These are
 // the exact transfer/join operations for "may read before a must definition".
-[[nodiscard]] static RayQueryHandlerScratchEffect
-compose_handler_scratch_effects(
-    const RayQueryHandlerScratchEffect &first,
+static void union_mask(
+    luisa::optional<AggregateFieldBitmask> &target,
+    const AggregateFieldBitmask &incoming) noexcept {
+    if (target) {
+        *target |= incoming;
+    } else {
+        target.emplace(incoming);
+    }
+}
+
+static void append_handler_scratch_effect(
+    RayQueryHandlerScratchEffect &first,
     const RayQueryHandlerScratchEffect &second) noexcept {
-    RayQueryHandlerScratchEffect result{first.need.type()};
-    result.valid = first.valid && second.valid;
-    result.need = second.need & ~first.define;
-    result.need |= first.need;
-    result.define = first.define | second.define;
-    return result;
+    LUISA_DEBUG_ASSERT(first.type == second.type, "Type mismatch.");
+    first.valid &= second.valid;
+    if (!first.valid) { return; }
+    if (second.need) {
+        if (first.define) {
+            auto uncovered = *second.need & ~*first.define;
+            if (uncovered.access().any()) {
+                union_mask(first.need, uncovered);
+            }
+        } else {
+            union_mask(first.need, *second.need);
+        }
+    }
+    if (second.define) { union_mask(first.define, *second.define); }
 }
 
 struct RayQueryHandlerScratchBlockState {
@@ -582,14 +661,16 @@ class RayQueryHandlerScratchAnalyzer {
 
 private:
     const Type *_root_type;
+    LowerRayQueryToPipelineRunInfo *_run_info;
+    const RayQueryHandlerGraph *_graph;
 
 private:
     [[nodiscard]] RayQueryHandlerPointerResolveResult resolve_pointer(
         const Value *value,
         const RayQueryHandlerPointerEnvironment &environment,
-        luisa::unordered_map<const Value *,
-                             RayQueryHandlerPointerResolveResult> &cache,
-        luisa::unordered_set<const Value *> &active) const noexcept {
+        RayQueryHandlerPointerMap<
+            const Value, RayQueryHandlerPointerResolveResult> &cache)
+        const noexcept {
         if (value == nullptr || !value->is_lvalue()) { return {}; }
         if (auto iter = cache.find(value); iter != cache.end()) {
             return iter->second;
@@ -602,16 +683,19 @@ private:
             cache.emplace(value, result);
             return result;
         }
-        if (!active.emplace(value).second) {
-            RayQueryHandlerPointerResolveResult result;
-            result.valid = false;
-            return result;
-        }
+        // A pessimistic cache entry is the DFS gray state. Encountering it
+        // through a malformed cyclic GEP chain returns invalid; successful
+        // resolution overwrites it with the black-state summary below.
+        RayQueryHandlerPointerResolveResult visiting;
+        visiting.valid = false;
+        auto [cache_iter, inserted] = cache.emplace(value, visiting);
+        LUISA_DEBUG_ASSERT(inserted, "Duplicate pointer-resolution state.");
+        static_cast<void>(cache_iter);
         RayQueryHandlerPointerResolveResult result;
         if (value->isa<GEPInst>()) {
             auto *gep = static_cast<const GEPInst *>(value);
             result = resolve_pointer(
-                gep->base(), environment, cache, active);
+                gep->base(), environment, cache);
             if (result.valid && result.related) {
                 for (auto i = 0u; i < gep->index_count(); ++i) {
                     auto *index = gep->index(i);
@@ -636,19 +720,11 @@ private:
                 }
             }
         }
-        active.erase(value);
-        cache.emplace(value, result);
+        auto resolved_iter = cache.find(value);
+        LUISA_DEBUG_ASSERT(resolved_iter != cache.end(),
+                           "Lost pointer-resolution state.");
+        resolved_iter->second = result;
         return result;
-    }
-
-    [[nodiscard]] RayQueryHandlerPointerResolveResult resolve_pointer(
-        const Value *value,
-        const RayQueryHandlerPointerEnvironment &environment,
-        luisa::unordered_map<const Value *,
-                             RayQueryHandlerPointerResolveResult> &cache)
-        const noexcept {
-        luisa::unordered_set<const Value *> active;
-        return resolve_pointer(value, environment, cache, active);
     }
 
     [[nodiscard]] RayQueryHandlerScratchEffect access_effect(
@@ -660,15 +736,17 @@ private:
             effect.valid = false;
             return effect;
         }
-        if (read) { effect.need = mask; }
-        if (write && view.precise) { effect.define = mask; }
+        if (read) { effect.need.emplace(mask); }
+        if (write && view.precise) {
+            effect.define.emplace(std::move(mask));
+        }
         return effect;
     }
 
     [[nodiscard]] RayQueryHandlerScratchEffect summarize_callable(
         const Function *function,
         RayQueryHandlerPointerEnvironment environment,
-        luisa::unordered_set<const Function *> &active_functions) const noexcept {
+        RayQueryHandlerActiveFunctions &active_functions) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
         invalid.valid = false;
         if (function == nullptr || function->definition() == nullptr ||
@@ -682,9 +760,11 @@ private:
         for (auto *block : definition->basic_blocks()) {
             blocks.emplace(block);
         }
+        RayQueryHandlerGraph graph{blocks};
         auto result = summarize_region(
-            definition->body_block(), blocks,
-            std::move(environment), false, active_functions);
+            definition->body_block(), graph,
+            std::move(environment), nullptr, nullptr, false,
+            active_functions);
         active_functions.erase(function);
         return result;
     }
@@ -692,26 +772,54 @@ private:
     [[nodiscard]] RayQueryHandlerScratchEffect instruction_effect(
         const Instruction *instruction,
         const RayQueryHandlerPointerEnvironment &environment,
-        luisa::unordered_map<const Value *,
-                             RayQueryHandlerPointerResolveResult> &cache,
-        luisa::unordered_set<const Function *> &active_functions) const noexcept {
+        RayQueryHandlerPointerMap<
+            const Value, RayQueryHandlerPointerResolveResult> &cache,
+        const RayQueryHandlerPointerSupport *pointer_support,
+        RayQueryHandlerActiveFunctions &active_functions) const noexcept {
+        if (_run_info != nullptr) {
+            ++_run_info->handler_localization_instruction_evaluation_count;
+        }
         RayQueryHandlerScratchEffect effect{_root_type};
         if (instruction == nullptr) {
             effect.valid = false;
             return effect;
         }
-        luisa::vector<bool> handled(instruction->operand_count(), false);
+        auto require_unrelated_operand = [&](size_t index) noexcept {
+            auto *operand = instruction->operand(index);
+            if (operand == nullptr || !operand->is_lvalue()) { return; }
+            if (pointer_support != nullptr &&
+                !pointer_support->contains(operand)) {
+                return;
+            }
+            auto resolved = resolve_pointer(
+                operand, environment, cache);
+            effect.valid &= resolved.valid && !resolved.related;
+        };
         switch (instruction->derived_instruction_tag()) {
             case DerivedInstructionTag::GEP: {
                 if (instruction->operand_count() == 0u) {
                     effect.valid = false;
                     break;
                 }
-                handled[0u] = true;
+                auto *base =
+                    static_cast<const GEPInst *>(instruction)->base();
+                if (pointer_support != nullptr &&
+                    !pointer_support->contains(base)) {
+                    for (auto i = 1u;
+                         effect.valid &&
+                         i < instruction->operand_count();
+                         ++i) {
+                        require_unrelated_operand(i);
+                    }
+                    break;
+                }
                 auto resolved = resolve_pointer(
-                    static_cast<const GEPInst *>(instruction)->base(),
-                    environment, cache);
+                    base, environment, cache);
                 effect.valid &= resolved.valid;
+                for (auto i = 1u;
+                     effect.valid && i < instruction->operand_count(); ++i) {
+                    require_unrelated_operand(i);
+                }
                 break;
             }
             case DerivedInstructionTag::LOAD: {
@@ -719,10 +827,14 @@ private:
                     effect.valid = false;
                     break;
                 }
-                handled[0u] = true;
+                auto *variable =
+                    static_cast<const LoadInst *>(instruction)->variable();
+                if (pointer_support != nullptr &&
+                    !pointer_support->contains(variable)) {
+                    break;
+                }
                 auto resolved = resolve_pointer(
-                    static_cast<const LoadInst *>(instruction)->variable(),
-                    environment, cache);
+                    variable, environment, cache);
                 effect.valid &= resolved.valid;
                 if (resolved.related) {
                     effect = access_effect(resolved.view, true, false);
@@ -734,14 +846,20 @@ private:
                     effect.valid = false;
                     break;
                 }
-                handled[0u] = true;
+                auto *variable =
+                    static_cast<const StoreInst *>(instruction)->variable();
+                if (pointer_support != nullptr &&
+                    !pointer_support->contains(variable)) {
+                    require_unrelated_operand(1u);
+                    break;
+                }
                 auto resolved = resolve_pointer(
-                    static_cast<const StoreInst *>(instruction)->variable(),
-                    environment, cache);
+                    variable, environment, cache);
                 effect.valid &= resolved.valid;
                 if (resolved.related) {
                     effect = access_effect(resolved.view, false, true);
                 }
+                if (effect.valid) { require_unrelated_operand(1u); }
                 break;
             }
             case DerivedInstructionTag::CALL: {
@@ -752,15 +870,20 @@ private:
                     effect.valid = false;
                     break;
                 }
-                handled[CallInst::operand_index_callee] = true;
                 RayQueryHandlerPointerEnvironment callee_environment;
                 auto formal = callee->arguments().begin();
                 for (auto i = 0u; i < call->argument_count(); ++i, ++formal) {
-                    auto resolved = resolve_pointer(
-                        call->argument(i), environment, cache);
+                    auto *argument = call->argument(i);
+                    if (pointer_support != nullptr &&
+                        !pointer_support->contains(argument)) {
+                        continue;
+                    }
+                    auto resolved =
+                        argument == nullptr || !argument->is_lvalue() ?
+                            RayQueryHandlerPointerResolveResult{} :
+                            resolve_pointer(argument, environment, cache);
                     effect.valid &= resolved.valid;
                     if (!resolved.related) { continue; }
-                    handled[CallInst::operand_index_argument_offset + i] = true;
                     if (!(*formal)->is_reference() ||
                         !callee_environment.emplace(*formal,
                                                     std::move(resolved.view))
@@ -776,15 +899,11 @@ private:
                 }
                 break;
             }
-            default: break;
-        }
-        if (!effect.valid) { return effect; }
-        for (auto i = 0u; i < instruction->operand_count(); ++i) {
-            if (handled[i]) { continue; }
-            auto resolved = resolve_pointer(
-                instruction->operand(i), environment, cache);
-            if (!resolved.valid || resolved.related) {
-                effect.valid = false;
+            default: {
+                for (auto i = 0u;
+                     effect.valid && i < instruction->operand_count(); ++i) {
+                    require_unrelated_operand(i);
+                }
                 break;
             }
         }
@@ -799,11 +918,21 @@ private:
             target.effect = incoming;
             return true;
         }
+        LUISA_DEBUG_ASSERT(target.effect.type == incoming.type,
+                           "Type mismatch.");
         auto previous_need = target.effect.need;
         auto previous_define = target.effect.define;
         auto previous_valid = target.effect.valid;
-        target.effect.need |= incoming.need;
-        target.effect.define &= incoming.define;
+        if (incoming.need) {
+            union_mask(target.effect.need, *incoming.need);
+        }
+        if (target.effect.define) {
+            if (incoming.define) {
+                *target.effect.define &= *incoming.define;
+            } else {
+                target.effect.define.reset();
+            }
+        }
         target.effect.valid &= incoming.valid;
         return target.effect.need != previous_need ||
                target.effect.define != previous_define ||
@@ -812,64 +941,102 @@ private:
 
     [[nodiscard]] RayQueryHandlerScratchEffect summarize_region(
         BasicBlock *entry,
-        const luisa::unordered_set<BasicBlock *> &blocks,
+        const RayQueryHandlerGraph &graph,
         RayQueryHandlerPointerEnvironment environment,
+        const RayQueryHandlerPointerSupport *pointer_support,
+        const RayQueryHandlerInstructionSchedule *instruction_schedule,
         bool allow_external_exit,
-        luisa::unordered_set<const Function *> &active_functions) const noexcept {
+        RayQueryHandlerActiveFunctions &active_functions) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
         invalid.valid = false;
-        if (entry == nullptr || !blocks.contains(entry)) { return invalid; }
-        luisa::unordered_map<BasicBlock *,
-                             luisa::unique_ptr<RayQueryHandlerScratchBlockState>>
-            states;
-        for (auto *block : blocks) {
-            if (block == nullptr) { return invalid; }
-            states.emplace(
-                block,
-                luisa::make_unique<RayQueryHandlerScratchBlockState>(
-                    _root_type));
+        auto entry_id = graph.block_id(entry);
+        if (!graph.valid() || entry_id >= graph.size()) { return invalid; }
+        luisa::vector<RayQueryHandlerScratchBlockState> states;
+        states.reserve(graph.size());
+        for (auto i = 0u; i < graph.size(); ++i) {
+            states.emplace_back(_root_type);
         }
         RayQueryHandlerScratchEffect identity{_root_type};
-        states.at(entry)->reached = true;
-        states.at(entry)->effect = identity;
-        luisa::vector<BasicBlock *> worklist{entry};
-        luisa::unordered_set<BasicBlock *> queued;
-        queued.insert(entry);
+        states[entry_id].reached = true;
+        states[entry_id].effect = identity;
+        luisa::vector<size_t> worklist{entry_id};
+        luisa::vector<uint8_t> queued(graph.size(), uint8_t{0u});
+        queued[entry_id] = 1u;
         RayQueryHandlerScratchBlockState exits{_root_type};
-        while (!worklist.empty()) {
-            auto *block = worklist.back();
-            worklist.pop_back();
-            queued.erase(block);
-            auto current = states.at(block)->effect;
-            luisa::unordered_map<const Value *,
-                                 RayQueryHandlerPointerResolveResult>
-                pointer_cache;
-            for (auto *instruction : block->instructions()) {
-                auto next = instruction_effect(
-                    instruction, environment, pointer_cache,
-                    active_functions);
-                current = compose_handler_scratch_effects(current, next);
-                if (!current.valid) { return current; }
+        // Pointer provenance depends only on the immutable environment and
+        // value graph, not on the block or current dataflow fact. Reuse one
+        // memo table across block revisits and fixed-point iterations.
+        RayQueryHandlerPointerMap<
+            const Value, RayQueryHandlerPointerResolveResult>
+            pointer_cache;
+        // A block effect is a pure function of the immutable pointer
+        // environment and its ordered instruction effects. Memoizing it does
+        // not change the CFG fixed point; it only avoids recomputing the same
+        // transfer when a predecessor fact grows. Effects are created lazily
+        // so malformed instructions in unreachable blocks remain irrelevant,
+        // exactly as in the original reachable-worklist formulation.
+        RayQueryHandlerPointerMap<
+            BasicBlock,
+            luisa::unique_ptr<RayQueryHandlerScratchEffect>>
+            block_effects;
+        auto block_effect = [&](BasicBlock *block) noexcept
+            -> const RayQueryHandlerScratchEffect & {
+            if (auto iter = block_effects.find(block);
+                iter != block_effects.end()) {
+                return *iter->second;
             }
-            auto successor_count = 0u;
-            auto external_successor_count = 0u;
-            block->traverse_successors(
-                false, [&](BasicBlock *successor) noexcept {
-                    ++successor_count;
-                    if (!blocks.contains(successor)) {
-                        ++external_successor_count;
-                        return;
+            auto effect = luisa::make_unique<RayQueryHandlerScratchEffect>(
+                _root_type);
+            auto append_instruction =
+                [&](const Instruction *instruction) noexcept {
+                    auto next = instruction_effect(
+                        instruction, environment, pointer_cache,
+                        pointer_support, active_functions);
+                    append_handler_scratch_effect(*effect, next);
+                };
+            if (instruction_schedule != nullptr) {
+                if (auto iter = instruction_schedule->find(block);
+                    iter != instruction_schedule->end()) {
+                    for (auto *instruction : iter->second) {
+                        append_instruction(instruction);
+                        if (!effect->valid) { break; }
                     }
-                    auto &state = *states.at(successor);
-                    if (join_effect(state, current) &&
-                        queued.emplace(successor).second) {
-                        worklist.emplace_back(successor);
-                    }
-                });
-            if (external_successor_count != 0u) {
+                }
+            } else {
+                for (auto *instruction : block->instructions()) {
+                    append_instruction(instruction);
+                    if (!effect->valid) { break; }
+                }
+            }
+            auto [iter, inserted] =
+                block_effects.emplace(block, std::move(effect));
+            LUISA_DEBUG_ASSERT(inserted,
+                               "Duplicate ray-query block effect.");
+            return *iter->second;
+        };
+        while (!worklist.empty()) {
+            if (_run_info != nullptr) {
+                ++_run_info->handler_localization_block_evaluation_count;
+            }
+            auto block_id = worklist.back();
+            worklist.pop_back();
+            queued[block_id] = 0u;
+            auto &graph_block = graph.block(block_id);
+            auto *block = graph_block.source;
+            auto current = states[block_id].effect;
+            append_handler_scratch_effect(current, block_effect(block));
+            if (!current.valid) { return current; }
+            for (auto successor_id : graph_block.successors) {
+                auto &state = states[successor_id];
+                if (join_effect(state, current) && !queued[successor_id]) {
+                    queued[successor_id] = 1u;
+                    worklist.emplace_back(successor_id);
+                }
+            }
+            if (graph_block.external_successor_count != 0u) {
                 if (!allow_external_exit) { return invalid; }
                 join_effect(exits, current);
-            } else if (successor_count == 0u) {
+            } else if (graph_block.successor_count == 0u) {
                 auto *terminator = block->terminator();
                 if (terminator != nullptr &&
                     terminator->isa<ReturnInst>()) {
@@ -884,25 +1051,116 @@ private:
     }
 
 public:
-    explicit RayQueryHandlerScratchAnalyzer(const Type *root_type) noexcept
-        : _root_type{root_type} {}
+    explicit RayQueryHandlerScratchAnalyzer(
+        const Type *root_type,
+        LowerRayQueryToPipelineRunInfo *run_info,
+        const RayQueryHandlerGraph *graph) noexcept
+        : _root_type{root_type},
+          _run_info{run_info},
+          _graph{graph} {}
 
     [[nodiscard]] RayQueryHandlerScratchEffect summarize(
         AllocaInst *alloca, BasicBlock *entry,
-        const RayQueryHandlerRegion &region) const noexcept {
+        const RayQueryHandlerPointerSupport &pointer_support) const noexcept {
         RayQueryHandlerScratchEffect invalid{_root_type};
         invalid.valid = false;
         if (alloca == nullptr || entry == nullptr ||
             alloca->type() != _root_type ||
-            alloca->parent_function() == nullptr) {
+            alloca->parent_function() == nullptr ||
+            _graph == nullptr || !_graph->valid()) {
             return invalid;
+        }
+        if (_run_info != nullptr) {
+            ++_run_info->handler_localization_analysis_count;
         }
         RayQueryHandlerPointerEnvironment environment;
         environment.emplace(alloca, RayQueryHandlerPointerView{});
-        luisa::unordered_set<const Function *> active_functions;
+        RayQueryHandlerActiveFunctions active_functions;
         active_functions.emplace(alloca->parent_function());
+
+        // Let S be the GEP-closed support of this root. The instruction effect
+        // is identity exactly when none of its operands belongs to S (the
+        // provenance resolver recognizes no other address-preserving XIR
+        // instruction). Therefore the ordered subsequence below is a lossless
+        // sparse representation of each block's path effect.
+        RayQueryHandlerPointerSet<const Instruction> relevant_instructions;
+        RayQueryHandlerPointerSet<const BasicBlock> relevant_blocks;
+        luisa::vector<const Instruction *> ordered_instructions;
+        for (auto *pointer : pointer_support) {
+            for (auto &&use : pointer->use_list()) {
+                auto *user = use->user();
+                if (user == nullptr || !user->isa<Instruction>()) {
+                    continue;
+                }
+                auto *instruction =
+                    static_cast<const Instruction *>(user);
+                auto *block = instruction->parent_block();
+                if (block != nullptr &&
+                    _graph->contains(block) &&
+                    relevant_instructions.emplace(instruction).second) {
+                    relevant_blocks.emplace(block);
+                    ordered_instructions.emplace_back(instruction);
+                }
+            }
+        }
+        RayQueryHandlerInstructionSchedule instruction_schedule;
+        for (auto *instruction : ordered_instructions) {
+            instruction_schedule[instruction->parent_block()]
+                .emplace_back(instruction);
+        }
+        for (auto &[block, ordered] : instruction_schedule) {
+            static_cast<void>(block);
+            std::sort(
+                ordered.begin(), ordered.end(),
+                [&](const Instruction *lhs,
+                    const Instruction *rhs) noexcept {
+                    auto *lhs_location =
+                        _graph->instruction_location(lhs);
+                    auto *rhs_location =
+                        _graph->instruction_location(rhs);
+                    LUISA_DEBUG_ASSERT(
+                        lhs_location != nullptr && rhs_location != nullptr &&
+                            lhs_location->block_id == rhs_location->block_id,
+                        "Invalid ray-query handler instruction order.");
+                    return lhs_location->ordinal < rhs_location->ordinal;
+                });
+        }
+        if (_run_info != nullptr) {
+            _run_info->handler_localization_relevant_instruction_count +=
+                ordered_instructions.size();
+            for (auto *block : relevant_blocks) {
+                _run_info
+                    ->handler_localization_avoided_instruction_scan_count +=
+                    _graph->block_instruction_count(block);
+            }
+        }
+        if (_run_info != nullptr &&
+            _run_info->verify_handler_scratch_graph) {
+            RayQueryHandlerInstructionSchedule oracle;
+            for (auto *block : relevant_blocks) {
+                auto &linear = oracle[block];
+                for (auto *instruction : block->instructions()) {
+                    if (relevant_instructions.contains(instruction)) {
+                        linear.emplace_back(instruction);
+                    }
+                }
+            }
+            LUISA_ASSERT(
+                oracle.size() == instruction_schedule.size(),
+                "Sparse ray-query handler schedule disagrees with the "
+                "linear instruction-order oracle.");
+            for (auto &[block, linear] : oracle) {
+                auto iter = instruction_schedule.find(block);
+                LUISA_ASSERT(
+                    iter != instruction_schedule.end() &&
+                        iter->second == linear,
+                    "Sparse ray-query handler schedule disagrees with the "
+                    "linear instruction-order oracle.");
+            }
+        }
         return summarize_region(
-            entry, region.blocks, std::move(environment), true,
+            entry, *_graph, std::move(environment),
+            &pointer_support, &instruction_schedule, true,
             active_functions);
     }
 };
@@ -913,15 +1171,31 @@ find_handler_local_allocas(
     BasicBlock *surface_entry,
     const RayQueryHandlerRegion &surface_region,
     BasicBlock *procedural_entry,
-    const RayQueryHandlerRegion &procedural_region) noexcept {
+    const RayQueryHandlerRegion &procedural_region,
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
     RayQueryHandlerLocalAllocas result;
+    luisa::vector<AllocaInst *> candidates;
     for (auto *value : capture_list.in_values) {
-        if (value == nullptr || !value->isa<AllocaInst>()) { continue; }
-        auto *alloca = static_cast<AllocaInst *>(value);
-        if (!alloca->is_local()) { continue; }
-
+        if (value != nullptr && value->isa<AllocaInst>()) {
+            auto *alloca = static_cast<AllocaInst *>(value);
+            if (alloca->is_local()) { candidates.emplace_back(alloca); }
+        }
+    }
+    if (candidates.empty()) { return result; }
+    RayQueryHandlerGraph surface_graph{surface_region.blocks};
+    RayQueryHandlerGraph procedural_graph{procedural_region.blocks};
+    if (info.verify_handler_scratch_graph) {
+        LUISA_ASSERT(
+            surface_graph.verify(surface_region.blocks) &&
+                procedural_graph.verify(procedural_region.blocks),
+            "Dense ray-query handler graph disagrees with the source CFG.");
+    }
+    info.handler_localization_indexed_instruction_count +=
+        surface_graph.instruction_count() +
+        procedural_graph.instruction_count();
+    for (auto *alloca : candidates) {
         RayQueryHandlerRootUseInfo uses;
-        luisa::unordered_set<Value *> visited;
+        RayQueryHandlerPointerSupport visited;
         collect_handler_alloca_root_uses(
             alloca, surface_region, procedural_region, uses, visited);
         if (!uses.valid) { continue; }
@@ -934,18 +1208,19 @@ find_handler_local_allocas(
         if (!uses.used_by_surface && !uses.used_by_procedural) { continue; }
         auto handler_is_invocation_local =
             [&](BasicBlock *entry,
-                const RayQueryHandlerRegion &region) noexcept {
+                const RayQueryHandlerGraph &graph) noexcept {
                 auto summary =
-                    RayQueryHandlerScratchAnalyzer{alloca->type()}
-                        .summarize(alloca, entry, region);
-                return summary.valid && summary.need.access().none();
+                    RayQueryHandlerScratchAnalyzer{
+                        alloca->type(), &info, &graph}
+                        .summarize(alloca, entry, visited);
+                return summary.valid && !summary.needs_input();
             };
         auto surface_is_local =
             !uses.used_by_surface ||
-            handler_is_invocation_local(surface_entry, surface_region);
+            handler_is_invocation_local(surface_entry, surface_graph);
         auto procedural_is_local =
             !uses.used_by_procedural ||
-            handler_is_invocation_local(procedural_entry, procedural_region);
+            handler_is_invocation_local(procedural_entry, procedural_graph);
         if (!surface_is_local || !procedural_is_local) { continue; }
         if (uses.used_by_surface) { result.surface.emplace_back(alloca); }
         if (uses.used_by_procedural) {
@@ -954,6 +1229,44 @@ find_handler_local_allocas(
         result.all.emplace(alloca);
     }
     return result;
+}
+
+[[nodiscard]] static size_t count_handler_localized_input_captures(
+    RayQueryLoopInst *loop,
+    const RayQueryLoopCaptureList &capture_list,
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
+    if (loop == nullptr || loop->dispatch_block() == nullptr) {
+        return 0u;
+    }
+    auto *terminator = loop->dispatch_block()->terminator();
+    if (terminator == nullptr ||
+        !terminator->isa<RayQueryDispatchInst>()) {
+        return 0u;
+    }
+    auto *dispatch =
+        static_cast<RayQueryDispatchInst *>(terminator);
+    RayQueryHandlerRegion surface_region;
+    RayQueryHandlerRegion procedural_region;
+    luisa::string_view reason;
+    if (!collect_outlineable_handler_region(
+            dispatch->on_surface_candidate_block(),
+            loop->dispatch_block(), loop->merge_block(),
+            surface_region, reason) ||
+        !collect_outlineable_handler_region(
+            dispatch->on_procedural_candidate_block(),
+            loop->dispatch_block(), loop->merge_block(),
+            procedural_region, reason)) {
+        // Selection runs only after the atomic preflight, so this is a
+        // defensive fallback rather than a second acceptance path.
+        return 0u;
+    }
+    return find_handler_local_allocas(
+               capture_list,
+               dispatch->on_surface_candidate_block(), surface_region,
+               dispatch->on_procedural_candidate_block(),
+               procedural_region,
+               info)
+        .all.size();
 }
 
 static void collect_ray_query_loop_capture_list_in_inst(Instruction *inst, const Value *query_object,
@@ -1011,6 +1324,112 @@ static void collect_ray_query_loop_capture_list_in_inst(Instruction *inst, const
         }
     }
     return capture_list;
+}
+
+[[nodiscard]] static luisa::vector<RayQueryLoopInst *>
+select_ray_query_loops(
+    luisa::span<RayQueryLoopInst *const> loops,
+    LowerRayQueryToPipelineOptions options,
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
+    struct Candidate {
+        RayQueryLoopInst *loop;
+        size_t handler_block_count;
+        size_t handler_instruction_count;
+        size_t input_capture_count;
+        size_t output_capture_count;
+        bool capture_eligible;
+    };
+    auto capture_count_within_limit = [](size_t input_count,
+                                         size_t output_count,
+                                         size_t limit) noexcept {
+        return output_count <= limit &&
+               input_count <= limit - output_count;
+    };
+    luisa::vector<Candidate> candidates;
+    candidates.reserve(loops.size());
+    auto capture_eligible_loop_count = size_t{0u};
+    for (auto *loop : loops) {
+        auto subgraph = collect_ray_query_loop_subgraph(loop);
+        auto capture_list = collect_ray_query_loop_capture_list(subgraph);
+        auto handler_block_count = subgraph.reverse_post_order.size() - 1u;
+        auto handler_instruction_count = size_t{0u};
+        for (auto *block : subgraph.reverse_post_order) {
+            if (block == loop->dispatch_block()) { continue; }
+            for (auto *instruction : block->instructions()) {
+                static_cast<void>(instruction);
+                ++handler_instruction_count;
+            }
+        }
+        // Localization can affect selection only when the raw capture count
+        // exceeds the finite budget. If the raw count already fits (including
+        // the unbounded default), proving which inputs will later become
+        // handler-local is dead analysis: every possible proof result selects
+        // the same loop. The lowering phase still performs the complete proof
+        // exactly once before changing the callback ABI.
+        auto input_capture_count = capture_list.in_values.size();
+        auto output_capture_count = capture_list.out_values.size();
+        auto capture_eligible = capture_count_within_limit(
+            input_capture_count, output_capture_count,
+            options.max_captured_argument_count);
+        // Output captures cannot be localized. If they alone exceed the
+        // budget, no input-localization result can make the loop eligible.
+        if (!capture_eligible &&
+            output_capture_count <=
+                options.max_captured_argument_count) {
+            ++info.selection_localization_analysis_count;
+            auto localized_input_capture_count =
+                count_handler_localized_input_captures(
+                    loop, capture_list, info);
+            LUISA_DEBUG_ASSERT(
+                localized_input_capture_count <= input_capture_count,
+                "Localized ray-query handler captures exceed input captures.");
+            input_capture_count -= localized_input_capture_count;
+            capture_eligible = capture_count_within_limit(
+                input_capture_count, output_capture_count,
+                options.max_captured_argument_count);
+        }
+        capture_eligible_loop_count += capture_eligible ? 1u : 0u;
+        candidates.emplace_back(Candidate{
+            .loop = loop,
+            .handler_block_count = handler_block_count,
+            .handler_instruction_count = handler_instruction_count,
+            .input_capture_count = input_capture_count,
+            .output_capture_count = output_capture_count,
+            .capture_eligible = capture_eligible});
+    }
+    luisa::vector<RayQueryLoopInst *> selected;
+    selected.reserve(loops.size());
+    for (auto &&candidate : candidates) {
+        auto profitability_eligible =
+            candidate.handler_instruction_count >=
+                options.min_handler_instruction_count ||
+            capture_eligible_loop_count >=
+                options.min_small_handler_loop_count;
+        if (candidate.capture_eligible && profitability_eligible) {
+            LUISA_VERBOSE(
+                "lower_ray_query_to_pipeline: selecting loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s).",
+                candidate.handler_block_count,
+                candidate.handler_instruction_count,
+                candidate.input_capture_count,
+                candidate.output_capture_count);
+            selected.emplace_back(candidate.loop);
+        } else {
+            LUISA_VERBOSE(
+                "lower_ray_query_to_pipeline: retaining loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s) (capture_limit={}, min_handler_instructions={}, eligible_loop_count={}, small_handler_loop_threshold={}).",
+                candidate.handler_block_count,
+                candidate.handler_instruction_count,
+                candidate.input_capture_count,
+                candidate.output_capture_count,
+                options.max_captured_argument_count,
+                options.min_handler_instruction_count,
+                capture_eligible_loop_count,
+                options.min_small_handler_loop_count);
+            if (options.skipped_loop_count != nullptr) {
+                ++*options.skipped_loop_count;
+            }
+        }
+    }
+    return selected;
 }
 
 class RayQueryLowerPassValueResolver final : public InstructionCloneValueResolver {
@@ -1099,6 +1518,16 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
         auto in_arg = function->create_argument(in_value->type(), in_value->is_lvalue());
         resolver.emplace(in_value, in_arg);
     }
+    // Both callbacks share the RayQueryPipeline capture ABI. Materialize every
+    // output argument once, then write it at each outlined return. Creating
+    // output arguments while visiting returns accidentally encoded a
+    // single-exit restriction into the function signature.
+    luisa::vector<Value *> out_args;
+    out_args.reserve(capture_list.out_values.size());
+    for (auto out_value : capture_list.out_values) {
+        out_args.emplace_back(
+            function->create_reference_argument(out_value->type()));
+    }
     // create blocks for the function
     for (auto block : subgraph.reverse_post_order) {
         auto local_block = function->create_basic_block();
@@ -1118,21 +1547,25 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
                      "Duplicate localized ray-query handler alloca.");
     }
     // duplicate the blocks
-    auto already_returned = false;
+    luisa::vector<BasicBlock *> return_blocks;
     luisa::vector<std::pair<const PhiInst *, PhiInst *>> phi_nodes;
     for (auto block : subgraph.reverse_post_order) {
         if (auto bb = duplicate_basic_block_for_ray_query_loop_dispatch_branch(block, dispatch, phi_nodes, resolver);
             bb->terminator()->isa<ReturnInst>()) {
-            LUISA_ASSERT(!already_returned, "Multiple return instructions in the branch block.");
-            already_returned = true;
-            // generate store instructions for out values
-            XIRBuilder b;
-            b.set_insertion_point(bb->terminator()->prev());
-            for (auto out_value : capture_list.out_values) {
-                auto out_arg = function->create_reference_argument(out_value->type());
-                if (auto resolved = resolver.resolve_or_null(out_value)) {
-                    b.store(out_arg, resolved);
-                }
+            return_blocks.emplace_back(bb);
+        }
+    }
+    LUISA_DEBUG_ASSERT(!return_blocks.empty(),
+                       "Outlined ray-query handler has no return block.");
+    // Generate output stores only after every block has been cloned, so an
+    // output resolver entry never depends on reverse-post-order visitation.
+    for (auto *return_block : return_blocks) {
+        XIRBuilder b;
+        b.set_insertion_point(return_block->terminator()->prev());
+        for (auto i = 0u; i < capture_list.out_values.size(); i++) {
+            if (auto resolved = resolver.resolve_or_null(
+                    capture_list.out_values[i])) {
+                b.store(out_args[i], resolved);
             }
         }
     }
@@ -1150,7 +1583,9 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
     return function;
 }
 
-static void lower_ray_query_loop(Function *function, RayQueryLoopInst *loop, RayQueryLoopLowerInfo &info) noexcept {
+static void lower_ray_query_to_pipeline(
+    Function *function, RayQueryLoopInst *loop,
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
     auto subgraph = collect_ray_query_loop_subgraph(loop);
     auto capture_list = collect_ray_query_loop_capture_list(subgraph);
     auto dispatch = static_cast<RayQueryDispatchInst *>(subgraph.reverse_post_order.front()->terminator());
@@ -1170,7 +1605,8 @@ static void lower_ray_query_loop(Function *function, RayQueryLoopInst *loop, Ray
         region_reason);
     auto local_allocas = find_handler_local_allocas(
         capture_list, dispatch->on_surface_candidate_block(), surface_region,
-        dispatch->on_procedural_candidate_block(), procedural_region);
+        dispatch->on_procedural_candidate_block(), procedural_region,
+        info);
     if (!local_allocas.all.empty()) {
         capture_list.in_values.erase(
             std::remove_if(
@@ -1371,16 +1807,16 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
     }
 }
 
-static void lower_ray_query_loop_lower_preflighted_ray_query_loops(
+static void lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
     Function *function, luisa::span<RayQueryLoopInst *const> loops,
-    RayQueryLoopLowerInfo &info) noexcept {
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
     auto *def = function == nullptr ? nullptr : function->definition();
     if (def == nullptr) { return; }
     auto lowered_before = info.lowered_loop_count;
     for (auto *loop : loops) {
         lower_phi_nodes_in_loop_dispatch_block(def, loop);
         hoist_alloca_instructions_to_entry_block(def);
-        lower_ray_query_loop(function, loop, info);
+        lower_ray_query_to_pipeline(function, loop, info);
     }
     // Remove dead code after lowering using the DCE pass.
     if (info.lowered_loop_count != lowered_before) {
@@ -1392,26 +1828,61 @@ static void lower_ray_query_loop_lower_preflighted_ray_query_loops(
     }
 }
 
-static void run_lower_ray_query_loop_pass_on_function(
-    Function *function, RayQueryLoopLowerInfo &info) noexcept {
+static void run_lower_ray_query_to_pipeline_pass_on_function(
+    Function *function, LowerRayQueryToPipelineOptions options,
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
     auto loops = collect_ray_query_loops(function);
     // Preflight the complete function before touching dispatch PHIs, hoisting
     // allocas, creating callbacks, or running function-wide DCE.
-    if (!lower_ray_query_loop_preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
-    lower_ray_query_loop_lower_preflighted_ray_query_loops(
+    if (!lower_ray_query_to_pipeline_preflight_ray_query_loops(luisa::span{loops}, info)) { return; }
+    loops = select_ray_query_loops(
+        luisa::span{loops}, options, info);
+    lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
         function, luisa::span{loops}, info);
 }
 
 }// namespace detail
 
-RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_function(Function *function) noexcept {
-    RayQueryLoopLowerInfo info;
-    detail::run_lower_ray_query_loop_pass_on_function(function, info);
+LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_function(
+    Function *function, LowerRayQueryToPipelineOptions options) noexcept {
+    if (options.skipped_loop_count != nullptr) {
+        *options.skipped_loop_count = 0u;
+    }
+    if (options.localized_alloca_count != nullptr) {
+        *options.localized_alloca_count = 0u;
+    }
+    detail::LowerRayQueryToPipelineRunInfo info;
+    info.verify_handler_scratch_graph =
+        options.verify_handler_scratch_graph;
+    detail::run_lower_ray_query_to_pipeline_pass_on_function(
+        function, options, info);
+    if (options.localized_alloca_count != nullptr) {
+        *options.localized_alloca_count = info.localized_alloca_count;
+    }
     return info;
 }
 
-RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, PassReport *report) noexcept {
-    RayQueryLoopLowerInfo info;
+LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_function(
+    Function *function) noexcept {
+    return lower_ray_query_to_pipeline_pass_run_on_function(
+        function, {});
+}
+
+LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_module(
+    Module *module, PassReport *report,
+    LowerRayQueryToPipelineOptions options) noexcept {
+    if (options.skipped_loop_count != nullptr) {
+        *options.skipped_loop_count = 0u;
+    }
+    if (options.localized_alloca_count != nullptr) {
+        *options.localized_alloca_count = 0u;
+    }
+    detail::LowerRayQueryToPipelineRunInfo info;
+    info.verify_handler_scratch_graph =
+        options.verify_handler_scratch_graph;
     struct FunctionWork {
         Function *function;
         luisa::vector<RayQueryLoopInst *> loops;
@@ -1431,22 +1902,81 @@ RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, Pa
         // alloca, pipeline, or DCE mutation is created.
         auto accepted = true;
         for (auto &item : work) {
-            accepted &= detail::lower_ray_query_loop_preflight_ray_query_loops(
+            accepted &= detail::lower_ray_query_to_pipeline_preflight_ray_query_loops(
                 luisa::span{item.loops}, info);
         }
         if (accepted) {
             for (auto &item : work) {
-                detail::lower_ray_query_loop_lower_preflighted_ray_query_loops(
+                item.loops = detail::select_ray_query_loops(
+                    luisa::span{item.loops}, options, info);
+            }
+            for (auto &item : work) {
+                detail::lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
                     item.function, luisa::span{item.loops}, info);
             }
         }
     }
     if (report != nullptr) {
-        report->set("lowered_loop", info.lowered_loop_count);
-        report->set("localized_alloca", info.localized_alloca_count);
+        report->set(
+            "lowered_ray_query_to_pipeline", info.lowered_loop_count);
         report->set("error", info.error_count);
+        report->set("selection_localization_analysis",
+                    info.selection_localization_analysis_count);
+        report->set(
+            "handler_localization_instruction_evaluation",
+            info.handler_localization_instruction_evaluation_count);
+        report->set("handler_localization_analysis",
+                    info.handler_localization_analysis_count);
+        report->set("handler_localization_indexed_instruction",
+                    info.handler_localization_indexed_instruction_count);
+        report->set("handler_localization_relevant_instruction",
+                    info.handler_localization_relevant_instruction_count);
+        report->set("handler_localization_avoided_instruction_scan",
+                    info.handler_localization_avoided_instruction_scan_count);
+        report->set("handler_localization_block_evaluation",
+                    info.handler_localization_block_evaluation_count);
+    }
+    if (options.localized_alloca_count != nullptr) {
+        *options.localized_alloca_count = info.localized_alloca_count;
     }
     return info;
+}
+
+LowerRayQueryToPipelineInfo
+lower_ray_query_to_pipeline_pass_run_on_module(
+    Module *module, PassReport *report) noexcept {
+    return lower_ray_query_to_pipeline_pass_run_on_module(
+        module, report, {});
+}
+
+RayQueryLoopLowerInfo
+lower_ray_query_loop_pass_run_on_function(Function *function) noexcept {
+    size_t localized_alloca_count = 0u;
+    auto info = lower_ray_query_to_pipeline_pass_run_on_function(
+        function,
+        {.localized_alloca_count = &localized_alloca_count});
+    return {
+        .lowered_loop_count = info.lowered_loop_count,
+        .localized_alloca_count = localized_alloca_count,
+        .error_count = info.error_count};
+}
+
+RayQueryLoopLowerInfo
+lower_ray_query_loop_pass_run_on_module(
+    Module *module, PassReport *report) noexcept {
+    size_t localized_alloca_count = 0u;
+    auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+        module, nullptr,
+        {.localized_alloca_count = &localized_alloca_count});
+    if (report != nullptr) {
+        report->set("lowered_loop", info.lowered_loop_count);
+        report->set("localized_alloca", localized_alloca_count);
+        report->set("error", info.error_count);
+    }
+    return {
+        .lowered_loop_count = info.lowered_loop_count,
+        .localized_alloca_count = localized_alloca_count,
+        .error_count = info.error_count};
 }
 
 }// namespace luisa::compute::xir

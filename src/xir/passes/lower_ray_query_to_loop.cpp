@@ -14,6 +14,7 @@
 #include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
 #include <algorithm>
@@ -23,7 +24,7 @@ namespace luisa::compute::xir {
 namespace detail {
 
 static void clone_metadata_impl(const MetadataListMixin &source,
-                                       MetadataListMixin &target) noexcept {
+                                MetadataListMixin &target) noexcept {
     for (auto *metadata : source.metadata_list()) {
         target.metadata_list().push_front(metadata->clone());
     }
@@ -110,7 +111,7 @@ struct RetargetableHandlerRegion {
     return true;
 }
 
-[[nodiscard]] static bool lower_ray_query_loop_to_loop_handler_region_has_external_predecessor(
+[[nodiscard]] static bool lower_ray_query_to_loop_handler_region_has_external_predecessor(
     BasicBlock *entry, BasicBlock *dispatch,
     const RetargetableHandlerRegion &region) noexcept {
     for (auto *block : region.blocks) {
@@ -124,7 +125,7 @@ struct RetargetableHandlerRegion {
     return false;
 }
 
-[[nodiscard]] static bool lower_ray_query_loop_to_loop_handler_regions_overlap(
+[[nodiscard]] static bool lower_ray_query_to_loop_handler_regions_overlap(
     const RetargetableHandlerRegion &lhs,
     const RetargetableHandlerRegion &rhs) noexcept {
     auto *smaller = &lhs.blocks;
@@ -134,6 +135,20 @@ struct RetargetableHandlerRegion {
         if (larger->contains(block)) { return true; }
     }
     return false;
+}
+
+[[nodiscard]] static bool ray_query_handler_region_is_empty(
+    BasicBlock *entry, BasicBlock *dispatch,
+    const RetargetableHandlerRegion &region) noexcept {
+    if (entry == nullptr || dispatch == nullptr ||
+        region.blocks.size() != 1u ||
+        !region.blocks.contains(entry) || !entry->is_terminated()) {
+        return false;
+    }
+    auto *terminator = entry->terminator();
+    return entry->instructions().front() == terminator &&
+           terminator->isa<BranchInst>() &&
+           static_cast<BranchInst *>(terminator)->target_block() == dispatch;
 }
 
 [[nodiscard]] static bool is_ray_query_object_impl(
@@ -148,17 +163,15 @@ struct RetargetableHandlerRegion {
 //
 // Output structure (LoopInst with prepare/body/update/merge):
 //   prepare: proceed(rq); cond_br(is_active, body, merge)
-//   body:    IfInst(is_triangle, on_surface_block, else_block, candidate_continue)
-//              else_block: IfInst(is_procedural, on_procedural_block, skip, candidate_continue)
-//                skip: br(candidate_continue)
-//            candidate_continue: br(update)
+//   body:    IfInst(is_triangle, on_surface_block, on_procedural_block,
+//                   update)
 //   update:  br(prepare)
 //   merge:   (original merge — post-loop code)
 static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
-                                     LowerRayQueryLoopToLoopInfo &info,
+                                     LowerRayQueryToLoopInfo &info,
                                      bool preflight_only) noexcept {
     auto reject = [&](luisa::string_view reason) noexcept {
-        LUISA_WARNING_WITH_LOCATION("lower_ray_query_loop_to_loop: rejecting loop: {}", reason);
+        LUISA_WARNING_WITH_LOCATION("lower_ray_query_to_loop: rejecting loop: {}", reason);
         ++info.error_count;
         return false;
     };
@@ -221,7 +234,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
                                              merge_block, procedural_region)) {
         return reject("handler has an unterminated or non-Branch edge to dispatch");
     }
-    if (lower_ray_query_loop_to_loop_handler_regions_overlap(surface_region, procedural_region)) {
+    if (lower_ray_query_to_loop_handler_regions_overlap(surface_region, procedural_region)) {
         return reject("surface and procedural handler regions overlap");
     }
     auto dispatch_has_external_predecessor = false;
@@ -235,8 +248,8 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     if (dispatch_has_external_predecessor) {
         return reject("dispatch has a predecessor outside the ray-query loop");
     }
-    if (lower_ray_query_loop_to_loop_handler_region_has_external_predecessor(on_surface_block, dispatch_block, surface_region) ||
-        lower_ray_query_loop_to_loop_handler_region_has_external_predecessor(on_procedural_block, dispatch_block, procedural_region)) {
+    if (lower_ray_query_to_loop_handler_region_has_external_predecessor(on_surface_block, dispatch_block, surface_region) ||
+        lower_ray_query_to_loop_handler_region_has_external_predecessor(on_procedural_block, dispatch_block, procedural_region)) {
         return reject("handler has a predecessor outside its region");
     }
     auto merge_has_external_predecessor = false;
@@ -256,6 +269,10 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     }
     if (preflight_only) { return true; }
     auto bool_type = Type::of<bool>();
+    auto surface_handler_is_empty = ray_query_handler_region_is_empty(
+        on_surface_block, dispatch_block, surface_region);
+    auto procedural_handler_is_empty = ray_query_handler_region_is_empty(
+        on_procedural_block, dispatch_block, procedural_region);
 
     auto removed_loop = rq_loop->remove_self();
     b.set_insertion_point(parent_block);
@@ -277,67 +294,77 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     b.br(prepare_block);
 
     b.set_insertion_point(body_block);
-    auto is_triangle = b.call(bool_type, RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE, {query_object});
-    auto is_procedural = b.call(bool_type, RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE, {query_object});
+    Instruction *candidate_dispatch = nullptr;
+    if (surface_handler_is_empty && procedural_handler_is_empty) {
+        // Candidate kind is unobservable when both callbacks are no-ops.
+        candidate_dispatch = b.br(update_block);
+    } else {
+        auto is_triangle = b.call(
+            bool_type,
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE,
+            {query_object});
 
-    auto tri_merge = def->create_basic_block();
-    auto tri_else_block = def->create_basic_block();
-    auto tri_if = b.if_(is_triangle);
-    tri_if->set_true_target(on_surface_block);
-    tri_if->set_false_target(tri_else_block);
-    tri_if->set_merge_block(tri_merge);
+        // PROCEED publishes exactly one of terminated, triangle candidate, or
+        // procedural candidate. The prepare branch has already excluded the
+        // terminated state, so the false arm of is_triangle is necessarily the
+        // procedural handler. The loop update block is also the candidate
+        // selection merge; a separate forwarding block only adds a scheduler
+        // state and carries no semantics.
+        auto candidate_if = b.if_(is_triangle);
+        candidate_if->set_true_target(
+            surface_handler_is_empty ? update_block : on_surface_block);
+        candidate_if->set_false_target(
+            procedural_handler_is_empty ? update_block : on_procedural_block);
+        candidate_if->set_merge_block(update_block);
+        candidate_dispatch = candidate_if;
+    }
 
-    b.set_insertion_point(tri_merge);
-    b.br(update_block);
-
-    auto proc_merge = def->create_basic_block();
-    auto proc_skip_block = def->create_basic_block();
-    b.set_insertion_point(tri_else_block);
-    auto proc_if = b.if_(is_procedural);
-    proc_if->set_true_target(on_procedural_block);
-    proc_if->set_false_target(proc_skip_block);
-    proc_if->set_merge_block(proc_merge);
-
-    b.set_insertion_point(proc_merge);
-    b.br(tri_merge);
-
-    b.set_insertion_point(proc_skip_block);
-    b.br(proc_merge);
-
-    // Retarget handler terminators: br(dispatch_block) → br(tri_merge)
+    // Retarget handler terminators:
+    // br(dispatch_block) -> br(update_block).
     // Only retarget BranchInst targets, not merge_block fields of nested constructs.
     auto removed_dispatch = dispatch_inst->remove_self();
-    // The outer triangle test is the unique replacement for candidate
-    // dispatch. The nested procedural test only refines its false arm.
-    clone_metadata_impl(*removed_dispatch, *tri_if);
-    b.set_insertion_point(dispatch_block);
-    b.unreachable_();
-    auto retarget_handler_branches = [&](BasicBlock *handler_entry, BasicBlock *target) noexcept {
-        luisa::vector<BasicBlock *> worklist;
-        luisa::unordered_set<BasicBlock *> visited;
-        worklist.emplace_back(handler_entry);
-        while (!worklist.empty()) {
-            auto *bb = worklist.back();
-            worklist.pop_back();
-            if (!visited.emplace(bb).second) { continue; }
+    clone_metadata_impl(*removed_dispatch, *candidate_dispatch);
+    auto retarget_handler_branches = [&](const RetargetableHandlerRegion &region) noexcept {
+        for (auto *bb : region.blocks) {
             if (!bb->is_terminated()) { continue; }
             auto *term = bb->terminator();
             if (term->derived_instruction_tag() == DerivedInstructionTag::BRANCH) {
                 auto *br = static_cast<BranchInst *>(term);
                 if (br->target_block() == dispatch_block) {
-                    br->set_target_block(target);
-                    continue;
+                    br->set_target_block(update_block);
                 }
             }
-            bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                if (!visited.contains(succ) && succ != tri_merge && succ != proc_merge) {
-                    worklist.emplace_back(succ);
-                }
-            });
         }
     };
-    retarget_handler_branches(on_surface_block, tri_merge);
-    retarget_handler_branches(on_procedural_block, proc_merge);
+    if (!surface_handler_is_empty) {
+        retarget_handler_branches(surface_region);
+    }
+    if (!procedural_handler_is_empty) {
+        retarget_handler_branches(procedural_region);
+    }
+
+    // Release detached terminators before unlinking their target blocks; a
+    // detached instruction still owns operand Use nodes while retained here.
+    removed_dispatch = nullptr;
+    removed_loop = nullptr;
+
+    // The source dispatch shell and bypassed no-op handlers have no remaining
+    // executable edge. Remove them here instead of relying on a later DCE pass;
+    // otherwise they still inflate generic CFG scans and obscure exact
+    // lower/reconstruct round trips.
+    auto remove_dead_block = [](BasicBlock *block) noexcept {
+        while (!block->instructions().empty()) {
+            block->instructions().front()->remove_self();
+        }
+        block->remove_self();
+    };
+    if (surface_handler_is_empty) {
+        remove_dead_block(on_surface_block);
+    }
+    if (procedural_handler_is_empty) {
+        remove_dead_block(on_procedural_block);
+    }
+    remove_dead_block(dispatch_block);
 
     info.lowered_ray_query_loop_count += 1;
     return true;
@@ -362,9 +389,9 @@ collect_ray_query_loops_impl(Function *function) noexcept {
     return rq_loops;
 }
 
-[[nodiscard]] static bool lower_ray_query_loop_to_loop_preflight_ray_query_loops(
+[[nodiscard]] static bool lower_ray_query_to_loop_preflight_ray_query_loops(
     luisa::span<RayQueryLoopInst *const> rq_loops,
-    XIRBuilder &b, LowerRayQueryLoopToLoopInfo &info) noexcept {
+    XIRBuilder &b, LowerRayQueryToLoopInfo &info) noexcept {
     auto accepted = true;
     for (auto *rq : rq_loops) {
         accepted &= lower_one_ray_query_loop(rq, b, info, true);
@@ -372,9 +399,9 @@ collect_ray_query_loops_impl(Function *function) noexcept {
     return accepted;
 }
 
-static void lower_ray_query_loop_to_loop_lower_preflighted_ray_query_loops(
+static void lower_ray_query_to_loop_lower_preflighted_ray_query_loops(
     luisa::span<RayQueryLoopInst *const> rq_loops,
-    XIRBuilder &b, LowerRayQueryLoopToLoopInfo &info) noexcept {
+    XIRBuilder &b, LowerRayQueryToLoopInfo &info) noexcept {
     for (auto *rq : rq_loops) {
         static_cast<void>(
             lower_one_ray_query_loop(rq, b, info, false));
@@ -382,28 +409,30 @@ static void lower_ray_query_loop_to_loop_lower_preflighted_ray_query_loops(
 }
 
 static void lower_in_function(
-    Function *function, LowerRayQueryLoopToLoopInfo &info) noexcept {
+    Function *function, LowerRayQueryToLoopInfo &info) noexcept {
     auto rq_loops = collect_ray_query_loops_impl(function);
     XIRBuilder b;
-    if (!lower_ray_query_loop_to_loop_preflight_ray_query_loops(
+    if (!lower_ray_query_to_loop_preflight_ray_query_loops(
             luisa::span{rq_loops}, b, info)) {
         return;
     }
-    lower_ray_query_loop_to_loop_lower_preflighted_ray_query_loops(
+    lower_ray_query_to_loop_lower_preflighted_ray_query_loops(
         luisa::span{rq_loops}, b, info);
 }
 
 }// namespace detail
 
-LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_function(Function *function) noexcept {
-    LowerRayQueryLoopToLoopInfo info;
+LowerRayQueryToLoopInfo lower_ray_query_to_loop_pass_run_on_function(
+    Function *function) noexcept {
+    LowerRayQueryToLoopInfo info;
     if (function == nullptr) { return info; }
     detail::lower_in_function(function, info);
     return info;
 }
 
-LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_module(Module *module, PassReport *report) noexcept {
-    LowerRayQueryLoopToLoopInfo info;
+LowerRayQueryToLoopInfo lower_ray_query_to_loop_pass_run_on_module(
+    Module *module, PassReport *report) noexcept {
+    LowerRayQueryToLoopInfo info;
     if (module != nullptr) {
         struct FunctionWork {
             Function *function;
@@ -418,21 +447,35 @@ LowerRayQueryLoopToLoopInfo lower_ray_query_loop_to_loop_pass_run_on_module(Modu
         XIRBuilder b;
         auto accepted = true;
         for (auto &item : work) {
-            accepted &= detail::lower_ray_query_loop_to_loop_preflight_ray_query_loops(
+            accepted &= detail::lower_ray_query_to_loop_preflight_ray_query_loops(
                 luisa::span{item.loops}, b, info);
         }
         if (accepted) {
             for (auto &item : work) {
-                detail::lower_ray_query_loop_to_loop_lower_preflighted_ray_query_loops(
+                detail::lower_ray_query_to_loop_lower_preflighted_ray_query_loops(
                     luisa::span{item.loops}, b, info);
             }
         }
     }
     if (report != nullptr) {
-        report->set("lowered_ray_query_loop", info.lowered_ray_query_loop_count);
+        report->set(
+            "lowered_ray_query_to_loop",
+            info.lowered_ray_query_loop_count);
         report->set("error", info.error_count);
     }
     return info;
+}
+
+LowerRayQueryToLoopInfo
+lower_ray_query_loop_to_loop_pass_run_on_function(
+    Function *function) noexcept {
+    return lower_ray_query_to_loop_pass_run_on_function(function);
+}
+
+LowerRayQueryToLoopInfo
+lower_ray_query_loop_to_loop_pass_run_on_module(
+    Module *module, PassReport *report) noexcept {
+    return lower_ray_query_to_loop_pass_run_on_module(module, report);
 }
 
 }// namespace luisa::compute::xir

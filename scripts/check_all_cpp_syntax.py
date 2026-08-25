@@ -13,33 +13,58 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
+DEFAULT_JOBS = min(8, os.cpu_count() or 1)
+
+
 def load_compile_command_files(compile_commands_path: str) -> list[str]:
-    with open(compile_commands_path, "r", encoding="utf-8") as f:
+    database = Path(compile_commands_path).resolve()
+    with open(database, "r", encoding="utf-8") as f:
         data = orjson.loads(f.read())
     files = []
+    seen = set()
     cpp_exts = {".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp", ".hh", ".hxx", ".h++"}
     for entry in data:
         file_path = entry.get("file")
-        if file_path:
-            ext = Path(file_path).suffix.lower()
-            if ext in cpp_exts:
-                files.append(file_path)
+        if not isinstance(file_path, str) or not file_path:
+            continue
+        source = Path(file_path)
+        if not source.is_absolute():
+            directory = entry.get("directory")
+            base = (
+                Path(directory)
+                if isinstance(directory, str) and directory
+                else database.parent
+            )
+            if not base.is_absolute():
+                base = database.parent / base
+            source = base / source
+        source = source.resolve()
+        if source.suffix.lower() not in cpp_exts or source in seen:
+            continue
+        seen.add(source)
+        files.append(str(source))
     return files
 
 
-def is_only_unknown_argument_error(stdout: str, stderr: str) -> bool:
-    """Check if output contains exactly 1 error and it's 'Unknown argument'."""
-    output = (stdout or "") + (stderr or "")
-    error_lines = [line for line in output.splitlines() if line.startswith("Error:")]
-    return len(error_lines) == 1 and "unknown argument" in error_lines[0].lower()
-
-
-def check_file(file_path: str, script_path: str, project_root: str | None, clangd_path: str | None) -> tuple[str, int, str, str]:
+def check_file(
+    file_path: str,
+    script_path: str,
+    project_root: str | None,
+    clangd_path: str | None,
+    compile_commands_path: str | None,
+    diagnostic_timeout: float = 30.0,
+    clang_tidy: bool = False,
+) -> tuple[str, int, str, str]:
     cmd = [sys.executable, str(script_path), file_path]
     if project_root is not None:
         cmd += ["--project-root", project_root]
     if clangd_path is not None:
         cmd += ["--clangd", clangd_path]
+    if compile_commands_path is not None:
+        cmd += ["--compile-commands-dir", compile_commands_path]
+    cmd += ["--diagnostic-timeout", str(diagnostic_timeout)]
+    if clang_tidy:
+        cmd.append("--clang-tidy")
 
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     return file_path, result.returncode, result.stdout, result.stderr
@@ -67,8 +92,19 @@ def main():
     parser.add_argument(
         "--jobs",
         type=int,
-        default=os.cpu_count(),
-        help=f"Maximum parallel jobs (default: {os.cpu_count()})",
+        default=DEFAULT_JOBS,
+        help=f"Maximum parallel jobs (default: {DEFAULT_JOBS})",
+    )
+    parser.add_argument(
+        "--diagnostic-timeout",
+        type=float,
+        default=30.0,
+        help="Per-file clangd timeout in seconds (default: 30)",
+    )
+    parser.add_argument(
+        "--clang-tidy",
+        action="store_true",
+        help="Include clang-tidy diagnostics (disabled by default)",
     )
 
     args = parser.parse_args()
@@ -98,7 +134,16 @@ def main():
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(check_file, f, script_path, args.project_root, args.clangd): f
+            executor.submit(
+                check_file,
+                f,
+                script_path,
+                args.project_root,
+                args.clangd,
+                str(compile_commands_path.resolve()),
+                args.diagnostic_timeout,
+                args.clang_tidy,
+            ): f
             for f in files
         }
         for future in as_completed(futures):
@@ -106,20 +151,16 @@ def main():
             completed += 1
 
             if returncode != 0:
-                if is_only_unknown_argument_error(stdout, stderr):
-                    # Treat single 'Unknown argument' error as success
-                    pass
+                if stdout or stderr:
+                    print(f"[{completed}/{total}] {file_path} (exit={returncode})")
+                    if stdout:
+                        print(stdout, end="")
+                    if stderr:
+                        print(stderr, end="")
+                if returncode == 1:
+                    errors += 1
                 else:
-                    if stdout or stderr:
-                        print(f"[{completed}/{total}] {file_path} (exit={returncode})")
-                        if stdout:
-                            print(stdout, end="")
-                        if stderr:
-                            print(stderr, end="")
-                    if returncode == 1:
-                        errors += 1
-                    elif returncode == 2:
-                        failures += 1
+                    failures += 1
             # else:
             #     if stdout:
             #         print(f"[{completed}/{total}] {file_path}")

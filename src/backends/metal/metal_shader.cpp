@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <cstdlib>
 #include "metal_device.h"
 #include "metal_buffer.h"
 #include "metal_texture.h"
@@ -16,12 +17,22 @@ MetalShader::MetalShader(MetalDevice *device,
                          luisa::vector<uint8_t> argument_sampled,
                          luisa::vector<Argument> bound_arguments,
                          luisa::span<const std::pair<luisa::string, luisa::string>> print_formats,
-                         uint3 block_size) noexcept
+                         uint3 block_size,
+                         uint64_t source_checksum,
+                         size_t source_size_bytes,
+                         size_t source_line_count,
+                         double codegen_ms,
+                         double compile_ms) noexcept
     : _handle{std::move(handle)},
       _argument_usages{std::move(argument_usages)},
       _argument_sampled{std::move(argument_sampled)},
       _bound_arguments{std::move(bound_arguments)},
       _block_size{block_size.x, block_size.y, block_size.z},
+      _source_checksum{source_checksum},
+      _source_size_bytes{source_size_bytes},
+      _source_line_count{source_line_count},
+      _codegen_ms{codegen_ms},
+      _compile_ms{compile_ms},
       _prepare_indirect{device->builtin_prepare_indirect_dispatches()} {
     if (!print_formats.empty()) {
         luisa::vector<std::pair<luisa::string, const Type *>> fmts;
@@ -57,18 +68,38 @@ void MetalShader::set_name(luisa::string_view name) noexcept {
         _indirect_name = nullptr;
     }
     if (!name.empty()) {
+        auto name_copy = luisa::string{name};
         _name = NS::String::alloc()->init(
-            const_cast<char *>(name.data()), name.size(),
-            NS::UTF8StringEncoding, false);
+            name_copy.c_str(), NS::UTF8StringEncoding);
         auto indirect = luisa::format("{} (indirect)", name);
         _indirect_name = NS::String::alloc()->init(
-            const_cast<char *>(indirect.data()), indirect.size(),
-            NS::UTF8StringEncoding, false);
+            indirect.c_str(), NS::UTF8StringEncoding);
+        if (std::getenv("LUISA_METAL_SHADER_INFO") != nullptr) {
+            auto *pipeline = _handle.entry.get();
+            LUISA_INFO(
+                "Metal shader info: stage='{}' cache_key='metal_kernel_{:016x}' "
+                "source_bytes={} source_lines={} codegen_ms={:.3f} "
+                "compile_ms={:.3f} block={}x{}x{} thread_width={} "
+                "max_threads_per_threadgroup={} static_threadgroup_bytes={}.",
+                name, _source_checksum, _source_size_bytes,
+                _source_line_count, _codegen_ms, _compile_ms,
+                _block_size[0], _block_size[1], _block_size[2],
+                pipeline->threadExecutionWidth(),
+                pipeline->maxTotalThreadsPerThreadgroup(),
+                pipeline->staticThreadgroupMemoryLength());
+        }
     }
 }
 
 void MetalShader::launch(MetalCommandEncoder &encoder,
                          ShaderDispatchCommand *command) const noexcept {
+
+    static const auto profile_command_buffer =
+        std::getenv("LUISA_METAL_COMMAND_BUFFER_PROFILE") != nullptr;
+    if (profile_command_buffer) {
+        std::scoped_lock lock{_name_mutex};
+        if (_name) { encoder.command_buffer()->setLabel(_name); }
+    }
 
     static constexpr auto argument_buffer_size = 65536u;
     static constexpr auto argument_alignment = 16u;

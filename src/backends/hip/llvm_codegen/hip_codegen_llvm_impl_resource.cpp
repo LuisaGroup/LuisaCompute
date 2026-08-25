@@ -1247,7 +1247,7 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
                 llvm_initialize_args);
             // Ray-query operations must follow the object operand instead of
             // implicitly using the current function's state. In particular,
-            // lower_ray_query_loop outlines candidate handlers into separate
+            // lower_ray_query_to_pipeline outlines candidate handlers into separate
             // callables, each of which has its own local state allocation.
             // Encode this query's actual private state pointer in the opaque
             // object so a reference passed to an outlined handler still refers
@@ -1985,7 +1985,6 @@ void HIPCodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel, 
             {instance_ptr->getType(), metadata_ptr->getType(),
              is_opaque->getType()}, false);
         f = llvm::Function::Create(f_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-        f->addFnAttr(llvm::Attribute::AlwaysInline);
         auto entry = llvm::BasicBlock::Create(_llvm_context, "entry", f);
         IB fb{entry};
         // The certificate is monotone. An atomic OR linearizes concurrent

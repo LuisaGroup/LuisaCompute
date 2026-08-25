@@ -74,6 +74,10 @@ else ()
     option(LUISA_COMPUTE_ENABLE_SAFE_MODE "Enable safe mode for runtime" OFF)
 endif ()
 
+# The SIMD CPU backend is staged behind an explicit option until the Phase 2
+# runtime shell reaches parity with the selected fallback core suite.
+option(LUISA_COMPUTE_ENABLE_SIMD "Enable experimental SIMD CPU backend" OFF)
+
 option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR to SPIR-V code generation for Vulkan backend" ON)
 option(LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV "Use AST LLVM codegen for Vulkan backend SPIR-V generation" OFF)
 option(LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY

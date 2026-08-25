@@ -120,6 +120,20 @@ size_t MetalCodegenAST::type_size_bytes(const Type *type) noexcept {
     LUISA_ERROR_WITH_LOCATION("Cannot get size of custom type.");
 }
 
+[[nodiscard]] static auto sorted_custom_callables(Function function) noexcept {
+    luisa::vector<Function> callables;
+    callables.reserve(function.custom_callables().size());
+    for (auto &&callable : function.custom_callables()) {
+        callables.emplace_back(callable->function());
+    }
+    std::sort(
+        callables.begin(), callables.end(),
+        [](Function lhs, Function rhs) noexcept {
+            return lhs.hash() < rhs.hash();
+        });
+    return callables;
+}
+
 static void collect_types_in_function(Function f,
                                       luisa::unordered_set<const Type *> &types,
                                       luisa::unordered_set<Function> &visited) noexcept {
@@ -153,9 +167,8 @@ static void collect_types_in_function(Function f,
     add(add, f.return_type());
 
     // types from called callables
-    for (auto &&c : f.custom_callables()) {
-        collect_types_in_function(
-            Function{c.get()}, types, visited);
+    for (auto callable : sorted_custom_callables(f)) {
+        collect_types_in_function(callable, types, visited);
     }
 }
 
@@ -402,8 +415,8 @@ bool MetalCodegenAST::_is_texture_written(Function function, Variable variable) 
 void MetalCodegenAST::_analyze_sampled_textures(Function function) noexcept {
     auto [iter, inserted] = _sampled_texture_variables.try_emplace(function.hash());
     if (!inserted) { return; }
-    for (auto &&callable : function.custom_callables()) {
-        _analyze_sampled_textures(callable->function());
+    for (auto callable : sorted_custom_callables(function)) {
+        _analyze_sampled_textures(callable);
     }
     auto &&sampled = iter->second;
     auto mark_argument = [&sampled](const Expression *expression) noexcept {
@@ -836,7 +849,9 @@ void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) n
         auto collect_functions = [&functions, collected = luisa::unordered_set<uint64_t>{}](
                                      auto &&self, Function function) mutable noexcept -> void {
             if (collected.emplace(function.hash()).second) {
-                for (auto &&c : function.custom_callables()) { self(self, c->function()); }
+                for (auto callable : sorted_custom_callables(function)) {
+                    self(self, callable);
+                }
                 functions.emplace_back(function);
             }
         };
@@ -1137,42 +1152,48 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_SIZE: _scratch << "texture_size"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "bindless_texture_sample2d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "bindless_texture_sample2d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: _scratch << "bindless_texture_sample2d_grad_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "bindless_texture_sample3d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample3d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "bindless_texture_sample3d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: _scratch << "bindless_texture_sample3d_grad_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "bindless_texture_read2d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "bindless_texture_read3d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "bindless_texture_read2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: _scratch << "bindless_texture_read3d_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE: _scratch << "bindless_texture_size2d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "bindless_texture_size3d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "bindless_texture_size2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "bindless_texture_size3d_level"; break;
-        case CallOp::BINDLESS_BUFFER_READ: {
+#define LUISA_METAL_BINDLESS_VARIANTS(op)              \
+    case CallOp::BINDLESS_##op:                        \
+    case CallOp::UNIFORM_BINDLESS_##op:                \
+    case CallOp::TYPED_UNIFORM_BINDLESS_##op:          \
+    case CallOp::TYPED_BINDLESS_##op
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE): _scratch << "bindless_texture_sample2d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_LEVEL): _scratch << "bindless_texture_sample2d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_GRAD): _scratch << "bindless_texture_sample2d_grad"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_GRAD_LEVEL): _scratch << "bindless_texture_sample2d_grad_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE): _scratch << "bindless_texture_sample3d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_LEVEL): _scratch << "bindless_texture_sample3d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_GRAD): _scratch << "bindless_texture_sample3d_grad"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_GRAD_LEVEL): _scratch << "bindless_texture_sample3d_grad_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_READ): _scratch << "bindless_texture_read2d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_READ): _scratch << "bindless_texture_read3d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_READ_LEVEL): _scratch << "bindless_texture_read2d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_READ_LEVEL): _scratch << "bindless_texture_read3d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SIZE): _scratch << "bindless_texture_size2d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SIZE): _scratch << "bindless_texture_size3d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SIZE_LEVEL): _scratch << "bindless_texture_size2d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SIZE_LEVEL): _scratch << "bindless_texture_size3d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_READ): {
             _scratch << "bindless_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BUFFER_WRITE: {
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_WRITE): {
             _scratch << "bindless_buffer_write<";
-            _emit_type_name(expr->type());
+            _emit_type_name(expr->arguments().back()->type());
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BYTE_BUFFER_READ: {
+            LUISA_METAL_BINDLESS_VARIANTS(BYTE_BUFFER_READ): {
             _scratch << "bindless_byte_address_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BUFFER_SIZE: _scratch << "bindless_buffer_size"; break;
-        case CallOp::BINDLESS_BUFFER_TYPE: _scratch << "bindless_buffer_type"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_SIZE): _scratch << "bindless_buffer_size"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_TYPE): _scratch << "bindless_buffer_type"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_ADDRESS): _scratch << "bindless_buffer_address"; break;
 #define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)        \
     case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
@@ -1296,7 +1317,6 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
         case CallOp::ADDRESS_OF: _scratch << "lc_address_of"; break;
         case CallOp::BUFFER_ADDRESS: _scratch << "buffer_address"; break;
-        case CallOp::BINDLESS_BUFFER_ADDRESS: _scratch << "bindless_buffer_address"; break;
 
         case CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX: break;
         case CallOp::RAY_TRACING_INSTANCE_MOTION_SRT: break;
@@ -1324,15 +1344,19 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL:
             _scratch << "texture_sample_grad_level";
             break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER: _scratch << "bindless_texture_sample2d_sample"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER: _scratch << "bindless_texture_sample2d_level_sample"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER: _scratch << "bindless_texture_sample2d_grad_sample"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER: _scratch << "bindless_texture_sample2d_grad_level_sample"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: _scratch << "bindless_texture_sample3d_sample"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: _scratch << "bindless_texture_sample3d_level_sample"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: _scratch << "bindless_texture_sample3d_grad_sample"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: _scratch << "bindless_texture_sample3d_grad_level_sample"; break;
-        default: LUISA_NOT_IMPLEMENTED();
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_SAMPLER): _scratch << "bindless_texture_sample2d_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_LEVEL_SAMPLER): _scratch << "bindless_texture_sample2d_level_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_GRAD_SAMPLER): _scratch << "bindless_texture_sample2d_grad_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER): _scratch << "bindless_texture_sample2d_grad_level_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_SAMPLER): _scratch << "bindless_texture_sample3d_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_LEVEL_SAMPLER): _scratch << "bindless_texture_sample3d_level_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_GRAD_SAMPLER): _scratch << "bindless_texture_sample3d_grad_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER): _scratch << "bindless_texture_sample3d_grad_level_sample"; break;
+#undef LUISA_METAL_BINDLESS_VARIANTS
+        default:
+            LUISA_ERROR_WITH_LOCATION(
+                "Unsupported call operation '{}' in Metal AST codegen.",
+                luisa::to_string(expr->op()));
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {

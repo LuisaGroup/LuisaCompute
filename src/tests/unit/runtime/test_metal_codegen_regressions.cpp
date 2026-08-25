@@ -3,7 +3,10 @@
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
+#include <string>
 
+#include <luisa/core/binary_io.h>
 #include <luisa/luisa-compute.h>
 
 using namespace luisa;
@@ -12,12 +15,73 @@ using namespace boost::ut;
 
 namespace {
 
+class SourceTrackingBinaryIO final : public BinaryIO {
+
+public:
+    mutable size_t shader_source_write_count{};
+
+    void clear_shader_cache() const noexcept override {}
+
+    [[nodiscard]] luisa::unique_ptr<BinaryStream>
+    read_shader_bytecode(luisa::string_view) const noexcept override {
+        return nullptr;
+    }
+
+    [[nodiscard]] luisa::unique_ptr<BinaryStream>
+    read_shader_cache(luisa::string_view) const noexcept override {
+        return nullptr;
+    }
+
+    [[nodiscard]] luisa::unique_ptr<BinaryStream>
+    read_internal_shader(luisa::string_view) const noexcept override {
+        return nullptr;
+    }
+
+    luisa::filesystem::path write_shader_bytecode(
+        luisa::string_view,
+        luisa::span<const std::byte>) const noexcept override {
+        return {};
+    }
+
+    luisa::filesystem::path write_shader_cache(
+        luisa::string_view,
+        luisa::span<const std::byte>) const noexcept override {
+        return {};
+    }
+
+    luisa::filesystem::path write_shader_source(
+        luisa::string_view,
+        luisa::span<const std::byte>) const noexcept override {
+        shader_source_write_count++;
+        return {};
+    }
+
+    luisa::filesystem::path write_internal_shader(
+        luisa::string_view,
+        luisa::span<const std::byte>) const noexcept override {
+        return {};
+    }
+};
+
+void set_dump_source_environment(const char *value) noexcept {
+#ifdef _WIN32
+    _putenv_s("LUISA_DUMP_SOURCE", value == nullptr ? "" : value);
+#else
+    if (value == nullptr) {
+        unsetenv("LUISA_DUMP_SOURCE");
+    } else {
+        setenv("LUISA_DUMP_SOURCE", value, 1);
+    }
+#endif
+}
+
 [[nodiscard]] bool close(float4 a, float4 b) noexcept {
     auto d = abs(a - b);
     return all(d < make_float4(2.0e-2f));
 }
 
-void test_metal_codegen_regressions(Device &device) {
+void test_metal_codegen_regressions(
+    Device &device, SourceTrackingBinaryIO &binary_io) {
     constexpr auto size = make_uint2(2u, 2u);
     auto image = device.create_image<float>(PixelStorage::BYTE4, size);
     std::array<uint8_t, 16u> pixels{
@@ -88,12 +152,89 @@ void test_metal_codegen_regressions(Device &device) {
            << synchronize();
     expect(close(result[0], make_float4(1.0f, 0.0f, 0.0f, 1.0f)))
         << "A sampled and storage texture must use separate Metal access views";
+
+    auto bindless_input = device.create_buffer<uint>(2u);
+    auto bindless_output = device.create_buffer<uint>(4u);
+    auto bindless = device.create_bindless_array(4u);
+    bindless.emplace_on_update(1u, bindless_input);
+    bindless.emplace_on_update(2u, bindless_output);
+    std::array<uint, 2u> bindless_values{17u, 29u};
+    std::array<uint, 4u> bindless_result{};
+    Kernel1D uniform_bindless = [](BindlessVar heap) noexcept {
+        auto id = dispatch_id().x;
+        auto untyped = heap.buffer<uint>(1u, false, true).read(id);
+        auto typed = heap.buffer<uint>(1u, true, true).read(id);
+        heap.buffer<uint>(2u, false, true).write(id, untyped + typed);
+        heap.buffer<uint>(2u, true, true).write(id + 2u, untyped + typed + 1u);
+    };
+    auto uniform_bindless_shader = device.compile(uniform_bindless);
+    stream << bindless_input.copy_from(luisa::span{bindless_values})
+           << bindless.update()
+           << uniform_bindless_shader(bindless).dispatch(2u)
+           << bindless_output.copy_to(luisa::span{bindless_result})
+           << synchronize();
+    expect(bindless_result == std::array<uint, 4u>{34u, 58u, 35u, 59u})
+        << "Metal uniform and typed-uniform bindless buffers must compile and execute";
+
+    if (device.backend_name() == "metal") {
+        auto add_one = Callable<float(float)>{[](Float value) noexcept {
+            return value + 1.0f;
+        }};
+        auto double_value = Callable<float(float)>{[](Float value) noexcept {
+            return value * 2.0f;
+        }};
+        auto make_ordered_kernel = [&](bool reverse_insertion) noexcept {
+            return Kernel1D{[&, reverse_insertion](BufferFloat values) noexcept {
+                auto *builder = luisa::compute::detail::FunctionBuilder::current();
+                if (reverse_insertion) {
+                    static_cast<void>(
+                        builder->func_ref(double_value.function()));
+                    static_cast<void>(builder->func_ref(add_one.function()));
+                } else {
+                    static_cast<void>(builder->func_ref(add_one.function()));
+                    static_cast<void>(
+                        builder->func_ref(double_value.function()));
+                }
+                values.write(
+                    0u, add_one(3.0f) + double_value(5.0f));
+            }};
+        };
+        auto forward = make_ordered_kernel(false);
+        auto reverse = make_ordered_kernel(true);
+        expect(forward.function()->function().hash() ==
+               reverse.function()->function().hash())
+            << "Callable insertion order must not change kernel structure";
+
+        const auto source_writes_before =
+            binary_io.shader_source_write_count;
+        const auto *old_dump_source = std::getenv("LUISA_DUMP_SOURCE");
+        auto old_dump_source_value = old_dump_source == nullptr
+                                         ? std::string{}
+                                         : std::string{old_dump_source};
+        set_dump_source_environment("1");
+        auto forward_shader = device.compile(forward);
+        const auto source_writes_after_forward =
+            binary_io.shader_source_write_count;
+        auto reverse_shader = device.compile(reverse);
+        set_dump_source_environment(
+            old_dump_source == nullptr ? nullptr :
+                                         old_dump_source_value.c_str());
+        expect(source_writes_after_forward == source_writes_before + 1u)
+            << "The first deterministic-order kernel must reach Metal source generation";
+        expect(binary_io.shader_source_write_count ==
+               source_writes_after_forward)
+            << "Equivalent callable graphs with different insertion order must reuse the in-memory Metal shader cache";
+        static_cast<void>(forward_shader);
+        static_cast<void>(reverse_shader);
+    }
 }
 
 }// namespace
 
 int main(int argc, char *argv[]) {
-    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    SourceTrackingBinaryIO binary_io;
+    DeviceConfig config{.binary_io = &binary_io};
+    auto dc = luisa::test::create_device_from_ut(argc, argv, &config);
     if (!dc) { return 0; }
-    test_metal_codegen_regressions(dc->device);
+    test_metal_codegen_regressions(dc->device, binary_io);
 }

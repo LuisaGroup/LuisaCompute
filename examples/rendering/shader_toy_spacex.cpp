@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
 
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [<image>] [--offline] [-c <reference.png>]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [<image>] [--offline] [--iterations N] [-c <reference.png>]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         exit(1);
     }
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
@@ -50,11 +50,13 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     auto force_offline = opts.offline;
+    auto offline_iterations = opts.iterations;
     auto compare_path = opts.compare_path;
     const char *input_image = nullptr;
     for (int i = 2; i < argc; i++) {
         auto argument = std::string_view{argv[i]};
-        if (argument == "--compare" || argument == "-c") {
+        if (argument == "--compare" || argument == "-c" ||
+            argument == "--iterations") {
             i++;
         } else if (argument != "--offline") {
             input_image = argv[i];
@@ -144,7 +146,21 @@ int main(int argc, char *argv[]) {
     Clock clk;
     if (force_offline) {
         auto time = 0.0f;
-        stream << shader(framebuffer, bindless, time).dispatch(resolution);
+        // Keep texture upload/bindless update outside the repeated render
+        // timing window so --iterations measures steady-state shader work.
+        stream << synchronize();
+        Clock benchmark_clock;
+        for (auto iteration = 0u;
+             iteration < offline_iterations; iteration++) {
+            stream << shader(framebuffer, bindless, time)
+                          .dispatch(resolution);
+        }
+        stream << synchronize();
+        auto elapsed_ms = benchmark_clock.toc();
+        LUISA_INFO(
+            "Offline spacex render: {} iterations in {:.3f} ms ({:.3f} ms/iteration).",
+            offline_iterations, elapsed_ms,
+            elapsed_ms / static_cast<double>(offline_iterations));
         luisa::vector<uint8_t> host_image(resolution.x * resolution.y * 4u);
         stream << framebuffer.copy_to(luisa::span{host_image}) << synchronize();
         stbi_write_png("test_shader_toy_spacex.png", static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4, host_image.data(), 0);

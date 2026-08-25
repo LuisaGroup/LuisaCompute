@@ -78,6 +78,55 @@ template<bool terminate_on_first>
 }
 
 template<bool terminate_on_first>
+Expr<bool> InlineRayQuery<terminate_on_first>::proceed() const noexcept {
+    return Expr<bool>{detail::FunctionBuilder::current()->call(
+        Type::of<bool>(), CallOp::RAY_QUERY_PROCEED, {_query})};
+}
+
+template<bool terminate_on_first>
+Expr<bool> InlineRayQuery<terminate_on_first>::is_surface_candidate() const noexcept {
+    return Expr<bool>{detail::FunctionBuilder::current()->call(
+        Type::of<bool>(), CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE,
+        {_query})};
+}
+
+template<bool terminate_on_first>
+Expr<bool> InlineRayQuery<terminate_on_first>::is_procedural_candidate() const noexcept {
+    return Expr<bool>{detail::FunctionBuilder::current()->call(
+        Type::of<bool>(), CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE,
+        {_query})};
+}
+
+template<bool terminate_on_first>
+SurfaceCandidate InlineRayQuery<terminate_on_first>::surface_candidate() const noexcept {
+    return SurfaceCandidate{_query};
+}
+
+template<bool terminate_on_first>
+ProceduralCandidate InlineRayQuery<terminate_on_first>::procedural_candidate() const noexcept {
+    return ProceduralCandidate{_query};
+}
+
+template<bool terminate_on_first>
+Var<Ray> InlineRayQuery<terminate_on_first>::ray() const noexcept {
+    return def<Ray>(detail::FunctionBuilder::current()->call(
+        Type::of<Ray>(), CallOp::RAY_QUERY_WORLD_SPACE_RAY, {_query}));
+}
+
+template<bool terminate_on_first>
+Var<CommittedHit> InlineRayQuery<terminate_on_first>::committed_hit() const noexcept {
+    return def<CommittedHit>(detail::FunctionBuilder::current()->call(
+        Type::of<CommittedHit>(), CallOp::RAY_QUERY_COMMITTED_HIT,
+        {_query}));
+}
+
+template<bool terminate_on_first>
+void InlineRayQuery<terminate_on_first>::terminate() const noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RAY_QUERY_TERMINATE, {_query});
+}
+
+template<bool terminate_on_first>
 [[nodiscard]] inline auto make_ray_query_object(const Expression *accel,
                                                 const Expression *ray,
                                                 const Expression *time,
@@ -93,6 +142,21 @@ template<bool terminate_on_first>
     builder->assign(local, call);
     return local;
 }
+
+template<bool terminate_on_first>
+InlineRayQuery<terminate_on_first>::InlineRayQuery(
+    const Expression *accel, const Expression *ray,
+    const Expression *mask, CurveBasisSet curve_bases) noexcept
+    : _query{make_ray_query_object<terminate_on_first>(
+          accel, ray, mask, curve_bases)} {}
+
+template<bool terminate_on_first>
+InlineRayQuery<terminate_on_first>::InlineRayQuery(
+    const Expression *accel, const Expression *ray,
+    const Expression *time, const Expression *mask,
+    CurveBasisSet curve_bases) noexcept
+    : _query{make_ray_query_object<terminate_on_first>(
+          accel, ray, time, mask, curve_bases)} {}
 
 template<bool terminate_on_first>
 RayQueryBase<terminate_on_first>::RayQueryBase(const Expression *accel,
@@ -163,6 +227,8 @@ RayQueryBase<terminate_on_first>::RayQueryBase(RayQueryBase &&another) noexcept
 // export the template instantiations
 template class RayQueryBase<false>;
 template class RayQueryBase<true>;
+template class InlineRayQuery<false>;
+template class InlineRayQuery<true>;
 
 }// namespace detail
 

@@ -311,6 +311,46 @@ int main() {
         }
     };
 
+    "pointer_usage_projection_is_sparse_across_disjoint_roots"_test = [] {
+        Module module;
+        auto *function = module.create_kernel();
+        luisa::vector<Value *> requested;
+        requested.reserve(48u);
+        for (auto i = 0u; i < 48u; ++i) {
+            requested.emplace_back(
+                function->create_reference_argument(Type::of<uint>()));
+        }
+        auto *body = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        for (auto *reference : requested) {
+            static_cast<void>(
+                builder.load(Type::of<uint>(), reference));
+        }
+        // These roots are deliberately disjoint from every requested
+        // coordinate. Projected analysis must still discover and validate
+        // them, while the transfer product is exactly partitioned by root.
+        for (auto i = 0u; i < 4096u; ++i) {
+            auto *unrelated = builder.alloca_local(Type::of<uint>());
+            builder.store(
+                unrelated,
+                module.create_constant_one(Type::of<uint>()));
+        }
+        builder.return_void();
+
+        PointerUsageAnalysis projected;
+        auto info = projected.analyze(
+            function, luisa::span<Value *const>{requested});
+        expect(info.succeeded());
+        expect(info.tracked_pointer_count == 4096u + requested.size());
+        expect(info.materialized_pointer_count == requested.size());
+        for (auto *reference : requested) {
+            auto *entry = projected.in_usage(body, reference);
+            expect(entry != nullptr);
+            expect(entry->live.access().all());
+        }
+    };
+
     "pointer_usage_queries_reject_stale_and_destroyed_ir"_test = [] {
         PointerUsageAnalysis analysis;
         BasicBlock *expired_block = nullptr;

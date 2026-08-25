@@ -2,6 +2,8 @@
 
 #include "ut/ut.hpp"
 
+#include <limits>
+
 #include <luisa/ast/type_registry.h>
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/basic_block.h>
@@ -16,6 +18,8 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 
 using namespace luisa;
@@ -36,6 +40,14 @@ namespace {
     size_t n = 0u;
     for ([[maybe_unused]] auto *block : def->basic_blocks()) { ++n; }
     return n;
+}
+
+[[nodiscard]] uint64_t report_value(
+    const PassReport &report, luisa::string_view key) noexcept {
+    for (auto &&entry : report.entries()) {
+        if (entry.key == key) { return entry.value; }
+    }
+    return std::numeric_limits<uint64_t>::max();
 }
 
 struct RayQueryFixture {
@@ -88,7 +100,8 @@ void register_tests() {
         surface_exit->set_name("source_surface_exit");
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info =
+            lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(info.lowered_loop_count == 1u);
         expect(info.error_count == 0u);
         expect(info.succeeded());
@@ -170,7 +183,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
 
         expect(!info.succeeded());
         expect(info.error_count == 1u);
@@ -208,7 +221,7 @@ void register_tests() {
         b.return_void();
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
         expect(info.succeeded());
         expect(info.error_count == 0u);
         expect(info.lowered_loop_count == 1u);
@@ -258,7 +271,7 @@ void register_tests() {
         exit->set_name("surface_join_exit");
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(info.succeeded());
         expect(info.lowered_loop_count == 1u);
 
@@ -307,7 +320,7 @@ void register_tests() {
         auto valid_block_count = count_blocks(valid.kernel->definition());
         auto invalid_block_count = count_blocks(invalid.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_module(&m);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(&m);
         expect(info.lowered_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());
@@ -323,9 +336,9 @@ void register_tests() {
 
     "null_module_and_function_are_noops"_test = [] {
         auto function_info =
-            lower_ray_query_loop_pass_run_on_function(nullptr);
+            lower_ray_query_to_pipeline_pass_run_on_function(nullptr);
         auto module_info =
-            lower_ray_query_loop_pass_run_on_module(nullptr);
+            lower_ray_query_to_pipeline_pass_run_on_module(nullptr);
         expect(function_info.lowered_loop_count == 0u);
         expect(function_info.error_count == 0u);
         expect(module_info.lowered_loop_count == 0u);
@@ -361,10 +374,13 @@ void register_tests() {
         b.return_void();
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        size_t localized_alloca_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(
+            kernel,
+            {.localized_alloca_count = &localized_alloca_count});
         expect(info.succeeded());
         expect(info.lowered_loop_count == 1u);
-        expect(info.localized_alloca_count == 0u);
+        expect(localized_alloca_count == 0u);
         expect(info.error_count == 0u);
 
         RayQueryPipelineInst *pipeline = nullptr;
@@ -464,6 +480,80 @@ void register_tests() {
                     });
             });
         expect(localized_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "large_handler_scratch_ignores_unrelated_instruction_volume"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *seed = f.kernel->create_value_argument(Type::of<int>());
+        auto *large_type = Type::array(Type::of<int>(), 4096u);
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(large_type);
+        scratch->set_name("large_surface_invocation_scratch");
+        auto *unrelated = b.alloca_shared(large_type);
+        unrelated->set_name("unrelated_shared_pointer_volume");
+        b.store(unrelated, m.create_constant_zero(large_type));
+
+        b.set_insertion_point(f.surface);
+        b.store(scratch, m.create_constant_zero(large_type));
+        b.load(large_type, scratch);
+        // This is a complexity regression, not dead-code decoration: the
+        // scratch proof runs before the lowering pass's DCE. Instructions
+        // unrelated to `scratch` denote the identity path effect and must not
+        // allocate or clear two 4096-bit aggregate masks apiece.
+        Value *noise = seed;
+        auto *one = m.create_constant_one(Type::of<int>());
+        for (auto i = 0u; i < 8192u; ++i) {
+            noise = b.call(
+                Type::of<int>(), ArithmeticOp::BINARY_ADD,
+                {noise, one});
+        }
+        static_cast<void>(noise);
+        // Pointer support is sparse as well: these lvalue/GEP chains belong
+        // to a different root and therefore denote identity in `scratch`'s
+        // product-lattice coordinate. They remain before DCE so the
+        // regression covers provenance filtering, not just scalar operands.
+        auto *zero_index =
+            m.create_constant_zero(Type::of<uint>());
+        for (auto i = 0u; i < 8192u; ++i) {
+            auto *pointer = b.gep(
+                Type::of<int>(), unrelated, {zero_index});
+            b.load(Type::of<int>(), pointer);
+        }
+        b.br(f.dispatch);
+
+        expect(xir_verify_module(&m).succeeded());
+        PassReport report;
+        size_t localized_alloca_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, &report,
+            {.localized_alloca_count = &localized_alloca_count,
+             .verify_handler_scratch_graph = true});
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(localized_alloca_count == 1u);
+        // The default capture budget is unbounded, so localization cannot
+        // affect selection. The expensive proof must run only during actual
+        // lowering, not once speculatively and once for the ABI rewrite.
+        expect(report_value(
+                   report,
+                   "selection_localization_analysis") == 0u);
+        // The proof is defined on the root's GEP-closed use support. Only the
+        // store and load of `scratch` have non-identity effects; growing the
+        // handler by unrelated scalar or pointer instructions must not grow
+        // the evaluated event domain.
+        expect(report_value(
+                   report,
+                   "handler_localization_instruction_evaluation") == 2u);
+        expect(report_value(
+                   report,
+                   "handler_localization_relevant_instruction") == 2u);
+        expect(report_value(
+                   report,
+                   "handler_localization_avoided_instruction_scan") >
+               8192u);
         expect(xir_verify_module(&m).succeeded());
     };
 
@@ -934,7 +1024,256 @@ void register_tests() {
         expect(xir_verify_module(&m).succeeded());
     };
 
-    "multiple_handler_exits_are_rejected_atomically"_test = [] {
+    "dense_handler_graph_preserves_cyclic_must_join"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *condition =
+            f.kernel->create_value_argument(Type::of<bool>());
+        auto *define = f.kernel->create_basic_block();
+        auto *observe = f.kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(Type::of<int>());
+        b.store(scratch, m.create_constant_zero(Type::of<int>()));
+        b.set_insertion_point(f.surface);
+        b.cond_br(condition, define, observe);
+        b.set_insertion_point(define);
+        b.store(scratch, m.create_constant_one(Type::of<int>()));
+        b.br(f.surface);
+        b.set_insertion_point(observe);
+        b.load(Type::of<int>(), scratch);
+        b.br(f.dispatch);
+
+        expect(xir_verify_module(&m).succeeded());
+        PassReport report;
+        size_t localized_alloca_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, &report,
+            {.localized_alloca_count = &localized_alloca_count,
+             .verify_handler_scratch_graph = true});
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        // The direct entry -> observe path reads incoming state. A definition
+        // on the backedge cannot turn that path-union into a must-definition.
+        expect(localized_alloca_count == 0u);
+        expect(report_value(
+                   report,
+                   "handler_localization_block_evaluation") >= 3u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "localized_handler_scratch_does_not_consume_capture_budget"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *scratch = b.alloca_local(Type::of<int>());
+        scratch->set_name("capture_budget_local_scratch");
+        b.store(scratch, m.create_constant_zero(Type::of<int>()));
+        b.set_insertion_point(f.surface);
+        b.store(scratch, m.create_constant_one(Type::of<int>()));
+        b.load(Type::of<int>(), scratch);
+        b.br(f.dispatch);
+
+        expect(xir_verify_module(&m).succeeded());
+        size_t localized_alloca_count = 0u;
+        size_t skipped_loop_count = 0u;
+        PassReport report;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, &report,
+            {.max_captured_argument_count = 0u,
+             .skipped_loop_count = &skipped_loop_count,
+             .localized_alloca_count = &localized_alloca_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(localized_alloca_count == 1u);
+        expect(skipped_loop_count == 0u);
+        // Here the raw capture count exceeds the finite budget, so the same
+        // proof is semantically required during selection and cannot be
+        // skipped by the dead-analysis rule.
+        expect(report_value(
+                   report,
+                   "selection_localization_analysis") == 1u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline != nullptr) {
+            expect(pipeline->captured_argument_count() == 0u);
+            auto localized_count = 0u;
+            pipeline->on_surface_function()
+                ->definition()
+                ->traverse_instructions(
+                    [&](Instruction *inst) noexcept {
+                        if (inst->isa<AllocaInst>() && inst->name() &&
+                            *inst->name() ==
+                                "capture_budget_local_scratch") {
+                            localized_count++;
+                        }
+                    });
+            expect(localized_count == 1u);
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "capture_bound_selectively_retains_captured_loops"_test = [] {
+        Module m;
+        auto capture_free = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(capture_free.surface);
+        b.br(capture_free.dispatch);
+
+        auto captured = make_fixture(m);
+        auto *value =
+            captured.kernel->create_value_argument(Type::of<int>());
+        auto *state = [&] {
+            b.set_insertion_point(captured.body->instructions().front());
+            return b.alloca_local(Type::of<int>());
+        }();
+        b.set_insertion_point(captured.surface);
+        b.store(state, value);
+        b.br(captured.dispatch);
+
+        auto function_count = count_functions(m);
+        expect(xir_verify_module(&m).succeeded());
+        size_t skipped_loop_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, nullptr,
+            {.max_captured_argument_count = 0u,
+             .skipped_loop_count = &skipped_loop_count});
+        expect(info.succeeded());
+        expect(info.error_count == 0u);
+        expect(info.lowered_loop_count == 1u);
+        expect(skipped_loop_count == 1u);
+        expect(count_functions(m) == function_count + 2u);
+        expect(capture_free.body->terminator() == nullptr ||
+               !capture_free.body->terminator()->isa<RayQueryLoopInst>());
+        expect(captured.body->terminator() == captured.loop);
+        expect(captured.dispatch->terminator() == captured.dispatch_inst);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "profitability_filter_retains_one_small_handler_loop"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.surface);
+        b.br(f.dispatch);
+        auto function_count = count_functions(m);
+        size_t skipped_loop_count = 0u;
+
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(
+            f.kernel,
+            {.min_handler_instruction_count = 3u,
+             .min_small_handler_loop_count = 2u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 0u);
+        expect(skipped_loop_count == 1u);
+        expect(count_functions(m) == function_count);
+        expect(f.body->terminator() == f.loop);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "profitability_filter_lowers_one_large_handler_loop"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(f.surface);
+        static_cast<void>(b.alloca_local(Type::of<int>()));
+        b.br(f.dispatch);
+        auto function_count = count_functions(m);
+        size_t skipped_loop_count = 0u;
+
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(
+            f.kernel,
+            {.min_handler_instruction_count = 3u,
+             .min_small_handler_loop_count = 2u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(skipped_loop_count == 0u);
+        expect(count_functions(m) == function_count + 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "profitability_filter_does_not_batch_across_functions"_test = [] {
+        Module m;
+        auto first = make_fixture(m);
+        auto second = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(first.surface);
+        b.br(first.dispatch);
+        b.set_insertion_point(second.surface);
+        b.br(second.dispatch);
+        auto function_count = count_functions(m);
+        size_t skipped_loop_count = 0u;
+
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, nullptr,
+            {.min_handler_instruction_count = 3u,
+             .min_small_handler_loop_count = 2u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 0u);
+        expect(skipped_loop_count == 2u);
+        expect(count_functions(m) == function_count);
+        expect(first.body->terminator() == first.loop);
+        expect(second.body->terminator() == second.loop);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "profitability_filter_batches_two_small_handler_loops"_test = [] {
+        Module m;
+        auto first = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(first.surface);
+        b.br(first.dispatch);
+        first.merge->terminator()->remove_self();
+
+        b.set_insertion_point(first.merge);
+        auto *query = b.alloca_local(Type::of<RayQueryAll>());
+        auto *second = b.ray_query_loop();
+        auto *dispatch = second->create_dispatch_block();
+        auto *merge = second->create_merge_block();
+        b.set_insertion_point(dispatch);
+        auto *dispatch_inst = b.ray_query_dispatch(query);
+        dispatch_inst->set_exit_block(merge);
+        auto *surface =
+            dispatch_inst->create_on_surface_candidate_block();
+        auto *procedural =
+            dispatch_inst->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface);
+        b.br(dispatch);
+        b.set_insertion_point(procedural);
+        b.br(dispatch);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto function_count = count_functions(m);
+        size_t skipped_loop_count = 0u;
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(
+            first.kernel,
+            {.min_handler_instruction_count = 3u,
+             .min_small_handler_loop_count = 2u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 2u);
+        expect(skipped_loop_count == 0u);
+        expect(count_functions(m) == function_count + 4u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "multiple_handler_exits_are_outlined_to_returns"_test = [] {
         Module m;
         auto f = make_fixture(m);
         auto *cond = f.kernel->create_value_argument(Type::of<bool>());
@@ -942,25 +1281,35 @@ void register_tests() {
         auto *right = f.kernel->create_basic_block();
         XIRBuilder b;
         b.set_insertion_point(f.surface);
-        auto *split = b.cond_br(cond, left, right);
+        b.cond_br(cond, left, right);
         b.set_insertion_point(left);
-        auto *left_exit = b.br(f.dispatch);
+        b.br(f.dispatch);
         b.set_insertion_point(right);
-        auto *right_exit = b.br(f.dispatch);
+        b.br(f.dispatch);
         auto function_count = count_functions(m);
-        auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
-        expect(info.lowered_loop_count == 0u);
-        expect(info.error_count == 1u);
-        expect(!info.succeeded());
-        expect(count_functions(m) == function_count);
-        expect(count_blocks(f.kernel->definition()) == block_count);
-        expect(f.body->terminator() == f.loop);
-        expect(f.dispatch->terminator() == f.dispatch_inst);
-        expect(f.surface->terminator() == split);
-        expect(left->terminator() == left_exit);
-        expect(right->terminator() == right_exit);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
+        expect(info.lowered_loop_count == 1u);
+        expect(info.error_count == 0u);
+        expect(info.succeeded());
+        expect(count_functions(m) == function_count + 2u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline == nullptr) { return; }
+        auto *surface_callback = pipeline->on_surface_function();
+        expect(surface_callback->arguments().count_size() == 2u);
+        size_t return_count = 0u;
+        surface_callback->definition()->traverse_instructions(
+            [&](Instruction *inst) noexcept {
+                return_count += inst->isa<ReturnInst>() ? 1u : 0u;
+            });
+        expect(return_count == 2u);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "shared_handler_tail_with_phi_is_rejected_before_outlining"_test = [] {
@@ -984,7 +1333,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(info.lowered_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());
@@ -1024,8 +1373,9 @@ void register_tests() {
         b.set_insertion_point(procedural0);
         auto *procedural_exit0 = b.br(dispatch0);
 
-        // The later loop has two surface exits and must reject the complete
-        // function before the first callback or alloca move is created.
+        // The later loop bypasses candidate dispatch and reaches the loop
+        // merge directly. It must reject the complete function before the
+        // first callback or alloca move is created.
         b.set_insertion_point(merge0);
         auto *query1 = b.alloca_local(Type::of<RayQueryAll>());
         auto *loop1 = b.ray_query_loop();
@@ -1044,7 +1394,7 @@ void register_tests() {
         b.set_insertion_point(left);
         auto *left_exit = b.br(dispatch1);
         b.set_insertion_point(right);
-        auto *right_exit = b.br(dispatch1);
+        auto *right_exit = b.br(merge1);
         b.set_insertion_point(procedural1);
         auto *procedural_exit1 = b.br(dispatch1);
         b.set_insertion_point(merge1);
@@ -1052,7 +1402,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
         expect(info.lowered_loop_count == 0u);
         expect(info.error_count == 1u);
         expect(!info.succeeded());
@@ -1093,7 +1443,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
 
         expect(info.lowered_loop_count == 0u);
         expect(info.error_count == 1u);
@@ -1117,7 +1467,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(!info.succeeded());
         expect(info.error_count == 1u);
         expect(info.lowered_loop_count == 0u);
@@ -1139,7 +1489,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
         expect(!info.succeeded());
         expect(info.error_count == 1u);
         expect(info.lowered_loop_count == 0u);
@@ -1161,7 +1511,7 @@ void register_tests() {
         auto function_count = count_functions(m);
         auto block_count = count_blocks(f.kernel->definition());
 
-        auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(f.kernel);
 
         expect(!info.succeeded());
         expect(info.error_count == 1u);

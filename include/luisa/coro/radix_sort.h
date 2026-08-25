@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdlib>
 
 #include <luisa/core/stl.h>
 #include <luisa/dsl/sugar.h>
@@ -87,7 +88,8 @@ public:
              Callable<uint(uint, Args...)> *get_value,
              Callable<uint(uint, Args...)> *get_key_from_set = nullptr,
              uint mode = 0u, uint digit_count = 128u,
-             uint low_bit = 0u, uint high_bit = 31u) noexcept
+             uint low_bit = 0u, uint high_bit = 31u,
+             luisa::string_view profile_label = {}) noexcept
         : _digit{std::max(digit_count, 1u)},
           _low_bit{low_bit},
           _high_bit{high_bit},
@@ -261,15 +263,24 @@ public:
                             digit_pre += warp_pre;
                         };
 
-                        bin.volatile_write(bid * digit + digit_index,
-                                           digit_pre | bin_local_mask);
+                        // This status is consumed by other threadgroups. A
+                        // volatile buffer access only constrains compiler
+                        // reordering and does not establish device-wide
+                        // visibility on every backend (notably Metal).
+                        // Publish and poll through atomics so the chained
+                        // look-back cannot wait forever on a cached zero.
+                        bin.atomic(bid * digit + digit_index)
+                            .exchange(digit_pre | bin_local_mask);
 
                         auto ptr = cast<int>(bid) - 1;
                         auto global_pre = def(0u);
                         $while (ptr >= 0) {
                             auto read_value = def(0u);
                             $while (read_value == 0u) {
-                                read_value = bin.volatile_read(ptr.cast<uint>() * digit + digit_index);
+                                read_value = bin.atomic(
+                                                    ptr.cast<uint>() * digit +
+                                                    digit_index)
+                                                 .fetch_add(0u);
                             };
                             global_pre += read_value & bin_value_mask;
                             $if ((read_value & bin_global_mask) != 0u) {
@@ -278,8 +289,9 @@ public:
                             ptr -= 1;
                         };
 
-                        bin.volatile_write(bid * digit + digit_index,
-                                           (global_pre + digit_pre) | bin_global_mask);
+                        bin.atomic(bid * digit + digit_index)
+                            .exchange((global_pre + digit_pre) |
+                                      bin_global_mask);
                         block_bin[digit_index] = global_pre + hist_buffer.read(digit_index);
                     };
                 };
@@ -326,6 +338,23 @@ public:
             _onesweep_shader = device.compile(make_onesweep_kernel(false));
         }
         _clear_shader = device.compile(clear_kernel);
+
+        if (!profile_label.empty() &&
+            std::getenv("LUISA_CORO_SHADER_MAP") != nullptr) {
+            _hist_shader.set_name(
+                luisa::format("{}_histogram", profile_label));
+            _accum_shader.set_name(
+                luisa::format("{}_histogram_accumulate", profile_label));
+            _copy_shader.set_name(
+                luisa::format("{}_copy", profile_label));
+            _bucket_scatter_shader.set_name(profile_label);
+            if (!_bucket_mode) {
+                _onesweep_first_shader.set_name(profile_label);
+                _onesweep_shader.set_name(profile_label);
+            }
+            _clear_shader.set_name(
+                luisa::format("{}_clear", profile_label));
+        }
 
         LUISA_ASSERT(max_count < (1u << 30u), "radix_sort array is too large.");
     }

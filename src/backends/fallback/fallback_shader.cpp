@@ -36,11 +36,13 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -58,6 +60,7 @@
 #include "fallback_command_queue.h"
 #include "fallback_device_api.h"
 #include "fallback_device_api_ir_module.h"
+#include "fallback_llvm_options.h"
 
 static const bool LUISA_SHOULD_DUMP_XIR = [] {
     if (auto env = getenv("LUISA_DUMP_XIR")) {
@@ -125,7 +128,7 @@ namespace {
 
 // Increment whenever the persisted object or its external symbol contract
 // changes in a way that makes an older cache artifact unsafe to load.
-static constexpr auto fallback_shader_cache_abi = 6u;
+static constexpr auto fallback_shader_cache_abi = 7u;
 
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
@@ -581,6 +584,16 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
 
+    auto inline_ray_query_info =
+        xir::reconstruct_ray_query_loop_pass_run_on_module(
+            xir_module.get());
+    if (!inline_ray_query_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Fallback XIR rejected {} malformed explicit ray-query loop(s).",
+            inline_ray_query_info.error_count);
+    }
+    verify_xir_or_error(xir_module.get(), "explicit ray-query reconstruction");
+
     if (kernel.requires_autodiff()) {
         auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
         auto autodiff_info = xir::autodiff_pass_run_on_module(xir_module.get());
@@ -635,6 +648,17 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         auto i = xir::dce_pass_run_on_module(m, &r);
         return i.changed();
     });
+    if (option.enable_fast_math) {
+        pre_cfg.add("fast-math-simplify", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::fast_math_simplify_pass_run_on_module(
+                m, {.enable_fast_math = true}, &r);
+            return i.changed();
+        });
+        pre_cfg.add("fast-math-dce", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.changed();
+        });
+    }
     auto pre_cfg_stats = pre_cfg.run(xir_module.get());
     pre_cfg_stats.log("Fallback backend pre-CFG optimization");
     if (LUISA_SHOULD_DUMP_XIR) {
@@ -643,8 +667,9 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
     xir::PassPipeline cfg;
-    cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
+    cfg.add("lower-ray-query-to-pipeline", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::lower_ray_query_to_pipeline_pass_run_on_module(
+            m, &r);
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Fallback XIR ray-query lowering rejected {} loop(s).",
@@ -705,7 +730,9 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     }
 
     Clock codegen_clk;
-    auto codegen_feedback = luisa_fallback_backend_codegen(*llvm_ctx, llvm_module.get(), xir_module.get());
+    auto codegen_feedback = luisa_fallback_backend_codegen(
+        *llvm_ctx, llvm_module.get(), xir_module.get(),
+        option.enable_fast_math);
     LUISA_VERBOSE("XIR to LLVM IR code generation done in {} ms.", codegen_clk.toc());
 
     if (llvm::verifyModule(*llvm_module, &llvm::errs())) {
@@ -730,6 +757,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
 
     // add fast-math flags to instructions
     for (auto &&f : *llvm_module) {
+        if (f.hasFnAttribute("luisa.cpu.native_math")) { continue; }
         for (auto &&bb : f) {
             for (auto &&inst : bb) {
                 if (llvm::isa<llvm::FPMathOperator>(inst)) {
@@ -1037,17 +1065,8 @@ void FallbackShader::_initialize_target_machine_jit(const ShaderOption &option) 
     ::llvm::orc::LLJITBuilder jit_builder;
     if (auto host = ::llvm::orc::JITTargetMachineBuilder::detectHost()) {
         ::llvm::TargetOptions options;
-        if (option.enable_fast_math) {
-#if LLVM_VERSION_MAJOR <= 21
-            options.UnsafeFPMath = true;
-            options.ApproxFuncFPMath = true;
-#endif
-            options.NoInfsFPMath = true;
-            options.NoNaNsFPMath = true;
-            options.NoSignedZerosFPMath = true;
-        }
-        options.NoTrappingFPMath = true;
-        options.AllowFPOpFusion = ::llvm::FPOpFusion::Fast;
+        apply_fallback_math_target_options(
+            options, option.enable_fast_math);
         options.EnableIPRA = false;// true causes crash
         options.StackSymbolOrdering = true;
 #ifndef NDEBUG

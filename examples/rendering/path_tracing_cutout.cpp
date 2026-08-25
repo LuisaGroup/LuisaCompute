@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-registers N] [--trace-mode cutout-query|accept-query|opaque-query|direct]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-registers N] [--max-spp-per-dispatch N] [--trace-mode cutout-query|accept-query|opaque-query|direct]. <backend>: cuda, dx, metal, vk, hip, fallback, simd", argv[0]);
         exit(1);
     }
 
@@ -90,10 +90,25 @@ int main(int argc, char *argv[]) {
     // resource-sensitivity experiments.
     auto max_registers = 0u;
     auto trace_mode = TraceMode::cutout_query;
-    for (auto i = 2; i + 1 < argc; i++) {
-        if (std::string_view{argv[i]} == "--max-registers") {
-            max_registers = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
-        } else if (std::string_view{argv[i]} == "--trace-mode") {
+    for (auto i = 2; i < argc; i++) {
+        auto option = std::string_view{argv[i]};
+        if (option == "--max-registers") {
+            if (i + 1 >= argc) {
+                LUISA_WARNING("Missing value for {}.", option);
+                return 1;
+            }
+            auto value = std::string_view{argv[++i]};
+            auto parsed = luisa::ref::parse_uint32_option_value(value);
+            if (!parsed) {
+                LUISA_WARNING("Invalid value '{}' for {}.", value, option);
+                return 1;
+            }
+            max_registers = *parsed;
+        } else if (option == "--trace-mode") {
+            if (i + 1 >= argc) {
+                LUISA_WARNING("Missing value for {}.", option);
+                return 1;
+            }
             auto parsed = parse_trace_mode(argv[++i]);
             if (!parsed) {
                 LUISA_WARNING("Invalid --trace-mode '{}'.", argv[i]);
@@ -254,7 +269,13 @@ int main(int argc, char *argv[]) {
         return valid;
     };
 
-    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "fallback" ? 1u : 64u;
+    auto default_max_spp_per_dispatch =
+        device.backend_name() == "metal" ||
+                device.backend_name() == "fallback" ?
+            1u :
+            64u;
+    auto max_spp_per_dispatch = opts.max_spp_per_dispatch.value_or(
+        default_max_spp_per_dispatch);
     bool infinite_render = !opts.offline && opts.spp == 0u;
     auto sample_plan = luisa::ref::PathTracingSamplePassPlan{
         .total_spp = opts.offline ? (opts.spp == 0u ? luisa::ref::DEFAULT_PATH_TRACING_SPP : opts.spp) : opts.spp,

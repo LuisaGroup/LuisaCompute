@@ -85,7 +85,7 @@ def kernel(pos):
     p = float2(coord) / float2(size) * 2. - 1.
     fov = radians(45.8)
     ray = make_ray(pos, normalize(float3(p * tan(.5 * fov) * float2(aspect, 1.), -1.)), 1e-3, 1e3)
-    q = acc.query_all(ray, -1)
+    q = acc.query(ray, -1)
     # REAL rayquery mode: use real rayquery API, but may not be supported by all backends
         # while(q.proceed()):
     #     if q.is_triangle_candidate():

@@ -28,6 +28,32 @@ namespace {
 
 }// namespace
 
+uint graph_wavefront_resolve_tail_threshold(
+    uint configured_threshold,
+    uint active_frame_capacity,
+    uint execution_block_size) noexcept {
+    LUISA_ASSERT(execution_block_size != 0u,
+                 "Graph-wavefront tail threshold requires a positive "
+                 "execution block size.");
+    if (configured_threshold == 0u ||
+        active_frame_capacity == 0u) {
+        return 0u;
+    }
+    if (configured_threshold !=
+        graph_wavefront_auto_tail_threshold) {
+        return std::min(configured_threshold,
+                        active_frame_capacity);
+    }
+    auto scaled = static_cast<uint64_t>(active_frame_capacity) * 3u / 8u;
+    auto aligned = scaled / execution_block_size * execution_block_size;
+    if (aligned == 0u) {
+        aligned = std::min(active_frame_capacity,
+                           execution_block_size);
+    }
+    return static_cast<uint>(
+        std::min<uint64_t>(aligned, active_frame_capacity));
+}
+
 GraphWavefrontMarkovModel::GraphWavefrontMarkovModel(
     luisa::vector<luisa::vector<uint>> targets, double prior) noexcept
     : _targets{std::move(targets)} {

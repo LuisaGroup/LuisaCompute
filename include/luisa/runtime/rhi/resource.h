@@ -70,6 +70,16 @@ struct ShaderCreationInfo : public ResourceCreationInfo {
     }
 };
 
+struct TileShaderCreationInfo : public ShaderCreationInfo {
+    uint2 dispatch_size_xy;
+
+    [[nodiscard]] static TileShaderCreationInfo make_invalid() noexcept {
+        TileShaderCreationInfo info{};
+        info.invalidate();
+        return info;
+    }
+};
+
 struct SparseTextureCreationInfo : public ResourceCreationInfo {
     size_t tile_size_bytes;
     uint3 tile_size;
@@ -192,6 +202,22 @@ struct ShaderOption {
     ///   LLVM HIP backend). This field is useful for interoperation with external callables.
     /// \sa ExternalCallable
     luisa::string native_include;
+};
+
+struct TileShaderOption : ShaderOption {
+    bool use_cooperative : 1 {false};
+    // Dynamic batching: when enabled (min != 1 || max != 1), each thread
+    // group computes `block_size().z` batch items at once — one per z-thread —
+    // and the z axis of the dispatch carries the runtime batch count
+    // (batch_count must lie in [min_batching_size, max_batching_size]).
+    //   * min_batching_size / max_batching_size are >= 1 with min <= max;
+    //   * (1, 1) disables batching and adds zero lowering overhead;
+    //   * when enabled the z block size is chosen by the lowering heuristic as
+    //     clamp(ceil(target_threads / threads), 1,
+    //           min(min_batching_size, 64, max(1, 1024 / threads))), so
+    //     B_z <= min_batching_size and B_z <= 64 always hold.
+    uint32_t min_batching_size{1};
+    uint32_t max_batching_size{1};
 };
 
 class LUISA_RUNTIME_API Resource {

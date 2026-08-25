@@ -11,6 +11,8 @@
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/translators/ast2xir.h>
 
+#include "ast2xir_inline_ray_query.h"
+
 namespace luisa::compute::xir {
 
 class AST2XIRContext {
@@ -60,10 +62,11 @@ public:
     struct Current {
         FunctionDefinition *f{nullptr};
         const ASTFunction *ast{nullptr};
-        const RayQueryStmt *rq{nullptr};
+        const Statement *rq{nullptr};
         BreakContinueTarget break_continue_target;
         VariableBindings variables;
         luisa::vector<const CommentStmt *> comments;
+        detail::InlineRayQueryASTLoopMap inline_ray_query_loops;
     };
 
     struct TypedLiteral {
@@ -114,6 +117,17 @@ private:
     Current _current;
 
 private:
+    void _prepare_inline_ray_query_loops() noexcept {
+        _current.inline_ray_query_loops.clear();
+        if (_config.preserve_inline_ray_query_loops &&
+            _current.ast->direct_builtin_callables().test(
+                CallOp::RAY_QUERY_PROCEED)) {
+            static_cast<void>(detail::analyze_inline_ray_query_ast(
+                _current.ast->body(),
+                _current.inline_ray_query_loops));
+        }
+    }
+
     [[nodiscard]] Value *_translate_unary_expr(XIRBuilder &b, const UnaryExpr *expr) noexcept {
         auto operand = _translate_expression(b, expr->operand(), true);
         if (expr->op() == UnaryOp::PLUS) { return operand; }// +x is just x in SSA
@@ -1404,7 +1418,68 @@ private:
         _translate_statements(b, cdr);
     }
 
+    void _translate_ray_query_regions(
+        XIRBuilder &b, const Statement *owner,
+        const Expression *query,
+        const ScopeStmt *surface_handler,
+        const ScopeStmt *procedural_handler,
+        luisa::span<const CommentStmt *const> dispatch_comments,
+        luisa::span<const Statement *const> cdr) noexcept {
+        // Structured ray queries do not expose break/continue targets from an
+        // enclosing statement, and nesting is not supported by the AST/XIR
+        // contract. The frontend preflight applies the same restriction to a
+        // canonical inline query before selecting this path.
+        auto old_break_continue_target =
+            std::exchange(_current.break_continue_target, {});
+        LUISA_ASSERT(_current.rq == nullptr,
+                     "Nested ray query statements are not supported.");
+        _current.rq = owner;
+
+        auto loop_inst = _commented(b.ray_query_loop());
+        auto dispatch_block = loop_inst->create_dispatch_block();
+        auto merge_block = loop_inst->create_merge_block();
+
+        b.set_insertion_point(dispatch_block);
+        auto query_object = _translate_expression(b, query, false);
+        auto dispatch_inst = _commented(
+            b.ray_query_dispatch(query_object));
+        for (auto comment : dispatch_comments) {
+            dispatch_inst->add_comment(comment->comment());
+        }
+        dispatch_inst->set_exit_block(merge_block);
+
+        {
+            b.set_insertion_point(
+                dispatch_inst->create_on_surface_candidate_block());
+            _translate_statements(b, surface_handler->statements());
+            if (!b.is_insertion_point_terminator()) {
+                b.br(dispatch_block);
+            }
+        }
+        {
+            b.set_insertion_point(
+                dispatch_inst->create_on_procedural_candidate_block());
+            _translate_statements(b, procedural_handler->statements());
+            if (!b.is_insertion_point_terminator()) {
+                b.br(dispatch_block);
+            }
+        }
+
+        _current.break_continue_target = old_break_continue_target;
+        _current.rq = nullptr;
+        b.set_insertion_point(merge_block);
+        _translate_statements(b, cdr);
+    }
+
     void _translate_loop_stmt(XIRBuilder &b, const LoopStmt *ast_loop, luisa::span<const Statement *const> cdr) noexcept {
+        if (auto iter = _current.inline_ray_query_loops.find(ast_loop);
+            iter != _current.inline_ray_query_loops.end()) {
+            auto &&match = iter->second;
+            return _translate_ray_query_regions(
+                b, ast_loop, match.query,
+                match.surface_handler, match.procedural_handler,
+                match.dispatch_comments, cdr);
+        }
         auto inst = _commented(b.simple_loop());
         auto merge_block = inst->create_merge_block();
         auto body_block = inst->create_body_block();
@@ -1485,36 +1560,10 @@ private:
     }
 
     void _translate_ray_query_stmt(XIRBuilder &b, const RayQueryStmt *ast_ray_query, luisa::span<const Statement *const> cdr) noexcept {
-        // we do not support break/continue in ray query statement
-        auto old_break_continue_target = std::exchange(_current.break_continue_target, {});
-        LUISA_ASSERT(_current.rq == nullptr, "Nested ray query statements are not supported.");
-        _current.rq = ast_ray_query;
-        // create the ray query loop
-        auto loop_inst = _commented(b.ray_query_loop());
-        auto dispatch_block = loop_inst->create_dispatch_block();
-        auto merge_block = loop_inst->create_merge_block();
-        // create the ray query dispatch block
-        b.set_insertion_point(dispatch_block);
-        auto query_object = _translate_expression(b, ast_ray_query->query(), false);
-        auto dispatch_inst = _commented(b.ray_query_dispatch(query_object));
-        dispatch_inst->set_exit_block(merge_block);
-        // on surface candidate block
-        {
-            b.set_insertion_point(dispatch_inst->create_on_surface_candidate_block());
-            _translate_statements(b, ast_ray_query->on_triangle_candidate()->statements());
-            if (!b.is_insertion_point_terminator()) { b.br(dispatch_block); }
-        }
-        // on procedural candidate block
-        {
-            b.set_insertion_point(dispatch_inst->create_on_procedural_candidate_block());
-            _translate_statements(b, ast_ray_query->on_procedural_candidate()->statements());
-            if (!b.is_insertion_point_terminator()) { b.br(dispatch_block); }
-        }
-        // merge block
-        _current.break_continue_target = old_break_continue_target;
-        _current.rq = nullptr;
-        b.set_insertion_point(merge_block);
-        _translate_statements(b, cdr);
+        return _translate_ray_query_regions(
+            b, ast_ray_query, ast_ray_query->query(),
+            ast_ray_query->on_triangle_candidate(),
+            ast_ray_query->on_procedural_candidate(), {}, cdr);
     }
 
     void _translate_statements(XIRBuilder &b, luisa::span<const Statement *const> stmts) noexcept {
@@ -1651,6 +1700,7 @@ private:
     }
 
     void _translate_current_function() noexcept {
+        _prepare_inline_ray_query_loops();
         // create the body block
         XIRBuilder b;
         b.set_insertion_point(_current.f->create_body_block());

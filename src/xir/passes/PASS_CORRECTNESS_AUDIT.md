@@ -90,8 +90,9 @@ without mutation:
 - [x] `early_return_elimination`
 - [x] `if_conversion`
 - [x] `lower_break_continue`
-- [x] `lower_ray_query_loop`
-- [x] `lower_ray_query_loop_to_loop`
+- [x] `lower_ray_query_to_pipeline`
+- [x] `lower_ray_query_to_loop`
+- [x] `reconstruct_ray_query_loop`
 - [x] `loop_rotation`
 - [x] `loop_fusion`
 - [x] `loop_vectorization`
@@ -183,6 +184,7 @@ Interprocedural corner-case matrix:
 
 - [x] `autodiff`
 - [x] `coro_cfg_distill`
+- [x] `coro_alloca_scope`
 - [x] `coro_materialize`
 - [x] `coro_reg2mem`
 - [x] `coro_split`
@@ -217,10 +219,12 @@ invitation to approximate the transformation.
 | Area | Acceptance argument | Rejection / transaction boundary | Representative regressions |
 | --- | --- | --- | --- |
 | Structured versus raw CFG | `SwitchInst` owns a merge role; its selector and case/default operands are executable edges. `IndexedBranchInst` has the same executable multi-way edges and deliberately has no merge role. Destructuring changes only that role distinction. | Plain-CFG-only passes scan every owned block before mutation. `restructure_cfg` runs on a shadow module and commits only verifier-valid output. | `destructure_switch_preserves_multiway_edges_as_indexed_branch`, `restructure_rebuilds_switch_from_indexed_branch`, `restructure_roundtrips_loop_switch_nested_break_continue` |
+| Ray-query representation | `lower_ray_query_to_pipeline` outlines complete surface/procedural regions and writes captured reference outputs on every handler return. Its optional selection first preflights every structurally valid loop, excludes only allocas proven definitely initialized and invocation-local by the same analysis used during outlining, then applies a final-ABI capture bound plus a per-handler instruction or per-function eligible-loop threshold; defaults retain unconditional generic lowering. `lower_ray_query_to_loop` emits one canonical structured proceed loop, reuses its update as the candidate merge, and elides exact no-op arms. The DSL retains a non-semantic `$while` condition hint alongside the historical explicit guard; AST-to-XIR transactionally proves the canonical `$while (query.proceed())` plus immediate candidate if/else and emits `RayQueryLoopInst` directly. `reconstruct_ray_query_loop` remains the compatibility inverse for lowered shells and provenance-free pre-mem2reg loops, preserving the query object, handler regions, merge PHIs where applicable, and loop/dispatch metadata. | AST preservation is all-or-none per function, and XIR candidates are preflighted for the whole function/module before selection, outlining, retargeting, or deleting a shell block. A retained candidate is not a partial mutation. Persistent or cross-candidate scratch remains a capture. Overlapping regions, foreign predecessors, unsupported exits, escaped shell/guard temporaries, shared frontend payload, nested `PROCEED`, SSA frontend latches, and any query-condition loop containing `PROCEED` that is only a near-match reject atomically; unrelated ordinary loops, including ordinary loops containing a nested canonical query, are ignored. | `multiple_handler_exits_are_outlined_to_returns`, `localized_handler_scratch_does_not_consume_capture_budget`, `profitability_filter_retains_one_small_handler_loop`, `profitability_filter_lowers_one_large_handler_loop`, `profitability_filter_batches_two_small_handler_loops`, `profitability_filter_does_not_batch_across_functions`, `ray_query_to_loop_elides_noop_candidate_dispatch`, `lower_reconstruct_round_trip_preserves_query_handlers_and_phi`, `frontend_dsl_inline_query_preserves_structured_loop`, `frontend_dsl_inline_query_any_motion_reconstructs_to_pipeline`, `frontend_dsl_inline_query_nested_in_ordinary_while_is_preserved`, `frontend_dsl_inline_queries_preflight_atomically`, `canonical_shell_value_escape_is_rejected_atomically`, `module_reconstruction_rejects_late_near_match_atomically` |
 | Physical loop-boundary guards | An arm is physically lowerable as `break`/`continue` iff it is an exclusive, side-effect-free forwarding chain to the exact loop boundary. Terminal dataflow is kept separate: a path that performs payload and only later reaches the same boundary is not a physical boundary arm. A selection may nevertheless execute payload and then use SPIR-V's legal structured exit to its nearest enclosing loop merge/continue; that semantic exit is kept distinct from the narrower no-`OpSelectionMerge` physical-guard optimization. Generated exit dispatches are admitted only by the physical predicate, so normalization replaces one raw conditional with one structured guard and strictly decreases the raw-branch measure. The declared loop merge is an absorbing boundary in this quotient: an empty merge block may forward onward, but canonical break-path recognition stops when it first reaches that block instead of contracting through its structural identity. | Cyclic forwarding, payload blocks, shared predecessors, crossing a sibling selection merge, and mismatched boundary targets reject the physical classification and remain ordinary structured selections. A `BreakInst` inside a `SwitchInst` that targets the nearest enclosing loop is normalized to an ordinary branch because XIR `BreakInst` denotes the nearest lexical break scope; that branch remains canonical even if the loop merge is itself an empty forwarder. | `restructure_does_not_treat_payload_path_as_physical_loop_guard`, `restructure_generated_dispatch_uses_physical_loop_boundary_arms`, `restructure_nested_loop_boundary_selections_converge_with_exact_guards`, `restructure_switch_case_outer_loop_break_is_plain_branch` |
 | Structured selection exits | The lexical context is a persistent chain over the sparse dominator tree containing only `Switch` and `Loop` boundaries. It implements the SPIR-V structured-exit rule exactly: an `If` may target its own merge, the nearest enclosing `Switch` merge, or the nearest enclosing `Loop` merge/continue; a `Switch` deliberately skips the enclosing-`Switch` exception. The first enclosing loop terminates the search. Side-effect-free forwarding proxies are contracted only until the first structured merge/continue role, so the quotient cannot skip a nearer lexical boundary. Construct-region discovery also stops at those legal boundaries: ordinary dominance beyond a break/continue describes a later enclosing-construct epoch, not more blocks owned by the selection. Mutation, construct fixup, and final audit call the same legality predicate. Shared logical merge roles are separated by a physical proxy before verification. | A farther switch/loop boundary, an enclosing switch merge targeted directly by a nested `Switch`, a forwarding path crossing any structured role, and any reused physical merge role are rejected or rewritten before commit. | `restructure_if_may_exit_to_nearest_enclosing_switch_merge`, `restructure_switch_cannot_exit_to_enclosing_switch_merge`, `restructure_selection_cannot_skip_nearest_enclosing_loop`, `restructure_selection_region_stops_at_enclosing_loop_epoch`, `restructure_roundtrips_loop_switch_nested_break_continue`, `restructure_routes_forwarded_loop_exits_through_declared_merge` |
 | Post-merge selection re-entry | For a selection `(H, M)`, an edge `(P, E)` crosses back into its interior exactly when `H` and `M` dominate `P`, `H` dominates `E`, `M` does not dominate `E`, and `P` is reachable from `M` without first entering the nearest enclosing loop's merge/continue target. The last predicate distinguishes a new loop-iteration activation from re-entry into the old selection activation. Such `E` lies in `M`'s dominance frontier, so candidates are sparse; bounded same-epoch reachability is materialized lazily only when a candidate predecessor exists. Both the mutating phase and final audit call that analyzer. Exit-dispatch arms additionally search finite, side-effect-free forwarding chains to find the exact crossing. The `E`-owned region is cloned with `H`, `M`, and sibling entries as its frontier, and `P` is retargeted to the `M`-dominated copy. | Forwarding and epoch walks and clone discovery are cycle-guarded. Node splitting is applied one boundary edge at a time and the enclosing fixed point retains its hard bound; after every mutation, dominance and the exact lexical-boundary relation are rebuilt before the next query. The shadow-module transaction rejects rather than commits any graph that still has a post-merge re-entry. | `restructure_nested_selection_exit_to_shared_continuation_converges`, `restructure_splits_dispatch_reentry_through_fallback_proxy` (including 128 reachable sibling selections outside the owner chain), `restructure_does_not_reenter_selection_after_its_merge`, `restructure_does_not_treat_payload_path_as_physical_loop_guard`, `restructure_selection_region_stops_at_enclosing_loop_epoch` |
 | Dominance, loops, and SSA | Dominance is computed over executable successors. Natural loops are reachable dominated back-edge closures; their header may itself own an already-structured construct, which is one executable node in the enclosing natural loop rather than a reason to reinterpret the back edge as a selection. Counted-loop consumers additionally require one preheader, one latch, one header-owned exit edge, a matching Phi recurrence, and a no-wrap trip count. Reducibility recursively decomposes each SCC through its unique header, so a multi-entry inner cycle cannot hide inside a natural outer loop. The optional lowering converges entry edges through one selector dispatcher without cloning the region body. | Multiple latches/exits, malformed Phis, and exhausted restructuring bounds are rejected before commit. `restructure_cfg` rejects irreducible regions atomically; `lower_irreducible_cfg` requires raw successor edges and preflights the complete module before mutation. | `natural_loop_discovers_multiple_latches_but_rejects_canonical_bounds`, `natural_loop_rejects_multiple_exit_edges_to_one_block`, `restructure_natural_loop_can_start_with_structured_loop`, `restructure_irreducible_scc_rejected_atomically`, `lower_irreducible_cfg_builds_one_entry_dispatch_without_cloning_body`, `lower_irreducible_cfg_finds_nested_region_inside_single_entry_outer_scc` |
+| Local aggregate decomposition | SROA decomposes only `LOCAL` allocas whose complete transitive use graph is load/store/GEP, whose directly rooted first indices are static and in range, and whose metadata has a unique replacement owner. Optional single-block vector mode additionally requires every instruction in that use graph to have the same parent block. | Candidate analysis completes before replacement insertion. Escapes, unknown users, dynamic top-level indices, malformed metadata, a missing parent block, or a second vector-use block reject the complete alloca without changing its text. | `sroa_single_block_vector_policy_is_fail_closed`, aggregate nested/dynamic-index/metadata regressions |
 | SSA storage metadata | `NameMD` is non-semantic storage identity. `mem2reg` may promote an alloca whose only annotation is one consistent name and transfers that name to every inserted Phi. A `reg2mem` spill reload with that same single name may recover the original Phi name. | Any other alloca/load/store metadata, or conflicting spill names, blocks promotion. If no replacement Phi exists, a storage-only name is deliberately dropped with the removed storage. | `mem2reg_promotes_named_alloca_and_names_inserted_phi`, `reg2mem_mem2reg_roundtrip_recovers_phi_name`, annotated load/store retention tests |
 | Scalar and arithmetic rewrites | Replacements preserve the complete scalar/vector/matrix type. Integer evaluation uses declared widths and unsigned bit arithmetic where C++ signed overflow would be undefined. Strict floating-point rewrites preserve NaN, infinity, subnormal, and signed-zero behavior. | Target-dependent transcendental results and rewrites requiring reassociation remain in IR unless fast math explicitly authorizes them. Division by zero, `INT_MIN / -1`, and out-of-range shifts are not folded. | `constfold_signed_overflow_wraps_without_ub`, `constfold_shift_count_uses_its_declared_integer_width`, `algsimpl_float_mul_zero_keeps_nan_inf_semantics`, `constfold_rint_is_host_rounding_mode_independent` |
 | Memory transforms | Elimination/forwarding requires an exact local object or a proven non-alias relation, exact byte ranges and alignment, and no intervening read/write/call/atomic/barrier hazard. | Unknown pointer/resource provenance is `may-alias`; opaque effects end the candidate region. An instruction whose metadata has no unique replacement owner is retained. | alias-analysis mixed-width/nested-GEP tests, byte-buffer footprint/overflow tests, `dse_retains_annotated_overwritten_store_*`, SLP side-effect barrier tests |
@@ -531,3 +535,55 @@ Validation evidence:
   field) from two independently dynamic observed components (two fields).
 - `ctest -L unit_xir -j$(nproc)`: 53/53 passed; `ctest -L unit
   -j$(nproc)`: 121/121 passed, including the EASTL allocation contract.
+
+## Counted-array initialized-prefix proof (2026-08-21)
+
+`coro_alloca_scope` may begin an aggregate's lifetime after a suspension only
+when every later observation is defined on every path. Requiring a full store
+of a fixed-capacity array is unnecessarily strong for the common counted-array
+protocol, so the pass now has a separate finite Must domain for the invariant
+
+`Prefix(A, C) := forall i in [0, C), A[i] is initialized`.
+
+The accepted transition system is deliberately closed:
+
+- an unsigned direct-access counter store `C = 0` establishes the empty
+  prefix;
+- a full-element store through the current counter, `A[C] = value`, establishes
+  a pending extension only while the abstract upper bound proves `C` is in
+  range;
+- a later, non-wrapping `C = C + 1` consumes that pending extension and
+  preserves the prefix;
+- CFG joins intersect `Prefix` and pending-extension facts and take the maximum
+  finite counter upper bound, so one path cannot supply another path's store;
+- a dynamic read is accepted only when its index selects between an ordinarily
+  initialized static sentinel and an index whose local condition is exactly
+  `index < C` (or its type-preserving boolean wrapper);
+- counter or array pointer escape, Phi pointers, calls, atomics, partial element
+  stores, unsupported arithmetic, arbitrary counter mutation, overflow-prone
+  counter widths, and observations before the proposed lifetime start all fail
+  closed.
+
+Single-store scalar copies are resolved only within one linear basic-block
+execution. This is an exact snapshot relation, not cross-edge memory SSA, and
+therefore cannot reuse a temporary or dynamic GEP version from an earlier loop
+iteration. The forward worklist is finite: Must bits only transition from one
+to zero at joins and the counter upper bound only increases within the static
+array dimension. Rejection occurs before any IR mutation.
+
+Direct validation is in `test_xir_pass_coro_alloca_scope`:
+
+- `counted_array_prefix_contracts_without_initializing_unused_suffix` proves
+  the positive append/skip merge and verifies that the array leaves the frame;
+- `counted_array_increment_before_element_store_is_rejected` checks update
+  ordering;
+- `counted_array_subaggregate_store_is_not_an_extension` checks that a nested
+  field store cannot masquerade as the required whole-element definition;
+- `counted_array_unrelated_read_bound_is_rejected` checks condition identity;
+- `counted_array_arbitrary_counter_overwrite_is_rejected` checks the counter
+  kill rule; and
+- `counted_array_partial_branch_extension_is_rejected` checks Must-join
+  behavior when only one predecessor writes `A[C]`.
+
+The dedicated target passes 31 tests / 338 assertions after the change, with
+XIR verification before and after every new transform/rejection case.

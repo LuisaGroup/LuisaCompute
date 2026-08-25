@@ -180,6 +180,83 @@ Var vv = ite(t == 10, 1, 2);
 Var vvv = min(vv, 10);
 ```
 
+## Compile-Time vs Runtime Control Flow
+
+DSL kernels are constructed by executing the host C++ lambda during `Kernel1D/2D/3D` creation (and again inside `device.compile()`). This means native C++ control flow on **host** values is evaluated at kernel construction time, while DSL control-flow constructs become real device instructions.
+
+- **Native C++ `if` / `for` / `while` / `switch` on plain host variables** are resolved on the host. Only the taken path is recorded in the AST; no corresponding branch or loop appears in the generated GPU code.
+- **DSL `$if` / `$else`, `$for` / `$while` / `$loop`, `$switch` / `$case` / `$default`** (and the non-sugar `if_`, `switch_`, `for (auto i : dynamic_range(...))`, `loop`) emit real device control flow. Their conditions must be DSL expressions such as `Var<bool>` or `Var<uint>`.
+
+### Examples
+
+Native `if` on a host variable — the unselected branch is erased during AST construction:
+
+```cpp
+bool host_visible = true;
+Kernel1D k = [&]() noexcept {
+    Var<uint> x = 0u;
+    if (host_visible) {
+        x = 1u;
+    } else {
+        x = 2u;   // never recorded; the kernel always writes 1
+    }
+};
+```
+
+To emit a real GPU branch, use the DSL form with a device expression:
+
+```cpp
+Kernel1D k = [&]() noexcept {
+    Var<bool> visible = read_some_flag();  // DSL bool
+    Var<uint> x = 0u;
+    $if (visible) {
+        x = 1u;
+    } $else {
+        x = 2u;
+    };
+};
+```
+
+The same distinction applies to loops. A native C++ `for` with a host-bound count duplicates the loop body into the AST once per iteration:
+
+```cpp
+// BAD for large N: the body is inlined N times, so compilation can become
+// extremely slow or run out of memory.
+uint host_n = 1024;
+Kernel1D k = [&]() noexcept {
+    Var<uint> x = 0u;
+    for (uint i = 0; i < host_n; ++i) {
+        x = x + 1u;
+    }
+};
+```
+
+Use `$for` or `dynamic_range` so the GPU executes the loop at runtime with a single AST node:
+
+```cpp
+// GOOD: one ForStmt is emitted; the loop runs on the device.
+Kernel1D k = [&]() noexcept {
+    Var<uint> x = 0u;
+    Var<uint> n = 1024u;
+    $for (i, n) {
+        x = x + 1u;
+    };
+};
+```
+
+### When to use which
+
+| Host C++ construct | Evaluated | Emitted in GPU code? | Safe for large counts? |
+|---|---|---|---|
+| `if (host_bool)` | Kernel construction | No (only taken path) | N/A |
+| `$if (Var<bool>)` / `if_(Expr<bool>)` | GPU runtime | Yes | Yes |
+| `for (host i < N)` | Kernel construction | No (flattened N times) | **No** |
+| `$for (i, N)` / `dynamic_range(N)` | GPU runtime | Yes | Yes |
+| `switch (host_val)` | Kernel construction | No (only matching case) | N/A |
+| `$switch (Var<T>)` / `switch_(Expr<T>)` | GPU runtime | Yes | Yes |
+
+Reserve native C++ loops for small, compile-time-known unrolling (for example, a fixed 4×4 matrix operation). Use DSL loops whenever the bound comes from a runtime value or is large.
+
 ## Atomic Operations
 
 ```cpp

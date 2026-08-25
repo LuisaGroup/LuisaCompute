@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <cstdlib>
+#include <type_traits>
+
 #include <luisa/core/basic_types.h>
 #include <luisa/core/concepts.h>
 #include <luisa/core/stl/format.h>
@@ -31,6 +34,19 @@ namespace detail {
         result.name = luisa::format("{}_{}", result.name, stage);
     }
     return result;
+}
+
+// ShaderOption::name selects the AOT/cache identity and therefore cannot be
+// used merely to make scheduler stages visible in backend profilers. Apply a
+// runtime resource label after compilation instead. Keep this diagnostic-only
+// so ordinary scheduler dispatches do not pay backend encoder-label overhead.
+template<typename Shader>
+[[nodiscard]] inline Shader coro_scheduler_label_shader(
+    Shader shader, luisa::string_view stage) noexcept {
+    if (std::getenv("LUISA_CORO_SHADER_MAP") != nullptr) {
+        shader.set_name(stage);
+    }
+    return shader;
 }
 
 template<typename... Args>
@@ -67,8 +83,17 @@ class CoroSchedulerInvoke : public concepts::Noncopyable {
 
 private:
     using Scheduler = CoroScheduler<Args...>;
+    template<typename T>
+    using InvocationArgument = compute::detail::prototype_to_shader_invocation_t<T>;
+    // Lazy dispatch owns ordinary scalar/aggregate snapshots. Move-only
+    // resources such as Accel retain the invocation API's reference lifetime.
+    template<typename T>
+    using StoredArgument = std::conditional_t<
+        std::is_copy_constructible_v<std::decay_t<InvocationArgument<T>>>,
+        std::decay_t<InvocationArgument<T>>,
+        InvocationArgument<T>>;
     Scheduler *_scheduler;
-    std::tuple<compute::detail::prototype_to_shader_invocation_t<Args>...> _args;
+    std::tuple<StoredArgument<Args>...> _args;
 
 private:
     friend Scheduler;

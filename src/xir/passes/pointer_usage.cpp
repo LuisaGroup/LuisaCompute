@@ -1,6 +1,10 @@
+#include <chrono>
+#include <cstdlib>
+
 #include <luisa/ast/type.h>
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/optional.h>
+#include <luisa/core/logging.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/constant.h>
@@ -80,6 +84,7 @@ struct PointerUsageAnalysis::Impl {
     luisa::vector<CalleeSnapshot> snapshot_callees;
     PointerUsageAnalysisInfo info;
     luisa::vector<BasicBlock *> ordered_blocks;
+    luisa::unordered_map<BasicBlock *, size_t> block_indices;
     luisa::unordered_set<BasicBlock *> owned_blocks;
     luisa::unordered_set<BasicBlock *> reachable_blocks;
     luisa::unordered_map<BasicBlock *, luisa::vector<BasicBlock *>> successors;
@@ -92,10 +97,14 @@ struct PointerUsageAnalysis::Impl {
     // subset selects the exact product-lattice coordinates to materialize.
     luisa::vector<Value *> result_pointers;
     luisa::unordered_set<Value *> result_pointer_set;
+    luisa::unordered_map<Value *, luisa::vector<Value *>>
+        result_pointers_by_root;
     luisa::unordered_map<Value *, PointerPath> paths;
     luisa::unordered_set<Value *> resolving_paths;
     luisa::unordered_map<BasicBlock *, luisa::vector<AccessEvent>> events;
     luisa::unordered_map<BasicBlock *, BasicBlockPointerUsage> block_results;
+    size_t forward_block_evaluation_count{0u};
+    size_t backward_block_evaluation_count{0u};
 
     void clear() noexcept {
         def = nullptr;
@@ -108,6 +117,7 @@ struct PointerUsageAnalysis::Impl {
         snapshot_callees.clear();
         info = {};
         ordered_blocks.clear();
+        block_indices.clear();
         owned_blocks.clear();
         reachable_blocks.clear();
         successors.clear();
@@ -116,10 +126,13 @@ struct PointerUsageAnalysis::Impl {
         tracked_pointer_set.clear();
         result_pointers.clear();
         result_pointer_set.clear();
+        result_pointers_by_root.clear();
         paths.clear();
         resolving_paths.clear();
         events.clear();
         block_results.clear();
+        forward_block_evaluation_count = 0u;
+        backward_block_evaluation_count = 0u;
     }
 
     void capture_snapshot() noexcept {
@@ -271,6 +284,7 @@ struct PointerUsageAnalysis::Impl {
         if (def == nullptr || def->body_block() == nullptr) { return false; }
         for (auto *block : def->basic_blocks()) {
             if (block == nullptr || block->parent_function() != def) { return false; }
+            block_indices.emplace(block, ordered_blocks.size());
             ordered_blocks.emplace_back(block);
             owned_blocks.emplace(block);
         }
@@ -351,6 +365,24 @@ struct PointerUsageAnalysis::Impl {
             for (auto *pointer : tracked_pointers) { append(pointer); }
         }
         info.materialized_pointer_count = result_pointers.size();
+    }
+
+    void index_result_pointers_by_root() noexcept {
+        // Access projection is root-disjoint: a pointer view can overlap a
+        // requested coordinate only when both resolve to the same reference
+        // argument or alloca root. Partitioning the product coordinates by
+        // that root is therefore an exact sparse index, not an alias
+        // approximation. Pointer discovery and validation remain global.
+        for (auto *pointer : result_pointers) {
+            auto *path = resolve_path(pointer);
+            if (path == nullptr || !path->connected ||
+                path->pointers.empty()) {
+                ++info.invalid_access_count;
+                continue;
+            }
+            result_pointers_by_root[path->pointers.front()]
+                .emplace_back(pointer);
+        }
     }
 
     [[nodiscard]] bool validate_projection(const Type *base_type, luisa::span<Value *const> indices,
@@ -484,12 +516,23 @@ struct PointerUsageAnalysis::Impl {
         result.invalid |= !root_access.valid;
         result.conservative |= force_may || !root_access.valid || !root_access.precise;
         auto pointer_indices = flatten_indices(*path);
-        for (auto *target : result_pointers) {
+        auto candidates = result_pointers_by_root.find(root);
+        if (candidates == result_pointers_by_root.end()) {
+            // The access cannot affect any requested lattice coordinate. Its
+            // path and indices were still validated above, preserving the
+            // full-function malformed-access contract of projected analysis.
+            return result;
+        }
+        for (auto *target : candidates->second) {
             auto *target_path = resolve_path(target);
-            if (target_path == nullptr || !target_path->connected || target_path->pointers.empty() ||
-                target_path->pointers.front() != root) {
+            if (target_path == nullptr || !target_path->connected ||
+                target_path->pointers.empty()) {
+                result.invalid = true;
                 continue;
             }
+            LUISA_DEBUG_ASSERT(
+                target_path->pointers.front() == root,
+                "Pointer-result root index is inconsistent.");
             auto target_indices = flatten_indices(*target_path);
             AggregateFieldBitmask target_mask{target->type()};
             auto definite = false;
@@ -690,14 +733,37 @@ struct PointerUsageAnalysis::Impl {
         return state;
     }
 
-    [[nodiscard]] PointerUsageMap copy_state(const PointerUsageMap &source) const noexcept {
-        PointerUsageMap copy;
+    void clear_forward_state(PointerUsageMap &state) const noexcept {
         for (auto *pointer : result_pointers) {
-            auto usage = luisa::make_unique<PointerUsage>(pointer->type());
-            if (auto iter = source.find(pointer); iter != source.end()) { *usage = *iter->second; }
-            copy.emplace(pointer, std::move(usage));
+            auto &usage = *state.at(pointer);
+            usage.kill.set(false);
+            usage.touch.set(false);
         }
-        return copy;
+    }
+
+    void copy_forward_state(
+        PointerUsageMap &target,
+        const PointerUsageMap &source) const noexcept {
+        for (auto *pointer : result_pointers) {
+            auto &dst = *target.at(pointer);
+            auto &src = *source.at(pointer);
+            dst.kill = src.kill;
+            dst.touch = src.touch;
+        }
+    }
+
+    void clear_live_state(PointerUsageMap &state) const noexcept {
+        for (auto *pointer : result_pointers) {
+            state.at(pointer)->live.set(false);
+        }
+    }
+
+    void copy_live_state(
+        PointerUsageMap &target,
+        const PointerUsageMap &source) const noexcept {
+        for (auto *pointer : result_pointers) {
+            target.at(pointer)->live = source.at(pointer)->live;
+        }
     }
 
     [[nodiscard]] static bool same_forward_state(const PointerUsageMap &a, const PointerUsageMap &b) noexcept {
@@ -732,79 +798,135 @@ struct PointerUsageAnalysis::Impl {
     }
 
     void run_forward() noexcept {
-        bool changed;
-        do {
-            changed = false;
-            for (auto *block : ordered_blocks) {
-                if (!reachable_blocks.contains(block)) { continue; }
-                auto new_in = make_state();
-                if (block != def->body_block()) {
-                    auto pred_iter = predecessors.find(block);
-                    if (pred_iter != predecessors.end() && !pred_iter->second.empty()) {
-                        new_in = copy_state(block_results.at(pred_iter->second.front()).out);
-                        for (size_t i = 1u; i < pred_iter->second.size(); ++i) {
-                            auto &pred_out = block_results.at(pred_iter->second[i]).out;
-                            for (auto *pointer : result_pointers) {
-                                new_in.at(pointer)->kill &= pred_out.at(pointer)->kill;
-                                new_in.at(pointer)->touch |= pred_out.at(pointer)->touch;
-                            }
+        // Reuse two type-shaped scratch states for every transfer. The
+        // product-lattice equations are unchanged; only their storage is
+        // separated from the persistent per-block solution. Constructing a
+        // hash map and one heap-owned PointerUsage for every coordinate at
+        // every block evaluation made projected analyses allocation-bound.
+        auto new_in = make_state();
+        auto new_out = make_state();
+        luisa::vector<BasicBlock *> worklist;
+        luisa::vector<uint8_t> queued(ordered_blocks.size(), 0u);
+        for (auto *block : ordered_blocks) {
+            if (!reachable_blocks.contains(block)) { continue; }
+            worklist.emplace_back(block);
+            queued[block_indices.at(block)] = 1u;
+        }
+        for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
+            auto *block = worklist[cursor];
+            queued[block_indices.at(block)] = 0u;
+            ++forward_block_evaluation_count;
+            clear_forward_state(new_in);
+            if (block != def->body_block()) {
+                auto pred_iter = predecessors.find(block);
+                if (pred_iter != predecessors.end() &&
+                    !pred_iter->second.empty()) {
+                    copy_forward_state(
+                        new_in,
+                        block_results.at(
+                                         pred_iter->second.front())
+                            .out);
+                    for (size_t i = 1u;
+                         i < pred_iter->second.size(); ++i) {
+                        auto &pred_out =
+                            block_results.at(pred_iter->second[i]).out;
+                        for (auto *pointer : result_pointers) {
+                            new_in.at(pointer)->kill &=
+                                pred_out.at(pointer)->kill;
+                            new_in.at(pointer)->touch |=
+                                pred_out.at(pointer)->touch;
                         }
                     }
-                }
-                auto new_out = copy_state(new_in);
-                if (auto event_iter = events.find(block); event_iter != events.end()) {
-                    for (auto &event : event_iter->second) {
-                        auto &usage = *new_out.at(event.pointer);
-                        if (event.write) {
-                            usage.touch |= event.mask;
-                            if (event.definite_write) { usage.kill |= event.mask; }
-                        }
-                    }
-                }
-                auto &result = block_results.at(block);
-                if (!same_forward_state(result.in, new_in) || !same_forward_state(result.out, new_out)) {
-                    result.in = std::move(new_in);
-                    result.out = std::move(new_out);
-                    changed = true;
                 }
             }
-        } while (changed);
+            copy_forward_state(new_out, new_in);
+            if (auto event_iter = events.find(block);
+                event_iter != events.end()) {
+                for (auto &event : event_iter->second) {
+                    auto &usage = *new_out.at(event.pointer);
+                    if (event.write) {
+                        usage.touch |= event.mask;
+                        if (event.definite_write) {
+                            usage.kill |= event.mask;
+                        }
+                    }
+                }
+            }
+            auto &result = block_results.at(block);
+            if (!same_forward_state(result.in, new_in) ||
+                !same_forward_state(result.out, new_out)) {
+                copy_forward_state(result.in, new_in);
+                copy_forward_state(result.out, new_out);
+                if (auto iter = successors.find(block);
+                    iter != successors.end()) {
+                    for (auto *successor : iter->second) {
+                        auto index = block_indices.at(successor);
+                        if (queued[index] == 0u) {
+                            queued[index] = 1u;
+                            worklist.emplace_back(successor);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     void run_backward() noexcept {
-        bool changed;
-        do {
-            changed = false;
-            for (auto block_iter = ordered_blocks.rbegin(); block_iter != ordered_blocks.rend(); ++block_iter) {
-                auto *block = *block_iter;
-                if (!reachable_blocks.contains(block)) { continue; }
-                auto new_out = make_state();
-                if (auto succ_iter = successors.find(block); succ_iter != successors.end()) {
-                    for (auto *successor : succ_iter->second) {
-                        auto &successor_in = block_results.at(successor).in;
-                        for (auto *pointer : result_pointers) {
-                            new_out.at(pointer)->live |= successor_in.at(pointer)->live;
+        auto new_out = make_state();
+        auto new_in = make_state();
+        luisa::vector<BasicBlock *> worklist;
+        luisa::vector<uint8_t> queued(ordered_blocks.size(), 0u);
+        for (auto iter = ordered_blocks.rbegin();
+             iter != ordered_blocks.rend(); ++iter) {
+            auto *block = *iter;
+            if (!reachable_blocks.contains(block)) { continue; }
+            worklist.emplace_back(block);
+            queued[block_indices.at(block)] = 1u;
+        }
+        for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
+            auto *block = worklist[cursor];
+            queued[block_indices.at(block)] = 0u;
+            ++backward_block_evaluation_count;
+            clear_live_state(new_out);
+            if (auto succ_iter = successors.find(block);
+                succ_iter != successors.end()) {
+                for (auto *successor : succ_iter->second) {
+                    auto &successor_in = block_results.at(successor).in;
+                    for (auto *pointer : result_pointers) {
+                        new_out.at(pointer)->live |=
+                            successor_in.at(pointer)->live;
+                    }
+                }
+            }
+            copy_live_state(new_in, new_out);
+            if (auto event_iter = events.find(block);
+                event_iter != events.end()) {
+                for (auto iter = event_iter->second.rbegin();
+                     iter != event_iter->second.rend(); ++iter) {
+                    auto &usage = *new_in.at(iter->pointer);
+                    if (iter->write && iter->definite_write) {
+                        usage.live &= ~iter->mask;
+                    }
+                    if (iter->read) { usage.live |= iter->mask; }
+                }
+            }
+            auto &result = block_results.at(block);
+            if (!same_live_state(result.in, new_in) ||
+                !same_live_state(result.out, new_out)) {
+                copy_live_state(result.in, new_in);
+                copy_live_state(result.out, new_out);
+                if (auto iter = predecessors.find(block);
+                    iter != predecessors.end()) {
+                    for (auto *predecessor : iter->second) {
+                        auto index = block_indices.at(predecessor);
+                        if (queued[index] == 0u) {
+                            queued[index] = 1u;
+                            worklist.emplace_back(predecessor);
                         }
                     }
                 }
-                auto new_in = copy_state(new_out);
-                if (auto event_iter = events.find(block); event_iter != events.end()) {
-                    for (auto iter = event_iter->second.rbegin(); iter != event_iter->second.rend(); ++iter) {
-                        auto &usage = *new_in.at(iter->pointer);
-                        if (iter->write && iter->definite_write) { usage.live &= ~iter->mask; }
-                        if (iter->read) { usage.live |= iter->mask; }
-                    }
-                }
-                auto &result = block_results.at(block);
-                if (!same_live_state(result.in, new_in) || !same_live_state(result.out, new_out)) {
-                    for (auto *pointer : result_pointers) {
-                        result.in.at(pointer)->live = new_in.at(pointer)->live;
-                        result.out.at(pointer)->live = new_out.at(pointer)->live;
-                    }
-                    changed = true;
-                }
             }
-        } while (changed);
+        }
     }
 
     [[nodiscard]] PointerUsageAnalysisInfo run(
@@ -826,13 +948,68 @@ struct PointerUsageAnalysis::Impl {
             info.invalid_function_count = 1u;
             return info;
         }
+        using ProfileClock = std::chrono::steady_clock;
+        const auto profile_enabled = []() noexcept {
+            if (auto profile = std::getenv(
+                    "LUISA_XIR_PROFILE_POINTER_USAGE")) {
+                return luisa::string_view{profile} == "1";
+            }
+            return false;
+        }();
+        auto phase_begin = profile_enabled ?
+                               ProfileClock::now() :
+                               ProfileClock::time_point{};
+        auto collect_pointers_ms = 0.0;
+        auto select_results_ms = 0.0;
+        auto collect_events_ms = 0.0;
+        auto initialize_results_ms = 0.0;
+        auto forward_ms = 0.0;
+        auto backward_ms = 0.0;
+        auto snapshot_ms = 0.0;
+        const auto finish_phase =
+            [&phase_begin, profile_enabled]() noexcept {
+                if (!profile_enabled) { return 0.0; }
+                auto now = ProfileClock::now();
+                auto elapsed =
+                    std::chrono::duration<double, std::milli>{
+                        now - phase_begin}
+                        .count();
+                phase_begin = now;
+                return elapsed;
+            };
         collect_pointers();
+        collect_pointers_ms = finish_phase();
         select_result_pointers(requested);
+        index_result_pointers_by_root();
+        select_results_ms = finish_phase();
         collect_events();
+        collect_events_ms = finish_phase();
         initialize_results();
+        initialize_results_ms = finish_phase();
         run_forward();
+        forward_ms = finish_phase();
         run_backward();
+        backward_ms = finish_phase();
         capture_snapshot();
+        snapshot_ms = finish_phase();
+        if (profile_enabled) {
+            LUISA_INFO(
+                "Pointer-usage timing: function='{}' pointers={}/{} "
+                "blocks={} collect_pointers={:.3f} ms "
+                "select_results={:.3f} ms collect_events={:.3f} ms "
+                "initialize_results={:.3f} ms forward={:.3f} ms "
+                "({} block evaluations) backward={:.3f} ms "
+                "({} block evaluations) snapshot={:.3f} ms.",
+                def->name().value_or("<unnamed>"),
+                info.tracked_pointer_count,
+                info.materialized_pointer_count,
+                info.analyzed_block_count,
+                collect_pointers_ms, select_results_ms,
+                collect_events_ms, initialize_results_ms,
+                forward_ms, forward_block_evaluation_count,
+                backward_ms,
+                backward_block_evaluation_count, snapshot_ms);
+        }
         return info;
     }
 };

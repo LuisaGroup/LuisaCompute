@@ -177,6 +177,22 @@ LoopStmt *FunctionBuilder::loop_() noexcept {
     return _create_and_append_statement<LoopStmt>();
 }
 
+void FunctionBuilder::mark_loop_as_while(
+    LoopStmt *loop, const Expression *condition,
+    size_t condition_statement_count) noexcept {
+    LUISA_ASSERT(loop != nullptr && condition != nullptr,
+                 "A DSL while loop and its condition must not be null.");
+    condition = _internalize(condition);
+    LUISA_ASSERT(loop->_while_condition == nullptr,
+                 "A DSL loop was marked as while more than once.");
+    LUISA_ASSERT(condition_statement_count <=
+                     loop->body()->statements().size(),
+                 "DSL while condition statement count is out of range.");
+    loop->_while_condition = condition;
+    loop->_while_condition_statement_count =
+        condition_statement_count;
+}
+
 void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
     expr = _internalize(expr);
     if (expr != nullptr) { _create_and_append_statement<ExprStmt>(expr); }
@@ -1376,6 +1392,8 @@ luisa::optional<uint8_t> FunctionBuilder::allowed_warp_size() const noexcept {
 
 void FunctionBuilder::set_allowed_warp_size(uint8_t value) noexcept {
     switch (value) {
+        case 1:
+        case 2:
         case 4:
         case 8:
         case 16:
@@ -1385,7 +1403,7 @@ void FunctionBuilder::set_allowed_warp_size(uint8_t value) noexcept {
             _allowed_warp_size = value;
             break;
         default:
-            LUISA_ERROR("Illegal warp size, must be 4, 8, 165, 32, 64, or 128");
+            LUISA_ERROR("Illegal warp size, must be 1, 2, 4, 8, 16, 32, 64, or 128");
             break;
     }
 }

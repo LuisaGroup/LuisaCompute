@@ -3,6 +3,7 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/debug_printer.h>
@@ -55,6 +56,15 @@ namespace {
 [[nodiscard]] bool restructure_verify_intermediate_enabled() noexcept {
     if (auto value =
             std::getenv("LUISA_XIR_VERIFY_INTERMEDIATE")) {
+        return luisa::string_view{value} == "1";
+    }
+    return false;
+}
+
+[[nodiscard]] bool
+restructure_verify_selection_exit_relation_updates_enabled() noexcept {
+    if (auto value = std::getenv(
+            "LUISA_XIR_VERIFY_SELECTION_EXIT_RELATION_UPDATES")) {
         return luisa::string_view{value} == "1";
     }
     return false;
@@ -244,6 +254,16 @@ void trace_preflight_result(
 
 using PostDomInfo = detail::RestructurePostDomInfo;
 
+// Restructuring consumes dominance ancestry on every CFG version, whereas
+// only post-merge selection re-entry consumes dominance frontiers. Keep that
+// derived relation demand-driven instead of rebuilding it after every edit.
+[[nodiscard]] DomTree compute_restructure_dom(
+    FunctionDefinition *def) noexcept {
+    return compute_dom_tree(
+        static_cast<Function *>(def),
+        {.compute_dominance_frontiers = false});
+}
+
 [[nodiscard]] PostDomInfo compute_post_dom(
     FunctionDefinition *def,
     RestructureCFGInfo &info) noexcept {
@@ -279,38 +299,17 @@ using PostDomInfo = detail::RestructurePostDomInfo;
     return d;
 }
 
-[[nodiscard]] BasicBlock *common_postdom(const PostDomInfo &pdom, luisa::span<BasicBlock *const> blocks) noexcept {
-    if (blocks.empty()) { return nullptr; }
-    auto ancestors_of = [&](BasicBlock *bb) noexcept {
-        luisa::unordered_set<BasicBlock *> chain;
-        auto *cur = bb;
-        while (cur != nullptr && cur != pdom.virtual_exit) {
-            if (!chain.emplace(cur).second) { return chain; }
-            auto it = pdom.ipostdom.find(cur);
-            if (it == pdom.ipostdom.end()) { return chain; }
-            cur = it->second;
-        }
-        if (cur == pdom.virtual_exit) { chain.emplace(pdom.virtual_exit); }
-        return chain;
-    };
-    auto common = ancestors_of(blocks[0]);
-    for (size_t i = 1; i < blocks.size(); i++) {
-        auto other = ancestors_of(blocks[i]);
-        luisa::unordered_set<BasicBlock *> next;
-        for (auto *bb : common) {
-            if (other.contains(bb)) { next.emplace(bb); }
-        }
-        common = std::move(next);
-        if (common.empty()) { return nullptr; }
-    }
-    auto *cur = blocks[0];
-    while (cur != nullptr && cur != pdom.virtual_exit) {
-        if (common.contains(cur)) { return cur == pdom.virtual_exit ? nullptr : cur; }
-        auto it = pdom.ipostdom.find(cur);
-        if (it == pdom.ipostdom.end()) { return nullptr; }
-        cur = it->second;
-    }
-    return nullptr;
+[[nodiscard]] BasicBlock *common_postdom(
+    const PostDomInfo &pdom,
+    luisa::span<BasicBlock *const> blocks,
+    RestructureCFGInfo &info) noexcept {
+    ++info.postdom_common_ancestor_query_count;
+    auto ancestor_steps = size_t{0u};
+    auto *result = pdom.nearest_common_postdom(
+        blocks, &ancestor_steps);
+    info.postdom_common_ancestor_step_count +=
+        ancestor_steps;
+    return result;
 }
 
 bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
@@ -700,7 +699,7 @@ template<typename Dominance>
     FunctionDefinition *def) noexcept {
     auto modified = false;
     for (;;) {
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_restructure_dom(def);
         IndexedBranchInst *candidate = nullptr;
         for (auto *block : def->basic_blocks()) {
             if (block == nullptr || !block->is_terminated() ||
@@ -787,7 +786,7 @@ template<typename Dominance>
 void restructure_indexed_branches(
     FunctionDefinition *def, RestructureCFGInfo &info) noexcept {
     for (;;) {
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_restructure_dom(def);
         auto pdom = compute_post_dom(def, info);
         BasicBlock *header = nullptr;
         IndexedBranchInst *indexed_branch = nullptr;
@@ -828,7 +827,8 @@ void restructure_indexed_branches(
         auto *common_merge =
             infer_selection_merge(def, header, entry_span, dom);
         if (common_merge == nullptr && dom.contains(header)) {
-            common_merge = common_postdom(pdom, entry_span);
+            common_merge = common_postdom(
+                pdom, entry_span, info);
         }
         auto synthetic_merge =
             common_merge == nullptr ||
@@ -1306,7 +1306,7 @@ classify_exclusive_loop_boundary_arm(
                                                                       exit_dispatch_headers,
                                                                   const luisa::unordered_set<BasicBlock *> &
                                                                       generated_exit_dispatch_headers) noexcept {
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_restructure_dom(def);
     struct LoopSite {
         BasicBlock *owner{nullptr};
         BasicBlock *entry{nullptr};
@@ -1518,10 +1518,16 @@ classify_exclusive_loop_boundary_arm(
         }
     }
     if (candidates.empty()) {
-        // A generated dispatch is a loop-boundary guard only if at least one
-        // structurally containing loop proves that relation. This point is
-        // reached only after the exhaustive region scan above.
+        // Raw generated dispatches that no longer guard a loop boundary may
+        // release their marker after the exhaustive region scan above. A
+        // dispatch that has already become a physical IfInst deliberately
+        // retains the marker: later construct-exit validation still needs to
+        // recognize that structured guard as generated rather than rewrap it.
         for (auto *header : exit_dispatch_headers) {
+            if (header == nullptr || !header->is_terminated() ||
+                !header->terminator()->isa<ConditionalBranchInst>()) {
+                continue;
+            }
             exit_dispatch_headers.erase(header);
             return true;
         }
@@ -1911,7 +1917,6 @@ void remove_write_only_dispatch_selectors(
     LoopContinueBatchAnalysis batch_analysis{def, dom};
     auto ownership_ms = ownership_clock.toc();
     auto dominance_rebuild_ms = 0.0;
-    auto dominance_frontier_ms = 0.0;
     Clock region_discovery_clock;
     ++info.loop_continue_analysis_count;
     for (auto site_index = size_t{0u};
@@ -1974,8 +1979,9 @@ void remove_write_only_dispatch_selectors(
     }
     if (changed) {
         // No analysis query is issued after mutation. Build the one exact
-        // ancestry tree retained by the caller, then materialize its frontier
-        // relation once at the public batch boundary.
+        // ancestry tree retained by the caller. Its dominance-frontier
+        // derivative is intentionally left absent until the unique
+        // selection-reentry consumer asks for it.
         Clock dominance_rebuild_clock;
         DomTreeBuildStats dominance_stats;
         dom = compute_dom_tree(
@@ -1995,10 +2001,6 @@ void remove_write_only_dispatch_selectors(
             dominance_stats.fixed_point_edge_visit_count;
         info.loop_continue_dom_intersect_step_count +=
             dominance_stats.intersect_step_count;
-        Clock dominance_frontier_clock;
-        dom.compute_dominance_frontiers();
-        dominance_frontier_ms += dominance_frontier_clock.toc();
-        ++info.loop_continue_frontier_materialization_count;
     }
     if (restructure_trace_enabled()) {
         LUISA_VERBOSE_WITH_LOCATION(
@@ -2016,9 +2018,6 @@ void remove_write_only_dispatch_selectors(
         LUISA_VERBOSE_WITH_LOCATION(
             "[restructure_cfg] loop_continue_dominance_rebuild: {:.3f} ms",
             dominance_rebuild_ms);
-        LUISA_VERBOSE_WITH_LOCATION(
-            "[restructure_cfg] loop_continue_dominance_frontier: {:.3f} ms",
-            dominance_frontier_ms);
     }
     return changed;
 }
@@ -2989,101 +2988,69 @@ struct SelectionExitCFGRelations {
         ContextKind kind{ContextKind::LOOP};
         BasicBlock *break_target{nullptr};
         BasicBlock *continue_target{nullptr};
+        BasicBlock *loop_entry{nullptr};
         size_t dom_depth{0u};
+    };
+    struct ContextSite {
+        BasicBlock *header{nullptr};
+        BasicBlock *merge{nullptr};
+        ContextKind kind{ContextKind::LOOP};
+        BasicBlock *break_target{nullptr};
+        BasicBlock *continue_target{nullptr};
+        BasicBlock *loop_entry{nullptr};
+        size_t dom_depth{0u};
+        bool can_be_active{true};
     };
     luisa::unordered_set<BasicBlock *>
         loop_boundary_selection_entries;
     luisa::vector<Context> contexts;
+    // If-only relation updates never create or mutate a Loop/Switch
+    // terminator, so these descriptors are the stable input from which the
+    // exact context maps are rebuilt after dominance changes.
+    luisa::vector<ContextSite> context_sites;
     luisa::unordered_map<BasicBlock *, size_t>
         selection_contexts;
+    // The only block-level context consumer normalizes BreakInst spellings.
+    // Ordinary block contexts are deliberately not materialized.
     luisa::unordered_map<BasicBlock *, size_t>
         block_contexts;
     // A physical structured merge has one owner. Reusing another construct's
     // merge as the boundary of a selection would satisfy reachability while
     // violating SPIR-V's role-uniqueness constraint.
-    luisa::unordered_set<BasicBlock *> structured_merge_blocks;
+    luisa::unordered_map<BasicBlock *, size_t>
+        structured_merge_blocks;
     // Empty branch proxies are transparent only until the first structured
     // merge/continue role. Crossing such a role would skip a lexical
     // construct boundary rather than contract a representation-only edge.
-    luisa::unordered_set<BasicBlock *> structured_exit_boundaries;
+    luisa::unordered_map<BasicBlock *, size_t>
+        structured_exit_boundaries;
 };
 
-// Materialize the exact CFG relations consumed by one selection-exit scan.
-// No rewrite occurs while a scan evaluates its sites. A successful rewrite
-// returns to the caller, which rebuilds dominance and rematerializes these
-// relations before observing the new CFG.
-[[nodiscard]] SelectionExitCFGRelations
-build_selection_exit_cfg_relations(
-    FunctionDefinition *def,
+void rebuild_selection_exit_context_relations(
+    SelectionExitCFGRelations &relations,
     const DomTree &dom,
     RestructureCFGInfo &info) noexcept {
-    ScopedTimer _timer_selection_exit_relations(
-        "selection_exit_build_relations");
-    SelectionExitCFGRelations relations;
-    relations.loop_boundary_selection_entries =
-        collect_loop_boundary_selection_entries(def, &info);
-    struct ContextSite {
-        BasicBlock *header{nullptr};
-        BasicBlock *merge{nullptr};
-        SelectionExitCFGRelations::ContextKind kind{
-            SelectionExitCFGRelations::ContextKind::LOOP};
-        BasicBlock *break_target{nullptr};
-        BasicBlock *continue_target{nullptr};
-        size_t dom_depth{0u};
-        bool can_be_active{true};
-    };
-    luisa::vector<ContextSite> sites;
+    ScopedTimer _timer_selection_exit_context_relations(
+        "selection_exit_build_context_relations");
+    relations.contexts.clear();
+    relations.selection_contexts.clear();
+    relations.block_contexts.clear();
+    auto &sites = relations.context_sites;
     luisa::unordered_map<BasicBlock *, size_t>
         site_index_by_header;
     luisa::unordered_map<BasicBlock *, luisa::vector<size_t>>
         merge_events;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        if (block == nullptr || !block->is_terminated()) { return; }
-        auto *term = block->terminator();
-        if (auto *merge = structured_statement_merge(term);
-            merge != nullptr) {
-            relations.structured_merge_blocks.emplace(merge);
-            relations.structured_exit_boundaries.emplace(merge);
-        }
-        ContextSite site;
-        site.header = block;
-        if (term->isa<LoopInst>()) {
-            auto *loop = static_cast<LoopInst *>(term);
-            site.merge = loop->merge_block();
-            site.break_target = site.merge;
-            site.continue_target = loop->update_block();
-            if (site.continue_target == nullptr) {
-                site.continue_target = loop->prepare_block();
-            }
-            relations.structured_exit_boundaries.emplace(
-                site.continue_target);
-        } else if (term->isa<SimpleLoopInst>()) {
-            auto *loop = static_cast<SimpleLoopInst *>(term);
-            site.merge = loop->merge_block();
-            site.break_target = site.merge;
-            site.continue_target = loop->body_block();
-            relations.structured_exit_boundaries.emplace(
-                site.continue_target);
-        } else if (term->isa<SwitchInst>()) {
-            site.kind =
-                SelectionExitCFGRelations::ContextKind::SWITCH;
-            site.merge = static_cast<SwitchInst *>(term)->merge_block();
-            site.break_target = site.merge;
-        } else {
-            return;
-        }
-        if (!dom.contains(block)) { return; }
-        site.dom_depth = dom_depth(dom, block);
-        auto site_index = sites.size();
-        site_index_by_header.emplace(block, site_index);
-        sites.emplace_back(std::move(site));
-    });
     relations.contexts.reserve(sites.size());
     luisa::vector<size_t> context_id_by_site(
         sites.size(), SIZE_MAX);
     for (auto site_index = size_t{0u};
          site_index < sites.size(); ++site_index) {
         auto &site = sites[site_index];
+        site.can_be_active = true;
+        if (!dom.contains(site.header)) { continue; }
+        site.dom_depth = dom_depth(dom, site.header);
+        site_index_by_header.emplace(
+            site.header, site_index);
         if (site.merge == nullptr ||
             !dom.contains(site.merge)) {
             continue;
@@ -3141,10 +3108,12 @@ build_selection_exit_cfg_relations(
             auto current_context = active_contexts.empty() ?
                                        SIZE_MAX :
                                        active_contexts.rbegin()->second;
-            relations.block_contexts.emplace(
-                block, current_context);
             if (block->is_terminated()) {
                 auto *term = block->terminator();
+                if (term->isa<BreakInst>()) {
+                    relations.block_contexts.emplace(
+                        block, current_context);
+                }
                 if (term->isa<IfInst>() || term->isa<SwitchInst>()) {
                     relations.selection_contexts.emplace(
                         block, current_context);
@@ -3162,6 +3131,7 @@ build_selection_exit_cfg_relations(
                         .kind = site.kind,
                         .break_target = site.break_target,
                         .continue_target = site.continue_target,
+                        .loop_entry = site.loop_entry,
                         .dom_depth = site.dom_depth});
                 context_id_by_site[site_index] = context_id;
                 active_contexts.emplace(
@@ -3193,6 +3163,83 @@ build_selection_exit_cfg_relations(
         }
         walk.pop_back();
     }
+}
+
+// Materialize the exact CFG relations consumed by one selection-exit scan.
+// No rewrite occurs while a scan evaluates its sites. A successful rewrite
+// returns to the caller, which either performs the proven If-only update below
+// or rematerializes the complete relation before observing the new CFG.
+[[nodiscard]] SelectionExitCFGRelations
+build_selection_exit_cfg_relations(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    RestructureCFGInfo &info) noexcept {
+    ScopedTimer _timer_selection_exit_relations(
+        "selection_exit_build_relations");
+    SelectionExitCFGRelations relations;
+    {
+        ScopedTimer _timer_selection_exit_loop_boundaries(
+            "selection_exit_build_loop_boundaries");
+        relations.loop_boundary_selection_entries =
+            collect_loop_boundary_selection_entries(def, &info);
+    }
+    auto &sites = relations.context_sites;
+    auto add_role = [](
+                        auto &role_counts,
+                        BasicBlock *block) noexcept {
+        ++role_counts[block];
+    };
+    {
+        ScopedTimer _timer_selection_exit_collect_relations(
+            "selection_exit_collect_relation_sites");
+        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            if (block == nullptr || !block->is_terminated()) { return; }
+            auto *term = block->terminator();
+            if (auto *merge = structured_statement_merge(term);
+                merge != nullptr) {
+                add_role(
+                    relations.structured_merge_blocks,
+                    merge);
+                add_role(
+                    relations.structured_exit_boundaries,
+                    merge);
+            }
+            SelectionExitCFGRelations::ContextSite site;
+            site.header = block;
+            if (term->isa<LoopInst>()) {
+                auto *loop = static_cast<LoopInst *>(term);
+                site.merge = loop->merge_block();
+                site.break_target = site.merge;
+                site.continue_target = loop->update_block();
+                if (site.continue_target == nullptr) {
+                    site.continue_target = loop->prepare_block();
+                }
+                site.loop_entry = loop->prepare_block();
+                add_role(
+                    relations.structured_exit_boundaries,
+                    site.continue_target);
+            } else if (term->isa<SimpleLoopInst>()) {
+                auto *loop = static_cast<SimpleLoopInst *>(term);
+                site.merge = loop->merge_block();
+                site.break_target = site.merge;
+                site.continue_target = loop->body_block();
+                site.loop_entry = loop->body_block();
+                add_role(
+                    relations.structured_exit_boundaries,
+                    site.continue_target);
+            } else if (term->isa<SwitchInst>()) {
+                site.kind =
+                    SelectionExitCFGRelations::ContextKind::SWITCH;
+                site.merge = static_cast<SwitchInst *>(term)->merge_block();
+                site.break_target = site.merge;
+            } else {
+                return;
+            }
+            sites.emplace_back(std::move(site));
+        });
+    }
+    rebuild_selection_exit_context_relations(
+        relations, dom, info);
     return relations;
 }
 
@@ -3211,11 +3258,11 @@ struct SelectionExitRewriteResult {
     SelectionExitRewriteStatus status{SelectionExitRewriteStatus::UNCHANGED};
     Instruction *site{nullptr};
     // A one-target rewrite is only a common funnel in the quotient CFG where
-    // side-effect-free forwarding blocks are transparent. It preserves
-    // reachability and dominance among canonical pre-existing blocks, so only
-    // construct-containment and explicitly bypassed-boundary dependencies
-    // need invalidation. Multi-target state dispatches conservatively
-    // invalidate every site because their CFG expands correlated reachability.
+    // side-effect-free forwarding blocks are transparent. Its dependency cut
+    // consists of physical enclosing selections plus sites at an edited or
+    // bypassed boundary; the caller checks that cut in both the old and new
+    // dominator trees. Multi-target state dispatches conservatively invalidate
+    // every site because their CFG expands correlated reachability.
     bool local_dependency_only{false};
     bool requires_ssa_repair{false};
     // Changing only the declared merge preserves the executable CFG and its
@@ -3251,6 +3298,227 @@ struct SelectionExitAnalysis {
     return iter == relations.selection_contexts.end() ?
                SIZE_MAX :
                iter->second;
+}
+
+void replace_selection_exit_structured_role(
+    luisa::unordered_map<BasicBlock *, size_t> &role_counts,
+    BasicBlock *old_block,
+    BasicBlock *new_block) noexcept {
+    if (old_block == new_block) { return; }
+    auto old_iter = role_counts.find(old_block);
+    LUISA_ASSERT(
+        old_iter != role_counts.end() && old_iter->second != 0u,
+        "Selection-exit relation update removed an unowned structured role.");
+    if (--old_iter->second == 0u) {
+        role_counts.erase(old_iter);
+    }
+    ++role_counts[new_block];
+}
+
+void refresh_loop_boundary_selection_entry(
+    SelectionExitCFGRelations &relations,
+    BasicBlock *header,
+    IfInst *if_inst,
+    RestructureCFGInfo &info) noexcept {
+    relations.loop_boundary_selection_entries.erase(header);
+    for (auto context = selection_context(relations, header);
+         context != SIZE_MAX;
+         context = relations.contexts[context].parent) {
+        auto &&node = relations.contexts[context];
+        if (node.kind !=
+            SelectionExitCFGRelations::ContextKind::LOOP) {
+            continue;
+        }
+        info.selection_exit_boundary_classification_count += 2u;
+        if (is_physically_lowerable_loop_boundary_if(
+                if_inst, node.continue_target,
+                node.loop_entry, node.break_target)) {
+            relations.loop_boundary_selection_entries.emplace(
+                header);
+            return;
+        }
+    }
+}
+
+[[nodiscard]] bool equivalent_selection_exit_context_chain(
+    const SelectionExitCFGRelations &lhs,
+    size_t lhs_context,
+    const SelectionExitCFGRelations &rhs,
+    size_t rhs_context) noexcept {
+    auto steps = size_t{0u};
+    while (lhs_context != SIZE_MAX ||
+           rhs_context != SIZE_MAX) {
+        if (lhs_context == SIZE_MAX ||
+            rhs_context == SIZE_MAX ||
+            lhs_context >= lhs.contexts.size() ||
+            rhs_context >= rhs.contexts.size()) {
+            return false;
+        }
+        auto &&lhs_node = lhs.contexts[lhs_context];
+        auto &&rhs_node = rhs.contexts[rhs_context];
+        if (lhs_node.kind != rhs_node.kind ||
+            lhs_node.break_target != rhs_node.break_target ||
+            lhs_node.continue_target != rhs_node.continue_target ||
+            lhs_node.loop_entry != rhs_node.loop_entry) {
+            return false;
+        }
+        lhs_context = lhs_node.parent;
+        rhs_context = rhs_node.parent;
+        if (++steps > lhs.contexts.size() +
+                          rhs.contexts.size()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool equivalent_selection_exit_relations(
+    const SelectionExitCFGRelations &lhs,
+    const SelectionExitCFGRelations &rhs) noexcept {
+    auto equal_sets = [](auto &&a, auto &&b) noexcept {
+        if (a.size() != b.size()) { return false; }
+        for (auto value : a) {
+            if (!b.contains(value)) { return false; }
+        }
+        return true;
+    };
+    auto equal_counts = [](auto &&a, auto &&b) noexcept {
+        if (a.size() != b.size()) { return false; }
+        for (auto [block, count] : a) {
+            auto iter = b.find(block);
+            if (iter == b.end() || iter->second != count) {
+                return false;
+            }
+        }
+        return true;
+    };
+    auto require_equal = [](bool equal,
+                            const char *name,
+                            size_t lhs_size,
+                            size_t rhs_size) noexcept {
+        if (!equal) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Incremental selection-exit relation mismatch in {} "
+                "(incremental_size={}, oracle_size={}).",
+                name, lhs_size, rhs_size);
+        }
+        return equal;
+    };
+    if (!require_equal(
+            equal_sets(
+                lhs.loop_boundary_selection_entries,
+                rhs.loop_boundary_selection_entries),
+            "loop_boundary_selection_entries",
+            lhs.loop_boundary_selection_entries.size(),
+            rhs.loop_boundary_selection_entries.size()) ||
+        !require_equal(
+            equal_counts(
+                lhs.structured_merge_blocks,
+                rhs.structured_merge_blocks),
+            "structured_merge_blocks",
+            lhs.structured_merge_blocks.size(),
+            rhs.structured_merge_blocks.size()) ||
+        !require_equal(
+            equal_counts(
+                lhs.structured_exit_boundaries,
+                rhs.structured_exit_boundaries),
+            "structured_exit_boundaries",
+            lhs.structured_exit_boundaries.size(),
+            rhs.structured_exit_boundaries.size())) {
+        return false;
+    }
+    auto equal_context_maps = [&](auto &&a, auto &&b,
+                                  const char *name) noexcept {
+        if (a.size() != b.size()) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Incremental selection-exit relation mismatch in {} size "
+                "(incremental_size={}, oracle_size={}).",
+                name, a.size(), b.size());
+            return false;
+        }
+        for (auto [block, context] : a) {
+            auto iter = b.find(block);
+            if (iter == b.end() ||
+                !equivalent_selection_exit_context_chain(
+                    lhs, context, rhs, iter->second)) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Incremental selection-exit relation mismatch in {} "
+                    "for block {} (terminator={}, incremental_context={}, "
+                    "oracle_context={}).",
+                    name, static_cast<void *>(block),
+                    block != nullptr && block->is_terminated() ?
+                        static_cast<uint32_t>(
+                            block->terminator()
+                                ->derived_instruction_tag()) :
+                        UINT32_MAX,
+                    context,
+                    iter == b.end() ? SIZE_MAX : iter->second);
+                return false;
+            }
+        }
+        return true;
+    };
+    return equal_context_maps(
+               lhs.selection_contexts,
+               rhs.selection_contexts,
+               "selection_contexts") &&
+           equal_context_maps(
+               lhs.block_contexts,
+               rhs.block_contexts,
+               "block_contexts");
+}
+
+void incrementally_update_if_selection_exit_relations(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    SelectionExitCFGRelations &relations,
+    BasicBlock *header,
+    IfInst *if_inst,
+    BasicBlock *old_merge,
+    BasicBlock *new_merge,
+    bool executable_cfg_modified,
+    RestructureCFGInfo &info) noexcept {
+    // The executable-CFG cases accepted here are either metadata-only or a
+    // one-target funnel in the quotient where trivial BranchInst chains are
+    // transparent. Such a funnel can only add its fresh merge and bypass
+    // forwarding blocks. It cannot create or mutate a Loop/Switch descriptor.
+    // Ordinary continuation blocks may nevertheless gain or lose dominance,
+    // so a CFG-changing funnel rebuilds the exact observable
+    // selection/Break context maps from the stable Loop/Switch descriptors.
+    // Structured-role ownership and this If's physical loop-boundary
+    // classification are then updated independently.
+    replace_selection_exit_structured_role(
+        relations.structured_merge_blocks,
+        old_merge, new_merge);
+    replace_selection_exit_structured_role(
+        relations.structured_exit_boundaries,
+        old_merge, new_merge);
+    if (executable_cfg_modified) {
+        rebuild_selection_exit_context_relations(
+            relations, dom, info);
+    }
+    refresh_loop_boundary_selection_entry(
+        relations, header, if_inst, info);
+    ++info.selection_exit_relation_incremental_update_count;
+
+    if (restructure_verify_selection_exit_relation_updates_enabled()) {
+        RestructureCFGInfo oracle_work;
+        auto oracle = build_selection_exit_cfg_relations(
+            def, dom, oracle_work);
+        auto equivalent =
+            equivalent_selection_exit_relations(relations, oracle);
+        if (!equivalent) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Incremental selection-exit update site: header={}, "
+                "old_merge={}, new_merge={}.",
+                static_cast<void *>(header),
+                static_cast<void *>(old_merge),
+                static_cast<void *>(new_merge));
+        }
+        LUISA_ASSERT(
+            equivalent,
+            "Incremental selection-exit relation update diverged from a fresh rebuild.");
+    }
 }
 
 // SPIR-V structured exits for a selection form a lexical prefix, not the set
@@ -3332,7 +3600,7 @@ struct SelectionExitAnalysis {
 // a canonical BreakInst to the current Switch merge is retained.
 [[nodiscard]] bool canonicalize_nonlocal_switch_breaks(
     FunctionDefinition *def,
-    const SelectionExitCFGRelations &relations) noexcept {
+    SelectionExitCFGRelations &relations) noexcept {
     auto modified = false;
     for (auto *block : def->basic_blocks()) {
         if (block == nullptr || !block->is_terminated() ||
@@ -3367,6 +3635,10 @@ struct SelectionExitAnalysis {
             replacement->metadata_list().push_front(
                 metadata->clone());
         }
+        // `block_contexts` intentionally indexes only live BreakInst
+        // consumers. Keep the cached observable domain exact after replacing
+        // this terminator without rebuilding the surrounding relation.
+        relations.block_contexts.erase(block);
         modified = true;
     }
     return modified;
@@ -3662,6 +3934,46 @@ void repair_target_state_dispatch_ssa(
     };
     luisa::vector<RerouteEdge> normalized_edges;
     normalized_edges.reserve(reroute_edges.size());
+    for (auto edge : reroute_edges) {
+        auto *target = canonical_exit_target(edge.dst);
+        normalized_edges.emplace_back(RerouteEdge{edge.src, edge.dst, target});
+    }
+    // The exit analysis stores membership in pointer-keyed sets, and
+    // predecessor use-list order reflects mutation history rather than CFG
+    // semantics. Neither is a valid selector-id order: allowing it to leak
+    // into this ladder makes equivalent break/continue dispatches alternate
+    // polarity across processes and changes downstream shader cache keys.
+    // Canonicalize both the edge rewrite order and target order by the
+    // function-owned block sequence, which is stable for an identical XIR
+    // program.
+    luisa::unordered_map<BasicBlock *, size_t> stable_block_indices;
+    stable_block_indices.reserve(
+        def->basic_blocks().count_size());
+    auto next_block_index = size_t{0u};
+    for (auto *block : def->basic_blocks()) {
+        stable_block_indices.emplace(
+            block, next_block_index++);
+    }
+    auto block_index = [&](BasicBlock *block) noexcept {
+        auto iter = stable_block_indices.find(block);
+        LUISA_DEBUG_ASSERT(
+            iter != stable_block_indices.end(),
+            "Selection-exit target must belong to its function.");
+        return iter->second;
+    };
+    std::sort(
+        normalized_edges.begin(), normalized_edges.end(),
+        [&](const RerouteEdge &lhs,
+            const RerouteEdge &rhs) noexcept {
+            auto lhs_src = block_index(lhs.src);
+            auto rhs_src = block_index(rhs.src);
+            if (lhs_src != rhs_src) { return lhs_src < rhs_src; }
+            auto lhs_dst = block_index(lhs.dst);
+            auto rhs_dst = block_index(rhs.dst);
+            if (lhs_dst != rhs_dst) { return lhs_dst < rhs_dst; }
+            return block_index(lhs.target) <
+                   block_index(rhs.target);
+        });
 
     luisa::unordered_map<BasicBlock *, uint32_t> target_ids;
     luisa::vector<BasicBlock *> targets;
@@ -3672,24 +3984,56 @@ void repair_target_state_dispatch_ssa(
         targets.emplace_back(target);
         return id;
     };
-    for (auto edge : reroute_edges) {
-        auto *target = canonical_exit_target(edge.dst);
-        normalized_edges.emplace_back(RerouteEdge{edge.src, edge.dst, target});
-        (void)add_target(target);
+    for (auto edge : normalized_edges) {
+        (void)add_target(edge.target);
     }
-    // Canonicalize the state-dispatch ladder so loop boundaries are tested
-    // before ordinary in-loop continuations. This gives each generated guard
-    // exactly one break/continue arm and one fallthrough/merge arm, avoiding a
-    // non-progressing "normal vs. (break-or-continue)" MIXED dispatch.
-    std::stable_sort(
+    // Canonicalize the state-dispatch ladder so non-local exits are tested
+    // before ordinary in-construct continuations. Every target except the last
+    // is a direct conditional arm; the last one is reached through the
+    // ladder's forwarding fallback. Keeping loop/switch boundaries and terminal
+    // sinks on direct arms lets the ordinary target serve as the declarative
+    // merge. Putting Return/Unreachable behind the fallback instead makes the
+    // forwarding edge look like a fresh illegal selection exit, so the next
+    // post round would reconstruct an equivalent dispatch forever.
+    auto has_ordinary_target = false;
+    BasicBlock *stable_fallback = nullptr;
+    for (auto *target : targets) {
+        auto boundary = is_legal_structured_exit(target);
+        auto sink = is_sink(target);
+        info.selection_exit_terminal_target_count += sink ? 1u : 0u;
+        has_ordinary_target |= !boundary && !sink;
+        if (!boundary &&
+            (stable_fallback == nullptr ||
+             block_index(stable_fallback) < block_index(target))) {
+            stable_fallback = target;
+        }
+    }
+    std::sort(
         targets.begin(), targets.end(),
         [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
             auto lhs_boundary =
                 is_legal_structured_exit(lhs);
             auto rhs_boundary =
                 is_legal_structured_exit(rhs);
-            return lhs_boundary && !rhs_boundary;
+            if (lhs_boundary != rhs_boundary) {
+                return lhs_boundary && !rhs_boundary;
+            }
+            auto lhs_sink = is_sink(lhs);
+            auto rhs_sink = is_sink(rhs);
+            if (lhs_sink != rhs_sink) {
+                return lhs_sink && !rhs_sink;
+            }
+            return block_index(lhs) < block_index(rhs);
         });
+    if (has_ordinary_target && stable_fallback != nullptr &&
+        is_sink(stable_fallback)) {
+        ++info.selection_exit_terminal_fallback_reorder_count;
+    }
+    LUISA_DEBUG_ASSERT(
+        !has_ordinary_target || targets.empty() ||
+            !is_sink(targets.back()),
+        "A terminal selection-exit target must not occupy the forwarding "
+        "fallback while an ordinary continuation is available.");
     target_ids.clear();
     for (auto i = size_t{0u}; i < targets.size(); ++i) {
         target_ids.emplace(
@@ -3932,14 +4276,24 @@ struct SelectionExitDrainResult {
             }
         };
 
+    SelectionExitCFGRelations cfg_relations;
+    auto cfg_relations_valid = false;
+    auto nonlocal_switch_breaks_canonical = false;
     for (;;) {
-        auto cfg_relations =
-            build_selection_exit_cfg_relations(
-                def, dom, info);
-        ++info.selection_exit_boundary_analysis_count;
-        drain.modified |=
-            canonicalize_nonlocal_switch_breaks(
-                def, cfg_relations);
+        if (!cfg_relations_valid) {
+            cfg_relations =
+                build_selection_exit_cfg_relations(
+                    def, dom, info);
+            cfg_relations_valid = true;
+            ++info.selection_exit_boundary_analysis_count;
+            nonlocal_switch_breaks_canonical = false;
+        }
+        if (!nonlocal_switch_breaks_canonical) {
+            drain.modified |=
+                canonicalize_nonlocal_switch_breaks(
+                    def, cfg_relations);
+            nonlocal_switch_breaks_canonical = true;
+        }
         struct Query {
             size_t site_index{0u};
             size_t depth{0u};
@@ -3998,10 +4352,15 @@ struct SelectionExitDrainResult {
                     LUISA_VERBOSE_WITH_LOCATION(
                         "[restructure_cfg] selection-exit worklist: "
                         "{} / {} dirty sites queried before status {} "
-                        "at dominance depth {}.",
+                        "at dominance depth {} (kind={}, cfg={}, local={}).",
                         query_index + 1u, queries.size(),
                         static_cast<uint32_t>(result.status),
-                        query.depth);
+                        query.depth,
+                        site.term->isa<SwitchInst>() ?
+                            "switch" :
+                            "if",
+                        result.cfg_modified,
+                        result.local_dependency_only);
                 }
                 if (result.status ==
                     SelectionExitRewriteStatus::STALLED_SITE) {
@@ -4016,6 +4375,18 @@ struct SelectionExitDrainResult {
                     ++info.selection_exit_merge_canonicalization_count;
                     mark_enclosing_dependencies(
                         dom, site.header);
+                    if (site.term->isa<IfInst>()) {
+                        incrementally_update_if_selection_exit_relations(
+                            def, dom, cfg_relations,
+                            site.header,
+                            static_cast<IfInst *>(site.term),
+                            merge, current_merge(site), false, info);
+                    } else {
+                        // A Switch merge is also its lexical break target and
+                        // changes the extent of that context. Rebuild instead
+                        // of pretending this is an If-only role update.
+                        cfg_relations_valid = false;
+                    }
                     break;
                 }
                 drain.cfg_modified = true;
@@ -4024,6 +4395,9 @@ struct SelectionExitDrainResult {
                     ssa_repair_requested = true;
                     ++info.selection_exit_ssa_repair_request_count;
                 }
+                auto incrementally_update_relations =
+                    result.local_dependency_only &&
+                    site.term->isa<IfInst>();
                 if (result.local_dependency_only) {
                     ++info.selection_exit_local_invalidation_count;
                     mark_enclosing_dependencies(
@@ -4055,15 +4429,26 @@ struct SelectionExitDrainResult {
                     }
                 } else {
                     ++info.selection_exit_global_invalidation_count;
+                    cfg_relations_valid = false;
                     for (auto index = size_t{0u};
                          index < dirty.size(); ++index) {
                         mark_dirty(index);
                     }
                 }
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 if (result.local_dependency_only) {
                     mark_enclosing_dependencies(
                         dom, site.header);
+                }
+                if (incrementally_update_relations) {
+                    incrementally_update_if_selection_exit_relations(
+                        def, dom, cfg_relations,
+                        site.header,
+                        static_cast<IfInst *>(site.term),
+                        merge, current_merge(site), true, info);
+                    nonlocal_switch_breaks_canonical = false;
+                } else {
+                    cfg_relations_valid = false;
                 }
                 break;
             }
@@ -4112,7 +4497,7 @@ struct SelectionExitDrainResult {
     ScopedTimer _timer_selection_exit_audit(
         "post_count_noncanonical_selection_exits");
     if (def == nullptr) { return 0u; }
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_restructure_dom(def);
     // Keep proof checking separate from the mutating phase's cost counters.
     // The audit performs no transformation and has its own observable counts.
     RestructureCFGInfo audit_work;
@@ -4162,7 +4547,15 @@ struct SelectionExitDrainResult {
                                         RestructureCFGInfo &info) noexcept {
     ScopedTimer _timer_try_loop("try_restructure_loop");
     luisa::vector<BasicBlock *> all_blocks;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept { all_blocks.emplace_back(bb); });
+    all_blocks.reserve(def->basic_blocks().count_size());
+    for (auto *block : def->basic_blocks()) {
+        all_blocks.emplace_back(block);
+    }
+    luisa::unordered_map<BasicBlock *, size_t> block_indices;
+    block_indices.reserve(all_blocks.size());
+    for (auto i = size_t{0u}; i < all_blocks.size(); ++i) {
+        block_indices.emplace(all_blocks[i], i);
+    }
 
     luisa::unordered_set<BasicBlock *> already_loop_headers;
     for (auto *bb : all_blocks) {
@@ -4222,9 +4615,16 @@ struct SelectionExitDrainResult {
 
     if (candidates.empty()) { return false; }
 
-    luisa::sort(candidates.begin(), candidates.end(), [](const LoopCandidate &a, const LoopCandidate &b) noexcept {
-        return a.depth > b.depth;
-    });
+    luisa::sort(
+        candidates.begin(), candidates.end(),
+        [&](const LoopCandidate &a,
+            const LoopCandidate &b) noexcept {
+            if (a.depth != b.depth) {
+                return a.depth > b.depth;
+            }
+            return block_indices.at(a.header) <
+                   block_indices.at(b.header);
+        });
 
     bool any = false;
     luisa::unordered_set<BasicBlock *> newly_restructured_headers;
@@ -4269,9 +4669,10 @@ struct SelectionExitDrainResult {
         if (!latches_ok || valid_latches.empty()) { continue; }
 
         BasicBlock *loop_scope_boundary = nullptr;
-        if (auto it = pdom.ipostdom.find(header);
-            it != pdom.ipostdom.end() && it->second != pdom.virtual_exit) {
-            loop_scope_boundary = it->second;
+        if (auto *immediate_postdom =
+                pdom.immediate_postdom(header);
+            immediate_postdom != pdom.virtual_exit) {
+            loop_scope_boundary = immediate_postdom;
         }
         luisa::unordered_set<BasicBlock *> loop_blocks;
         auto loop_scope_boundary_reaches_latch = [&]() noexcept {
@@ -4429,7 +4830,8 @@ struct SelectionExitDrainResult {
         }
 
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> pre_exit_edges;
-        for (auto *lb : loop_blocks) {
+        for (auto *lb : all_blocks) {
+            if (!loop_blocks.contains(lb)) { continue; }
             if (!lb->is_terminated()) { continue; }
             lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
                 if (succ == header) { return; }
@@ -4438,12 +4840,19 @@ struct SelectionExitDrainResult {
             });
         }
         luisa::unordered_set<BasicBlock *> pre_exit_targets_set;
-        for (auto &[src, tgt] : pre_exit_edges) { pre_exit_targets_set.emplace(tgt); }
-        luisa::vector<BasicBlock *> pre_exit_targets{pre_exit_targets_set.begin(), pre_exit_targets_set.end()};
+        luisa::vector<BasicBlock *> pre_exit_targets;
+        for (auto &[src, tgt] : pre_exit_edges) {
+            if (pre_exit_targets_set.emplace(tgt).second) {
+                pre_exit_targets.emplace_back(tgt);
+            }
+        }
 
         BasicBlock *dispatch_merge_or_null = nullptr;
         if (pre_exit_targets.size() > 1) {
-            dispatch_merge_or_null = common_postdom(pdom, luisa::span<BasicBlock *const>{pre_exit_targets});
+            dispatch_merge_or_null = common_postdom(
+                pdom,
+                luisa::span<BasicBlock *const>{pre_exit_targets},
+                info);
             if (dispatch_merge_or_null == pdom.virtual_exit) {
                 dispatch_merge_or_null = nullptr;
             }
@@ -4478,6 +4887,12 @@ struct SelectionExitDrainResult {
             if (!dom.contains(pred)) { return; }
             if (!loop_blocks.contains(pred)) { entry_preds.emplace_back(pred); }
         });
+        luisa::sort(
+            entry_preds.begin(), entry_preds.end(),
+            [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
+                return block_indices.at(lhs) <
+                       block_indices.at(rhs);
+            });
 
         auto *preheader = def->create_basic_block();
         if (def->body_block() == header) { def->set_body_block(preheader); }
@@ -4493,8 +4908,21 @@ struct SelectionExitDrainResult {
 
         auto *loop_merge = def->create_basic_block();
 
+        luisa::vector<BasicBlock *> ordered_loop_blocks;
+        ordered_loop_blocks.reserve(loop_blocks.size());
+        for (auto *block : all_blocks) {
+            if (loop_blocks.contains(block)) {
+                ordered_loop_blocks.emplace_back(block);
+            }
+        }
+        if (std::find(
+                ordered_loop_blocks.begin(),
+                ordered_loop_blocks.end(),
+                canonical_latch) == ordered_loop_blocks.end()) {
+            ordered_loop_blocks.emplace_back(canonical_latch);
+        }
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> exit_edges;
-        for (auto *lb : loop_blocks) {
+        for (auto *lb : ordered_loop_blocks) {
             if (!lb->is_terminated()) { continue; }
             lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
                 if (succ == loop_merge) { return; }
@@ -4505,8 +4933,12 @@ struct SelectionExitDrainResult {
         }
 
         luisa::unordered_set<BasicBlock *> exit_targets_set;
-        for (auto &[src, tgt] : exit_edges) { exit_targets_set.emplace(tgt); }
-        luisa::vector<BasicBlock *> exit_targets{exit_targets_set.begin(), exit_targets_set.end()};
+        luisa::vector<BasicBlock *> exit_targets;
+        for (auto &[src, tgt] : exit_edges) {
+            if (exit_targets_set.emplace(tgt).second) {
+                exit_targets.emplace_back(tgt);
+            }
+        }
 
         auto *mod = def->parent_module();
 
@@ -4855,12 +5287,12 @@ public:
             luisa::span<BasicBlock *const>{
                 entries.data(), entries.size()});
         if (merge == nullptr) {
-            auto ipm_it = pdom.ipostdom.find(bb);
-            if (ipm_it == pdom.ipostdom.end() ||
-                ipm_it->second == nullptr) {
+            auto *immediate_postdom =
+                pdom.immediate_postdom(bb);
+            if (immediate_postdom == nullptr) {
                 return;
             }
-            merge = ipm_it->second;
+            merge = immediate_postdom;
         }
         if (merge == pdom.virtual_exit) { return; }
         if (merge == bb) { return; }
@@ -5461,12 +5893,18 @@ enum struct SelectionReentryAnalysisPurpose : uint8_t {
 [[nodiscard]] luisa::vector<PostMergeSelectionReentry>
 analyze_post_merge_selection_reentries(
     FunctionDefinition *def,
-    const DomTree &dom,
+    DomTree &dom,
     const SelectionExitCFGRelations &cfg_relations,
     const luisa::unordered_set<BasicBlock *> &ignored_headers,
     RestructureCFGInfo &info,
     SelectionReentryAnalysisPurpose purpose,
     bool stop_after_first) noexcept {
+    // The frontier is a pure derivative of this immutable dominance snapshot
+    // and is observed nowhere else in restructure_cfg. Keeping its
+    // materialization at this semantic demand point makes every ancestry-only
+    // tree strictly cheaper without weakening the witness theorem below.
+    dom.compute_dominance_frontiers();
+    ++info.selection_reentry_frontier_materialization_count;
     luisa::vector<PostMergeSelectionReentry> result;
     const auto &loop_boundary_selection_entries =
         cfg_relations.loop_boundary_selection_entries;
@@ -5715,7 +6153,7 @@ analyze_post_merge_selection_reentries(
             // either the original arm or its clone writes the same slot before
             // the common continuation reloads it.
             repair_target_state_dispatch_ssa(def);
-            dom = compute_dom_tree(def);
+            dom = compute_restructure_dom(def);
             pdom = compute_post_dom(def, info);
             LUISA_ASSERT(
                 clone_owned_subgraph_for_edge(
@@ -5728,7 +6166,7 @@ analyze_post_merge_selection_reentries(
                     reentry.merge, dom, true),
                 "Selection re-entry node splitting made no progress.");
             ++info.canonicalized_cfg_count;
-            dom = compute_dom_tree(def);
+            dom = compute_restructure_dom(def);
             pdom = compute_post_dom(def, info);
             return true;
         }
@@ -5758,7 +6196,7 @@ analyze_post_merge_selection_reentries(
         reentry.header, reentry.entries);
     if (reentry.entries.empty()) { return false; }
     repair_target_state_dispatch_ssa(def);
-    dom = compute_dom_tree(def);
+    dom = compute_restructure_dom(def);
     pdom = compute_post_dom(def, info);
     LUISA_ASSERT(
         clone_owned_subgraph_for_edge(
@@ -5771,7 +6209,7 @@ analyze_post_merge_selection_reentries(
             reentry.merge, dom, true),
         "Selection re-entry frontier splitting made no progress.");
     ++info.canonicalized_cfg_count;
-    dom = compute_dom_tree(def);
+    dom = compute_restructure_dom(def);
     pdom = compute_post_dom(def, info);
     return true;
 }
@@ -5831,7 +6269,7 @@ analyze_post_merge_selection_reentries(
         luisa::unordered_set<BasicBlock *> rewritten_predecessors;
         for (;;) {
             if (!dom_valid) {
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 ++info.construct_entry_dom_tree_count;
                 dom_valid = true;
             }
@@ -5976,45 +6414,144 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 // try_restructure_if_batch (e.g., when both arms eventually return). Uses the
 // nearest common post-dominator of all successors as the merge block.
 // Ported from LLVM SPIRVStructurizer::addHeaderToRemainingDivergentDAG.
-[[nodiscard]] static bool add_header_to_one_remaining_divergent(
-    FunctionDefinition *def,
-    DomTree &dom,
-    PostDomInfo &pdom,
-    RestructureCFGInfo &info,
-    const luisa::unordered_set<BasicBlock *> &
-        exit_dispatch_headers) noexcept {
-    ScopedTimer _timer_add_header("add_header_to_remaining_divergent");
-
-    // Recompute structured metadata fresh.
+struct RemainingDivergentIndex {
     luisa::unordered_set<BasicBlock *> header_set;
     luisa::unordered_set<BasicBlock *> continue_set;
     luisa::unordered_set<BasicBlock *> loop_prepare_set;
     luisa::unordered_set<BasicBlock *> loop_merge_set;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (!bb->is_terminated()) { return; }
-        auto *term = bb->terminator();
-        auto tag = term->derived_instruction_tag();
-        if (tag == DerivedInstructionTag::IF || tag == DerivedInstructionTag::SWITCH ||
-            tag == DerivedInstructionTag::LOOP || tag == DerivedInstructionTag::SIMPLE_LOOP) {
-            header_set.emplace(bb);
+    luisa::vector<BasicBlock *> candidates;
+    size_t indexed_block_count{0u};
+};
+
+[[nodiscard]] static RemainingDivergentIndex
+index_remaining_divergent_candidates(
+    FunctionDefinition *def,
+    const luisa::unordered_set<BasicBlock *> &
+        exit_dispatch_headers) noexcept {
+    RemainingDivergentIndex index;
+    luisa::vector<BasicBlock *> blocks;
+    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        blocks.emplace_back(block);
+        if (!block->is_terminated()) { return; }
+        auto *terminator = block->terminator();
+        auto tag = terminator->derived_instruction_tag();
+        if (tag == DerivedInstructionTag::IF ||
+            tag == DerivedInstructionTag::SWITCH ||
+            tag == DerivedInstructionTag::LOOP ||
+            tag == DerivedInstructionTag::SIMPLE_LOOP) {
+            index.header_set.emplace(block);
         }
-        if (term->isa<LoopInst>()) {
-            auto *lp = static_cast<LoopInst *>(term);
-            if (lp->merge_block()) { loop_merge_set.emplace(lp->merge_block()); }
-            if (lp->update_block()) { continue_set.emplace(lp->update_block()); }
-            if (lp->prepare_block()) {
-                continue_set.emplace(lp->prepare_block());
-                loop_prepare_set.emplace(lp->prepare_block());
+        if (terminator->isa<LoopInst>()) {
+            auto *loop = static_cast<LoopInst *>(terminator);
+            if (loop->merge_block() != nullptr) {
+                index.loop_merge_set.emplace(loop->merge_block());
             }
-        } else if (term->isa<SimpleLoopInst>()) {
-            auto *sl = static_cast<SimpleLoopInst *>(term);
-            if (sl->merge_block()) { loop_merge_set.emplace(sl->merge_block()); }
-            if (sl->body_block()) { continue_set.emplace(sl->body_block()); }
+            if (loop->update_block() != nullptr) {
+                index.continue_set.emplace(loop->update_block());
+            }
+            if (loop->prepare_block() != nullptr) {
+                index.continue_set.emplace(loop->prepare_block());
+                index.loop_prepare_set.emplace(loop->prepare_block());
+            }
+        } else if (terminator->isa<SimpleLoopInst>()) {
+            auto *loop = static_cast<SimpleLoopInst *>(terminator);
+            if (loop->merge_block() != nullptr) {
+                index.loop_merge_set.emplace(loop->merge_block());
+            }
+            if (loop->body_block() != nullptr) {
+                index.continue_set.emplace(loop->body_block());
+            }
         }
     });
+    index.indexed_block_count = blocks.size();
+    for (auto *block : blocks) {
+        if (index.header_set.contains(block) ||
+            index.loop_prepare_set.contains(block) ||
+            exit_dispatch_headers.contains(block) ||
+            !block->is_terminated() ||
+            !block->terminator()->isa<ConditionalBranchInst>()) {
+            continue;
+        }
+        index.candidates.emplace_back(block);
+    }
+    return index;
+}
 
-    luisa::vector<BasicBlock *> all_blocks;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept { all_blocks.emplace_back(bb); });
+[[nodiscard]] static bool verify_remaining_divergent_index(
+    const RemainingDivergentIndex &index,
+    FunctionDefinition *def,
+    const luisa::unordered_set<BasicBlock *> &
+        exit_dispatch_headers) noexcept {
+    auto oracle = index_remaining_divergent_candidates(
+        def, exit_dispatch_headers);
+    auto equal_set = [](const auto &lhs,
+                        const auto &rhs) noexcept {
+        if (lhs.size() != rhs.size()) { return false; }
+        for (auto *value : lhs) {
+            if (!rhs.contains(value)) { return false; }
+        }
+        return true;
+    };
+    if (!equal_set(index.header_set, oracle.header_set) ||
+        !equal_set(index.continue_set, oracle.continue_set) ||
+        !equal_set(index.loop_prepare_set,
+                   oracle.loop_prepare_set) ||
+        !equal_set(index.loop_merge_set,
+                   oracle.loop_merge_set)) {
+        return false;
+    }
+    luisa::vector<BasicBlock *> live_candidates;
+    for (auto *block : index.candidates) {
+        if (block->is_terminated() &&
+            block->terminator()->isa<ConditionalBranchInst>()) {
+            live_candidates.emplace_back(block);
+        }
+    }
+    return live_candidates == oracle.candidates;
+}
+
+struct RemainingDivergentOverlay {
+    // A reachable transparent merge has the same old-block dominators as the
+    // nearest common dominator of its executable predecessors.
+    luisa::unordered_map<BasicBlock *, BasicBlock *>
+        dominance_anchors;
+};
+
+[[nodiscard]] static bool add_header_to_one_remaining_divergent(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    PostDomInfo &pdom,
+    RestructureCFGInfo &info,
+    RemainingDivergentIndex &index,
+    RemainingDivergentOverlay &overlay,
+    const luisa::unordered_set<BasicBlock *> &
+        exit_dispatch_headers,
+    bool verify_index) noexcept {
+    ScopedTimer _timer_add_header("add_header_to_remaining_divergent");
+    if (verify_index) {
+        LUISA_ASSERT(
+            verify_remaining_divergent_index(
+                index, def, exit_dispatch_headers),
+            "Remaining-divergent candidate index disagrees with "
+            "the live CFG.");
+    }
+    auto oracle_dom = verify_index ?
+                          luisa::make_unique<DomTree>(
+                              compute_restructure_dom(def)) :
+                          nullptr;
+    IfBatchDominanceOverlay dominance{
+        dom, overlay.dominance_anchors};
+    auto dominates = [&](BasicBlock *source,
+                         BasicBlock *target) noexcept {
+        auto result = dominance.dominates(source, target);
+        if (oracle_dom != nullptr) {
+            LUISA_ASSERT(
+                result == oracle_dom->dominates(source, target),
+                "Remaining-divergent dominance overlay disagrees "
+                "with a fresh analysis.");
+        }
+        return result;
+    };
 
     // Find the first conditional branch that needs a header.
     BasicBlock *found_bb = nullptr;
@@ -6022,37 +6559,50 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     BasicBlock *found_f = nullptr;
     BasicBlock *found_merge = nullptr;
     bool found_is_synthetic = false;
+    bool found_preserves_postdom = false;
     Value *found_cond = nullptr;
 
-    for (auto *bb : all_blocks) {
+    for (auto *bb : index.candidates) {
         if (found_bb != nullptr) { break; }
-        if (header_set.contains(bb)) { continue; }
-        if (loop_prepare_set.contains(bb)) { continue; }
-        // A single-exit rewrite ends in a raw dispatch *after* the rewritten
-        // construct's merge. LLVM's structurizer deliberately leaves this as
-        // an ordinary conditional when one arm names an enclosing construct
-        // boundary. Turning it into a fresh selection would make that arm
-        // leave the new selection without passing through its merge.
-        if (exit_dispatch_headers.contains(bb)) { continue; }
         if (!bb->is_terminated()) { continue; }
         auto *term = bb->terminator();
         if (!term->isa<ConditionalBranchInst>()) { continue; }
+        ++info.remaining_divergent_candidate_query_count;
         auto *cbr = static_cast<ConditionalBranchInst *>(term);
 
         auto *t = cbr->true_block();
         auto *f = cbr->false_block();
         if (t == nullptr || f == nullptr || t == f) { continue; }
-        if (continue_set.contains(t) || continue_set.contains(f) ||
-            loop_merge_set.contains(t) ||
-            loop_merge_set.contains(f)) {
+        if (index.continue_set.contains(t) ||
+            index.continue_set.contains(f) ||
+            index.loop_merge_set.contains(t) ||
+            index.loop_merge_set.contains(f)) {
             continue;
         }
 
-        luisa::vector<BasicBlock *> succs_vec;
-        succs_vec.push_back(t);
-        succs_vec.push_back(f);
-        auto *merge = common_postdom(pdom, luisa::span<BasicBlock *const>{succs_vec.data(), succs_vec.size()});
+        auto successors = std::array{t, f};
+        // Classical post-dominance crosses loop-epoch boundaries. For a
+        // one-sided exit, it can therefore select a block reached only after
+        // the enclosing loop starts its next iteration, turning that old arm
+        // block into the new selection merge. Use the same lexical merge
+        // inference as indexed-branch restructuring before falling back to
+        // global post-dominance.
+        auto *merge = infer_selection_merge(
+            def, bb,
+            luisa::span<BasicBlock *const>{successors},
+            dominance);
+        if (merge == nullptr) {
+            merge = common_postdom(
+                pdom,
+                luisa::span<BasicBlock *const>{successors},
+                info);
+        }
         bool is_synthetic = (merge == nullptr || merge == pdom.virtual_exit || merge == bb);
+        const auto preserves_postdom =
+            merge == nullptr &&
+            pdom.immediate_postdom(t) != nullptr &&
+            pdom.immediate_postdom(f) != nullptr &&
+            pdom.immediate_postdom(bb) == pdom.virtual_exit;
 
         if (!is_synthetic) {
             bool has_bad = false;
@@ -6065,21 +6615,26 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
                 work.pop_back();
                 if (cur == merge || cur == bb) { continue; }
                 if (!visited.emplace(cur).second) { continue; }
-                if (!dom.dominates(bb, cur)) { continue; }
-                if (dom.dominates(merge, cur)) { continue; }
-                if (header_set.contains(cur)) {
+                ++info.remaining_divergent_region_block_visit_count;
+                if (!dominates(bb, cur)) { continue; }
+                if (dominates(merge, cur)) { continue; }
+                if (index.header_set.contains(cur)) {
                     if (auto *nested_merge = structured_statement_merge(cur->terminator());
                         nested_merge != nullptr && nested_merge != merge) {
                         work.emplace_back(nested_merge);
                     }
                     continue;
                 }
-                if (continue_set.contains(cur)) {
+                if (index.continue_set.contains(cur)) {
                     has_bad = true;
                     break;
                 }
                 if (!cur->is_terminated()) { continue; }
-                cur->traverse_successors(false, [&](BasicBlock *s) noexcept { work.emplace_back(s); });
+                cur->traverse_successors(
+                    false, [&](BasicBlock *successor) noexcept {
+                        ++info.remaining_divergent_region_edge_visit_count;
+                        work.emplace_back(successor);
+                    });
             }
             if (has_bad) { continue; }
         }
@@ -6089,12 +6644,14 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         found_f = f;
         found_merge = merge;
         found_is_synthetic = is_synthetic;
+        found_preserves_postdom = preserves_postdom;
         found_cond = cbr->condition();
     }
 
     if (found_bb == nullptr) { return false; }
 
-    // Apply one fixup, then recompute dom/pdom for the caller.
+    // Apply one transparent quotient-graph fixup. The drain rebuilds the
+    // concrete analyses once after all candidates have been consumed.
     auto *merge = found_merge;
     if (found_is_synthetic) {
         merge = def->create_basic_block();
@@ -6131,12 +6688,14 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         auto *cur = fwd_work.back();
         fwd_work.pop_back();
         if (cur == bb || cur == merge) { continue; }
-        if (!dom.dominates(bb, cur)) { continue; }
+        ++info.remaining_divergent_region_block_visit_count;
+        if (!dominates(bb, cur)) { continue; }
         if (cur->is_terminated()) {
             retarget_terminator(cur->terminator(), merge, structural_merge);
             fix_degenerate_terminator(cur);
         }
         cur->traverse_successors(false, [&](BasicBlock *s) noexcept {
+            ++info.remaining_divergent_region_edge_visit_count;
             if (fwd_visited.emplace(s).second) { fwd_work.emplace_back(s); }
         });
     }
@@ -6150,10 +6709,68 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     if_inst->set_false_target(f);
     if_inst->set_merge_block(structural_merge);
     info.restructured_if_count++;
+    ++info.remaining_divergent_rewrite_count;
+    index.header_set.emplace(bb);
 
-    // Invalidate analyses after CFG mutation.
-    dom = compute_dom_tree(def);
-    pdom = compute_post_dom(def, info);
+    if (!found_is_synthetic) {
+        BasicBlock *anchor = nullptr;
+        structural_merge->traverse_predecessors(
+            false, [&](BasicBlock *predecessor) noexcept {
+                if (!has_executable_edge(
+                        predecessor, structural_merge)) {
+                    return;
+                }
+                auto *predecessor_anchor = predecessor;
+                if (!dom.contains(predecessor)) {
+                    auto iter = overlay.dominance_anchors.find(
+                        predecessor);
+                    if (iter ==
+                        overlay.dominance_anchors.end()) {
+                        return;
+                    }
+                    predecessor_anchor = iter->second;
+                }
+                anchor = nearest_common_dominator(
+                    dom, anchor, predecessor_anchor);
+            });
+        // No executable predecessor means the declarative merge is an
+        // unreachable structural shell. Such a block must remain absent from
+        // both the base tree and its reachable overlay.
+        if (anchor != nullptr) {
+            overlay.dominance_anchors.emplace(
+                structural_merge, anchor);
+        }
+    }
+    auto postdom_updated = found_preserves_postdom;
+    if (!found_is_synthetic) {
+        PostDomInfo::TransparentMergeUpdateStats update_stats;
+        postdom_updated = pdom.insert_transparent_merge(
+            structural_merge, found_merge, &update_stats);
+        if (postdom_updated) {
+            ++info.remaining_divergent_postdom_incremental_update_count;
+            info.remaining_divergent_postdom_update_candidate_block_count +=
+                update_stats.candidate_block_count;
+            info.remaining_divergent_postdom_update_block_evaluation_count +=
+                update_stats.block_evaluation_count;
+            info.remaining_divergent_postdom_update_edge_visit_count +=
+                update_stats.edge_visit_count;
+            info.remaining_divergent_postdom_update_covered_block_count +=
+                update_stats.covered_block_count;
+            info.remaining_divergent_postdom_update_reparented_root_count +=
+                update_stats.reparented_root_count;
+        }
+    }
+    if (!postdom_updated) {
+        pdom = compute_post_dom(def, info);
+        ++info.remaining_divergent_postdom_rebuild_count;
+    }
+    if (verify_index) {
+        auto oracle = detail::compute_restructure_post_dom(def);
+        LUISA_ASSERT(
+            pdom.structurally_equals(oracle),
+            "Incremental remaining-divergent postdom tree "
+            "disagrees with a fresh CHK solve.");
+    }
     return true;
 }
 
@@ -6163,12 +6780,28 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     PostDomInfo &pdom,
     RestructureCFGInfo &info,
     const luisa::unordered_set<BasicBlock *> &
-        exit_dispatch_headers) noexcept {
+        exit_dispatch_headers,
+    bool verify_index) noexcept {
     auto modified = false;
+    auto index = index_remaining_divergent_candidates(
+        def, exit_dispatch_headers);
+    ++info.remaining_divergent_analysis_count;
+    info.remaining_divergent_indexed_block_count +=
+        index.indexed_block_count;
+    info.remaining_divergent_candidate_count +=
+        index.candidates.size();
+    RemainingDivergentOverlay overlay;
     // Like loop-boundary normalization, every successful rewrite consumes one
-    // raw ConditionalBranchInst and cannot rediscover the same site.
+    // original raw ConditionalBranchInst. It creates only one IfInst plus
+    // branch/unreachable blocks, and it cannot create a new raw candidate or
+    // change any loop-role block. A real rewrite only subdivides old edges
+    // with a single-successor structural merge. Contracting the overlay
+    // recovers the immutable input CFG, so dominance uses exact old-block
+    // anchors. Post-dominance retains the concrete structural-merge ordering
+    // through an exact greatest-fixed-point update of the affected subtree.
     while (add_header_to_one_remaining_divergent(
-        def, dom, pdom, info, exit_dispatch_headers)) {
+        def, dom, pdom, info, index,
+        overlay, exit_dispatch_headers, verify_index)) {
         modified = true;
     }
     return modified;
@@ -6202,6 +6835,29 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     auto modified = false;
 
     for (;;) {
+        // Basic blocks are owned in creation order. Unlike executable DFS or
+        // predecessor use lists, that order does not depend on pointer-hash
+        // iteration or on the history of edge rewrites. Use it as the sole
+        // tie-breaker for selector target numbering in this CFG version.
+        luisa::vector<BasicBlock *> stable_blocks;
+        stable_blocks.reserve(
+            def->basic_blocks().count_size());
+        luisa::unordered_map<BasicBlock *, size_t>
+            stable_block_indices;
+        stable_block_indices.reserve(
+            def->basic_blocks().count_size());
+        for (auto *block : def->basic_blocks()) {
+            stable_block_indices.emplace(
+                block, stable_blocks.size());
+            stable_blocks.emplace_back(block);
+        }
+        auto block_index = [&](BasicBlock *block) noexcept {
+            auto iter = stable_block_indices.find(block);
+            LUISA_DEBUG_ASSERT(
+                iter != stable_block_indices.end(),
+                "Construct-exit block must belong to its function.");
+            return iter->second;
+        };
         // No mutation occurs while a candidate is selected. Materialize the
         // boundary relation once for this CFG version; the successful rewrite
         // at the bottom invalidates it together with dominance.
@@ -6383,8 +7039,12 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
         }
         luisa::sort(
             construct_order.begin(), construct_order.end(),
-            [](auto *lhs, auto *rhs) noexcept {
-                return lhs->depth > rhs->depth;
+            [&](auto *lhs, auto *rhs) noexcept {
+                if (lhs->depth != rhs->depth) {
+                    return lhs->depth > rhs->depth;
+                }
+                return block_index(lhs->header) <
+                       block_index(rhs->header);
             });
 
         Construct *candidate = nullptr;
@@ -6455,7 +7115,8 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             }
 
             luisa::vector<SelectionExitEdge> exits;
-            for (auto *block : blocks) {
+            for (auto *block : stable_blocks) {
+                if (!blocks.contains(block)) { continue; }
                 traverse_executable_successors(
                     block, [&](BasicBlock *successor) noexcept {
                         if (!blocks.contains(successor)) {
@@ -6492,6 +7153,19 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             }
         }
         if (candidate == nullptr) { break; }
+
+        luisa::sort(
+            candidate_exits.begin(), candidate_exits.end(),
+            [&](SelectionExitEdge lhs,
+                SelectionExitEdge rhs) noexcept {
+                auto lhs_src = block_index(lhs.src);
+                auto rhs_src = block_index(rhs.src);
+                if (lhs_src != rhs_src) {
+                    return lhs_src < rhs_src;
+                }
+                return block_index(lhs.dst) <
+                       block_index(rhs.dst);
+            });
 
         luisa::unordered_map<BasicBlock *, uint32_t> target_ids;
         luisa::vector<BasicBlock *> targets;
@@ -6588,7 +7262,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 
         // LLVM Splitter::invalidate(): all containment and exit facts above are
         // stale after one rewrite.
-        dom = compute_dom_tree(def);
+        dom = compute_restructure_dom(def);
         pdom = compute_post_dom(def, info);
     }
     return modified;
@@ -6722,7 +7396,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 [[nodiscard]] size_t count_unauthorized_construct_entries(
     FunctionDefinition *def) noexcept {
     size_t count = 0u;
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_restructure_dom(def);
     const auto loop_boundary_selection_entries =
         collect_loop_boundary_selection_entries(def);
     for (auto *header : def->basic_blocks()) {
@@ -6770,7 +7444,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
 [[nodiscard]] size_t count_post_merge_selection_reentries(
     FunctionDefinition *def,
     RestructureCFGInfo &info) noexcept {
-    auto dom = compute_dom_tree(def);
+    auto dom = compute_restructure_dom(def);
     RestructureCFGInfo relation_work;
     const auto cfg_relations =
         build_selection_exit_cfg_relations(
@@ -7078,7 +7752,7 @@ restructure_cfg_on_definition_in_place(
                 "[restructure_cfg] main iteration {}.",
                 iteration);
         }
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_restructure_dom(def);
         auto pdom = compute_post_dom(def, info);
         if (try_restructure_loop(def, dom, pdom, info)) {
             main_last_modified = true;
@@ -7142,7 +7816,7 @@ restructure_cfg_on_definition_in_place(
     bool post_last_modified = false;
     {
         ScopedTimer _timer_post("post_restructure_fixed_point");
-        auto dom = compute_dom_tree(def);
+        auto dom = compute_restructure_dom(def);
         auto pdom = compute_post_dom(def, info);
         for (size_t iteration = 0u;
              iteration < options.post_iteration_limit;
@@ -7156,23 +7830,28 @@ restructure_cfg_on_definition_in_place(
                 try_restructure_loop(def, dom, pdom, info);
             if (loop_changed) {
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto header_changed =
                 add_headers_to_remaining_divergent(
                     def, dom, pdom, info,
-                    exit_dispatch_headers);
+                    exit_dispatch_headers,
+                    options.verify_remaining_divergent_index);
             if (header_changed) {
                 local = true;
-                // dom/pdom are recomputed after every rewrite in the drained phase.
+                // Transparent edge subdivisions preserve dominance between
+                // old blocks. Materialize that concrete tree once after the
+                // drain; post-dominance already tracks structural nesting.
+                dom = compute_restructure_dom(def);
+                ++info.remaining_divergent_dominance_rebuild_count;
             }
             auto switch_proxy_changed =
                 proxy_switch_targets_to_structural_boundaries(def);
             if (switch_proxy_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto selection_exit_drain =
@@ -7208,7 +7887,7 @@ restructure_cfg_on_definition_in_place(
             if (boundary_merge_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto boundary_branch_changed =
@@ -7218,7 +7897,7 @@ restructure_cfg_on_definition_in_place(
             if (boundary_branch_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto loop_prepare_changed =
@@ -7226,7 +7905,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_prepare_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto loop_continue_changed =
@@ -7242,7 +7921,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_update_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             auto limits_before_fixup = info.iteration_limit_count;
@@ -7253,7 +7932,7 @@ restructure_cfg_on_definition_in_place(
             if (construct_exit_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             for (auto *header : exit_dispatch_headers) {
@@ -7267,7 +7946,7 @@ restructure_cfg_on_definition_in_place(
             if (dispatch_collapse_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
-                dom = compute_dom_tree(def);
+                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             if (restructure_trace_enabled()) {
@@ -7644,9 +8323,6 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "loop_continue_dominance_rebuild",
             info.loop_continue_dominance_rebuild_count);
         report->set(
-            "loop_continue_frontier_materialization",
-            info.loop_continue_frontier_materialization_count);
-        report->set(
             "loop_continue_region_block_visit",
             info.loop_continue_region_block_visit_count);
         report->set(
@@ -7701,6 +8377,57 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "postdom_intersect_step",
             info.postdom_intersect_step_count);
         report->set(
+            "postdom_common_ancestor_query",
+            info.postdom_common_ancestor_query_count);
+        report->set(
+            "postdom_common_ancestor_step",
+            info.postdom_common_ancestor_step_count);
+        report->set(
+            "remaining_divergent_analysis",
+            info.remaining_divergent_analysis_count);
+        report->set(
+            "remaining_divergent_indexed_block",
+            info.remaining_divergent_indexed_block_count);
+        report->set(
+            "remaining_divergent_candidate",
+            info.remaining_divergent_candidate_count);
+        report->set(
+            "remaining_divergent_candidate_query",
+            info.remaining_divergent_candidate_query_count);
+        report->set(
+            "remaining_divergent_region_block_visit",
+            info.remaining_divergent_region_block_visit_count);
+        report->set(
+            "remaining_divergent_region_edge_visit",
+            info.remaining_divergent_region_edge_visit_count);
+        report->set(
+            "remaining_divergent_rewrite",
+            info.remaining_divergent_rewrite_count);
+        report->set(
+            "remaining_divergent_dominance_rebuild",
+            info.remaining_divergent_dominance_rebuild_count);
+        report->set(
+            "remaining_divergent_postdom_incremental_update",
+            info.remaining_divergent_postdom_incremental_update_count);
+        report->set(
+            "remaining_divergent_postdom_update_candidate_block",
+            info.remaining_divergent_postdom_update_candidate_block_count);
+        report->set(
+            "remaining_divergent_postdom_update_block_evaluation",
+            info.remaining_divergent_postdom_update_block_evaluation_count);
+        report->set(
+            "remaining_divergent_postdom_update_edge_visit",
+            info.remaining_divergent_postdom_update_edge_visit_count);
+        report->set(
+            "remaining_divergent_postdom_update_covered_block",
+            info.remaining_divergent_postdom_update_covered_block_count);
+        report->set(
+            "remaining_divergent_postdom_update_reparented_root",
+            info.remaining_divergent_postdom_update_reparented_root_count);
+        report->set(
+            "remaining_divergent_postdom_rebuild",
+            info.remaining_divergent_postdom_rebuild_count);
+        report->set(
             "definition_transform_invocation",
             info.definition_transform_invocation_count);
         report->set(
@@ -7737,8 +8464,17 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_region_edge_visit",
             info.selection_exit_region_edge_visit_count);
         report->set(
+            "selection_exit_merge_canonicalization",
+            info.selection_exit_merge_canonicalization_count);
+        report->set(
             "selection_exit_loop_context",
             info.selection_exit_loop_context_count);
+        report->set(
+            "selection_exit_terminal_target",
+            info.selection_exit_terminal_target_count);
+        report->set(
+            "selection_exit_terminal_fallback_reorder",
+            info.selection_exit_terminal_fallback_reorder_count);
         report->set(
             "selection_exit_cfg_invalidation",
             info.selection_exit_cfg_invalidation_count);
@@ -7748,6 +8484,9 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         report->set(
             "selection_exit_global_invalidation",
             info.selection_exit_global_invalidation_count);
+        report->set(
+            "selection_exit_relation_incremental_update",
+            info.selection_exit_relation_incremental_update_count);
         report->set(
             "selection_exit_ssa_repair_request",
             info.selection_exit_ssa_repair_request_count);
@@ -7767,6 +8506,12 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             "selection_exit_round_yield",
             info.selection_exit_round_yield_count);
         report->set(
+            "selection_exit_audit_selection",
+            info.selection_exit_audit_selection_count);
+        report->set(
+            "selection_exit_audit_invalid",
+            info.selection_exit_audit_invalid_count);
+        report->set(
             "boundary_merge_analysis",
             info.boundary_merge_analysis_count);
         report->set(
@@ -7781,6 +8526,9 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
         report->set(
             "selection_reentry_boundary_analysis",
             info.selection_reentry_boundary_analysis_count);
+        report->set(
+            "selection_reentry_frontier_materialization",
+            info.selection_reentry_frontier_materialization_count);
         report->set(
             "selection_reentry_edge_query",
             info.selection_reentry_edge_query_count);
@@ -7870,8 +8618,6 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.loop_continue_invalidation_count;
         dst.loop_continue_dominance_rebuild_count +=
             src.loop_continue_dominance_rebuild_count;
-        dst.loop_continue_frontier_materialization_count +=
-            src.loop_continue_frontier_materialization_count;
         dst.loop_continue_region_block_visit_count +=
             src.loop_continue_region_block_visit_count;
         dst.loop_continue_region_edge_visit_count +=
@@ -7908,6 +8654,40 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.postdom_fixed_point_edge_visit_count;
         dst.postdom_intersect_step_count +=
             src.postdom_intersect_step_count;
+        dst.postdom_common_ancestor_query_count +=
+            src.postdom_common_ancestor_query_count;
+        dst.postdom_common_ancestor_step_count +=
+            src.postdom_common_ancestor_step_count;
+        dst.remaining_divergent_analysis_count +=
+            src.remaining_divergent_analysis_count;
+        dst.remaining_divergent_indexed_block_count +=
+            src.remaining_divergent_indexed_block_count;
+        dst.remaining_divergent_candidate_count +=
+            src.remaining_divergent_candidate_count;
+        dst.remaining_divergent_candidate_query_count +=
+            src.remaining_divergent_candidate_query_count;
+        dst.remaining_divergent_region_block_visit_count +=
+            src.remaining_divergent_region_block_visit_count;
+        dst.remaining_divergent_region_edge_visit_count +=
+            src.remaining_divergent_region_edge_visit_count;
+        dst.remaining_divergent_rewrite_count +=
+            src.remaining_divergent_rewrite_count;
+        dst.remaining_divergent_dominance_rebuild_count +=
+            src.remaining_divergent_dominance_rebuild_count;
+        dst.remaining_divergent_postdom_incremental_update_count +=
+            src.remaining_divergent_postdom_incremental_update_count;
+        dst.remaining_divergent_postdom_update_candidate_block_count +=
+            src.remaining_divergent_postdom_update_candidate_block_count;
+        dst.remaining_divergent_postdom_update_block_evaluation_count +=
+            src.remaining_divergent_postdom_update_block_evaluation_count;
+        dst.remaining_divergent_postdom_update_edge_visit_count +=
+            src.remaining_divergent_postdom_update_edge_visit_count;
+        dst.remaining_divergent_postdom_update_covered_block_count +=
+            src.remaining_divergent_postdom_update_covered_block_count;
+        dst.remaining_divergent_postdom_update_reparented_root_count +=
+            src.remaining_divergent_postdom_update_reparented_root_count;
+        dst.remaining_divergent_postdom_rebuild_count +=
+            src.remaining_divergent_postdom_rebuild_count;
         dst.definition_transform_invocation_count +=
             src.definition_transform_invocation_count;
         dst.boundary_verifier_count +=
@@ -7932,14 +8712,22 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_exit_region_block_visit_count;
         dst.selection_exit_region_edge_visit_count +=
             src.selection_exit_region_edge_visit_count;
+        dst.selection_exit_merge_canonicalization_count +=
+            src.selection_exit_merge_canonicalization_count;
         dst.selection_exit_loop_context_count +=
             src.selection_exit_loop_context_count;
+        dst.selection_exit_terminal_target_count +=
+            src.selection_exit_terminal_target_count;
+        dst.selection_exit_terminal_fallback_reorder_count +=
+            src.selection_exit_terminal_fallback_reorder_count;
         dst.selection_exit_cfg_invalidation_count +=
             src.selection_exit_cfg_invalidation_count;
         dst.selection_exit_local_invalidation_count +=
             src.selection_exit_local_invalidation_count;
         dst.selection_exit_global_invalidation_count +=
             src.selection_exit_global_invalidation_count;
+        dst.selection_exit_relation_incremental_update_count +=
+            src.selection_exit_relation_incremental_update_count;
         dst.selection_exit_ssa_repair_request_count +=
             src.selection_exit_ssa_repair_request_count;
         dst.selection_exit_ssa_repair_count +=
@@ -7952,6 +8740,10 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.selection_exit_postdom_refresh_count;
         dst.selection_exit_round_yield_count +=
             src.selection_exit_round_yield_count;
+        dst.selection_exit_audit_selection_count +=
+            src.selection_exit_audit_selection_count;
+        dst.selection_exit_audit_invalid_count +=
+            src.selection_exit_audit_invalid_count;
         dst.boundary_merge_analysis_count +=
             src.boundary_merge_analysis_count;
         dst.boundary_merge_dataflow_count +=
@@ -7962,6 +8754,8 @@ RestructureCFGInfo restructure_cfg_pass_run_on_module(
             src.boundary_merge_rewrite_batch_count;
         dst.selection_reentry_boundary_analysis_count +=
             src.selection_reentry_boundary_analysis_count;
+        dst.selection_reentry_frontier_materialization_count +=
+            src.selection_reentry_frontier_materialization_count;
         dst.selection_reentry_edge_query_count +=
             src.selection_reentry_edge_query_count;
         dst.selection_reentry_owner_query_count +=
