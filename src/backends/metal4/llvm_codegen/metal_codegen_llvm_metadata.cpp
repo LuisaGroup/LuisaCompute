@@ -379,25 +379,22 @@ llvm::MDNode *MetalCodegenLLVMImpl::_root_argument_metadata(
                 sampled_name.append("_sampled");
                 auto sampled_type_name = _air_texture_type_name(
                     argument->type(), air_texture_access_sample);
-                auto sampled_detail = node({
-                    md_i32(_context, struct_field_index + 1u),
-                    md_string(_context, "air.texture"),
-                    md_string(_context, "air.location_index"),
-                    md_i32(_context, physical_index), md_i32(_context, 1u),
-                    md_string(_context, "air.sample"),
-                    md_string(_context, "air.arg_type_name"),
-                    md_string(_context, sampled_type_name),
-                    md_string(_context, "air.arg_name"),
-                    md_string(_context, sampled_name)});
-                struct_fields.append({
-                    md_i32(_context, static_cast<uint32_t>(
-                                         layout.sampled_texture_offsets[
-                                             logical_index])),
-                    md_i32(_context, 8u), md_i32(_context, 0u),
-                    md_string(_context, sampled_type_name),
-                    md_string(_context, sampled_name),
-                    md_string(_context, "air.indirect_argument"),
-                    sampled_detail});
+                auto sampled_detail = node({md_i32(_context, struct_field_index + 1u),
+                                            md_string(_context, "air.texture"),
+                                            md_string(_context, "air.location_index"),
+                                            md_i32(_context, physical_index), md_i32(_context, 1u),
+                                            md_string(_context, "air.sample"),
+                                            md_string(_context, "air.arg_type_name"),
+                                            md_string(_context, sampled_type_name),
+                                            md_string(_context, "air.arg_name"),
+                                            md_string(_context, sampled_name)});
+                struct_fields.append({md_i32(_context, static_cast<uint32_t>(
+                                                           layout.sampled_texture_offsets[logical_index])),
+                                      md_i32(_context, 8u), md_i32(_context, 0u),
+                                      md_string(_context, sampled_type_name),
+                                      md_string(_context, sampled_name),
+                                      md_string(_context, "air.indirect_argument"),
+                                      sampled_detail});
                 physical_index++;
                 struct_field_index++;
             }
@@ -622,14 +619,13 @@ void MetalCodegenLLVMImpl::_add_raster_fragment_metadata(
             }
             LUISA_ERROR_WITH_LOCATION("Invalid Metal AIR shader-depth mode.");
         }();
-        output_metadata.emplace_back(node({
-            md_string(_context, "air.depth"),
-            md_string(_context, "air.depth_qualifier"),
-            md_string(_context, qualifier),
-            md_string(_context, "air.arg_type_name"),
-            md_string(_context, "float"),
-            md_string(_context, "air.arg_name"),
-            md_string(_context, "depth")}));
+        output_metadata.emplace_back(node({md_string(_context, "air.depth"),
+                                           md_string(_context, "air.depth_qualifier"),
+                                           md_string(_context, qualifier),
+                                           md_string(_context, "air.arg_type_name"),
+                                           md_string(_context, "float"),
+                                           md_string(_context, "air.arg_name"),
+                                           md_string(_context, "depth")}));
     }
     const xir::Argument *payload_argument = nullptr;
     for (auto argument : _raster_stage->arguments()) {
@@ -662,19 +658,53 @@ void MetalCodegenLLVMImpl::_add_raster_fragment_metadata(
                                                  md_string(_context, "air.arg_name"), md_string(_context, name)}));
         } else {
             auto semantic = luisa::format("user(locn{})", i - 1u);
-            auto element = type->is_vector() ? type->element() : type;
-            if (element->is_float16() || element->is_float32()) {
-                argument_metadata.emplace_back(node({md_i32(_context, i), md_string(_context, "air.fragment_input"),
-                                                     md_string(_context, semantic), md_string(_context, "air.center"),
-                                                     md_string(_context, "air.perspective"),
-                                                     md_string(_context, "air.arg_type_name"), md_string(_context, type_name),
-                                                     md_string(_context, "air.arg_name"), md_string(_context, name)}));
-            } else {
-                argument_metadata.emplace_back(node({md_i32(_context, i), md_string(_context, "air.fragment_input"),
-                                                     md_string(_context, semantic), md_string(_context, "air.flat"),
-                                                     md_string(_context, "air.arg_type_name"), md_string(_context, type_name),
-                                                     md_string(_context, "air.arg_name"), md_string(_context, name)}));
+            auto interpolation = RasterInterpolation::DEFAULT;
+            luisa::string reason;
+            LUISA_ASSERT(resolve_raster_interpolation(
+                             payload_type, i, interpolation, reason),
+                         "Invalid raster interpolation reached AIR metadata: {}.",
+                         reason);
+            llvm::SmallVector<llvm::Metadata *> metadata{
+                md_i32(_context, i),
+                md_string(_context, "air.fragment_input"),
+                md_string(_context, semantic)};
+            switch (interpolation) {
+                case RasterInterpolation::CENTER_PERSPECTIVE:
+                    metadata.append({md_string(_context, "air.center"),
+                                     md_string(_context, "air.perspective")});
+                    break;
+                case RasterInterpolation::CENTER_NO_PERSPECTIVE:
+                    metadata.append({md_string(_context, "air.center"),
+                                     md_string(_context, "air.no_perspective")});
+                    break;
+                case RasterInterpolation::CENTROID_PERSPECTIVE:
+                    metadata.append({md_string(_context, "air.centroid"),
+                                     md_string(_context, "air.perspective")});
+                    break;
+                case RasterInterpolation::CENTROID_NO_PERSPECTIVE:
+                    metadata.append({md_string(_context, "air.centroid"),
+                                     md_string(_context, "air.no_perspective")});
+                    break;
+                case RasterInterpolation::SAMPLE_PERSPECTIVE:
+                    metadata.append({md_string(_context, "air.sample"),
+                                     md_string(_context, "air.perspective")});
+                    break;
+                case RasterInterpolation::SAMPLE_NO_PERSPECTIVE:
+                    metadata.append({md_string(_context, "air.sample"),
+                                     md_string(_context, "air.no_perspective")});
+                    break;
+                case RasterInterpolation::FLAT:
+                    metadata.emplace_back(md_string(_context, "air.flat"));
+                    break;
+                case RasterInterpolation::DEFAULT:
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Unresolved default raster interpolation.");
             }
+            metadata.append({md_string(_context, "air.arg_type_name"),
+                             md_string(_context, type_name),
+                             md_string(_context, "air.arg_name"),
+                             md_string(_context, name)});
+            argument_metadata.emplace_back(node(metadata));
         }
     }
     auto primitive_index = static_cast<uint32_t>(payload_count);

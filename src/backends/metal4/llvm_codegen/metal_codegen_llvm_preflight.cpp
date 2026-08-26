@@ -1092,6 +1092,10 @@ bool luisa_compute_metal_codegen_llvm_supported(
             if (!is_vertex_payload(raster_stage->type())) {
                 return fail("vertex return must be float4 or a structure beginning with float4");
             }
+            if (!detail::validate_raster_interpolation(
+                    raster_stage->type(), local_reason)) {
+                return fail(std::move(local_reason));
+            }
             std::array<bool, kVertexAttributeCount> seen{};
             for (auto attribute : config.raster.vertex_attributes) {
                 auto semantic = static_cast<size_t>(attribute.semantic);
@@ -1111,6 +1115,10 @@ bool luisa_compute_metal_codegen_llvm_supported(
         } else {
             if (!is_vertex_payload(stage_arguments.front()->type())) {
                 return fail("fragment payload must match a vertex float4 output shape");
+            }
+            if (!detail::validate_raster_interpolation(
+                    stage_arguments.front()->type(), local_reason)) {
+                return fail(std::move(local_reason));
             }
             auto color_type = raster_stage->type();
             if (color_type == nullptr) {

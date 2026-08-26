@@ -2213,8 +2213,9 @@ Supported instruction families:
 - vertex and fragment raster stages with fixed Luisa `AppData` reconstruction,
   scalar/vector varyings, color render targets, per-stage root arguments,
   vertex/instance/base-instance/primitive/object IDs, floating barycentrics,
-  fragment front-facing state, derivatives, and discard as described in
-  Section 12.2.
+  fragment front-facing state, selectable center/centroid/sample and
+  perspective/no-perspective interpolation, derivatives, and discard as
+  described in Section 12.2.
 
 Not currently supported in AIR:
 
@@ -2226,8 +2227,7 @@ Not currently supported in AIR:
 - double, float8, cooperative-matrix operations, and custom types other than the
   indirect-dispatch handle and the two local ray-query types;
 - extended acceleration-limit shaders;
-- raster debug-break state, custom interpolation qualifiers, stencil, and
-  conservative rasterization.
+- raster debug-break state, stencil, and conservative rasterization.
 
 Apple's Metal 3.0 and 3.2 frontends accept `__builtin_readcyclecounter()` and
 emit `llvm.readcyclecounter`, and `metallib` accepts the resulting AIR. However,
@@ -2322,9 +2322,9 @@ Observed fragment conventions:
 - position input is `air.position`, `air.center`, `air.no_perspective`;
 - user varying inputs are `air.fragment_input`, `user(locnN)` or an Apple
   generated name, plus interpolation metadata;
-- floating varyings normally use `air.center`, `air.perspective`; integer
-  varyings require `air.flat` interpolation. Other observed interpolation
-  tokens include `air.centroid` and `air.no_perspective`;
+- floating varyings use one location token (`air.center`, `air.centroid`, or
+  `air.sample`) followed by one correction token (`air.perspective` or
+  `air.no_perspective`); integer varyings require the single `air.flat` token;
 - fragment built-ins include `air.primitive_id`, `air.front_facing`, and
   `air.barycentric_coord`; the barycentric value is floating point (the
   observed Metal value is a three-component floating vector), not an object
@@ -2343,6 +2343,26 @@ memory ABI, where a scalar bool and each member of `{bool, bool, bool, bool}`
 occupy one byte. The convention was recovered with `xcrun metal -std=metal3.2
 -S -emit-llvm -c` and then validated through Luisa's LLVM-21 emission,
 LLVM-14 downgrade, `metallib`, pipeline creation, and GPU execution.
+
+The selectable interpolation spellings were recovered from a single
+Metal-3.2 fragment oracle containing `center_perspective`,
+`center_no_perspective`, `centroid_perspective`,
+`centroid_no_perspective`, `sample_perspective`,
+`sample_no_perspective`, and `flat` inputs:
+
+~~~sh
+xcrun metal -std=metal3.2 -S -emit-llvm -c interpolation_oracle.metal \
+  -o interpolation_oracle.ll
+~~~
+
+The emitted argument-metadata pairs are respectively
+`air.center + air.perspective`, `air.center + air.no_perspective`,
+`air.centroid + air.perspective`, `air.centroid + air.no_perspective`,
+`air.sample + air.perspective`, `air.sample + air.no_perspective`, and the
+single `air.flat` token. Metadata order is significant: the location token
+precedes the correction token. These conventions were recovered with Apple
+metalfe 32023.883 and are strict-runtime tested after Luisa's LLVM-21 emission
+and in-tree LLVM-14 downgrade.
 
 Fragment derivatives are ordinary AIR calls such as
 `air.dfdx.f32`, `air.dfdy.f32`, `air.dfdx.v2f32`, and
@@ -2408,12 +2428,23 @@ runtime stride table.
 The vertex stage returns either `float4` position alone or a structure whose
 first member is `float4` position. Remaining scalar/vector `half`, `float`,
 `int32`, or `uint32` members (up to four lanes) become
-`air.vertex_output user(locnN)` values. The fragment wrapper is named
+`air.vertex_output user(locnN)` values. A reflected host structure can declare
+one interpolation mode for each member after position with
+`LUISA_RASTER_VARYING_INTERPOLATION(...)`. The available enumerators are
+`CENTER_PERSPECTIVE`, `CENTER_NO_PERSPECTIVE`, `CENTROID_PERSPECTIVE`,
+`CENTROID_NO_PERSPECTIVE`, `SAMPLE_PERSPECTIVE`,
+`SAMPLE_NO_PERSPECTIVE`, and `FLAT`. The declaration is serialized into the
+structure `Type` description as member attributes, so it survives AST-to-XIR,
+optimization, JIT, and raster archive creation/loading without a parallel
+side table. The fragment wrapper is named
 `fragment_main`; it receives the flattened position/varyings followed by
 `air.primitive_id`, a perspective-center `air.barycentric_coord float3`, an
 `air.front_facing bool`, the same root structure, and the object-ID buffer.
-Floating varyings use center, perspective interpolation and integer varyings
-use flat interpolation. A
+Unannotated floating varyings retain center-perspective interpolation and
+unannotated non-floating varyings retain flat interpolation. Perspective,
+centroid, and sample modes on a non-floating varying fail preflight; unknown
+attribute values, a missing first-position declaration, or a second position
+member also fail closed. A
 scalar/vector fragment return is render target 0; a structure is flattened to
 consecutive `air.render_target` indices. The fragment return is capped at eight
 targets. Its exact target count is carried from LLVM emission through the
@@ -2488,11 +2519,18 @@ fragment returns only depth 0.4375 through the packed singleton ABI, binds no
 color attachment, and must reproduce that value through both JIT and
 archive-loaded AOT execution.
 
-The implemented slice does not yet expose selectable interpolation qualifiers,
-centroid or sample inputs,
-stencil, conservative rasterization, tessellation, or mesh shaders. These are
-separate extensions to the stage ABI rather than aliases for the currently
-emitted metadata.
+The same strict test compiles a second varying payload containing every
+selectable interpolation mode. It requires the exact AIR metadata token pairs,
+then renders a triangle whose top vertex has clip-space W=4 while preserving
+its screen-space position. At the center pixel, the perspective-correct value
+must be near 0.2 while the no-perspective value must be near 0.5; this proves
+GPU interpolation semantics rather than metadata presence alone. Centroid and
+sample values are consumed by the fragment stage, and an archive-loaded AOT
+draw must exactly match the JIT image.
+
+The implemented slice does not yet expose stencil, conservative
+rasterization, tessellation, or mesh shaders. These are separate extensions to
+the stage ABI rather than aliases for the currently emitted metadata.
 
 ## 13. Fast-math policy
 
@@ -2959,7 +2997,8 @@ True vertex/fragment execution is strict-runtime validated by
 dump and checks `!air.vertex`, `!air.fragment`, vertex inputs and location
 indices, vertex/instance/base-instance/primitive/barycentric/front-facing built-ins, root indirect-buffer
 metadata, the object-ID buffer in both stages, render-target and shader-depth
-metadata, `air.dfdx.f32`, `air.dfdy.f32`, and `air.discard_fragment`. It then
+metadata, every center/centroid/sample perspective/no-perspective varying
+combination, `air.dfdx.f32`, `air.dfdy.f32`, and `air.discard_fragment`. It then
 creates the paired metallib and render PSO, draws an instanced triangle, and
 reads back the target. Vertex visibility depends on the object ID, a vertex
 root constant, and a nonzero draw-time base instance carried through a flat
@@ -2975,6 +3014,9 @@ the JIT draw and archive-loaded AOT draw. A second void fragment binds only the
 D32 attachment, emits no `air.render_target`, and requires depth 0.4375 through
 both JIT and AOT. The test then writes raster archives, reloads them through the
 AOT boundary, redraws, and requires exact agreement with the JIT outputs.
+The interpolation draw independently requires perspective-correct and
+screen-linear center values to diverge under nonuniform clip W and requires
+its archive-loaded image to exactly equal the JIT image.
 Separate fragment modules require Apple to accept the `air.any` and `air.less`
 metadata variants as well. Both the ordinary strict registration and the
 validation-layer registration pass on the Apple M1 Max reference machine.
@@ -3045,7 +3087,7 @@ deserialization.
 The closure configuration uses CMake/Ninja Release builds with legacy Metal,
 Metal4, and fallback enabled, Homebrew LLVM 21.1.8, Apple metalfe 32023.883,
 and the macOS 26.4 SDK. After rebasing onto `origin/next` at `a5d69e492`, a
-fresh full build and complete configured CTest run pass **155/155** in 54.00
+fresh full build and complete configured CTest run pass **155/155** in 111.91
 seconds: **33/33** `integration_metal4` tests,
 **15/15** offline graphics/rendering executables, and **11/11** tutorials are
 included. The standalone matrix-motion acceleration and image regressions also
@@ -3075,17 +3117,30 @@ dispatches, measures nine batches of 64 dispatches, and verifies the same
 
 | Metric | Legacy `metal` (MSL) | `metal4` (XIR/LLVM/AIR) | Paired result |
 |---|---:|---:|---:|
-| Cold end-to-end JIT median | 408.766 ms | 77.057 ms | **5.32x faster**, 81.2% less time |
-| Backend codegen median | 0.205 ms | 9.702 ms | AIR spends more time in XIR/LLVM lowering |
-| Apple compile/load median | 408.525 ms | 67.140 ms | AIR avoids the expensive source-MSL compile |
-| GPU dispatch median | 0.241499 ms | 0.242914 ms | paired median speedup **1.0003x** |
-| Median process p25/p75 | 0.232328/0.245210 ms | 0.236981/0.244537 ms | overlapping distributions |
+| Cold end-to-end JIT median | 389.976 ms | 69.979 ms | **5.59x faster**, 82.1% less time |
+| Backend codegen median | 0.199 ms | 9.730 ms | AIR spends more time in XIR/LLVM lowering |
+| Apple compile/load median | 389.742 ms | 60.693 ms | AIR avoids the expensive source-MSL compile |
+| Batched wall time per dispatch | 0.148398 ms | 0.196728 ms | Metal4 is **1.307x slower** by paired median |
+| Median process p25/p75 | 0.146452/0.150892 ms | 0.184237/0.204446 ms | distributions do not overlap |
 
-Thus the measured gain is a substantial real cold-JIT improvement. Steady GPU
-runtime is statistical parity (about +0.03% by paired medians), not a
-meaningful runtime speedup. The benchmark deliberately reports both facts;
-AIR code generation is not claimed to make this arithmetic kernel execute
-faster than the mature MSL path.
+These numbers are the fresh 2026-08-26 rerun using variants 82701 through
+82709 after the selectable-interpolation change. The measured gain remains a
+substantial real cold-JIT improvement, but the current small steady-state
+workload is not at parity: Metal4 takes about 30.7% more host wall time per
+dispatch. The `runtime_ms` field includes command encoding, submission, queue
+execution, and synchronization amortized over a 64-dispatch batch; it is not a
+pure GPU-kernel timestamp.
+
+A separately profiled pair (variant 82801, 833 labelled dispatches including
+validation and warmup) reports average command-buffer GPU time of 0.128286 ms
+for legacy Metal and 0.135542 ms for Metal4, a much smaller 5.7% difference,
+while its batched wall medians are 0.147023 ms and 0.186022 ms. This indicates
+that most of the current regression is outside shader arithmetic. The MTL4
+path currently creates a command allocator, command buffer, log-state options,
+all-stage barrier, residency set, and commit-feedback handler for each small
+submission; pooling/batching that state is the next performance target. This
+microbenchmark magnifies fixed submission cost, so longer rendering kernels
+need a separate end-to-end comparison before generalizing the 30.7% number.
 
 Reproduce one pair with distinct variants as follows:
 
@@ -3217,9 +3272,9 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 - Raster stage metadata and render encoding are implemented, but every new
   stage semantic still requires an Apple oracle, frontend/XIR modeling,
   preflight rules, emitter metadata, runtime binding, and a strict draw test.
-  Shader-written `any`/`greater`/`less` depth now has that full chain and strict
-  D32 JIT/AOT readback coverage. Do not infer custom interpolation, stencil, or
-  conservative-raster support from it.
+  Shader-written `any`/`greater`/`less` depth and selectable varying
+  interpolation now have that full chain and strict JIT/AOT readback coverage.
+  Do not infer stencil or conservative-raster support from them.
 
 ## 19. Local source index
 
@@ -3227,6 +3282,7 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 |---|---|
 | Core AIR emitter orchestration | [metal_codegen_llvm.cpp](metal_codegen_llvm.cpp), [metal_codegen_llvm_impl.cpp](metal_codegen_llvm_impl.cpp) |
 | Type/ABI and native shader logging | [metal_codegen_llvm_type.cpp](metal_codegen_llvm_type.cpp) |
+| Raster varying interpolation validation | [metal_codegen_llvm_raster.cpp](metal_codegen_llvm_raster.cpp), [raster_interpolation.h](../../../../include/luisa/dsl/raster/raster_interpolation.h) |
 | Resource, curve, motion, and query lowering | [metal_codegen_llvm_resource.cpp](metal_codegen_llvm_resource.cpp), [metal_codegen_llvm_access.cpp](metal_codegen_llvm_access.cpp) |
 | Fail-closed support preflight | [metal_codegen_llvm_preflight.cpp](metal_codegen_llvm_preflight.cpp) |
 | Public codegen configuration/result | [metal_codegen_llvm.h](metal_codegen_llvm.h) |

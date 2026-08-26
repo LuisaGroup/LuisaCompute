@@ -33,14 +33,13 @@
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/mathematics.h>
+#include <luisa/dsl/raster/raster_interpolation.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dom_tree.h>
 
-
 namespace luisa::compute::metal::detail {
-
 
 static constexpr auto air_address_space_generic = 0u;
 static constexpr auto air_address_space_device = 1u;
@@ -152,6 +151,16 @@ enum class AIRRasterDepthMode : uint8_t {
         default: return AIRRasterDepthMode::NONE;
     }
 }
+
+[[nodiscard]] bool resolve_raster_interpolation(
+    const Type *payload_type,
+    size_t member_index,
+    RasterInterpolation &interpolation,
+    luisa::string &reason) noexcept;
+
+[[nodiscard]] bool validate_raster_interpolation(
+    const Type *payload_type,
+    luisa::string &reason) noexcept;
 
 [[nodiscard]] constexpr bool is_direct_texture_sample(xir::ResourceQueryOp op) noexcept {
     switch (op) {

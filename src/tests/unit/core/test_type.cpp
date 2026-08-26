@@ -22,6 +22,7 @@
 #endif
 
 #include <luisa/luisa-compute.h>
+#include <luisa/dsl/raster/raster_interpolation.h>
 #include "ut/ut.hpp"
 
 // Simple struct types for testing
@@ -46,6 +47,22 @@ struct S4 {
     float z;
     float w;
 };
+
+struct RasterAttributedVarying {
+    luisa::float4 position;
+    float value;
+    uint index;
+
+    LUISA_RASTER_VARYING_INTERPOLATION(
+        CENTER_NO_PERSPECTIVE,
+        FLAT)
+};
+
+LUISA_STRUCT_REFLECT(
+    RasterAttributedVarying,
+    position,
+    value,
+    index)
 
 // Test struct with serialization support
 struct Test {
@@ -208,6 +225,20 @@ static auto test_type_registration = [] {
         // Test struct type introspection
         BB bb;
         print(Type::of(bb));
+
+        auto raster_varying_type = Type::of<RasterAttributedVarying>();
+        auto raster_varying_attributes =
+            raster_varying_type->member_attributes();
+        expect(raster_varying_attributes.size() == 3u);
+        expect(raster_varying_attributes[0u].key == "position");
+        expect(raster_varying_attributes[0u].value.empty());
+        expect(raster_varying_attributes[1u].key ==
+               raster_interpolation_attribute_key);
+        expect(raster_varying_attributes[1u].value ==
+               "center_no_perspective");
+        expect(raster_varying_attributes[2u].key ==
+               raster_interpolation_attribute_key);
+        expect(raster_varying_attributes[2u].value == "flat");
 
         // Verify vector alignment
         static_assert(alignof(float3) == 16);

@@ -223,8 +223,13 @@ Preserve these ABI rules when changing lowering or adding types:
   `air.vertex_input` plus `air.location_index`; truncate or extend the concrete
   `PixelFormat` value into the fixed `AppData` member. Vertex outputs use
   `air.position` followed by matching `user(locnN)` varyings. Fragment inputs
-  use perspective interpolation for floating varyings and `air.flat` for
-  integer varyings; render values use `air.render_target`.
+  default to `air.center` plus `air.perspective` for floating varyings and
+  `air.flat` for non-floating varyings. Preserve reflected
+  `LUISA_RASTER_VARYING_INTERPOLATION(...)` member attributes and map the
+  selectable center/centroid/sample plus perspective/no-perspective modes to
+  their exact AIR metadata pairs. Reject non-floating perspective modes and
+  invalid attributes before code generation; render values use
+  `air.render_target`.
 - Keep raster barycentrics as `float3` from `FunctionBuilder` through
   `SPR_Barycentrics` and AIR `air.barycentric_coord`. Lower fragment
   derivatives to `air.dfdx.*`/`air.dfdy.*` and discard to
@@ -389,7 +394,11 @@ values. Also use a nonzero `RasterMesh` base instance, carry it through an
 integer flat varying, change only that draw-time value, and require opposite
 visibility across indexed/non-indexed JIT/AOT draws. Compile a second void
 fragment that writes depth, bind only a DSV, require no `air.render_target`,
-and read back the same depth from JIT and archive-loaded AOT draws. Use the
+and read back the same depth from JIT and archive-loaded AOT draws. For
+selectable interpolation, compile every supported qualifier, inspect the exact
+AIR metadata token pair, and render nonuniform clip W so perspective-correct
+and screen-linear values must diverge; require the archive-loaded AOT image to
+equal JIT exactly. Use the
 registered `test_metal_xir_air_ray_query` for stateful
 triangle, procedural-bounding-box, and static-curve semantics, then run the
 cutout renderer to exercise its production `LC_RayQueryAll` path. For

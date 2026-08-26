@@ -239,6 +239,13 @@ Metal4 LLVM/AIR pipeline.
 - Keep argument zero as the stage payload: `AppData` for vertex and the vertex
   return type for fragment. All later arguments form the shared host root ABI;
   do not reorder them with kernel-style binding sorting.
+- Preserve reflected structure member attributes as part of the payload
+  `Type` description. `LUISA_RASTER_VARYING_INTERPOLATION(...)` marks member
+  zero as position and records one interpolation value for every remaining
+  member; AST-to-XIR must carry that exact `Type *` into both paired stages so
+  Metal4 AIR and the common HLSL raster path see the same semantics. Do not
+  rebuild an unannotated structural type or store qualifiers only in a frontend
+  side table.
 - Keep `Function::arguments()` zipped with the full raster
   `bound_arguments()` array. Raster bindings may contain `monostate` entries
   in-place, so `unbound_arguments()` and a bound-prefix assumption are not

@@ -30,14 +30,40 @@ struct MetalAIRRasterVertex {
 struct MetalAIRRasterVarying {
     float4 position;
     float2 uv;
+    float perspective;
+    float no_perspective;
+    float centroid_perspective;
+    float centroid_no_perspective;
+    float sample_perspective;
+    float sample_no_perspective;
     uint base_instance;
+
+    LUISA_RASTER_VARYING_INTERPOLATION(
+        CENTER_PERSPECTIVE,
+        CENTER_PERSPECTIVE,
+        CENTER_NO_PERSPECTIVE,
+        CENTROID_PERSPECTIVE,
+        CENTROID_NO_PERSPECTIVE,
+        SAMPLE_PERSPECTIVE,
+        SAMPLE_NO_PERSPECTIVE,
+        FLAT)
 };
 
 static_assert(sizeof(MetalAIRRasterVertex) == 32u);
 static_assert(offsetof(MetalAIRRasterVertex, position) == 0u);
 static_assert(offsetof(MetalAIRRasterVertex, color) == 16u);
 
-LUISA_STRUCT(MetalAIRRasterVarying, position, uv, base_instance) {};
+LUISA_STRUCT(
+    MetalAIRRasterVarying,
+    position,
+    uv,
+    perspective,
+    no_perspective,
+    centroid_perspective,
+    centroid_no_perspective,
+    sample_perspective,
+    sample_no_perspective,
+    base_instance) {};
 
 namespace {
 
@@ -86,8 +112,16 @@ int main(int argc, char *argv[]) {
         auto object_scale = select(
             0.0f, scale, raster_object_id() == object_gate.read(0u));
         output.position = make_float4(
-            input.position.xy() * object_scale, 0.0f, 1.0f);
+            input.position.xy() * object_scale,
+            0.0f, input.color.w);
         output.uv = input.position.xy();
+        auto interpolation_value = input.color.x;
+        output.perspective = interpolation_value;
+        output.no_perspective = interpolation_value;
+        output.centroid_perspective = interpolation_value;
+        output.centroid_no_perspective = interpolation_value;
+        output.sample_perspective = interpolation_value;
+        output.sample_no_perspective = interpolation_value;
         output.base_instance = raster_base_instance();
         return output;
     };
@@ -127,6 +161,19 @@ int main(int argc, char *argv[]) {
                                                 Var<MetalAIRRasterVarying>) noexcept {
         raster_set_z_depth(0.4375f);
     };
+    RasterStageKernel fragment_interpolation = [](
+                                                   Var<MetalAIRRasterVarying> input) noexcept {
+        auto centroid_and_sample =
+            (input.centroid_perspective +
+             input.centroid_no_perspective +
+             input.sample_perspective +
+             input.sample_no_perspective) *
+            0.25f;
+        return make_float4(
+            input.perspective,
+            input.no_perspective,
+            centroid_and_sample, 1.0f);
+    };
     RasterKernel<decltype(vertex), decltype(fragment)> kernel{vertex, fragment};
     RasterKernel<decltype(vertex), decltype(fragment_depth_any)>
         depth_any_kernel{vertex, fragment_depth_any};
@@ -134,6 +181,8 @@ int main(int argc, char *argv[]) {
         depth_less_equal_kernel{vertex, fragment_depth_less_equal};
     RasterKernel<decltype(vertex), decltype(fragment_depth_only)>
         depth_only_kernel{vertex, fragment_depth_only};
+    RasterKernel<decltype(vertex), decltype(fragment_interpolation)>
+        interpolation_kernel{vertex, fragment_interpolation};
 
     MeshFormat mesh_format;
     const VertexAttribute attributes[]{
@@ -160,6 +209,13 @@ int main(int argc, char *argv[]) {
         depth_only_prefix.data(), depth_only_prefix.size()};
     auto depth_only_shader = dc->device.compile(
         depth_only_kernel, mesh_format, depth_only_option);
+    auto interpolation_prefix = dump_prefix_string + ".interpolation";
+    ShaderOption interpolation_option{};
+    interpolation_option.enable_cache = false;
+    interpolation_option.name = luisa::string{
+        interpolation_prefix.data(), interpolation_prefix.size()};
+    auto interpolation_shader = dc->device.compile(
+        interpolation_kernel, mesh_format, interpolation_option);
 
     auto check_depth_qualifier = [&]<typename Kernel>(
                                      const Kernel &qualifier_kernel,
@@ -196,16 +252,23 @@ int main(int argc, char *argv[]) {
         dump_prefix_string + ".fragment.air.ll"};
     auto depth_only_fragment_ir_path = std::filesystem::path{
         depth_only_prefix + ".fragment.air.ll"};
+    auto interpolation_fragment_ir_path = std::filesystem::path{
+        interpolation_prefix + ".fragment.air.ll"};
     expect(std::filesystem::is_regular_file(vertex_ir_path))
         << "vertex AIR LLVM dump was not written";
     expect(std::filesystem::is_regular_file(fragment_ir_path))
         << "fragment AIR LLVM dump was not written";
     expect(std::filesystem::is_regular_file(depth_only_fragment_ir_path))
         << "depth-only fragment AIR LLVM dump was not written";
+    expect(std::filesystem::is_regular_file(
+        interpolation_fragment_ir_path))
+        << "interpolation fragment AIR LLVM dump was not written";
     auto vertex_ir = read_text_file(vertex_ir_path);
     auto fragment_ir = read_text_file(fragment_ir_path);
     auto depth_only_fragment_ir = read_text_file(
         depth_only_fragment_ir_path);
+    auto interpolation_fragment_ir = read_text_file(
+        interpolation_fragment_ir_path);
 
     expect_contains(vertex_ir, "@vertex_main(",
                     "vertex entry point must be emitted");
@@ -276,6 +339,30 @@ int main(int argc, char *argv[]) {
     expect(depth_only_fragment_ir.find("!\"air.render_target\"") ==
            std::string::npos)
         << "depth-only fragment unexpectedly emitted a color target";
+    expect_contains(
+        interpolation_fragment_ir,
+        "!\"air.center\", !\"air.perspective\"",
+        "center-perspective varying metadata must be emitted");
+    expect_contains(
+        interpolation_fragment_ir,
+        "!\"air.center\", !\"air.no_perspective\"",
+        "center-no-perspective varying metadata must be emitted");
+    expect_contains(
+        interpolation_fragment_ir,
+        "!\"air.centroid\", !\"air.perspective\"",
+        "centroid-perspective varying metadata must be emitted");
+    expect_contains(
+        interpolation_fragment_ir,
+        "!\"air.centroid\", !\"air.no_perspective\"",
+        "centroid-no-perspective varying metadata must be emitted");
+    expect_contains(
+        interpolation_fragment_ir,
+        "!\"air.sample\", !\"air.perspective\"",
+        "sample-perspective varying metadata must be emitted");
+    expect_contains(
+        interpolation_fragment_ir,
+        "!\"air.sample\", !\"air.no_perspective\"",
+        "sample-no-perspective varying metadata must be emitted");
 
     const std::array vertices{
         MetalAIRRasterVertex{
@@ -289,8 +376,22 @@ int main(int argc, char *argv[]) {
             .color = {0.0f, 0.0f, 1.0f, 1.0f}},
     };
     const std::array indices{0u, 1u, 2u};
+    const std::array interpolation_vertices{
+        MetalAIRRasterVertex{
+            .position = {-0.8f, -0.8f, 0.0f, 1.0f},
+            .color = {0.0f, 0.0f, 0.0f, 1.0f}},
+        MetalAIRRasterVertex{
+            .position = {0.8f, -0.8f, 0.0f, 1.0f},
+            .color = {0.0f, 0.0f, 0.0f, 1.0f}},
+        MetalAIRRasterVertex{
+            .position = {0.0f, 3.2f, 0.0f, 4.0f},
+            .color = {1.0f, 0.0f, 0.0f, 4.0f}},
+    };
     auto vertex_buffer = dc->device.create_buffer<MetalAIRRasterVertex>(
         vertices.size());
+    auto interpolation_vertex_buffer =
+        dc->device.create_buffer<MetalAIRRasterVertex>(
+            interpolation_vertices.size());
     auto index_buffer = dc->device.create_buffer<uint>(indices.size());
     auto object_gate = dc->device.create_buffer<uint>(1u);
     auto sampled_depth = dc->device.create_depth_buffer(
@@ -308,6 +409,8 @@ int main(int argc, char *argv[]) {
     auto raster = dc->device.extension<RasterExt>();
 
     VertexBufferView vertex_view{vertex_buffer};
+    VertexBufferView interpolation_vertex_view{
+        interpolation_vertex_buffer};
     luisa::vector<RasterMesh> meshes;
     meshes.emplace_back(
         luisa::span<const VertexBufferView>{&vertex_view, 1u},
@@ -325,6 +428,8 @@ int main(int argc, char *argv[]) {
     std::array<float, 1024u> large_constants{};
     large_constants[0u] = 0.5f;
     stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << interpolation_vertex_buffer.copy_from(
+                  luisa::span{interpolation_vertices})
            << index_buffer.copy_from(luisa::span{indices})
            << object_gate.copy_from(luisa::span{gate_value})
            << sampled_depth.clear(0.25f)
@@ -368,6 +473,48 @@ int main(int argc, char *argv[]) {
     expect(depth_only_jit_sample[0u] > 0.4374f &&
            depth_only_jit_sample[0u] < 0.4376f)
         << "depth-only JIT value=" << depth_only_jit_sample[0u];
+
+    // Give the top vertex a larger clip-space W while preserving its NDC
+    // position. At the image center, perspective correction pulls the red
+    // varying toward the two W=1 bottom vertices, while the green
+    // no-perspective varying remains screen-linear. Centroid/sample fields
+    // are consumed in blue so their AIR inputs survive through GPU execution.
+    std::array<std::byte, width * height * 4u>
+        interpolation_jit_pixels{};
+    luisa::vector<RasterMesh> interpolation_jit_meshes;
+    interpolation_jit_meshes.emplace_back(
+        luisa::span<const VertexBufferView>{
+            &interpolation_vertex_view, 1u},
+        index_buffer.view(), 1u, kObjectID, 0, kBaseInstance);
+    stream << output_depth.clear(1.0f)
+           << raster->clear_render_target(
+                  render_target.view(),
+                  make_float4(0.0f, 0.0f, 0.0f, 1.0f))
+           << interpolation_shader(1.0f, object_gate)
+                  .draw(
+                      std::move(interpolation_jit_meshes), mesh_format,
+                      Viewport{0u, 0u, width, height}, state,
+                      &output_depth, render_target)
+           << render_target.copy_to(
+                  luisa::span{interpolation_jit_pixels})
+           << synchronize();
+    auto interpolation_red = channel(
+        interpolation_jit_pixels, width / 2u, height / 2u, 0u);
+    auto interpolation_green = channel(
+        interpolation_jit_pixels, width / 2u, height / 2u, 1u);
+    auto interpolation_blue = channel(
+        interpolation_jit_pixels, width / 2u, height / 2u, 2u);
+    expect(interpolation_red > 35u && interpolation_red < 75u)
+        << "perspective center value="
+        << static_cast<uint>(interpolation_red);
+    expect(interpolation_green > 110u && interpolation_green < 150u)
+        << "no-perspective center value="
+        << static_cast<uint>(interpolation_green);
+    expect(interpolation_green > interpolation_red + 45u)
+        << "perspective and no-perspective varyings did not diverge";
+    expect(interpolation_blue > 35u && interpolation_blue < 150u)
+        << "centroid/sample center value="
+        << static_cast<uint>(interpolation_blue);
 
     auto colored_pixels = 0u;
     auto max_red = uint8_t{0u};
@@ -576,6 +723,48 @@ int main(int argc, char *argv[]) {
             << "AOT wrong-base-instance output differs from JIT output";
     }
 
+    auto interpolation_archive_path = std::filesystem::path{
+        dump_prefix_string + ".interpolation.raster.air.archive"};
+    auto interpolation_archive_path_string =
+        interpolation_archive_path.string();
+    dc->device.compile_to(
+        interpolation_kernel, mesh_format,
+        interpolation_archive_path_string);
+    expect(std::filesystem::is_regular_file(
+        interpolation_archive_path))
+        << "interpolation raster AIR archive was not written";
+    auto interpolation_aot_shader =
+        dc->device.load_raster_shader<float, Buffer<uint>>(
+            interpolation_archive_path_string);
+    expect(static_cast<bool>(interpolation_aot_shader))
+        << "interpolation raster AIR archive failed to load";
+    if (interpolation_aot_shader) {
+        std::array<std::byte, width * height * 4u>
+            interpolation_aot_pixels{};
+        luisa::vector<RasterMesh> interpolation_aot_meshes;
+        interpolation_aot_meshes.emplace_back(
+            luisa::span<const VertexBufferView>{
+                &interpolation_vertex_view, 1u},
+            index_buffer.view(), 1u, kObjectID, 0, kBaseInstance);
+        stream << output_depth.clear(1.0f)
+               << raster->clear_render_target(
+                      render_target.view(),
+                      make_float4(0.0f, 0.0f, 0.0f, 1.0f))
+               << interpolation_aot_shader(1.0f, object_gate)
+                      .draw(
+                          std::move(interpolation_aot_meshes),
+                          mesh_format,
+                          Viewport{0u, 0u, width, height}, state,
+                          &output_depth, render_target)
+               << render_target.copy_to(
+                      luisa::span{interpolation_aot_pixels})
+               << synchronize();
+        expect(static_cast<bool>(
+            interpolation_aot_pixels ==
+            interpolation_jit_pixels))
+            << "AOT interpolation output differs from JIT output";
+    }
+
     auto depth_only_archive_path = std::filesystem::path{
         dump_prefix_string + ".depth_only.raster.air.archive"};
     auto depth_only_archive_path_string =
@@ -620,12 +809,21 @@ int main(int argc, char *argv[]) {
     std::filesystem::remove(fragment_ir_path, ignored);
     std::filesystem::remove(depth_only_fragment_ir_path, ignored);
     std::filesystem::remove(
+        interpolation_fragment_ir_path, ignored);
+    std::filesystem::remove(
         depth_only_prefix + ".vertex.air.ll", ignored);
+    std::filesystem::remove(
+        interpolation_prefix + ".vertex.air.ll", ignored);
     std::filesystem::remove(archive_path, ignored);
     std::filesystem::remove(
         archive_path_string + ".vertex.air.ll", ignored);
     std::filesystem::remove(
         archive_path_string + ".fragment.air.ll", ignored);
+    std::filesystem::remove(interpolation_archive_path, ignored);
+    std::filesystem::remove(
+        interpolation_archive_path_string + ".vertex.air.ll", ignored);
+    std::filesystem::remove(
+        interpolation_archive_path_string + ".fragment.air.ll", ignored);
     std::filesystem::remove(depth_only_archive_path, ignored);
     std::filesystem::remove(
         depth_only_archive_path_string + ".vertex.air.ll", ignored);
