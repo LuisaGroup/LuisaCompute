@@ -1,0 +1,256 @@
+#include <luisa/core/logging.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/buffer.h>
+
+#include "metal_device.h"
+#include "metal_stream.h"
+#include "metal_command_encoder.h"
+#include "metal_buffer.h"
+#include "metal_texture.h"
+#include "metal_tex_compress.h"
+
+namespace luisa::compute::metal {
+
+namespace {
+
+#ifdef LUISA_BIN_2_OBJ
+#define LUISA_METAL_TEX_COMPRESS_DECL(name)                          \
+    extern "C" const uint8_t _binary_##name##_patched_metal_start[]; \
+    extern "C" const uint8_t _binary_##name##_patched_metal_end[];
+
+LUISA_METAL_TEX_COMPRESS_DECL(BC6HEncode_EncodeBlockCS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC6HEncode_TryModeG10CS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC6HEncode_TryModeLE10CS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_EncodeBlockCS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_TryMode02CS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_TryMode137CS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_TryMode456CS)
+#undef LUISA_METAL_TEX_COMPRESS_DECL
+#else
+#include "metal_tex_compress_embedded.h"
+#endif
+
+constexpr auto metal_texture_compress_thread_group_size = 64u;
+constexpr auto metal_texture_compress_format_bc6h_uf16 = 95u;
+constexpr auto metal_texture_compress_format_bc7_unorm = 98u;
+
+struct alignas(16) BCEncode_Config {
+    uint g_tex_width;
+    uint g_num_block_x;
+    uint g_format;
+    uint g_mode_id;
+    uint g_start_block_id;
+    uint g_num_total_blocks;
+    float g_alpha_weight;
+};
+
+struct BCEncode_ArgumentBuffer {
+    BCEncode_Config cbCS;
+    MTL::ResourceID g_Input;
+    uint64_t g_InBuff;
+    uint64_t g_OutBuff;
+};
+
+void dispatch_bc_encode_shader(MTL::ComputePipelineState *shader,
+                               const BCEncode_Config &config,
+                               MTL::Texture *input,
+                               MTL::Buffer *in_buffer, size_t in_buffer_offset,
+                               MTL::Buffer *out_buffer, size_t out_buffer_offset,
+                               MetalCommandEncoder &encoder,
+                               uint thread_group_count) noexcept {
+    BCEncode_ArgumentBuffer args{.cbCS = config,
+                                 .g_Input = input == nullptr ? MTL::ResourceID{} : input->gpuResourceID(),
+                                 .g_InBuff = in_buffer == nullptr ? 0u : in_buffer->gpuAddress() + in_buffer_offset,
+                                 .g_OutBuff = out_buffer == nullptr ? 0u : out_buffer->gpuAddress() + out_buffer_offset};
+    auto command_encoder = encoder.compute_encoder();
+    command_encoder->setComputePipelineState(shader);
+    auto table = encoder.argument_table(1u);
+    table->setAddress(encoder.upload(&args, sizeof(args)), 0u);
+    command_encoder->setArgumentTable(table);
+    encoder.use_resource(shader);
+    encoder.use_resource(input);
+    encoder.use_resource(in_buffer);
+    encoder.use_resource(out_buffer);
+    command_encoder->dispatchThreadgroups(MTL::Size{thread_group_count, 1u, 1u},
+                                          MTL::Size{metal_texture_compress_thread_group_size, 1u, 1u});
+    command_encoder->endEncoding();
+}
+
+}// namespace
+
+MetalTexCompressExt::MetalTexCompressExt(MetalDevice *device) noexcept : _device{device} {
+    auto compile_shader = [device](luisa::string_view f, luisa::string_view s) noexcept {
+        LUISA_VERBOSE("Compiling texture compression shader: {}.", f);
+        auto source = NS::TransferPtr(NS::String::alloc()->init(
+            const_cast<char *>(s.data()), s.size(), NS::UTF8StringEncoding, false));
+        auto compile_options = NS::TransferPtr(MTL::CompileOptions::alloc()->init());
+        compile_options->setFastMathEnabled(true);
+        compile_options->setOptimizationLevel(MTL::LibraryOptimizationLevelDefault);
+        compile_options->setLibraryType(MTL::LibraryTypeExecutable);
+        compile_options->setMaxTotalThreadsPerThreadgroup(metal_texture_compress_thread_group_size);
+        compile_options->setLanguageVersion(MTL::LanguageVersion4_0);
+        auto func_name = NS::TransferPtr(NS::String::alloc()->init(
+            const_cast<char *>(f.data()), f.size(), NS::UTF8StringEncoding, false));
+        NS::Error *compile_error = nullptr;
+        auto library_desc = NS::TransferPtr(
+            MTL4::LibraryDescriptor::alloc()->init());
+        library_desc->setName(func_name.get());
+        library_desc->setSource(source.get());
+        library_desc->setOptions(compile_options.get());
+        auto library = NS::TransferPtr(
+            device->metal4_compiler()->newLibrary(
+                library_desc.get(), &compile_error));
+        if (compile_error != nullptr) {
+            LUISA_WARNING("Errors during texture compression shader compilation: {}.",
+                          compile_error->localizedDescription()->utf8String());
+        }
+        LUISA_ASSERT(library, "Failed to compile texture compression shader.");
+        auto func_desc = NS::TransferPtr(
+            MTL4::LibraryFunctionDescriptor::alloc()->init());
+        func_desc->setLibrary(library.get());
+        func_desc->setName(func_name.get());
+        auto pipeline_desc = NS::TransferPtr(
+            MTL4::ComputePipelineDescriptor::alloc()->init());
+        pipeline_desc->setComputeFunctionDescriptor(func_desc.get());
+        pipeline_desc->setMaxTotalThreadsPerThreadgroup(metal_texture_compress_thread_group_size);
+        pipeline_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
+        pipeline_desc->setLabel(func_name.get());
+        NS::Error *pipeline_error = nullptr;
+        auto pipeline = NS::TransferPtr(
+            device->metal4_compiler()->newComputePipelineState(
+                pipeline_desc.get(), nullptr, &pipeline_error));
+        if (pipeline_error != nullptr) {
+            LUISA_WARNING("Errors during texture compression pipeline creation: {}.",
+                          pipeline_error->localizedDescription()->utf8String());
+        }
+        LUISA_ASSERT(pipeline, "Failed to create texture compression pipeline.");
+        return pipeline;
+    };
+#ifdef LUISA_BIN_2_OBJ
+#define LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(name)                                   \
+    luisa::string_view{reinterpret_cast<const char *>(_binary_##name##_patched_metal_start), \
+                       static_cast<size_t>(_binary_##name##_patched_metal_end - _binary_##name##_patched_metal_start)}
+#else
+#define LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(name)                    \
+    luisa::string_view{luisa_compute_metal_texture_compress_##name##_patched, \
+                       luisa_compute_metal_texture_compress_##name##_patched_size}
+#endif
+    _bc7_encode_try_mode_456 = compile_shader("TryMode456CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode456CS));
+    _bc7_encode_try_mode_137 = compile_shader("TryMode137CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode137CS));
+    _bc7_encode_try_mode_02 = compile_shader("TryMode02CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode02CS));
+    _bc7_encode_encode_block = compile_shader("EncodeBlockCS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_EncodeBlockCS));
+    _bc6h_encode_try_mode_g10 = compile_shader("TryModeG10CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC6HEncode_TryModeG10CS));
+    _bc6h_encode_try_mode_le10 = compile_shader("TryModeLE10CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC6HEncode_TryModeLE10CS));
+    _bc6h_encode_encode_block = compile_shader("EncodeBlockCS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC6HEncode_EncodeBlockCS));
+}
+
+TexCompressExt::Result MetalTexCompressExt::check_builtin_shader() noexcept {
+    return TexCompressExt::Result::Success;
+}
+
+TexCompressExt::Result MetalTexCompressExt::compress_bc6h(Stream &stream, const ImageView<float> &src, const BufferView<uint> &result) noexcept {
+    auto blocks = luisa::max(1u, (src.size() + 3u) / 4u);
+    auto total_block_count = blocks.x * blocks.y;
+    auto err1_buffer = _device->handle()->newBuffer(
+        total_block_count * sizeof(uint4),
+        MTL::ResourceStorageModePrivate |
+            MTL::ResourceHazardTrackingModeTracked);
+    auto err1_buffer_offset = static_cast<size_t>(0u);
+    auto err2_buffer = reinterpret_cast<MetalBuffer *>(result.handle())->handle();
+    auto err2_buffer_offset = result.offset_bytes();
+    LUISA_DEBUG_ASSERT(result.size_bytes() >= err1_buffer->length(), "Output buffer too small for BC6H compression.");
+    BCEncode_Config config{.g_tex_width = src.size().x,
+                           .g_num_block_x = blocks.x,
+                           .g_format = metal_texture_compress_format_bc6h_uf16,
+                           .g_mode_id = 0u,
+                           .g_start_block_id = 0u,
+                           .g_num_total_blocks = total_block_count,
+                           .g_alpha_weight = 0.f};
+    auto metal_stream = reinterpret_cast<MetalStream *>(stream.handle());
+    MetalCommandEncoder encoder{metal_stream};
+    encoder.add_callback(FunctionCallbackContext::create(
+        [err1_buffer]() noexcept { err1_buffer->release(); }));
+    auto texture = reinterpret_cast<MetalTextureBase *>(src.handle())->handle(src.level());
+    dispatch_bc_encode_shader(_bc6h_encode_try_mode_g10.get(), config, texture,
+                              nullptr, 0ull, err1_buffer, err1_buffer_offset,
+                              encoder, std::max<uint>(1u, (total_block_count + 3u) / 4u));
+    for (auto i = 0u; i < 10u; i++) {
+        config.g_mode_id = i;
+        auto in_buffer = (i % 2u == 0u) ? err1_buffer : err2_buffer;
+        auto in_buffer_offset = (i % 2u == 0u) ? err1_buffer_offset : err2_buffer_offset;
+        auto out_buffer = (i % 2u == 0u) ? err2_buffer : err1_buffer;
+        auto out_buffer_offset = (i % 2u == 0u) ? err2_buffer_offset : err1_buffer_offset;
+        dispatch_bc_encode_shader(_bc6h_encode_try_mode_le10.get(), config, texture,
+                                  in_buffer, in_buffer_offset, out_buffer, out_buffer_offset,
+                                  encoder, std::max<uint>(1u, (total_block_count + 1u) / 2u));
+    }
+    dispatch_bc_encode_shader(_bc6h_encode_encode_block.get(), config, texture,
+                              err1_buffer, err1_buffer_offset, err2_buffer, err2_buffer_offset,
+                              encoder, std::max<uint>(1u, (total_block_count + 1u) / 2u));
+    static_cast<void>(encoder.submit({}));
+    return TexCompressExt::Result::Success;
+}
+
+TexCompressExt::Result MetalTexCompressExt::compress_bc7(Stream &stream, const ImageView<float> &src, const BufferView<uint> &result, float alpha_importance) noexcept {
+    auto blocks = luisa::max(1u, (src.size() + 3u) / 4u);
+    auto total_block_count = blocks.x * blocks.y;
+    auto err1_buffer = reinterpret_cast<MetalBuffer *>(result.handle())->handle();
+    auto err1_buffer_offset = result.offset_bytes();
+    auto err2_buffer = _device->handle()->newBuffer(
+        total_block_count * sizeof(uint4),
+        MTL::ResourceStorageModePrivate |
+            MTL::ResourceHazardTrackingModeTracked);
+    auto err2_buffer_offset = static_cast<size_t>(0u);
+    LUISA_DEBUG_ASSERT(result.size_bytes() >= err1_buffer->length(), "Output buffer too small for BC7 compression.");
+    BCEncode_Config config{.g_tex_width = src.size().x,
+                           .g_num_block_x = blocks.x,
+                           .g_format = metal_texture_compress_format_bc7_unorm,
+                           .g_mode_id = 0u,
+                           .g_start_block_id = 0u,
+                           .g_num_total_blocks = total_block_count,
+                           .g_alpha_weight = alpha_importance};
+    auto metal_stream = reinterpret_cast<MetalStream *>(stream.handle());
+    MetalCommandEncoder encoder{metal_stream};
+    encoder.add_callback(FunctionCallbackContext::create(
+        [err2_buffer]() noexcept { err2_buffer->release(); }));
+    auto texture = reinterpret_cast<MetalTextureBase *>(src.handle())->handle(src.level());
+    dispatch_bc_encode_shader(_bc7_encode_try_mode_456.get(), config, texture,
+                              nullptr, 0ull, err1_buffer, err1_buffer_offset,
+                              encoder, std::max<uint>(1u, (total_block_count + 3u) / 4u));
+    // try mode 137
+    for (auto i = 0u; i < 3u; i++) {
+        constexpr uint modes[] = {1u, 3u, 7u};
+        // Mode 1: err1 -> err2
+        // Mode 3: err2 -> err1
+        // Mode 7: err1 -> err2
+        config.g_mode_id = modes[i];
+        auto in_buffer = (i % 2u == 0u) ? err1_buffer : err2_buffer;
+        auto in_buffer_offset = (i % 2u == 0u) ? err1_buffer_offset : err2_buffer_offset;
+        auto out_buffer = (i % 2u == 0u) ? err2_buffer : err1_buffer;
+        auto out_buffer_offset = (i % 2u == 0u) ? err2_buffer_offset : err1_buffer_offset;
+        dispatch_bc_encode_shader(_bc7_encode_try_mode_137.get(), config, texture,
+                                  in_buffer, in_buffer_offset, out_buffer, out_buffer_offset,
+                                  encoder, total_block_count);
+    }
+    // try mode 02
+    for (auto i = 0u; i < 2u; i++) {
+        constexpr uint modes[] = {0u, 2u};
+        // Mode 0: err2 -> err1
+        // Mode 2: err1 -> err2
+        config.g_mode_id = modes[i];
+        auto in_buffer = (i % 2u == 0u) ? err2_buffer : err1_buffer;
+        auto in_buffer_offset = (i % 2u == 0u) ? err2_buffer_offset : err1_buffer_offset;
+        auto out_buffer = (i % 2u == 0u) ? err1_buffer : err2_buffer;
+        auto out_buffer_offset = (i % 2u == 0u) ? err1_buffer_offset : err2_buffer_offset;
+        dispatch_bc_encode_shader(_bc7_encode_try_mode_02.get(), config, texture,
+                                  in_buffer, in_buffer_offset, out_buffer, out_buffer_offset,
+                                  encoder, total_block_count);
+    }
+    dispatch_bc_encode_shader(_bc7_encode_encode_block.get(), config, texture,
+                              err2_buffer, err2_buffer_offset, err1_buffer, err1_buffer_offset,
+                              encoder, std::max<uint>(1u, (total_block_count + 3u) / 4u));
+    static_cast<void>(encoder.submit({}));
+    return TexCompressExt::Result::Success;
+}
+
+}// namespace luisa::compute::metal

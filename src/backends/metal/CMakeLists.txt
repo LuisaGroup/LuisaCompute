@@ -24,9 +24,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             ../common/default_binary_io.cpp ../common/default_binary_io.h
             ../common/resource_tracker.h
 
-            # metal-cpp
-            metal-cpp/SingleHeader/Metal.hpp
-
             # device lib
             metal_builtin_embedded.cpp metal_builtin_embedded.h
             metal_tex_compress_embedded.cpp metal_tex_compress_embedded.h
@@ -68,6 +65,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     find_library(COMPRESSION_LIB compression)
     target_link_libraries(luisa-compute-backend-metal PRIVATE
             luisa-compute-xir
+            luisa-compute-metal-cpp
             ${COMPRESSION_LIB}
             "-framework Foundation"
             "-framework Metal"

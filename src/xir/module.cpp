@@ -19,6 +19,11 @@ CallableFunction *Module::create_callable(const Type *ret_type) noexcept {
     return static_cast<CallableFunction *>(_function_list.push_back(std::move(f)));
 }
 
+RasterStageFunction *Module::create_raster_stage(
+    const Type *ret_type, RasterStage stage) noexcept {
+    auto f = luisa::make_managed<RasterStageFunction>(this, ret_type, stage);
+    return static_cast<RasterStageFunction *>(_function_list.push_back(std::move(f)));
+}
 ExternalFunction *Module::create_external_function(const Type *ret_type) noexcept {
     auto f = luisa::make_managed<ExternalFunction>(this, ret_type);
     return static_cast<ExternalFunction *>(_function_list.push_back(std::move(f)));

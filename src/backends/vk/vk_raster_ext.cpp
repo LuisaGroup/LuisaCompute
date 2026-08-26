@@ -9,6 +9,7 @@
 #include "../common/backend_print_code.h"
 namespace lc::vk {
 ResourceCreationInfo VkRasterExt::create_raster_shader(
+    [[maybe_unused]] const MeshFormat &mesh_format,
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {

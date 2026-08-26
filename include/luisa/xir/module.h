@@ -41,6 +41,8 @@ public:
 
     [[nodiscard]] KernelFunction *create_kernel() noexcept;
     [[nodiscard]] CallableFunction *create_callable(const Type *ret_type) noexcept;
+    [[nodiscard]] RasterStageFunction *create_raster_stage(
+        const Type *ret_type, RasterStage stage) noexcept;
     [[nodiscard]] ExternalFunction *create_external_function(const Type *ret_type) noexcept;
     [[nodiscard]] auto &function_list() noexcept { return _function_list; }
     [[nodiscard]] auto &function_list() const noexcept { return _function_list; }

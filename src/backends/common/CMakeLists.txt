@@ -1,3 +1,14 @@
+# Apple metal-cpp is shared by the legacy Metal and Metal 4 backends. Keep the
+# wrapper symbols private to each backend module so loading both plugins cannot
+# interpose their Objective-C bridge globals.
+if (APPLE)
+    add_library(luisa-compute-metal-cpp INTERFACE)
+    target_include_directories(luisa-compute-metal-cpp INTERFACE
+            "${CMAKE_CURRENT_LIST_DIR}/metal-cpp")
+    target_compile_definitions(luisa-compute-metal-cpp INTERFACE
+            METALCPP_SYMBOL_VISIBILITY_HIDDEN=1)
+endif ()
+
 # OIDN Denoiser Extension
 if (LUISA_COMPUTE_DOWNLOAD_OIDN)
 

@@ -10,6 +10,7 @@ enum struct DerivedFunctionTag {
     KERNEL,
     CALLABLE,
     EXTERNAL,
+    RASTER_STAGE,
 };
 
 [[nodiscard]] constexpr luisa::string_view to_string(DerivedFunctionTag tag) noexcept {
@@ -17,7 +18,22 @@ enum struct DerivedFunctionTag {
     switch (tag) {
         case DerivedFunctionTag::KERNEL: return "kernel"sv;
         case DerivedFunctionTag::CALLABLE: return "callable"sv;
+        case DerivedFunctionTag::RASTER_STAGE: return "raster_stage"sv;
         case DerivedFunctionTag::EXTERNAL: return "external"sv;
+    }
+    return "unknown"sv;
+}
+
+enum struct RasterStage {
+    VERTEX,
+    FRAGMENT,
+};
+
+[[nodiscard]] constexpr luisa::string_view to_string(RasterStage stage) noexcept {
+    using namespace std::string_view_literals;
+    switch (stage) {
+        case RasterStage::VERTEX: return "vertex"sv;
+        case RasterStage::FRAGMENT: return "fragment"sv;
     }
     return "unknown"sv;
 }
@@ -183,6 +199,19 @@ public:
 class LUISA_XIR_API CallableFunction final : public DerivedFunction<CallableFunction, DerivedFunctionTag::CALLABLE, FunctionDefinition> {
 public:
     using Super::Super;
+};
+
+class LUISA_XIR_API RasterStageFunction final : public DerivedFunction<RasterStageFunction, DerivedFunctionTag::RASTER_STAGE, FunctionDefinition> {
+
+private:
+    RasterStage _stage;
+
+public:
+    RasterStageFunction(Module *parent_module, const Type *ret_type, RasterStage stage) noexcept;
+    [[nodiscard]] static constexpr bool is_valid_stage(RasterStage stage) noexcept {
+        return stage == RasterStage::VERTEX || stage == RasterStage::FRAGMENT;
+    }
+    [[nodiscard]] RasterStage stage() const noexcept { return _stage; }
 };
 
 class LUISA_XIR_API KernelFunction final : public DerivedFunction<KernelFunction, DerivedFunctionTag::KERNEL, FunctionDefinition> {

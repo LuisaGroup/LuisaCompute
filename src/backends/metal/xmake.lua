@@ -13,6 +13,8 @@ _config_project({
     batch_size = 0
 })
 add_deps("lc-runtime")
+add_includedirs("../common/metal-cpp")
+add_defines("METALCPP_SYMBOL_VISIBILITY_HIDDEN=1")
 add_headerfiles("*.h")
 add_files("*.mm")
 add_files("metal_builtin/*.metal", "metal-tex-compress/*.patched.metal", {rules = "utils.bin2obj"})

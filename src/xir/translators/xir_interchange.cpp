@@ -3006,6 +3006,15 @@ template<typename IndexSpan>
     return type->size();
 }
 
+[[nodiscard]] bool storage_aggregate_bitcast_compatible(
+    const Type *source, const Type *target) noexcept {
+    auto is_storage_aggregate = [](const Type *type) noexcept {
+        return type->is_structure() || type->is_array();
+    };
+    return is_storage_aggregate(source) && is_storage_aggregate(target) &&
+           source->size() == target->size();
+}
+
 [[nodiscard]] bool cast_types_valid(
     CastOp op, const Type *target, const Value *source) noexcept {
     if (target == nullptr || target->is_resource() || target->is_custom() ||
@@ -3019,12 +3028,13 @@ template<typename IndexSpan>
                    target->is_scalar_or_vector() &&
                    source_type->dimension() == target->dimension();
         case CastOp::BITWISE_CAST:
-            return source_type->is_scalar_or_vector() &&
-                   target->is_scalar_or_vector() &&
-                   !source_type->is_bool_or_bool_vector() &&
-                   !target->is_bool_or_bool_vector() &&
-                   logical_register_width(source_type) ==
-                       logical_register_width(target);
+            return (source_type->is_scalar_or_vector() &&
+                    target->is_scalar_or_vector() &&
+                    !source_type->is_bool_or_bool_vector() &&
+                    !target->is_bool_or_bool_vector() &&
+                    logical_register_width(source_type) ==
+                        logical_register_width(target)) ||
+                   storage_aggregate_bitcast_compatible(source_type, target);
     }
     return false;
 }
@@ -4528,6 +4538,16 @@ template<typename OperandSpan>
                 return result;
             }
             function = module->create_callable(return_type);
+        } else if (function_record.kind == "raster_vertex" ||
+                   function_record.kind == "raster_fragment") {
+            if (function_record.block_size != std::array<uint32_t, 3u>{}) {
+                fail("Raster stage function has a nonzero block size.");
+                return result;
+            }
+            auto stage = function_record.kind == "raster_vertex" ?
+                             RasterStage::VERTEX :
+                             RasterStage::FRAGMENT;
+            function = module->create_raster_stage(return_type, stage);
         } else if (function_record.kind == "external") {
             if (function_record.block_size != std::array<uint32_t, 3u>{} ||
                 !function_record.blocks.empty() || function_record.body != -1 ||
@@ -4959,6 +4979,15 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
             return result;
         }
         auto kind = to_string(function->derived_function_tag());
+        if (function->isa<RasterStageFunction>()) {
+            auto stage = static_cast<const RasterStageFunction *>(function)->stage();
+            if (!RasterStageFunction::is_valid_stage(stage)) {
+                fail("XIR raster stage function has an invalid stage identity.");
+                return result;
+            }
+            kind = stage == RasterStage::VERTEX ? "raster_vertex" :
+                                                  "raster_fragment";
+        }
         auto block_size = function->isa<KernelFunction>() ? static_cast<const KernelFunction *>(function)->block_size() : luisa::make_uint3(0u);
         luisa::format_to(std::back_inserter(result.text), "  function {} {} ", *id(function), kind);
         append_type(function->type());

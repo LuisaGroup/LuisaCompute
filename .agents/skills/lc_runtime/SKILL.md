@@ -1,6 +1,6 @@
 ---
 name: lc_runtime
-description: Runtime API: Context, Device, Stream, buffers, images, ray tracing, and rasterization.
+description: "Runtime API: Context, Device, Stream, buffers, images, ray tracing, and rasterization."
 ---
 
 # LuisaCompute Runtime API
@@ -215,6 +215,39 @@ stream << accel.update_instance_buffer();
 
 Curve curve = device.create_curve(CurveBasis::CUBIC_BSPLINE, cp_buf, seg_buf);
 ```
+
+### Motion instances and Metal4 feature queries
+
+```cpp
+#include <luisa/runtime/rtx/motion_instance.h>
+
+AccelMotionOption motion_option{};
+motion_option.mode = AccelMotionMode::MATRIX;
+motion_option.keyframe_count = 2u;
+auto moving = device.create_motion_instance(mesh, motion_option);
+std::array keyframes{translation(-1.f, 0.f, 0.f),
+                     translation(1.f, 0.f, 0.f)};
+moving.set_keyframes(luisa::span{keyframes});
+
+AccelOption accel_option{};
+accel_option.allow_update = true;
+auto accel = device.create_accel(accel_option);
+accel.emplace_back(moving);
+stream << mesh.build() << moving.build() << accel.build();
+
+// After changing keyframes, rebuild the host motion resource and refit/rebuild
+// the containing TLAS.
+moving.set_keyframes(luisa::span{new_keyframes});
+stream << moving.build() << accel.build();
+```
+
+For the `metal4` backend, use `device.query("metal_motion_blur")` before
+choosing matrix motion and `device.query("metal4_component_motion")` before
+choosing SRT/component motion. The latter is Apple9-only. The independent
+`metal4_address_driven_acceleration_structures` query reports whether AS
+build/refit uses the MTL4 encoder; a false value can still support matrix
+motion through the synchronized compatibility build path. These queries
+return the strings `"true"` or `"false"`.
 
 ### Ray Tracing Kernel
 ```cpp

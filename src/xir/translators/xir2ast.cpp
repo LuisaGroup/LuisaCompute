@@ -1576,7 +1576,11 @@ private:
         switch (f.derived_function_tag()) {
             case DerivedFunctionTag::KERNEL: return ASTFunctionBuilder::define_kernel(build);
             case DerivedFunctionTag::CALLABLE: return ASTFunctionBuilder::define_callable(build);
-            default: break;
+            case DerivedFunctionTag::RASTER_STAGE:
+                LUISA_ERROR_WITH_LOCATION(
+                    "XIR-to-AST raster-stage lowering does not yet preserve "
+                    "vertex/fragment stage identity.");
+            case DerivedFunctionTag::EXTERNAL: break;
         }
         LUISA_ERROR_WITH_LOCATION("Cannot translate external XIR function to AST.");
     }

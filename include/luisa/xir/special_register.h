@@ -53,6 +53,7 @@ namespace detail {
 
 [[nodiscard]] LUISA_XIR_API const Type *special_register_type_uint() noexcept;
 [[nodiscard]] LUISA_XIR_API const Type *special_register_type_uint3() noexcept;
+[[nodiscard]] LUISA_XIR_API const Type *special_register_type_float3() noexcept;
 
 template<typename T>
 [[nodiscard]] auto get_special_register_type() noexcept {
@@ -60,6 +61,8 @@ template<typename T>
         return special_register_type_uint();
     } else if constexpr (std::is_same_v<T, uint3>) {
         return special_register_type_uint3();
+    } else if constexpr (std::is_same_v<T, float3>) {
+        return special_register_type_float3();
     } else {
         static_assert(always_false_v<T>, "Unsupported special register type.");
     }
@@ -92,7 +95,7 @@ using SPR_WarpLaneID = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTa
 using SPR_DispatchID = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::DISPATCH_ID>;
 using SPR_KernelID = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::KERNEL_ID>;
 using SPR_ObjectID = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::RASTER_OBJECT_ID>;
-using SPR_Barycentrics = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::RASTER_BARYCENTRICS>;
+using SPR_Barycentrics = DerivedSpecialRegister<float3, DerivedSpecialRegisterTag::RASTER_BARYCENTRICS>;
 using SPR_BlockSize = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::BLOCK_SIZE>;
 using SPR_WarpSize = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::WARP_SIZE>;
 using SPR_DispatchSize = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::DISPATCH_SIZE>;

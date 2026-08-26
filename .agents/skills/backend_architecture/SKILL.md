@@ -145,6 +145,24 @@ class MyCommandEncoder : public MutableCommandVisitor {
 
 Architecture: each backend has a `*Stream` class owning the native stream/queue. `stream->dispatch(CommandList)` visits all commands via an encoder. User callbacks are executed after GPU work completes.
 
+### Metal4 acceleration capability boundary
+
+Creating an `MTL4::Compiler`, queue, or AIR pipeline does not prove that every
+MTL4 encoder feature is executable. Address-driven acceleration-structure
+builds and component motion require Apple9. Query the concrete device family:
+Apple9+ uses MTL4 primitive/instance descriptors and its compute encoder;
+Apple7/Apple8 synchronize only AS build/refit/compact through an isolated
+legacy `MTL::CommandQueue`. User shaders, PSOs, argument tables, command
+buffers, and dispatch remain MTL4 AIR on both paths.
+
+`MotionInstanceBuildCommand` is host-state capture: validate a built child and
+copy its matrix/SRT keyframes into the backend resource. Native motion TLAS
+packing occurs later in `AccelBuildCommand`. Preserve the shader-visible
+72-byte static instance ABI while creating separate 48-byte indirect-motion
+records and a transform buffer for the build descriptor. Matrix motion is
+available where primitive motion blur is reported; component/SRT motion must
+be rejected before resource creation below Apple9.
+
 ### Command reordering and bindless hazards
 
 `src/backends/common/command_reorder_visitor.h` plans command layers from the

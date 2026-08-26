@@ -54,6 +54,10 @@ if (LUISA_COMPUTE_ENABLE_METAL)
     add_subdirectory(metal)
 endif ()
 
+if (LUISA_COMPUTE_ENABLE_METAL4)
+    add_subdirectory(metal4)
+endif ()
+
 if (LUISA_COMPUTE_ENABLE_CUDA)
     add_subdirectory(cuda)
 endif ()

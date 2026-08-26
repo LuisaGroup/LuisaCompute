@@ -10,10 +10,12 @@ namespace detail {
 
 static void dead_arg_elim_pass_on_function_def(FunctionDefinition *def, DeadArgElimInfo &info) noexcept {
     if (def == nullptr || def->body_block() == nullptr) { return; }
-    // Skip kernel (entry-point) functions: removing their arguments would break
-    // the SPIR-V codegen's resource property index mapping which relies on
-    // argument positions.
-    if (def->derived_function_tag() == DerivedFunctionTag::KERNEL) { return; }
+    // Skip entry-point functions: their argument positions are part of the
+    // backend ABI even when an argument is unused by the function body.
+    if (def->derived_function_tag() == DerivedFunctionTag::KERNEL ||
+        def->derived_function_tag() == DerivedFunctionTag::RASTER_STAGE) {
+        return;
+    }
     // Signature-constrained functions and functions referenced by anything
     // other than an ordinary call have an externally fixed ABI (ray-query
     // callbacks are the important example).

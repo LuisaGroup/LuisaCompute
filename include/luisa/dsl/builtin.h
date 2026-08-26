@@ -253,6 +253,18 @@ inline void device_assert(Expr<bool> pred, luisa::string_view msg) noexcept {
 [[nodiscard]] inline auto kernel_id() noexcept {
     return def<uint>(detail::FunctionBuilder::current()->kernel_id());
 }
+/// Get the per-draw object identifier in a raster stage.
+[[nodiscard]] inline auto raster_object_id() noexcept {
+    return def<uint>(detail::FunctionBuilder::current()->raster_object_id());
+}
+/// Get perspective-correct triangle barycentric coordinates in a fragment stage.
+[[nodiscard]] inline auto raster_barycentrics() noexcept {
+    return def<float3>(detail::FunctionBuilder::current()->raster_barycentrics());
+}
+/// Discard the current fragment without writing render targets or depth.
+inline void raster_discard() noexcept {
+    detail::FunctionBuilder::current()->call(CallOp::RASTER_DISCARD, {});
+}
 [[nodiscard]] inline auto warp_lane_count() noexcept {
     return def<uint>(detail::FunctionBuilder::current()->warp_lane_count());
 }

@@ -63,6 +63,7 @@ else ()
     option(LUISA_COMPUTE_ENABLE_TENSOR "Enable C++ DSL tensor extension" OFF)
     option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
     option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
+    option(LUISA_COMPUTE_ENABLE_METAL4 "Enable experimental Metal 4 AIR backend" OFF)
     option(LUISA_COMPUTE_ENABLE_HIP "Enable HIP backend" OFF) # still WIP
     option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
     option(LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB "Enable CUDA extension: LCUB" OFF)
@@ -137,7 +138,7 @@ include(scripts/validate_options.cmake)
 
 # enable objc and objcxx for Apple platforms
 if (APPLE)
-    if (LUISA_COMPUTE_ENABLE_METAL OR LUISA_COMPUTE_ENABLE_GUI)
+    if (LUISA_COMPUTE_ENABLE_METAL OR LUISA_COMPUTE_ENABLE_METAL4 OR LUISA_COMPUTE_ENABLE_GUI)
         enable_language(OBJC)
         enable_language(OBJCXX)
     endif ()
