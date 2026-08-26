@@ -271,6 +271,7 @@ if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
     luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
     target_sources(test_hip_callable_abi PRIVATE
         ../backends/hip/llvm_codegen/hip_callable_abi.cpp
+        ../backends/hip/llvm_codegen/hip_inlining_policy.cpp
         ../backends/hip/llvm_codegen/hip_private_memory.cpp)
     target_include_directories(test_hip_callable_abi PRIVATE
             ../backends/hip/llvm_codegen ${LLVM_INCLUDE_DIRS})
@@ -278,7 +279,7 @@ if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
         target_link_libraries(test_hip_callable_abi PRIVATE LLVM)
     else ()
         llvm_map_components_to_libnames(_hip_callable_abi_llvm_libs
-                core asmparser support transformutils)
+                core asmparser support transformutils analysis passes ipo)
         target_link_libraries(test_hip_callable_abi PRIVATE
                 ${_hip_callable_abi_llvm_libs})
     endif ()

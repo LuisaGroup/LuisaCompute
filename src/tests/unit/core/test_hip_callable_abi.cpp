@@ -1,4 +1,5 @@
 #include "hip_callable_abi.h"
+#include "hip_inlining_policy.h"
 #include "hip_private_memory.h"
 #include "ut/ut.hpp"
 
@@ -12,6 +13,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/SourceMgr.h>
 
 using namespace luisa::compute::hip;
@@ -43,7 +45,7 @@ static auto suite = [] {
             entry:
               ret float %x
             }
-            attributes #0 = { convergent noinline nounwind memory(none) "amdgpu-no-implicitarg-ptr" "denormal-fp-math"="dynamic,dynamic" "luisa-generated-callable" "target-cpu"="old" "target-features"="+old" "amdgpu-num-vgpr"="32" }
+            attributes #0 = { convergent inlinehint noinline nounwind memory(none) "amdgpu-no-implicitarg-ptr" "denormal-fp-math"="dynamic,dynamic" "luisa-generated-callable" "target-cpu"="old" "target-features"="+old" "amdgpu-num-vgpr"="32" }
             attributes #1 = { alwaysinline nounwind }
         )");
         expect(module != nullptr);
@@ -60,6 +62,7 @@ static auto suite = [] {
 
         expect(!retained->hasFnAttribute(llvm::Attribute::NoInline));
         expect(!retained->hasFnAttribute(llvm::Attribute::AlwaysInline));
+        expect(!retained->hasFnAttribute(llvm::Attribute::InlineHint));
         expect(!retained->hasFnAttribute(
             llvm_generated_callable_attribute));
         expect(inline_hint->hasFnAttribute(
@@ -78,6 +81,62 @@ static auto suite = [] {
         expect(retained->getFnAttribute("amdgpu-num-vgpr")
                    .getValueAsString() == "128");
         expect(!inline_hint->hasFnAttribute("amdgpu-num-vgpr"));
+        expect(!llvm::verifyModule(*module));
+    };
+
+    "HIP inlining assigns positive growth only to the module queue"_test = [] {
+        llvm::PipelineTuningOptions options;
+        configure_hip_cgscc_canonicalization_inlining(options);
+        expect(options.InlinerThreshold == 0);
+
+        auto params = hip_module_priority_inline_params(
+            llvm::OptimizationLevel::O3);
+        expect(params.DefaultThreshold ==
+               llvm::InlineConstants::OptAggressiveThreshold);
+        expect(params.EnableDeferral.has_value());
+        expect(!params.EnableDeferral.value_or(true));
+
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private i32 @leaf(i32 %x) {
+            entry:
+              %a = add i32 %x, 1
+              ret i32 %a
+            }
+            define i32 @root(i32 %x) {
+            entry:
+              %a = call i32 @leaf(i32 %x)
+              ret i32 %a
+            }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+
+        llvm::LoopAnalysisManager loop_analyses;
+        llvm::FunctionAnalysisManager function_analyses;
+        llvm::CGSCCAnalysisManager cgscc_analyses;
+        llvm::ModuleAnalysisManager module_analyses;
+        llvm::PassInstrumentationCallbacks instrumentation;
+        llvm::PassBuilder builder{
+            nullptr, options, std::nullopt, &instrumentation};
+        builder.registerModuleAnalyses(module_analyses);
+        builder.registerCGSCCAnalyses(cgscc_analyses);
+        builder.registerFunctionAnalyses(function_analyses);
+        builder.registerLoopAnalyses(loop_analyses);
+        builder.crossRegisterProxies(
+            loop_analyses, function_analyses,
+            cgscc_analyses, module_analyses);
+
+        llvm::ModulePassManager pipeline;
+        add_hip_module_priority_inliner(
+            pipeline, llvm::OptimizationLevel::O3);
+        pipeline.addPass(builder.buildPerModuleDefaultPipeline(
+            llvm::OptimizationLevel::O3));
+        pipeline.run(*module, module_analyses);
+
+        // The global owner consumes this profitable edge and deletes the
+        // private body; no annotation is needed to force the result.
+        expect(module->getFunction("leaf") == nullptr);
         expect(!llvm::verifyModule(*module));
     };
 

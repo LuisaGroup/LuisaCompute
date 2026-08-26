@@ -33,6 +33,7 @@ void finalize_hip_function_attributes(
     if (is_generated_callable) {
         function.removeFnAttr(llvm::Attribute::AlwaysInline);
         function.removeFnAttr(llvm::Attribute::NoInline);
+        function.removeFnAttr(llvm::Attribute::InlineHint);
     }
     function.removeFnAttr(llvm_generated_callable_attribute);
     if (function.isDeclaration()) { return; }
