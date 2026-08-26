@@ -1705,7 +1705,10 @@ int main(int argc, char *argv[]) {
         }
         for (auto op : std::array{
                  ThreadGroupOp::RASTER_QUAD_DDX,
-                 ThreadGroupOp::RASTER_QUAD_DDY}) {
+                 ThreadGroupOp::RASTER_QUAD_DDY,
+                 ThreadGroupOp::RASTER_SET_Z_DEPTH,
+                 ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL,
+                 ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL}) {
             expect_unsupported(op, "raster invocation model");
         }
     };

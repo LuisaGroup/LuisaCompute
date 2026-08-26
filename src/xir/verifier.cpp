@@ -501,6 +501,9 @@ template<typename IndexAt>
         case ThreadGroupOp::WARP_READ_LANE: return count == 2u;
         case ThreadGroupOp::RASTER_QUAD_DDX:
         case ThreadGroupOp::RASTER_QUAD_DDY:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_BIT_AND:
         case ThreadGroupOp::WARP_ACTIVE_BIT_OR:
@@ -573,7 +576,7 @@ template<typename Enum>
             return enum_value_between(
                 static_cast<const ThreadGroupInst *>(instruction)->op(),
                 ThreadGroupOp::SHADER_EXECUTION_REORDER,
-                ThreadGroupOp::SYNCHRONIZE_BLOCK);
+                ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
         case DerivedInstructionTag::RESOURCE_QUERY:
             return enum_value_between(
                 static_cast<const ResourceQueryInst *>(instruction)->op(),

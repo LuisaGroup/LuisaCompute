@@ -265,6 +265,21 @@ inline void device_assert(Expr<bool> pred, luisa::string_view msg) noexcept {
 inline void raster_discard() noexcept {
     detail::FunctionBuilder::current()->call(CallOp::RASTER_DISCARD, {});
 }
+/// Write an arbitrary fragment depth. This may disable early depth testing.
+inline void raster_set_z_depth(Expr<float> depth) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RASTER_SET_Z_DEPTH, {depth.expression()});
+}
+/// Write fragment depth while promising it is no less than interpolated depth.
+inline void raster_set_z_depth_greater_equal(Expr<float> depth) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL, {depth.expression()});
+}
+/// Write fragment depth while promising it is no greater than interpolated depth.
+inline void raster_set_z_depth_less_equal(Expr<float> depth) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL, {depth.expression()});
+}
 [[nodiscard]] inline auto warp_lane_count() noexcept {
     return def<uint>(detail::FunctionBuilder::current()->warp_lane_count());
 }

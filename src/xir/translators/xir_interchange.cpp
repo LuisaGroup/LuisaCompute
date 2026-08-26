@@ -1404,7 +1404,10 @@ constexpr std::array thread_group_wire_ops{
     wire_op(ThreadGroupOp::WARP_PREFIX_PRODUCT, "warp_prefix_product"sv),
     wire_op(ThreadGroupOp::WARP_READ_LANE, "warp_read_lane"sv),
     wire_op(ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE, "warp_read_first_active_lane"sv),
-    wire_op(ThreadGroupOp::SYNCHRONIZE_BLOCK, "synchronize_block"sv)};
+    wire_op(ThreadGroupOp::SYNCHRONIZE_BLOCK, "synchronize_block"sv),
+    wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH, "raster_set_z_depth"sv),
+    wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL, "raster_set_z_depth_greater_equal"sv),
+    wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL, "raster_set_z_depth_less_equal"sv)};
 
 template<typename Op, size_t N>
 [[nodiscard]] luisa::optional<int64_t>
@@ -2851,6 +2854,9 @@ public:
         case ThreadGroupOp::WARP_READ_LANE: return count == 2u;
         case ThreadGroupOp::RASTER_QUAD_DDX:
         case ThreadGroupOp::RASTER_QUAD_DDY:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_BIT_AND:
         case ThreadGroupOp::WARP_ACTIVE_BIT_OR:
@@ -4048,6 +4054,11 @@ template<typename OperandSpan>
                 case ThreadGroupOp::RASTER_QUAD_DDX:
                 case ThreadGroupOp::RASTER_QUAD_DDY:
                     return type == operands[0]->type() && type != nullptr && type->is_float_or_float_vector();
+                case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+                case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+                case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
+                    return type == nullptr && operands[0]->type() != nullptr &&
+                           operands[0]->type()->is_float32();
                 case ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE: return type != nullptr && type->is_bool();
                 case ThreadGroupOp::WARP_FIRST_ACTIVE_LANE: return type != nullptr && type->is_uint32();
                 case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL:

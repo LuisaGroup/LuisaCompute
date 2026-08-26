@@ -133,6 +133,26 @@ struct AIRRayTracingConfig {
     }
 };
 
+enum class AIRRasterDepthMode : uint8_t {
+    NONE,
+    ANY,
+    GREATER_EQUAL,
+    LESS_EQUAL,
+};
+
+[[nodiscard]] constexpr AIRRasterDepthMode air_raster_depth_mode(
+    xir::ThreadGroupOp op) noexcept {
+    switch (op) {
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH:
+            return AIRRasterDepthMode::ANY;
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+            return AIRRasterDepthMode::GREATER_EQUAL;
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
+            return AIRRasterDepthMode::LESS_EQUAL;
+        default: return AIRRasterDepthMode::NONE;
+    }
+}
+
 [[nodiscard]] constexpr bool is_direct_texture_sample(xir::ResourceQueryOp op) noexcept {
     switch (op) {
         case xir::ResourceQueryOp::TEXTURE2D_SAMPLE: [[fallthrough]];
@@ -264,6 +284,7 @@ private:
         llvm::Value *warp_lane_id{nullptr};
         llvm::Value *raster_object_id{nullptr};
         llvm::Value *raster_barycentrics{nullptr};
+        llvm::Value *raster_depth{nullptr};
         llvm::DenseMap<const xir::Value *, llvm::Value *> values;
         llvm::DenseMap<const xir::Value *, llvm::Value *> sampled_textures;
         llvm::DenseMap<const xir::BasicBlock *, llvm::BasicBlock *> block_exits;
@@ -340,6 +361,7 @@ private:
     llvm::Function *_shader_log_helper{nullptr};
     const xir::KernelFunction *_kernel{nullptr};
     const xir::RasterStageFunction *_raster_stage{nullptr};
+    AIRRasterDepthMode _raster_depth_mode{AIRRasterDepthMode::NONE};
     llvm::GlobalVariable *_sampler_table{nullptr};
     luisa::vector<PrintFormat> _print_formats;
     llvm::DenseMap<const xir::PrintInst *, uint32_t> _print_tokens;

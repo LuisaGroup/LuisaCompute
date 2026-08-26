@@ -183,6 +183,21 @@ MetalCodegenLLVMResult MetalCodegenLLVMImpl::generate(const xir::Module &xir_mod
         LUISA_ASSERT(_raster_stage != nullptr,
                      "Metal AIR LLVM codegen requires one raster stage.");
         _root_arguments = _config.raster.root_arguments;
+        if (_raster_stage->stage() == xir::RasterStage::FRAGMENT) {
+            _raster_stage->traverse_instructions(
+                [this](const xir::Instruction *instruction) noexcept {
+                    if (!instruction->isa<xir::ThreadGroupInst>()) { return; }
+                    auto group = static_cast<const xir::ThreadGroupInst *>(
+                        instruction);
+                    auto mode = air_raster_depth_mode(group->op());
+                    if (mode == AIRRasterDepthMode::NONE) { return; }
+                    LUISA_ASSERT(
+                        _raster_depth_mode == AIRRasterDepthMode::NONE ||
+                            _raster_depth_mode == mode,
+                        "Metal AIR fragment stage mixes shader-depth qualifiers.");
+                    _raster_depth_mode = mode;
+                });
+        }
     }
     for (auto function : xir_module.function_list()) {
         if (function->derived_function_tag() == xir::DerivedFunctionTag::CALLABLE) {

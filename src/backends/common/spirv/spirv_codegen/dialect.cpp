@@ -1074,6 +1074,9 @@ private:
                 break;
             case xir::ThreadGroupOp::RASTER_QUAD_DDX:
             case xir::ThreadGroupOp::RASTER_QUAD_DDY:
+            case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH:
+            case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+            case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
                 // Rejected by the support matrix above for compute entry points.
                 return;
             case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE:
@@ -2643,8 +2646,11 @@ spirv_xir_dialect_support(xir::ThreadGroupOp op) noexcept {
                 "hint and may be ignored without changing defined shader results");
         case xir::ThreadGroupOp::RASTER_QUAD_DDX:
         case xir::ThreadGroupOp::RASTER_QUAD_DDY:
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH:
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
             return unsupported(
-                "quad derivatives require a raster invocation model, while this "
+                "raster operations require a raster invocation model, while this "
                 "native path emits GLCompute entry points");
         case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE:
         case xir::ThreadGroupOp::WARP_FIRST_ACTIVE_LANE:

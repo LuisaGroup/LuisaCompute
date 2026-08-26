@@ -962,6 +962,9 @@ private:
             case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE);
             case CallOp::DDX: return cta_call(ThreadGroupOp::RASTER_QUAD_DDX);
             case CallOp::DDY: return cta_call(ThreadGroupOp::RASTER_QUAD_DDY);
+            case CallOp::RASTER_SET_Z_DEPTH: return cta_call(ThreadGroupOp::RASTER_SET_Z_DEPTH);
+            case CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL: return cta_call(ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL);
+            case CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL: return cta_call(ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
             case CallOp::SHADER_EXECUTION_REORDER: return cta_call(ThreadGroupOp::SHADER_EXECUTION_REORDER);
             case CallOp::SYNCHRONIZE_BLOCK: return cta_call(ThreadGroupOp::SYNCHRONIZE_BLOCK);
             case CallOp::WARP_IS_FIRST_ACTIVE_LANE: return cta_call(ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE);

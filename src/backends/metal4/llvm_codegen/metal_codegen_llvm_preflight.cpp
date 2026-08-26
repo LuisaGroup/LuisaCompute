@@ -307,6 +307,16 @@ namespace detail {
         return group->operand_count() == 1u && group->operand(0u)->type()->is_bool();
     };
     if (program != MetalAIRProgram::COMPUTE) {
+        auto depth_mode = air_raster_depth_mode(group->op());
+        if (depth_mode != AIRRasterDepthMode::NONE) {
+            return program == MetalAIRProgram::RASTER_FRAGMENT &&
+                           group->type() == nullptr &&
+                           group->operand_count() == 1u &&
+                           group->operand(0u)->type() != nullptr &&
+                           group->operand(0u)->type()->is_float32() ?
+                       true :
+                       reject("depth output requires one f32 scalar and no result in a fragment stage");
+        }
         if (group->op() != xir::ThreadGroupOp::RASTER_QUAD_DDX &&
             group->op() != xir::ThreadGroupOp::RASTER_QUAD_DDY) {
             return reject("compute thread-group operation used by a raster stage");
@@ -330,6 +340,10 @@ namespace detail {
         case xir::ThreadGroupOp::RASTER_QUAD_DDX: [[fallthrough]];
         case xir::ThreadGroupOp::RASTER_QUAD_DDY:
             return reject("raster-stage AIR generation is not enabled yet");
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH: [[fallthrough]];
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL: [[fallthrough]];
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
+            return reject("fragment depth output used by a compute program");
         case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE: [[fallthrough]];
         case xir::ThreadGroupOp::WARP_FIRST_ACTIVE_LANE:
             return group->operand_count() == 0u || reject("expected no operands");
@@ -936,6 +950,7 @@ bool luisa_compute_metal_codegen_llvm_supported(
     auto kernel_count = 0u;
     auto raster_stage_count = 0u;
     const xir::RasterStageFunction *raster_stage = nullptr;
+    auto raster_depth_mode = detail::AIRRasterDepthMode::NONE;
     for (auto function : xir_module.function_list()) {
         if (function->derived_function_tag() == xir::DerivedFunctionTag::EXTERNAL &&
             (!function->name().has_value() || function->name()->empty())) {
@@ -969,12 +984,35 @@ bool luisa_compute_metal_codegen_llvm_supported(
         if (auto definition = function->definition()) {
             auto supported = true;
             definition->traverse_instructions([&](const xir::Instruction *instruction) noexcept {
+                if (!supported) { return; }
+                if (instruction->isa<xir::ThreadGroupInst>()) {
+                    auto group = static_cast<const xir::ThreadGroupInst *>(instruction);
+                    auto depth_mode = detail::air_raster_depth_mode(group->op());
+                    if (depth_mode != detail::AIRRasterDepthMode::NONE) {
+                        if (function->derived_function_tag() !=
+                                xir::DerivedFunctionTag::RASTER_STAGE ||
+                            static_cast<const xir::RasterStageFunction *>(function)->stage() !=
+                                xir::RasterStage::FRAGMENT) {
+                            local_reason =
+                                "fragment depth output remained outside the fragment entry after inlining";
+                            supported = false;
+                            return;
+                        }
+                        if (raster_depth_mode != detail::AIRRasterDepthMode::NONE &&
+                            raster_depth_mode != depth_mode) {
+                            local_reason =
+                                "fragment stage mixes incompatible shader-depth qualifiers";
+                            supported = false;
+                            return;
+                        }
+                        raster_depth_mode = depth_mode;
+                    }
+                }
                 if (config.program != MetalAIRProgram::COMPUTE &&
                     instruction->isa<xir::DebugBreakInst>()) {
                     local_reason = "raster AIR does not support debug-break state";
                     supported = false;
-                } else if (supported &&
-                           !detail::supported_instruction(
+                } else if (!detail::supported_instruction(
                                instruction, config.program, local_reason)) {
                     supported = false;
                 }

@@ -370,6 +370,9 @@ namespace detail {
         case ThreadGroupOp::SHADER_EXECUTION_REORDER: return CallOp::SHADER_EXECUTION_REORDER;
         case ThreadGroupOp::RASTER_QUAD_DDX: return CallOp::DDX;
         case ThreadGroupOp::RASTER_QUAD_DDY: return CallOp::DDY;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH: return CallOp::RASTER_SET_Z_DEPTH;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL: return CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL: return CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL;
         case ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE: return CallOp::WARP_IS_FIRST_ACTIVE_LANE;
         case ThreadGroupOp::WARP_FIRST_ACTIVE_LANE: return CallOp::WARP_FIRST_ACTIVE_LANE;
         case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL: return CallOp::WARP_ACTIVE_ALL_EQUAL;

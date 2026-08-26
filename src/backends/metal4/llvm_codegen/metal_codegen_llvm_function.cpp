@@ -63,6 +63,14 @@ llvm::Function *MetalCodegenLLVMImpl::_declare_raster_stage(const xir::RasterSta
     auto return_type = function->type() == nullptr ?
                            llvm::Type::getVoidTy(_context) :
                            _type(function->type())->reg_type;
+    if (function->stage() == xir::RasterStage::FRAGMENT &&
+        _raster_depth_mode != AIRRasterDepthMode::NONE) {
+        LUISA_ASSERT(!return_type->isVoidTy(),
+                     "Metal AIR fragment depth requires a color return value.");
+        return_type = llvm::StructType::get(
+            _context,
+            {return_type, llvm::Type::getFloatTy(_context)}, true);
+    }
     auto function_type = llvm::FunctionType::get(return_type, arguments, false);
     auto name = function->stage() == xir::RasterStage::VERTEX ?
                     "vertex_main_impl" :
@@ -225,6 +233,12 @@ llvm::Function *MetalCodegenLLVMImpl::_translate_raster_stage(const xir::RasterS
         }
     }
     _bind_state_parameters(context, iterator);
+    if (function->stage() == xir::RasterStage::FRAGMENT &&
+        _raster_depth_mode != AIRRasterDepthMode::NONE) {
+        context.raster_depth = _temporary(
+            context, llvm::Type::getFloatTy(_context), 4u);
+        context.raster_depth->setName("fragment.depth");
+    }
     auto body = _translate_function(context, function);
     IB builder{context.entry_block};
     builder.CreateBr(body);
@@ -645,10 +659,15 @@ void MetalCodegenLLVMImpl::_emit_raster_fragment_entry(
     LUISA_ASSERT(!output_types.empty() && output_types.size() <= 8u,
                  "Metal AIR fragment stages must return between 1 and 8 color targets.");
     _result.fragment_output_count = static_cast<uint32_t>(output_types.size());
-    auto entry_return_type = output_types.size() == 1u ?
-                                 output_types.front() :
+    llvm::SmallVector<llvm::Type *> entry_output_types{output_types};
+    if (_raster_depth_mode != AIRRasterDepthMode::NONE) {
+        entry_output_types.emplace_back(llvm::Type::getFloatTy(_context));
+    }
+    auto entry_return_type = entry_output_types.size() == 1u ?
+                                 entry_output_types.front() :
                                  static_cast<llvm::Type *>(
-                                     llvm::StructType::get(_context, output_types, true));
+                                     llvm::StructType::get(
+                                         _context, entry_output_types, true));
     auto function_type = llvm::FunctionType::get(
         entry_return_type, parameter_types, false);
     auto function = llvm::Function::Create(
@@ -729,14 +748,26 @@ void MetalCodegenLLVMImpl::_emit_raster_fragment_entry(
     arguments.append({primitive_id, object_id, barycentrics});
     auto result = builder.CreateCall(implementation, arguments);
     result->setConvergent();
-    if (output_types.size() == 1u) {
-        builder.CreateRet(result);
+    llvm::Value *color_result = result;
+    llvm::Value *depth_result = nullptr;
+    if (_raster_depth_mode != AIRRasterDepthMode::NONE) {
+        color_result = builder.CreateExtractValue(result, 0u);
+        depth_result = builder.CreateExtractValue(result, 1u);
+    }
+    if (entry_output_types.size() == 1u) {
+        builder.CreateRet(color_result);
     } else {
         auto output = static_cast<llvm::Value *>(
             llvm::PoisonValue::get(entry_return_type));
         for (auto i = 0u; i < output_types.size(); i++) {
+            auto color = output_types.size() == 1u ?
+                             color_result :
+                             builder.CreateExtractValue(color_result, i);
+            output = builder.CreateInsertValue(output, color, i);
+        }
+        if (depth_result != nullptr) {
             output = builder.CreateInsertValue(
-                output, builder.CreateExtractValue(result, i), i);
+                output, depth_result, output_types.size());
         }
         builder.CreateRet(output);
     }
@@ -817,8 +848,23 @@ void MetalCodegenLLVMImpl::_translate_instruction(IB &builder, FunctionContext &
             auto instruction = static_cast<const xir::ReturnInst *>(inst);
             _deallocate_ray_queries(builder, function);
             if (auto value = instruction->return_value()) {
-                builder.CreateRet(_value(builder, function, value));
+                auto result = _value(builder, function, value);
+                if (function.raster_depth != nullptr) {
+                    auto return_type = function.function->getReturnType();
+                    auto output = static_cast<llvm::Value *>(
+                        llvm::PoisonValue::get(return_type));
+                    output = builder.CreateInsertValue(output, result, 0u);
+                    auto depth = builder.CreateAlignedLoad(
+                        builder.getFloatTy(), function.raster_depth,
+                        llvm::Align{4u});
+                    output = builder.CreateInsertValue(output, depth, 1u);
+                    builder.CreateRet(output);
+                } else {
+                    builder.CreateRet(result);
+                }
             } else {
+                LUISA_ASSERT(function.raster_depth == nullptr,
+                             "Metal AIR fragment depth requires a color return value.");
                 builder.CreateRetVoid();
             }
             break;

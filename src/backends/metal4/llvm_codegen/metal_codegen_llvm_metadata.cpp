@@ -600,12 +600,33 @@ void MetalCodegenLLVMImpl::_add_raster_fragment_metadata(
                    return_type;
     };
     llvm::SmallVector<llvm::Metadata *> output_metadata;
-    output_metadata.reserve(outputs.size());
+    output_metadata.reserve(
+        outputs.size() +
+        (_raster_depth_mode == AIRRasterDepthMode::NONE ? 0u : 1u));
     for (auto i = 0u; i < outputs.size(); i++) {
         output_metadata.emplace_back(node({md_string(_context, "air.render_target"),
                                            md_i32(_context, i), md_i32(_context, 0u),
                                            md_string(_context, "air.arg_type_name"),
                                            md_string(_context, _air_type_name(return_member(i)))}));
+    }
+    if (_raster_depth_mode != AIRRasterDepthMode::NONE) {
+        auto qualifier = [&]() noexcept -> luisa::string_view {
+            switch (_raster_depth_mode) {
+                case AIRRasterDepthMode::ANY: return "air.any";
+                case AIRRasterDepthMode::GREATER_EQUAL: return "air.greater";
+                case AIRRasterDepthMode::LESS_EQUAL: return "air.less";
+                case AIRRasterDepthMode::NONE: break;
+            }
+            LUISA_ERROR_WITH_LOCATION("Invalid Metal AIR shader-depth mode.");
+        }();
+        output_metadata.emplace_back(node({
+            md_string(_context, "air.depth"),
+            md_string(_context, "air.depth_qualifier"),
+            md_string(_context, qualifier),
+            md_string(_context, "air.arg_type_name"),
+            md_string(_context, "float"),
+            md_string(_context, "air.arg_name"),
+            md_string(_context, "depth")}));
     }
     const xir::Argument *payload_argument = nullptr;
     for (auto argument : _raster_stage->arguments()) {

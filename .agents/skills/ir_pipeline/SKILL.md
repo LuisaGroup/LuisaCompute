@@ -230,6 +230,14 @@ Preserve these ABI rules when changing lowering or adding types:
   derivatives to `air.dfdx.*`/`air.dfdy.*` and discard to
   `air.discard_fragment`. Raster object ID is valid in both vertex and fragment
   stages; primitive ID and barycentrics are fragment-only values.
+- Lower `raster_set_z_depth`, `raster_set_z_depth_greater_equal`, and
+  `raster_set_z_depth_less_equal` to fragment-only `ThreadGroupOp` values and
+  inline them into the fragment entry. The implementation return is
+  `{logical_color, f32 depth}`; the external entry flattens colors, appends
+  depth without incrementing the color-attachment count, and reflects it with
+  `air.depth`, `air.depth_qualifier`, and exactly one of `air.any`,
+  `air.greater`, or `air.less`. Reject mixed qualifiers and depth operations
+  left in compute, vertex, or callable code.
 - Keep direct and indirect entry generation separate. Direct dispatch reads a
   constant-space `uint3`; indirect dispatch reads a device-space `uint4` whose
   W component is the kernel ID.
@@ -359,7 +367,8 @@ Use `test_metal_xir_air_accel` as the strict regression for the supported
 acceleration ABI, intrinsic, reflection, and result-field mapping. Keep true
 vertex/fragment coverage in `test_metal_xir_air_raster`: it must traverse
 stage XIR, AIR metadata, metallib loading, render PSOs, command encoding, and
-pixel readback. Use the registered `test_metal_xir_air_ray_query` for stateful
+perform color plus D32 shader-depth readback across both JIT and AOT. Use the
+registered `test_metal_xir_air_ray_query` for stateful
 triangle, procedural-bounding-box, and static-curve semantics, then run the
 cutout renderer to exercise its production `LC_RayQueryAll` path. For
 image-correctness claims,

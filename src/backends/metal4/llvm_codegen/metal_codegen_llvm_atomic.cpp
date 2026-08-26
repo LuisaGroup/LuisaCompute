@@ -287,6 +287,19 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_thread_group(
             return convergent_call(
                 llvm::StringRef{name.data(), name.size()}, type, {operand});
         }
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH: [[fallthrough]];
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL: [[fallthrough]];
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL: {
+            LUISA_ASSERT(
+                _config.program == MetalAIRProgram::RASTER_FRAGMENT &&
+                    function.raster_depth != nullptr &&
+                    air_raster_depth_mode(inst->op()) == _raster_depth_mode,
+                "Shader depth is only valid in the matching Metal AIR fragment stage.");
+            builder.CreateAlignedStore(
+                _value(builder, function, inst->operand(0u)),
+                function.raster_depth, llvm::Align{4u});
+            return nullptr;
+        }
         case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE:
             return convergent_call("air.simd_is_first", builder.getInt1Ty(), {});
         case xir::ThreadGroupOp::WARP_FIRST_ACTIVE_LANE: {

@@ -2225,9 +2225,8 @@ Not currently supported in AIR:
 - double, float8, cooperative-matrix operations, and custom types other than the
   indirect-dispatch handle and the two local ray-query types;
 - extended acceleration-limit shaders;
-- raster debug-break state, shader-written depth, front-facing and
-  base-instance built-ins, custom interpolation qualifiers, stencil, and
-  conservative rasterization.
+- raster debug-break state, front-facing and base-instance built-ins, custom
+  interpolation qualifiers, stencil, and conservative rasterization.
 
 Apple's Metal 3.0 and 3.2 frontends accept `__builtin_readcyclecounter()` and
 emit `llvm.readcyclecounter`, and `metallib` accepts the resulting AIR. However,
@@ -2349,6 +2348,25 @@ with compute and is important for callables containing stage built-ins or
 discard. The paired AIR handoff verifies both XIR modules and the equality of
 the vertex return and fragment payload types before generating either module.
 
+Shader-written depth follows the same AST-to-XIR route as other fragment-only
+operations. `raster_set_z_depth`, `raster_set_z_depth_greater_equal`, and
+`raster_set_z_depth_less_equal` become the corresponding `ThreadGroupOp`
+values and must be inlined into the fragment entry before AIR preflight. Each
+operation takes exactly one `f32`, returns void, and is rejected in compute,
+vertex, or residual callable code. A fragment stage may use one qualifier kind
+but may write it more than once; mixing `any`, `greater`, and `less` promises in
+one stage fails closed.
+
+The internal fragment implementation returns a packed pair of its logical
+color value and `float` depth. The external AIR entry flattens the logical
+color value into the normal render-target components and appends depth as the
+last physical return component. Depth does not increment the runtime color
+attachment count. Its return metadata is exactly `air.depth`,
+`air.depth_qualifier`, then `air.any`, `air.greater`, or `air.less`; there is no
+depth-write intrinsic. Every non-discard path that returns a color must execute
+a matching depth write when a shader-depth operation is present, just as an
+MSL fragment output field must be initialized before return.
+
 The vertex wrapper is named `vertex_main`. Its physical parameters are:
 
 1. vertex attributes, flattened in mesh-stream order and then attribute order;
@@ -2422,13 +2440,17 @@ barycentrics, root constants, derivatives, and discard. The same draw binds a
 D32 depth buffer through its read-only `to_img()` alias and uses a uniform
 array that pushes the shared root block above 4 KiB, covering both the common
 depth/texture binding interface and the staged vertex-plus-fragment root path.
+The fragment also writes depth 0.375 with the greater-equal qualifier. A
+follow-up compute dispatch reads the D32 attachment and requires that exact
+value for both the JIT draw and the archive-loaded AOT draw; the IR checks also
+require `air.depth`, `air.depth_qualifier`, and `air.greater`.
 
-The implemented slice does not yet expose shader-written depth, front-facing
-or base-instance built-ins, selectable interpolation qualifiers, centroid or
-sample inputs, stencil, conservative rasterization, tessellation, or mesh
-shaders. It also requires at least one fragment color output and one bound color
-attachment; depth-only passes are rejected. These are separate extensions to
-the stage ABI rather than aliases for the currently emitted metadata.
+The implemented slice does not yet expose front-facing or base-instance
+built-ins, selectable interpolation qualifiers, centroid or sample inputs,
+stencil, conservative rasterization, tessellation, or mesh shaders. It also
+requires at least one fragment color output and one bound color attachment;
+depth-only passes are rejected. These are separate extensions to the stage ABI
+rather than aliases for the currently emitted metadata.
 
 ## 13. Fast-math policy
 
@@ -2894,17 +2916,21 @@ True vertex/fragment execution is strict-runtime validated by
 `test_metal_xir_air_raster`. Before drawing, the test enables the post-O2 LLVM
 dump and checks `!air.vertex`, `!air.fragment`, vertex inputs and location
 indices, vertex/instance/primitive/barycentric built-ins, root indirect-buffer
-metadata, the object-ID buffer in both stages, render-target metadata,
-`air.dfdx.f32`, `air.dfdy.f32`, and `air.discard_fragment`. It then creates the
-paired metallib and render PSO, draws an instanced triangle, and reads back the
-target. Vertex visibility depends on the object ID and a vertex root constant;
-fragment coverage/color depends on object ID, a fragment root constant,
-barycentrics, derivatives, and discard. A D32 depth texture is read through
-`DepthBuffer::to_img()`, and a 1024-float uniform pushes the shared raster root
-above 4 KiB. The test then writes a raster archive, reloads it through the AOT
-boundary, redraws, and requires exact agreement with the JIT pixels. Both the
-ordinary strict registration and the validation-layer registration pass on the
-Apple M1 Max reference machine.
+metadata, the object-ID buffer in both stages, render-target and shader-depth
+metadata, `air.dfdx.f32`, `air.dfdy.f32`, and `air.discard_fragment`. It then
+creates the paired metallib and render PSO, draws an instanced triangle, and
+reads back the target. Vertex visibility depends on the object ID and a vertex
+root constant; fragment coverage/color depends on object ID, a fragment root
+constant, barycentrics, derivatives, and discard. A D32 depth texture is read
+through `DepthBuffer::to_img()`, and a 1024-float uniform pushes the shared
+raster root above 4 KiB. The fragment writes depth 0.375 with
+`raster_set_z_depth_greater_equal`; a compute readback requires 0.375 after both
+the JIT draw and archive-loaded AOT draw. The test then writes a raster archive,
+reloads it through the AOT boundary, redraws, and requires exact agreement with
+the JIT pixels. Separate fragment modules require Apple to accept the `air.any`
+and `air.less` metadata variants as well. Both the ordinary strict registration
+and the validation-layer registration pass on the Apple M1 Max reference
+machine.
 
 Reverse autodiff is registered as the strict
 `test_metal_xir_air_autodiff` CTest. It exercises basic products,
@@ -2913,18 +2939,19 @@ addition, a callable that is inlined after CFG destructuring, and branch-
 sensitive piecewise control flow. Finite-result checks prevent an AIR compile
 or dispatch success from masking invalid gradient values.
 
-A compute-rendering smoke sweep is registered as fourteen CTests. Each is
+A compute-rendering smoke sweep is registered as fifteen CTests. Each is
 labelled `integration`, `integration_metal4`, and `rendering`, runs offline,
 and has a finite timeout. These are finite
 compute-only renderers: they create no window or swapchain and do not exercise
 the vertex/fragment raster architecture described in Section 12.2. The set
-passes all fourteen mirrored executables with no timeouts: `test_sdf_renderer`,
+passes all fifteen mirrored executables with no timeouts: `test_sdf_renderer`,
 `test_voxel_raytracer`, `test_path_tracing`,
 `test_path_tracing_nested_callable`,
 `test_path_tracing_ray_masks`, `test_photon_mapping`, `test_path_tracing_hdr`,
 `test_path_tracing_spectrum`, `test_path_tracing_camera`,
-`test_path_tracing_cutout`, `test_blackhole`, `test_shader_toy`,
-`test_shader_toy_spacex`, and `test_shader_visuals_present`. In particular,
+`test_path_tracing_cutout`, `test_blackhole`, `test_procedural`,
+`test_shader_toy`, `test_shader_toy_spacex`, and
+`test_shader_visuals_present`. In particular,
 `test_path_tracing_cutout metal4 --offline --spp 1`
 exits successfully through AIR.
 
@@ -3143,8 +3170,9 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 - Raster stage metadata and render encoding are implemented, but every new
   stage semantic still requires an Apple oracle, frontend/XIR modeling,
   preflight rules, emitter metadata, runtime binding, and a strict draw test.
-  In particular, do not infer depth output, custom interpolation, stencil, or
-  conservative-raster support from acceptance of the current color-only path.
+  Shader-written `any`/`greater`/`less` depth now has that full chain and strict
+  D32 JIT/AOT readback coverage. Do not infer custom interpolation, stencil, or
+  conservative-raster support from it.
 
 ## 19. Local source index
 
