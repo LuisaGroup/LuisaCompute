@@ -44,6 +44,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool isPixelShader : 1 = false;
     bool pixelFirstArgIsStruct : 1 = false;
     bool pixelUseBarycentric : 1 = false;
+    bool pixelUseFrontFacing : 1 = false;
     bool useTex2DBindless : 1 = false;
     bool useTex3DBindless : 1 = false;
     bool useBufferBindless : 1 = false;

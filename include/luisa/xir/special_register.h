@@ -15,6 +15,7 @@ enum struct DerivedSpecialRegisterTag {
     BLOCK_SIZE,
     WARP_SIZE,
     DISPATCH_SIZE,
+    RASTER_FRONT_FACING,
 };
 
 [[nodiscard]] constexpr luisa::string_view to_string(DerivedSpecialRegisterTag tag) noexcept {
@@ -30,6 +31,7 @@ enum struct DerivedSpecialRegisterTag {
         case DerivedSpecialRegisterTag::BLOCK_SIZE: return "block_size"sv;
         case DerivedSpecialRegisterTag::WARP_SIZE: return "warp_size"sv;
         case DerivedSpecialRegisterTag::DISPATCH_SIZE: return "dispatch_size"sv;
+        case DerivedSpecialRegisterTag::RASTER_FRONT_FACING: return "front_facing"sv;
     }
     return "unknown"sv;
 }
@@ -54,6 +56,7 @@ namespace detail {
 [[nodiscard]] LUISA_XIR_API const Type *special_register_type_uint() noexcept;
 [[nodiscard]] LUISA_XIR_API const Type *special_register_type_uint3() noexcept;
 [[nodiscard]] LUISA_XIR_API const Type *special_register_type_float3() noexcept;
+[[nodiscard]] LUISA_XIR_API const Type *special_register_type_bool() noexcept;
 
 template<typename T>
 [[nodiscard]] auto get_special_register_type() noexcept {
@@ -63,6 +66,8 @@ template<typename T>
         return special_register_type_uint3();
     } else if constexpr (std::is_same_v<T, float3>) {
         return special_register_type_float3();
+    } else if constexpr (std::is_same_v<T, bool>) {
+        return special_register_type_bool();
     } else {
         static_assert(always_false_v<T>, "Unsupported special register type.");
     }
@@ -99,5 +104,6 @@ using SPR_Barycentrics = DerivedSpecialRegister<float3, DerivedSpecialRegisterTa
 using SPR_BlockSize = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::BLOCK_SIZE>;
 using SPR_WarpSize = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::WARP_SIZE>;
 using SPR_DispatchSize = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::DISPATCH_SIZE>;
+using SPR_FrontFacing = DerivedSpecialRegister<bool, DerivedSpecialRegisterTag::RASTER_FRONT_FACING>;
 
 }// namespace luisa::compute::xir

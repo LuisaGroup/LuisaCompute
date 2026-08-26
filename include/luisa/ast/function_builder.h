@@ -320,6 +320,8 @@ public:
     [[nodiscard]] const RefExpr *kernel_id() noexcept;
     /// Return object id (for rasterization only).
     [[nodiscard]] const RefExpr *raster_object_id() noexcept;
+    /// Return whether the current fragment belongs to a front-facing primitive.
+    [[nodiscard]] const RefExpr *raster_is_front_face() noexcept;
     [[nodiscard]] const RefExpr *raster_barycentrics() noexcept;
     /// Return warp lane count
     [[nodiscard]] const RefExpr *warp_lane_count() noexcept;

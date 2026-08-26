@@ -645,7 +645,7 @@ void MetalCodegenLLVMImpl::_add_raster_fragment_metadata(
                    payload_type;
     };
     llvm::SmallVector<llvm::Metadata *> argument_metadata;
-    argument_metadata.reserve(payload_count + 4u);
+    argument_metadata.reserve(payload_count + 5u);
     for (auto i = 0u; i < payload_count; i++) {
         auto type = payload_member(i);
         auto type_name = _air_type_name(type);
@@ -676,8 +676,9 @@ void MetalCodegenLLVMImpl::_add_raster_fragment_metadata(
     }
     auto primitive_index = static_cast<uint32_t>(payload_count);
     auto barycentrics_index = primitive_index + 1u;
-    auto root_index = primitive_index + 2u;
-    auto object_id_index = primitive_index + 3u;
+    auto front_facing_index = primitive_index + 2u;
+    auto root_index = primitive_index + 3u;
+    auto object_id_index = primitive_index + 4u;
     argument_metadata.emplace_back(node({md_i32(_context, primitive_index), md_string(_context, "air.primitive_id"),
                                          md_string(_context, "air.arg_type_name"), md_string(_context, "uint"),
                                          md_string(_context, "air.arg_name"), md_string(_context, "primitive_id")}));
@@ -685,6 +686,9 @@ void MetalCodegenLLVMImpl::_add_raster_fragment_metadata(
                                          md_string(_context, "air.center"), md_string(_context, "air.perspective"),
                                          md_string(_context, "air.arg_type_name"), md_string(_context, "float3"),
                                          md_string(_context, "air.arg_name"), md_string(_context, "barycentrics")}));
+    argument_metadata.emplace_back(node({md_i32(_context, front_facing_index), md_string(_context, "air.front_facing"),
+                                         md_string(_context, "air.arg_type_name"), md_string(_context, "bool"),
+                                         md_string(_context, "air.arg_name"), md_string(_context, "front_facing")}));
     auto layout = _root_argument_layout();
     argument_metadata.emplace_back(
         _root_argument_metadata(layout.size, root_index));

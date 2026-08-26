@@ -20,6 +20,7 @@ bool IsCBuffer(Variable::Tag t) {
         case Variable::Tag::KERNEL_ID:
         case Variable::Tag::RASTER_BARYCENTRICS:
         case Variable::Tag::RASTER_OBJECT_ID:
+        case Variable::Tag::RASTER_FRONT_FACING:
             return false;
         default:
             return true;

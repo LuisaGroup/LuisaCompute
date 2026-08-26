@@ -109,6 +109,7 @@ SpecialRegister *Module::create_special_register(DerivedSpecialRegisterTag tag) 
                 case DerivedSpecialRegisterTag::BLOCK_SIZE: return luisa::make_managed<SPR_BlockSize>(this);
                 case DerivedSpecialRegisterTag::WARP_SIZE: return luisa::make_managed<SPR_WarpSize>(this);
                 case DerivedSpecialRegisterTag::DISPATCH_SIZE: return luisa::make_managed<SPR_DispatchSize>(this);
+                case DerivedSpecialRegisterTag::RASTER_FRONT_FACING: return luisa::make_managed<SPR_FrontFacing>(this);
                 default: break;
             }
             LUISA_ERROR_WITH_LOCATION("Unsupported special register tag.");
@@ -158,6 +159,12 @@ SPR_Barycentrics *Module::create_bary_centrics() noexcept {
     auto sreg = create_special_register(DerivedSpecialRegisterTag::RASTER_BARYCENTRICS);
     LUISA_DEBUG_ASSERT(sreg->isa<SPR_Barycentrics>(), "Invalid special register type.");
     return static_cast<SPR_Barycentrics *>(sreg);
+}
+
+SPR_FrontFacing *Module::create_front_facing() noexcept {
+    auto sreg = create_special_register(DerivedSpecialRegisterTag::RASTER_FRONT_FACING);
+    LUISA_DEBUG_ASSERT(sreg->isa<SPR_FrontFacing>(), "Invalid special register type.");
+    return static_cast<SPR_FrontFacing *>(sreg);
 }
 
 SPR_BlockSize *Module::create_block_size() noexcept {

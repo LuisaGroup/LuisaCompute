@@ -257,6 +257,10 @@ inline void device_assert(Expr<bool> pred, luisa::string_view msg) noexcept {
 [[nodiscard]] inline auto raster_object_id() noexcept {
     return def<uint>(detail::FunctionBuilder::current()->raster_object_id());
 }
+/// Return whether the current fragment belongs to a front-facing primitive.
+[[nodiscard]] inline auto raster_is_front_face() noexcept {
+    return def<bool>(detail::FunctionBuilder::current()->raster_is_front_face());
+}
 /// Get perspective-correct triangle barycentric coordinates in a fragment stage.
 [[nodiscard]] inline auto raster_barycentrics() noexcept {
     return def<float3>(detail::FunctionBuilder::current()->raster_barycentrics());

@@ -230,6 +230,12 @@ Preserve these ABI rules when changing lowering or adding types:
   derivatives to `air.dfdx.*`/`air.dfdy.*` and discard to
   `air.discard_fragment`. Raster object ID is valid in both vertex and fragment
   stages; primitive ID and barycentrics are fragment-only values.
+- Keep `raster_is_front_face()` as an AST bool builtin and
+  `SPR_FrontFacing` special register. The physical AIR fragment parameter is
+  `i1 noundef` with `air.front_facing`, type name `bool`, and argument name
+  `front_facing`; this register ABI does not change byte-sized bool memory
+  layout. Pass it through the hidden raster callable state and reject its use
+  outside a fragment stage.
 - Lower `raster_set_z_depth`, `raster_set_z_depth_greater_equal`, and
   `raster_set_z_depth_less_equal` to fragment-only `ThreadGroupOp` values and
   inline them into the fragment entry. The implementation return is
@@ -367,7 +373,10 @@ Use `test_metal_xir_air_accel` as the strict regression for the supported
 acceleration ABI, intrinsic, reflection, and result-field mapping. Keep true
 vertex/fragment coverage in `test_metal_xir_air_raster`: it must traverse
 stage XIR, AIR metadata, metallib loading, render PSOs, command encoding, and
-perform color plus D32 shader-depth readback across both JIT and AOT. Use the
+perform color plus D32 shader-depth readback across both JIT and AOT. Keep the
+front-facing assertion dynamic: disable culling, invert
+`RasterState::front_counter_clockwise`, and require opposite JIT/AOT pixel
+values. Use the
 registered `test_metal_xir_air_ray_query` for stateful
 triangle, procedural-bounding-box, and static-curve semantics, then run the
 cutout renderer to exercise its production `LC_RayQueryAll` path. For

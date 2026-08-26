@@ -58,8 +58,9 @@ llvm::Function *MetalCodegenLLVMImpl::_declare_raster_stage(const xir::RasterSta
         }
     }
     auto i32 = llvm::Type::getInt32Ty(_context);
+    auto i1 = llvm::Type::getInt1Ty(_context);
     auto f32x3 = llvm::FixedVectorType::get(llvm::Type::getFloatTy(_context), 3u);
-    arguments.append({i32, i32, f32x3});
+    arguments.append({i32, i32, f32x3, i1});
     auto return_type = function->type() == nullptr ?
                            llvm::Type::getVoidTy(_context) :
                            _type(function->type())->reg_type;
@@ -102,8 +103,9 @@ llvm::Function *MetalCodegenLLVMImpl::_declare_callable(const xir::CallableFunct
         auto i32x3 = llvm::FixedVectorType::get(i32, 3u);
         arguments.append({i32x3, i32, i32x3, i32x3, i32x3, i32x3, i32, i32});
     } else {
+        auto i1 = llvm::Type::getInt1Ty(_context);
         auto f32x3 = llvm::FixedVectorType::get(llvm::Type::getFloatTy(_context), 3u);
-        arguments.append({i32, i32, f32x3});
+        arguments.append({i32, i32, f32x3, i1});
     }
     auto return_type = function->type() == nullptr ? llvm::Type::getVoidTy(_context) : _type(function->type())->reg_type;
     auto function_type = llvm::FunctionType::get(return_type, arguments, false);
@@ -164,10 +166,12 @@ void MetalCodegenLLVMImpl::_bind_state_parameters(FunctionContext &context, llvm
         context.kernel_id = iterator++;
         context.raster_object_id = iterator++;
         context.raster_barycentrics = iterator++;
+        context.raster_front_facing = iterator++;
         LUISA_ASSERT(iterator == context.function->arg_end(), "Unexpected Metal raster state parameter count.");
         context.kernel_id->setName("sreg.primitive.id");
         context.raster_object_id->setName("sreg.object.id");
         context.raster_barycentrics->setName("sreg.barycentrics");
+        context.raster_front_facing->setName("sreg.front.facing");
         return;
     }
     context.dispatch_size = iterator++;
@@ -192,7 +196,8 @@ void MetalCodegenLLVMImpl::_bind_state_parameters(FunctionContext &context, llvm
 void MetalCodegenLLVMImpl::_append_state_arguments(const FunctionContext &context, llvm::SmallVectorImpl<llvm::Value *> &arguments) noexcept {
     if (_config.program != MetalAIRProgram::COMPUTE) {
         arguments.append({context.kernel_id, context.raster_object_id,
-                          context.raster_barycentrics});
+                          context.raster_barycentrics,
+                          context.raster_front_facing});
         return;
     }
     arguments.append({context.dispatch_size, context.kernel_id,
@@ -599,7 +604,7 @@ void MetalCodegenLLVMImpl::_emit_raster_vertex_entry(
         i32, object_id_pointer, llvm::Align{4u});
     arguments.append(
         {builder.getInt32(0u), object_id,
-         llvm::Constant::getNullValue(f32x3)});
+         llvm::Constant::getNullValue(f32x3), builder.getFalse()});
     auto result = builder.CreateCall(implementation, arguments);
     result->setConvergent();
     if (output_types.size() == 1u) {
@@ -639,11 +644,12 @@ void MetalCodegenLLVMImpl::_emit_raster_fragment_entry(
         payload_members.emplace_back(_type(payload_type)->reg_type);
     }
     auto i32 = llvm::Type::getInt32Ty(_context);
+    auto i1 = llvm::Type::getInt1Ty(_context);
     auto f32x3 = llvm::FixedVectorType::get(
         llvm::Type::getFloatTy(_context), 3u);
     llvm::SmallVector<llvm::Type *> parameter_types{payload_members};
     parameter_types.append(
-        {i32, f32x3,
+        {i32, f32x3, i1,
          llvm::PointerType::get(_context, air_address_space_constant),
          llvm::PointerType::get(_context, air_address_space_constant)});
 
@@ -685,18 +691,22 @@ void MetalCodegenLLVMImpl::_emit_raster_fragment_entry(
 
     auto primitive_index = payload_members.size();
     auto barycentrics_index = primitive_index + 1u;
-    auto root_index_in_function = primitive_index + 2u;
-    auto object_id_index = primitive_index + 3u;
+    auto front_facing_index = primitive_index + 2u;
+    auto root_index_in_function = primitive_index + 3u;
+    auto object_id_index = primitive_index + 4u;
     auto primitive_id = function->getArg(primitive_index);
     auto barycentrics = function->getArg(barycentrics_index);
+    auto front_facing = function->getArg(front_facing_index);
     auto root = function->getArg(root_index_in_function);
     auto object_id_pointer = function->getArg(object_id_index);
     primitive_id->setName("primitive_id");
     barycentrics->setName("barycentrics");
+    front_facing->setName("front_facing");
     root->setName("args");
     object_id_pointer->setName("object_id");
     primitive_id->addAttr(llvm::Attribute::NoUndef);
     barycentrics->addAttr(llvm::Attribute::NoUndef);
+    front_facing->addAttr(llvm::Attribute::NoUndef);
     auto layout = _root_argument_layout();
     root->addAttr(llvm::Attribute::NoUndef);
     root->addAttr(llvm::Attribute::ReadOnly);
@@ -745,7 +755,7 @@ void MetalCodegenLLVMImpl::_emit_raster_fragment_entry(
                 builder, root, argument, root_argument_index, true));
         }
     }
-    arguments.append({primitive_id, object_id, barycentrics});
+    arguments.append({primitive_id, object_id, barycentrics, front_facing});
     auto result = builder.CreateCall(implementation, arguments);
     result->setConvergent();
     llvm::Value *color_result = result;

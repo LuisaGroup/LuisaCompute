@@ -2213,7 +2213,7 @@ Supported instruction families:
 - vertex and fragment raster stages with fixed Luisa `AppData` reconstruction,
   scalar/vector varyings, color render targets, per-stage root arguments,
   vertex/instance/primitive/object IDs, floating barycentrics, fragment
-  derivatives, and fragment discard as described in Section 12.2.
+  front-facing state, derivatives, and discard as described in Section 12.2.
 
 Not currently supported in AIR:
 
@@ -2225,7 +2225,7 @@ Not currently supported in AIR:
 - double, float8, cooperative-matrix operations, and custom types other than the
   indirect-dispatch handle and the two local ray-query types;
 - extended acceleration-limit shaders;
-- raster debug-break state, front-facing and base-instance built-ins, custom
+- raster debug-break state, the base-instance built-in, custom
   interpolation qualifiers, stencil, and conservative rasterization.
 
 Apple's Metal 3.0 and 3.2 frontends accept `__builtin_readcyclecounter()` and
@@ -2333,6 +2333,16 @@ Observed fragment conventions:
 - depth is another returned component reflected with `air.depth`, followed by
   `air.depth_qualifier` and `air.any`, `air.greater`, or `air.less`.
 
+The Apple-frontend oracle for `bool front_facing [[front_facing]]` emits a
+physical `i1 noundef` fragment-entry parameter; it is not an intrinsic. Its
+argument metadata is exactly the entry index followed by `air.front_facing`,
+`air.arg_type_name`, `bool`, `air.arg_name`, and `front_facing`. This is a
+register ABI: the use of `i1` here does not change Luisa's byte-addressable
+memory ABI, where a scalar bool and each member of `{bool, bool, bool, bool}`
+occupy one byte. The convention was recovered with `xcrun metal -std=metal3.2
+-S -emit-llvm -c` and then validated through Luisa's LLVM-21 emission,
+LLVM-14 downgrade, `metallib`, pipeline creation, and GPU execution.
+
 Fragment derivatives are ordinary AIR calls such as
 `air.dfdx.f32`, `air.dfdy.f32`, `air.dfdx.v2f32`, and
 `air.dfdy.v2f16`; overload suffixes follow scalar/vector type. Fragment
@@ -2396,9 +2406,10 @@ first member is `float4` position. Remaining scalar/vector `half`, `float`,
 `int32`, or `uint32` members (up to four lanes) become
 `air.vertex_output user(locnN)` values. The fragment wrapper is named
 `fragment_main`; it receives the flattened position/varyings followed by
-`air.primitive_id`, a perspective-center `air.barycentric_coord float3`, the
-same root structure, and the object-ID buffer. Floating varyings use center,
-perspective interpolation and integer varyings use flat interpolation. A
+`air.primitive_id`, a perspective-center `air.barycentric_coord float3`, an
+`air.front_facing bool`, the same root structure, and the object-ID buffer.
+Floating varyings use center, perspective interpolation and integer varyings
+use flat interpolation. A
 scalar/vector fragment return is render target 0; a structure is flattened to
 consecutive `air.render_target` indices. The fragment return is capped at eight
 targets. Its exact target count is carried from LLVM emission through the
@@ -2413,7 +2424,14 @@ layout, typed buffers, textures, samplers, bindless arrays, acceleration
 structures, and uniform aggregates. `raster_object_id()` is loaded from the
 location-1 constant buffer in both stages. In the fragment stage,
 `raster_barycentrics()` is the native float3 builtin and the ordinary XIR
-kernel-ID special register maps to primitive ID.
+kernel-ID special register maps to primitive ID. `raster_is_front_face()` is
+an AST bool builtin translated to
+`DerivedSpecialRegisterTag::RASTER_FRONT_FACING`/`SPR_FrontFacing`; the
+fragment entry passes its physical `i1` through the hidden raster-state ABI
+used by the stage implementation and generated callables. The vertex wrapper
+supplies `false` only to keep that internal signature uniform, while AIR
+preflight rejects actual front-facing use in vertex, compute, or otherwise
+invalid stage code.
 
 Fragment `ddx`/`ddy` accept scalar or vector f16/f32 values and lower to the
 suffix-matched convergent `air.dfdx.*`/`air.dfdy.*` calls. `raster_discard()`
@@ -2436,8 +2454,11 @@ strides and `setVertexBuffer:offset:attributeStride:atIndex:`, which start at
 macOS 14. The strict raster integration test checks the
 post-O2 metadata and intrinsic spellings, then renders and reads back a
 triangle whose visibility/color depend on vertex and fragment object ID,
-barycentrics, root constants, derivatives, and discard. The same draw binds a
-D32 depth buffer through its read-only `to_img()` alias and uses a uniform
+barycentrics, front-facing state, root constants, derivatives, and discard.
+With culling disabled, the test inverts `RasterState::front_counter_clockwise`
+and requires the covered pixel to switch between two alpha values; it repeats
+both winding cases through the archive-loaded AOT shader. The same draw binds
+a D32 depth buffer through its read-only `to_img()` alias and uses a uniform
 array that pushes the shared root block above 4 KiB, covering both the common
 depth/texture binding interface and the staged vertex-plus-fragment root path.
 The fragment also writes depth 0.375 with the greater-equal qualifier. A
@@ -2445,8 +2466,8 @@ follow-up compute dispatch reads the D32 attachment and requires that exact
 value for both the JIT draw and the archive-loaded AOT draw; the IR checks also
 require `air.depth`, `air.depth_qualifier`, and `air.greater`.
 
-The implemented slice does not yet expose front-facing or base-instance
-built-ins, selectable interpolation qualifiers, centroid or sample inputs,
+The implemented slice does not yet expose the base-instance built-in,
+selectable interpolation qualifiers, centroid or sample inputs,
 stencil, conservative rasterization, tessellation, or mesh shaders. It also
 requires at least one fragment color output and one bound color attachment;
 depth-only passes are rejected. These are separate extensions to the stage ABI
@@ -2915,13 +2936,15 @@ fallback.
 True vertex/fragment execution is strict-runtime validated by
 `test_metal_xir_air_raster`. Before drawing, the test enables the post-O2 LLVM
 dump and checks `!air.vertex`, `!air.fragment`, vertex inputs and location
-indices, vertex/instance/primitive/barycentric built-ins, root indirect-buffer
+indices, vertex/instance/primitive/barycentric/front-facing built-ins, root indirect-buffer
 metadata, the object-ID buffer in both stages, render-target and shader-depth
 metadata, `air.dfdx.f32`, `air.dfdy.f32`, and `air.discard_fragment`. It then
 creates the paired metallib and render PSO, draws an instanced triangle, and
 reads back the target. Vertex visibility depends on the object ID and a vertex
 root constant; fragment coverage/color depends on object ID, a fragment root
-constant, barycentrics, derivatives, and discard. A D32 depth texture is read
+constant, barycentrics, front-facing state, derivatives, and discard. The test
+flips the front-winding state with culling disabled and requires both JIT and
+AOT pixels to invert their encoded facing value. A D32 depth texture is read
 through `DepthBuffer::to_img()`, and a 1024-float uniform pushes the shared
 raster root above 4 KiB. The fragment writes depth 0.375 with
 `raster_set_z_depth_greater_equal`; a compute readback requires 0.375 after both
@@ -2998,9 +3021,9 @@ deserialization.
 The closure configuration uses CMake/Ninja Release builds with legacy Metal,
 Metal4, and fallback enabled, Homebrew LLVM 21.1.8, Apple metalfe 32023.883,
 and the macOS 26.4 SDK. After rebasing onto `origin/next` at `a5d69e492`, a
-fresh full build and complete configured CTest run pass **154/154** in 79.64
-seconds: **32/32** `integration_metal4` tests,
-**14/14** offline graphics/rendering executables, and **11/11** tutorials are
+fresh full build and complete configured CTest run pass **155/155** in 111.84
+seconds: **33/33** `integration_metal4` tests,
+**15/15** offline graphics/rendering executables, and **11/11** tutorials are
 included. The standalone matrix-motion acceleration and image regressions also
 pass Metal API and GPU Validation with 43 and 8 assertions respectively; the
 Metal4 timeline-event regression passes the same validation layers with 11

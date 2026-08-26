@@ -2717,6 +2717,7 @@ spirv_xir_dialect_support(xir::DerivedSpecialRegisterTag tag) noexcept {
         case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: return supported();
         case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID:
         case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS:
+        case xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING:
             return unsupported(
                 "the native code generator emits compute entry points and has no "
                 "raster-stage builtin for this value");

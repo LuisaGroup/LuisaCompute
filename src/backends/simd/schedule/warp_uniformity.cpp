@@ -55,7 +55,8 @@ WarpUniformityAnalysis::State WarpUniformityAnalysis::_state(
                 case S::WARP_LANE_ID:
                 case S::DISPATCH_ID:
                 case S::RASTER_OBJECT_ID:
-                case S::RASTER_BARYCENTRICS: return State::varying;
+                case S::RASTER_BARYCENTRICS:
+                case S::RASTER_FRONT_FACING: return State::varying;
             }
             return State::varying;
         }

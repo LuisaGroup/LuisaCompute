@@ -62,6 +62,11 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
             str << "bary"sv;
             opt->pixelUseBarycentric = true;
             break;
+        case Variable::Tag::RASTER_FRONT_FACING:
+            LUISA_ASSERT(opt->isRaster, "front-facing only allowed in raster shader");
+            str << "front_facing"sv;
+            opt->pixelUseFrontFacing = true;
+            break;
         case Variable::Tag::WARP_LANE_COUNT:
             LUISA_ASSERT(!opt->isRaster, "warp ops only allowed in compute shader");
             if (opt->funcType == CodegenStackData::FuncType::Callable) {

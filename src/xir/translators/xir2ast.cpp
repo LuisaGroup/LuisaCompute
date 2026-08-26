@@ -558,6 +558,7 @@ private:
             case DerivedSpecialRegisterTag::KERNEL_ID: return b->kernel_id();
             case DerivedSpecialRegisterTag::RASTER_OBJECT_ID: return b->raster_object_id();
             case DerivedSpecialRegisterTag::RASTER_BARYCENTRICS: return b->raster_barycentrics();
+            case DerivedSpecialRegisterTag::RASTER_FRONT_FACING: return b->raster_is_front_face();
             case DerivedSpecialRegisterTag::BLOCK_SIZE: LUISA_ERROR_WITH_LOCATION("XIR-to-AST does not support block_size special register.");
             case DerivedSpecialRegisterTag::WARP_SIZE: return b->warp_lane_count();
             case DerivedSpecialRegisterTag::DISPATCH_SIZE: return b->dispatch_size();

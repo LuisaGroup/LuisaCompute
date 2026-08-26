@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
             barycentrics.x, barycentrics.y,
             depth_value + derivative * 0.25f +
                 large_constants[0u] * 0.1f,
-            1.0f);
+            select(0.25f, 1.0f, raster_is_front_face()));
     };
     RasterStageKernel fragment_depth_any = [](
                                                Var<MetalAIRRasterVarying> input) noexcept {
@@ -214,6 +214,10 @@ int main(int argc, char *argv[]) {
                     "fragment primitive ID builtin metadata must be emitted");
     expect_contains(fragment_ir, "!\"air.barycentric_coord\"",
                     "fragment barycentric builtin metadata must be emitted");
+    expect_contains(fragment_ir, "!\"air.front_facing\"",
+                    "fragment front-facing builtin metadata must be emitted");
+    expect_contains(fragment_ir, "i1 noundef %front_facing",
+                    "fragment front-facing input must use AIR's physical i1 ABI");
     expect_contains(fragment_ir, "!\"air.render_target\"",
                     "fragment color output metadata must be emitted");
     expect_contains(fragment_ir, "!\"air.depth\"",
@@ -348,6 +352,44 @@ int main(int argc, char *argv[]) {
     // block and depth-image resource. The loaded archive must reproduce the
     // JIT image exactly.
     auto jit_pixels = pixels;
+    auto jit_front_alpha = channel(
+        jit_pixels, width / 2u, height / 2u, 3u);
+    expect(jit_front_alpha == 64u || jit_front_alpha == 255u)
+        << "front-facing alpha=" << static_cast<uint>(jit_front_alpha);
+
+    // Flipping the declared front winding must invert [[front_facing]] while
+    // culling stays disabled. This catches a constant-folded or incorrectly
+    // wired AIR argument even when the triangle still renders visibly.
+    auto opposite_state = state;
+    opposite_state.front_counter_clockwise =
+        !state.front_counter_clockwise;
+    std::array<std::byte, width * height * 4u> opposite_jit_pixels{};
+    luisa::vector<RasterMesh> opposite_jit_meshes;
+    opposite_jit_meshes.emplace_back(
+        luisa::span<const VertexBufferView>{&vertex_view, 1u},
+        static_cast<uint>(vertices.size()), 1u, kObjectID);
+    stream << output_depth.clear(1.0f)
+           << raster->clear_render_target(
+                  render_target.view(),
+                  make_float4(0.0f, 0.0f, 0.0f, 1.0f))
+           << shader(1.0f, object_gate, 0.72f,
+                     sampled_depth.to_img(), large_constants)
+                  .draw(
+                      std::move(opposite_jit_meshes), mesh_format,
+                      Viewport{0u, 0u, width, height}, opposite_state,
+                      &output_depth, render_target)
+           << render_target.copy_to(
+                  luisa::span{opposite_jit_pixels})
+           << synchronize();
+    auto opposite_front_alpha = channel(
+        opposite_jit_pixels, width / 2u, height / 2u, 3u);
+    expect(opposite_front_alpha == 64u ||
+           opposite_front_alpha == 255u)
+        << "opposite-winding alpha="
+        << static_cast<uint>(opposite_front_alpha);
+    expect(opposite_front_alpha != jit_front_alpha)
+        << "front-facing did not change when winding was inverted";
+
     auto archive_path = std::filesystem::path{
         dump_prefix_string + ".raster.air.archive"};
     auto archive_path_string = archive_path.string();
@@ -386,6 +428,29 @@ int main(int argc, char *argv[]) {
             << "AOT raster output differs from JIT output";
         expect(depth_sample[0u] > 0.3749f && depth_sample[0u] < 0.3751f)
             << "AOT shader-written depth=" << depth_sample[0u];
+
+        std::array<std::byte, width * height * 4u>
+            opposite_aot_pixels{};
+        luisa::vector<RasterMesh> opposite_aot_meshes;
+        opposite_aot_meshes.emplace_back(
+            luisa::span<const VertexBufferView>{&vertex_view, 1u},
+            static_cast<uint>(vertices.size()), 1u, kObjectID);
+        stream << output_depth.clear(1.0f)
+               << raster->clear_render_target(
+                      render_target.view(),
+                      make_float4(0.0f, 0.0f, 0.0f, 1.0f))
+               << aot_shader(1.0f, object_gate, 0.72f,
+                             sampled_depth.to_img(), large_constants)
+                      .draw(
+                          std::move(opposite_aot_meshes), mesh_format,
+                          Viewport{0u, 0u, width, height},
+                          opposite_state, &output_depth, render_target)
+               << render_target.copy_to(
+                      luisa::span{opposite_aot_pixels})
+               << synchronize();
+        expect(static_cast<bool>(
+            opposite_aot_pixels == opposite_jit_pixels))
+            << "AOT opposite-winding output differs from JIT output";
     }
     std::error_code ignored;
     std::filesystem::remove(vertex_ir_path, ignored);

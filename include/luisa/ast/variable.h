@@ -40,7 +40,8 @@ public:
         WARP_LANE_COUNT,
         WARP_LANE_ID,
         RASTER_OBJECT_ID,
-        RASTER_BARYCENTRICS
+        RASTER_BARYCENTRICS,
+        RASTER_FRONT_FACING
     };
 
 private:
@@ -78,7 +79,8 @@ public:
                _tag == Tag::WARP_LANE_COUNT ||
                _tag == Tag::WARP_LANE_ID ||
                _tag == Tag::RASTER_OBJECT_ID ||
-               _tag == Tag::RASTER_BARYCENTRICS;
+               _tag == Tag::RASTER_BARYCENTRICS ||
+               _tag == Tag::RASTER_FRONT_FACING;
     }
 };
 

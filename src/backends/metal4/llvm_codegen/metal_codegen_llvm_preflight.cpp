@@ -411,7 +411,8 @@ namespace detail {
             auto tag = special->derived_special_register_tag();
             if (program == MetalAIRProgram::COMPUTE &&
                 (tag == xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID ||
-                 tag == xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS)) {
+                 tag == xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS ||
+                 tag == xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING)) {
                 reason = "raster special register '" + luisa::string{xir::to_string(tag)} +
                          "' requires raster-stage AIR generation";
                 return false;
@@ -421,6 +422,8 @@ namespace detail {
                     tag == xir::DerivedSpecialRegisterTag::KERNEL_ID ||
                     tag == xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID ||
                     (tag == xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS &&
+                     program == MetalAIRProgram::RASTER_FRAGMENT) ||
+                    (tag == xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING &&
                      program == MetalAIRProgram::RASTER_FRAGMENT);
                 if (!supported_raster_special) {
                     reason = "compute special register '" +
