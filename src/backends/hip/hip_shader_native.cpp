@@ -13,6 +13,7 @@
 #include "hip_accel.h"
 #include "hip_command_encoder.h"
 #include "hip_shader.h"
+#include "hip_shader_link_options.h"
 #include "hip_shader_native.h"
 #include "hip_shader_printer.h"
 #include "hip_check.h"
@@ -40,12 +41,22 @@ void validate_register_limit(hipFunction_t function,
 class HIPRTCLinkState {
 
 private:
+    // LLVM's AMDGPU TTI has a target-independent profitability model followed
+    // by amdgpu-inline-max-bb, a separate compile-time guard. A zero guard
+    // removes only that arbitrary basic-block ceiling: LLVM's ordinary inline
+    // advisor still owns every profitability decision. This matches the HIP
+    // device-function hierarchy used by Cycles without attaching inline policy
+    // to individual Luisa callables.
+    HIPRTCLinkOptions _options;
     hiprtcLinkState _state{};
 
 public:
     HIPRTCLinkState() noexcept {
         auto result = hiprtcLinkCreate(
-            0, nullptr, nullptr, &_state);
+            _options.jit_option_count(),
+            _options.jit_options(),
+            _options.jit_option_values(),
+            &_state);
         LUISA_ASSERT(
             result == hiprtcResult::HIPRTC_SUCCESS,
             "Failed to create hiprtc link state: {}.",

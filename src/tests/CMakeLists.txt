@@ -266,6 +266,20 @@ if (TARGET luisa-compute-backend-hip)
     # the cached package path here as well so the IR-only regression can link
     # the exact same LLVM installation without depending on backend internals.
     find_package(LLVM QUIET CONFIG)
+    # This is a dependency-light ownership/lifetime contract for HIPRTC option
+    # storage. It needs HIP headers but must not pull the runtime/backend (and
+    # therefore a full HIPRT build) into an otherwise host-only unit test.
+    add_executable(test_hip_shader_link_options
+            unit/core/test_hip_shader_link_options.cpp)
+    target_compile_features(test_hip_shader_link_options PRIVATE cxx_std_20)
+    target_include_directories(test_hip_shader_link_options PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/hip)
+    target_link_libraries(test_hip_shader_link_options PRIVATE hip::host)
+    add_test(NAME test_hip_shader_link_options
+            COMMAND test_hip_shader_link_options)
+    set_tests_properties(test_hip_shader_link_options PROPERTIES
+            LABELS "unit;unit_core;unit_hip")
 endif ()
 if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
     luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
