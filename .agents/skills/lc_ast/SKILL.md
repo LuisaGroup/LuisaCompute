@@ -256,6 +256,11 @@ Metal4 LLVM/AIR pipeline.
 - Lower `DDX` and `DDY` to raster quad derivative XIR operations. Reject these
   operations outside a fragment-stage backend configuration rather than
   treating them as compute thread-group operations.
+- Preserve a void fragment return as a null stage type. It is valid for a
+  depth-only pass when the stage calls one consistent
+  `raster_set_z_depth*` operation; XIR inlining must move that operation into
+  the fragment entry before Metal4 AIR preflight. A void fragment with no
+  color or depth output remains invalid.
 
 ## Normalize bindless aliases and ray-query state
 

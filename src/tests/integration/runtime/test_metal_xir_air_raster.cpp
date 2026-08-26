@@ -123,11 +123,17 @@ int main(int argc, char *argv[]) {
         raster_set_z_depth_less_equal(0.625f);
         return make_float4(input.uv, 0.0f, 1.0f);
     };
+    RasterStageKernel fragment_depth_only = [](
+                                                Var<MetalAIRRasterVarying>) noexcept {
+        raster_set_z_depth(0.4375f);
+    };
     RasterKernel<decltype(vertex), decltype(fragment)> kernel{vertex, fragment};
     RasterKernel<decltype(vertex), decltype(fragment_depth_any)>
         depth_any_kernel{vertex, fragment_depth_any};
     RasterKernel<decltype(vertex), decltype(fragment_depth_less_equal)>
         depth_less_equal_kernel{vertex, fragment_depth_less_equal};
+    RasterKernel<decltype(vertex), decltype(fragment_depth_only)>
+        depth_only_kernel{vertex, fragment_depth_only};
 
     MeshFormat mesh_format;
     const VertexAttribute attributes[]{
@@ -147,6 +153,13 @@ int main(int argc, char *argv[]) {
     option.name = luisa::string{
         dump_prefix_string.data(), dump_prefix_string.size()};
     auto shader = dc->device.compile(kernel, mesh_format, option);
+    auto depth_only_prefix = dump_prefix_string + ".depth_only";
+    ShaderOption depth_only_option{};
+    depth_only_option.enable_cache = false;
+    depth_only_option.name = luisa::string{
+        depth_only_prefix.data(), depth_only_prefix.size()};
+    auto depth_only_shader = dc->device.compile(
+        depth_only_kernel, mesh_format, depth_only_option);
 
     auto check_depth_qualifier = [&]<typename Kernel>(
                                      const Kernel &qualifier_kernel,
@@ -181,12 +194,18 @@ int main(int argc, char *argv[]) {
         dump_prefix_string + ".vertex.air.ll"};
     auto fragment_ir_path = std::filesystem::path{
         dump_prefix_string + ".fragment.air.ll"};
+    auto depth_only_fragment_ir_path = std::filesystem::path{
+        depth_only_prefix + ".fragment.air.ll"};
     expect(std::filesystem::is_regular_file(vertex_ir_path))
         << "vertex AIR LLVM dump was not written";
     expect(std::filesystem::is_regular_file(fragment_ir_path))
         << "fragment AIR LLVM dump was not written";
+    expect(std::filesystem::is_regular_file(depth_only_fragment_ir_path))
+        << "depth-only fragment AIR LLVM dump was not written";
     auto vertex_ir = read_text_file(vertex_ir_path);
     auto fragment_ir = read_text_file(fragment_ir_path);
+    auto depth_only_fragment_ir = read_text_file(
+        depth_only_fragment_ir_path);
 
     expect_contains(vertex_ir, "@vertex_main(",
                     "vertex entry point must be emitted");
@@ -249,6 +268,14 @@ int main(int argc, char *argv[]) {
                     "fragment ddy must lower to the AIR derivative intrinsic");
     expect_contains(fragment_ir, "@air.discard_fragment",
                     "fragment discard must lower to the AIR discard intrinsic");
+    expect_contains(depth_only_fragment_ir,
+                    "define <{ float }> @fragment_main(",
+                    "depth-only fragment must use Apple's packed depth return ABI");
+    expect_contains(depth_only_fragment_ir, "!\"air.depth\"",
+                    "depth-only fragment metadata must emit a depth output");
+    expect(depth_only_fragment_ir.find("!\"air.render_target\"") ==
+           std::string::npos)
+        << "depth-only fragment unexpectedly emitted a color target";
 
     const std::array vertices{
         MetalAIRRasterVertex{
@@ -318,6 +345,29 @@ int main(int argc, char *argv[]) {
 
     expect(depth_sample[0u] > 0.3749f && depth_sample[0u] < 0.3751f)
         << "shader-written depth=" << depth_sample[0u];
+
+    // A fragment stage with no color return must still form a valid AIR
+    // entry when it writes shader depth. Bind only D32 here: any hidden color
+    // attachment requirement or a lost packed-depth return becomes visible.
+    std::array<float, 1u> depth_only_jit_sample{};
+    luisa::vector<RasterMesh> depth_only_jit_meshes;
+    depth_only_jit_meshes.emplace_back(
+        luisa::span<const VertexBufferView>{&vertex_view, 1u},
+        index_buffer.view(), 1u, kObjectID, 0, kBaseInstance);
+    stream << output_depth.clear(1.0f)
+           << depth_only_shader(1.0f, object_gate)
+                  .draw(
+                      std::move(depth_only_jit_meshes), mesh_format,
+                      Viewport{0u, 0u, width, height}, state,
+                      &output_depth)
+           << read_depth_shader(output_depth.to_img(), depth_sample_buffer)
+                  .dispatch(1u)
+           << depth_sample_buffer.copy_to(
+                  luisa::span{depth_only_jit_sample})
+           << synchronize();
+    expect(depth_only_jit_sample[0u] > 0.4374f &&
+           depth_only_jit_sample[0u] < 0.4376f)
+        << "depth-only JIT value=" << depth_only_jit_sample[0u];
 
     auto colored_pixels = 0u;
     auto max_red = uint8_t{0u};
@@ -525,13 +575,61 @@ int main(int argc, char *argv[]) {
             wrong_base_aot_pixels == wrong_base_jit_pixels))
             << "AOT wrong-base-instance output differs from JIT output";
     }
+
+    auto depth_only_archive_path = std::filesystem::path{
+        dump_prefix_string + ".depth_only.raster.air.archive"};
+    auto depth_only_archive_path_string =
+        depth_only_archive_path.string();
+    dc->device.compile_to(
+        depth_only_kernel, mesh_format,
+        depth_only_archive_path_string);
+    expect(std::filesystem::is_regular_file(depth_only_archive_path))
+        << "depth-only raster AIR archive was not written";
+    auto depth_only_aot_shader =
+        dc->device.load_raster_shader<float, Buffer<uint>>(
+            depth_only_archive_path_string);
+    expect(static_cast<bool>(depth_only_aot_shader))
+        << "depth-only raster AIR archive failed to load";
+    if (depth_only_aot_shader) {
+        std::array<float, 1u> depth_only_aot_sample{};
+        luisa::vector<RasterMesh> depth_only_aot_meshes;
+        depth_only_aot_meshes.emplace_back(
+            luisa::span<const VertexBufferView>{&vertex_view, 1u},
+            index_buffer.view(), 1u, kObjectID, 0, kBaseInstance);
+        stream << output_depth.clear(1.0f)
+               << depth_only_aot_shader(1.0f, object_gate)
+                      .draw(
+                          std::move(depth_only_aot_meshes), mesh_format,
+                          Viewport{0u, 0u, width, height}, state,
+                          &output_depth)
+               << read_depth_shader(
+                      output_depth.to_img(), depth_sample_buffer)
+                      .dispatch(1u)
+               << depth_sample_buffer.copy_to(
+                      luisa::span{depth_only_aot_sample})
+               << synchronize();
+        expect(depth_only_aot_sample[0u] > 0.4374f &&
+               depth_only_aot_sample[0u] < 0.4376f)
+            << "depth-only AOT value=" << depth_only_aot_sample[0u];
+        expect(depth_only_aot_sample[0u] ==
+               depth_only_jit_sample[0u])
+            << "depth-only AOT output differs from JIT output";
+    }
     std::error_code ignored;
     std::filesystem::remove(vertex_ir_path, ignored);
     std::filesystem::remove(fragment_ir_path, ignored);
+    std::filesystem::remove(depth_only_fragment_ir_path, ignored);
+    std::filesystem::remove(
+        depth_only_prefix + ".vertex.air.ll", ignored);
     std::filesystem::remove(archive_path, ignored);
     std::filesystem::remove(
         archive_path_string + ".vertex.air.ll", ignored);
     std::filesystem::remove(
         archive_path_string + ".fragment.air.ll", ignored);
+    std::filesystem::remove(depth_only_archive_path, ignored);
+    std::filesystem::remove(
+        depth_only_archive_path_string + ".vertex.air.ll", ignored);
+    std::filesystem::remove(
+        depth_only_archive_path_string + ".fragment.air.ll", ignored);
     return 0;
 }

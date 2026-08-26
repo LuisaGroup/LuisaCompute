@@ -2368,15 +2368,18 @@ vertex, or residual callable code. A fragment stage may use one qualifier kind
 but may write it more than once; mixing `any`, `greater`, and `less` promises in
 one stage fails closed.
 
-The internal fragment implementation returns a packed pair of its logical
-color value and `float` depth. The external AIR entry flattens the logical
-color value into the normal render-target components and appends depth as the
-last physical return component. Depth does not increment the runtime color
+With color outputs, the internal fragment implementation returns a packed pair
+of its logical color value and `float` depth. The external AIR entry flattens
+the logical color value into the normal render-target components and appends
+depth as the last physical return component. A void fragment that writes depth
+instead returns Apple's packed singleton `<{ float }>` ABI, and its output
+metadata contains only depth. Depth does not increment the runtime color
 attachment count. Its return metadata is exactly `air.depth`,
 `air.depth_qualifier`, then `air.any`, `air.greater`, or `air.less`; there is no
-depth-write intrinsic. Every non-discard path that returns a color must execute
-a matching depth write when a shader-depth operation is present, just as an
-MSL fragment output field must be initialized before return.
+depth-write intrinsic. Every non-discard return path must execute a matching
+depth write when a shader-depth operation is present, just as an MSL fragment
+output field must be initialized before return. A void fragment without a
+shader-depth write remains invalid because it has no physical output.
 
 The vertex wrapper is named `vertex_main`. Its physical parameters are:
 
@@ -2415,7 +2418,9 @@ scalar/vector fragment return is render target 0; a structure is flattened to
 consecutive `air.render_target` indices. The fragment return is capped at eight
 targets. Its exact target count is carried from LLVM emission through the
 paired AIR result, raster archive, loaded `MetalRasterShader`, pipeline cache,
-and draw encoder; a draw must bind exactly that many color attachments.
+and draw encoder; a draw must bind exactly that many color attachments. The
+count may be zero for a depth-only fragment, in which case the draw binds a DSV
+and no RTVs.
 
 Root fields from the two AST functions occupy one 16-byte-aligned structure in
 vertex-argument order followed by fragment-argument order. Each stage wrapper
@@ -2478,14 +2483,16 @@ depth/texture binding interface and the staged vertex-plus-fragment root path.
 The fragment also writes depth 0.375 with the greater-equal qualifier. A
 follow-up compute dispatch reads the D32 attachment and requires that exact
 value for both the JIT draw and the archive-loaded AOT draw; the IR checks also
-require `air.depth`, `air.depth_qualifier`, and `air.greater`.
+require `air.depth`, `air.depth_qualifier`, and `air.greater`. A separate void
+fragment returns only depth 0.4375 through the packed singleton ABI, binds no
+color attachment, and must reproduce that value through both JIT and
+archive-loaded AOT execution.
 
 The implemented slice does not yet expose selectable interpolation qualifiers,
 centroid or sample inputs,
-stencil, conservative rasterization, tessellation, or mesh shaders. It also
-requires at least one fragment color output and one bound color attachment;
-depth-only passes are rejected. These are separate extensions to the stage ABI
-rather than aliases for the currently emitted metadata.
+stencil, conservative rasterization, tessellation, or mesh shaders. These are
+separate extensions to the stage ABI rather than aliases for the currently
+emitted metadata.
 
 ## 13. Fast-math policy
 
@@ -2964,12 +2971,13 @@ AOT pixels to invert their encoded facing value. A D32 depth texture is read
 through `DepthBuffer::to_img()`, and a 1024-float uniform pushes the shared
 raster root above 4 KiB. The fragment writes depth 0.375 with
 `raster_set_z_depth_greater_equal`; a compute readback requires 0.375 after both
-the JIT draw and archive-loaded AOT draw. The test then writes a raster archive,
-reloads it through the AOT boundary, redraws, and requires exact agreement with
-the JIT pixels. Separate fragment modules require Apple to accept the `air.any`
-and `air.less` metadata variants as well. Both the ordinary strict registration
-and the validation-layer registration pass on the Apple M1 Max reference
-machine.
+the JIT draw and archive-loaded AOT draw. A second void fragment binds only the
+D32 attachment, emits no `air.render_target`, and requires depth 0.4375 through
+both JIT and AOT. The test then writes raster archives, reloads them through the
+AOT boundary, redraws, and requires exact agreement with the JIT outputs.
+Separate fragment modules require Apple to accept the `air.any` and `air.less`
+metadata variants as well. Both the ordinary strict registration and the
+validation-layer registration pass on the Apple M1 Max reference machine.
 
 Reverse autodiff is registered as the strict
 `test_metal_xir_air_autodiff` CTest. It exercises basic products,
@@ -3037,7 +3045,7 @@ deserialization.
 The closure configuration uses CMake/Ninja Release builds with legacy Metal,
 Metal4, and fallback enabled, Homebrew LLVM 21.1.8, Apple metalfe 32023.883,
 and the macOS 26.4 SDK. After rebasing onto `origin/next` at `a5d69e492`, a
-fresh full build and complete configured CTest run pass **155/155** in 114.72
+fresh full build and complete configured CTest run pass **155/155** in 54.00
 seconds: **33/33** `integration_metal4` tests,
 **15/15** offline graphics/rendering executables, and **11/11** tutorials are
 included. The standalone matrix-motion acceleration and image regressions also

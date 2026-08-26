@@ -350,8 +350,7 @@ MetalAIRRasterCodegenResult metal_codegen_air(
         "Metal raster stage root argument layouts differ.");
     LUISA_ASSERT(vertex_air.fragment_output_count == 0u,
                  "Metal AIR vertex stage unexpectedly reported fragment outputs.");
-    LUISA_ASSERT(fragment_air.fragment_output_count >= 1u &&
-                     fragment_air.fragment_output_count <= 8u,
+    LUISA_ASSERT(fragment_air.fragment_output_count <= 8u,
                  "Metal AIR fragment stage reported an invalid output count {}.",
                  fragment_air.fragment_output_count);
 

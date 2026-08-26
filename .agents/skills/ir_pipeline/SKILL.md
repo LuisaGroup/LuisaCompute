@@ -245,11 +245,13 @@ Preserve these ABI rules when changing lowering or adding types:
   the shader-visible value permanently zero.
 - Lower `raster_set_z_depth`, `raster_set_z_depth_greater_equal`, and
   `raster_set_z_depth_less_equal` to fragment-only `ThreadGroupOp` values and
-  inline them into the fragment entry. The implementation return is
-  `{logical_color, f32 depth}`; the external entry flattens colors, appends
-  depth without incrementing the color-attachment count, and reflects it with
-  `air.depth`, `air.depth_qualifier`, and exactly one of `air.any`,
-  `air.greater`, or `air.less`. Reject mixed qualifiers and depth operations
+  inline them into the fragment entry. With colors, the implementation return
+  is `{logical_color, f32 depth}`; a void depth-only fragment uses Apple's
+  packed singleton `<{ float }>` return. The external entry flattens colors,
+  appends depth without incrementing the color-attachment count, and reflects
+  it with `air.depth`, `air.depth_qualifier`, and exactly one of `air.any`,
+  `air.greater`, or `air.less`. Allow zero color attachments only for a
+  fragment that writes depth. Reject mixed qualifiers and depth operations
   left in compute, vertex, or callable code.
 - Keep direct and indirect entry generation separate. Direct dispatch reads a
   constant-space `uint3`; indirect dispatch reads a device-space `uint4` whose
@@ -385,7 +387,9 @@ front-facing assertion dynamic: disable culling, invert
 `RasterState::front_counter_clockwise`, and require opposite JIT/AOT pixel
 values. Also use a nonzero `RasterMesh` base instance, carry it through an
 integer flat varying, change only that draw-time value, and require opposite
-visibility across indexed/non-indexed JIT/AOT draws. Use the
+visibility across indexed/non-indexed JIT/AOT draws. Compile a second void
+fragment that writes depth, bind only a DSV, require no `air.render_target`,
+and read back the same depth from JIT and archive-loaded AOT draws. Use the
 registered `test_metal_xir_air_ray_query` for stateful
 triangle, procedural-bounding-box, and static-curve semantics, then run the
 cutout renderer to exercise its production `LC_RayQueryAll` path. For

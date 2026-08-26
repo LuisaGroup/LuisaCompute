@@ -1114,9 +1114,10 @@ bool luisa_compute_metal_codegen_llvm_supported(
             }
             auto color_type = raster_stage->type();
             if (color_type == nullptr) {
-                return fail("fragment stage must return at least one color target");
-            }
-            if (color_type->is_structure()) {
+                if (raster_depth_mode == detail::AIRRasterDepthMode::NONE) {
+                    return fail("void fragment stage must write shader depth");
+                }
+            } else if (color_type->is_structure()) {
                 if (color_type->members().empty()) {
                     return fail("fragment color-target structure is empty");
                 }

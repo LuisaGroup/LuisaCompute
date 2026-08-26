@@ -187,8 +187,7 @@ MetalRasterShader::MetalRasterShader(
                      _root_argument_size % 16u == 0u,
                  "Invalid Metal raster root-argument ABI size {}.",
                  _root_argument_size);
-    LUISA_ASSERT(_fragment_output_count >= 1u &&
-                     _fragment_output_count <= 8u,
+    LUISA_ASSERT(_fragment_output_count <= 8u,
                  "Invalid Metal raster fragment-output count {}.",
                  _fragment_output_count);
     auto library_data = dispatch_data_create(

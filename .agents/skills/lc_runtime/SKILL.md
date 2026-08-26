@@ -284,6 +284,16 @@ RasterMesh mesh{vertex_streams, index_buffer.view(),
                 vertex_offset, base_instance};
 ```
 
+Depth-only raster draws use the existing zero-RTV form of `draw`. Return
+`void` from the fragment stage, call one of the `raster_set_z_depth*` builtins,
+and pass a non-null depth buffer without trailing color images. Metal4 AIR
+records a fragment color-output count of zero in both JIT and AOT shaders.
+
+```cpp
+std::move(shader(args...))
+    .draw(std::move(meshes), mesh_format, viewport, state, &depth);
+```
+
 ## CommandList
 
 Batch commands for efficient submission:

@@ -102,6 +102,17 @@ int main(int argc, char *argv[]) {
         expect(static_cast<bool>(archive->library == source.library));
     };
 
+    "metal_raster_archive_depth_only_round_trip"_test = [] {
+        auto source = make_archive();
+        source.fragment_output_count = 0u;
+        auto archive = deserialize_metal_raster_archive(
+            serialize_metal_raster_archive(source));
+        expect(archive.has_value());
+        if (!archive) { return; }
+        expect(eq(archive->fragment_output_count, 0u));
+        expect(static_cast<bool>(archive->library == source.library));
+    };
+
     "metal_raster_archive_rejects_truncation"_test = [] {
         auto data = serialize_metal_raster_archive(make_archive());
         auto all_prefixes_rejected = true;
@@ -135,11 +146,6 @@ int main(int argc, char *argv[]) {
         write_pod<uint32_t>(too_many_streams, 12u, 5u);
         refresh_checksum(too_many_streams);
         expect(!deserialize_metal_raster_archive(too_many_streams));
-
-        auto no_fragment_outputs = serialize_metal_raster_archive(make_archive());
-        write_pod<uint32_t>(no_fragment_outputs, 20u, 0u);
-        refresh_checksum(no_fragment_outputs);
-        expect(!deserialize_metal_raster_archive(no_fragment_outputs));
 
         auto too_many_fragment_outputs = serialize_metal_raster_archive(make_archive());
         write_pod<uint32_t>(too_many_fragment_outputs, 20u, 9u);

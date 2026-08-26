@@ -182,7 +182,7 @@ deserialize_metal_raster_archive(luisa::span<const std::byte> data) noexcept {
     auto library_size = reader.read<uint64_t>();
     if (stream_count == 0u || stream_count > 4u ||
         argument_count > 65536u ||
-        fragment_output_count == 0u || fragment_output_count > 8u ||
+        fragment_output_count > 8u ||
         root_argument_size < 16u || root_argument_size > 65536u ||
         root_argument_size % 16u != 0u ||
         library_size > std::numeric_limits<size_t>::max()) {
