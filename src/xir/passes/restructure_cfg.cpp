@@ -7216,6 +7216,17 @@ struct RemainingDivergentIndex {
     size_t indexed_block_count{0u};
 };
 
+// Clang with recent MSVC STL releases incorrectly selects std::find's
+// vectorized path for this two-pointer record and then rejects its size.
+[[nodiscard]] bool contains_remaining_divergent_boundary_owner(
+    const luisa::vector<RemainingDivergentIndex::BoundaryOwner> &owners,
+    RemainingDivergentIndex::BoundaryOwner owner) noexcept {
+    for (auto candidate : owners) {
+        if (candidate == owner) { return true; }
+    }
+    return false;
+}
+
 // LLVM SPIRVStructurizer::removeUselessBlocks followed by
 // addHeaderToRemainingDivergentDAG reasons about the quotient CFG in which
 // empty forwarding blocks have been contracted, but never contracts through
@@ -7281,7 +7292,7 @@ void add_remaining_divergent_boundary_owner(
     auto owner = RemainingDivergentIndex::BoundaryOwner{
         .header = header, .merge = merge};
     auto &owners = index.boundary_owners[target];
-    if (std::find(owners.begin(), owners.end(), owner) == owners.end()) {
+    if (!contains_remaining_divergent_boundary_owner(owners, owner)) {
         owners.emplace_back(owner);
     }
 }
@@ -7477,9 +7488,8 @@ index_remaining_divergent_candidates(
                 return false;
             }
             for (auto owner : lhs_owners) {
-                if (std::find(iter->second.begin(),
-                              iter->second.end(), owner) ==
-                    iter->second.end()) {
+                if (!contains_remaining_divergent_boundary_owner(
+                        iter->second, owner)) {
                     return false;
                 }
             }
