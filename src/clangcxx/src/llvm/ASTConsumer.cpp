@@ -1108,6 +1108,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->raster_barycentrics();
                         else if (exprName == "front_facing" || exprName == "is_front_face")
                             current = fb->raster_is_front_face();
+                        else if (exprName == "base_instance")
+                            current = fb->raster_base_instance();
                         else if (exprName == "warp_lane_count")
                             current = fb->warp_lane_count();
                         else if (exprName == "warp_lane_id")

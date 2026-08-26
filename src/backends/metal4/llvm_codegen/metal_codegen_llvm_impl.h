@@ -285,6 +285,7 @@ private:
         llvm::Value *raster_object_id{nullptr};
         llvm::Value *raster_barycentrics{nullptr};
         llvm::Value *raster_front_facing{nullptr};
+        llvm::Value *raster_base_instance{nullptr};
         llvm::Value *raster_depth{nullptr};
         llvm::DenseMap<const xir::Value *, llvm::Value *> values;
         llvm::DenseMap<const xir::Value *, llvm::Value *> sampled_textures;

@@ -631,7 +631,8 @@ void MetalCommandEncoder::visit(CustomCommand *command) noexcept {
                             encoder->drawPrimitives(
                                 primitive,
                                 static_cast<NS::UInteger>(mesh.vertex_offset()),
-                                index, mesh.instance_count());
+                                index, mesh.instance_count(),
+                                mesh.base_instance());
                         } else {
                             auto buffer = reinterpret_cast<MetalBuffer *>(index.handle());
                             auto buffer_size = buffer->handle()->length();
@@ -647,7 +648,8 @@ void MetalCommandEncoder::visit(CustomCommand *command) noexcept {
                                 MTL::IndexTypeUInt32,
                                 buffer->handle()->gpuAddress() + index.offset_bytes(),
                                 index.size_bytes(),
-                                mesh.instance_count(), mesh.vertex_offset(), 0u);
+                                mesh.instance_count(), mesh.vertex_offset(),
+                                mesh.base_instance());
                         }
                     },
                     mesh.index());

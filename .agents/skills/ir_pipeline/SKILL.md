@@ -236,6 +236,13 @@ Preserve these ABI rules when changing lowering or adding types:
   `front_facing`; this register ABI does not change byte-sized bool memory
   layout. Pass it through the hidden raster callable state and reject its use
   outside a fragment stage.
+- Keep `raster_base_instance()` as a vertex-only AST uint builtin and
+  `SPR_BaseInstance` special register. AIR receives it as the third builtin
+  vertex parameter, `i32 noundef`, with `air.base_instance` metadata. Carry it
+  through the hidden raster callable state and reject fragment or compute use.
+  `RasterMesh` stores a draw-time base instance (default zero); forward it to
+  indexed and non-indexed MTL4, DX12, and Vulkan draw calls rather than leaving
+  the shader-visible value permanently zero.
 - Lower `raster_set_z_depth`, `raster_set_z_depth_greater_equal`, and
   `raster_set_z_depth_less_equal` to fragment-only `ThreadGroupOp` values and
   inline them into the fragment entry. The implementation return is
@@ -376,7 +383,9 @@ stage XIR, AIR metadata, metallib loading, render PSOs, command encoding, and
 perform color plus D32 shader-depth readback across both JIT and AOT. Keep the
 front-facing assertion dynamic: disable culling, invert
 `RasterState::front_counter_clockwise`, and require opposite JIT/AOT pixel
-values. Use the
+values. Also use a nonzero `RasterMesh` base instance, carry it through an
+integer flat varying, change only that draw-time value, and require opposite
+visibility across indexed/non-indexed JIT/AOT draws. Use the
 registered `test_metal_xir_air_ray_query` for stateful
 triangle, procedural-bounding-box, and static-curve semantics, then run the
 cutout renderer to exercise its production `LC_RayQueryAll` path. For

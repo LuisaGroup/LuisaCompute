@@ -67,6 +67,8 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
             str << "front_facing"sv;
             opt->pixelUseFrontFacing = true;
             break;
+        case Variable::Tag::RASTER_BASE_INSTANCE:
+            LUISA_NOT_IMPLEMENTED("Raster base-instance input requires Shader Model 6.8, but the HLSL raster backend targets Shader Model 6.5.");
         case Variable::Tag::WARP_LANE_COUNT:
             LUISA_ASSERT(!opt->isRaster, "warp ops only allowed in compute shader");
             if (opt->funcType == CodegenStackData::FuncType::Callable) {

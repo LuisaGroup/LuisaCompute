@@ -2010,6 +2010,22 @@ void reg_metadata_round_trip() {
         expect(front_facing->type() == Type::of<bool>());
     };
 
+    "xir_interchange_base_instance_round_trip"_test = [] {
+        Module module;
+        static_cast<void>(module.create_base_instance());
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded());
+        if (!encoded.succeeded()) { return; }
+        expect(encoded.text.find("base_instance") != luisa::string::npos);
+        auto decoded = xir_from_interchange_text(encoded.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        auto base_instance = decoded.module->special_register_list().front();
+        expect(base_instance->derived_special_register_tag() ==
+               DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE);
+        expect(base_instance->type() == Type::of<uint>());
+    };
+
     "xir_interchange_all_metadata_round_trip"_test = [] {
         Module module;
         auto int_type = luisa::compute::Type::of<int32_t>();

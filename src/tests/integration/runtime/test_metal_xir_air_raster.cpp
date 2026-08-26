@@ -30,17 +30,20 @@ struct MetalAIRRasterVertex {
 struct MetalAIRRasterVarying {
     float4 position;
     float2 uv;
+    uint base_instance;
 };
 
 static_assert(sizeof(MetalAIRRasterVertex) == 32u);
 static_assert(offsetof(MetalAIRRasterVertex, position) == 0u);
 static_assert(offsetof(MetalAIRRasterVertex, color) == 16u);
 
-LUISA_STRUCT(MetalAIRRasterVarying, position, uv) {};
+LUISA_STRUCT(MetalAIRRasterVarying, position, uv, base_instance) {};
 
 namespace {
 
 constexpr auto kObjectID = 37u;
+constexpr auto kBaseInstance = 7u;
+constexpr auto kWrongBaseInstance = 11u;
 
 [[nodiscard]] uint8_t channel(
     const std::array<std::byte, 64u * 64u * 4u> &pixels,
@@ -85,6 +88,7 @@ int main(int argc, char *argv[]) {
         output.position = make_float4(
             input.position.xy() * object_scale, 0.0f, 1.0f);
         output.uv = input.position.xy();
+        output.base_instance = raster_base_instance();
         return output;
     };
     RasterStageKernel fragment = [](
@@ -97,6 +101,7 @@ int main(int argc, char *argv[]) {
             abs(ddx(input.uv.x)) + abs(ddy(input.uv.y)),
             0.0f, 1.0f);
         $if ((raster_object_id() != kObjectID) |
+             (input.base_instance != kBaseInstance) |
              (barycentrics.x > discard_threshold)) {
             raster_discard();
         };
@@ -195,6 +200,10 @@ int main(int argc, char *argv[]) {
                     "vertex ID builtin metadata must be emitted");
     expect_contains(vertex_ir, "!\"air.instance_id\"",
                     "instance ID builtin metadata must be emitted");
+    expect_contains(vertex_ir, "!\"air.base_instance\"",
+                    "base-instance builtin metadata must be emitted");
+    expect_contains(vertex_ir, "i32 noundef %base_instance",
+                    "base instance must use AIR's physical uint ABI");
     expect_contains(vertex_ir, "!\"air.indirect_buffer\"",
                     "vertex root arguments must use the indirect-buffer ABI");
     expect_contains(vertex_ir, "%object_id",
@@ -210,6 +219,8 @@ int main(int argc, char *argv[]) {
                     "fragment position input metadata must be emitted");
     expect_contains(fragment_ir, "!\"air.fragment_input\"",
                     "fragment varyings must use AIR fragment-input metadata");
+    expect_contains(fragment_ir, "!\"air.flat\"",
+                    "integer base-instance varying must use flat interpolation");
     expect_contains(fragment_ir, "!\"air.primitive_id\"",
                     "fragment primitive ID builtin metadata must be emitted");
     expect_contains(fragment_ir, "!\"air.barycentric_coord\"",
@@ -250,8 +261,10 @@ int main(int argc, char *argv[]) {
             .position = {0.0f, 0.8f, 0.0f, 1.0f},
             .color = {0.0f, 0.0f, 1.0f, 1.0f}},
     };
+    const std::array indices{0u, 1u, 2u};
     auto vertex_buffer = dc->device.create_buffer<MetalAIRRasterVertex>(
         vertices.size());
+    auto index_buffer = dc->device.create_buffer<uint>(indices.size());
     auto object_gate = dc->device.create_buffer<uint>(1u);
     auto sampled_depth = dc->device.create_depth_buffer(
         DepthFormat::D32, make_uint2(1u));
@@ -271,7 +284,7 @@ int main(int argc, char *argv[]) {
     luisa::vector<RasterMesh> meshes;
     meshes.emplace_back(
         luisa::span<const VertexBufferView>{&vertex_view, 1u},
-        static_cast<uint>(vertices.size()), 1u, kObjectID);
+        index_buffer.view(), 1u, kObjectID, 0, kBaseInstance);
     RasterState state{};
     state.cull_mode = CullMode::None;
     state.depth_state = DepthState{
@@ -285,6 +298,7 @@ int main(int argc, char *argv[]) {
     std::array<float, 1024u> large_constants{};
     large_constants[0u] = 0.5f;
     stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << index_buffer.copy_from(luisa::span{indices})
            << object_gate.copy_from(luisa::span{gate_value})
            << sampled_depth.clear(0.25f)
            << output_depth.clear(1.0f)
@@ -367,7 +381,8 @@ int main(int argc, char *argv[]) {
     luisa::vector<RasterMesh> opposite_jit_meshes;
     opposite_jit_meshes.emplace_back(
         luisa::span<const VertexBufferView>{&vertex_view, 1u},
-        static_cast<uint>(vertices.size()), 1u, kObjectID);
+        static_cast<uint>(vertices.size()), 1u, kObjectID, 0,
+        kBaseInstance);
     stream << output_depth.clear(1.0f)
            << raster->clear_render_target(
                   render_target.view(),
@@ -390,6 +405,40 @@ int main(int argc, char *argv[]) {
     expect(opposite_front_alpha != jit_front_alpha)
         << "front-facing did not change when winding was inverted";
 
+    // A different draw-time base instance must reach the vertex AIR builtin.
+    // The vertex stage passes it as a flat varying and the fragment rejects
+    // the mismatch, so a hard-coded or ignored base-instance value is visible.
+    std::array<std::byte, width * height * 4u> wrong_base_jit_pixels{};
+    luisa::vector<RasterMesh> wrong_base_jit_meshes;
+    wrong_base_jit_meshes.emplace_back(
+        luisa::span<const VertexBufferView>{&vertex_view, 1u},
+        index_buffer.view(), 1u, kObjectID, 0, kWrongBaseInstance);
+    stream << output_depth.clear(1.0f)
+           << raster->clear_render_target(
+                  render_target.view(),
+                  make_float4(0.0f, 0.0f, 0.0f, 1.0f))
+           << shader(1.0f, object_gate, 0.72f,
+                     sampled_depth.to_img(), large_constants)
+                  .draw(
+                      std::move(wrong_base_jit_meshes), mesh_format,
+                      Viewport{0u, 0u, width, height}, state,
+                      &output_depth, render_target)
+           << render_target.copy_to(
+                  luisa::span{wrong_base_jit_pixels})
+           << synchronize();
+    auto wrong_base_colored_pixels = 0u;
+    for (auto y = 0u; y < height; y++) {
+        for (auto x = 0u; x < width; x++) {
+            wrong_base_colored_pixels +=
+                channel(wrong_base_jit_pixels, x, y, 0u) != 0u ||
+                channel(wrong_base_jit_pixels, x, y, 1u) != 0u ||
+                channel(wrong_base_jit_pixels, x, y, 2u) != 0u;
+        }
+    }
+    expect(wrong_base_colored_pixels == 0u)
+        << "wrong-base-instance draw produced "
+        << wrong_base_colored_pixels << " colored pixel(s)";
+
     auto archive_path = std::filesystem::path{
         dump_prefix_string + ".raster.air.archive"};
     auto archive_path_string = archive_path.string();
@@ -407,7 +456,7 @@ int main(int argc, char *argv[]) {
         luisa::vector<RasterMesh> aot_meshes;
         aot_meshes.emplace_back(
             luisa::span<const VertexBufferView>{&vertex_view, 1u},
-            static_cast<uint>(vertices.size()), 1u, kObjectID);
+            index_buffer.view(), 1u, kObjectID, 0, kBaseInstance);
         stream << sampled_depth.clear(0.25f)
                << output_depth.clear(1.0f)
                << raster->clear_render_target(
@@ -434,7 +483,8 @@ int main(int argc, char *argv[]) {
         luisa::vector<RasterMesh> opposite_aot_meshes;
         opposite_aot_meshes.emplace_back(
             luisa::span<const VertexBufferView>{&vertex_view, 1u},
-            static_cast<uint>(vertices.size()), 1u, kObjectID);
+            static_cast<uint>(vertices.size()), 1u, kObjectID, 0,
+            kBaseInstance);
         stream << output_depth.clear(1.0f)
                << raster->clear_render_target(
                       render_target.view(),
@@ -451,6 +501,29 @@ int main(int argc, char *argv[]) {
         expect(static_cast<bool>(
             opposite_aot_pixels == opposite_jit_pixels))
             << "AOT opposite-winding output differs from JIT output";
+
+        std::array<std::byte, width * height * 4u>
+            wrong_base_aot_pixels{};
+        luisa::vector<RasterMesh> wrong_base_aot_meshes;
+        wrong_base_aot_meshes.emplace_back(
+            luisa::span<const VertexBufferView>{&vertex_view, 1u},
+            index_buffer.view(), 1u, kObjectID, 0, kWrongBaseInstance);
+        stream << output_depth.clear(1.0f)
+               << raster->clear_render_target(
+                      render_target.view(),
+                      make_float4(0.0f, 0.0f, 0.0f, 1.0f))
+               << aot_shader(1.0f, object_gate, 0.72f,
+                             sampled_depth.to_img(), large_constants)
+                      .draw(
+                          std::move(wrong_base_aot_meshes), mesh_format,
+                          Viewport{0u, 0u, width, height}, state,
+                          &output_depth, render_target)
+               << render_target.copy_to(
+                      luisa::span{wrong_base_aot_pixels})
+               << synchronize();
+        expect(static_cast<bool>(
+            wrong_base_aot_pixels == wrong_base_jit_pixels))
+            << "AOT wrong-base-instance output differs from JIT output";
     }
     std::error_code ignored;
     std::filesystem::remove(vertex_ir_path, ignored);

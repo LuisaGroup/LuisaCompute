@@ -16,6 +16,7 @@ enum struct DerivedSpecialRegisterTag {
     WARP_SIZE,
     DISPATCH_SIZE,
     RASTER_FRONT_FACING,
+    RASTER_BASE_INSTANCE,
 };
 
 [[nodiscard]] constexpr luisa::string_view to_string(DerivedSpecialRegisterTag tag) noexcept {
@@ -32,6 +33,7 @@ enum struct DerivedSpecialRegisterTag {
         case DerivedSpecialRegisterTag::WARP_SIZE: return "warp_size"sv;
         case DerivedSpecialRegisterTag::DISPATCH_SIZE: return "dispatch_size"sv;
         case DerivedSpecialRegisterTag::RASTER_FRONT_FACING: return "front_facing"sv;
+        case DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE: return "base_instance"sv;
     }
     return "unknown"sv;
 }
@@ -105,5 +107,6 @@ using SPR_BlockSize = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::B
 using SPR_WarpSize = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::WARP_SIZE>;
 using SPR_DispatchSize = DerivedSpecialRegister<uint3, DerivedSpecialRegisterTag::DISPATCH_SIZE>;
 using SPR_FrontFacing = DerivedSpecialRegister<bool, DerivedSpecialRegisterTag::RASTER_FRONT_FACING>;
+using SPR_BaseInstance = DerivedSpecialRegister<uint32_t, DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE>;
 
 }// namespace luisa::compute::xir

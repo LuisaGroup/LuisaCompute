@@ -412,7 +412,8 @@ namespace detail {
             if (program == MetalAIRProgram::COMPUTE &&
                 (tag == xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID ||
                  tag == xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS ||
-                 tag == xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING)) {
+                 tag == xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING ||
+                 tag == xir::DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE)) {
                 reason = "raster special register '" + luisa::string{xir::to_string(tag)} +
                          "' requires raster-stage AIR generation";
                 return false;
@@ -424,9 +425,11 @@ namespace detail {
                     (tag == xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS &&
                      program == MetalAIRProgram::RASTER_FRAGMENT) ||
                     (tag == xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING &&
-                     program == MetalAIRProgram::RASTER_FRAGMENT);
+                     program == MetalAIRProgram::RASTER_FRAGMENT) ||
+                    (tag == xir::DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE &&
+                     program == MetalAIRProgram::RASTER_VERTEX);
                 if (!supported_raster_special) {
-                    reason = "compute special register '" +
+                    reason = "special register '" +
                              luisa::string{xir::to_string(tag)} +
                              "' is invalid in this raster stage";
                     return false;

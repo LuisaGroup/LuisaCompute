@@ -1217,7 +1217,7 @@ public:
             luisa::visit(
                 [&]<typename T>(T const &i) {
                     if constexpr (std::is_same_v<T, uint>) {
-                        cmdList->DrawInstanced(i, mesh.instance_count(), mesh.vertex_offset(), 0);
+                        cmdList->DrawInstanced(i, mesh.instance_count(), mesh.vertex_offset(), mesh.base_instance());
                     } else {
                         auto bf = reinterpret_cast<Buffer *>(i.handle());
                         D3D12_INDEX_BUFFER_VIEW idx{
@@ -1225,7 +1225,7 @@ public:
                             .SizeInBytes = static_cast<uint>(i.size_bytes()),
                             .Format = DXGI_FORMAT_R32_UINT};
                         cmdList->IASetIndexBuffer(&idx);
-                        cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, mesh.vertex_offset(), 0);
+                        cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, mesh.vertex_offset(), mesh.base_instance());
                     }
                 },
                 i);

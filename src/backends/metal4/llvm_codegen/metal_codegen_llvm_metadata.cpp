@@ -537,7 +537,7 @@ void MetalCodegenLLVMImpl::_add_raster_vertex_metadata(
     };
     llvm::SmallVector<llvm::Metadata *> argument_metadata;
     auto attribute_count = _config.raster.vertex_attributes.size();
-    argument_metadata.reserve(attribute_count + 4u);
+    argument_metadata.reserve(attribute_count + 5u);
     for (auto i = 0u; i < attribute_count; i++) {
         auto descriptor = _config.raster.vertex_attributes[i];
         auto input = _raster_vertex_input(descriptor.format);
@@ -564,10 +564,13 @@ void MetalCodegenLLVMImpl::_add_raster_vertex_metadata(
     argument_metadata.emplace_back(builtin(
         static_cast<uint32_t>(attribute_count + 1u),
         "air.instance_id", "uint", "instance_id"));
+    argument_metadata.emplace_back(builtin(
+        static_cast<uint32_t>(attribute_count + 2u),
+        "air.base_instance", "uint", "base_instance"));
     auto layout = _root_argument_layout();
     argument_metadata.emplace_back(_root_argument_metadata(
-        layout.size, static_cast<uint32_t>(attribute_count + 2u)));
-    argument_metadata.emplace_back(node({md_i32(_context, static_cast<uint32_t>(attribute_count + 3u)),
+        layout.size, static_cast<uint32_t>(attribute_count + 3u)));
+    argument_metadata.emplace_back(node({md_i32(_context, static_cast<uint32_t>(attribute_count + 4u)),
                                          md_string(_context, "air.buffer"),
                                          md_string(_context, "air.buffer_size"), md_i32(_context, 4u),
                                          md_string(_context, "air.location_index"), md_i32(_context, 1u), md_i32(_context, 1u),

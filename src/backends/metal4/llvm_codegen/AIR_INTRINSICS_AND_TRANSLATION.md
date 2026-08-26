@@ -2212,8 +2212,9 @@ Supported instruction families:
   and 32-bit integer/float accumulation using the XIR byte-offset ABI;
 - vertex and fragment raster stages with fixed Luisa `AppData` reconstruction,
   scalar/vector varyings, color render targets, per-stage root arguments,
-  vertex/instance/primitive/object IDs, floating barycentrics, fragment
-  front-facing state, derivatives, and discard as described in Section 12.2.
+  vertex/instance/base-instance/primitive/object IDs, floating barycentrics,
+  fragment front-facing state, derivatives, and discard as described in
+  Section 12.2.
 
 Not currently supported in AIR:
 
@@ -2225,8 +2226,8 @@ Not currently supported in AIR:
 - double, float8, cooperative-matrix operations, and custom types other than the
   indirect-dispatch handle and the two local ray-query types;
 - extended acceleration-limit shaders;
-- raster debug-break state, the base-instance built-in, custom
-  interpolation qualifiers, stencil, and conservative rasterization.
+- raster debug-break state, custom interpolation qualifiers, stencil, and
+  conservative rasterization.
 
 Apple's Metal 3.0 and 3.2 frontends accept `__builtin_readcyclecounter()` and
 emit `llvm.readcyclecounter`, and `metallib` accepts the resulting AIR. However,
@@ -2380,7 +2381,7 @@ MSL fragment output field must be initialized before return.
 The vertex wrapper is named `vertex_main`. Its physical parameters are:
 
 1. vertex attributes, flattened in mesh-stream order and then attribute order;
-2. `air.vertex_id` and `air.instance_id`;
+2. `air.vertex_id`, `air.instance_id`, and `air.base_instance`;
 3. the shared root argument structure as an `air.indirect_buffer` at constant
    buffer location 0;
 4. a read-only, four-byte object-ID constant buffer at location 1.
@@ -2433,6 +2434,16 @@ supplies `false` only to keep that internal signature uniform, while AIR
 preflight rejects actual front-facing use in vertex, compute, or otherwise
 invalid stage code.
 
+In the vertex stage, `raster_base_instance()` maps to
+`DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE`/`SPR_BaseInstance` and the
+physical `i32 noundef` parameter reflected by `air.base_instance`. The value is
+passed through the same hidden callable state; fragment and compute use are
+rejected. `RasterMesh::base_instance()` carries the draw-time value, defaulting
+to zero for source compatibility. Metal4 forwards it to both indexed and
+non-indexed MTL4 draw calls; the DX12 and Vulkan raster encoders likewise use
+it as `StartInstanceLocation`/`firstInstance` so ordinary instance-ID semantics
+remain consistent across the runtime.
+
 Fragment `ddx`/`ddy` accept scalar or vector f16/f32 values and lower to the
 suffix-matched convergent `air.dfdx.*`/`air.dfdy.*` calls. `raster_discard()`
 emits `air.discard_fragment` and terminates the translated stage path. These
@@ -2454,7 +2465,10 @@ strides and `setVertexBuffer:offset:attributeStride:atIndex:`, which start at
 macOS 14. The strict raster integration test checks the
 post-O2 metadata and intrinsic spellings, then renders and reads back a
 triangle whose visibility/color depend on vertex and fragment object ID,
-barycentrics, front-facing state, root constants, derivatives, and discard.
+barycentrics, base instance, front-facing state, root constants, derivatives,
+and discard. A nonzero base instance is passed through an integer flat varying;
+changing only the draw-time value makes every fragment discard, across both
+indexed and non-indexed draws and both JIT and archive-loaded AOT shaders.
 With culling disabled, the test inverts `RasterState::front_counter_clockwise`
 and requires the covered pixel to switch between two alpha values; it repeats
 both winding cases through the archive-loaded AOT shader. The same draw binds
@@ -2466,8 +2480,8 @@ follow-up compute dispatch reads the D32 attachment and requires that exact
 value for both the JIT draw and the archive-loaded AOT draw; the IR checks also
 require `air.depth`, `air.depth_qualifier`, and `air.greater`.
 
-The implemented slice does not yet expose the base-instance built-in,
-selectable interpolation qualifiers, centroid or sample inputs,
+The implemented slice does not yet expose selectable interpolation qualifiers,
+centroid or sample inputs,
 stencil, conservative rasterization, tessellation, or mesh shaders. It also
 requires at least one fragment color output and one bound color attachment;
 depth-only passes are rejected. These are separate extensions to the stage ABI
@@ -2936,13 +2950,15 @@ fallback.
 True vertex/fragment execution is strict-runtime validated by
 `test_metal_xir_air_raster`. Before drawing, the test enables the post-O2 LLVM
 dump and checks `!air.vertex`, `!air.fragment`, vertex inputs and location
-indices, vertex/instance/primitive/barycentric/front-facing built-ins, root indirect-buffer
+indices, vertex/instance/base-instance/primitive/barycentric/front-facing built-ins, root indirect-buffer
 metadata, the object-ID buffer in both stages, render-target and shader-depth
 metadata, `air.dfdx.f32`, `air.dfdy.f32`, and `air.discard_fragment`. It then
 creates the paired metallib and render PSO, draws an instanced triangle, and
-reads back the target. Vertex visibility depends on the object ID and a vertex
-root constant; fragment coverage/color depends on object ID, a fragment root
-constant, barycentrics, front-facing state, derivatives, and discard. The test
+reads back the target. Vertex visibility depends on the object ID, a vertex
+root constant, and a nonzero draw-time base instance carried through a flat
+integer varying; an alternate base value must discard every fragment.
+Fragment coverage/color also depends on object ID, a fragment root constant,
+barycentrics, front-facing state, derivatives, and discard. The test
 flips the front-winding state with culling disabled and requires both JIT and
 AOT pixels to invert their encoded facing value. A D32 depth texture is read
 through `DepthBuffer::to_img()`, and a 1024-float uniform pushes the shared
@@ -3021,7 +3037,7 @@ deserialization.
 The closure configuration uses CMake/Ninja Release builds with legacy Metal,
 Metal4, and fallback enabled, Homebrew LLVM 21.1.8, Apple metalfe 32023.883,
 and the macOS 26.4 SDK. After rebasing onto `origin/next` at `a5d69e492`, a
-fresh full build and complete configured CTest run pass **155/155** in 111.84
+fresh full build and complete configured CTest run pass **155/155** in 114.72
 seconds: **33/33** `integration_metal4` tests,
 **15/15** offline graphics/rendering executables, and **11/11** tutorials are
 included. The standalone matrix-motion acceleration and image regressions also

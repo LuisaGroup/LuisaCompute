@@ -390,6 +390,7 @@ const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Type:
 const RefExpr *FunctionBuilder::kernel_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::KERNEL_ID); }
 const RefExpr *FunctionBuilder::raster_object_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::RASTER_OBJECT_ID); }
 const RefExpr *FunctionBuilder::raster_is_front_face() noexcept { return _builtin(Type::of<bool>(), Variable::Tag::RASTER_FRONT_FACING); }
+const RefExpr *FunctionBuilder::raster_base_instance() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::RASTER_BASE_INSTANCE); }
 const RefExpr *FunctionBuilder::raster_barycentrics() noexcept { return _builtin(Type::of<float3>(), Variable::Tag::RASTER_BARYCENTRICS); }
 const RefExpr *FunctionBuilder::warp_lane_count() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_COUNT); }
 const RefExpr *FunctionBuilder::warp_lane_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_ID); }
@@ -1311,7 +1312,8 @@ const Expression *FunctionBuilder::_internalize(const Expression *expr) noexcept
                     case Variable::Tag::WARP_LANE_ID: [[fallthrough]];
                     case Variable::Tag::RASTER_OBJECT_ID: [[fallthrough]];
                     case Variable::Tag::RASTER_BARYCENTRICS: [[fallthrough]];
-                    case Variable::Tag::RASTER_FRONT_FACING: return _builtin(v.type(), v.tag());
+                    case Variable::Tag::RASTER_FRONT_FACING: [[fallthrough]];
+                    case Variable::Tag::RASTER_BASE_INSTANCE: return _builtin(v.type(), v.tag());
                     default: break;
                 }
                 LUISA_ERROR_WITH_LOCATION(

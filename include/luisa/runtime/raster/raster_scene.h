@@ -50,6 +50,7 @@ class RasterMesh {
     luisa::fixed_vector<VertexBufferView, 4> _vertex_buffers{};
     luisa::variant<BufferView<uint>, uint> _index_buffer;
     uint _instance_count{};
+    uint _base_instance{};
     uint _object_id{};
     int _vertex_offset{};
 
@@ -59,15 +60,18 @@ public:
     [[nodiscard]] luisa::span<VertexBufferView const> vertex_buffers() const noexcept { return _vertex_buffers; }
     [[nodiscard]] auto const& index() const noexcept { return _index_buffer; };
     [[nodiscard]] auto instance_count() const noexcept { return _instance_count; }
+    [[nodiscard]] auto base_instance() const noexcept { return _base_instance; }
     [[nodiscard]] auto object_id() const noexcept { return _object_id; }
     RasterMesh(
         luisa::span<VertexBufferView const> vertex_buffers,
         BufferView<uint> index_buffer,
         uint instance_count,
         uint object_id,
-        int vertex_offset = 0) noexcept
+        int vertex_offset = 0,
+        uint base_instance = 0u) noexcept
         : _index_buffer(index_buffer),
           _instance_count(instance_count),
+          _base_instance(base_instance),
           _object_id(object_id),
           _vertex_offset(vertex_offset) {
         luisa::enlarge_by(_vertex_buffers, vertex_buffers.size());
@@ -83,9 +87,11 @@ public:
         uint vertex_count,
         uint instance_count,
         uint object_id,
-        int vertex_offset = 0) noexcept
+        int vertex_offset = 0,
+        uint base_instance = 0u) noexcept
         : _index_buffer(vertex_count),
           _instance_count(instance_count),
+          _base_instance(base_instance),
           _object_id(object_id),
           _vertex_offset(vertex_offset) {
         luisa::enlarge_by(_vertex_buffers, vertex_buffers.size());

@@ -272,6 +272,18 @@ auto raster_shader = device.compile(raster_kernel, mesh_format);
 RasterScene scene = device.create_raster_scene(vertex_buffer, index_buffer);
 ```
 
+`RasterMesh` carries both an instance count and an optional base instance. The
+base defaults to zero; pass it after `vertex_offset` when a vertex shader uses
+`raster_base_instance()`. The runtime forwards it to indexed and non-indexed
+Metal4, DX12, and Vulkan draws, and the ordinary instance ID starts at that
+base value.
+
+```cpp
+RasterMesh mesh{vertex_streams, index_buffer.view(),
+                instance_count, object_id,
+                vertex_offset, base_instance};
+```
+
 ## CommandList
 
 Batch commands for efficient submission:

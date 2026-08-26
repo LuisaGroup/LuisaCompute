@@ -244,12 +244,15 @@ Metal4 LLVM/AIR pipeline.
   in-place, so `unbound_arguments()` and a bound-prefix assumption are not
   valid for this path.
 - Expose `raster_object_id()`, `raster_barycentrics()`,
-  `raster_is_front_face()`, and `raster_discard()` through the normal DSL.
-  Object ID is `uint`, barycentrics are `float3`, front-facing is `bool`, and
-  discard lowers to the XIR raster-discard terminator. Translate front-facing
+  `raster_is_front_face()`, `raster_base_instance()`, and `raster_discard()`
+  through the normal DSL. Object ID and base instance are `uint`, barycentrics
+  are `float3`, front-facing is `bool`, and discard lowers to the XIR
+  raster-discard terminator. Translate front-facing
   to `RASTER_FRONT_FACING`/`SPR_FrontFacing`; it is fragment-only even though
   the shared raster implementation ABI carries a placeholder value in vertex
-  code.
+  code. Translate base instance to
+  `RASTER_BASE_INSTANCE`/`SPR_BaseInstance`; it is vertex-only and receives
+  the nonzero draw-time value stored in `RasterMesh`.
 - Lower `DDX` and `DDY` to raster quad derivative XIR operations. Reject these
   operations outside a fragment-stage backend configuration rather than
   treating them as compute thread-group operations.

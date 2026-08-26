@@ -335,6 +335,7 @@ private:
                 case Variable::Tag::RASTER_BARYCENTRICS: return m->create_bary_centrics();
                 case Variable::Tag::RASTER_OBJECT_ID: return m->create_object_id();
                 case Variable::Tag::RASTER_FRONT_FACING: return m->create_front_facing();
+                case Variable::Tag::RASTER_BASE_INSTANCE: return m->create_base_instance();
                 default: break;
             }
             LUISA_ERROR_WITH_LOCATION("Unexpected variable type.");

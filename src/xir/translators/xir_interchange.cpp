@@ -1530,6 +1530,7 @@ parse_special_register_name(luisa::string_view name) noexcept {
     if (name == "warp_size") { return DerivedSpecialRegisterTag::WARP_SIZE; }
     if (name == "dispatch_size") { return DerivedSpecialRegisterTag::DISPATCH_SIZE; }
     if (name == "front_facing") { return DerivedSpecialRegisterTag::RASTER_FRONT_FACING; }
+    if (name == "base_instance") { return DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE; }
     return luisa::nullopt;
 }
 

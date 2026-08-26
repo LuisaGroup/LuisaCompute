@@ -1046,6 +1046,7 @@ llvm::Value *MetalCodegenLLVMImpl::_special_register(const FunctionContext &func
             case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID: return function.raster_object_id;
             case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS: return function.raster_barycentrics;
             case xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING: return function.raster_front_facing;
+            case xir::DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE: return function.raster_base_instance;
             default:
                 LUISA_ERROR_WITH_LOCATION(
                     "Metal raster AIR codegen does not support compute special register '{}'.",
@@ -1063,7 +1064,8 @@ llvm::Value *MetalCodegenLLVMImpl::_special_register(const FunctionContext &func
         case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: return function.dispatch_size;
         case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID: [[fallthrough]];
         case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS: [[fallthrough]];
-        case xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING:
+        case xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING: [[fallthrough]];
+        case xir::DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE:
             LUISA_ERROR_WITH_LOCATION("Metal compute AIR codegen does not support raster special register '{}'.", xir::to_string(tag));
     }
     LUISA_ERROR_WITH_LOCATION("Invalid XIR special register '{}'.", xir::to_string(tag));
