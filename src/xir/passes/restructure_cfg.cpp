@@ -9046,6 +9046,17 @@ restructure_cfg_on_definition_in_place(
         ScopedTimer _timer_post("post_restructure_fixed_point");
         auto dom = compute_restructure_dom(def);
         auto pdom = compute_post_dom(def, info);
+        // `fixup_construct_exits` closes the construct hierarchy for one CFG
+        // version. A pre-existing structured input is the baseline consumed
+        // by the selection-exit phase below, but any earlier mutation may
+        // have recovered a new enclosing loop or changed an entry/merge role.
+        // That new hierarchy must be closed before header/selection repair
+        // observes it. Later canonicalizers can invalidate the same relation
+        // while consuming any generated-dispatch role markers, so analysis
+        // validity must be carried explicitly across rounds rather than
+        // inferred from those transient markers.
+        auto construct_exits_dirty = info.changed();
+        auto construct_exits_analyzed = false;
         auto drain_natural_loops = [&]() noexcept {
             auto modified = false;
             auto iteration = size_t{0u};
@@ -9111,26 +9122,19 @@ restructure_cfg_on_definition_in_place(
             auto loop_changed = drain_natural_loops();
             if (loop_changed) {
                 local = true;
+                construct_exits_dirty = true;
             }
-            // A generated target-state dispatch is the continuation after a
-            // construct's single exit. Before recovering that raw branch as
-            // another selection, transport every edge that still crosses a
-            // parent construct through that parent's exit. This is the
-            // inner-to-outer order of SPIR-V construct fixup: each successful
-            // rewrite removes at least one crossed parent boundary from the
-            // dispatch, whereas header recovery cannot increase that
-            // hierarchy distance once it reaches zero.
-            auto has_raw_exit_dispatch = false;
-            for (auto *dispatch : exit_dispatch_headers) {
-                if (dispatch != nullptr && dispatch->is_terminated() &&
-                    dispatch->terminator()
-                        ->isa<ConditionalBranchInst>()) {
-                    has_raw_exit_dispatch = true;
-                    break;
-                }
-            }
+            // Before recovering a raw branch as another selection, transport
+            // every edge that still crosses a parent construct through that
+            // parent's exit. This is the inner-to-outer order of SPIR-V
+            // construct fixup: each successful rewrite removes at least one
+            // crossed parent boundary from the dispatch, whereas header
+            // recovery cannot increase that hierarchy distance once it
+            // reaches zero.
             auto construct_exit_changed = false;
-            if (has_raw_exit_dispatch) {
+            if (construct_exits_dirty) {
+                construct_exits_dirty = false;
+                construct_exits_analyzed = true;
                 construct_exit_changed =
                     fixup_construct_exits(
                         def, dom, pdom, info,
@@ -9149,6 +9153,7 @@ restructure_cfg_on_definition_in_place(
                     options.verify_remaining_divergent_index);
             if (header_changed) {
                 local = true;
+                construct_exits_dirty = true;
                 // Transparent edge subdivisions preserve dominance between
                 // old blocks. Materialize that concrete tree once after the
                 // drain; post-dominance already tracks structural nesting.
@@ -9160,6 +9165,7 @@ restructure_cfg_on_definition_in_place(
             if (switch_proxy_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
+                construct_exits_dirty = true;
                 dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
@@ -9172,6 +9178,7 @@ restructure_cfg_on_definition_in_place(
             if (selection_exit_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
+                construct_exits_dirty = true;
             }
             auto selection_reentry_changed =
                 split_exit_dispatch_selection_reentries(
@@ -9179,15 +9186,22 @@ restructure_cfg_on_definition_in_place(
                     exit_dispatch_headers);
             if (selection_reentry_changed) {
                 local = true;
+                construct_exits_dirty = true;
             }
             // Selection-exit repair can create a fresh target-state dispatch.
             // Move that dispatch through every still-crossed construct while
             // its generated role is explicit, before any generic phase turns
             // it into another selection header.
-            auto selection_construct_exit_changed =
-                fixup_construct_exits(
-                    def, dom, pdom, info,
-                    exit_dispatch_headers);
+            auto selection_construct_exit_changed = false;
+            if (construct_exits_dirty ||
+                !construct_exits_analyzed) {
+                construct_exits_dirty = false;
+                construct_exits_analyzed = true;
+                selection_construct_exit_changed =
+                    fixup_construct_exits(
+                        def, dom, pdom, info,
+                        exit_dispatch_headers);
+            }
             construct_exit_changed |=
                 selection_construct_exit_changed;
             if (selection_construct_exit_changed) {
@@ -9207,6 +9221,7 @@ restructure_cfg_on_definition_in_place(
             loop_changed |= selection_loop_changed;
             if (selection_loop_changed) {
                 local = true;
+                construct_exits_dirty = true;
             }
             for (auto *header : exit_dispatch_headers) {
                 generated_exit_dispatch_headers.emplace(
@@ -9224,6 +9239,7 @@ restructure_cfg_on_definition_in_place(
             if (boundary_merge_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
+                construct_exits_dirty = true;
                 dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
@@ -9234,6 +9250,7 @@ restructure_cfg_on_definition_in_place(
             if (boundary_branch_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
+                construct_exits_dirty = true;
                 dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
@@ -9242,6 +9259,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_prepare_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
+                construct_exits_dirty = true;
                 dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
@@ -9251,6 +9269,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_continue_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
+                construct_exits_dirty = true;
                 pdom = compute_post_dom(def, info);
             }
             auto loop_update_changed =
@@ -9258,6 +9277,7 @@ restructure_cfg_on_definition_in_place(
             if (loop_update_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
+                construct_exits_dirty = true;
                 dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
@@ -9272,6 +9292,7 @@ restructure_cfg_on_definition_in_place(
             if (dispatch_collapse_changed) {
                 ++info.canonicalized_cfg_count;
                 local = true;
+                construct_exits_dirty = true;
                 dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
