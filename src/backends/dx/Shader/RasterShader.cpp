@@ -439,6 +439,9 @@ ID3D12PipelineState *RasterShader::get_pso(
     }
     psoState.dsv_format = dsvFormat;
     psoState.raster_state = rasterState;
+    // The stencil reference is set dynamically with OMSetStencilRef and does
+    // not participate in D3D12 graphics pipeline creation.
+    psoState.raster_state.stencil_state.reference = 0u;
     {
         std::lock_guard lck{_pso_mtx};
         idx = _pso_map.try_emplace(psoState);

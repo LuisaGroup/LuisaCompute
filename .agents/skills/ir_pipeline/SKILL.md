@@ -209,6 +209,11 @@ Preserve these ABI rules when changing lowering or adding types:
 - Align every root kernel argument to 16 bytes and round the root block to at
   least 16 bytes. A buffer is `{ptr addrspace(1), i64}`; a texture binding is
   an opaque eight-byte handle in its own 16-byte argument slot.
+- Materialize that minimum 16-byte root at runtime even when a compute shader
+  has no logical arguments. Direct argument tables and the built-in
+  `prepare_indirect_dispatches` kernel must receive a nonzero GPU address;
+  Metal API Validation rejects a null `kernel_args` binding even when the
+  indirect target does not read buffer zero.
 - Treat vertex and fragment functions as first-class `RasterStageFunction`
   entries. Translate an AST raster function only with an explicit
   `AST2XIRConfig::raster_stage`; the AST tag alone does not distinguish vertex
@@ -258,6 +263,16 @@ Preserve these ABI rules when changing lowering or adding types:
   `air.greater`, or `air.less`. Allow zero color attachments only for a
   fragment that writes depth. Reject mixed qualifiers and depth operations
   left in compute, vertex, or callable code.
+- Treat ordinary stencil as host pipeline/render-pass state, not an AIR
+  intrinsic or fragment return. `StencilState` has one public eight-bit
+  reference, eight-bit read/write masks, and separate front/back comparison,
+  stencil-fail, depth-fail, and pass operations limited to Keep/Zero/Replace.
+  Metal4 binds matching `MTL::StencilDescriptor` objects and the dynamic
+  reference, excludes that reference from its PSO cache key, and attaches the
+  same texture to both depth and stencil render-pass planes. Logical D24S8 uses
+  physical D32S8A24 when the device does not support depth24-stencil8; preserve
+  the logical `DepthFormat`. Shader-written stencil reference and conservative
+  rasterization remain fail-closed.
 - Keep direct and indirect entry generation separate. Direct dispatch reads a
   constant-space `uint3`; indirect dispatch reads a device-space `uint4` whose
   W component is the kernel ID.
@@ -356,6 +371,13 @@ Preserve these ABI rules when changing lowering or adding types:
   buffer, or callable state. Attach `MTL::LogState` to every MTL4 command
   buffer via `MTL4::CommandBufferOptions`; keep direct/indirect format tables
   deterministic and normalize bool markers in the log callback.
+- Keep one immutable `MTL4::CommandBufferOptions` with that log state per
+  stream and create a fresh command buffer for each submission. Pool only
+  command allocators, reset them from commit feedback after GPU completion,
+  and cap the pool. Argument tables and residency sets remain submission-
+  owned. Never reset or recycle an allocator while any command encoded from it
+  is in flight, and do not pool command buffers without separate lifetime and
+  numerical-correctness proof.
 - Verify final XIR with reachable-block ownership required both at the end of
   normalization and at the AIR entry point. For each entry, then verify emitted
   LLVM IR, run the default per-module O2 pipeline, verify again, and only then
@@ -406,6 +428,23 @@ image-correctness claims,
 use the deterministic offline cutout seed and compare Metal4 AIR against the
 separate same-build legacy `metal` MSL backend.
 
+Use `test_metal4_raster_stencil` for executing host-stencil coverage. It must
+exercise logical D24S8 and D32S8A24, nonzero reference, read/write masks,
+front/back state, Replace/Zero/Keep across pass, stencil-fail, and depth-fail,
+and clear/load/store across consecutive draws. A descriptor-only test is not
+sufficient. Its Validation registration must run with a visible Metal device.
+
+Distinguish Metal API Validation from GPU Shader Validation. The full Metal4
+integration label should pass with `LUISA_ENABLE_VALIDATION=1` and
+`MTL_DEBUG_LAYER=1`. Apple documents that Shader Validation requires pipeline
+and buffer inheritance for ICBs; Luisa's GPU-written ICB deliberately carries
+per-command root and dispatch-record pointers, so do not enable instrumentation
+for that path by changing its ABI. The private nested bindless sampler table is
+also numerically checked under ordinary/API-Validation execution because the
+current Shader Validation instrumentation changes its sampler modes without a
+reported fault. Keep these exclusions explicit instead of loosening output
+tolerances or claiming complete GPU-Validation coverage.
+
 ## Recognize placeholder passes
 
 Do not infer implementation status from a pass name or CMake registration.
@@ -453,6 +492,10 @@ cmake-build-metal4-air/bin/test_printer metal4
 cmake-build-metal4-air/bin/test_printer_custom_callback metal4
 cmake --build cmake-build-metal4-air --target test_indirect -j 8
 cmake-build-metal4-air/bin/test_indirect metal4
+cmake --build cmake-build-metal4-air --target test_metal4_raster_stencil -j 8
+ctest --test-dir cmake-build-metal4-air -R '^test_metal4_raster_stencil(_validation)?$' --output-on-failure
+LUISA_ENABLE_VALIDATION=1 MTL_DEBUG_LAYER=1 \
+  ctest --test-dir cmake-build-metal4-air -L integration_metal4 --output-on-failure -j 1
 ~~~
 
 Use the `unit_xir` CTest label when a change can affect more than one XIR pass.

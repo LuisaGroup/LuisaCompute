@@ -2215,7 +2215,10 @@ Supported instruction families:
   vertex/instance/base-instance/primitive/object IDs, floating barycentrics,
   fragment front-facing state, selectable center/centroid/sample and
   perspective/no-perspective interpolation, derivatives, and discard as
-  described in Section 12.2.
+  described in Section 12.2; the paired MTL4 runtime also supports D24S8 and
+  D32S8A24 depth/stencil targets, front/back stencil operations, comparison,
+  masks, and the public eight-bit stencil reference. Stencil state is host PSO
+  and render-pass state, not an AIR intrinsic or entry-point metadata field.
 
 Not currently supported in AIR:
 
@@ -2227,7 +2230,7 @@ Not currently supported in AIR:
 - double, float8, cooperative-matrix operations, and custom types other than the
   indirect-dispatch handle and the two local ray-query types;
 - extended acceleration-limit shaders;
-- raster debug-break state, stencil, and conservative rasterization.
+- raster debug-break state and conservative rasterization.
 
 Apple's Metal 3.0 and 3.2 frontends accept `__builtin_readcyclecounter()` and
 emit `llvm.readcyclecounter`, and `metallib` accepts the resulting AIR. However,
@@ -2528,9 +2531,31 @@ GPU interpolation semantics rather than metadata presence alone. Centroid and
 sample values are consumed by the fragment stage, and an archive-loaded AOT
 draw must exactly match the JIT image.
 
-The implemented slice does not yet expose stencil, conservative
-rasterization, tessellation, or mesh shaders. These are separate extensions to
-the stage ABI rather than aliases for the currently emitted metadata.
+Stencil does not change the vertex/fragment AIR ABI. `StencilState` carries one
+eight-bit reference value (the common DX12/Metal/Vulkan capability), eight-bit
+read and write masks, and separate front/back compare plus Keep/Zero/Replace
+operations. The Metal4 runtime creates matching `MTL::StencilDescriptor`
+objects, binds the resulting depth-stencil state, and sets the reference on
+the `MTL4::RenderCommandEncoder` before drawing. A stencil-bearing depth
+texture is attached to both the depth and stencil slots of each MTL4 render
+pass. The dynamic reference is excluded from the PSO cache key, so changing it
+between draws does not create duplicate render/depth-stencil pipelines.
+`DepthBuffer::clear()` clears stencil to zero while clearing depth to the
+requested value; subsequent draws load and store both planes.
+
+`DepthFormat::D32S8A24` maps directly to
+`MTL::PixelFormatDepth32Float_Stencil8`. `DepthFormat::D24S8` uses
+`MTL::PixelFormatDepth24Unorm_Stencil8` only when the device reports support;
+otherwise the opaque depth resource is precision-upgraded to D32S8A24 storage
+with a warning. This fallback is required on Apple silicon, where D24S8 is not
+available. Pipeline keys use the physical pixel format, while
+`DepthBuffer::format()` preserves the requested logical format.
+
+The implemented slice does not expose shader-written stencil reference,
+conservative rasterization, tessellation, or mesh shaders. Shader-written
+stencil would require a new fragment return ABI; the remaining features are
+separate stage/runtime extensions rather than aliases for currently emitted
+metadata.
 
 ## 13. Fast-math policy
 
@@ -3021,6 +3046,18 @@ Separate fragment modules require Apple to accept the `air.any` and `air.less`
 metadata variants as well. Both the ordinary strict registration and the
 validation-layer registration pass on the Apple M1 Max reference machine.
 
+`test_metal4_raster_stencil` adds focused executing coverage for both logical
+D24S8 and D32S8A24 resources. It primes and observes stencil across consecutive
+draws so pass Replace, stencil-fail Replace, depth-fail Replace, pass Zero,
+read masks, write masks, comparison, clear/load/store, and the nonzero public
+reference cannot pass by descriptor construction alone. Its validation-layer
+mirror is registered separately. On 2026-08-27 the Apple M1 Max was visible
+again and both registrations passed, including Metal API Validation. The same
+test also exposed and now guards a raster-entry wrapper bug: a one-member
+position-only vertex output is flattened from `{float4}` to `float4` before
+returning from `vertex_main`, rather than returning the implementation
+aggregate with the wrong LLVM type.
+
 Reverse autodiff is registered as the strict
 `test_metal_xir_air_autodiff` CTest. It exercises basic products,
 trigonometric derivatives, custom gradients, chain-rule composition,
@@ -3052,7 +3089,7 @@ also recorded black hole at **37.487781 dB block PSNR** (**31.458710 dB raw**),
 ShaderToy at **96.875522 dB**, ShaderToy SpaceX at **65.625341 dB**, and
 shader-visuals at **51.499800 dB** against their respective committed or
 same-build references. These numbers are retained as historical translation
-evidence; the 2026-08-26 closure run below re-executes all fourteen renderers
+evidence; the 2026-08-27 closure run below re-executes all fifteen renderers
 but does not recompute every reference PSNR.
 
 XIR unit regressions cover frontend conventions independently of Metal.
@@ -3082,29 +3119,59 @@ structurally valid. The strict raster integration test exercises the complete
 compile-only/write/load/draw AOT boundary rather than stopping at archive
 deserialization.
 
-### 16.2 Validation and benchmark snapshot (2026-08-26)
+### 16.2 Validation and benchmark snapshot (2026-08-27)
 
 The closure configuration uses CMake/Ninja Release builds with legacy Metal,
 Metal4, and fallback enabled, Homebrew LLVM 21.1.8, Apple metalfe 32023.883,
-and the macOS 26.4 SDK. After rebasing onto `origin/next` at `a5d69e492`, a
-fresh full build and complete configured CTest run pass **155/155** in 111.91
-seconds: **33/33** `integration_metal4` tests,
-**15/15** offline graphics/rendering executables, and **11/11** tutorials are
-included. The standalone matrix-motion acceleration and image regressions also
-pass Metal API and GPU Validation with 43 and 8 assertions respectively; the
-Metal4 timeline-event regression passes the same validation layers with 11
-assertions, including host-callback ordering and `UINT64_MAX` fences. The same
-fourteen renderers passed on the restored legacy `metal` backend in the
-preceding 2026-08-25 comparison run. These counts test actual compilation and
-GPU execution; the separate Metal4 backend prevents an unsupported or invalid
-AIR module from silently succeeding through MSL.
+and the macOS 26.4 SDK. It is based on `origin/next` at `a5d69e492`. A complete
+configured parallel CTest run passes **156/156** in 29.51 seconds: **35/35**
+`integration_metal4` tests, **15/15** offline graphics/rendering executables,
+**11/11** tutorials, and **111/111** unit registrations are included. These
+tests compile and execute on an Apple M1 Max; the independent Metal4 module has
+no MSL code generator or source fallback that could hide an AIR failure.
+
+The same 35 Metal4 integration registrations pass with both the Luisa
+validation wrapper and Apple Metal API Validation enabled. That run found one
+real bug that ordinary execution tolerated: an argument-free indirect shader
+bound address zero to the built-in `prepare_indirect_dispatches` parameter
+`kernel_args`. Direct and indirect dispatch now stage the ABI's minimum
+16-byte root block even when it contains no logical fields. The fixed strict
+run passes **35/35**, including all fifteen rendering examples.
+
+Apple GPU Shader Validation is a separate instrumenting tool and has narrower
+coverage than API Validation. The supported subset passes **32/32** with
+`MTL_SHADER_VALIDATION=1`, error reporting, and abort-on-fault enabled. The
+three deliberately separated registrations are:
+
+- `test_metal4_air_indirect`, because Luisa's GPU-written ICB stores its
+  pipeline and two buffer bindings per command. Apple documents that Shader
+  Validation requires pipeline and buffer inheritance for ICBs; inheriting the
+  buffers would remove the per-command dispatch-record pointer and change the
+  public indirect-dispatch ABI.
+- `test_metal4_air_bindless_mip`, because Shader Validation instrumentation of
+  the private nested AIR sampler-table ABI changes the observed filtering and
+  address modes without reporting a validation fault. The same test is exact
+  in ordinary execution and under API Validation.
+- `test_metal_xir_air`, because that aggregate regression intentionally
+  contains both of the preceding ICB and bindless-sampler paths. Its full
+  semantics pass ordinary execution and API Validation.
+
+This is not treated as three runtime failures or silently weakened into a
+passing GPU-Validation result. ICB and bindless sampling retain their strict
+executing tests, while GPU Shader Validation remains enabled for every path it
+can instrument without changing the program contract, including acceleration,
+motion, ray queries, raster JIT/AOT, stencil, logging, native include,
+cooperative vectors, and all fifteen renderers.
 
 MTL4 commit feedback publishes a submission's host-visible completion only
 after callbacks, resource release, profiling, and the in-flight decrement have
-finished. This prevents a synchronous waiter from destroying `MetalStream`
-while its feedback handler still accesses the stream. The autodiff integration
-test passes 32 consecutive fresh-process stress runs and a Metal API/GPU
-Validation run after this lifetime fix.
+finished. Command buffers remain one-shot. Each stream reuses one immutable
+`MTL4::CommandBufferOptions` carrying its `MTL::LogState`, and pools only
+`MTL4::CommandAllocator` objects. An allocator is reset and returned to the
+bounded pool only from commit feedback after GPU completion; it is never reset
+while encoded commands are in flight. Argument tables and residency sets
+remain submission-owned. This division preserves correctness while removing
+the allocator/options portion of the previous fixed submission overhead.
 
 `benchmark_metal4` compares the same arithmetic kernel and resource/dispatch
 path on the two backends. Each process disables the Luisa shader cache and uses
@@ -3117,30 +3184,27 @@ dispatches, measures nine batches of 64 dispatches, and verifies the same
 
 | Metric | Legacy `metal` (MSL) | `metal4` (XIR/LLVM/AIR) | Paired result |
 |---|---:|---:|---:|
-| Cold end-to-end JIT median | 389.976 ms | 69.979 ms | **5.59x faster**, 82.1% less time |
-| Backend codegen median | 0.199 ms | 9.730 ms | AIR spends more time in XIR/LLVM lowering |
-| Apple compile/load median | 389.742 ms | 60.693 ms | AIR avoids the expensive source-MSL compile |
-| Batched wall time per dispatch | 0.148398 ms | 0.196728 ms | Metal4 is **1.307x slower** by paired median |
-| Median process p25/p75 | 0.146452/0.150892 ms | 0.184237/0.204446 ms | distributions do not overlap |
+| Cold end-to-end JIT median | 399.499 ms | 75.194 ms | **5.31x faster**, 81.2% less time |
+| Backend codegen median | 0.209 ms | 9.835 ms | AIR spends more time in XIR/LLVM lowering |
+| Apple compile/load median | 399.258 ms | 65.340 ms | AIR avoids the expensive source-MSL compile |
+| Batched wall time per dispatch | 0.173496 ms | 0.169049 ms | Metal4 is **about 3.0% faster** by paired median |
+| Median process p25/p75 | 0.168635/0.189454 ms | 0.164926/0.189565 ms | distributions overlap; steady state is effectively parity |
 
-These numbers are the fresh 2026-08-26 rerun using variants 82701 through
-82709 after the selectable-interpolation change. The measured gain remains a
-substantial real cold-JIT improvement, but the current small steady-state
-workload is not at parity: Metal4 takes about 30.7% more host wall time per
-dispatch. The `runtime_ms` field includes command encoding, submission, queue
-execution, and synchronization amortized over a 64-dispatch batch; it is not a
-pure GPU-kernel timestamp.
+These numbers use variants 82901 through 82909 after command-allocator and
+command-buffer-options reuse. The steady-state paired ratios contain both
+faster and slower samples, so the small three-percent median advantage should
+be read as parity rather than a universal GPU-speedup claim. The robust change
+is cold JIT: the AIR route remains more than five times faster for this kernel.
+The `runtime_ms` field includes command encoding, submission, queue execution,
+and synchronization amortized over a 64-dispatch batch; it is not a pure
+GPU-kernel timestamp.
 
-A separately profiled pair (variant 82801, 833 labelled dispatches including
-validation and warmup) reports average command-buffer GPU time of 0.128286 ms
-for legacy Metal and 0.135542 ms for Metal4, a much smaller 5.7% difference,
-while its batched wall medians are 0.147023 ms and 0.186022 ms. This indicates
-that most of the current regression is outside shader arithmetic. The MTL4
-path currently creates a command allocator, command buffer, log-state options,
-all-stage barrier, residency set, and commit-feedback handler for each small
-submission; pooling/batching that state is the next performance target. This
-microbenchmark magnifies fixed submission cost, so longer rendering kernels
-need a separate end-to-end comparison before generalizing the 30.7% number.
+An older pre-reuse profile (variant 82801) measured 0.128286 ms average GPU
+time for legacy Metal and 0.135542 ms for Metal4 while its wall medians differed
+much more. That historical split correctly identified fixed host submission
+cost as the main optimization target. It is retained as motivation, not as the
+current performance result. Longer rendering kernels still require matched
+end-to-end scene measurements before generalizing this synthetic benchmark.
 
 Reproduce one pair with distinct variants as follows:
 
@@ -3246,6 +3310,11 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 - Sampler descriptor bit patterns, texture/atomic/SIMD intrinsic signatures,
   and numeric control operands are private Apple conventions and need
   differential revalidation on each toolchain/AIR-version update.
+- Apple GPU Shader Validation cannot instrument Luisa's non-inherited
+  GPU-written ICB without changing its per-command buffer ABI, and currently
+  changes private bindless sampler-table behavior without reporting a fault.
+  Keep full API Validation and exact executing regressions for those paths;
+  do not report them as GPU-Validation-passing or loosen their numeric checks.
 - Direct compute textures, 32-bit atomics, volatile device-buffer access, the
   documented subgroup subset, the documented bindless buffer/texture subset,
   GPU-written indirect dispatch records, and the static instanced-triangle
@@ -3274,13 +3343,16 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
   preflight rules, emitter metadata, runtime binding, and a strict draw test.
   Shader-written `any`/`greater`/`less` depth and selectable varying
   interpolation now have that full chain and strict JIT/AOT readback coverage.
-  Do not infer stencil or conservative-raster support from them.
+  Host stencil compare/masks/reference and Keep/Zero/Replace operations have
+  separate strict D24S8/D32S8A24 draw coverage. Conservative rasterization and
+  shader-written stencil reference remain unsupported and fail closed.
 
 ## 19. Local source index
 
 | Subject | Source |
 |---|---|
 | Core AIR emitter orchestration | [metal_codegen_llvm.cpp](metal_codegen_llvm.cpp), [metal_codegen_llvm_impl.cpp](metal_codegen_llvm_impl.cpp) |
+| Compute/raster entry wrappers and singleton-output flattening | [metal_codegen_llvm_function.cpp](metal_codegen_llvm_function.cpp) |
 | Type/ABI and native shader logging | [metal_codegen_llvm_type.cpp](metal_codegen_llvm_type.cpp) |
 | Raster varying interpolation validation | [metal_codegen_llvm_raster.cpp](metal_codegen_llvm_raster.cpp), [raster_interpolation.h](../../../../include/luisa/dsl/raster/raster_interpolation.h) |
 | Resource, curve, motion, and query lowering | [metal_codegen_llvm_resource.cpp](metal_codegen_llvm_resource.cpp), [metal_codegen_llvm_access.cpp](metal_codegen_llvm_access.cpp) |
@@ -3291,9 +3363,10 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | LLVM O2, version selection, dual entries, packaging | [metal_air_pipeline.cpp](../metal_air_pipeline.cpp) |
 | MTLB writer and validator | [metal_metallib.cpp](../metal_metallib.cpp) |
 | Raster extension and paired AIR creation | [metal_raster_ext.cpp](../metal_raster_ext.cpp) |
-| Raster PSO, root/object binding, and draw encoding | [metal_raster_shader.cpp](../metal_raster_shader.cpp) |
+| Public raster/stencil state and cross-backend reference binding | [raster_state.h](../../../../include/luisa/runtime/raster/raster_state.h), [LCCmdBuffer.cpp](../../dx/DXApi/LCCmdBuffer.cpp), [raster_shader.cpp](../../vk/raster_shader.cpp) |
+| Raster PSO, stencil/depth state, root/object binding, and draw encoding | [metal_raster_shader.cpp](../metal_raster_shader.cpp), [metal_command_encoder.cpp](../metal_command_encoder.cpp) |
 | Raster archive format | [metal_raster_archive.cpp](../metal_raster_archive.cpp) |
-| Shared color/depth texture binding and depth storage | [metal_texture.h](../metal_texture.h), [metal_depth_buffer.cpp](../metal_depth_buffer.cpp) |
+| Shared color/depth-stencil binding, D24 fallback, and storage | [metal_texture.h](../metal_texture.h), [metal_depth_buffer.cpp](../metal_depth_buffer.cpp) |
 | MotionInstance capture and native motion-TLAS packing | [metal_motion_instance.cpp](../metal_motion_instance.cpp), [metal_accel_motion.cpp](../metal_accel_motion.cpp) |
 | Apple9 MTL4 versus Apple7/Apple8 compatibility AS build | [metal_acceleration_structure_build.cpp](../metal_acceleration_structure_build.cpp), [metal_stream.cpp](../metal_stream.cpp) |
 | JuliaLLVM wrapper | [llvm_downgrade.cpp](../../../ext/llvm_downgrade.cpp) |
@@ -3301,9 +3374,9 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Pinned upstream typed-pointer and LLVM 14 writer base | [PointerRewriter.cpp](../../../ext/llvm-downgrade/src/PointerRewriter.cpp), [ValueEnumerator140.cpp](../../../ext/llvm-downgrade/src/ValueEnumerator140.cpp), [BitcodeWriter140.cpp](../../../ext/llvm-downgrade/src/BitcodeWriter140.cpp) |
 | AIR-only shader creation | [metal_device.cpp](../metal_device.cpp) |
 | In-memory MTLB loading and PSO creation | [metal_compiler.cpp](../metal_compiler.cpp) |
-| Host argument packing and dispatch | [metal_shader.cpp](../metal_shader.cpp) |
+| Host argument packing, minimum root block, and direct/indirect dispatch | [metal_shader.cpp](../metal_shader.cpp) |
 | 256-byte-aligned root/upload staging allocations | [metal_stage_buffer_pool.cpp](../metal_stage_buffer_pool.cpp) |
-| Native `MTL::LogState` creation, normalization, and callback ownership | [metal_stream.cpp](../metal_stream.cpp), [metal_stream.h](../metal_stream.h) |
+| Native logging, command options, allocator reuse, completion, and callback ownership | [metal_stream.cpp](../metal_stream.cpp), [metal_stream.h](../metal_stream.h) |
 | Apple9 AS guard and synchronized pre-Apple9 bridge | [metal_acceleration_structure_build.cpp](../metal_acceleration_structure_build.cpp), [metal_stream.cpp](../metal_stream.cpp) |
 | Indirect-command preparation ABI | [metal_builtin_kernels.metal](../metal_builtin/metal_builtin_kernels.metal) |
 | GPU-written indirect-dispatch regression | [test_indirect.cpp](../../../tests/integration/runtime/test_indirect.cpp) |
@@ -3312,6 +3385,7 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Stateful AIR ray-query semantics | [test_metal_xir_air_ray_query.cpp](../../../tests/integration/runtime/test_metal_xir_air_ray_query.cpp) |
 | Strict AIR typed-bindless semantics | [test_metal_xir_air_typed_bindless.cpp](../../../tests/integration/runtime/test_metal_xir_air_typed_bindless.cpp) |
 | Strict AIR vertex/fragment metadata and draw semantics | [test_metal_xir_air_raster.cpp](../../../tests/integration/runtime/test_metal_xir_air_raster.cpp) |
+| Strict Metal4 raster stencil semantics | [test_metal4_raster_stencil.cpp](../../../tests/integration/runtime/test_metal4_raster_stencil.cpp) |
 | Raster archive round-trip and corruption handling | [test_metal_raster_archive.cpp](../../../tests/unit/ext/test_metal_raster_archive.cpp) |
 | Typed-bindless AST alias normalization | [test_xir_translators.cpp](../../../tests/unit/xir/test_xir_translators.cpp) |
 | XIR storage-cast validation | [test_xir_verifier.cpp](../../../tests/unit/xir/test_xir_verifier.cpp) |
@@ -3334,6 +3408,9 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 - Apple, [Metal command-line tools](https://developer.apple.com/library/archive/documentation/Miscellaneous/Conceptual/MetalProgrammingGuide/Dev-Technique/Dev-Technique.html)
 - Apple, [Metal feature tables](https://developer.apple.com/metal/capabilities/)
 - Apple, [Logging shader debug messages](https://developer.apple.com/documentation/metal/logging-shader-debug-messages)
+- Apple, [Validating your app's Metal shader usage](https://developer.apple.com/documentation/xcode/validating-your-apps-metal-shader-usage)
+- Apple, [`MTLIndirectCommandBufferDescriptor.inheritBuffers`](https://developer.apple.com/documentation/metal/mtlindirectcommandbufferdescriptor/inheritbuffers)
+- Apple, [`MTLIndirectCommandBufferDescriptor.inheritPipelineState`](https://developer.apple.com/documentation/metal/mtlindirectcommandbufferdescriptor/inheritpipelinestate)
 - Apple, [`MTL4CommandBufferOptions.logState`](https://developer.apple.com/documentation/metal/mtl4commandbufferoptions/logstate?language=objc)
 - JuliaGPU, [Metal.jl library container implementation](https://github.com/JuliaGPU/Metal.jl/blob/main/src/compiler/library.jl)
 - JuliaLLVM, [llvm-downgrade](https://github.com/JuliaLLVM/llvm-downgrade)

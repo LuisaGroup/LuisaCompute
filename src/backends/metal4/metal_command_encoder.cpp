@@ -57,20 +57,14 @@ MetalCommandEncoder::~MetalCommandEncoder() noexcept {
 
 void MetalCommandEncoder::_prepare_command_buffer() noexcept {
     if (_command_buffer == nullptr) {
-        _command_allocator = device()->newCommandAllocator();
-        LUISA_ASSERT(_command_allocator != nullptr,
-                     "Failed to create Metal4 command allocator.");
+        _command_allocator = _stream->_acquire_command_allocator();
         _command_buffer = device()->newCommandBuffer();
         LUISA_ASSERT(_command_buffer != nullptr,
                      "Failed to create Metal4 command buffer.");
-        if (auto name = _stream->name()) {
-            _command_buffer->setLabel(name);
-        }
-        auto options = NS::TransferPtr(
-            MTL4::CommandBufferOptions::alloc()->init());
-        options->setLogState(_stream->log_state());
+        _command_buffer->setLabel(_stream->name());
         _command_buffer->beginCommandBuffer(
-            _command_allocator, options.get());
+            _command_allocator,
+            _stream->command_buffer_options());
     }
 }
 
@@ -452,6 +446,13 @@ void MetalCommandEncoder::visit(CustomCommand *command) noexcept {
             attachment->setLoadAction(MTL::LoadActionClear);
             attachment->setStoreAction(MTL::StoreActionStore);
             attachment->setClearDepth(clear->value());
+            if (depth->has_stencil()) {
+                auto stencil = descriptor->stencilAttachment();
+                stencil->setTexture(depth->handle());
+                stencil->setLoadAction(MTL::LoadActionClear);
+                stencil->setStoreAction(MTL::StoreActionStore);
+                stencil->setClearStencil(0u);
+            }
             use_resource(depth->handle());
             auto encoder = render_encoder(descriptor.get());
             encoder->endEncoding();
@@ -512,6 +513,12 @@ void MetalCommandEncoder::visit(CustomCommand *command) noexcept {
                 attachment->setTexture(depth_target->handle());
                 attachment->setLoadAction(MTL::LoadActionLoad);
                 attachment->setStoreAction(MTL::StoreActionStore);
+                if (depth_target->has_stencil()) {
+                    auto stencil = descriptor->stencilAttachment();
+                    stencil->setTexture(depth_target->handle());
+                    stencil->setLoadAction(MTL::LoadActionLoad);
+                    stencil->setStoreAction(MTL::StoreActionStore);
+                }
             }
             LUISA_ASSERT(target_width != 0u && target_height != 0u,
                          "Metal raster draw has no render target.");
@@ -547,6 +554,10 @@ void MetalCommandEncoder::visit(CustomCommand *command) noexcept {
             encoder->setScissorRect(MTL::ScissorRect{
                 viewport.start.x, viewport.start.y,
                 viewport.size.x, viewport.size.y});
+            if (state.stencil_state.enable_stencil) {
+                encoder->setStencilReferenceValue(
+                    state.stencil_state.reference);
+            }
             auto root_argument_address =
                 shader->encode_arguments(*this, draw);
             auto primitive = [&]() noexcept {

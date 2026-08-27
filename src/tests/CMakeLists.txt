@@ -375,7 +375,8 @@ if (TARGET luisa-compute-backend-metal4)
             test_metal4_motion_instance_render
             test_metal_xir_air_ray_query
             test_metal_xir_air_typed_bindless
-            test_metal_xir_air_raster)
+            test_metal_xir_air_raster
+            test_metal4_raster_stencil)
         luisa_compute_add_test(${_metal4_test}
                 integration/runtime/${_metal4_test}.cpp
                 LABELS "integration;integration_metal4"
@@ -388,11 +389,19 @@ if (TARGET luisa-compute-backend-metal4)
             ENVIRONMENT "LUISA_DUMP_LLVM_IR=1")
     set_tests_properties(test_metal4_motion_instance_render PROPERTIES
             LABELS "integration;integration_metal4;integration_render")
+    set_tests_properties(test_metal4_raster_stencil PROPERTIES
+            LABELS "integration;integration_metal4;integration_render")
     add_test(NAME test_metal_xir_air_raster_validation
             COMMAND test_metal_xir_air_raster metal4)
     set_tests_properties(test_metal_xir_air_raster_validation PROPERTIES
             LABELS "integration;integration_metal4;integration_render;integration_validation"
             ENVIRONMENT "LUISA_DUMP_LLVM_IR=1;LUISA_ENABLE_VALIDATION=1"
+            TIMEOUT 300)
+    add_test(NAME test_metal4_raster_stencil_validation
+            COMMAND test_metal4_raster_stencil metal4)
+    set_tests_properties(test_metal4_raster_stencil_validation PROPERTIES
+            LABELS "integration;integration_metal4;integration_render;integration_validation"
+            ENVIRONMENT "LUISA_ENABLE_VALIDATION=1"
             TIMEOUT 300)
 endif ()
 

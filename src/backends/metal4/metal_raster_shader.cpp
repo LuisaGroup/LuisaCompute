@@ -83,6 +83,16 @@ namespace {
     LUISA_ERROR_WITH_LOCATION("Invalid raster comparison function.");
 }
 
+[[nodiscard]] MTL::StencilOperation stencil_operation(
+    StencilOp operation) noexcept {
+    switch (operation) {
+        case StencilOp::Keep: return MTL::StencilOperationKeep;
+        case StencilOp::Zero: return MTL::StencilOperationZero;
+        case StencilOp::Replace: return MTL::StencilOperationReplace;
+    }
+    LUISA_ERROR_WITH_LOCATION("Invalid raster stencil operation.");
+}
+
 [[nodiscard]] MTL::BlendOperation blend_operation(BlendOp operation) noexcept {
     switch (operation) {
         case BlendOp::Add: return MTL::BlendOperationAdd;
@@ -224,8 +234,6 @@ bool MetalRasterShader::matches_mesh_format(const MeshFormat &mesh_format) const
 
 MetalRasterShader::Pipeline
 MetalRasterShader::_create_pipeline(const PipelineKey &key) const noexcept {
-    LUISA_ASSERT(!key.state.stencil_state.enable_stencil,
-                 "Metal raster AIR does not support stencil state yet.");
     LUISA_ASSERT(!key.state.conservative,
                  "Metal raster AIR does not support conservative rasterization.");
     LUISA_ASSERT(key.state.topology == TopologyType::Triangle ||
@@ -302,6 +310,31 @@ MetalRasterShader::_create_pipeline(const PipelineKey &key) const noexcept {
             MTL::CompareFunctionAlways);
     depth_descriptor->setDepthWriteEnabled(
         key.state.depth_state.enable_depth && key.state.depth_state.write);
+    if (key.state.stencil_state.enable_stencil) {
+        auto make_stencil_descriptor = [&](const StencilFaceOp &face) noexcept {
+            auto descriptor = NS::TransferPtr(
+                MTL::StencilDescriptor::alloc()->init());
+            descriptor->setStencilCompareFunction(
+                compare_function(face.comparison));
+            descriptor->setStencilFailureOperation(
+                stencil_operation(face.stencil_fail_op));
+            descriptor->setDepthFailureOperation(
+                stencil_operation(face.depth_fail_op));
+            descriptor->setDepthStencilPassOperation(
+                stencil_operation(face.pass_op));
+            descriptor->setReadMask(
+                key.state.stencil_state.read_mask);
+            descriptor->setWriteMask(
+                key.state.stencil_state.write_mask);
+            return descriptor;
+        };
+        auto front = make_stencil_descriptor(
+            key.state.stencil_state.front_face_op);
+        auto back = make_stencil_descriptor(
+            key.state.stencil_state.back_face_op);
+        depth_descriptor->setFrontFaceStencil(front.get());
+        depth_descriptor->setBackFaceStencil(back.get());
+    }
     auto depth = NS::TransferPtr(
         _device->handle()->newDepthStencilState(depth_descriptor.get()));
     LUISA_ASSERT(depth, "Failed to create Metal depth-stencil state.");
@@ -315,6 +348,9 @@ MetalRasterShader::Pipeline MetalRasterShader::pipeline(
     luisa::span<const size_t> vertex_strides) const noexcept {
     LUISA_ASSERT(!state.depth_state.enable_depth || depth_target != nullptr,
                  "Depth testing requires a depth attachment.");
+    LUISA_ASSERT(!state.stencil_state.enable_stencil ||
+                     (depth_target != nullptr && depth_target->has_stencil()),
+                 "Stencil testing requires a stencil-bearing depth attachment.");
     LUISA_ASSERT(vertex_strides.size() == _mesh_format.vertex_stream_count(),
                  "Metal raster pipeline received {} vertex stride(s), expected {}.",
                  vertex_strides.size(), _mesh_format.vertex_stream_count());
@@ -327,6 +363,9 @@ MetalRasterShader::Pipeline MetalRasterShader::pipeline(
                            MTL::PixelFormatInvalid :
                            depth_target->pixel_format();
     key.state = state;
+    // The stencil reference is dynamic render-encoder state and does not
+    // participate in Metal depth-stencil pipeline creation.
+    key.state.stencil_state.reference = 0u;
     for (auto i = 0u; i < vertex_strides.size(); i++) {
         LUISA_ASSERT(vertex_strides[i] != 0u,
                      "Metal vertex stream {} has a zero stride.", i);

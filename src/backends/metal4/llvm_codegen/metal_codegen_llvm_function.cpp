@@ -616,7 +616,10 @@ void MetalCodegenLLVMImpl::_emit_raster_vertex_entry(
     auto result = builder.CreateCall(implementation, arguments);
     result->setConvergent();
     if (output_types.size() == 1u) {
-        builder.CreateRet(result);
+        auto output = return_type->is_structure() ?
+                          builder.CreateExtractValue(result, 0u) :
+                          result;
+        builder.CreateRet(output);
     } else {
         auto output = static_cast<llvm::Value *>(
             llvm::PoisonValue::get(entry_return_type));
@@ -782,6 +785,10 @@ void MetalCodegenLLVMImpl::_emit_raster_fragment_entry(
             color_result = builder.CreateExtractValue(result, 0u);
             depth_result = builder.CreateExtractValue(result, 1u);
         }
+    }
+    if (color_result != nullptr && return_type->is_structure() &&
+        output_types.size() == 1u) {
+        color_result = builder.CreateExtractValue(color_result, 0u);
     }
     if (output_types.empty()) {
         auto output = static_cast<llvm::Value *>(

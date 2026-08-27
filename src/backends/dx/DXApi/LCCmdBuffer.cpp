@@ -1183,6 +1183,10 @@ public:
         vstd::push_back_func(*bind_props, shader->bindless_count(), [&] { return global_heapView; });
         decode_cmd(cmd->arguments(), Visitor{this, shader->args().data()});
         bd->set_raster_shader(shader, pso, *bind_props);
+        if (rasterState.stencil_state.enable_stencil) {
+            cmdList->OMSetStencilRef(
+                rasterState.stencil_state.reference);
+        }
         cmdList->IASetPrimitiveTopology([&] {
             switch (rasterState.topology) {
                 case TopologyType::Line:

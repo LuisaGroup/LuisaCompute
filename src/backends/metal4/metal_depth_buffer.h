@@ -21,6 +21,10 @@ public:
     [[nodiscard]] auto format() const noexcept { return _format; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto pixel_format() const noexcept { return _handle->pixelFormat(); }
+    [[nodiscard]] bool has_stencil() const noexcept {
+        return _format == DepthFormat::D24S8 ||
+               _format == DepthFormat::D32S8A24;
+    }
     void set_name(luisa::string_view name) noexcept override;
 };
 

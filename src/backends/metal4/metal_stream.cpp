@@ -193,6 +193,11 @@ MetalStream::MetalStream(MTL::Device *device,
                MTL::LogLevel, NS::String *message) noexcept {
             _emit_shader_log(subsystem, category, message);
         }});
+    _command_buffer_options =
+        MTL4::CommandBufferOptions::alloc()->init();
+    LUISA_ASSERT(_command_buffer_options != nullptr,
+                 "Failed to create Metal4 command-buffer options.");
+    _command_buffer_options->setLogState(_log_state);
     auto queue_descriptor = NS::TransferPtr(
         MTL4::CommandQueueDescriptor::alloc()->init());
     NS::Error *queue_error = nullptr;
@@ -222,12 +227,53 @@ MetalStream::MetalStream(MTL::Device *device,
 
 MetalStream::~MetalStream() noexcept {
     synchronize();
+    for (auto command_allocator : _command_allocator_pool) {
+        command_allocator->release();
+    }
+    _command_buffer_options->release();
     if (_acceleration_structure_compatibility_queue != nullptr) {
         _acceleration_structure_compatibility_queue->release();
     }
     _queue->release();
     _log_state->release();
     if (_name != nullptr) { _name->release(); }
+}
+
+size_t MetalStream::_command_allocator_pool_capacity() const noexcept {
+    // Ordinary streams cap in-flight submissions at four by default. Keep a
+    // small bounded reserve for streams whose in-flight limit is disabled.
+    return std::max(_max_commands, static_cast<size_t>(16u));
+}
+
+MTL4::CommandAllocator *MetalStream::_acquire_command_allocator() noexcept {
+    {
+        std::scoped_lock lock{_command_allocator_pool_mutex};
+        if (!_command_allocator_pool.empty()) {
+            auto command_allocator = _command_allocator_pool.back();
+            _command_allocator_pool.pop_back();
+            return command_allocator;
+        }
+    }
+    auto command_allocator = device()->newCommandAllocator();
+    LUISA_ASSERT(command_allocator != nullptr,
+                 "Failed to create Metal4 command allocator.");
+    return command_allocator;
+}
+
+void MetalStream::_recycle_command_allocator(
+    MTL4::CommandAllocator *command_allocator) noexcept {
+    LUISA_ASSERT(command_allocator != nullptr,
+                 "Cannot recycle a null Metal4 command allocator.");
+    command_allocator->reset();
+    {
+        std::scoped_lock lock{_command_allocator_pool_mutex};
+        if (_command_allocator_pool.size() <
+            _command_allocator_pool_capacity()) {
+            _command_allocator_pool.emplace_back(command_allocator);
+            return;
+        }
+    }
+    command_allocator->release();
 }
 
 void MetalStream::_emit_shader_log(
@@ -441,8 +487,7 @@ MetalStream::SubmissionHandle MetalStream::submit(
             auto error_message = error == nullptr ?
                                      luisa::string{} :
                                      luisa::string{error->localizedDescription()->utf8String()};
-            command_allocator->reset();
-            command_allocator->release();
+            _recycle_command_allocator(command_allocator);
             command_buffer->release();
             if (_max_commands != 0u) {
                 {

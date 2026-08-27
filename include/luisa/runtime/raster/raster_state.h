@@ -127,6 +127,7 @@ struct StencilState {
     StencilFaceOp back_face_op{};
     uint8_t read_mask{};
     uint8_t write_mask{};
+    uint8_t reference{};
 };
 
 struct RasterState {

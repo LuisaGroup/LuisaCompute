@@ -1,5 +1,5 @@
 ---
-name: lc_runtime
+name: lc-runtime
 description: "Runtime API: Context, Device, Stream, buffers, images, ray tracing, and rasterization."
 ---
 
@@ -24,7 +24,7 @@ Device device = ctx.create_default_device();
 
 ```cpp
 #include <luisa/runtime/device.h>
-Device device = ctx.create_device("cuda");  // or "dx", "metal", "vk", "hip", "fallback"
+Device device = ctx.create_device("cuda");  // or "dx", "metal", "metal4", "vk", "hip", "fallback"
 
 DeviceConfig cfg{.device_index = 0, .inqueue_buffer_limit = false};
 Device device = ctx.create_device("cuda", &cfg, true/*validation*/);
@@ -293,6 +293,42 @@ records a fragment color-output count of zero in both JIT and AOT shaders.
 std::move(shader(args...))
     .draw(std::move(meshes), mesh_format, viewport, state, &depth);
 ```
+
+For fixed-reference stencil testing, create a stencil-bearing depth buffer and
+fill the complete public state. The same reference/mask semantics are forwarded
+by Metal4, DX12, and Vulkan.
+
+```cpp
+auto depth_stencil =
+    device.create_depth_buffer(DepthFormat::D32S8A24, size);
+
+StencilFaceOp face{
+    .stencil_fail_op = StencilOp::Keep,
+    .depth_fail_op = StencilOp::Keep,
+    .pass_op = StencilOp::Replace,
+    .comparison = Comparison::Equal};
+RasterState state{};
+state.stencil_state = StencilState{
+    .enable_stencil = true,
+    .front_face_op = face,
+    .back_face_op = face,
+    .read_mask = 0xffu,
+    .write_mask = 0xffu,
+    .reference = 1u};
+
+stream << depth_stencil.clear(1.0f)
+       << std::move(shader(args...))
+              .draw(std::move(meshes), mesh_format,
+                    viewport, state, &depth_stencil);
+```
+
+`DepthBuffer::clear()` clears the stencil plane to zero when the format has
+stencil. `D32S8A24` maps directly to depth32-float/stencil8. A requested
+`D24S8` remains the logical runtime format, but Metal4 transparently uses
+D32S8A24 physical storage with a warning on devices that do not support
+depth24-unorm/stencil8. Stencil requires such a depth-stencil attachment;
+shader-written stencil reference and conservative rasterization are not part
+of the current Metal4 AIR contract.
 
 ## CommandList
 

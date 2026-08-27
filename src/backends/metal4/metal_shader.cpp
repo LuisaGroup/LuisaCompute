@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <algorithm>
 #include <cstdlib>
 #include "metal_device.h"
 #include "metal_buffer.h"
@@ -224,7 +225,9 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         for (auto arg : command->arguments()) {
             encode(arg, split_sampled_texture(argument_index++, arg));
         }
-        auto argument_size = luisa::align(argument_offset, argument_alignment);
+        auto argument_size = std::max(
+            luisa::align(argument_offset, argument_alignment),
+            static_cast<size_t>(argument_alignment));
 
         auto root_argument_address = stage_argument_block(argument_size);
 
@@ -259,7 +262,6 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             auto block_count = (indirect_binding.capacity - indirect_binding.offset + block_size - 1u) / block_size;
             command_encoder->dispatchThreadgroups(MTL::Size{block_count, 1u, 1u}, MTL::Size{block_size, 1u, 1u});
             command_encoder->endEncoding();
-
         }
 
         // dispatch indirect
@@ -310,7 +312,9 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             mark_usage(arg, argument_index++);
         }
 
-        auto size = luisa::align(argument_offset, argument_alignment);
+        auto size = std::max(
+            luisa::align(argument_offset, argument_alignment),
+            static_cast<size_t>(argument_alignment));
         auto root_argument_address = stage_argument_block(size);
 
         for (auto dispatch_size : dispatch_sizes) {
