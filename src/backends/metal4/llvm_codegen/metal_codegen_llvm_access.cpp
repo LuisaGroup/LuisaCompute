@@ -171,7 +171,9 @@ llvm::Value *MetalCodegenLLVMImpl::_accel_instance_pointer(
 
 AIRRayTracingConfig MetalCodegenLLVMImpl::_air_ray_tracing_config(
     const xir::Value *value, bool motion) const noexcept {
-    AIRRayTracingConfig config{.motion = motion};
+    AIRRayTracingConfig config{
+        .motion = motion,
+        .extended_limits = _config.enable_extended_accel_limits};
     const xir::Instruction *source = nullptr;
     if (value != nullptr && value->isa<xir::Instruction>()) {
         source = static_cast<const xir::Instruction *>(value);

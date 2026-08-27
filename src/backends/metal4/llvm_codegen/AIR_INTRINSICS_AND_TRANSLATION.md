@@ -1367,6 +1367,22 @@ uses four suffix families:
 .instancing.triangle_data.curve_data.primitive_motion.instance_motion
 ~~~
 
+`ShaderOption::enable_extended_accel_limits` keeps the same result types,
+argument order, control tail, reflection, and typed-pointer metadata, but
+selects the corresponding `.extended_limits` member of each family:
+
+~~~text
+.instancing.triangle_data.extended_limits
+.instancing.triangle_data.curve_data.extended_limits
+.instancing.triangle_data.primitive_motion.instance_motion.extended_limits
+.instancing.triangle_data.curve_data.primitive_motion.instance_motion.extended_limits
+~~~
+
+These spellings were regenerated with Apple metalfe 32023.883 in Metal 4.0
+mode and are checked in both the direct and indirect post-O2 modules. The
+extended-limits tag changes the hardware resource-limit contract, not the
+trace-call ABI.
+
 The direct-call grammar is:
 
 ~~~text
@@ -1443,9 +1459,10 @@ Any-hit returns only the field-0 hit predicate. Native intersection type `3`
 is a curve surface. For a closest curve hit, Luisa barycentrics become
 `(curve_parameter, -1)` using result field 9; instance ID, primitive ID, and
 distance keep the same field mapping. Static triangle/curve traversal and
-direct primitive/instance-motion triangle/curve traversal are runtime-tested.
-Direct procedural closest/any remains outside this family because Luisa's
-procedural callbacks require the stateful query API below.
+direct primitive/instance-motion triangle/curve traversal are runtime-tested,
+including all four extended-limits suffix families. Direct procedural
+closest/any remains outside this family because Luisa's procedural callbacks
+require the stateful query API below.
 
 ### 8.9 Stateful intersection-query lifecycle and intrinsics
 
@@ -2187,7 +2204,8 @@ Supported instruction families:
 - GPU-written indirect-dispatch count and kernel records, including the
   capacity guard and host binding offset;
 - static and direct primitive/instance-motion triangle/curve closest-hit and
-  any-hit tracing; instance
+  any-hit tracing, including the extended acceleration-limit suffix families;
+  instance
   transform, user-ID, and visibility-mask queries; and instance transform,
   visibility-mask, opacity, and user-ID writes;
 - stateful `LC_RayQueryAll`/`LC_RayQueryAny` traversal over static triangle,
@@ -2229,8 +2247,17 @@ Not currently supported in AIR:
 - clock and unresolved external functions or calls;
 - double, float8, cooperative-matrix operations, and custom types other than the
   indirect-dispatch handle and the two local ray-query types;
-- extended acceleration-limit shaders;
+- extended-limits stateful queries and the raster extended-limits option;
 - raster debug-break state and conservative rasterization.
+
+Apple metalfe 32023.883 rejects
+`intersection_query<triangle_data, instancing, extended_limits>` in both
+Metal 3.2 and Metal 4.0 mode as an invalid tag sequence. The compute preflight
+therefore accepts extended limits for direct closest/any traces and rejects a
+module containing a stateful query when that shader option is enabled. Raster
+preflight independently keeps the option fail-closed. This configuration-aware
+rejection happens before LLVM construction; the backend never emits an
+apparently valid non-extended query under an extended-limits request.
 
 Apple's Metal 3.0 and 3.2 frontends accept `__builtin_readcyclecounter()` and
 emit `llvm.readcyclecounter`, and `metallib` accepts the resulting AIR. However,
@@ -2249,8 +2276,9 @@ path and rejects unsupported raster features rather than silently compiling
 one stage through a different ABI. Direct compute texture operations, static
 and motion triangle/curve traces, instance access, the local static
 triangle/curve/procedural-bounding-box query subset above, and the raster
-subset in Section 12.2 are AIR-native. Stateful motion queries and extended
-acceleration-limit shaders remain outside that boundary.
+subset in Section 12.2 are AIR-native. Stateful motion queries,
+extended-limits stateful queries, and raster shaders requesting extended
+limits remain outside that boundary.
 The documented bindless buffer, texture-read, mip-query, and sampling paths
 also pass preflight and have dedicated strict AIR runtime coverage.
 
@@ -2993,6 +3021,14 @@ visibility mask, and reconstruction of the identity instance transform. The
 Metal4 target has no MSL generator, so another code path cannot hide an AIR
 rejection or pipeline-state failure.
 
+`test_metal4_air_extended_accel_limits` separately enables
+`ShaderOption::enable_extended_accel_limits`, inspects the direct and indirect
+post-O2 LLVM modules for all four static/curve/motion/curve-motion suffixes,
+and executes closest-hit plus any-hit traces against static and primitive-motion
+triangle acceleration structures. This protects both option propagation and
+the fact that an extended-limits request changes only the AIR intrinsic family,
+not its argument or result ABI.
+
 Primitive and instance motion are covered by the same strict executable. It
 executes triangle and curve motion BLASes plus a standalone matrix
 `MotionInstance`, mixes that resource with a static instance, preserves
@@ -3124,23 +3160,24 @@ deserialization.
 The closure configuration uses CMake/Ninja Release builds with legacy Metal,
 Metal4, and fallback enabled, Homebrew LLVM 21.1.8, Apple metalfe 32023.883,
 and the macOS 26.4 SDK. It is based on `origin/next` at `eeda4b154`. After a
-complete rebuild, the configured parallel CTest run passes **156/156** in
-72.92 seconds: **35/35**
+complete rebuild, the configured parallel CTest run passes **157/157** in
+29.23 seconds: **36/36**
 `integration_metal4` tests, **15/15** offline graphics/rendering executables,
 **11/11** tutorials, and **111/111** unit registrations are included. These
 tests compile and execute on an Apple M1 Max; the independent Metal4 module has
 no MSL code generator or source fallback that could hide an AIR failure.
 
-The same 35 Metal4 integration registrations pass with both the Luisa
+The same 36 Metal4 integration registrations pass with both the Luisa
 validation wrapper and Apple Metal API Validation enabled. That run found one
 real bug that ordinary execution tolerated: an argument-free indirect shader
 bound address zero to the built-in `prepare_indirect_dispatches` parameter
 `kernel_args`. Direct and indirect dispatch now stage the ABI's minimum
 16-byte root block even when it contains no logical fields. The fixed strict
-run passes **35/35**, including all fifteen rendering examples.
+run passes **36/36**, including all fifteen rendering examples and the
+extended-limits direct-trace regression.
 
 Apple GPU Shader Validation is a separate instrumenting tool and has narrower
-coverage than API Validation. The supported subset passes **32/32** with
+coverage than API Validation. The supported subset passes **33/33** with
 `MTL_SHADER_VALIDATION=1`, error reporting, and abort-on-fault enabled. The
 three deliberately separated registrations are:
 
@@ -3321,11 +3358,14 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
   GPU-written indirect dispatch records, and the static instanced-triangle
   trace/query/write subset are AIR-native and strict-runtime-tested. Static
   curve and direct primitive/instance-motion triangle/curve tracing are also
-  oracle-matched and strict-runtime-tested. The local stateful static
+  oracle-matched and strict-runtime-tested, including all four direct
+  extended-limits suffix families. The local stateful static
   triangle/curve/procedural-bounding-box query subset in Section 8.9 is
   likewise covered. The fixed-AppData raster subset in Section 12.2 is also
   AIR-native and strict-runtime-tested. Direct procedural traces and stateful
-  motion queries remain fail-closed.
+  motion queries remain fail-closed. Stateful queries and raster shaders also
+  reject the extended-limits option because Apple's Metal 4 frontend rejects
+  that stateful query tag combination.
 - Luisa's standalone runtime `MotionInstance` is implemented with separate
   shader-visible 72-byte instance records and native 48-byte indirect-motion
   descriptors. Matrix motion and refit are strict-runtime-tested on Apple7;
@@ -3383,6 +3423,7 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | GPU-written indirect-dispatch regression | [test_indirect.cpp](../../../tests/integration/runtime/test_indirect.cpp) |
 | Strict AIR runtime semantics | [test_metal_xir_air.cpp](../../../tests/integration/runtime/test_metal_xir_air.cpp) |
 | Strict AIR acceleration semantics | [test_metal_xir_air_accel.cpp](../../../tests/integration/runtime/test_metal_xir_air_accel.cpp) |
+| Extended-limits AIR trace semantics and suffixes | [test_metal4_air_extended_accel_limits.cpp](../../../tests/integration/runtime/test_metal4_air_extended_accel_limits.cpp) |
 | Stateful AIR ray-query semantics | [test_metal_xir_air_ray_query.cpp](../../../tests/integration/runtime/test_metal_xir_air_ray_query.cpp) |
 | Strict AIR typed-bindless semantics | [test_metal_xir_air_typed_bindless.cpp](../../../tests/integration/runtime/test_metal_xir_air_typed_bindless.cpp) |
 | Strict AIR vertex/fragment metadata and draw semantics | [test_metal_xir_air_raster.cpp](../../../tests/integration/runtime/test_metal_xir_air_raster.cpp) |

@@ -292,9 +292,14 @@ Preserve these ABI rules when changing lowering or adding types:
   physical locations. AIR covers static triangle/curve closest/any traces,
   direct triangle/curve primitive-and-instance motion traces, instance
   transform/user-ID/visibility queries, and transform/visibility/opacity/
-  user-ID writes. It also covers local stateful traversal of static triangles,
-  procedural bounding boxes, and curves. Direct procedural traces and
-  stateful motion queries fail closed.
+  user-ID writes. `ShaderOption::enable_extended_accel_limits` selects the
+  oracle-matched `.extended_limits` variant of all four static/curve/motion/
+  curve-motion direct-trace suffixes without changing their ABI. It also covers
+  local stateful traversal of static triangles, procedural bounding boxes, and
+  curves. Direct procedural traces and stateful motion queries fail closed.
+  Apple's Metal 4 frontend rejects `extended_limits` on
+  `intersection_query`, so stateful-query shaders and raster shaders must also
+  reject that option instead of silently emitting a non-extended intrinsic.
 - Do not infer Metal4 AS-build support from successful MTL4 queue/compiler
   creation. Address-driven AS builds require Apple9. The runtime checks
   `supportsFamily(MTL::GPUFamilyApple9)`: Apple9+ encodes the MTL4 descriptor
@@ -485,6 +490,8 @@ cmake --build cmake-build-metal4-air --target test_metal_xir_air -j 8
 ctest --test-dir cmake-build-metal4-air -R '^test_metal_xir_air$' --output-on-failure
 cmake --build cmake-build-metal4-air --target test_metal_xir_air_accel test_ast_pack_usage test_ast_external_lowering -j 8
 ctest --test-dir cmake-build-metal4-air -R '^(test_metal_xir_air_accel|test_ast_pack_usage|test_ast_external_lowering)$' --output-on-failure
+cmake --build cmake-build-metal4-air --target test_metal4_air_extended_accel_limits -j 8
+ctest --test-dir cmake-build-metal4-air -R '^test_metal4_air_extended_accel_limits$' --output-on-failure
 cmake --build cmake-build-metal4-air --target test_metal_xir_air_ray_query -j 8
 ctest --test-dir cmake-build-metal4-air -R '^test_metal_xir_air_ray_query$' --output-on-failure
 cmake --build cmake-build-metal4-air --target test_printer test_printer_custom_callback -j 8

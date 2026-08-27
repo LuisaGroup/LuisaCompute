@@ -397,8 +397,10 @@ namespace detail {
 }
 
 [[nodiscard]] bool supported_instruction(
-    const xir::Instruction *instruction, MetalAIRProgram program,
+    const xir::Instruction *instruction,
+    const MetalCodegenLLVMConfig &config,
     luisa::string &reason) noexcept {
+    auto program = config.program;
     auto has_ray_query_operand = false;
     for (auto operand_use : instruction->operand_uses()) {
         auto operand = operand_use->value();
@@ -688,6 +690,12 @@ namespace detail {
             }
             if (query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL ||
                 query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY) {
+                if (config.enable_extended_accel_limits) {
+                    reason =
+                        "Metal 4 intersection_query does not accept the "
+                        "extended_limits tag";
+                    return false;
+                }
                 auto expected_type =
                     query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY ?
                         ray_query_any_type_name :
@@ -1019,7 +1027,7 @@ bool luisa_compute_metal_codegen_llvm_supported(
                     local_reason = "raster AIR does not support debug-break state";
                     supported = false;
                 } else if (!detail::supported_instruction(
-                               instruction, config.program, local_reason)) {
+                               instruction, config, local_reason)) {
                     supported = false;
                 }
             });

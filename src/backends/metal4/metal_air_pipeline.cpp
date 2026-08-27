@@ -230,7 +230,15 @@ metal_codegen_air(const xir::Module &module, const ShaderOption &option) noexcep
         .source_file = std::move(source_file),
         .native_include = option.native_include,
         .enable_fast_math = option.enable_fast_math,
+        .enable_extended_accel_limits =
+            option.enable_extended_accel_limits,
         .entry = MetalAIRKernelEntry::DIRECT};
+    luisa::string unsupported_reason;
+    LUISA_ASSERT(
+        luisa_compute_metal_codegen_llvm_supported(
+            module, config, &unsupported_reason),
+        "Metal compute XIR is unsupported by the AIR emitter: {}",
+        unsupported_reason);
     auto direct = codegen_entry(
         module, config, MetalAIRKernelEntry::DIRECT, "direct.air");
     auto indirect = codegen_entry(

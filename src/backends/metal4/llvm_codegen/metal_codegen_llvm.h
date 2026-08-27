@@ -56,6 +56,7 @@ struct MetalCodegenLLVMConfig {
     luisa::string source_file;
     luisa::string native_include;
     bool enable_fast_math{false};
+    bool enable_extended_accel_limits{false};
     MetalAIRKernelEntry entry{MetalAIRKernelEntry::DIRECT};
     MetalAIRProgram program{MetalAIRProgram::COMPUTE};
     MetalAIRRasterConfig raster;

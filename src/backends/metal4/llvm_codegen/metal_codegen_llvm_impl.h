@@ -66,12 +66,23 @@ static constexpr auto ray_query_triangle_intrinsic_suffix =
     luisa::string_view{".instancing.triangle_data"};
 static constexpr auto ray_query_curve_intrinsic_suffix =
     luisa::string_view{".instancing.triangle_data.curve_data"};
+static constexpr auto ray_query_triangle_extended_intrinsic_suffix =
+    luisa::string_view{".instancing.triangle_data.extended_limits"};
+static constexpr auto ray_query_curve_extended_intrinsic_suffix =
+    luisa::string_view{
+        ".instancing.triangle_data.curve_data.extended_limits"};
 static constexpr auto ray_trace_motion_intrinsic_suffix =
     luisa::string_view{
         ".instancing.triangle_data.primitive_motion.instance_motion"};
 static constexpr auto ray_trace_curve_motion_intrinsic_suffix =
     luisa::string_view{
         ".instancing.triangle_data.curve_data.primitive_motion.instance_motion"};
+static constexpr auto ray_trace_motion_extended_intrinsic_suffix =
+    luisa::string_view{
+        ".instancing.triangle_data.primitive_motion.instance_motion.extended_limits"};
+static constexpr auto ray_trace_curve_motion_extended_intrinsic_suffix =
+    luisa::string_view{
+        ".instancing.triangle_data.curve_data.primitive_motion.instance_motion.extended_limits"};
 static constexpr auto accel_instance_transform_field = 0u;
 static constexpr auto accel_instance_options_field = 1u;
 static constexpr auto accel_instance_mask_field = 2u;
@@ -113,6 +124,7 @@ static constexpr auto air_data_layout =
 struct AIRRayTracingConfig {
     bool curves{false};
     bool motion{false};
+    bool extended_limits{false};
     uint32_t curve_basis{0u};
     uint32_t curve_control_point_count{0u};
 
@@ -124,11 +136,23 @@ struct AIRRayTracingConfig {
 
     [[nodiscard]] constexpr luisa::string_view intrinsic_suffix() const noexcept {
         if (motion) {
-            return curves ? ray_trace_curve_motion_intrinsic_suffix :
-                            ray_trace_motion_intrinsic_suffix;
+            if (curves) {
+                return extended_limits ?
+                           ray_trace_curve_motion_extended_intrinsic_suffix :
+                           ray_trace_curve_motion_intrinsic_suffix;
+            }
+            return extended_limits ?
+                       ray_trace_motion_extended_intrinsic_suffix :
+                       ray_trace_motion_intrinsic_suffix;
         }
-        return curves ? ray_query_curve_intrinsic_suffix :
-                        ray_query_triangle_intrinsic_suffix;
+        if (curves) {
+            return extended_limits ?
+                       ray_query_curve_extended_intrinsic_suffix :
+                       ray_query_curve_intrinsic_suffix;
+        }
+        return extended_limits ?
+                   ray_query_triangle_extended_intrinsic_suffix :
+                   ray_query_triangle_intrinsic_suffix;
     }
 };
 

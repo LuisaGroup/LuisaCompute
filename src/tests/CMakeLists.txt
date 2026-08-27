@@ -387,6 +387,7 @@ if (TARGET luisa-compute-backend-metal4)
     foreach (_metal4_test IN ITEMS
             test_metal_xir_air
             test_metal_xir_air_accel
+            test_metal4_air_extended_accel_limits
             test_metal4_motion_instance_render
             test_metal_xir_air_ray_query
             test_metal_xir_air_typed_bindless
