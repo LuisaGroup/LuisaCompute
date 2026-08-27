@@ -111,22 +111,15 @@ template<typename IndexAt>
         switch (current->tag()) {
             case Type::Tag::ARRAY:
             case Type::Tag::VECTOR: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
+                // Bounds are an execution-domain constraint for homogeneous
+                // aggregates, not part of the result type. Keeping constant
+                // indices subject to a stronger verifier rule than dynamic
+                // indices would make valid IR become malformed under constant
+                // propagation (for example inside a proven-dead branch).
                 current = current->element();
                 break;
             }
             case Type::Tag::MATRIX: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
             }
@@ -1007,12 +1000,6 @@ template<typename OperandSpan>
             for (auto index : operands.subspan(1u)) {
                 if (index->type() == nullptr ||
                     (!index->type()->is_int() && !index->type()->is_uint())) {
-                    return false;
-                }
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= operands[0]->type()->dimension())) {
                     return false;
                 }
             }

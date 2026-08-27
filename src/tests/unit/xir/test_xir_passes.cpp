@@ -5055,6 +5055,31 @@ void reg_local_store_forward() {
         expect(info.removed_load_count == 0u);
     };
 
+    "local_store_forward_preserves_homogeneous_index_well_formedness"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *array_type = Type::array(Type::of<int32_t>(), 4u);
+        auto *array = b.alloca_local(array_type);
+        auto *index_slot = b.alloca_local(Type::of<uint32_t>());
+        uint32_t out_of_range_value = 4u;
+        auto *out_of_range =
+            m.create_constant(Type::of<uint32_t>(), &out_of_range_value);
+        b.store(index_slot, out_of_range);
+        auto *dynamic_index = b.load(Type::of<uint32_t>(), index_slot);
+        auto *element = b.gep(Type::of<int32_t>(), array, {dynamic_index});
+        b.load(Type::of<int32_t>(), element);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = local_store_forward_pass_run_on_function(k);
+        expect(info.removed_load_count == 1u);
+        expect(element->index(0u) == out_of_range);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "local_store_forward_nested_partial_store_blocks_uniform_forward"_test = [] {
         Module m;
         BasicBlock *body;

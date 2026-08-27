@@ -2964,22 +2964,14 @@ template<typename IndexSpan>
             case Type::Tag::ARRAY:
             case Type::Tag::VECTOR:
             case Type::Tag::COOPERATIVE_VECTOR: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
+                // Homogeneous aggregate bounds constrain execution, not the
+                // statically selected element type. Requiring constants to be
+                // in range while accepting an equivalent dynamic index would
+                // make verification non-monotone under value propagation.
                 current = current->element();
                 break;
             }
             case Type::Tag::MATRIX: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
             }
@@ -3290,12 +3282,6 @@ template<typename OperandSpan>
             }
             for (auto index : operands.subspan(1u)) {
                 if (!integer_scalar_type(index->type())) { return false; }
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= operands[0]->type()->dimension())) {
-                    return false;
-                }
             }
             return true;
         case ArithmeticOp::EXTRACT:
@@ -3404,22 +3390,10 @@ template<typename OperandSpan>
                 break;
             case Type::Tag::ARRAY:
             case Type::Tag::VECTOR: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = current->element();
                 break;
             }
             case Type::Tag::MATRIX: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
             }
