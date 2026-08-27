@@ -64,7 +64,7 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
             add_files("tensor/poly_fit_kernels.cpp", "tensor/poly_fit.cpp")
             add_files("tensor/linear_regression_kernels.cpp", "tensor/linear_regression.cpp")
             add_files("tensor/mlp.cpp", "tensor/mnist.cpp", "tensor/rnn.cpp", "tensor/tensor_basics.cpp")
-            add_files("tensor/torch2_import.cpp")
+            add_files("tensor/torch2_import.cpp", "tensor/transformer_import.cpp")
             if has_config("lc_yyjson_use_xrepo") then add_packages("yyjson")
             else add_deps("lc-yyjson") end
         end)
