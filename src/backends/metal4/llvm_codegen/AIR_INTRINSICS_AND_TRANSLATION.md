@@ -3123,8 +3123,9 @@ deserialization.
 
 The closure configuration uses CMake/Ninja Release builds with legacy Metal,
 Metal4, and fallback enabled, Homebrew LLVM 21.1.8, Apple metalfe 32023.883,
-and the macOS 26.4 SDK. It is based on `origin/next` at `a5d69e492`. A complete
-configured parallel CTest run passes **156/156** in 29.51 seconds: **35/35**
+and the macOS 26.4 SDK. It is based on `origin/next` at `eeda4b154`. After a
+complete rebuild, the configured parallel CTest run passes **156/156** in
+72.92 seconds: **35/35**
 `integration_metal4` tests, **15/15** offline graphics/rendering executables,
 **11/11** tutorials, and **111/111** unit registrations are included. These
 tests compile and execute on an Apple M1 Max; the independent Metal4 module has
