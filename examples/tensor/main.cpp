@@ -48,6 +48,8 @@
 #include "torch2_import.h"
 #include "tensor_basics.h"
 
+#include <luisa/core/stl/memory.h>
+
 int main(int argc, char *argv[]) {
     using namespace luisa::compute;// Kernel / Device / Context / detail for the translation test
     auto executable = argc > 0 && argv != nullptr && argv[0] != nullptr ? argv[0] : "";
@@ -135,7 +137,7 @@ int main(int argc, char *argv[]) {
                    name, kernel.function()->body()->size(), kernel.describe());
         auto result = translate_and_verify(name, kernel.function(),
                                            expected_dispatch, expected_block, expected_buffers);
-        return std::make_pair(std::move(kernel), std::move(result));
+        return luisa::make_pair(std::move(kernel), std::move(result));
     };
 
     // =========================================================================

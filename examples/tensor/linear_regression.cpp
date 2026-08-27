@@ -29,7 +29,7 @@
 
 #include <cmath>
 #include <cstdlib>
-#include <vector>
+#include <luisa/core/stl/vector.h>
 
 namespace lreg {
 
@@ -39,11 +39,11 @@ namespace {
 
 // Linear regression data: X[N,D] ~ N(0,1), y = X @ true_w + true_b + noise.
 struct LinData {
-    std::vector<float> Xb;      // [N, D+1] with bias column
-    std::vector<float> XT;      // [D+1, N]
-    std::vector<float> y;       // [N]
-    std::vector<float> Xb_te;   // [NT, D+1] held-out
-    std::vector<float> y_te;    // [NT]
+    luisa::vector<float> Xb;      // [N, D+1] with bias column
+    luisa::vector<float> XT;      // [D+1, N]
+    luisa::vector<float> y;       // [N]
+    luisa::vector<float> Xb_te;   // [NT, D+1] held-out
+    luisa::vector<float> y_te;    // [NT]
 };
 
 LinData make_linear_data(int seed = 1) {
@@ -95,11 +95,11 @@ LinData make_linear_data(int seed = 1) {
 
 // Logistic regression data: two 2D Gaussian blobs at (±2, ±2).
 struct LogData {
-    std::vector<float> Xb;      // [N, D+1]
-    std::vector<float> XT;      // [D+1, N]
-    std::vector<float> y;       // [N]
-    std::vector<float> Xb_te;   // [NT, D+1]
-    std::vector<float> y_te;    // [NT]
+    luisa::vector<float> Xb;      // [N, D+1]
+    luisa::vector<float> XT;      // [D+1, N]
+    luisa::vector<float> y;       // [N]
+    luisa::vector<float> Xb_te;   // [NT, D+1]
+    luisa::vector<float> y_te;    // [NT]
 };
 
 LogData make_logistic_data(int seed = 2) {
@@ -145,16 +145,16 @@ LogData make_logistic_data(int seed = 2) {
 // double precision on the CPU.
 
 struct LinRef {
-    std::vector<double> W;      // D+1
-    std::vector<double> losses; // logged MSE at each log step
-    std::vector<int> log_steps;
+    luisa::vector<double> W;      // D+1
+    luisa::vector<double> losses; // logged MSE at each log step
+    luisa::vector<int> log_steps;
 };
 
 LinRef linear_host_reference(const LinData &d, int steps, int log_every) {
     constexpr int N = LIN_N, K = LIN_D + 1;
     LinRef ref;
     ref.W.assign(K, 0.0);
-    std::vector<double> pred(N), err(N), G(K);
+    luisa::vector<double> pred(N), err(N), G(K);
     for (int t = 1; t <= steps; ++t) {
         for (int i = 0; i < N; ++i) {
             double s = 0.0;
@@ -179,16 +179,16 @@ LinRef linear_host_reference(const LinData &d, int steps, int log_every) {
 }
 
 struct LogRef {
-    std::vector<double> W;
-    std::vector<double> losses;
-    std::vector<int> log_steps;
+    luisa::vector<double> W;
+    luisa::vector<double> losses;
+    luisa::vector<int> log_steps;
 };
 
 LogRef logistic_host_reference(const LogData &d, int steps, int log_every) {
     constexpr int N = LOG_N, K = LOG_D + 1;
     LogRef ref;
     ref.W.assign(K, 0.0);
-    std::vector<double> z(N), p(N), res(N), G(K);
+    luisa::vector<double> z(N), p(N), res(N), G(K);
     for (int t = 1; t <= steps; ++t) {
         for (int i = 0; i < N; ++i) {
             double s = 0.0;
@@ -313,7 +313,7 @@ int lreg::run_linear_regression(int argc, char *argv[]) {
     auto bufXT = make_buf(luisa::span{lin_data.XT});
     auto bufYref = make_buf(luisa::span{lin_data.y});
     auto bufXb_te = make_buf(luisa::span{lin_data.Xb_te});
-    std::vector<float> W0(LIN_D + 1, 0.0f);
+    luisa::vector<float> W0(LIN_D + 1, 0.0f);
     auto bufW = make_buf(luisa::span{W0});
     auto bufW2 = device.create_buffer<float>(LIN_D + 1);
     auto bufY = device.create_buffer<float>(LIN_N);
@@ -322,8 +322,8 @@ int lreg::run_linear_regression(int argc, char *argv[]) {
     auto bufY_te = device.create_buffer<float>(LIN_NT);
 
     Clock clock;
-    std::vector<float> dev_err(LIN_N), dev_losses;
-    std::vector<int> dev_log_steps;
+    luisa::vector<float> dev_err(LIN_N), dev_losses;
+    luisa::vector<int> dev_log_steps;
     auto train_step = [&](auto &buf_in, auto &buf_out) {
         stream << shc_fwd_lin(bufXb, buf_in, bufY).dispatch(64u)
                << shc_err(bufY, bufYref, bufErr).dispatch(64u)
@@ -343,7 +343,7 @@ int lreg::run_linear_regression(int argc, char *argv[]) {
             LUISA_INFO("[linear-regression]   linear step {:4d}  MSE = {:.6f}", t, loss / LIN_N);
         }
     }
-    std::vector<float> dev_W(LIN_D + 1);
+    luisa::vector<float> dev_W(LIN_D + 1);
     if (w_in_a) {
         stream << bufW.copy_to(luisa::span{dev_W}) << synchronize();
     } else {
@@ -351,7 +351,7 @@ int lreg::run_linear_regression(int argc, char *argv[]) {
     }
 
     // inference on held-out data
-    std::vector<float> dev_pred(LIN_NT);
+    luisa::vector<float> dev_pred(LIN_NT);
     if (w_in_a) {
         stream << shc_fwd_lin_te(bufXb_te, bufW, bufY_te).dispatch(64u);
     } else {
@@ -366,7 +366,7 @@ int lreg::run_linear_regression(int argc, char *argv[]) {
     }
     lin_rmse = std::sqrt(lin_rmse / LIN_NT);
     for (int k = 0; k < LIN_D; ++k) {
-        float e = std::fabs(dev_W[k] - std::vector<float>{1.5f, -2.0f, 0.5f, 3.0f}[k]);
+        float e = std::fabs(dev_W[k] - luisa::vector<float>{1.5f, -2.0f, 0.5f, 3.0f}[k]);
         lin_max_w_err = std::max(lin_max_w_err, e);
     }
     double gpu_ms = clock.toc();
@@ -376,7 +376,7 @@ int lreg::run_linear_regression(int argc, char *argv[]) {
     auto bufXT2 = make_buf(luisa::span{log_data.XT});
     auto bufYref2 = make_buf(luisa::span{log_data.y});
     auto bufXb2_te = make_buf(luisa::span{log_data.Xb_te});
-    std::vector<float> W2_0(LOG_D + 1, 0.0f);
+    luisa::vector<float> W2_0(LOG_D + 1, 0.0f);
     auto bufW2_0 = make_buf(luisa::span{W2_0});
     auto bufW2_1 = device.create_buffer<float>(LOG_D + 1);
     auto bufZ = device.create_buffer<float>(LOG_N);
@@ -385,8 +385,8 @@ int lreg::run_linear_regression(int argc, char *argv[]) {
     auto bufZ_te = device.create_buffer<float>(LOG_NT);
 
     Clock clock2;
-    std::vector<float> dev_losses2;
-    std::vector<int> dev_log_steps2;
+    luisa::vector<float> dev_losses2;
+    luisa::vector<int> dev_log_steps2;
     auto train_step2 = [&](auto &buf_in, auto &buf_out) {
         stream << shc_fwd_log(bufXb2, buf_in, bufZ).dispatch(64u)
                << shc_res(bufZ, bufYref2, bufRes).dispatch(64u)
@@ -412,7 +412,7 @@ int lreg::run_linear_regression(int argc, char *argv[]) {
             LUISA_INFO("[linear-regression]   logistic step {:4d}  BCE = {:.6f}", t, loss / LOG_N);
         }
     }
-    std::vector<float> dev_W2(LOG_D + 1);
+    luisa::vector<float> dev_W2(LOG_D + 1);
     if (w2_in_a) {
         stream << bufW2_0.copy_to(luisa::span{dev_W2}) << synchronize();
     } else {
@@ -420,7 +420,7 @@ int lreg::run_linear_regression(int argc, char *argv[]) {
     }
 
     // inference on held-out data
-    std::vector<float> dev_z_te(LOG_NT);
+    luisa::vector<float> dev_z_te(LOG_NT);
     if (w2_in_a) {
         stream << shc_fwd_log_te(bufXb2_te, bufW2_0, bufZ_te).dispatch(64u);
     } else {

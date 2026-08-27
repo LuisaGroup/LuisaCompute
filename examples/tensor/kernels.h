@@ -17,7 +17,7 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
-#include <string>
+#include <luisa/core/stl/string.h>
 #include <limits>
 
 // TileLang's `import tilelang.language as T` is exposed as the `LuisaTensor`

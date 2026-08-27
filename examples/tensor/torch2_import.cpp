@@ -15,7 +15,7 @@
 //   torch2_kernels.h, traced with tile::jit(...).compile(), lowered with
 //   tile_to_kernel, compiled on the backend and dispatched on Luisa buffers
 //   (single-block 1D tile kernels, the exact flow of main.cpp / rnn.cpp).
-//   Host path: the same IR walk with std::vector<float> + plain loops
+//   Host path: the same IR walk with luisa::vector<float> + plain loops
 //   (fallback/cross-check, mirroring rnn.cpp).  The device result is verified
 //   against the embedded PyTorch reference (max abs diff < --tol) and against
 //   the host result; if the device path mis-executes (known tile_to_kernel
@@ -42,7 +42,7 @@
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
-#include <string_view>
+#include <luisa/core/stl/string.h>
 
 namespace torch2 {
 
@@ -188,7 +188,7 @@ bool read_operand(yyjson_val *v, Operand &op) noexcept {
 // newly visible elements, so the decoded bytes are silently overwritten with
 // zeros in this build (verified with a standalone repro).  A local decoder is
 // used instead (plan deviation: src/* must not change).
-[[nodiscard]] size_t base64_decode(std::string_view src, uint8_t *dst, size_t dst_cap) noexcept {
+[[nodiscard]] size_t base64_decode(luisa::string_view src, uint8_t *dst, size_t dst_cap) noexcept {
     auto val = [](char c) noexcept -> int {
         if (c >= 'A' && c <= 'Z') { return c - 'A'; }
         if (c >= 'a' && c <= 'z') { return c - 'a' + 26; }
@@ -223,7 +223,7 @@ bool decode_base64(yyjson_val *v, size_t numel, luisa::vector<float> &out, luisa
     }
     auto b64 = to_sv(v);
     luisa::vector<uint8_t> bytes(numel * sizeof(float));
-    auto n = base64_decode(std::string_view{b64.data(), b64.size()}, bytes.data(), bytes.size());
+    auto n = base64_decode(luisa::string_view{b64.data(), b64.size()}, bytes.data(), bytes.size());
     if (n != numel * sizeof(float)) {
         err = luisa::format("base64 size mismatch: decoded {} bytes, want {}", n, numel * 4);
         return false;
@@ -240,7 +240,7 @@ bool decode_labels(yyjson_val *v, size_t numel, luisa::vector<int64_t> &out, lui
     }
     auto b64 = to_sv(v);
     luisa::vector<uint8_t> bytes(numel * sizeof(int64_t));
-    auto n = base64_decode(std::string_view{b64.data(), b64.size()}, bytes.data(), bytes.size());
+    auto n = base64_decode(luisa::string_view{b64.data(), b64.size()}, bytes.data(), bytes.size());
     if (n != numel * sizeof(int64_t)) {
         err = luisa::format("labels base64 size mismatch: decoded {} bytes, want {}", n, numel * 8);
         return false;

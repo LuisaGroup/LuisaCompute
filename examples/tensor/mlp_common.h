@@ -19,7 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <vector>
+#include <luisa/core/stl/vector.h>
 
 namespace mlpcommon {
 
@@ -51,7 +51,7 @@ struct MlpHyper {
     float lr = 0.1f;
     int num_inputs = 50;
     int num_outputs = 4;
-    std::vector<int> widths;    // hidden layer widths (excluding input/output)
+    luisa::vector<int> widths;    // hidden layer widths (excluding input/output)
     int seed = 123;
 };
 
@@ -59,12 +59,12 @@ struct MlpHyper {
 // dataset (all matrices row-major, raw features only — no bias column)
 // ---------------------------------------------------------------------------
 struct MlpData {
-    std::vector<float> x_train;    // [n_train, num_inputs]
-    std::vector<float> xT_train;   // [num_inputs, n_train]
-    std::vector<int> y_train;      // [n_train]
-    std::vector<float> y_onehot;   // [n_train, num_outputs]
-    std::vector<float> x_test;     // [n_test, num_inputs]
-    std::vector<int> y_test;       // [n_test]
+    luisa::vector<float> x_train;    // [n_train, num_inputs]
+    luisa::vector<float> xT_train;   // [num_inputs, n_train]
+    luisa::vector<int> y_train;      // [n_train]
+    luisa::vector<float> y_onehot;   // [n_train, num_outputs]
+    luisa::vector<float> x_test;     // [n_test, num_inputs]
+    luisa::vector<int> y_test;       // [n_test]
 };
 
 // XOR-style classification task (mlp_train.py make_dataset): the class is the
@@ -77,8 +77,8 @@ inline MlpData make_xor_data(const MlpHyper &hp) {
     d.y_test.resize(hp.n_test);
     d.x_test.resize(static_cast<size_t>(hp.n_test) * hp.num_inputs);
     PRNG rng(static_cast<unsigned>(hp.seed));
-    std::vector<float> x(n * hp.num_inputs);
-    std::vector<int> y(n);
+    luisa::vector<float> x(n * hp.num_inputs);
+    luisa::vector<int> y(n);
     for (int i = 0; i < n; ++i) {
         float z0 = 0.8f * rng.gauss();
         float z1 = 0.8f * rng.gauss();
@@ -118,10 +118,10 @@ inline MlpData make_synth_mnist_data(const MlpHyper &hp) {
     d.y_test.resize(hp.n_test);
     d.x_test.resize(static_cast<size_t>(hp.n_test) * hp.num_inputs);
     PRNG rng(static_cast<unsigned>(hp.seed));
-    std::vector<float> templates(static_cast<size_t>(hp.num_outputs) * hp.num_inputs);
+    luisa::vector<float> templates(static_cast<size_t>(hp.num_outputs) * hp.num_inputs);
     for (auto &v : templates) { v = rng.gauss(); }
-    std::vector<int> y(n);
-    std::vector<float> x(static_cast<size_t>(n) * hp.num_inputs);
+    luisa::vector<int> y(n);
+    luisa::vector<float> x(static_cast<size_t>(n) * hp.num_inputs);
     for (int i = 0; i < n; ++i) {
         y[i] = static_cast<int>(rng.unit() * hp.num_outputs);
         y[i] = std::min(y[i], hp.num_outputs - 1);
@@ -171,9 +171,9 @@ inline void finalize_data(MlpHyper &hp, MlpData &d) {
 // the test accuracy.
 // ---------------------------------------------------------------------------
 struct HostMlpResult {
-    std::vector<std::vector<double>> W;      // [layer][K*O]
-    std::vector<std::vector<double>> Bias;   // [layer][O]
-    std::vector<double> epoch_losses;
+    luisa::vector<luisa::vector<double>> W;      // [layer][K*O]
+    luisa::vector<luisa::vector<double>> Bias;   // [layer][O]
+    luisa::vector<double> epoch_losses;
     double test_acc = 0.0;
 };
 
@@ -185,7 +185,7 @@ inline HostMlpResult mlp_host_reference(const MlpHyper &hp, const MlpData &d) {
     r.W.resize(L);
     r.Bias.resize(L);
     // K_l = input dim; O_l = output dim
-    std::vector<int> K(L), O(L);
+    luisa::vector<int> K(L), O(L);
     {
         int prev = hp.num_inputs;
         for (int l = 0; l < L; ++l) {
@@ -209,8 +209,8 @@ inline HostMlpResult mlp_host_reference(const MlpHyper &hp, const MlpData &d) {
         for (int b = 0; b < n_b; ++b) {
             const int base = b * B;
             // forward
-            std::vector<std::vector<double>> A(L);
-            std::vector<std::vector<double>> Z(L);
+            luisa::vector<luisa::vector<double>> A(L);
+            luisa::vector<luisa::vector<double>> Z(L);
             A[0].resize(static_cast<size_t>(B) * K[0]);
             for (int i = 0; i < B; ++i) {
                 for (int k = 0; k < K[0]; ++k) {
@@ -241,7 +241,7 @@ inline HostMlpResult mlp_host_reference(const MlpHyper &hp, const MlpData &d) {
             }
             // softmax + cross entropy
             const int C = hp.num_outputs;
-            std::vector<double> P(static_cast<size_t>(B) * C);
+            luisa::vector<double> P(static_cast<size_t>(B) * C);
             double loss = 0.0;
             for (int i = 0; i < B; ++i) {
                 double mx = -1e30;
@@ -259,7 +259,7 @@ inline HostMlpResult mlp_host_reference(const MlpHyper &hp, const MlpData &d) {
             loss /= B;
             ep_loss += loss;
             // G = (P - Y) / B
-            std::vector<double> G(static_cast<size_t>(B) * C);
+            luisa::vector<double> G(static_cast<size_t>(B) * C);
             for (int i = 0; i < B; ++i) {
                 for (int c = 0; c < C; ++c) {
                     G[static_cast<size_t>(i) * C + c] =
@@ -268,15 +268,15 @@ inline HostMlpResult mlp_host_reference(const MlpHyper &hp, const MlpData &d) {
                 }
             }
             // backward
-            std::vector<std::vector<double>> dW(L);
-            std::vector<std::vector<double>> db(L);
-            std::vector<double> dZ;
+            luisa::vector<luisa::vector<double>> dW(L);
+            luisa::vector<luisa::vector<double>> db(L);
+            luisa::vector<double> dZ;
             for (int l = L - 1; l >= 0; --l) {
                 dW[l].assign(static_cast<size_t>(K[l]) * O[l], 0.0);
                 db[l].assign(static_cast<size_t>(O[l]), 0.0);
                 // copy by value: dZ is reassigned below for the next layer, and
                 // a reference would be invalidated by that reassignment
-                const std::vector<double> cur_dZ = (l == L - 1) ? G : dZ;
+                const luisa::vector<double> cur_dZ = (l == L - 1) ? G : dZ;
                 // dW[l] = A[l]^T @ dZ
                 for (int k = 0; k < K[l]; ++k) {
                     for (int o = 0; o < O[l]; ++o) {
@@ -332,13 +332,13 @@ inline HostMlpResult mlp_host_reference(const MlpHyper &hp, const MlpData &d) {
     int n_b_te = hp.n_test / B;
     for (int b = 0; b < n_b_te; ++b) {
         const int base = b * B;
-        std::vector<double> act(static_cast<size_t>(B) * K[0]);
+        luisa::vector<double> act(static_cast<size_t>(B) * K[0]);
         for (int i = 0; i < B; ++i)
             for (int k = 0; k < K[0]; ++k)
                 act[static_cast<size_t>(i) * K[0] + k] = d.x_test[static_cast<size_t>(base + i) * K[0] + k];
         int prev = K[0];
         for (int l = 0; l < L; ++l) {
-            std::vector<double> z(static_cast<size_t>(B) * O[l]);
+            luisa::vector<double> z(static_cast<size_t>(B) * O[l]);
             for (int i = 0; i < B; ++i)
                 for (int o = 0; o < O[l]; ++o) {
                     double s = r.Bias[l][o];
@@ -346,7 +346,7 @@ inline HostMlpResult mlp_host_reference(const MlpHyper &hp, const MlpData &d) {
                     z[static_cast<size_t>(i) * O[l] + o] = s;
                 }
             if (l < L - 1) {
-                std::vector<double> na(static_cast<size_t>(B) * O[l]);
+                luisa::vector<double> na(static_cast<size_t>(B) * O[l]);
                 for (int i = 0; i < B; ++i)
                     for (int o = 0; o < O[l]; ++o) na[static_cast<size_t>(i) * O[l] + o] = relu_host(z[static_cast<size_t>(i) * O[l] + o]);
                 act = std::move(na);
