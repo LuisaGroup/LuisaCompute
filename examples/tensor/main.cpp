@@ -27,12 +27,15 @@
 //   example_tensor_stub <backend> --mnist [--epochs N]
 //                                    -- synthetic-MNIST MLP training (C++ twin
 //                                       of mnist_train.py --dataset synthetic)
-//   example_tensor_stub <backend> --rnn [--epochs N]
-//                                    -- RNN sequence classification training
-//                                       (C++ twin of rnn_train.py)
-//   example_tensor_stub <backend> --basics
-//                                    -- tensor basics exercises (C++ twin of
-//                                       tensor_basics.py)
+// example_tensor_stub <backend> --rnn [--epochs N]
+// -- RNN sequence classification training
+// (C++ twin of rnn_train.py)
+// example_tensor_stub <backend> --rnn-pt2 [rnn_exported.pt2.json] [--tol F]
+// -- torch.export'd RNN graph import (torch2_export.py artifact,
+// parsed + executed on the backend, verified vs PyTorch reference)
+// example_tensor_stub <backend> --basics
+// -- tensor basics exercises (C++ twin of
+// tensor_basics.py)
 // =============================================================================
 
 #include "kernels.h"
@@ -42,6 +45,7 @@
 #include "mlp.h"
 #include "mnist.h"
 #include "rnn.h"
+#include "torch2_import.h"
 #include "tensor_basics.h"
 
 int main(int argc, char *argv[]) {
@@ -74,9 +78,11 @@ int main(int argc, char *argv[]) {
     if (has_flag("--mlp")) { return mlptrain::run_mlp(argc, argv); }
     // --mnist: run the synthetic-MNIST MLP training.
     if (has_flag("--mnist")) { return mnisttrain::run_mnist(argc, argv); }
-    // --rnn: run the RNN sequence-classification training.
-    if (has_flag("--rnn")) { return rnntrain::run_rnn(argc, argv); }
-    // --basics: run the tensor-basics exercises.
+      // --rnn: run the RNN sequence-classification training.
+      if (has_flag("--rnn")) { return rnntrain::run_rnn(argc, argv); }
+      // --rnn-pt2: run the torch.export'd RNN graph import (torch2 pipeline).
+      if (has_flag("--rnn-pt2")) { return torch2::run_rnn_import(argc, argv); }
+      // --basics: run the tensor-basics exercises.
     if (has_flag("--basics")) { return basics::run_basics(argc, argv); }
 
     // =========================================================================

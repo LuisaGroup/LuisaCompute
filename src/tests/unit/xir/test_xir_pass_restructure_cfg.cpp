@@ -2431,6 +2431,11 @@ void reg_restructure_cfg() {
         expect(info.succeeded());
         expect(info.iteration_limit_count == 0u);
         expect(info.restructured_loop_count == 2u);
+        // Recovering the two raw loops changes the construct hierarchy before
+        // the post-restructure phase starts. Its construct-exit closure must
+        // therefore run before selection-exit repair; otherwise that later
+        // phase builds a redundant state dispatch for the stale hierarchy.
+        expect(info.selection_exit_cfg_invalidation_count == 0u);
         expect(count_terminator_kind(
                    def, DerivedInstructionTag::LOOP) ==
                2u);

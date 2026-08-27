@@ -34,6 +34,7 @@
 #include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
 #include "hip_private_memory.h"
+#include "hip_inlining_policy.h"
 #include "hip_llvm_pipeline.h"
 #include "hiprt_device_wrapper.hip"
 #include "hip_codegen_llvm_device_bitcode.h"
@@ -1087,6 +1088,7 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
                     llvm_generated_callable_attribute)) {
                 func.removeFnAttr(llvm::Attribute::AlwaysInline);
                 func.removeFnAttr(llvm::Attribute::NoInline);
+                func.removeFnAttr(llvm::Attribute::InlineHint);
             }
         }
     }
@@ -1142,6 +1144,11 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     PTO.SLPVectorization = true;
     PTO.LoopUnrolling = true;
     PTO.MergeFunctions = true;
+    // All profitable code-growing inline decisions are made globally below.
+    // Leave the later CGSCC inliner only the non-positive-cost fixed point and
+    // last-local-call elimination. This prevents its bottom-up visitation
+    // order from cloning one consumer of a still-shared generated callable.
+    configure_hip_cgscc_canonicalization_inlining(PTO);
     llvm::PassInstrumentationCallbacks instrumentation;
     llvm::PassBuilder PB{
         _target_machine, PTO, std::nullopt,
@@ -1165,7 +1172,17 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         case HIPCodegenLLVMConfig::OptLevel::LEVEL_DEFAULT: opt_level = llvm::OptimizationLevel::O2; break;
         case HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE: opt_level = llvm::OptimizationLevel::O3; break;
     }
-    auto MPM = PB.buildPerModuleDefaultPipeline(opt_level);
+    auto MPM = llvm::ModulePassManager{};
+    if (opt_level != llvm::OptimizationLevel::O0) {
+        // A generated callable can have multiple consumers in one shader. The
+        // default CGSCC inliner visits those call sites in bottom-up SCC order.
+        // Deleting an unrelated branch can therefore move one call across its
+        // profitability threshold and duplicate a still-live callee into only
+        // one consumer. Make LLVM's module-wide priority queue the unique owner
+        // of positive-growth decisions before any caller-specializing pass.
+        add_hip_module_priority_inliner(MPM, opt_level);
+    }
+    MPM.addPass(PB.buildPerModuleDefaultPipeline(opt_level));
     // gfx12 ray queries lower to resumable traversal loops whose state is
     // carried through nested callback loops. LLVM's pre-SLP cleanup normally
     // opts out of preserving canonical loops; on AMDGPU this can collapse the

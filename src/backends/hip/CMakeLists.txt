@@ -21,6 +21,7 @@ if (hip_FOUND)
             hip_geometry.h
             hip_procedural_primitive.cpp hip_procedural_primitive.h
             hip_shader.h hip_shader.cpp
+            hip_shader_link_options.h
             hip_shader_metadata.h
             hip_shader_native.h hip_shader_native.cpp
             hip_shader_printer.h hip_shader_printer.cpp
