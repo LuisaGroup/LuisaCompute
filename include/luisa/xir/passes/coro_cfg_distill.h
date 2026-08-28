@@ -132,6 +132,16 @@ struct CoroCfgDistillResult {
     };
 
     struct Edge {
+        struct SuspendStageDataflow {
+            // Logical frame-value effects for one Extension in owner order.
+            // live_in = use union (live_out - def). The graph projects these
+            // exact sets through coloring into partial-frame slot plans.
+            luisa::vector<size_t> use_frame_value_indices;
+            luisa::vector<size_t> def_frame_value_indices;
+            luisa::vector<size_t> live_in_frame_value_indices;
+            luisa::vector<size_t> live_out_frame_value_indices;
+        };
+
         size_t from_scope{0u};
         size_t to_scope{0u};
         uint32_t token{0u};
@@ -150,6 +160,11 @@ struct CoroCfgDistillResult {
         // binding's logical type; it does not allocate additional storage.
         luisa::vector<luisa::vector<uint32_t>>
             extension_binding_access_chains;
+        // Complete target-token resident state before extension-only queued
+        // values are added. This is larger than the target callable's
+        // immediate reload set when dormant values pass through the scope.
+        luisa::vector<size_t> target_live_frame_value_indices;
+        luisa::vector<SuspendStageDataflow> extension_stage_dataflow;
         luisa::vector<Value *> killed_values;
         luisa::vector<Value *> touched_values;
         luisa::vector<Value *> live_values;

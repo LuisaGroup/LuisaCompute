@@ -326,6 +326,31 @@ void reg_coro_cfg_distill() {
                              edge->live_frame_value_indices.end(),
                              output_index) !=
                    edge->live_frame_value_indices.end());
+            auto live_pair =
+                luisa::vector<size_t>{input_index, output_index};
+            std::sort(live_pair.begin(), live_pair.end());
+            expect(edge->target_live_frame_value_indices ==
+                   luisa::vector<size_t>{output_index});
+            expect(edge->extension_stage_dataflow.size() == 2u);
+            if (edge->extension_stage_dataflow.size() == 2u) {
+                auto &semantic = edge->extension_stage_dataflow[0u];
+                auto &annotation = edge->extension_stage_dataflow[1u];
+                expect(semantic.use_frame_value_indices ==
+                       luisa::vector<size_t>{input_index});
+                expect(semantic.def_frame_value_indices ==
+                       luisa::vector<size_t>{output_index});
+                expect(semantic.live_in_frame_value_indices ==
+                       luisa::vector<size_t>{input_index});
+                expect(semantic.live_out_frame_value_indices ==
+                       live_pair);
+                expect(annotation.use_frame_value_indices ==
+                       luisa::vector<size_t>{input_index});
+                expect(annotation.def_frame_value_indices.empty());
+                expect(annotation.live_in_frame_value_indices ==
+                       live_pair);
+                expect(annotation.live_out_frame_value_indices ==
+                       luisa::vector<size_t>{output_index});
+            }
         }
     };
 
@@ -455,6 +480,157 @@ void reg_coro_cfg_distill() {
                    luisa::vector<size_t>{0u});
             expect(edge->live_frame_value_indices ==
                    luisa::vector<size_t>{0u});
+        }
+    };
+
+    "ordered_extension_versions_share_one_slot_without_source_spill"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(Type::of<float>());
+        state->set_name("external_stage_state");
+        b.store(state, m.create_constant_one(Type::of<float>()));
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.produce", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "output",
+              .access = CoroSuspendBindingAccess::write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 0u}},
+            {}));
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.consume-update", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "state",
+              .access = CoroSuspendBindingAccess::read_write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 1u}},
+            {}));
+        luisa::vector<Value *> binding_values{state, state};
+        b.coro_suspend(
+            159u, "ordered-versions", nullptr, {}, {},
+            std::move(extensions), luisa::span{binding_values});
+        b.set_insertion_point(resume);
+        b.coro_resume(159u, nullptr);
+        static_cast<void>(b.load(Type::of<float>(), state));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 1u);
+        expect(result.frame_slots.size() == 1u);
+        const CoroCfgDistillResult::Edge *edge = nullptr;
+        for (auto &candidate : result.transition_edges) {
+            if (candidate.is_suspend && candidate.token == 159u) {
+                edge = &candidate;
+            }
+        }
+        expect(edge != nullptr);
+        if (edge == nullptr) { return; }
+        expect(edge->extension_binding_frame_value_indices ==
+               (luisa::vector<luisa::vector<size_t>>{{0u}, {0u}}));
+        expect(edge->store_frame_value_indices.empty());
+        expect(edge->target_live_frame_value_indices ==
+               luisa::vector<size_t>{0u});
+        expect(edge->extension_stage_dataflow.size() == 2u);
+        if (edge->extension_stage_dataflow.size() != 2u) { return; }
+        auto &produce = edge->extension_stage_dataflow[0u];
+        auto &consume = edge->extension_stage_dataflow[1u];
+        expect(produce.use_frame_value_indices.empty());
+        expect(produce.def_frame_value_indices ==
+               luisa::vector<size_t>{0u});
+        expect(produce.live_in_frame_value_indices.empty());
+        expect(produce.live_out_frame_value_indices ==
+               luisa::vector<size_t>{0u});
+        expect(consume.use_frame_value_indices ==
+               luisa::vector<size_t>{0u});
+        expect(consume.def_frame_value_indices ==
+               luisa::vector<size_t>{0u});
+        expect(consume.live_in_frame_value_indices ==
+               luisa::vector<size_t>{0u});
+        expect(consume.live_out_frame_value_indices ==
+               luisa::vector<size_t>{0u});
+    };
+
+    "ordered_extension_def_suppresses_later_scope_entry_use"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *first_resume = kernel->create_basic_block();
+        auto *second_resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(Type::of<float>());
+        state->set_name("late_external_stage_state");
+        b.store(state, m.create_constant_one(Type::of<float>()));
+        b.coro_suspend(157u, "before-external-stages", nullptr);
+
+        b.set_insertion_point(first_resume);
+        b.coro_resume(157u, nullptr);
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.late-produce", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "output",
+              .access = CoroSuspendBindingAccess::write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 0u}},
+            {}));
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.late-consume", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "state",
+              .access = CoroSuspendBindingAccess::read_write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 1u}},
+            {}));
+        luisa::vector<Value *> binding_values{state, state};
+        b.coro_suspend(
+            159u, "late-ordered-versions", nullptr, {}, {},
+            std::move(extensions), luisa::span{binding_values});
+
+        b.set_insertion_point(second_resume);
+        b.coro_resume(159u, nullptr);
+        static_cast<void>(b.load(Type::of<float>(), state));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 1u);
+        expect(result.frame_slots.size() == 1u);
+        const CoroCfgDistillResult::Edge *before = nullptr;
+        const CoroCfgDistillResult::Edge *staged = nullptr;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend && edge.token == 157u) {
+                before = &edge;
+            } else if (edge.is_suspend && edge.token == 159u) {
+                staged = &edge;
+            }
+        }
+        expect(before != nullptr);
+        expect(staged != nullptr);
+        if (before == nullptr || staged == nullptr) { return; }
+        expect(before->store_frame_value_indices.empty());
+        expect(before->target_live_frame_value_indices.empty());
+        expect(staged->store_frame_value_indices.empty());
+        expect(staged->target_live_frame_value_indices ==
+               luisa::vector<size_t>{0u});
+        const CoroCfgDistillResult::Scope *stage_scope = nullptr;
+        for (auto &scope : result.scopes) {
+            if (scope.trigger_token == 157u) { stage_scope = &scope; }
+        }
+        expect(stage_scope != nullptr);
+        if (stage_scope != nullptr) {
+            expect(stage_scope->external_frame_value_indices.empty());
+            expect(stage_scope->live_in_frame_value_indices.empty());
         }
     };
 

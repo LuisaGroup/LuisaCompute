@@ -25,10 +25,10 @@ class LUISA_CORO_API CoroGraph {
 public:
     /// A node in the coroutine graph — one per continuation scope.
     struct Node {
-        size_t index{0u};               // scope index (0 = entry)
-        luisa::string name;             // suspend name (empty for entry)
-        size_t token{0u};               // suspend token value (0 for entry)
-        bool is_terminal{false};        // terminal scope (no outgoing transitions)
+        size_t index{0u};                              // scope index (0 = entry)
+        luisa::string name;                            // suspend name (empty for entry)
+        size_t token{0u};                              // suspend token value (0 for entry)
+        bool is_terminal{false};                       // terminal scope (no outgoing transitions)
         const xir::CallableFunction *callable{nullptr};// pointer to the continuation callable
         luisa::vector<size_t> input_fields;
         luisa::vector<size_t> output_fields;
@@ -48,10 +48,53 @@ public:
 
     /// A directed edge between two continuation scopes.
     struct Edge {
-        size_t from_index{0u};          // source node index
-        size_t to_index{0u};            // target node index
-        luisa::vector<size_t> load_fields;  // frame fields loaded at resume
-        luisa::vector<size_t> store_fields; // frame fields stored at suspend
+        size_t from_index{0u};             // source node index
+        size_t to_index{0u};               // target node index
+        luisa::vector<size_t> load_fields; // frame fields loaded at resume
+        luisa::vector<size_t> store_fields;// frame fields stored at suspend
+    };
+
+    /// One logical data-flow set and its deduplicated projection through frame
+    /// coloring. `slots` are physical CoroFrameDesc field indices, including
+    /// the reserved-field offset convention used by frame storage helpers.
+    struct SlotSet {
+        luisa::vector<size_t> frame_values;
+        luisa::vector<size_t> slots;
+
+        [[nodiscard]] auto frame_value_span() const noexcept {
+            return luisa::span{frame_values};
+        }
+        [[nodiscard]] auto slot_span() const noexcept {
+            return luisa::span{slots};
+        }
+    };
+
+    /// Partial-frame reconstruction contract for one Extension. Logical
+    /// liveness is computed before coloring; every SlotSet is its physical
+    /// projection. `reconstruct_slots` is use.slots union RMW carriers.
+    struct Stage {
+        size_t extension_index{0u};
+        SlotSet use;
+        SlotSet def;
+        SlotSet live_in;
+        SlotSet live_out;
+        SlotSet preserve;
+        SlotSet required_def;
+        luisa::vector<size_t> rmw_slots;
+        luisa::vector<size_t> reconstruct_slots;
+
+        [[nodiscard]] auto rmw_slot_span() const noexcept {
+            return luisa::span{rmw_slots};
+        }
+        [[nodiscard]] auto reconstruct_slot_span() const noexcept {
+            return luisa::span{reconstruct_slots};
+        }
+        [[nodiscard]] auto dirty_slot_span() const noexcept {
+            return def.slot_span();
+        }
+        [[nodiscard]] auto required_writeback_slot_span() const noexcept {
+            return required_def.slot_span();
+        }
     };
 
     /// One static suspend instruction. Unlike Edge, boundaries are never
@@ -66,12 +109,20 @@ public:
         luisa::vector<CoroSuspendExtensionPtr> extensions;
         // Owner binding index -> typed projection into existing frame slots.
         luisa::vector<CoroSlotAccess> bindings;
+        // Exact source spill and target-resident certificates for this static
+        // edge, followed by one partial-frame plan per Extension.
+        SlotSet source_store;
+        SlotSet target_live;
+        luisa::vector<Stage> stages;
 
         [[nodiscard]] auto extension_span() const noexcept {
             return luisa::span{extensions};
         }
         [[nodiscard]] auto binding_span() const noexcept {
             return luisa::span{bindings};
+        }
+        [[nodiscard]] auto stage_span() const noexcept {
+            return luisa::span{stages};
         }
     };
 

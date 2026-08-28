@@ -170,6 +170,7 @@ void reg_coro_graph() {
         expect(boundary.token == 5u);
         expect(boundary.extensions.size() == 2u);
         expect(boundary.bindings.size() == 3u);
+        expect(boundary.stages.size() == 2u);
         if (boundary.extensions.size() == 2u) {
             expect(boundary.extensions[0u]->schema() ==
                    "com.example.nn-shade");
@@ -208,9 +209,78 @@ void reg_coro_graph() {
                 expect(stage_input.pieces()[0u].field_index ==
                        debug_watch.pieces()[0u].field_index);
             }
+            expect(stage_input.use_frame_values().size() == 1u);
+            expect(stage_input.def_frame_values().empty());
+            expect(stage_input.use_slots().size() == 1u);
+            expect(stage_input.def_slots().empty());
+            expect(stage_input.rmw_slots().empty());
+            expect(stage_input.reconstruct_slots().size() == 1u);
+            if (!stage_input.reconstruct_slots().empty() &&
+                !stage_input.use_slots().empty()) {
+                expect(stage_input.reconstruct_slots().front() ==
+                       stage_input.use_slots().front());
+            }
+            expect(stage_output.use_frame_values().empty());
+            expect(stage_output.def_frame_values().size() == 1u);
+            expect(stage_output.use_slots().empty());
+            expect(stage_output.def_slots().size() == 1u);
+            expect(stage_output.rmw_slots().empty());
+            expect(stage_output.reconstruct_slots().empty());
         }
         expect(cfg.frame_values.size() == 2u);
         expect(cfg.frame_slots.size() == 2u);
+        if (boundary.bindings.size() == 3u &&
+            boundary.stages.size() == 2u) {
+            auto input_value = boundary.bindings[0u]
+                                   .pieces()[0u]
+                                   .frame_value_index;
+            auto output_value = boundary.bindings[1u]
+                                    .pieces()[0u]
+                                    .frame_value_index;
+            auto input_slot =
+                boundary.bindings[0u].pieces()[0u].field_index;
+            auto output_slot =
+                boundary.bindings[1u].pieces()[0u].field_index;
+            auto live_pair =
+                luisa::vector<size_t>{input_value, output_value};
+            std::sort(live_pair.begin(), live_pair.end());
+            auto slot_pair =
+                luisa::vector<size_t>{input_slot, output_slot};
+            std::sort(slot_pair.begin(), slot_pair.end());
+            auto &semantic = boundary.stages[0u];
+            auto &annotation = boundary.stages[1u];
+            expect(boundary.source_store.frame_values ==
+                   luisa::vector<size_t>{input_value});
+            expect(boundary.source_store.slots ==
+                   luisa::vector<size_t>{input_slot});
+            expect(boundary.target_live.frame_values == live_pair);
+            expect(boundary.target_live.slots == slot_pair);
+            expect(semantic.use.frame_values ==
+                   luisa::vector<size_t>{input_value});
+            expect(semantic.def.frame_values ==
+                   luisa::vector<size_t>{output_value});
+            expect(semantic.live_in.frame_values ==
+                   luisa::vector<size_t>{input_value});
+            expect(semantic.live_out.frame_values == live_pair);
+            expect(semantic.preserve.frame_values ==
+                   luisa::vector<size_t>{input_value});
+            expect(semantic.required_def.frame_values ==
+                   luisa::vector<size_t>{output_value});
+            expect(semantic.reconstruct_slots ==
+                   luisa::vector<size_t>{input_slot});
+            expect(semantic.required_writeback_slot_span().size() == 1u);
+            if (!semantic.required_writeback_slot_span().empty()) {
+                expect(semantic.required_writeback_slot_span().front() ==
+                       output_slot);
+            }
+            expect(annotation.use.frame_values ==
+                   luisa::vector<size_t>{input_value});
+            expect(annotation.def.frame_values.empty());
+            expect(annotation.live_in.frame_values == live_pair);
+            expect(annotation.live_out.frame_values == live_pair);
+            expect(annotation.preserve.frame_values == live_pair);
+            expect(annotation.required_def.frame_values.empty());
+        }
         if (boundary.bindings.size() == 3u) {
             CoroFrameDesc desc;
             for (auto &slot : cfg.frame_slots) {
@@ -298,6 +368,12 @@ void reg_coro_graph() {
         expect(access.writable());
         expect(!access.readable());
         expect(access.pieces().size() == 3u);
+        expect(access.use_frame_values().empty());
+        expect(access.def_frame_values().size() == 3u);
+        expect(access.use_slots().empty());
+        expect(access.def_slots().size() == 3u);
+        expect(access.rmw_slots().empty());
+        expect(access.reconstruct_slots().empty());
         if (access.pieces().size() == 3u) {
             luisa::vector<luisa::vector<uint32_t>> paths;
             for (auto &piece : access.pieces()) {
@@ -308,6 +384,18 @@ void reg_coro_graph() {
             expect(paths ==
                    luisa::vector<luisa::vector<uint32_t>>{
                        {0u}, {1u}, {2u}});
+        }
+        expect(graph.boundary(0u).stages.size() == 1u);
+        if (graph.boundary(0u).stages.size() == 1u) {
+            auto &stage = graph.boundary(0u).stages[0u];
+            expect(stage.use.frame_values.empty());
+            expect(stage.def.frame_values.size() == 3u);
+            expect(stage.live_in.frame_values.empty());
+            expect(stage.live_out.frame_values.size() == 3u);
+            expect(stage.preserve.frame_values.empty());
+            expect(stage.required_def.frame_values.size() == 3u);
+            expect(stage.reconstruct_slots.empty());
+            expect(stage.required_writeback_slot_span().size() == 3u);
         }
 
         CoroFrameDesc desc;
@@ -339,7 +427,7 @@ void reg_coro_graph() {
             "luisa.coro.debug.watch-edit", 1u,
             CoroSuspendFallback::reject,
             {{.name = "first",
-              .access = CoroSuspendBindingAccess::read_write,
+              .access = CoroSuspendBindingAccess::write,
               .lifetime = CoroSuspendBindingLifetime::resumed,
               .index = 0u},
              {.name = "second",
@@ -374,6 +462,15 @@ void reg_coro_graph() {
         }
         auto &first_access = graph.boundary(0u).bindings[0u];
         auto &second_access = graph.boundary(0u).bindings[1u];
+        expect(first_access.use_frame_values().empty());
+        expect(first_access.def_frame_values().size() == 1u);
+        expect(first_access.use_slots().empty());
+        expect(first_access.def_slots().size() == 1u);
+        expect(first_access.rmw_slots().size() == 1u);
+        expect(first_access.reconstruct_slots().size() == 1u);
+        expect(second_access.use_frame_values().size() == 1u);
+        expect(second_access.def_frame_values().size() == 1u);
+        expect(second_access.rmw_slots().size() == 1u);
         expect(first_access.pieces().size() == 1u);
         expect(second_access.pieces().size() == 1u);
         if (first_access.pieces().size() == 1u &&
@@ -389,6 +486,23 @@ void reg_coro_graph() {
                 expect(*a.bit_offset != *b_piece.bit_offset);
             }
         }
+        expect(graph.boundary(0u).stages.size() == 1u);
+        if (graph.boundary(0u).stages.size() == 1u) {
+            auto &stage = graph.boundary(0u).stages[0u];
+            expect(stage.use.frame_values.size() == 1u);
+            expect(stage.def.frame_values.size() == 2u);
+            expect(stage.live_in.frame_values.size() == 1u);
+            expect(stage.live_out.frame_values.size() == 2u);
+            expect(stage.required_def.frame_values.size() == 2u);
+            // Both logical Booleans share one physical uint carrier. The
+            // write-only first binding therefore still reconstructs that one
+            // carrier before its bit-level update.
+            expect(stage.rmw_slots.size() == 1u);
+            expect(stage.reconstruct_slots.size() == 1u);
+            expect(stage.required_writeback_slot_span().size() == 1u);
+            expect(graph.boundary(0u).source_store.frame_values.size() == 1u);
+            expect(graph.boundary(0u).source_store.slots.size() == 1u);
+        }
 
         CoroFrameDesc desc;
         for (auto &slot : cfg.frame_slots) {
@@ -398,9 +512,7 @@ void reg_coro_graph() {
             auto frame = CoroFrame::create(&desc);
             first_access.write<bool>(frame, Expr<bool>{true});
             second_access.write<bool>(frame, Expr<bool>{false});
-            auto first_value = first_access.read<bool>(frame);
             auto second_value = second_access.read<bool>(frame);
-            static_cast<void>(first_value);
             static_cast<void>(second_value);
         };
         expect(packed_kernel.function() != nullptr);

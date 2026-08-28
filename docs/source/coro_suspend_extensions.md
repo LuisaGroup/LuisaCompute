@@ -184,6 +184,108 @@ This keeps liveness, frame coloring, relocation, and SoA/AoS storage under the
 existing coroutine ABI analysis. A scheduler must never recover an extension
 operand by looking up a hard-coded source name such as `coro_hint`.
 
+### Partial-frame reconstruction protocol
+
+A binary read/write classification is insufficient for an external stage. It
+would conflate values consumed by the stage, values merely kept alive across
+it, values defined by it, and physical carrier words needed by a partial
+write. The graph therefore exposes binding-local effects separately from a
+stage-wide data-flow plan.
+
+Let `A` be the unique logical frame-atom domain after aggregate decomposition
+and before interference coloring. Let `phi(a) = (slot, slice)` map an atom to
+its colored physical slot and, for packed Booleans, its bit slice. For the
+extensions on one static boundary in declaration order, define:
+
+```text
+U_i = atoms read by extension i      (read or read_write bindings)
+D_i = atoms must-defined by i        (write or read_write bindings)
+L_m = complete resident live set required by the target continuation
+
+L_i = U_i union (L_(i+1) - D_i)      for i = m-1 ... 0
+```
+
+Extensions execute in owner order. Reusing one logical atom in adjacent
+extensions denotes successive versions of that atom: a definition by stage
+`i` satisfies a use by stage `i + 1` through the same colored frame slot. It
+does not create a second atom or a second extension-only slot.
+
+Thus extension `i` has:
+
+```text
+live_in_i      = L_i
+live_out_i     = L_(i+1)
+preserve_i     = live_out_i - D_i
+required_def_i = D_i intersect live_out_i
+```
+
+`live_out` is the complete token-indexed resident state, including values
+first used by later continuations. It is not the smaller set loaded into the
+immediately resumed kernel. `D_i` is a must-def set: every successful handler
+path must produce those values. A `read_write` binding is in both `U_i` and
+`D_i`, so its old value is live-in and its new value can be live-out.
+
+`CoroSlotAccess` records the binding-local projections of `use`, `def`, and
+read-modify-write carrier slots. The boundary's stage plan records the logical
+and physical projections of `live_in`, `live_out`, `preserve`, and
+`required_def`. A user executes an external pass as follows:
+
+1. Reconstruct a partial `CoroFrame` by loading only `phi(U_i)` plus the RMW
+   carriers required by partial physical writes.
+2. Read and write bindings through their typed `CoroSlotAccess` callables.
+   Those callables may access only the slots declared by the plan.
+3. Write back only `phi(required_def_i)`. If scheduling relocates a frame to a
+   different queue or storage allocation, transport `phi(live_in_i)` into the
+   stage and `phi(live_out_i)` out of it. An in-place stage leaves
+   `preserve_i` resident and performs no traffic for it.
+
+The source continuation uses the same transfer. If `K_e` is the set
+must-defined by source code before edge `e`, `T_e` is the set touched on that
+source path, and `G_e` is the reverse extension transfer above, then the
+inter-scope fixed point propagates
+
+```text
+source_requirement_e = G_e(live_begin(target_e)) - K_e
+source_store_e       = (G_e(live_begin(target_e)) intersect T_e)
+                       union G_e(empty)
+                       union designated_e
+```
+
+Consequently a value produced by an early external stage and consumed by a
+later one is never loaded or spilled as an old source value. A value already
+resident and untouched by the source is left in backing storage unless an
+extension consumes it at this boundary. `G_e(empty)` is exactly the set of
+extension inputs not satisfied by an earlier external definition; it also
+captures source-callable arguments and replayable expressions that ordinary
+`touched` analysis intentionally omits. The boundary exposes this exact spill
+certificate as `source_store`, and exposes the terminal resident certificate
+as `target_live`.
+
+A write-only packed Boolean has no logical use, but its shared physical `uint`
+carrier is an RMW slot because neighboring live bits must survive. Physical
+slot sets may therefore overlap even when their logical atom sets are
+disjoint.
+
+The recurrence gives a direct completeness argument. Assume the backing frame
+represents `live_in_i`. Every stage use is reconstructable, every definition
+is produced, and every member of `preserve_i` remains unchanged. Writing back
+`required_def_i` therefore makes the backing frame represent `live_out_i`.
+Induction over the extension sequence yields `L_m`, exactly the state required
+by the target continuation. Omitting any logical use, RMW carrier, or required
+definition admits a program that observes a missing or corrupted value.
+
+The source fixed point supplies the induction base: every member of `L_0` is
+either freshly stored because the source touched it, already resident because
+the source did not touch it, or designated explicitly. Source must-defs remove
+the need to load older versions. Thus the three user operations--reconstruct,
+invoke typed binding access, and commit modified slots--are sufficient for
+both in-place and relocating schedulers.
+
+Loading or storing the complete frame is not a valid shortcut. Coloring makes
+slots outside the current live domain intentionally undefined, and a dormant
+pass-through value need not be loaded merely because it shares the frame
+allocation.
+
 A write operand is a data-flow definition made by the extension between the
 source scope and the resumed scope. AST-to-XIR must preserve the logical lvalue
 and access chain rather than load it as an ordinary input. CFG distillation

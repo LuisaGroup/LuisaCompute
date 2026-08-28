@@ -55,6 +55,7 @@ struct PointerScopeDataflowState {
     const DenseValueDomain *domain{nullptr};
     CoroReplayableValueAnalysis *replayable{nullptr};
     luisa::unordered_set<size_t> killed;
+    luisa::unordered_set<size_t> external_defined;
     luisa::unordered_set<size_t> external;
     luisa::unordered_set<size_t> touched;
 
@@ -66,15 +67,22 @@ struct PointerScopeDataflowState {
         : domain{&value_domain}, replayable{&analysis} {}
 
     void kill(size_t index) noexcept { killed.emplace(index); }
+    void define_external(size_t index) noexcept {
+        external_defined.emplace(index);
+    }
     void expose(size_t index) noexcept { external.emplace(index); }
     void touch(size_t index) noexcept { touched.emplace(index); }
     [[nodiscard]] bool is_killed(size_t index) const noexcept {
-        return killed.contains(index);
+        return killed.contains(index) ||
+               external_defined.contains(index);
     }
 };
 
 struct SparseBlockEffect {
     luisa::vector<size_t> killed;
+    // Temporary version barriers inside one ordered Extension sequence. They
+    // suppress later exposed uses but are not source-code kill generators.
+    luisa::vector<size_t> external_defined;
     luisa::vector<size_t> external;
     luisa::vector<size_t> touched;
 };
@@ -87,6 +95,7 @@ struct SparseBlockTransferState {
     static constexpr auto killed_bit = uint8_t{1u << 0u};
     static constexpr auto external_bit = uint8_t{1u << 1u};
     static constexpr auto touched_bit = uint8_t{1u << 2u};
+    static constexpr auto external_defined_bit = uint8_t{1u << 3u};
 
     const DenseValueDomain *domain{nullptr};
     CoroReplayableValueAnalysis *replayable{nullptr};
@@ -103,6 +112,10 @@ struct SparseBlockTransferState {
     void kill(size_t index) noexcept {
         record(index, killed_bit, effect->killed);
     }
+    void define_external(size_t index) noexcept {
+        record(index, external_defined_bit,
+               effect->external_defined);
+    }
     void expose(size_t index) noexcept {
         record(index, external_bit, effect->external);
     }
@@ -110,12 +123,16 @@ struct SparseBlockTransferState {
         record(index, touched_bit, effect->touched);
     }
     [[nodiscard]] bool is_killed(size_t index) const noexcept {
-        return (marks[index] & killed_bit) != 0u;
+        return (marks[index] &
+                (killed_bit | external_defined_bit)) != 0u;
     }
     void reset_marks() noexcept {
         for (auto index : effect->killed) { marks[index] = 0u; }
         for (auto index : effect->external) { marks[index] = 0u; }
         for (auto index : effect->touched) { marks[index] = 0u; }
+        for (auto index : effect->external_defined) {
+            marks[index] = 0u;
+        }
     }
 };
 
@@ -191,6 +208,17 @@ void begin_memory_lifetime(Value *pointer, State &state) noexcept {
     // at the local, but it does not create a value that must be stored.
     for (auto access : state.domain->memory_accesses(pointer)) {
         state.kill(access.atom_index);
+    }
+}
+
+template<typename State>
+void define_memory(Value *pointer, State &state) noexcept {
+    // An external-stage write is a must-definition of every logical atom in
+    // the binding projection. It changes the value version seen by later
+    // extensions, but it is not a source-continuation touch: the host writes
+    // the backing frame only after this kernel has suspended.
+    for (auto access : state.domain->memory_accesses(pointer)) {
+        state.define_external(access.atom_index);
     }
 }
 
@@ -303,6 +331,10 @@ void transfer_instruction(Instruction *inst, State &state) noexcept {
             // are therefore attached to the transition by CFG distillation,
             // not manufactured here as reads of an uninitialized lvalue.
             for (auto &&extension : suspend->extensions()) {
+                // All uses of one Extension observe its input version; all
+                // must-defs become visible together to the next Extension.
+                // This is the same ordered transfer later certified by CFG
+                // distillation, applied here only to exposed-use discovery.
                 for (auto &&binding : extension->bindings()) {
                     auto *value = suspend->extension_binding_value(
                         binding.index);
@@ -322,6 +354,17 @@ void transfer_instruction(Instruction *inst, State &state) noexcept {
                             use_pointer_indices(value, state);
                             break;
                     }
+                }
+                for (auto &&binding : extension->bindings()) {
+                    if (binding.lifetime ==
+                            CoroSuspendBindingLifetime::boundary ||
+                        binding.access ==
+                            CoroSuspendBindingAccess::read) {
+                        continue;
+                    }
+                    define_memory(
+                        suspend->extension_binding_value(binding.index),
+                        state);
                 }
             }
             break;
@@ -354,6 +397,7 @@ struct PointerScopeDataflowResult {
     const PointerScopeDataflowState &a,
     const PointerScopeDataflowState &b) noexcept {
     return same_set(a.killed, b.killed) &&
+           same_set(a.external_defined, b.external_defined) &&
            same_set(a.external, b.external) &&
            same_set(a.touched, b.touched);
 }

@@ -40,17 +40,23 @@ private:
     CoroSuspendBindingLifetime _lifetime{
         CoroSuspendBindingLifetime::boundary};
     luisa::vector<Piece> _pieces;
+    // Binding-local logical effects and their physical projection. Stage-wide
+    // liveness belongs to CoroGraph::Boundary::Stage, not to each binding.
+    luisa::vector<size_t> _use_frame_values;
+    luisa::vector<size_t> _def_frame_values;
+    luisa::vector<size_t> _use_slots;
+    luisa::vector<size_t> _def_slots;
+    // Physical carriers that must be reconstructed even without a logical
+    // use. Currently this is the shared uint of a packed Boolean write.
+    luisa::vector<size_t> _rmw_slots;
+    luisa::vector<size_t> _reconstruct_slots;
 
 private:
     friend class CoroGraph;
     CoroSlotAccess(
         const Type *type, CoroSuspendBindingAccess access,
         CoroSuspendBindingLifetime lifetime,
-        luisa::vector<Piece> pieces) noexcept
-        : _type{type},
-          _access{access},
-          _lifetime{lifetime},
-          _pieces{std::move(pieces)} {}
+        luisa::vector<Piece> pieces) noexcept;
 
     [[nodiscard]] const Expression *_read(CoroFrame &frame) const noexcept;
     void _write(CoroFrame &frame, const Expression *value) const noexcept;
@@ -76,6 +82,30 @@ public:
     }
     [[nodiscard]] auto pieces() const noexcept {
         return luisa::span<const Piece>{_pieces};
+    }
+    [[nodiscard]] auto use_frame_values() const noexcept {
+        return luisa::span<const size_t>{_use_frame_values};
+    }
+    [[nodiscard]] auto def_frame_values() const noexcept {
+        return luisa::span<const size_t>{_def_frame_values};
+    }
+    /// Physical CoroFrameDesc field indices logically consumed by read or
+    /// read-write access. Duplicate colored slots are removed.
+    [[nodiscard]] auto use_slots() const noexcept {
+        return luisa::span<const size_t>{_use_slots};
+    }
+    /// Physical fields dirtied by write or read-write access. Whether a dirty
+    /// field must be written back is decided by stage-wide live-out analysis.
+    [[nodiscard]] auto def_slots() const noexcept {
+        return luisa::span<const size_t>{_def_slots};
+    }
+    [[nodiscard]] auto rmw_slots() const noexcept {
+        return luisa::span<const size_t>{_rmw_slots};
+    }
+    /// Minimal fields that must initialize a partial CoroFrame before invoking
+    /// this access: logical uses union physical RMW carriers.
+    [[nodiscard]] auto reconstruct_slots() const noexcept {
+        return luisa::span<const size_t>{_reconstruct_slots};
     }
 
     template<typename T>

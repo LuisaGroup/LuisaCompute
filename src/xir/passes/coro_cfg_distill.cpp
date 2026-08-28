@@ -182,7 +182,7 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
     DistillCertificateHasher h;
     // Version the schema so adding a semantic field cannot silently retain a
     // certificate computed by an older layout.
-    h.add(uint64_t{6u});
+    h.add(uint64_t{7u});
     h.add_pointer(definition);
     if (definition != nullptr) {
         h.add_pointer(definition->body_block());
@@ -328,6 +328,14 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
         for (auto &&access_chain :
              edge.extension_binding_access_chains) {
             hash_indices(access_chain);
+        }
+        hash_indices(edge.target_live_frame_value_indices);
+        h.add(edge.extension_stage_dataflow.size());
+        for (auto &stage : edge.extension_stage_dataflow) {
+            hash_indices(stage.use_frame_value_indices);
+            hash_indices(stage.def_frame_value_indices);
+            hash_indices(stage.live_in_frame_value_indices);
+            hash_indices(stage.live_out_frame_value_indices);
         }
         hash_names(edge.killed_variables);
         hash_names(edge.touched_variables);
@@ -511,7 +519,7 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
 
 template<typename T>
 [[nodiscard]] static bool distill_same_set(const luisa::unordered_set<T> &a,
-                                   const luisa::unordered_set<T> &b) noexcept {
+                                           const luisa::unordered_set<T> &b) noexcept {
     if (a.size() != b.size()) { return false; }
     for (auto &v : a) {
         if (!b.contains(v)) { return false; }
@@ -944,11 +952,25 @@ static void analyze_live_variables(
     };
 
     struct DenseTransitionData {
+        struct ExtensionStage {
+            DenseValueSet use;
+            DenseValueSet def;
+            DenseValueSet live_in;
+            DenseValueSet live_out;
+
+            explicit ExtensionStage(size_t count) noexcept
+                : use{count}, def{count}, live_in{count},
+                  live_out{count} {}
+        };
+
         DenseValueSet killed;
+        // Definitions made by the source continuation before reaching the
+        // suspension site. Extension definitions are intentionally kept out
+        // of this set: the ordered stage transfer accounts for them.
+        DenseValueSet source_killed;
         DenseValueSet touched;
         DenseValueSet designated;
         DenseValueSet extension_live;
-        DenseValueSet extension_store;
         DenseValueSet live;
         DenseValueSet store;
         // Owner binding index -> existing global atom indices. These are
@@ -957,13 +979,14 @@ static void analyze_live_variables(
         luisa::vector<luisa::vector<size_t>> extension_binding_atoms;
         luisa::vector<luisa::vector<uint32_t>>
             extension_binding_access_chains;
+        luisa::vector<ExtensionStage> extension_stages;
 
         explicit DenseTransitionData(size_t count) noexcept
             : killed{count},
+              source_killed{count},
               touched{count},
               designated{count},
               extension_live{count},
-              extension_store{count},
               live{count},
               store{count} {}
     };
@@ -985,8 +1008,9 @@ static void analyze_live_variables(
         edge.exit_block = exit_block;
         edge.is_suspend = is_suspend;
         auto &dense = edge_data.emplace_back(value_count);
-        dense.killed = scope_data[from].expand_to_global(
+        dense.source_killed = scope_data[from].expand_to_global(
             scope_data[from].killed_at_exit[location->second]);
+        dense.killed = dense.source_killed;
         dense.touched = scope_data[from].expand_to_global(
             scope_data[from].touched_at_exit[location->second]);
         if (is_suspend) {
@@ -1007,7 +1031,11 @@ static void analyze_live_variables(
                     "Validated coroutine designated value has no frame atom.");
                 dense.designated.set(*atom_index);
             }
+            dense.extension_stages.reserve(
+                suspend->extensions().size());
             for (auto &&extension : suspend->extensions()) {
+                auto &stage =
+                    dense.extension_stages.emplace_back(value_count);
                 for (auto &&binding : extension->bindings()) {
                     if (binding.lifetime ==
                         CoroSuspendBindingLifetime::boundary) {
@@ -1037,8 +1065,7 @@ static void analyze_live_variables(
                             ++result.invalid_cfg_error_count;
                             continue;
                         }
-                        dense.extension_binding_access_chains[
-                            binding.index] = std::move(*access_chain);
+                        dense.extension_binding_access_chains[binding.index] = std::move(*access_chain);
                         for (auto access :
                              value_domain.memory_accesses(value)) {
                             append_atom(access.atom_index);
@@ -1056,13 +1083,15 @@ static void analyze_live_variables(
                         dense.extension_live.set(atom_index);
                         switch (binding.access) {
                             case CoroSuspendBindingAccess::read:
-                                dense.extension_store.set(atom_index);
+                                stage.use.set(atom_index);
                                 break;
                             case CoroSuspendBindingAccess::write:
+                                stage.def.set(atom_index);
                                 dense.killed.set(atom_index);
                                 break;
                             case CoroSuspendBindingAccess::read_write:
-                                dense.extension_store.set(atom_index);
+                                stage.use.set(atom_index);
+                                stage.def.set(atom_index);
                                 dense.killed.set(atom_index);
                                 break;
                         }
@@ -1130,9 +1159,25 @@ static void analyze_live_variables(
         }
     }
 
-    // This is a backward may analysis over the distilled scope graph:
+    auto transfer_extension_stages_backward =
+        [&](size_t edge_index,
+            const DenseValueSet &target_live) noexcept {
+            auto live = target_live;
+            auto &stages = edge_data[edge_index].extension_stages;
+            for (size_t reverse = 0u;
+                 reverse < stages.size(); ++reverse) {
+                auto index = stages.size() - 1u - reverse;
+                live.subtract(stages[index].def);
+                live.union_with(stages[index].use);
+            }
+            return live;
+        };
+
+    // This is a backward may analysis over the distilled scope graph. Every
+    // suspend edge first applies its ordered external-stage transfer:
     //
-    //   L_s = E_s union U_(s -> t) (L_t - K_(s -> t)).
+    //   X_e = F_extensions(L_t)
+    //   L_s = E_s union U_(s -> t) (X_e - K_source_(s -> t)).
     //
     // Starting at E and applying the monotone transfer to a worklist computes
     // the least fixed point, including cyclic sample/bounce schedules. The
@@ -1154,8 +1199,10 @@ static void analyze_live_variables(
         auto next = scope_external[scope];
         for (auto edge_index : outgoing_edges[scope]) {
             auto &edge = result.transition_edges[edge_index];
-            auto propagated = live_begin[edge.to_scope];
-            propagated.subtract(edge_data[edge_index].killed);
+            auto propagated = transfer_extension_stages_backward(
+                edge_index, live_begin[edge.to_scope]);
+            propagated.subtract(
+                edge_data[edge_index].source_killed);
             next.union_with(propagated);
         }
         if (!(next == live_begin[scope])) {
@@ -1169,6 +1216,34 @@ static void analyze_live_variables(
         }
     }
 
+    // Refine every static suspend into an ordered external-stage liveness
+    // chain. The target's complete resident set is the terminal condition;
+    // it is intentionally larger than the immediate continuation reload set.
+    //
+    //   live_in_i = use_i union (live_out_i - def_i)
+    //   live_out_i = live_in_(i + 1)
+    //
+    // This certificate lets graph consumers reconstruct only the partial
+    // frame needed by one stage while preserving dormant state in backing
+    // storage.
+    for (size_t edge_index = 0u;
+         edge_index < result.transition_edges.size(); ++edge_index) {
+        auto &edge = result.transition_edges[edge_index];
+        auto &dense = edge_data[edge_index];
+        if (!edge.is_suspend) { continue; }
+        auto next = live_begin[edge.to_scope];
+        for (size_t reverse = 0u;
+             reverse < dense.extension_stages.size(); ++reverse) {
+            auto index = dense.extension_stages.size() - 1u - reverse;
+            auto &stage = dense.extension_stages[index];
+            stage.live_out = next;
+            stage.live_in = next;
+            stage.live_in.subtract(stage.def);
+            stage.live_in.union_with(stage.use);
+            next = stage.live_in;
+        }
+    }
+
     luisa::vector<DenseValueSet> live_in(
         n, DenseValueSet{value_count});
     luisa::vector<DenseValueSet> live_out(
@@ -1177,20 +1252,31 @@ static void analyze_live_variables(
         live_in[s] = scope_external[s];
         for (auto edge_index : outgoing_edges[s]) {
             auto &edge = result.transition_edges[edge_index];
-            auto propagated = live_begin[edge.to_scope];
-            propagated.subtract(edge_data[edge_index].killed);
+            auto edge_live_in = transfer_extension_stages_backward(
+                edge_index, live_begin[edge.to_scope]);
+            auto propagated = edge_live_in;
+            propagated.subtract(
+                edge_data[edge_index].source_killed);
             auto reload = propagated;
             reload.intersect_with(scope_touched[s]);
             live_in[s].union_with(reload);
-            auto store = live_begin[edge.to_scope];
+            auto store = edge_live_in;
             store.intersect_with(edge_data[edge_index].touched);
+            // Extension operands that reach the boundary before any earlier
+            // external definition must be snapshotted even when they are
+            // source-callable arguments or replayable values and therefore do
+            // not appear in the ordinary touched set. Applying the same stage
+            // transfer to an empty terminal set selects exactly those inputs;
+            // values produced by an earlier Extension are excluded.
+            auto extension_input = transfer_extension_stages_backward(
+                edge_index, DenseValueSet{value_count});
+            store.union_with(extension_input);
             edge_data[edge_index].live = live_begin[edge.to_scope];
             edge_data[edge_index].live.union_with(
                 edge_data[edge_index].designated);
             edge_data[edge_index].live.union_with(
                 edge_data[edge_index].extension_live);
             store.union_with(edge_data[edge_index].designated);
-            store.union_with(edge_data[edge_index].extension_store);
             edge_data[edge_index].store = std::move(store);
             live_out[s].union_with(edge_data[edge_index].store);
         }
@@ -1354,6 +1440,17 @@ static void analyze_live_variables(
         append_frame_value_indices(
             edge.store_frame_value_indices, dense.store,
             atom_to_frame_value_range);
+        append_frame_value_indices(
+            edge.target_live_frame_value_indices,
+            live_begin[edge.to_scope], atom_to_frame_value_range);
+        auto normalize_frame_indices = [](auto &indices) noexcept {
+            std::sort(indices.begin(), indices.end());
+            indices.erase(
+                std::unique(indices.begin(), indices.end()),
+                indices.end());
+        };
+        normalize_frame_indices(
+            edge.target_live_frame_value_indices);
         edge.extension_binding_frame_value_indices.clear();
         edge.extension_binding_frame_value_indices.resize(
             dense.extension_binding_atoms.size());
@@ -1403,6 +1500,29 @@ static void analyze_live_variables(
             projection.erase(
                 std::unique(projection.begin(), projection.end()),
                 projection.end());
+        }
+        edge.extension_stage_dataflow.clear();
+        edge.extension_stage_dataflow.reserve(
+            dense.extension_stages.size());
+        for (auto &dense_stage : dense.extension_stages) {
+            auto &stage =
+                edge.extension_stage_dataflow.emplace_back();
+            append_frame_value_indices(
+                stage.use_frame_value_indices,
+                dense_stage.use, atom_to_frame_value_range);
+            append_frame_value_indices(
+                stage.def_frame_value_indices,
+                dense_stage.def, atom_to_frame_value_range);
+            append_frame_value_indices(
+                stage.live_in_frame_value_indices,
+                dense_stage.live_in, atom_to_frame_value_range);
+            append_frame_value_indices(
+                stage.live_out_frame_value_indices,
+                dense_stage.live_out, atom_to_frame_value_range);
+            normalize_frame_indices(stage.use_frame_value_indices);
+            normalize_frame_indices(stage.def_frame_value_indices);
+            normalize_frame_indices(stage.live_in_frame_value_indices);
+            normalize_frame_indices(stage.live_out_frame_value_indices);
         }
         append_names_from_frame_values(
             edge.killed_variables, edge.killed_frame_value_indices, result);
@@ -1463,32 +1583,56 @@ static void analyze_live_variables(
                 to_pointer_set(scope_touched[i]));
         }
         luisa::vector<luisa::unordered_set<size_t>>
-            oracle_edge_killed;
+            oracle_edge_source_killed;
         luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_touched;
         luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_designated;
         luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_extension_live;
-        luisa::vector<luisa::unordered_set<size_t>>
-            oracle_edge_extension_store;
-        oracle_edge_killed.reserve(edge_data.size());
+        struct OracleExtensionStage {
+            luisa::unordered_set<size_t> use;
+            luisa::unordered_set<size_t> def;
+        };
+        luisa::vector<luisa::vector<OracleExtensionStage>>
+            oracle_edge_extension_stages;
+        oracle_edge_source_killed.reserve(edge_data.size());
         oracle_edge_touched.reserve(edge_data.size());
         oracle_edge_designated.reserve(edge_data.size());
         oracle_edge_extension_live.reserve(edge_data.size());
-        oracle_edge_extension_store.reserve(edge_data.size());
+        oracle_edge_extension_stages.reserve(edge_data.size());
         for (auto &data : edge_data) {
-            oracle_edge_killed.emplace_back(
-                to_pointer_set(data.killed));
+            oracle_edge_source_killed.emplace_back(
+                to_pointer_set(data.source_killed));
             oracle_edge_touched.emplace_back(
                 to_pointer_set(data.touched));
             oracle_edge_designated.emplace_back(
                 to_pointer_set(data.designated));
             oracle_edge_extension_live.emplace_back(
                 to_pointer_set(data.extension_live));
-            oracle_edge_extension_store.emplace_back(
-                to_pointer_set(data.extension_store));
+            auto &stages =
+                oracle_edge_extension_stages.emplace_back();
+            stages.reserve(data.extension_stages.size());
+            for (auto &stage : data.extension_stages) {
+                stages.emplace_back(OracleExtensionStage{
+                    .use = to_pointer_set(stage.use),
+                    .def = to_pointer_set(stage.def)});
+            }
         }
+
+        auto transfer_oracle_extension_stages_backward =
+            [&](size_t edge_index, const auto &target_live) noexcept {
+                auto live = target_live;
+                auto &stages =
+                    oracle_edge_extension_stages[edge_index];
+                for (size_t reverse = 0u;
+                     reverse < stages.size(); ++reverse) {
+                    auto index = stages.size() - 1u - reverse;
+                    live = difference(live, stages[index].def);
+                    append(live, stages[index].use);
+                }
+                return live;
+            };
 
         luisa::vector<luisa::unordered_set<size_t>>
             oracle_live_begin(n);
@@ -1500,9 +1644,13 @@ static void analyze_live_variables(
                 auto next = oracle_external[scope];
                 for (auto edge_index : outgoing_edges[scope]) {
                     auto &edge = result.transition_edges[edge_index];
+                    auto edge_live_in =
+                        transfer_oracle_extension_stages_backward(
+                            edge_index,
+                            oracle_live_begin[edge.to_scope]);
                     auto propagated = difference(
-                        oracle_live_begin[edge.to_scope],
-                        oracle_edge_killed[edge_index]);
+                        edge_live_in,
+                        oracle_edge_source_killed[edge_index]);
                     append(next, propagated);
                 }
                 if (!distill_same_set(oracle_live_begin[scope], next)) {
@@ -1525,9 +1673,13 @@ static void analyze_live_variables(
             oracle_live_in[scope] = oracle_external[scope];
             for (auto edge_index : outgoing_edges[scope]) {
                 auto &edge = result.transition_edges[edge_index];
+                auto edge_live_in =
+                    transfer_oracle_extension_stages_backward(
+                        edge_index,
+                        oracle_live_begin[edge.to_scope]);
                 auto propagated = difference(
-                    oracle_live_begin[edge.to_scope],
-                    oracle_edge_killed[edge_index]);
+                    edge_live_in,
+                    oracle_edge_source_killed[edge_index]);
                 auto reload = intersection(
                     propagated, oracle_touched[scope]);
                 append(oracle_live_in[scope], reload);
@@ -1538,12 +1690,16 @@ static void analyze_live_variables(
                 append(oracle_edge_live[edge_index],
                        oracle_edge_extension_live[edge_index]);
                 oracle_edge_store[edge_index] = intersection(
-                    oracle_live_begin[edge.to_scope],
+                    edge_live_in,
                     oracle_edge_touched[edge_index]);
+                auto extension_input =
+                    transfer_oracle_extension_stages_backward(
+                        edge_index,
+                        luisa::unordered_set<size_t>{});
+                append(oracle_edge_store[edge_index],
+                       extension_input);
                 append(oracle_edge_store[edge_index],
                        oracle_edge_designated[edge_index]);
-                append(oracle_edge_store[edge_index],
-                       oracle_edge_extension_store[edge_index]);
                 append(oracle_live_out[scope],
                        oracle_edge_store[edge_index]);
             }
@@ -1552,11 +1708,11 @@ static void analyze_live_variables(
         for (size_t scope = 0u; scope < n; ++scope) {
             LUISA_ASSERT(
                 distill_same_set(to_pointer_set(live_begin[scope]),
-                         oracle_live_begin[scope]) &&
+                                 oracle_live_begin[scope]) &&
                     distill_same_set(to_pointer_set(live_in[scope]),
-                             oracle_live_in[scope]) &&
+                                     oracle_live_in[scope]) &&
                     distill_same_set(to_pointer_set(live_out[scope]),
-                             oracle_live_out[scope]),
+                                     oracle_live_out[scope]),
                 "Dense inter-scope liveness differs from the pointer oracle "
                 "for scope token {}.",
                 result.scopes[scope].trigger_token);
@@ -1565,9 +1721,9 @@ static void analyze_live_variables(
              edge_index < edge_data.size(); ++edge_index) {
             LUISA_ASSERT(
                 distill_same_set(to_pointer_set(edge_data[edge_index].live),
-                         oracle_edge_live[edge_index]) &&
+                                 oracle_edge_live[edge_index]) &&
                     distill_same_set(to_pointer_set(edge_data[edge_index].store),
-                             oracle_edge_store[edge_index]),
+                                     oracle_edge_store[edge_index]),
                 "Dense inter-scope edge liveness differs from the pointer "
                 "oracle at edge {}.",
                 edge_index);
