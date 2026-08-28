@@ -80,6 +80,7 @@ example_proj("example_tile_bench", "compute/tile_bench.cpp", false)
             end)
         end
         coro_example_proj("example_coro_sdf_renderer", "rendering/coro_sdf_renderer.cpp", false)
+        coro_example_proj("example_coro_external_stage_debug", "coro/external_stage_debug.cpp", false)
         coro_example_proj("example_coro_path_tracing", "rendering/coro_path_tracing.cpp", false)
         coro_example_proj("example_coro_path_tracing_wavefront", "rendering/coro_path_tracing.cpp", false, function()
             add_defines("LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1")

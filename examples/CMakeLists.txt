@@ -118,6 +118,17 @@ luisa_compute_add_example(example_multi_head_attention
         MIRROR_AS_TEST)
 
 # coroutine (headless)
+luisa_compute_add_example(example_coro_external_stage_debug
+        coro/external_stage_debug.cpp)
+if (LUISA_COMPUTE_BUILD_TESTS AND TARGET luisa-compute-backend-metal)
+    add_test(NAME metal_example_coro_external_stage_debug
+            COMMAND $<TARGET_FILE:example_coro_external_stage_debug> metal)
+    set_tests_properties(metal_example_coro_external_stage_debug PROPERTIES
+            LABELS "integration_metal;coro_external_stage"
+            TIMEOUT 120
+            WORKING_DIRECTORY
+            $<TARGET_FILE_DIR:example_coro_external_stage_debug>)
+endif ()
 luisa_compute_add_example(example_coro_path_tracing rendering/coro_path_tracing.cpp)
 luisa_compute_add_example(example_coro_path_tracing_wavefront rendering/coro_path_tracing.cpp)
 target_compile_definitions(example_coro_path_tracing_wavefront
