@@ -390,7 +390,15 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
         app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         app_info.pApplicationName = "luisa_compute";
         app_info.pEngineName = app_info.pApplicationName;
-        app_info.apiVersion = VK_API_VERSION_1_3;
+  // The instance apiVersion advertises the highest core version the backend may
+  // use (Vulkan 1.3 entry points: vkCmdPipelineBarrier2/vkCmdCopyBuffer2/...).
+  // It must NOT be lowered to the device floor: loaders and validation layers
+  // refuse to hand out core entry points above the instance's declared version,
+  // which would leave the 1.3 function pointers null even on 1.3+ devices.
+  // Vulkan 1.2 devices remain supported: the loader clamps the requested
+  // version, and Device::sync2_capable()/copy2_capable() select the legacy
+  // barrier/copy paths when the device lacks the 1.3 core entry points.
+  app_info.apiVersion = VK_API_VERSION_1_3;
         // Get extensions supported by the instance and store for later use
         uint32_t ext_count = 0;
         vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr);
@@ -605,6 +613,10 @@ void Device::destroy_accel(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo Device::create_motion_instance(const AccelMotionOption &option) noexcept {
+    if (!motion_blur_enabled) [[unlikely]] {
+        LUISA_ERROR("Motion instances require VK_NV_ray_tracing_motion_blur, "
+                    "which is not enabled on this device.");
+    }
     auto instance = new MotionInstance(this, option);
     return ResourceCreationInfo{
         .handle = reinterpret_cast<uint64_t>(instance),
@@ -642,6 +654,16 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         device_idx = configs->device_index;
         _binary_io = configs->binary_io;
         _inqueue_limit = configs->inqueue_buffer_limit;
+    }
+    // Honor a compile-time minimum API version (xmake option
+    // lc_vk_min_api_version) and an explicit config-extension override. The
+    // runtime override wins over the compile-time define.
+#ifdef LC_VK_MIN_API_VERSION
+    _min_api_version = LC_VK_MIN_API_VERSION;
+#endif
+    if (_config_ext) {
+        auto configured_min = _config_ext->min_api_version();
+        if (configured_min != 0u) { _min_api_version = configured_min; }
     }
     VkPhysicalDevice ext_phy_device{};
     VkDevice ext_device{};
@@ -930,10 +952,13 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         // GPU selection
 
         // Select physical device to be used for the Vulkan example
-        // Defaults to the first device unless specified by command line
+        // Defaults to the first usable device unless specified by command line
         VkPhysicalDeviceProperties device_properties;
         if (selected_device == -1) {
-#if defined(LUISA_PLATFORM_APPLE)
+            // Unified scoring for all platforms: prefer graphics+compute
+            // devices with bindless capacity, real GPUs over
+            // virtual/CPU devices (avoids picking SwiftShader on Android
+            // emulators when hardware exists), then higher API version.
             selected_device = 0;
             detail::DefaultDeviceCandidate selected_candidate{};
             for (uint32_t i = 0u; i < gpu_count; i++) {
@@ -949,12 +974,17 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                         return queue_family.queueCount > 0u &&
                                (queue_family.queueFlags & required) == required;
                     });
+                VkPhysicalDeviceProperties candidate_properties{};
+                vkGetPhysicalDeviceProperties(
+                    physical_devices[i], &candidate_properties);
                 auto candidate = detail::DefaultDeviceCandidate{
                     .supports_graphics_compute = supports_graphics_compute,
                     .bindless_heap_capacity =
                         bindless_enabled ?
                             query_bindless_heap_capacity(physical_devices[i]) :
-                            0u};
+                            0u,
+                    .device_type = candidate_properties.deviceType,
+                    .api_version = candidate_properties.apiVersion};
                 if (detail::prefer_default_device_candidate(
                         candidate, selected_candidate, bindless_enabled)) {
                     selected_device = i;
@@ -964,23 +994,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             vkGetPhysicalDeviceProperties(
                 physical_devices[selected_device], &device_properties);
             LUISA_INFO(
-                "Select device: {} (device ID: {:#010x}, bindless capacity: {})",
+                "Select device: {} (device ID: {:#010x}, type: {}, API "
+                "{}.{}.{}, bindless capacity: {})",
                 device_properties.deviceName, device_properties.deviceID,
+                vks::tools::physical_device_type_string(
+                    device_properties.deviceType),
+                VK_API_VERSION_MAJOR(device_properties.apiVersion),
+                VK_API_VERSION_MINOR(device_properties.apiVersion),
+                VK_API_VERSION_PATCH(device_properties.apiVersion),
                 selected_candidate.bindless_heap_capacity);
-#else
-            selected_device = 0;
-            for (auto &&i : physical_devices) {
-                vkGetPhysicalDeviceProperties(i, &device_properties);
-                luisa::string device_name{device_properties.deviceName};
-                if (device_name.find("GeForce") != luisa::string::npos ||
-                    device_name.find("Radeon") != luisa::string::npos ||
-                    device_name.find("Arc") != luisa::string::npos) {
-                    LUISA_INFO("Select device: {}", device_name);
-                    break;
-                }
-                selected_device++;
-            }
-#endif
         }
         physical_device = physical_devices[std::min<uint32_t>(selected_device, physical_devices.size() - 1)];
     }
@@ -1069,38 +1091,67 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     auto api_version = _vk_device->properties.apiVersion;
     auto has_core_timeline_semaphore = api_version >= VK_API_VERSION_1_2;
     auto has_core_synchronization2 = api_version >= VK_API_VERSION_1_3;
+    auto has_core_copy_commands2 = api_version >= VK_API_VERSION_1_3;
     auto has_physical_device_api_1_3 =
         api_version >= VK_API_VERSION_1_3;
+    auto sync2_extension_available =
+        supports_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+    auto copy2_extension_available =
+        supports_device_extension(VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME);
+    // When a 1.2 floor is requested (explicitly via config, or because the
+    // device only exposes 1.2), the backend must use the classic
+    // vkCmdPipelineBarrier/vkCmdCopyBuffer paths instead of the 1.3 core
+    // entry points. Capability *support* (used for device acceptance) is
+    // evaluated independently of this path choice.
+    auto force_legacy_sync_copy =
+        _min_api_version != 0u && _min_api_version <= VK_API_VERSION_1_2;
     VkPhysicalDeviceSynchronization2Features supported_synchronization2{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
         .pNext = nullptr};
-    if (has_core_synchronization2 ||
-        supports_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME)) {
+    if (has_core_synchronization2 || sync2_extension_available) {
         VkPhysicalDeviceFeatures2 features2{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
             .pNext = &supported_synchronization2};
         vkGetPhysicalDeviceFeatures2(physical_device, &features2);
     }
-    auto required_device_features = detail::plan_required_device_features({.timeline_semaphore_core = has_core_timeline_semaphore,
-                                                                           .timeline_semaphore_extension =
-                                                                               supports_device_extension(
-                                                                                   VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME),
-                                                                           .timeline_semaphore_feature =
-                                                                               _vk_device->features_12.timelineSemaphore == VK_TRUE,
-                                                                           .synchronization2_core = has_core_synchronization2,
-                                                                           .synchronization2_extension =
-                                                                               supports_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME),
-                                                                           .synchronization2_feature =
-                                                                               supported_synchronization2.synchronization2 == VK_TRUE,
-                                                                           .physical_device_api_1_3 = has_physical_device_api_1_3});
+    sync2_capable_bit =
+        !force_legacy_sync_copy &&
+        (has_core_synchronization2 ||
+         (sync2_extension_available &&
+          supported_synchronization2.synchronization2 == VK_TRUE));
+    copy2_capable_bit =
+        !force_legacy_sync_copy &&
+        (has_core_copy_commands2 || copy2_extension_available);
+    if (force_legacy_sync_copy) {
+        LUISA_INFO(
+            "Vulkan minimum API version {}.{} requested: using legacy "
+            "barrier/copy paths (sync2={}, copy2={}).",
+            VK_API_VERSION_MAJOR(_min_api_version),
+            VK_API_VERSION_MINOR(_min_api_version),
+            static_cast<bool>(sync2_capable_bit),
+            static_cast<bool>(copy2_capable_bit));
+    }
+    auto required_device_features = detail::plan_required_device_features(
+        {.timeline_semaphore_core = has_core_timeline_semaphore,
+         .timeline_semaphore_extension =
+             supports_device_extension(
+                 VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME),
+         .timeline_semaphore_feature =
+             _vk_device->features_12.timelineSemaphore == VK_TRUE,
+         .synchronization2_core = has_core_synchronization2,
+         .synchronization2_extension = sync2_extension_available,
+         .synchronization2_feature =
+             supported_synchronization2.synchronization2 == VK_TRUE,
+         .copy_commands2_core = has_core_copy_commands2,
+         .copy_commands2_extension = copy2_extension_available,
+         .physical_device_api_1_3 = has_physical_device_api_1_3});
     if (!required_device_features.supported) [[unlikely]] {
         LUISA_ERROR(
-            "The Vulkan backend requires a Vulkan 1.3 physical device "
-            "because it uses the core copy_commands2 entry points, as well "
-            "as timelineSemaphore and synchronization2; "
+            "The Vulkan backend requires timelineSemaphore and "
+            "synchronization2 (core Vulkan 1.2/1.3 or their extensions); "
             "physical device API {}.{}.{} reports timelineSemaphore={} "
             "(core={}, extension={}) and synchronization2={} "
-            "(core={}, extension={}) and core copy_commands2={}.",
+            "(core={}, extension={}).",
             VK_API_VERSION_MAJOR(api_version),
             VK_API_VERSION_MINOR(api_version),
             VK_API_VERSION_PATCH(api_version),
@@ -1110,26 +1161,30 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME),
             supported_synchronization2.synchronization2 == VK_TRUE,
             has_core_synchronization2,
-            supports_device_extension(
-                VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME),
-            has_physical_device_api_1_3);
+            sync2_extension_available);
     }
     {
         VkPhysicalDeviceProperties2 properties2{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
             .pNext = &_timeline_semaphore_properties};
         vkGetPhysicalDeviceProperties2(physical_device, &properties2);
-        LUISA_ASSERT(
-            _timeline_semaphore_properties
-                    .maxTimelineSemaphoreValueDifference != 0u,
-            "Vulkan 1.3 timeline-semaphore support reported a zero "
-            "maxTimelineSemaphoreValueDifference.");
+        // Per the Vulkan spec, maxTimelineSemaphoreValueDifference == 0 means
+        // "no limit" (not an error). Log it for diagnostics only.
+        if (_timeline_semaphore_properties
+                .maxTimelineSemaphoreValueDifference == 0u) {
+            LUISA_INFO(
+                "Vulkan device reports maxTimelineSemaphoreValueDifference=0; "
+                "treated as no limit per the Vulkan specification.");
+        }
     }
     if (required_device_features.enable_timeline_semaphore_extension) {
         enable_device_extension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
     }
     if (required_device_features.enable_synchronization2_extension) {
         enable_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+    }
+    if (required_device_features.enable_copy_commands2_extension) {
+        enable_device_extension(VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME);
     }
     detail::NarrowNumericFeaturePlan narrow_numeric_features{};
     bool enable_float8 = false;
@@ -1579,6 +1634,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             _descriptor_indexing_properties.pNext = &maintenance3_properties;
             vkGetPhysicalDeviceProperties2(physical_device, &properties2);
             _descriptor_indexing_properties.pNext = nullptr;
+            // Honor a config-extension override of the requested bindless heap
+            // capacity (mobile builds typically lower it).
+            auto requested_capacity =
+                detail::requested_bindless_heap_capacity;
+            if (_config_ext) {
+                auto configured =
+                    _config_ext->requested_bindless_heap_capacity();
+                if (configured != 0u) { requested_capacity = configured; }
+            }
             _bindless_heap_capacity =
                 detail::plan_bindless_heap_capacity({.max_per_set_descriptors =
                                                          maintenance3_properties.maxPerSetDescriptors,
@@ -1597,14 +1661,14 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                                                      .max_per_stage_update_after_bind_resources =
                                                          _descriptor_indexing_properties.maxPerStageUpdateAfterBindResources,
                                                      .max_update_after_bind_descriptors_in_all_pools =
-                                                         _descriptor_indexing_properties.maxUpdateAfterBindDescriptorsInAllPools});
+                                                         _descriptor_indexing_properties.maxUpdateAfterBindDescriptorsInAllPools},
+                                                    requested_capacity);
             supported = _bindless_heap_capacity != 0u;
-            if (_bindless_heap_capacity <
-                detail::requested_bindless_heap_capacity) {
+            if (_bindless_heap_capacity < requested_capacity) {
                 LUISA_INFO(
                     "Vulkan bindless heap capacity clamped from {} to {} by "
                     "descriptor-indexing limits.",
-                    detail::requested_bindless_heap_capacity,
+                    requested_capacity,
                     _bindless_heap_capacity);
             }
             if (supported_ext.find(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) !=

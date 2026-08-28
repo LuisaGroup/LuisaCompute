@@ -3,6 +3,7 @@
 #include "resource_barrier.h"
 #include "resource_barrier_contract.h"
 #include "bindless_array.h"
+#include "command_buffer_sync.h"
 
 namespace lc::vk {
 namespace detail {
@@ -709,7 +710,7 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
         info.bufferMemoryBarrierCount = _buffer_barriers.size();
         info.pBufferMemoryBarriers = _buffer_barriers.data();
     }
-    vkCmdPipelineBarrier2(cmd_buffer, &info);
+    detail::cmd_pipeline_barrier(cmd_buffer, device, &info);
 }
 
 void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
@@ -784,7 +785,7 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
         info.bufferMemoryBarrierCount = _buffer_barriers.size();
         info.pBufferMemoryBarriers = _buffer_barriers.data();
     }
-    vkCmdPipelineBarrier2(cmd_buffer, &info);
+    detail::cmd_pipeline_barrier(cmd_buffer, device, &info);
     _buffer_frame_states.clear();
     _texture_frame_states.clear();
     clear_restore_states();

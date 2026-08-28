@@ -24,7 +24,14 @@ void Blas::_pre_build(
     if (_option.allow_update) {
         _acceleration_build_geometry_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
     }
-    // Enable BLAS-level vertex motion blur when the mesh has motion keyframes
+    // Enable BLAS-level vertex motion blur when the mesh has motion keyframes.
+    // VK_NV_ray_tracing_motion_blur is NVIDIA-only and unavailable on most
+    // Android GPUs; fail cleanly instead of referencing NV structs/flags with
+    // the extension disabled.
+    if (_option.motion.is_enabled() && !device()->enable_motion_blur()) [[unlikely]] {
+        LUISA_ERROR("BLAS vertex motion blur requires VK_NV_ray_tracing_motion_blur, "
+                    "which is not enabled on this device.");
+    }
     if (_option.motion.is_enabled()) {
         _acceleration_build_geometry_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_MOTION_BIT_NV;
     }
@@ -142,6 +149,12 @@ void Blas::pre_build(
     auto vertex_count_per_keyframe = total_vertex_count / keyframe_count;
 
     if (_option.motion.is_enabled() && keyframe_count == 2u) {
+        // VkAccelerationStructureGeometryMotionTrianglesDataNV is NV-only;
+        // guard it against devices without VK_NV_ray_tracing_motion_blur.
+        if (!device()->enable_motion_blur()) [[unlikely]] {
+            LUISA_ERROR("BLAS vertex motion blur requires VK_NV_ray_tracing_motion_blur, "
+                        "which is not enabled on this device.");
+        }
         // BLAS vertex motion blur: provide two keyframes via
         // VkAccelerationStructureGeometryMotionTrianglesDataNV.
         // Keyframe 0 goes into triangles.vertexData (the base geometry).

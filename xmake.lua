@@ -30,6 +30,25 @@ option("lc_use_lto", {default=false})
 -- enable Vulkan backend
 option("lc_vk_backend", {default = true})
 
+-- Android NDK installation directory (required when configuring for android)
+option("lc_ndk", {default = false,
+    description = "Android NDK installation directory. Required for -p android builds.",
+    showmenu = true})
+
+-- Vulkan backend: lower the requested update-after-bind heap capacity for
+-- low-end / mobile GPUs. Defaults to the desktop 262144-slot capacity.
+option("lc_vk_bindless_heap_capacity", {default = 262144,
+    description = "Requested Vulkan bindless heap capacity (0 disables bindless).",
+    showmenu = true})
+
+-- Vulkan backend: minimum supported Vulkan API version for device negotiation.
+-- "auto" (default) uses whatever the physical device exposes (preferring the
+-- sync2/copy2 paths on 1.3+ devices); "1.2" forces the legacy barrier/copy
+-- path (the Android-compatible floor) so CI can exercise it on a 1.3 device.
+option("lc_vk_min_api_version", {default = "auto",
+    description = "Minimum Vulkan API version for the Vulkan backend (auto, 1.2 or 1.3).",
+    showmenu = true})
+
 option("lc_vk_backend_use_xir_spirv", {default = false})
 -- Keep the legacy runtime DXC route available for unsupported Vulkan shader
 -- features. Projects that require a native-only Vulkan build can disable it;
