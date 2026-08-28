@@ -44,6 +44,10 @@ private:
 public:
     explicit MetalCompiler(const MetalDevice *device) noexcept;
 
+    [[nodiscard]] MetalShaderHandle load_cached(
+        const ShaderOption &option, uint64_t checksum,
+        MetalShaderMetadata &metadata) const noexcept;
+
     [[nodiscard]] MetalShaderHandle compile(
         luisa::span<const std::byte> metallib, const ShaderOption &option,
         MetalShaderMetadata &metadata) const noexcept;

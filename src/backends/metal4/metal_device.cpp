@@ -1,5 +1,6 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/ast/statement.h>
 
 #include "metal_builtin_air.h"
@@ -42,6 +43,29 @@
 namespace luisa::compute::metal {
 
 namespace {
+
+// Bump this whenever a Metal AIR lowering or ABI change can alter generated
+// code without changing the source AST, ShaderOption, or target tuple.
+constexpr auto metal_air_compute_cache_revision =
+    0x4c55495341414903ull;
+
+[[nodiscard]] uint64_t pack_air_version(
+    MetalAIRVersion version) noexcept {
+    return static_cast<uint64_t>(version.major) << 42u |
+           static_cast<uint64_t>(version.minor) << 21u |
+           static_cast<uint64_t>(version.patch);
+}
+
+[[nodiscard]] uint64_t metal_air_compute_cache_key(
+    Function kernel, const ShaderOption &option,
+    const MetalAIRTarget &target) noexcept {
+    return luisa::hash_combine({kernel.hash(),
+                                luisa::hash_value(option),
+                                static_cast<uint64_t>(target.platform),
+                                pack_air_version(target.operating_system_version),
+                                pack_air_version(target.sdk_version),
+                                metal_air_compute_cache_revision});
+}
 
 class SampledTextureArgumentAnalysis {
 
@@ -534,29 +558,44 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
                 binding);
         }
 
+        metadata.argument_sampled =
+            SampledTextureArgumentAnalysis{}.analyze(kernel);
+        auto air_target = metal_air_target_for_current_device();
+        auto cache_key = metal_air_compute_cache_key(
+            kernel, option, air_target);
+        metadata.checksum = cache_key;
+
         MetalShaderHandle pipeline;
         size_t generated_size_bytes = 0u;
         size_t generated_line_count = 0u;
         double codegen_ms = 0.0;
         double compile_ms = 0.0;
-        Clock codegen_clock;
-        metadata.argument_sampled =
-            SampledTextureArgumentAnalysis{}.analyze(kernel);
-        auto xir_module = metal_translate_ast_to_xir(kernel, option);
-        luisa::string unsupported_reason;
-        if (!luisa_compute_metal_codegen_llvm_supported(
-                *xir_module, &unsupported_reason)) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Metal4 LLVM/AIR code generation does not support this shader yet: {}.",
-                unsupported_reason);
+        {
+            Clock cache_clock;
+            pipeline = _compiler->load_cached(
+                option, cache_key, metadata);
+            compile_ms = cache_clock.toc();
         }
-        auto air = metal_codegen_air(*xir_module, option);
-        codegen_ms = codegen_clock.toc();
-        generated_size_bytes = air.library.size();
-        metadata.format_types = std::move(air.format_types);
-        Clock compile_clock;
-        pipeline = _compiler->compile(air.library, option, metadata);
-        compile_ms = compile_clock.toc();
+        if (!pipeline.entry || !pipeline.indirect_entry) {
+            Clock codegen_clock;
+            auto xir_module = metal_translate_ast_to_xir(kernel, option);
+            luisa::string unsupported_reason;
+            if (!luisa_compute_metal_codegen_llvm_supported(
+                    *xir_module, &unsupported_reason)) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Metal4 LLVM/AIR code generation does not support this shader yet: {}.",
+                    unsupported_reason);
+            }
+            auto air = metal_codegen_air(
+                *xir_module, option, air_target);
+            codegen_ms = codegen_clock.toc();
+            generated_size_bytes = air.library.size();
+            metadata.format_types = std::move(air.format_types);
+            Clock compile_clock;
+            pipeline = _compiler->compile(
+                air.library, option, metadata);
+            compile_ms = compile_clock.toc();
+        }
         LUISA_ASSERT(pipeline.entry && pipeline.indirect_entry,
                      "Metal4 LLVM/AIR compilation failed to create both compute entry points.");
         auto shader = luisa::new_with_allocator<MetalShader>(

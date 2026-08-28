@@ -361,10 +361,18 @@ MetalShaderHandle MetalCompiler::compile(luisa::span<const std::byte> metallib,
                                          MetalShaderMetadata &metadata) const noexcept {
 
     return with_autorelease_pool([&] {
-        auto library_hash = luisa::hash64(
-            metallib.data(), metallib.size_bytes(), luisa::hash64_default_seed);
-        auto option_hash = luisa::hash_value(option);
-        auto hash = luisa::hash_combine({library_hash, option_hash, 0x4d544c425f414952ull});
+        // MetalDevice supplies a semantic checksum so LLVM 14 bitcode
+        // serialization details do not perturb shader-cache identity. Keep a
+        // byte-derived fallback for direct compiler users.
+        auto hash = metadata.checksum;
+        if (hash == 0u) {
+            auto library_hash = luisa::hash64(
+                metallib.data(), metallib.size_bytes(),
+                luisa::hash64_default_seed);
+            auto option_hash = luisa::hash_value(option);
+            hash = luisa::hash_combine(
+                {library_hash, option_hash, 0x4d544c425f414952ull});
+        }
         metadata.checksum = hash;
 
         if (auto pso = _cache.fetch(hash)) { return *pso; }
@@ -429,6 +437,29 @@ MetalShaderHandle MetalCompiler::compile(luisa::span<const std::byte> metallib,
             _store_disk_archive(name, is_aot, pipeline_desc, metadata);
         }
         _cache.update(hash, pipeline);
+        return pipeline;
+    });
+}
+
+MetalShaderHandle MetalCompiler::load_cached(
+    const ShaderOption &option, uint64_t checksum,
+    MetalShaderMetadata &metadata) const noexcept {
+    return with_autorelease_pool([&] {
+        auto is_aot = !option.name.empty();
+        auto uses_cache = is_aot || option.enable_cache;
+        if (!uses_cache || option.enable_debug_info) {
+            return MetalShaderHandle{};
+        }
+        metadata.checksum = checksum;
+        if (auto pipeline = _cache.fetch(checksum)) { return *pipeline; }
+        auto name = is_aot ? option.name :
+                             luisa::format(
+                                 "metal_air_kernel_{:016x}", checksum);
+        auto pipeline = _load_disk_archive(
+            name, is_aot, metadata);
+        if (pipeline.entry && pipeline.indirect_entry) {
+            _cache.update(checksum, pipeline);
+        }
         return pipeline;
     });
 }
