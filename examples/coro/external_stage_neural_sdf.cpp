@@ -44,6 +44,47 @@ struct Options {
     return options;
 }
 
+void validate_neural_sdf_values(
+    Device &device, Stream &stream,
+    const Callable<float(float3)> &bunny) noexcept {
+    // Independently evaluated from the original GLSL using column-major GLSL
+    // mat4 construction and the exact nonlinear operator placement. This
+    // catches transcription mistakes that can still produce a smooth but
+    // completely different zero level set.
+    luisa::vector<float3> points{
+        make_float3(0.0f, 0.0f, 0.0f),
+        make_float3(.1f, .2f, .3f),
+        make_float3(-.4f, .1f, .2f),
+        make_float3(.3f, -.2f, .4f),
+        make_float3(-.7f, .2f, -.1f),
+        make_float3(.9f, 0.0f, 0.0f),
+        make_float3(0.0f, .8f, 0.0f),
+        make_float3(0.0f, 0.0f, .8f)};
+    luisa::vector<float> expected{
+        -.161558315f, .075506943f, .066108586f, .118490206f,
+        .171548502f, .522333055f, .226816883f, .118556469f};
+    auto point_buffer = device.create_buffer<float3>(points.size());
+    auto value_buffer = device.create_buffer<float>(points.size());
+    Kernel1D evaluate = [&bunny](BufferVar<float3> input,
+                                 BufferFloat output) noexcept {
+        auto index = dispatch_x();
+        output.write(index, bunny(input.read(index)));
+    };
+    auto evaluate_shader = device.compile(evaluate);
+    luisa::vector<float> actual(points.size());
+    stream << point_buffer.copy_from(luisa::span{points})
+           << evaluate_shader(point_buffer, value_buffer)
+                  .dispatch(static_cast<uint>(points.size()))
+           << value_buffer.copy_to(luisa::span{actual}) << synchronize();
+    for (auto i = 0u; i < actual.size(); ++i) {
+        LUISA_ASSERT(
+            std::abs(actual[i] - expected[i]) <= 2e-4f,
+            "Neural bunny GLSL parity failed at probe {}: got {}, expected "
+            "{}.",
+            i, actual[i], expected[i]);
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -81,8 +122,19 @@ int main(int argc, char *argv[]) {
             auto resolution = make_float2(dispatch_size().xy());
             auto uv = (make_float2(coord) + .5f - resolution * .5f) /
                       resolution.y;
-            Var origin = make_float3(-3.0f, 0.0f, 0.05f);
-            Var direction = normalize(make_float3(1.5f, uv.x, uv.y));
+            // Match the reference shader's default camera. Even with no
+            // mouse input it pitches both the origin and ray direction by
+            // 0.5 radians; looking straight down +X only shows an ambiguous
+            // side projection of the learned field.
+            constexpr auto camera_cos = 0.877582562f;
+            constexpr auto camera_sin = 0.479425539f;
+            Var origin = make_float3(
+                -3.0f * camera_cos, 0.0f, 3.0f * camera_sin);
+            auto camera_ray = normalize(make_float3(1.5f, uv.x, uv.y));
+            Var direction = make_float3(
+                camera_cos * camera_ray.x + camera_sin * camera_ray.z,
+                camera_ray.y,
+                camera_cos * camera_ray.z - camera_sin * camera_ray.x);
             Var radiance = make_float3(0.0f);
             Var throughput = make_float3(1.0f);
             Var any_hit = false;
@@ -161,6 +213,7 @@ int main(int argc, char *argv[]) {
     auto normal_views = find_external_stages(
         coroutine.graph(), normal_schema);
     auto bunny = make_neural_bunny_sdf();
+    validate_neural_sdf_values(device, stream, bunny);
     auto scene = make_neural_bunny_scene(bunny);
     auto scene_normal = make_neural_bunny_normal(scene);
 
