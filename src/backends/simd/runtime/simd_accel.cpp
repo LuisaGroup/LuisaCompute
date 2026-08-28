@@ -440,15 +440,16 @@ void mark_curve_surface_hits(
 using RayQueryBatchBuildState = detail::RayQueryBatchBuildState;
 using RayQueryRTCContext = detail::RayQueryRTCContext;
 
-struct RayQueryScanContext final : detail::RayQueryScanContext {};
-static_assert(std::is_standard_layout_v<detail::RayQueryScanContext>);
+// Use the callback ABI type directly. The previous empty derived wrapper
+// needed std::is_pointer_interconvertible_base_of_v to prove that Embree's
+// pointer to the leading RTC context could be recovered as either type, but
+// that C++20 library trait is not provided by Apple libc++. An alias makes the
+// identity stronger and keeps the existing standard-layout/offset proof in
+// simd_accel_ray_query.h valid on every standard library.
+using RayQueryScanContext = detail::RayQueryScanContext;
+static_assert(std::is_same_v<RayQueryScanContext,
+                             detail::RayQueryScanContext>);
 static_assert(std::is_standard_layout_v<RayQueryScanContext>);
-static_assert(std::is_pointer_interconvertible_base_of_v<
-              detail::RayQueryScanContext, RayQueryScanContext>);
-static_assert(sizeof(RayQueryScanContext) ==
-              sizeof(detail::RayQueryScanContext));
-static_assert(alignof(RayQueryScanContext) ==
-              alignof(detail::RayQueryScanContext));
 
 thread_local RayQueryScanContext *active_ray_query_scan_context{nullptr};
 
