@@ -1,9 +1,15 @@
-// Test timeline-event ordering and the full unsigned fence-value domain.
+// Test timeline-event ordering and the unsigned fence-value domain.
 // This test covers:
 // - Initial completion state
 // - GPU stream waits on host-visible timeline signals
-// - Values crossing the signed 64-bit boundary and UINT64_MAX
+// - Values crossing the signed 64-bit boundary and the platform maximum
 // - Monotonic completion when independent streams finish signals out of order
+//
+// Vulkan drivers bound the pending timeline-semaphore window
+// (maxTimelineSemaphoreValueDifference), so the full unsigned domain is not
+// representable everywhere (e.g. many desktop drivers report 2^31-1). The
+// huge-value cases below only run when the device reports a matching
+// capability; otherwise the test exercises the platform's own maximum instead.
 
 #include "ut/ut.hpp"
 #include "test_device.h"
@@ -12,6 +18,7 @@
 
 #include <array>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -22,6 +29,22 @@ using namespace luisa::compute;
 using namespace boost::ut;
 
 namespace {
+
+// The largest timeline value the platform can reach with a single signal from
+// the current counter. Backends without such a limit (and unknown queries)
+// report the full unsigned domain.
+[[nodiscard]] uint64_t timeline_max_reachable_value(const Device &device) noexcept {
+    if (device.backend_name() == "vk") {
+        auto text = device.query("timeline_semaphore_max_value_difference");
+        uint64_t value{};
+        auto [end, ec] = std::from_chars(
+            text.data(), text.data() + text.size(), value);
+        if (ec == std::errc{} && end == text.data() + text.size()) {
+            return value;
+        }
+    }
+    return std::numeric_limits<uint64_t>::max();
+}
 
 void test_initial_state(Device &device) {
     auto event = device.create_timeline_event();
@@ -34,24 +57,41 @@ void test_initial_state(Device &device) {
 }
 
 void test_unsigned_fence_domain(Device &device) {
-    constexpr std::array values{
+    constexpr std::array full_domain_values{
         uint64_t{1u},
         static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
         uint64_t{1u} << 63u,
         std::numeric_limits<uint64_t>::max()};
 
+    // Keep every full-domain value the platform can represent, then always
+    // exercise the platform's own maximum one-shot jump as a boundary.
+    auto max_value = timeline_max_reachable_value(device);
+    luisa::vector<uint64_t> values;
+    values.reserve(full_domain_values.size() + 1u);
+    for (auto value : full_domain_values) {
+        if (value <= max_value) { values.emplace_back(value); }
+    }
+    if (max_value > 1u && (values.empty() || values.back() != max_value)) {
+        values.emplace_back(max_value);
+    }
+
     auto event = device.create_timeline_event();
     auto stream = device.create_stream();
     for (auto value : values) {
         stream << event.signal(value) << synchronize();
+        // Stream synchronization only waits for the stream's own fence. The
+        // event's host-completion watermark is published by the backend's
+        // async executor, so wait on it explicitly before querying completion.
+        event.synchronize(value);
         expect(event.is_completed(value))
             << luisa::format("Timeline event did not complete fence {}.", value);
     }
 }
 
-void test_stream_wait_at_uint64_max(Device &device) {
+void test_stream_wait_at_max_value(Device &device) {
     constexpr uint32_t expected = 0x4c435445u;
     uint32_t actual = 0u;
+    auto max_value = timeline_max_reachable_value(device);
 
     auto buffer = device.create_buffer<uint32_t>(1u);
     auto event = device.create_timeline_event();
@@ -59,16 +99,21 @@ void test_stream_wait_at_uint64_max(Device &device) {
     auto consumer = device.create_stream();
 
     producer << buffer.copy_from(luisa::span{&expected, 1u})
-             << event.signal(std::numeric_limits<uint64_t>::max());
-    consumer << event.wait(std::numeric_limits<uint64_t>::max())
+             << event.signal(max_value);
+    consumer << event.wait(max_value)
              << buffer.copy_to(luisa::span{&actual, 1u})
              << synchronize();
     producer << synchronize();
+    // Wait for the backend's async executor to publish host completion of the
+    // maximum signal before querying it.
+    event.synchronize(max_value);
 
     expect(actual == expected)
-        << "A stream wait at UINT64_MAX must order preceding producer work.";
-    expect(event.is_completed(std::numeric_limits<uint64_t>::max()))
-        << "UINT64_MAX must remain observable as a completed fence.";
+        << "A stream wait at the maximum timeline value must order preceding "
+           "producer work.";
+    expect(event.is_completed(max_value))
+        << "The maximum timeline value must remain observable as a completed "
+           "fence.";
 }
 
 void test_host_callbacks_precede_event_completion(Device &device) {
@@ -140,7 +185,7 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     test_initial_state(dc->device);
     test_unsigned_fence_domain(dc->device);
-    test_stream_wait_at_uint64_max(dc->device);
+    test_stream_wait_at_max_value(dc->device);
     test_host_callbacks_precede_event_completion(dc->device);
     test_cross_stream_monotonicity(dc->device);
 }

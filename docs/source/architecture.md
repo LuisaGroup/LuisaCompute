@@ -1,5 +1,10 @@
 # Project Architecture
 
+Coroutine suspension points may carry versioned, typed extensions for
+scheduling, graph stages, and debugging. Their ownership, IR lifetime, fallback
+policy, and cache rules are specified in
+[Coroutine suspend extensions](coro_suspend_extensions.md).
+
 This document describes the internal architecture of LuisaCompute, including the compilation pipeline, runtime system, and backend implementations.
 
 ## Overview

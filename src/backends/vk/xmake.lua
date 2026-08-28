@@ -1,5 +1,16 @@
 local vk_xmake_dir = os.scriptdir()
 
+-- When cross-compiling for Android, the built-in SPIR-V generator tools must
+-- be host executables: they run glslang/spirv-tools/embedder on the developer
+-- machine, not on the device. Force the generator tool targets to the host
+-- platform/architecture.
+local function force_host_platform(target)
+    if is_plat("android") then
+        target:set("plat", os.host())
+        target:set("arch", os.arch())
+    end
+end
+
 -- Host-side compiler used only while building Vulkan backend-private kernels.
 -- The generated intrinsic header stays in xmake's autogen directory rather
 -- than modifying the bundled glslang submodule.
@@ -14,6 +25,7 @@ _config_project({
 add_deps("lc-glslang")
 add_files("../../ext/glslang/StandAlone/StandAlone.cpp")
 on_load(function(target)
+    force_host_platform(target)
     target:add("includedirs", target:autogendir())
     if target:is_plat("windows") then
         target:add("syslinks", "psapi")
@@ -56,6 +68,9 @@ _config_project({
 })
 add_deps("spirv-tools")
 add_files("../common/spirv/validate_spirv.cpp")
+on_load(function(target)
+    force_host_platform(target)
+end)
 target_end()
 
 target("lc-vk-embed-device-lib")
@@ -67,6 +82,9 @@ _config_project({
     project_kind = "binary"
 })
 add_files("../../../utils/embed_device_lib.cpp")
+on_load(function(target)
+    force_host_platform(target)
+end)
 target_end()
 
 target("lc-backend-vk")
@@ -99,6 +117,24 @@ on_load(function(target)
         target:add("defines", "NOMINMAX", "VK_USE_PLATFORM_WIN32_KHR")
     elseif target:is_plat("linux") then
         target:add("defines", "VK_USE_PLATFORM_XCB_KHR", "VK_USE_PLATFORM_XLIB_KHR")
+    elseif target:is_plat("android") then
+        target:add("defines", "VK_USE_PLATFORM_ANDROID_KHR")
+        target:add("syslinks", "android", "log")
+    end
+    -- Thread the configurable bindless heap capacity into the backend as a
+    -- compile-time define so mobile builds can lower it.
+    local requested_capacity = tonumber(get_config("lc_vk_bindless_heap_capacity"))
+    if requested_capacity and requested_capacity > 0 then
+        target:add("defines", "LC_VK_BINDLESS_HEAP_CAPACITY=" .. requested_capacity)
+    end
+    -- Thread the configurable minimum API version. "auto" leaves the backend
+    -- free to use the driver's capabilities; "1.2"/"1.3" force the
+    -- corresponding path so CI can validate the legacy barrier/copy code.
+    local min_api = get_config("lc_vk_min_api_version")
+    if min_api == "1.2" then
+        target:add("defines", "LC_VK_MIN_API_VERSION=VK_API_VERSION_1_2")
+    elseif min_api == "1.3" then
+        target:add("defines", "LC_VK_MIN_API_VERSION=VK_API_VERSION_1_3")
     end
     local function rela(p)
         return path.normalize(path.join(os.scriptdir(), p))

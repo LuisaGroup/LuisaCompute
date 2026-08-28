@@ -1197,6 +1197,149 @@ void reg_remaining_misc_instruction_round_trip() {
         expect(canonical.succeeded());
         expect(canonical.text == encoded.text);
     };
+
+    "xir_interchange_preserves_complete_suspend_extensions"_test = [] {
+        Module module;
+        auto *function = module.create_callable(nullptr);
+        auto *read_value =
+            function->create_value_argument(Type::of<uint>());
+        auto *write_value =
+            function->create_reference_argument(Type::of<uint>());
+        auto *sort_value =
+            function->create_value_argument(Type::of<uint>());
+        auto *body = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.nn-shade", 7u,
+            CoroSuspendFallback::reject,
+            {{.name = "input",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::boundary,
+              .index = 0u},
+             {.name = "output",
+              .access = CoroSuspendBindingAccess::write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 1u}},
+            {{.name = "weight", .value = -0.0},
+             {.name = "unsigned",
+              .value = std::numeric_limits<uint64_t>::max()},
+             {.name = "string",
+              .value = luisa::string{"quoted=\"yes\"\nnext"}},
+             {.name = "signed", .value = int64_t{-17}},
+             {.name = "flag", .value = true}}));
+        extensions.emplace_back(make_coro_suspend_annotation_data(
+            "luisa.coro.schedule.sort", 1u,
+            CoroSuspendFallback::ignore,
+            {{.name = "key",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::queued,
+              .index = 2u}},
+            {{.name = "range", .value = uint64_t{4096u}}}));
+        luisa::vector<luisa::string> frame_export_names{"legacy"};
+        luisa::vector<Value *> frame_export_values{read_value};
+        luisa::vector<Value *> binding_values{
+            read_value, write_value, sort_value};
+        builder.coro_suspend(
+            29u, "full-extension", nullptr,
+            luisa::span{frame_export_names},
+            luisa::span{frame_export_values},
+            std::move(extensions), luisa::span{binding_values});
+
+        expect(xir_verify_module(&module).succeeded());
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded())
+            << (encoded.diagnostics.empty() ?
+                    luisa::string{"missing diagnostic"} :
+                    encoded.diagnostics.front().message);
+        if (!encoded.succeeded()) { return; }
+        expect(encoded.text.find("com.example.nn-shade") !=
+               luisa::string::npos);
+        expect(encoded.text.find("luisa.coro.schedule.sort") !=
+               luisa::string::npos);
+
+        auto decoded = xir_from_interchange_text(encoded.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        const CoroSuspendInst *suspend = nullptr;
+        for (auto *decoded_function :
+             decoded.module->function_list()) {
+            for (auto *block : decoded_function->basic_blocks()) {
+                for (auto *instruction : block->instructions()) {
+                    if (instruction->isa<CoroSuspendInst>()) {
+                        suspend = static_cast<const CoroSuspendInst *>(
+                            instruction);
+                    }
+                }
+            }
+        }
+        expect(suspend != nullptr);
+        if (suspend == nullptr) { return; }
+        expect(suspend->token() == 29u);
+        expect(suspend->name() == "full-extension");
+        expect(suspend->frame_export_count() == 1u);
+        expect(suspend->frame_export_name(0u) == "legacy");
+        expect(suspend->extensions().size() == 2u);
+        expect(suspend->extension_binding_value_count() == 3u);
+        expect(!suspend->extension_binding_value(0u)->is_lvalue());
+        expect(suspend->extension_binding_value(1u)->is_lvalue());
+        expect(!suspend->extension_binding_value(2u)->is_lvalue());
+        if (suspend->extensions().size() == 2u) {
+            auto &&semantic = suspend->extensions()[0u];
+            auto &&annotation = suspend->extensions()[1u];
+            expect(semantic->schema() == "com.example.nn-shade");
+            expect(semantic->version() == 7u);
+            expect(!semantic->is_annotation());
+            expect(semantic->fallback() ==
+                   CoroSuspendFallback::reject);
+            expect(semantic->bindings().size() == 2u);
+            expect(semantic->attributes().size() == 5u);
+            for (auto &&attribute : semantic->attributes()) {
+                if (attribute.name == "flag") {
+                    expect(luisa::get<bool>(attribute.value));
+                } else if (attribute.name == "signed") {
+                    expect(luisa::get<int64_t>(attribute.value) == -17);
+                } else if (attribute.name == "unsigned") {
+                    expect(luisa::get<uint64_t>(attribute.value) ==
+                           std::numeric_limits<uint64_t>::max());
+                } else if (attribute.name == "weight") {
+                    expect(luisa::bit_cast<uint64_t>(
+                               luisa::get<double>(attribute.value)) ==
+                           luisa::bit_cast<uint64_t>(-0.0));
+                } else if (attribute.name == "string") {
+                    expect(luisa::get<luisa::string>(attribute.value) ==
+                           "quoted=\"yes\"\nnext");
+                }
+            }
+            expect(annotation->schema() ==
+                   "luisa.coro.schedule.sort");
+            expect(annotation->is_annotation());
+            expect(annotation->fallback() ==
+                   CoroSuspendFallback::ignore);
+            expect(luisa::get<uint64_t>(
+                       annotation->attributes().front().value) ==
+                   4096u);
+        }
+        auto canonical = xir_to_interchange_text(
+            decoded.module.get());
+        expect(canonical.succeeded());
+        expect(canonical.text == encoded.text);
+
+        auto bitcode = xir_to_bitcode(decoded.module.get());
+        expect(bitcode.succeeded());
+        if (bitcode.succeeded()) {
+            auto bitcode_decoded = xir_from_bitcode(bitcode.bitcode);
+            expect(bitcode_decoded.succeeded());
+            if (bitcode_decoded.succeeded()) {
+                auto round_trip = xir_to_interchange_text(
+                    bitcode_decoded.module.get());
+                expect(round_trip.succeeded());
+                expect(round_trip.text == encoded.text);
+            }
+        }
+    };
 }
 
 void reg_autodiff_and_outline_round_trip() {

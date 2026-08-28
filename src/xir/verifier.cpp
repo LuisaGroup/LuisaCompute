@@ -643,8 +643,8 @@ template<typename Enum>
             auto *suspend =
                 static_cast<const CoroSuspendInst *>(instruction);
             return count ==
-                   CoroSuspendInst::operand_index_frame_export_offset +
-                       suspend->frame_export_count();
+                   suspend->operand_index_extension_binding_offset() +
+                       suspend->extension_binding_value_count();
         }
         case DerivedInstructionTag::UNREACHABLE:
         case DerivedInstructionTag::RASTER_DISCARD:
@@ -750,12 +750,16 @@ template<typename Enum>
     if (tag == DerivedInstructionTag::CORO_SUSPEND) {
         auto *suspend =
             static_cast<const CoroSuspendInst *>(instruction);
-        luisa::unordered_set<luisa::string_view> names;
-        if (suspend->frame_export_count() +
-                CoroSuspendInst::operand_index_frame_export_offset !=
+        if (suspend->operand_index_extension_binding_offset() +
+                suspend->extension_binding_value_count() !=
             operands.size()) {
             return false;
         }
+        auto *frame = suspend->frame();
+        if (frame != nullptr && !typed_value_operand_valid(frame)) {
+            return false;
+        }
+        luisa::unordered_set<luisa::string_view> names;
         for (size_t i = 0u;
              i < suspend->frame_export_count(); ++i) {
             auto &name = suspend->frame_export_name(i);
@@ -766,6 +770,60 @@ template<typename Enum>
                 return false;
             }
         }
+        luisa::vector<bool> bound(
+            suspend->extension_binding_value_count(), false);
+        for (auto &&extension : suspend->extensions()) {
+            if (extension == nullptr || extension->schema().empty() ||
+                extension->version() == 0u ||
+                static_cast<uint8_t>(extension->fallback()) >
+                    static_cast<uint8_t>(CoroSuspendFallback::reject)) {
+                return false;
+            }
+            luisa::unordered_set<luisa::string_view> binding_names;
+            for (auto &&binding : extension->bindings()) {
+                if (binding.name.empty() ||
+                    !binding_names.emplace(binding.name).second ||
+                    binding.index >= bound.size() ||
+                    bound[binding.index]) {
+                    return false;
+                }
+                bound[binding.index] = true;
+                auto *value = suspend->extension_binding_value(
+                    binding.index);
+                switch (binding.access) {
+                    case CoroSuspendBindingAccess::read:
+                        if (!data_operand_valid(value)) { return false; }
+                        break;
+                    case CoroSuspendBindingAccess::write:
+                    case CoroSuspendBindingAccess::read_write:
+                        if (!typed_value_operand_valid(value) ||
+                            !value->is_lvalue()) {
+                            return false;
+                        }
+                        break;
+                    default: return false;
+                }
+                if (static_cast<uint8_t>(binding.lifetime) >
+                    static_cast<uint8_t>(
+                        CoroSuspendBindingLifetime::resumed)) {
+                    return false;
+                }
+            }
+            luisa::unordered_set<luisa::string_view> attribute_names;
+            for (auto &&attribute : extension->attributes()) {
+                if (attribute.name.empty() ||
+                    !attribute_names.emplace(attribute.name).second) {
+                    return false;
+                }
+            }
+        }
+        if (std::find(bound.begin(), bound.end(), false) != bound.end()) {
+            return false;
+        }
+        // Extension bindings have access-qualified operands and therefore
+        // cannot be checked by the legacy generic coroutine rule, which
+        // assumes that every trailing operand is an rvalue.
+        return true;
     }
     auto bindless_access = [&]() noexcept {
         switch (tag) {

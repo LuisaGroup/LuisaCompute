@@ -3,6 +3,7 @@
 #include "log.h"
 #include "device.h"
 #include "stream.h"
+#include "command_buffer_sync.h"
 
 #include "../common/moltenvk_surface.h"
 
@@ -11,6 +12,8 @@
 #include <vulkan/vulkan_win32.h>
 #elif defined(LUISA_PLATFORM_APPLE)
 #include <vulkan/vulkan_macos.h>
+#elif defined(LUISA_PLATFORM_UNIX) && defined(VK_USE_PLATFORM_ANDROID_KHR)
+#include <vulkan/vulkan_android.h>
 #elif defined(LUISA_PLATFORM_UNIX)
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
@@ -37,7 +40,14 @@ VkCompositeAlphaFlagBitsKHR _choose_composite_alpha(VkPhysicalDevice physicalDev
     if (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
         return VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;// Use native window settings
     }
-    return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;// Fallback (no transparency)
+    if (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
+        return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;// Fallback (no transparency)
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "No supported composite-alpha mode: surface reports "
+        "supportedCompositeAlpha = {:#x}.",
+        static_cast<uint32_t>(caps.supportedCompositeAlpha));
+    return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 }
 
 static const std::array vulkan_swapchain_screen_shader_vertex_bytecode = {
@@ -134,6 +144,15 @@ void _create_surface(
     create_info.pView = cocoa_window_content_view(window_handle);
     auto vkCreateMacOSSurfaceMVK = (PFN_vkCreateMacOSSurfaceMVK)vkGetInstanceProcAddr(instance, "vkCreateMacOSSurfaceMVK");
     VK_CHECK_RESULT(vkCreateMacOSSurfaceMVK(instance, &create_info, Device::alloc_callbacks(), &surface));
+#elif defined(VK_USE_PLATFORM_ANDROID_KHR)
+    VkAndroidSurfaceCreateInfoKHR create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
+    create_info.window = reinterpret_cast<ANativeWindow *>(window_handle);
+    auto vkCreateAndroidSurfaceKHR = (PFN_vkCreateAndroidSurfaceKHR)vkGetInstanceProcAddr(instance, "vkCreateAndroidSurfaceKHR");
+    if (!vkCreateAndroidSurfaceKHR) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("vkCreateAndroidSurfaceKHR is not available - VK_KHR_android_surface extension not enabled");
+    }
+    VK_CHECK_RESULT(vkCreateAndroidSurfaceKHR(instance, &create_info, Device::alloc_callbacks(), &surface));
 #else
     static std::once_flag set_xlib_error_handler;
     std::call_once(set_xlib_error_handler, [] {
@@ -286,6 +305,7 @@ void _create_vertex_buffer(
     vstd::vector<vstd::function<void()>> &after_render_callback,
     VkPhysicalDevice physical_device,
     VkDevice device,
+    Device const *vk_device,
     VkBuffer &vertex_buffer,
     VkDeviceMemory &vertex_buffer_memory) noexcept {
 
@@ -367,7 +387,7 @@ void _create_vertex_buffer(
         vertex_copy_dst_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         vertex_copy_dst_info.bufferMemoryBarrierCount = 1;
         vertex_copy_dst_info.pBufferMemoryBarriers = &vertex_copy_dst_barrier;
-        vkCmdPipelineBarrier2(cmdbuffer.cmdbuffer(), &vertex_copy_dst_info);
+        detail::cmd_pipeline_barrier(cmdbuffer.cmdbuffer(), vk_device, &vertex_copy_dst_info);
     }
 
     vkCmdCopyBuffer(command_buffer, staging_buffer, vertex_buffer, 1, &copy_region);
@@ -387,7 +407,7 @@ void _create_vertex_buffer(
         vertex_copy_dst_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         vertex_copy_dst_info.bufferMemoryBarrierCount = 1;
         vertex_copy_dst_info.pBufferMemoryBarriers = &vertex_copy_dst_barrier;
-        vkCmdPipelineBarrier2(cmdbuffer.cmdbuffer(), &vertex_copy_dst_info);
+        detail::cmd_pipeline_barrier(cmdbuffer.cmdbuffer(), vk_device, &vertex_copy_dst_info);
     }
     // after commit
     after_render_callback.emplace_back(
@@ -582,7 +602,10 @@ void _create_pipeline(
 }
 
 [[nodiscard]] static auto _is_hdr_colorspace(VkColorSpaceKHR colorspace) noexcept {
-    return colorspace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+    return colorspace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT ||
+           colorspace == VK_COLOR_SPACE_HDR10_ST2084_EXT ||
+           colorspace == VK_COLOR_SPACE_HDR10_HLG_EXT ||
+           colorspace == VK_COLOR_SPACE_DOLBYVISION_EXT;
 }
 
 [[nodiscard]] static auto _colorspace_name(VkColorSpaceKHR colorspace) noexcept {
@@ -674,6 +697,28 @@ void Swapchain::create_swapchain(
                         return format;
                     }
                 }
+                // Android HDR displays commonly expose HDR10 (ST2084), HDR10
+                // (HLG) and Dolby Vision colorspaces. Select them when present
+                // so HDR content is not silently downgraded to SDR.
+                for (auto format : formats) {
+                    if (format.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT &&
+                        format.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32) {
+                        return format;
+                    }
+                }
+                for (auto format : formats) {
+                    if (format.colorSpace == VK_COLOR_SPACE_HDR10_HLG_EXT &&
+                        format.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32) {
+                        return format;
+                    }
+                }
+                for (auto format : formats) {
+                    if (format.colorSpace == VK_COLOR_SPACE_DOLBYVISION_EXT &&
+                        (format.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ||
+                         format.format == VK_FORMAT_R16G16B16A16_SFLOAT)) {
+                        return format;
+                    }
+                }
             }
             for (auto format : formats) {
                 if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR && format.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32) {
@@ -749,9 +794,35 @@ void Swapchain::create_swapchain(
     create_info.imageColorSpace = _swapchain_format.colorSpace;
     create_info.imageExtent = _swapchain_extent;
     create_info.imageArrayLayers = 1u;
-    create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    // Request TRANSFER_SRC for screenshot/readback when the surface supports
+    // it; some Android drivers also prefer TRANSFER_DST for blit compositing.
+    // Always validate against the surface's supported usage bits.
+    auto supported_usage = support.capabilities.supportedUsageFlags;
+    VkImageUsageFlags image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    if ((supported_usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0u) {
+        image_usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+    if ((image_usage & ~supported_usage) != 0u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Requested swapchain image usage {:#x} exceeds supported usage "
+            "{:#x}; falling back to color attachment only.",
+            static_cast<uint32_t>(image_usage),
+            static_cast<uint32_t>(supported_usage));
+        image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    }
+    create_info.imageUsage = image_usage;
     create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    _surface_transform = support.capabilities.currentTransform;
+#if defined(VK_USE_PLATFORM_ANDROID_KHR)
+    // On Android, currentTransform frequently reports 90/270-degree rotation.
+    // Using it directly with the fixed fullscreen-triangle blit renders
+    // rotated output on many devices. Mobile best practice is
+    // preTransform=IDENTITY and app-side rotation; the reported transform is
+    // exposed through Swapchain::surface_transform().
+    create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+#else
     create_info.preTransform = support.capabilities.currentTransform;
+#endif
     create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     create_info.presentMode = present_mode;
     create_info.clipped = VK_TRUE;
@@ -946,7 +1017,7 @@ void Swapchain::present(
     VK_CHECK_RESULT(vkResetFences(device()->logic_device(), 1, &_in_flight_fences[_current_frame]));
     // Create vertex buffer only after successful acquisition
     if (!_vertex_buffer) {
-        _create_vertex_buffer(cmdbuffer, cmdbuffer.states()->callbacks, device()->physical_device(), device()->logic_device(), _vertex_buffer, _vertex_buffer_memory);
+        _create_vertex_buffer(cmdbuffer, cmdbuffer.states()->callbacks, device()->physical_device(), device()->logic_device(), device(), _vertex_buffer, _vertex_buffer_memory);
     }
     VkDescriptorSet descriptor_set;
     _create_descriptor_sets(

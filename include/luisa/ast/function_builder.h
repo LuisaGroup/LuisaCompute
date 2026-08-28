@@ -132,6 +132,7 @@ private:
     mutable luisa::vector<luisa::string> _variables_names;
 
 protected:
+    class SuspendExtensionRecorder;
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
     [[nodiscard]] uint32_t _next_suspend_token() noexcept;
@@ -440,6 +441,22 @@ public:
     /// Add named/tokenized suspend statement with frame exports
     void suspend_(uint32_t token, luisa::string name,
                   luisa::vector<CoroFrameExport> frame_exports) noexcept;
+    /// Add a suspend statement with source extension objects. The objects are
+    /// frozen to data-backed AST-owned representations before recording.
+    void suspend_(
+        luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept;
+    void suspend_(
+        uint32_t token, luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept;
+    /// Internal normalized form used by AST duplication/deserialization paths.
+    void suspend_(
+        uint32_t token, luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions,
+        luisa::vector<const Expression *> extension_binding_values) noexcept;
     /// Add comment statement
     void comment_(luisa::string comment) noexcept;
     /// Add assign statement

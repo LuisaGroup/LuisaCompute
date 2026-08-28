@@ -198,6 +198,266 @@ void reg_coro_cfg_distill() {
         }
     };
 
+    "complete_suspend_extensions_survive_cfg_distillation"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *input = b.clock();
+        auto *output = b.alloca_local(Type::of<float>());
+        output->set_name("stage_output");
+
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.nn-shade", 7u,
+            CoroSuspendFallback::reject,
+            {{.name = "input",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::queued,
+              .index = 0u},
+             {.name = "output",
+              .access = CoroSuspendBindingAccess::write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 1u}},
+            {{.name = "enabled", .value = true},
+             {.name = "label", .value = luisa::string{"neural-sdf"}},
+             {.name = "scale", .value = 0.85}}));
+        extensions.emplace_back(make_coro_suspend_annotation_data(
+            "luisa.coro.schedule.sort", 1u,
+            CoroSuspendFallback::ignore,
+            {{.name = "key",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::queued,
+              .index = 2u}},
+            {{.name = "range", .value = uint64_t{4096u}}}));
+        luisa::vector<Value *> binding_values{input, output, input};
+        b.coro_suspend(
+            149u, "external-stage", nullptr, {}, {},
+            std::move(extensions), luisa::span{binding_values});
+        b.set_insertion_point(resume);
+        b.coro_resume(149u, nullptr);
+        static_cast<void>(b.load(Type::of<float>(), output));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        const CoroCfgDistillResult::Scope::SuspendPoint *point = nullptr;
+        for (auto &scope : result.scopes) {
+            for (auto &candidate : scope.suspend_points) {
+                if (candidate.token == 149u) { point = &candidate; }
+            }
+        }
+        const CoroCfgDistillResult::Edge *edge = nullptr;
+        for (auto &candidate : result.transition_edges) {
+            if (candidate.is_suspend && candidate.token == 149u) {
+                edge = &candidate;
+            }
+        }
+        expect(point != nullptr);
+        expect(edge != nullptr);
+        if (point == nullptr || edge == nullptr) { return; }
+        for (auto *owner : {&point->extension_owner,
+                            &edge->extension_owner}) {
+            expect(owner->extensions.size() == 2u);
+            expect(owner->binding_values == binding_values);
+            if (owner->extensions.size() != 2u) { continue; }
+            auto &&semantic = owner->extensions[0u];
+            auto &&annotation = owner->extensions[1u];
+            expect(semantic->schema() == "com.example.nn-shade");
+            expect(semantic->version() == 7u);
+            expect(!semantic->is_annotation());
+            expect(semantic->fallback() ==
+                   CoroSuspendFallback::reject);
+            expect(semantic->bindings().size() == 2u);
+            expect(semantic->attributes().size() == 3u);
+            expect(annotation->schema() ==
+                   "luisa.coro.schedule.sort");
+            expect(annotation->is_annotation());
+            expect(annotation->fallback() ==
+                   CoroSuspendFallback::ignore);
+            expect(annotation->bindings().size() == 1u);
+            expect(annotation->attributes().size() == 1u);
+        }
+        auto input_field = std::find_if(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &value) noexcept {
+                return value.value == input;
+            });
+        auto output_field = std::find_if(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &value) noexcept {
+                return value.value == output;
+            });
+        expect(input_field != result.frame_values.end());
+        expect(output_field != result.frame_values.end());
+        expect(edge->extension_binding_frame_value_indices.size() == 3u);
+        if (input_field != result.frame_values.end() &&
+            output_field != result.frame_values.end() &&
+            edge->extension_binding_frame_value_indices.size() == 3u) {
+            auto input_index = static_cast<size_t>(
+                input_field - result.frame_values.begin());
+            auto output_index = static_cast<size_t>(
+                output_field - result.frame_values.begin());
+            expect(edge->extension_binding_frame_value_indices[0u] ==
+                   luisa::vector<size_t>{input_index});
+            expect(edge->extension_binding_frame_value_indices[1u] ==
+                   luisa::vector<size_t>{output_index});
+            expect(edge->extension_binding_frame_value_indices[2u] ==
+                   luisa::vector<size_t>{input_index});
+            expect(std::find(edge->store_frame_value_indices.begin(),
+                             edge->store_frame_value_indices.end(),
+                             input_index) !=
+                   edge->store_frame_value_indices.end());
+            // A write-only stage output is allocated and live, but the source
+            // continuation must not spill (and thus read) its old value.
+            expect(std::find(edge->store_frame_value_indices.begin(),
+                             edge->store_frame_value_indices.end(),
+                             output_index) ==
+                   edge->store_frame_value_indices.end());
+            expect(std::find(edge->killed_frame_value_indices.begin(),
+                             edge->killed_frame_value_indices.end(),
+                             output_index) !=
+                   edge->killed_frame_value_indices.end());
+            expect(std::find(edge->live_frame_value_indices.begin(),
+                             edge->live_frame_value_indices.end(),
+                             output_index) !=
+                   edge->live_frame_value_indices.end());
+        }
+    };
+
+    "extension_bindings_reuse_existing_dataflow_atom_and_slot"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.clock();
+        state->set_name("shared_state");
+
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.stage", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "stage-input",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 0u}},
+            {}));
+        extensions.emplace_back(make_coro_suspend_annotation_data(
+            "luisa.coro.schedule.sort", 1u,
+            CoroSuspendFallback::ignore,
+            {{.name = "sort-key",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::queued,
+              .index = 1u}},
+            {}));
+        luisa::vector<luisa::string> export_names{"legacy"};
+        luisa::vector<Value *> export_values{state};
+        luisa::vector<Value *> binding_values{state, state};
+        b.coro_suspend(
+            153u, "shared", nullptr,
+            luisa::span{export_names}, luisa::span{export_values},
+            std::move(extensions), luisa::span{binding_values});
+        b.set_insertion_point(resume);
+        b.coro_resume(153u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {state, m.create_constant_one(Type::of<uint64_t>())}));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(std::count_if(
+                   result.frame_values.begin(),
+                   result.frame_values.end(),
+                   [&](const auto &value) noexcept {
+                       return value.value == state;
+                   }) == 1u);
+        expect(result.frame_values.size() == 1u);
+        expect(result.frame_slots.size() == 1u);
+        const CoroCfgDistillResult::Edge *edge = nullptr;
+        for (auto &candidate : result.transition_edges) {
+            if (candidate.is_suspend && candidate.token == 153u) {
+                edge = &candidate;
+            }
+        }
+        expect(edge != nullptr);
+        if (edge != nullptr) {
+            expect(edge->extension_binding_frame_value_indices.size() ==
+                   2u);
+            if (edge->extension_binding_frame_value_indices.size() == 2u) {
+                expect(edge->extension_binding_frame_value_indices[0u] ==
+                       luisa::vector<size_t>{0u});
+                expect(edge->extension_binding_frame_value_indices[1u] ==
+                       luisa::vector<size_t>{0u});
+            }
+            expect(edge->store_frame_value_indices ==
+                   luisa::vector<size_t>{0u});
+            expect(edge->live_frame_value_indices ==
+                   luisa::vector<size_t>{0u});
+        }
+    };
+
+    "read_write_extension_binding_uses_one_existing_memory_slot"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(Type::of<float>());
+        state->set_name("throughput");
+        b.store(state, m.create_constant_one(Type::of<float>()));
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.nn-shade", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "throughput",
+              .access = CoroSuspendBindingAccess::read_write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 0u}},
+            {}));
+        luisa::vector<Value *> binding_values{state};
+        b.coro_suspend(
+            155u, "read-write", nullptr, {}, {},
+            std::move(extensions), luisa::span{binding_values});
+        b.set_insertion_point(resume);
+        b.coro_resume(155u, nullptr);
+        static_cast<void>(b.load(Type::of<float>(), state));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(result.frame_values.size() == 1u);
+        expect(result.frame_slots.size() == 1u);
+        const CoroCfgDistillResult::Edge *edge = nullptr;
+        for (auto &candidate : result.transition_edges) {
+            if (candidate.is_suspend && candidate.token == 155u) {
+                edge = &candidate;
+            }
+        }
+        expect(edge != nullptr);
+        if (edge != nullptr) {
+            expect(edge->extension_binding_frame_value_indices ==
+                   luisa::vector<luisa::vector<size_t>>{{0u}});
+            expect(edge->store_frame_value_indices ==
+                   luisa::vector<size_t>{0u});
+            expect(edge->killed_frame_value_indices ==
+                   luisa::vector<size_t>{0u});
+            expect(edge->live_frame_value_indices ==
+                   luisa::vector<size_t>{0u});
+        }
+    };
+
     "diagnostic_name_does_not_designate_frame_abi"_test = [] {
         Module m;
         BasicBlock *entry;

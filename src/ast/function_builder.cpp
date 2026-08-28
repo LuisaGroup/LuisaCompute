@@ -1,3 +1,5 @@
+#include <limits>
+
 #include <luisa/core/logging.h>
 #include <luisa/ast/function_builder.h>
 
@@ -108,6 +110,36 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
     }
 }
 
+class FunctionBuilder::SuspendExtensionRecorder final
+    : public CoroSuspendExtensionRecorder {
+private:
+    FunctionBuilder *_builder;
+    luisa::vector<const Expression *> *_values;
+
+public:
+    SuspendExtensionRecorder(
+        FunctionBuilder *builder,
+        luisa::vector<const Expression *> *values) noexcept
+        : _builder{builder}, _values{values} {}
+
+    [[nodiscard]] uint32_t bind(
+        CoroSuspendBinding,
+        const Expression *value) noexcept override {
+        value = _builder->_internalize(value);
+        LUISA_ASSERT(value != nullptr && value->type() != nullptr,
+                     "Coroutine suspend extension binding must be a typed "
+                     "AST value.");
+        LUISA_ASSERT(
+            _values->size() <
+                static_cast<size_t>(
+                    std::numeric_limits<uint32_t>::max()),
+            "Coroutine suspend extension binding count exceeds uint32 ABI.");
+        auto index = static_cast<uint32_t>(_values->size());
+        _values->emplace_back(value);
+        return index;
+    }
+};
+
 void FunctionBuilder::suspend_() noexcept {
     suspend_(_next_suspend_token(), luisa::string{}, {});
 }
@@ -134,6 +166,49 @@ void FunctionBuilder::suspend_(
 void FunctionBuilder::suspend_(
     uint32_t token, luisa::string name,
     luisa::vector<CoroFrameExport> frame_exports) noexcept {
+    suspend_(token, std::move(name), std::move(frame_exports), {});
+}
+
+void FunctionBuilder::suspend_(
+    luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports,
+    luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept {
+    suspend_(_next_suspend_token(), std::move(name),
+             std::move(frame_exports), std::move(extensions));
+}
+
+void FunctionBuilder::suspend_(
+    uint32_t token, luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports,
+    luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept {
+    luisa::vector<const Expression *> extension_binding_values;
+    luisa::vector<CoroSuspendExtensionPtr> normalized_extensions;
+    normalized_extensions.reserve(extensions.size());
+    SuspendExtensionRecorder recorder{this,
+                                       &extension_binding_values};
+    for (auto &&extension : extensions) {
+        LUISA_ASSERT(extension != nullptr,
+                     "Coroutine suspend extension must be non-null.");
+        auto source_schema = luisa::string{extension->schema()};
+        auto normalized =
+            std::move(*extension).freeze(recorder);
+        LUISA_ASSERT(normalized != nullptr,
+                     "Coroutine suspend extension '{}' returned a null "
+                     "normalized representation.",
+                     source_schema);
+        normalized_extensions.emplace_back(std::move(normalized));
+    }
+    suspend_(token, std::move(name), std::move(frame_exports),
+             std::move(normalized_extensions),
+             std::move(extension_binding_values));
+}
+
+void FunctionBuilder::suspend_(
+    uint32_t token, luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports,
+    luisa::vector<CoroSuspendExtensionPtr> extensions,
+    luisa::vector<const Expression *>
+        extension_binding_values) noexcept {
     LUISA_ASSERT(_tag == Tag::COROUTINE,
                  "Coroutine suspension is only valid in a coroutine.");
     LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
@@ -154,8 +229,17 @@ void FunctionBuilder::suspend_(
             "Duplicate coroutine frame export '{}' at suspend '{}'.",
             frame_export.name, name);
     }
+    for (auto *&value : extension_binding_values) {
+        value = _internalize(value);
+        LUISA_ASSERT(value != nullptr && value->type() != nullptr,
+                     "Coroutine suspend extension binding at suspend '{}' "
+                     "must be a typed AST value.",
+                     name);
+    }
     _create_and_append_statement<SuspendStmt>(
-        token, std::move(name), std::move(frame_exports));
+        token, std::move(name), std::move(frame_exports),
+        std::move(extensions),
+        std::move(extension_binding_values));
 }
 
 RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {

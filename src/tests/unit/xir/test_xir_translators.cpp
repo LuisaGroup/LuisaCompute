@@ -7,10 +7,13 @@
 #include "ut/ut.hpp"
 #include <array>
 #include <luisa/luisa-compute.h>
+#include <luisa/dsl/coro_func.h>
+#include <luisa/dsl/sugar.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
@@ -568,6 +571,56 @@ void reg_ast2xir() {
         expect(bit_count == 4u);
         expect(abs_count == 1u);
         expect(xir_verify_module(module.get()).succeeded());
+    };
+
+    "xir_ast_to_xir_preserves_complete_suspend_extension"_test = [] {
+        Coroutine c = [](Var<uint> key) {
+            $suspend("shade_surface", coro_sort_by(key, 1024u));
+        };
+        auto module = ast_to_xir_translate(
+            c.function_builder()->function(), {});
+        expect(module != nullptr);
+        expect(xir_verify_module(module.get()).succeeded());
+        const CoroSuspendInst *suspend = nullptr;
+        for (auto *function : module->function_list()) {
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions(
+                    [&](const Instruction *instruction) noexcept {
+                        if (instruction->isa<CoroSuspendInst>()) {
+                            suspend = static_cast<const CoroSuspendInst *>(
+                                instruction);
+                        }
+                    });
+            }
+        }
+        expect(suspend != nullptr);
+        if (suspend != nullptr) {
+            expect(suspend->extensions().size() == 1u);
+            expect(suspend->extension_binding_value_count() == 1u);
+            if (suspend->extensions().size() == 1u) {
+                auto &&extension = suspend->extensions().front();
+                expect(extension->schema() ==
+                       "luisa.coro.schedule.sort");
+                expect(extension->version() == 1u);
+                expect(extension->is_annotation());
+                expect(extension->fallback() ==
+                       CoroSuspendFallback::ignore);
+                expect(extension->bindings().size() == 1u);
+                expect(extension->attributes().size() == 1u);
+                expect(extension->bindings().front().name == "key");
+                expect(extension->bindings().front().index == 0u);
+                expect(suspend->extension_binding_value(0u)->type() ==
+                       Type::of<uint>());
+                expect(luisa::get<uint64_t>(
+                           extension->attributes().front().value) ==
+                       1024u);
+            }
+        }
+        auto text = xir_to_text_translate(module.get(), true);
+        expect(text.find("luisa.coro.schedule.sort") !=
+               luisa::string::npos);
+        expect(text.find("attribute \"range\"") !=
+               luisa::string::npos);
     };
 }
 

@@ -3,6 +3,7 @@
 #include "buffer.h"
 #include "compute_shader.h"
 #include "device.h"
+#include "command_buffer_sync.h"
 #include "log.h"
 #include "blas.h"
 #include "motion_instance.h"
@@ -125,9 +126,7 @@ void Tlas::pre_build(
             new_inst_buffer->vk_buffer(),
             1,
             &buffer_copy};
-        vkCmdCopyBuffer2(
-            cmdbuffer.cmdbuffer(),
-            &copy_info2);
+        detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
         cmdbuffer.states()->dispose_after_flush(std::move(_instance_buffer));
         _instance_buffer = std::move(new_inst_buffer);
     } else if (!_instance_buffer) {
@@ -170,12 +169,20 @@ void Tlas::pre_build(
                 update = false;
                 // Check if any child BLAS has motion enabled
                 if (resolved_meshes[idx] && resolved_meshes[idx]->has_motion()) {
+                    if (!device()->enable_motion_blur()) [[unlikely]] {
+                        LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                                    "which is not enabled on this device.");
+                    }
                     _has_motion = true;
                 }
                 // Check if the primitive is a MotionInstance
                 if (i.flags & AccelBuildCommand::Modification::flag_primitive) {
                     auto prim = reinterpret_cast<PrimitiveBase *>(i.primitive);
                     if (prim && prim->is_motion_instance()) {
+                        if (!device()->enable_motion_blur()) [[unlikely]] {
+                            LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                                        "which is not enabled on this device.");
+                        }
                         _has_motion = true;
                     }
                 }
@@ -351,7 +358,7 @@ void Tlas::pre_build(
                     _motion_instance_buffer->vk_buffer(),
                     1,
                     &buffer_copy};
-                vkCmdCopyBuffer2(cmdbuffer.cmdbuffer(), &copy_info2);
+                detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
             }
             // Copy standard buffer
             {
@@ -367,7 +374,7 @@ void Tlas::pre_build(
                     _instance_buffer->vk_buffer(),
                     1,
                     &buffer_copy};
-                vkCmdCopyBuffer2(cmdbuffer.cmdbuffer(), &copy_info2);
+                detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
             }
             _set_map.clear();
         } else {
@@ -528,6 +535,10 @@ void Tlas::pre_build(
     }
     // Add motion bit if any child BLAS has motion or any MotionInstance is present
     if (_has_motion) {
+        if (!device()->enable_motion_blur()) [[unlikely]] {
+            LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                        "which is not enabled on this device.");
+        }
         _acceleration_build_geometry_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_MOTION_BIT_NV;
     }
     _acceleration_build_geometry_info->mode = update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
@@ -566,6 +577,10 @@ void Tlas::pre_build(
     motion_info.maxInstances = instance_count;
     motion_info.flags = 0;
     if (_has_motion) {
+        if (!device()->enable_motion_blur()) [[unlikely]] {
+            LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                        "which is not enabled on this device.");
+        }
         acceleration_structure_create_info.createFlags = VK_ACCELERATION_STRUCTURE_CREATE_MOTION_BIT_NV;
         acceleration_structure_create_info.pNext = &motion_info;
     }

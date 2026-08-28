@@ -91,8 +91,11 @@ RayTracingShader::RayTracingShader(
     rt_pipeline_ci.layout = _pipeline_layout;
     // Allow motion blur in the ray tracing pipeline.
     // VK_PIPELINE_CREATE_RAY_TRACING_ALLOW_MOTION_BIT_NV is required for
-    // OpTraceRayMotionNV to work correctly with motion TLAS/BLAS.
-    rt_pipeline_ci.flags = VK_PIPELINE_CREATE_RAY_TRACING_ALLOW_MOTION_BIT_NV;
+    // OpTraceRayMotionNV to work correctly with motion TLAS/BLAS. It must only
+    // be set when VK_NV_ray_tracing_motion_blur is enabled on the device.
+    if (device->enable_motion_blur()) {
+        rt_pipeline_ci.flags |= VK_PIPELINE_CREATE_RAY_TRACING_ALLOW_MOTION_BIT_NV;
+    }
 
     VkPipeline pipeline{};
     VK_CHECK_RESULT(vkCreateRayTracingPipelinesKHR(

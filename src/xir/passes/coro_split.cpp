@@ -316,6 +316,50 @@ public:
     return valid;
 }
 
+[[nodiscard]] static bool same_suspend_extension(
+    const CoroSuspendExtension *lhs,
+    const CoroSuspendExtension *rhs) noexcept {
+    if (lhs == nullptr || rhs == nullptr) { return lhs == rhs; }
+    if (lhs->schema() != rhs->schema() ||
+        lhs->version() != rhs->version() ||
+        lhs->is_annotation() != rhs->is_annotation() ||
+        lhs->fallback() != rhs->fallback() ||
+        lhs->bindings().size() != rhs->bindings().size() ||
+        lhs->attributes().size() != rhs->attributes().size()) {
+        return false;
+    }
+    for (size_t i = 0u; i < lhs->bindings().size(); ++i) {
+        auto &a = lhs->bindings()[i];
+        auto &b = rhs->bindings()[i];
+        if (a.name != b.name || a.access != b.access ||
+            a.lifetime != b.lifetime || a.index != b.index) {
+            return false;
+        }
+    }
+    for (size_t i = 0u; i < lhs->attributes().size(); ++i) {
+        auto &a = lhs->attributes()[i];
+        auto &b = rhs->attributes()[i];
+        if (a.name != b.name || a.value != b.value) { return false; }
+    }
+    return true;
+}
+
+[[nodiscard]] static bool same_suspend_extension_owner(
+    const CoroSuspendExtensionOwner &lhs,
+    const CoroSuspendExtensionOwner &rhs) noexcept {
+    if (lhs.binding_values != rhs.binding_values ||
+        lhs.extensions.size() != rhs.extensions.size()) {
+        return false;
+    }
+    for (size_t i = 0u; i < lhs.extensions.size(); ++i) {
+        if (!same_suspend_extension(lhs.extensions[i].get(),
+                                    rhs.extensions[i].get())) {
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] static bool distilled_cfg_matches_canonical(
     const CoroCfgDistillResult &result,
     const CoroCfgDistillResult &canonical) noexcept {
@@ -361,7 +405,10 @@ public:
             auto &rhs_point = rhs.suspend_points[j];
             if (lhs_point.block != rhs_point.block ||
                 lhs_point.token != rhs_point.token ||
-                lhs_point.name != rhs_point.name) {
+                lhs_point.name != rhs_point.name ||
+                !same_suspend_extension_owner(
+                    lhs_point.extension_owner,
+                    rhs_point.extension_owner)) {
                 return false;
             }
         }
@@ -374,6 +421,10 @@ public:
             lhs.token != rhs.token ||
             lhs.exit_block != rhs.exit_block ||
             lhs.is_suspend != rhs.is_suspend ||
+            !same_suspend_extension_owner(
+                lhs.extension_owner, rhs.extension_owner) ||
+            lhs.extension_binding_frame_value_indices !=
+                rhs.extension_binding_frame_value_indices ||
             lhs.killed_values != rhs.killed_values ||
             lhs.touched_values != rhs.touched_values ||
             lhs.live_values != rhs.live_values ||

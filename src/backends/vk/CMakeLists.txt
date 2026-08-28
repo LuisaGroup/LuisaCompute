@@ -126,6 +126,10 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     endif ()
     if (WIN32)
         target_compile_definitions(luisa-compute-backend-vk PRIVATE VK_USE_PLATFORM_WIN32_KHR)
+    elseif (ANDROID)
+        # Android uses VK_KHR_android_surface; there is no X11 on Android.
+        target_compile_definitions(luisa-compute-backend-vk PRIVATE VK_USE_PLATFORM_ANDROID_KHR)
+        target_link_libraries(luisa-compute-backend-vk PRIVATE android log)
     elseif (UNIX AND NOT APPLE)
         find_package(X11 REQUIRED)
         target_compile_definitions(luisa-compute-backend-vk PRIVATE VK_USE_PLATFORM_XCB_KHR VK_USE_PLATFORM_XLIB_KHR)
@@ -136,7 +140,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     # Install the optional DXC compatibility runtime. Native XIR/LLVM SPIR-V
     # builds do not load or deploy it when compatibility is disabled.
     if (LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY AND
-            UNIX AND NOT APPLE AND
+            UNIX AND NOT APPLE AND NOT ANDROID AND
             (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64"))
         option(LUISA_COMPUTE_VK_SDK_DIR "The directory of Vulkan(DXC) SDK" "")
         if (LUISA_COMPUTE_VK_SDK_DIR)

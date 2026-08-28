@@ -1,4 +1,5 @@
 #include <luisa/ast/statement.h>
+#include <luisa/ast/callable_library.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
 #include "ut/ut.hpp"
@@ -74,6 +75,96 @@ int main() {
             expect(sus->frame_exports().front().value != nullptr);
             expect(sus->frame_exports().front().value->type() ==
                    Type::of<uint>());
+        }
+    };
+
+    "sort_suspend_annotation_records_binding_and_attribute"_test = [] {
+        Coroutine c = [](Var<uint> x) {
+            auto key = x * 13u + 7u;
+            $suspend("shade_surface", coro_sort_by(key, 64u));
+        };
+        auto *s = fst(c.function_builder()->body(),
+                      Statement::Tag::SUSPEND);
+        expect(s != nullptr);
+        auto *sus = static_cast<const SuspendStmt *>(s);
+        expect(sus->extensions().size() == 1u);
+        expect(sus->extension_binding_values().size() == 1u);
+        if (sus->extensions().size() == 1u) {
+            auto &&extension = sus->extensions().front();
+            expect(extension->schema() ==
+                   "luisa.coro.schedule.sort");
+            expect(extension->version() == 1u);
+            expect(extension->is_annotation());
+            expect(extension->fallback() ==
+                   CoroSuspendFallback::ignore);
+            expect(extension->bindings().size() == 1u);
+            expect(extension->attributes().size() == 1u);
+            if (extension->bindings().size() == 1u) {
+                auto &&binding = extension->bindings().front();
+                expect(binding.name == "key");
+                expect(binding.access ==
+                       CoroSuspendBindingAccess::read);
+                expect(binding.lifetime ==
+                       CoroSuspendBindingLifetime::queued);
+                expect(binding.index == 0u);
+                auto *value = sus->extension_binding_values()[
+                    binding.index];
+                expect(value != nullptr);
+                expect(value->type() == Type::of<uint>());
+                expect((to_underlying(value->usage()) &
+                        to_underlying(Usage::READ)) != 0u);
+            }
+            if (extension->attributes().size() == 1u) {
+                auto &&attribute = extension->attributes().front();
+                expect(attribute.name == "range");
+                expect(luisa::holds_alternative<uint64_t>(
+                    attribute.value));
+                if (luisa::holds_alternative<uint64_t>(
+                        attribute.value)) {
+                    expect(luisa::get<uint64_t>(attribute.value) ==
+                           64u);
+                }
+            }
+        }
+    };
+
+    "suspend_accepts_frame_exports_and_extensions_together"_test = [] {
+        Coroutine c = [](Var<uint> x) {
+            $suspend("mixed",
+                     coro_frame_export("legacy_key", x),
+                     coro_sort_by(x, 128u));
+        };
+        auto *s = fst(c.function_builder()->body(),
+                      Statement::Tag::SUSPEND);
+        auto *sus = static_cast<const SuspendStmt *>(s);
+        expect(sus->frame_exports().size() == 1u);
+        expect(sus->extensions().size() == 1u);
+        expect(sus->extension_binding_values().size() == 1u);
+    };
+
+    "suspend_extensions_survive_callable_library_round_trip"_test = [] {
+        Coroutine c = [](Var<uint> x) {
+            $suspend("round_trip", coro_sort_by(x, 256u));
+        };
+        CallableLibrary source;
+        source.add_callable("coro", c.function_builder());
+        auto binary = source.serialize();
+        CallableLibrary loaded;
+        loaded.load(binary);
+        auto builder = loaded.get_function_builder("coro");
+        auto *s = fst(builder->body(), Statement::Tag::SUSPEND);
+        expect(s != nullptr);
+        auto *sus = static_cast<const SuspendStmt *>(s);
+        expect(sus->extensions().size() == 1u);
+        expect(sus->extension_binding_values().size() == 1u);
+        if (sus->extensions().size() == 1u) {
+            auto &&extension = sus->extensions().front();
+            expect(extension->schema() ==
+                   "luisa.coro.schedule.sort");
+            expect(extension->is_annotation());
+            expect(extension->bindings().front().name == "key");
+            expect(luisa::get<uint64_t>(
+                       extension->attributes().front().value) == 256u);
         }
     };
 

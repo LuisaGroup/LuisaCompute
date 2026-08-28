@@ -503,8 +503,21 @@ private:
                         .value = _dup_expr(frame_export.value),
                         .name = frame_export.name});
                 }
+                luisa::vector<CoroSuspendExtensionPtr> extensions;
+                extensions.reserve(s->extensions().size());
+                for (auto &&extension : s->extensions()) {
+                    extensions.emplace_back(extension->clone());
+                }
+                luisa::vector<const Expression *> binding_values;
+                binding_values.reserve(
+                    s->extension_binding_values().size());
+                for (auto *value : s->extension_binding_values()) {
+                    binding_values.emplace_back(_dup_expr(value));
+                }
                 fb->suspend_(s->token(), luisa::string{s->name()},
-                             std::move(frame_exports));
+                             std::move(frame_exports),
+                             std::move(extensions),
+                             std::move(binding_values));
                 break;
             }
             case Statement::Tag::RAY_QUERY: {
