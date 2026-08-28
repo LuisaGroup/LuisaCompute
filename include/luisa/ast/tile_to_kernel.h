@@ -89,17 +89,35 @@ struct TileToKernelConfig {
     // Multi-buffered software pipelining (plan 2.16 / CUTASS "Pipelining"):
     // when a T.Pipelined(count, stages) loop has stages >= 2 and its body is
     // the GEMM pattern (global->shared rank-2 copies feeding shared-reading
-    // consumers, chunkable into cp.async-contiguous row chunks), the lowering
+    // consumers, chunkable into contiguous row chunks), the lowering
     // allocates `stages` copies of each pipelined shared tile and overlaps the
-    // next iterations' global->shared async copies with the current compute
+    // next iterations' global->shared copies with the current compute
     // (prologue prefetch / mainloop issue+wait / epilogue drain, per CUTASS).
-    // This lowers to the CUDA async-copy pipeline builtins (ASYNC_COPY /
-    // PIPELINE_COMMIT / PIPELINE_WAIT_PRIOR + BUFFER_ADDRESS); other backends
-    // reject BUFFER_ADDRESS, so like use_tensor this defaults to false and
-    // CUDA programs opt in.  On any gate failure (bad chunk shape, batching,
-    // non-matching body) the synchronous lowering is kept, so enabling it is
-    // always safe on CUDA.
+    // Two lowering strategies are available:
+    //   * pipeline_use_async_copy = true  (default): emit the CUDA cp.async
+    //     pipeline builtins (ASYNC_COPY / PIPELINE_COMMIT / PIPELINE_WAIT_PRIOR
+    //     + BUFFER_ADDRESS).  CUDA only — other backends reject these ops.
+    //   * pipeline_use_async_copy = false: emit the portable manual-copy
+    //     pipeline (BUFFER_READ + shared stores, no BUFFER_ADDRESS /
+    //     ASYNC_COPY / PIPELINE_*), used by DX/VK.  When Tier-2 gates pass
+    //     (see src/ast/tile_to_kernel.cpp) the leading copy warps overlap the
+    //     next stage's copy with the compute warps' current-stage compute;
+    //     otherwise the fallback is the synchronous manual pipeline (every
+    //     thread copies, then every thread computes), which is always correct.
+    // On any gate failure (bad chunk shape, batching, non-matching body) the
+    // synchronous lowering is kept, so enabling it is always safe.
     bool use_pipeline : 1 {false};
+    // true  -> emit the CUDA cp.async builtins (ASYNC_COPY / PIPELINE_COMMIT /
+    // PIPELINE_WAIT_PRIOR + BUFFER_ADDRESS); CUDA only.
+    // false -> emit the portable manual-copy pipeline (no BUFFER_ADDRESS /
+    // ASYNC_COPY); used by dx/vk.
+    bool pipeline_use_async_copy : 1 {true};
+    // Tier-2 warp specialization: number of leading warps dedicated to the
+    // manual copy stage.  0 = auto (see _manual_copy_threads()).
+    uint32_t pipeline_copy_warps{1u};
+    // Host wavefront width used to size the copy stage (default 32; set to the
+    // device's wave size, e.g. 64 on AMD, when known).
+    uint32_t pipeline_warp_size{32u};
 };
 /// Translate a compiled tile kernel (a traced TileFunctionBuilder) into a
 /// regular Luisa kernel (FunctionBuilder).  The traced builder is only read;

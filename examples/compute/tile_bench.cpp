@@ -520,12 +520,29 @@ int main(int argc, char *argv[]) {
     for (auto i = 3; i < argc; ++i) {
         if (argv[i] != nullptr && luisa::string_view{argv[i]} == "--tensor") { use_tensor = true; }
     }
-    // Multi-buffered async software pipelining (CUTASS-style double buffering):
-    // the lowering emits the CUDA cp.async pipeline builtins, so enable it only
-    // on the CUDA backend; other backends keep the synchronous per-stage path.
-    auto use_pipeline = backend == "cuda";
+    // Multi-buffered software pipelining (CUTASS-style double buffering):
+    // CUDA lowers the pipeline to its cp.async builtins (ASYNC_COPY /
+    // PIPELINE_COMMIT / PIPELINE_WAIT_PRIOR + BUFFER_ADDRESS); dx/vk have no
+    // cp.async and get the portable manual-copy pipeline (plain BUFFER_READ +
+    // shared stores, Tier-2 warp specialization when eligible).
+    // --no-pipeline forces the synchronous per-stage path for comparison;
+    // --no-async-copy forces the manual path even on CUDA; --copy-warps N
+    // sets the Tier-2 copy warp count (0 = auto-select, the default).
+    bool use_pipeline = true;
+    bool use_async_copy = backend == "cuda";
+    uint32_t copy_warps = 0u;// 0 = auto
+    for (auto i = 3; i < argc; ++i) {
+        if (argv[i] != nullptr && luisa::string_view{argv[i]} == "--tensor") { use_tensor = true; }
+        if (argv[i] != nullptr && luisa::string_view{argv[i]} == "--no-pipeline") { use_pipeline = false; }
+        if (argv[i] != nullptr && luisa::string_view{argv[i]} == "--no-async-copy") { use_async_copy = false; }
+        if (argv[i] != nullptr && luisa::string_view{argv[i]} == "--copy-warps" && i + 1 < argc) {
+            copy_warps = static_cast<uint32_t>(std::max(0, atoi(argv[++i])));
+        }
+    }
     TileToKernelConfig tile_config{.use_tensor = use_tensor,
-                                   .use_pipeline = use_pipeline};
+                                   .use_pipeline = use_pipeline,
+                                   .pipeline_use_async_copy = use_async_copy,
+                                   .pipeline_copy_warps = copy_warps};
     // NOTE: do NOT dispatch kernel.to_kernel<2>() when use_tensor is enabled —
     // it re-lowers with the DEFAULT config (use_tensor=false, partition path)
     // and its dispatch_size disagrees with the tensor-op lowering (e.g. the
