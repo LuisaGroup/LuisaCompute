@@ -39,6 +39,41 @@ struct ExternalStageView {
     }
 };
 
+/// Scheduler-owned identity for one static suspend boundary. `boundary` uses
+/// zero as the normal-return sentinel and graph boundary index + 1 otherwise.
+/// Keeping it outside CoroFrame demonstrates that route policy and coroutine
+/// data slots are separate concerns.
+struct ExternalStageRoute {
+    uint token{0u};
+    uint target{0u};
+    uint boundary{0u};
+};
+
+[[nodiscard]] inline luisa::vector<ExternalStageRoute>
+collect_external_stage_routes(
+    const CoroGraph &graph, size_t source) noexcept {
+    luisa::vector<ExternalStageRoute> result;
+    for (auto &&boundary : graph.boundaries()) {
+        if (boundary.from_index != source) { continue; }
+        auto token = static_cast<uint>(boundary.token);
+        LUISA_ASSERT(
+            std::none_of(
+                result.begin(), result.end(),
+                [token](auto route) noexcept {
+                    return route.token == token;
+                }),
+            "Source node {} has several static coroutine boundaries for "
+            "token {}; the scheduler needs an additional source-side route "
+            "discriminator.",
+            source, token);
+        result.emplace_back(ExternalStageRoute{
+            .token = token,
+            .target = static_cast<uint>(boundary.to_index),
+            .boundary = static_cast<uint>(boundary.index + 1u)});
+    }
+    return result;
+}
+
 /// Resolve exactly one schema instance. Examples deliberately reject
 /// ambiguity instead of silently coalescing static suspend boundaries.
 [[nodiscard]] inline luisa::vector<ExternalStageView> find_external_stages(

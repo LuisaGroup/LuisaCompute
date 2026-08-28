@@ -173,32 +173,8 @@ int main(int argc, char *argv[]) {
         coroutine.graph(), coroutine.frame().frame_field_count(),
         CoroFrameIOPlanConfig{.externalize_target_token = true});
 
-    struct Route {
-        uint token;
-        uint target;
-        uint boundary;
-    };
     auto outgoing_routes = [&](size_t source) noexcept {
-        luisa::vector<Route> result;
-        for (auto &&boundary : coroutine.graph().boundaries()) {
-            if (boundary.from_index != source) { continue; }
-            auto token = static_cast<uint>(boundary.token);
-            LUISA_ASSERT(
-                std::none_of(
-                    result.begin(), result.end(),
-                    [token](auto route) noexcept {
-                        return route.token == token;
-                    }),
-                "Source node {} has several static coroutine boundaries for "
-                "token {}; the scheduler needs an additional source-side "
-                "route discriminator.",
-                source, token);
-            result.emplace_back(Route{
-                .token = token,
-                .target = static_cast<uint>(boundary.to_index),
-                .boundary = static_cast<uint>(boundary.index + 1u)});
-        }
-        return result;
+        return collect_external_stage_routes(coroutine.graph(), source);
     };
 
     auto entry_outputs = io_plan.transition_output_fields[0u];
