@@ -1,9 +1,13 @@
 #include "ut/ut.hpp"
 #include <luisa/coro/coro_graph.h>
+#include <luisa/dsl/coro_frame.h>
+#include <luisa/dsl/func.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
@@ -100,6 +104,307 @@ void reg_coro_graph() {
         auto *nm = graph.node_by_name("checkpoint");
         expect(nm != nullptr);
         expect(nm->index == 1u);
+    };
+
+    "graph_preserves_complete_extensions_and_shared_slot_accesses"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *state = b.clock();
+        state->set_name("shared_state");
+        auto *output = b.alloca_local(Type::of<float>());
+        output->set_name("stage_output");
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.nn-shade", 3u,
+            CoroSuspendFallback::reject,
+            {{.name = "input",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 0u},
+             {.name = "output",
+              .access = CoroSuspendBindingAccess::write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 1u}},
+            {{.name = "network", .value = luisa::string{"bunny"}}}));
+        extensions.emplace_back(make_coro_suspend_annotation_data(
+            "luisa.coro.debug.watch", 1u,
+            CoroSuspendFallback::ignore,
+            {{.name = "value",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::queued,
+              .index = 2u}},
+            {{.name = "label", .value = luisa::string{"state"}}}));
+        luisa::vector<luisa::string> export_names{"legacy"};
+        luisa::vector<Value *> export_values{state};
+        luisa::vector<Value *> binding_values{state, output, state};
+        b.coro_suspend(
+            5u, "extension-boundary", nullptr,
+            luisa::span{export_names}, luisa::span{export_values},
+            std::move(extensions), luisa::span{binding_values});
+        b.set_insertion_point(resume);
+        b.coro_resume(5u, nullptr);
+        static_cast<void>(b.call(
+            Type::of<uint64_t>(), ArithmeticOp::BINARY_ADD,
+            {state, m.create_constant_one(Type::of<uint64_t>())}));
+        static_cast<void>(b.load(Type::of<float>(), output));
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(
+            &m, cfg, nullptr);
+        auto info = coro_materialize_pass_run_on_module_with_cfg(
+            &m, cfg, split);
+        auto graph = CoroGraph::from_module(m, info, cfg, split);
+
+        expect(graph.boundary_count() == 1u);
+        if (graph.boundary_count() != 1u) { return; }
+        auto &boundary = graph.boundary(0u);
+        expect(boundary.index == 0u);
+        expect(boundary.from_index == 0u);
+        expect(boundary.to_index == 1u);
+        expect(boundary.token == 5u);
+        expect(boundary.extensions.size() == 2u);
+        expect(boundary.bindings.size() == 3u);
+        if (boundary.extensions.size() == 2u) {
+            expect(boundary.extensions[0u]->schema() ==
+                   "com.example.nn-shade");
+            expect(boundary.extensions[0u]->version() == 3u);
+            expect(!boundary.extensions[0u]->is_annotation());
+            expect(boundary.extensions[0u]->fallback() ==
+                   CoroSuspendFallback::reject);
+            expect(boundary.extensions[0u]->attributes().size() == 1u);
+            expect(boundary.extensions[1u]->schema() ==
+                   "luisa.coro.debug.watch");
+            expect(boundary.extensions[1u]->is_annotation());
+        }
+        if (boundary.bindings.size() == 3u) {
+            auto &stage_input = boundary.bindings[0u];
+            auto &stage_output = boundary.bindings[1u];
+            auto &debug_watch = boundary.bindings[2u];
+            expect(stage_input.type() == Type::of<uint64_t>());
+            expect(stage_input.readable());
+            expect(!stage_input.writable());
+            expect(stage_input.materialized());
+            expect(stage_output.type() == Type::of<float>());
+            expect(!stage_output.readable());
+            expect(stage_output.writable());
+            expect(stage_output.materialized());
+            expect(debug_watch.type() == Type::of<uint64_t>());
+            expect(debug_watch.readable());
+            expect(debug_watch.materialized());
+            expect(stage_input.pieces().size() == 1u);
+            expect(debug_watch.pieces().size() == 1u);
+            if (stage_input.pieces().size() == 1u &&
+                debug_watch.pieces().size() == 1u) {
+                // Both descriptors reference the exact same logical atom and
+                // physical slot; graph materialization only creates views.
+                expect(stage_input.pieces()[0u].frame_value_index ==
+                       debug_watch.pieces()[0u].frame_value_index);
+                expect(stage_input.pieces()[0u].field_index ==
+                       debug_watch.pieces()[0u].field_index);
+            }
+        }
+        expect(cfg.frame_values.size() == 2u);
+        expect(cfg.frame_slots.size() == 2u);
+        if (boundary.bindings.size() == 3u) {
+            CoroFrameDesc desc;
+            for (auto &slot : cfg.frame_slots) {
+                desc.add_field(slot.name, slot.type);
+            }
+            auto &stage_input = boundary.bindings[0u];
+            auto &stage_output = boundary.bindings[1u];
+            auto &debug_watch = boundary.bindings[2u];
+            Kernel1D access_kernel = [&]() noexcept {
+                auto frame = CoroFrame::create(&desc);
+                auto input_user_field =
+                    stage_input.pieces()[0u].field_index -
+                    CoroFrameDesc::reserved_field_count;
+                auto input_field =
+                    frame.get<uint64_t>(input_user_field);
+                input_field = uint64_t{17u};
+                auto input_snapshot =
+                    stage_input.read<uint64_t>(frame);
+                auto watched = debug_watch.read<uint64_t>(frame);
+                stage_output.write<float>(frame, Expr<float>{0.75f});
+                static_cast<void>(input_snapshot);
+                static_cast<void>(watched);
+            };
+            expect(access_kernel.function() != nullptr);
+            expect(access_kernel.function()->hash() != 0u);
+        }
+    };
+
+    "slot_access_projects_aggregate_lvalue_relative_to_binding"_test = [] {
+        Module m;
+        auto *state_type = Type::structure(
+            {Type::of<float>(), Type::of<float3>()});
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        uint32_t member_index = 1u;
+        auto *member = m.create_constant(
+            Type::of<uint32_t>(), &member_index);
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(state_type);
+        state->set_name("aggregate_stage_state");
+        auto *output = b.gep(Type::of<float3>(), state, {member});
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.aggregate-stage", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "output",
+              .access = CoroSuspendBindingAccess::write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 0u}},
+            {}));
+        luisa::vector<Value *> binding_values{output};
+        b.coro_suspend(
+            7u, "aggregate-stage", nullptr, {}, {},
+            std::move(extensions), luisa::span{binding_values});
+        b.set_insertion_point(resume);
+        b.coro_resume(7u, nullptr);
+        auto *resumed_output =
+            b.gep(Type::of<float3>(), state, {member});
+        static_cast<void>(b.load(Type::of<float3>(), resumed_output));
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.transition_edges.size() == 1u);
+        if (cfg.transition_edges.size() == 1u) {
+            expect(cfg.transition_edges[0u]
+                       .extension_binding_access_chains ==
+                   luisa::vector<luisa::vector<uint32_t>>{{1u}});
+        }
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(
+            &m, cfg, nullptr);
+        auto info = coro_materialize_pass_run_on_module_with_cfg(
+            &m, cfg, split);
+        auto graph = CoroGraph::from_module(m, info, cfg, split);
+
+        expect(graph.boundary_count() == 1u);
+        if (graph.boundary_count() != 1u ||
+            graph.boundary(0u).bindings.size() != 1u) {
+            return;
+        }
+        auto &access = graph.boundary(0u).bindings[0u];
+        expect(access.type() == Type::of<float3>());
+        expect(access.writable());
+        expect(!access.readable());
+        expect(access.pieces().size() == 3u);
+        if (access.pieces().size() == 3u) {
+            luisa::vector<luisa::vector<uint32_t>> paths;
+            for (auto &piece : access.pieces()) {
+                paths.emplace_back(piece.access_chain);
+                expect(piece.logical_type == Type::of<float>());
+            }
+            std::sort(paths.begin(), paths.end());
+            expect(paths ==
+                   luisa::vector<luisa::vector<uint32_t>>{
+                       {0u}, {1u}, {2u}});
+        }
+
+        CoroFrameDesc desc;
+        for (auto &slot : cfg.frame_slots) {
+            desc.add_field(slot.name, slot.type);
+        }
+        Kernel1D write_kernel = [&]() noexcept {
+            auto frame = CoroFrame::create(&desc);
+            access.write<float3>(
+                frame, Expr<float3>{float3{1.f, 2.f, 3.f}});
+        };
+        expect(write_kernel.function() != nullptr);
+        expect(write_kernel.function()->hash() != 0u);
+    };
+
+    "slot_access_preserves_packed_boolean_neighbors"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *first = b.alloca_local(Type::of<bool>());
+        auto *second = b.alloca_local(Type::of<bool>());
+        b.store(first, m.create_constant_one(Type::of<bool>()));
+        b.store(second, m.create_constant_zero(Type::of<bool>()));
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "luisa.coro.debug.watch-edit", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "first",
+              .access = CoroSuspendBindingAccess::read_write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 0u},
+             {.name = "second",
+              .access = CoroSuspendBindingAccess::read_write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 1u}},
+            {}));
+        luisa::vector<Value *> binding_values{first, second};
+        b.coro_suspend(
+            9u, "packed-bools", nullptr, {}, {},
+            std::move(extensions), luisa::span{binding_values});
+        b.set_insertion_point(resume);
+        b.coro_resume(9u, nullptr);
+        static_cast<void>(b.load(Type::of<bool>(), first));
+        static_cast<void>(b.load(Type::of<bool>(), second));
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.frame_values.size() == 2u);
+        expect(cfg.frame_slots.size() == 1u);
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(
+            &m, cfg, nullptr);
+        auto info = coro_materialize_pass_run_on_module_with_cfg(
+            &m, cfg, split);
+        auto graph = CoroGraph::from_module(m, info, cfg, split);
+
+        expect(graph.boundary_count() == 1u);
+        if (graph.boundary_count() != 1u ||
+            graph.boundary(0u).bindings.size() != 2u) {
+            return;
+        }
+        auto &first_access = graph.boundary(0u).bindings[0u];
+        auto &second_access = graph.boundary(0u).bindings[1u];
+        expect(first_access.pieces().size() == 1u);
+        expect(second_access.pieces().size() == 1u);
+        if (first_access.pieces().size() == 1u &&
+            second_access.pieces().size() == 1u) {
+            auto &a = first_access.pieces()[0u];
+            auto &b_piece = second_access.pieces()[0u];
+            expect(a.field_index == b_piece.field_index);
+            expect(a.physical_type == Type::of<uint>());
+            expect(b_piece.physical_type == Type::of<uint>());
+            expect(a.bit_offset.has_value());
+            expect(b_piece.bit_offset.has_value());
+            if (a.bit_offset && b_piece.bit_offset) {
+                expect(*a.bit_offset != *b_piece.bit_offset);
+            }
+        }
+
+        CoroFrameDesc desc;
+        for (auto &slot : cfg.frame_slots) {
+            desc.add_field(slot.name, slot.type);
+        }
+        Kernel1D packed_kernel = [&]() noexcept {
+            auto frame = CoroFrame::create(&desc);
+            first_access.write<bool>(frame, Expr<bool>{true});
+            second_access.write<bool>(frame, Expr<bool>{false});
+            auto first_value = first_access.read<bool>(frame);
+            auto second_value = second_access.read<bool>(frame);
+            static_cast<void>(first_value);
+            static_cast<void>(second_value);
+        };
+        expect(packed_kernel.function() != nullptr);
+        expect(packed_kernel.function()->hash() != 0u);
     };
 
     "three_suspends_four_nodes"_test = [] {

@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <bit>
 #include <cstdlib>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
@@ -144,13 +145,44 @@ clone_coro_suspend_extension_owner(
     return owner;
 }
 
+[[nodiscard]] static luisa::optional<luisa::vector<uint32_t>>
+resolve_static_local_lvalue_access_chain(Value *value) noexcept {
+    luisa::vector<luisa::vector<uint32_t>> reversed_segments;
+    while (value != nullptr && value->isa<GEPInst>()) {
+        auto *gep = static_cast<GEPInst *>(value);
+        auto &segment = reversed_segments.emplace_back();
+        segment.reserve(gep->index_count());
+        for (size_t i = 0u; i < gep->index_count(); ++i) {
+            uint64_t index = 0u;
+            if (!try_decode_constant_nonnegative_integer(
+                    gep->index(i), index) ||
+                index > std::numeric_limits<uint32_t>::max()) {
+                return luisa::nullopt;
+            }
+            segment.emplace_back(static_cast<uint32_t>(index));
+        }
+        value = gep->base();
+    }
+    if (value == nullptr || !value->isa<AllocaInst>() ||
+        !static_cast<AllocaInst *>(value)->is_local()) {
+        return luisa::nullopt;
+    }
+    luisa::vector<uint32_t> access_chain;
+    for (auto iter = reversed_segments.rbegin();
+         iter != reversed_segments.rend(); ++iter) {
+        access_chain.insert(
+            access_chain.end(), iter->begin(), iter->end());
+    }
+    return access_chain;
+}
+
 [[nodiscard]] static uint64_t compute_distill_validation_hash(
     const CoroCfgDistillResult &result,
     const FunctionDefinition *definition) noexcept {
     DistillCertificateHasher h;
     // Version the schema so adding a semantic field cannot silently retain a
     // certificate computed by an older layout.
-    h.add(uint64_t{5u});
+    h.add(uint64_t{6u});
     h.add_pointer(definition);
     if (definition != nullptr) {
         h.add_pointer(definition->body_block());
@@ -291,6 +323,11 @@ clone_coro_suspend_extension_owner(
         for (auto &&binding_indices :
              edge.extension_binding_frame_value_indices) {
             hash_indices(binding_indices);
+        }
+        h.add(edge.extension_binding_access_chains.size());
+        for (auto &&access_chain :
+             edge.extension_binding_access_chains) {
+            hash_indices(access_chain);
         }
         hash_names(edge.killed_variables);
         hash_names(edge.touched_variables);
@@ -918,6 +955,8 @@ static void analyze_live_variables(
         // projections into the one DenseValueDomain above, never a second
         // extension-specific frame namespace.
         luisa::vector<luisa::vector<size_t>> extension_binding_atoms;
+        luisa::vector<luisa::vector<uint32_t>>
+            extension_binding_access_chains;
 
         explicit DenseTransitionData(size_t count) noexcept
             : killed{count},
@@ -957,6 +996,8 @@ static void analyze_live_variables(
                 clone_coro_suspend_extension_owner(suspend);
             dense.extension_binding_atoms.resize(
                 suspend->extension_binding_value_count());
+            dense.extension_binding_access_chains.resize(
+                suspend->extension_binding_value_count());
             for (size_t i = 0u;
                  i < suspend->frame_export_count(); ++i) {
                 auto atom_index = value_domain.ssa_index(
@@ -990,6 +1031,14 @@ static void analyze_live_variables(
                             append_atom(*atom_index);
                         }
                     } else {
+                        auto access_chain =
+                            resolve_static_local_lvalue_access_chain(value);
+                        if (!access_chain) {
+                            ++result.invalid_cfg_error_count;
+                            continue;
+                        }
+                        dense.extension_binding_access_chains[
+                            binding.index] = std::move(*access_chain);
                         for (auto access :
                              value_domain.memory_accesses(value)) {
                             append_atom(access.atom_index);
@@ -1308,6 +1357,8 @@ static void analyze_live_variables(
         edge.extension_binding_frame_value_indices.clear();
         edge.extension_binding_frame_value_indices.resize(
             dense.extension_binding_atoms.size());
+        edge.extension_binding_access_chains =
+            dense.extension_binding_access_chains;
         for (size_t binding_index = 0u;
              binding_index < dense.extension_binding_atoms.size();
              ++binding_index) {
@@ -1324,7 +1375,28 @@ static void analyze_live_variables(
                     first != static_cast<size_t>(-1),
                     "Coroutine extension binding atom was not materialized.");
                 for (size_t i = 0u; i < count; ++i) {
-                    projection.emplace_back(first + i);
+                    auto frame_value_index = first + i;
+                    auto &frame_value =
+                        result.frame_values[frame_value_index];
+                    auto *binding_value =
+                        edge.extension_owner.binding_values[binding_index];
+                    auto &base =
+                        dense.extension_binding_access_chains[binding_index];
+                    auto projection_matches_binding =
+                        !binding_value->is_lvalue() ?
+                            frame_value.value == binding_value :
+                            frame_value.value ==
+                                    detail::trace_local_alloca(binding_value) &&
+                                base.size() <=
+                                    frame_value.access_chain.size() &&
+                                std::equal(
+                                    base.begin(), base.end(),
+                                    frame_value.access_chain.begin());
+                    if (!projection_matches_binding) {
+                        ++result.invalid_cfg_error_count;
+                        continue;
+                    }
+                    projection.emplace_back(frame_value_index);
                 }
             }
             std::sort(projection.begin(), projection.end());
@@ -1341,6 +1413,8 @@ static void analyze_live_variables(
         append_names_from_frame_values(
             edge.store_variables, edge.store_frame_value_indices, result);
     }
+
+    if (result.invalid_cfg_error_count != 0u) { return; }
 
     color_frame_slots(result);
 

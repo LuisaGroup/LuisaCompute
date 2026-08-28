@@ -144,6 +144,12 @@ struct CoroCfgDistillResult {
         // semantic source of schema, access, lifetime, and attributes.
         luisa::vector<luisa::vector<size_t>>
             extension_binding_frame_value_indices;
+        // Static local-lvalue path relative to the owning alloca. Empty for
+        // rvalue bindings and whole-allocation lvalues. CoroSlotAccess removes
+        // this prefix from FrameValue::access_chain when reconstructing the
+        // binding's logical type; it does not allocate additional storage.
+        luisa::vector<luisa::vector<uint32_t>>
+            extension_binding_access_chains;
         luisa::vector<Value *> killed_values;
         luisa::vector<Value *> touched_values;
         luisa::vector<Value *> live_values;

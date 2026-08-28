@@ -5,6 +5,8 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/ast/coro_suspend.h>
+#include <luisa/coro/coro_slot_access.h>
 
 namespace luisa::compute::xir {
 class Module;
@@ -52,9 +54,31 @@ public:
         luisa::vector<size_t> store_fields; // frame fields stored at suspend
     };
 
+    /// One static suspend instruction. Unlike Edge, boundaries are never
+    /// coalesced merely because they have the same source and destination;
+    /// complete extension objects and their typed slot projections remain
+    /// one-to-one with the source suspension site.
+    struct Boundary {
+        size_t index{0u};
+        size_t from_index{0u};
+        size_t to_index{0u};
+        size_t token{0u};
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        // Owner binding index -> typed projection into existing frame slots.
+        luisa::vector<CoroSlotAccess> bindings;
+
+        [[nodiscard]] auto extension_span() const noexcept {
+            return luisa::span{extensions};
+        }
+        [[nodiscard]] auto binding_span() const noexcept {
+            return luisa::span{bindings};
+        }
+    };
+
 private:
     luisa::vector<Node> _nodes;
     luisa::vector<Edge> _edges;
+    luisa::vector<Boundary> _boundaries;
     luisa::unordered_map<size_t, size_t> _token_to_index;
     luisa::unordered_map<luisa::string, size_t> _name_to_index;
 
@@ -82,12 +106,21 @@ public:
 
     [[nodiscard]] size_t edge_count() const noexcept;
     [[nodiscard]] const Edge *edge(size_t from, size_t to) const noexcept;
+    [[nodiscard]] size_t boundary_count() const noexcept {
+        return _boundaries.size();
+    }
+    [[nodiscard]] const Boundary &boundary(size_t index) const noexcept {
+        return _boundaries[index];
+    }
     [[nodiscard]] luisa::string dump() const noexcept;
 
     // --- Iterators ---
 
     [[nodiscard]] auto nodes() const noexcept { return luisa::span{_nodes}; }
     [[nodiscard]] auto edges() const noexcept { return luisa::span{_edges}; }
+    [[nodiscard]] auto boundaries() const noexcept {
+        return luisa::span{_boundaries};
+    }
 
     // --- Construction ---
 

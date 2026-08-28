@@ -425,6 +425,8 @@ public:
                 lhs.extension_owner, rhs.extension_owner) ||
             lhs.extension_binding_frame_value_indices !=
                 rhs.extension_binding_frame_value_indices ||
+            lhs.extension_binding_access_chains !=
+                rhs.extension_binding_access_chains ||
             lhs.killed_values != rhs.killed_values ||
             lhs.touched_values != rhs.touched_values ||
             lhs.live_values != rhs.live_values ||
@@ -721,6 +723,19 @@ public:
             !coexisting_frame_values_are_disjoint(
                 edge.live_frame_value_indices)) {
             return false;
+        }
+        if (edge.extension_owner.binding_values.size() !=
+                edge.extension_binding_frame_value_indices.size() ||
+            edge.extension_owner.binding_values.size() !=
+                edge.extension_binding_access_chains.size()) {
+            return false;
+        }
+        for (auto &projection :
+             edge.extension_binding_frame_value_indices) {
+            if (!valid_frame_indices(projection) ||
+                !coexisting_frame_values_are_disjoint(projection)) {
+                return false;
+            }
         }
     }
     return true;
