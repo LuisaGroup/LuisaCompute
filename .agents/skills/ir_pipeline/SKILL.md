@@ -474,6 +474,15 @@ image-correctness claims,
 use the deterministic offline cutout seed and compare Metal4 AIR against the
 separate same-build legacy `metal` MSL backend.
 
+Use `test_metal4_device_conformance` as the shared macOS/iOS closure workload.
+It must execute the exact Metal LogState message, bindless update/read,
+GPU-authored MTL4 indirect dispatch, D32 vertex/fragment draw, guarded
+Mesh/TLAS build, closest/any-hit tracing, shader execution reordering, and RTX
+Cornell path trace. Keep the workload implementation under the Metal4 tools
+directory so the signed iOS application and the host CTest cannot silently
+diverge. Validate both the exact scalar/checksum results and the final image;
+compilation alone is not a pass.
+
 Use `test_metal4_raster_stencil` for executing host-stencil coverage. It must
 exercise logical D24S8 and D32S8A24, nonzero reference, read/write masks,
 front/back state, Replace/Zero/Keep across pass, stencil-fail, and depth-fail,
@@ -544,6 +553,10 @@ cmake --build cmake-build-metal4-air --target test_metal4_raster_stencil -j 8
 ctest --test-dir cmake-build-metal4-air -R '^test_metal4_raster_stencil(_validation)?$' --output-on-failure
 cmake --build cmake-build-metal4-air --target luisa-metal4-ios-path-tracer-aot -j 8
 ctest --test-dir cmake-build-metal4-air -R '^test_metal4_ios_air_aot_codegen$' --output-on-failure
+cmake --build cmake-build-metal4-air --target test_metal4_device_conformance -j 8
+ctest --test-dir cmake-build-metal4-air -R '^test_metal4_device_conformance$' --output-on-failure -V
+LUISA_ENABLE_VALIDATION=1 MTL_DEBUG_LAYER=1 \
+  ctest --test-dir cmake-build-metal4-air -R '^test_metal4_device_conformance$' --output-on-failure -V
 cmake --build cmake-build-metal4-air --target test_texture_compress -j 8
 cmake-build-metal4-air/bin/test_texture_compress metal4
 LUISA_ENABLE_VALIDATION=1 MTL_DEBUG_LAYER=1 \
@@ -557,10 +570,14 @@ signing team, then build the
 link contains `libluisa-backend-metal4.a` and the static create/destroy symbols,
 then sign, install, and launch it. Retrieve both PNG and JSON. A successful
 build or launch alone is insufficient: require metadata identifying the
-on-device XIR/LLVM/AIR plus `DeviceInterface` path, successful MTL4 library and
-pipeline creation, completed readback, a stable pixel hash, and a visually
-nondegenerate render. Keep the host-AOT SHA comparison as a distinct regression
-rather than substituting it for the runtime-linked device run.
+on-device XIR/LLVM/AIR plus `DeviceInterface` path, the exact
+`ios-metal4-air-log value=42` callback, bindless value `0x13579bdf`, indirect
+checksum `8084`, nonempty offscreen raster readback, the device-selected AS
+path, completed hardware-RTX readback, a stable pixel hash, and a visually
+nondegenerate render. On Apple9+ require the native MTL4 address-driven AS
+path; do not accept the pre-Apple9 compatibility bridge there. Keep the
+host-AOT SHA comparison and macOS conformance run as distinct regressions
+rather than substituting either for the runtime-linked device run.
 
 Use the `unit_xir` CTest label when a change can affect more than one XIR pass.
 For another Metal4 runtime test, invoke the binary with the `metal4` backend;

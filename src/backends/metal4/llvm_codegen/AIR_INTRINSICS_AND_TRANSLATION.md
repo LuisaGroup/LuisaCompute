@@ -3034,7 +3034,8 @@ runtime, DSL, Metal4 AIR codegen, and the Metal4 backend as arm64 iOS static
 libraries. The signed app then performs this sequence inside the iPhone
 process:
 
-1. Build the path-tracing DSL/AST and translate/optimize it as XIR.
+1. Build the conformance and path-tracing DSL/AST and translate/optimize it as
+   XIR.
 2. Construct and optimize LLVM 21 IR for the running iOS target.
 3. Serialize LLVM 14-compatible AIR and assemble the deterministic iOS MTLB.
 4. Load the bytes with `MTLDevice::newLibrary(data)` and create the GPU
@@ -3042,6 +3043,14 @@ process:
 5. Dispatch through the real Luisa `DeviceInterface`, MTL4 queue,
    command-buffer, compute encoder, argument table, allocator, residency set,
    and feedback path, then copy the image back and persist PNG/JSON evidence.
+
+The runtime-linked app is a feature-coverage runner rather than a single fill
+kernel. Before accepting the final image it requires an exact Metal LogState
+shader message, a bindless typed-buffer round trip, a GPU-authored MTL4
+indirect dispatch, a D32 offscreen AIR vertex/fragment draw, Mesh/TLAS
+construction through the Apple-family feature guard, closest-hit and any-hit
+AIR traces, shader execution reordering, and a seven-bounce Cornell-style path
+trace. Each phase fails closed and records its own timing and semantic result.
 
 None of steps 1 through 3 executes generated CPU machine code: LLVM is used as
 an IR builder, optimizer, verifier, and bitcode writer. iOS's CPU JIT policy is
@@ -3426,7 +3435,44 @@ itself validate the newer runtime-linked `DeviceInterface` app described in
 Section 15.7; that app requires a separate physical-device launch and its own
 retrieved PNG/JSON evidence.
 
-### 16.4 Useful commands
+### 16.4 Runtime-linked device-conformance preflight (2026-08-28)
+
+The iOS conformance body is compiled into the macOS
+`test_metal4_device_conformance` executable as well as the signed iOS app. This
+does not replace Apple9 device evidence, but it executes the identical AST,
+XIR, LLVM/AIR, bindless, indirect, raster, acceleration, logging, and RTX
+workload before provisioning the phone.
+
+Both the ordinary run and a run with Luisa validation plus Metal API Validation
+passed on the M1 Max. The runtime correctly reported
+`metal4_address_driven_acceleration_structures=false`, used the synchronized
+pre-Apple9 AS-build bridge, and retained Metal4 AIR for shader compilation and
+dispatch. The ordinary 256x256, 4-spp result was:
+
+| Check | Result |
+|---|---:|
+| Shader log | `ios-metal4-air-log value=42` |
+| Bindless value | `0x13579bdf` |
+| GPU-authored indirect checksum | 8,084 |
+| Raster colored pixels | 1,352 |
+| Raster center RGBA | `(63, 67, 125, 255)` |
+| AS build | 44.33 ms |
+| RTX compile | 192.15 ms |
+| RTX dispatch plus readback | 8.02 ms |
+| Nonblack pixels | 65,536 |
+| Maximum channel | 247 |
+| Mean normalized RGB | 0.340667 |
+| PNG SHA-256 | `02859d00fd996b0fd3bd054de7bab6d5176828c0d62b2e6133a2a329a59e3b01` |
+
+Visual inspection shows a correctly oriented Cornell-style room with red and
+green walls, a blue box, a ceiling emitter, occlusion, direct shadows, indirect
+light, and Monte Carlo noise. The full CMake/Ninja host build and CTest suite
+then passed 160/160, including all registered rendering, tutorial, Metal4 AIR,
+raster, ray-tracing, and validation tests. The runtime-linked iPhone result
+remains a distinct acceptance item until its PNG and JSON are retrieved from
+the A19 Pro device.
+
+### 16.5 Useful commands
 
 Dump XIR and optimized LLVM:
 
@@ -3584,6 +3630,7 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | MTLB writer and validator | [metal_metallib.cpp](../metal_metallib.cpp) |
 | iOS compute AIR path-tracing AOT generator | [ios_path_tracing_aot.cpp](../tools/ios_path_tracing_aot.cpp) |
 | iOS MTL4 device runner and artifact capture | [ios_path_tracer_app](../tools/ios_path_tracer_app) |
+| Shared iOS/macOS device-conformance workload | [ios_device_conformance.cpp](../tools/ios_device_conformance.cpp), [ios_path_tracing_kernel.h](../tools/ios_path_tracing_kernel.h) |
 | Raster extension and paired AIR creation | [metal_raster_ext.cpp](../metal_raster_ext.cpp) |
 | Public raster/stencil state and cross-backend reference binding | [raster_state.h](../../../../include/luisa/runtime/raster/raster_state.h), [LCCmdBuffer.cpp](../../dx/DXApi/LCCmdBuffer.cpp), [raster_shader.cpp](../../vk/raster_shader.cpp) |
 | Raster PSO, stencil/depth state, root/object binding, and draw encoding | [metal_raster_shader.cpp](../metal_raster_shader.cpp), [metal_command_encoder.cpp](../metal_command_encoder.cpp) |
@@ -3610,6 +3657,7 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Strict AIR typed-bindless semantics | [test_metal_xir_air_typed_bindless.cpp](../../../tests/integration/runtime/test_metal_xir_air_typed_bindless.cpp) |
 | Strict AIR vertex/fragment metadata and draw semantics | [test_metal_xir_air_raster.cpp](../../../tests/integration/runtime/test_metal_xir_air_raster.cpp) |
 | Strict Metal4 raster stencil semantics | [test_metal4_raster_stencil.cpp](../../../tests/integration/runtime/test_metal4_raster_stencil.cpp) |
+| Cross-platform Metal4 logging/bindless/indirect/raster/RTX conformance | [test_metal4_device_conformance.cpp](../../../tests/integration/runtime/test_metal4_device_conformance.cpp) |
 | Raster archive round-trip and corruption handling | [test_metal_raster_archive.cpp](../../../tests/unit/ext/test_metal_raster_archive.cpp) |
 | Typed-bindless AST alias normalization | [test_xir_translators.cpp](../../../tests/unit/xir/test_xir_translators.cpp) |
 | XIR storage-cast validation | [test_xir_verifier.cpp](../../../tests/unit/xir/test_xir_verifier.cpp) |

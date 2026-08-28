@@ -394,6 +394,17 @@ if (TARGET luisa-compute-backend-metal4)
                 TIMEOUT 60)
     endif ()
 
+    luisa_compute_add_test(test_metal4_device_conformance
+            integration/runtime/test_metal4_device_conformance.cpp
+            LABELS "integration;integration_metal4;integration_render"
+            ARGS metal4)
+    target_sources(test_metal4_device_conformance PRIVATE
+            ../backends/metal4/tools/ios_device_conformance.cpp)
+    target_include_directories(test_metal4_device_conformance PRIVATE
+            ../backends/metal4/tools)
+    set_tests_properties(test_metal4_device_conformance PROPERTIES
+            TIMEOUT 300)
+
     foreach (_metal4_test IN ITEMS
             test_metal_xir_air
             test_metal_xir_air_accel

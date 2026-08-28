@@ -198,6 +198,8 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
                 "Samples per pixel rendered by the iOS AIR test app")
         add_executable(luisa-metal4-ios-device-air-path-tracer MACOSX_BUNDLE
                 tools/ios_path_tracer_app/main.mm
+                tools/ios_device_conformance.cpp
+                tools/ios_device_conformance.h
                 tools/ios_path_tracing_kernel.h)
         target_compile_features(
                 luisa-metal4-ios-device-air-path-tracer PRIVATE cxx_std_20)

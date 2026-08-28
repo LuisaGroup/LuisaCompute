@@ -13,11 +13,15 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #if defined(LUISA_IOS_ON_DEVICE_AIR)
 #include <luisa/luisa-compute.h>
 #include <luisa/runtime/rhi/resource.h>
 
+#if defined(LUISA_IOS_RUNTIME_DEVICE)
+#include "ios_device_conformance.h"
+#endif
 #include "ios_path_tracing_kernel.h"
 #include "metal_air_pipeline.h"
 #include "metal_xir_pipeline.h"
@@ -245,32 +249,58 @@ render_path_tracing_runtime() noexcept {
         metadata[@"thread_execution_width"] = @(
             device.compute_warp_size());
 
-        auto output = device.create_image<float>(
-            PixelStorage::BYTE4,
-            make_uint2(image_width, image_height));
-        auto stream = device.create_stream();
-        auto kernel = make_ios_path_tracing_kernel();
-        auto option = ShaderOption{
-            .enable_cache = false,
-            .enable_fast_math = true,
-            .enable_debug_info = false,
-            .compile_only = false,
-            .name = {}};
-        auto compile_begin = std::chrono::steady_clock::now();
-        auto shader = device.compile(kernel, option);
-        auto compile_end = std::chrono::steady_clock::now();
-        metadata[@"pipeline_compile_ms"] = @(
-            elapsed_ms(compile_begin, compile_end));
+        auto conformance = run_ios_metal4_conformance(
+            device, image_width, image_height, samples_per_pixel);
+        if (!conformance.success) {
+            auto stage = [NSString stringWithUTF8String:
+                                       conformance.failed_stage.c_str()];
+            auto error = [NSString stringWithUTF8String:
+                                       conformance.error.c_str()];
+            return failure(stage, error, metadata);
+        }
 
-        luisa::vector<std::array<uint8_t, 4u>> pixels(
-            image_width * image_height);
-        auto dispatch_begin = std::chrono::steady_clock::now();
-        stream << shader(output, samples_per_pixel).dispatch(image_width, image_height)
-               << output.copy_to(luisa::span{pixels})
-               << synchronize();
-        auto dispatch_end = std::chrono::steady_clock::now();
-        auto dispatch_ms = elapsed_ms(dispatch_begin, dispatch_end);
-        metadata[@"dispatch_readback_ms"] = @(dispatch_ms);
+        metadata[@"renderer"] = @"hardware RTX Cornell path tracing";
+        metadata[@"pipeline_compile_ms"] = @(
+            conformance.path_trace_compile_ms);
+        metadata[@"dispatch_readback_ms"] = @(
+            conformance.path_trace_dispatch_readback_ms);
+        metadata[@"acceleration_build_ms"] = @(
+            conformance.acceleration_build_ms);
+        metadata[@"acceleration_structure_path"] =
+            [NSString stringWithUTF8String:
+                          conformance.acceleration_structure_path.c_str()];
+        metadata[@"motion_blur"] = [NSString stringWithUTF8String:
+                                                 conformance.motion_blur.c_str()];
+        metadata[@"component_motion"] = [NSString stringWithUTF8String:
+                                                      conformance.component_motion.c_str()];
+        metadata[@"shader_log_message"] = [NSString stringWithUTF8String:
+                                                        conformance.printer_message.c_str()];
+        metadata[@"shader_log_ms"] = @(conformance.printer_ms);
+        metadata[@"bindless_value"] = @(conformance.bindless_value);
+        metadata[@"indirect_checksum"] = @(conformance.indirect_checksum);
+        metadata[@"bindless_indirect_ms"] = @(
+            conformance.bindless_indirect_ms);
+        metadata[@"raster_compile_ms"] = @(
+            conformance.raster_compile_ms);
+        metadata[@"raster_dispatch_readback_ms"] = @(
+            conformance.raster_dispatch_readback_ms);
+        metadata[@"raster_colored_pixels"] = @(
+            conformance.raster_colored_pixels);
+        metadata[@"raster_center_rgba"] = @[
+            @(conformance.raster_center[0u]),
+            @(conformance.raster_center[1u]),
+            @(conformance.raster_center[2u]),
+            @(conformance.raster_center[3u])
+        ];
+        metadata[@"path_trace_nonblack_pixels"] = @(
+            conformance.path_trace_nonblack_pixels);
+        metadata[@"path_trace_max_channel"] = @(
+            conformance.path_trace_max_channel);
+        metadata[@"path_trace_mean_luma"] = @(
+            conformance.path_trace_mean_luma);
+
+        auto pixels = std::move(conformance.pixels);
+        auto dispatch_ms = conformance.path_trace_dispatch_readback_ms;
 
         auto pixel_count = pixels.size() * sizeof(pixels.front());
         auto pixel_sha = sha256_hex(pixels.data(), pixel_count);
@@ -300,9 +330,12 @@ render_path_tracing_runtime() noexcept {
                                         doubleValue],
                                     dispatch_ms,
                                     [pixel_sha substringToIndex:16u]];
-        NSLog(@"LUISA_IOS_METAL4_PATH_TRACING success=1 runtime=DeviceInterface device='%@' size=%ux%u spp=%u compile_ms=%.6f dispatch_readback_ms=%.6f pixel_sha256=%@ png='%@'",
+        NSLog(@"LUISA_IOS_METAL4_PATH_TRACING success=1 runtime=DeviceInterface renderer=RTX device='%@' size=%ux%u spp=%u as_path='%@' raster_pixels=%u log='%@' compile_ms=%.6f dispatch_readback_ms=%.6f pixel_sha256=%@ png='%@'",
               device_name, image_width, image_height,
               samples_per_pixel,
+              metadata[@"acceleration_structure_path"],
+              conformance.raster_colored_pixels,
+              metadata[@"shader_log_message"],
               [metadata[@"pipeline_compile_ms"] doubleValue],
               dispatch_ms, pixel_sha, png_url.path);
         auto outcome = [LuisaRenderOutcome new];
