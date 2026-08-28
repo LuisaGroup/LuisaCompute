@@ -102,6 +102,115 @@ public:
     [[nodiscard]] auto &count() noexcept { return _count; }
 };
 
+class TestWavefrontExtensionHandler final
+    : public WavefrontCoroSchedulerExtensionHandler<Buffer<uint>> {
+
+private:
+    struct StageKernel {
+        size_t queue_index{0u};
+        Shader1D<ByteBuffer, Buffer<uint>, uint, uint> shader;
+    };
+
+    luisa::string _name;
+    bool _first_in_chain{false};
+    luisa::vector<StageKernel> _kernels;
+    uint _prepare_count{0u};
+    uint _dispatch_count{0u};
+
+public:
+    TestWavefrontExtensionHandler(
+        luisa::string name, bool first_in_chain) noexcept
+        : _name{std::move(name)},
+          _first_in_chain{first_in_chain} {}
+
+    [[nodiscard]] luisa::string_view name() const noexcept override {
+        return _name;
+    }
+
+    [[nodiscard]] bool can_handle(
+        const WavefrontCoroExtensionStage &stage) const noexcept override {
+        auto schema = stage.extension->schema();
+        if (schema == "luisa.test.coro.extension.add") { return true; }
+        if (!_first_in_chain &&
+            schema == "luisa.test.coro.extension.multiply") {
+            return true;
+        }
+        return false;
+    }
+
+    void prepare(
+        const WavefrontCoroExtensionPrepareContext &context,
+        const WavefrontCoroExtensionStage &stage) noexcept override {
+        _prepare_count++;
+        auto reconstruct_slots = stage.dataflow->reconstruct_slots;
+        auto writeback_slots = stage.dataflow->required_def.slots;
+        auto *value = &stage.binding("value");
+        auto *desc = &context.frame_desc;
+        auto schema = luisa::string{stage.extension->schema()};
+        auto first_in_chain = _first_in_chain;
+        Kernel1D transform = [desc, value, schema, first_in_chain,
+                              layout = context.frame_layout,
+                              soa = context.global_memory_soa,
+                              reconstruct_slots, writeback_slots](
+                                 ByteBufferVar frame_storage,
+                                 BufferUInt frame_indices,
+                                 UInt frame_capacity,
+                                 UInt count) noexcept {
+            auto x = dispatch_x();
+            $if (x >= count) { $return(); };
+            auto frame_index = frame_indices.read(x);
+            auto frame = CoroFrame::create(desc);
+            coro_frame_load_into(
+                frame, frame_storage, frame_index, frame_capacity,
+                layout, soa, luisa::span{reconstruct_slots},
+                false, false);
+            auto current = value->read<uint>(frame);
+            if (schema == "luisa.test.coro.extension.add") {
+                value->write<uint>(
+                    frame,
+                    current + (first_in_chain ? 3u : 1000u));
+            } else {
+                value->write<uint>(frame, current * 5u);
+            }
+            coro_frame_store(
+                frame_storage, frame_index, frame_capacity, frame,
+                layout, soa, luisa::span{writeback_slots},
+                false, false);
+        };
+        _kernels.emplace_back(StageKernel{
+            .queue_index = stage.queue_index,
+            .shader = context.device.compile(transform)});
+    }
+
+    void dispatch(
+        const WavefrontCoroExtensionDispatchContext &context,
+        BufferView<uint>) noexcept override {
+        auto kernel = std::find_if(
+            _kernels.begin(), _kernels.end(),
+            [&](auto &&candidate) noexcept {
+                return candidate.queue_index ==
+                       context.stage.queue_index;
+            });
+        LUISA_ASSERT(kernel != _kernels.end(),
+                     "Test Extension handler has no stage {}.",
+                     context.stage.queue_index);
+        context.stream << kernel->shader(
+                              context.frame_buffer,
+                              context.frame_indices,
+                              context.frame_capacity,
+                              context.frame_count)
+                              .dispatch(context.frame_count);
+        _dispatch_count++;
+    }
+
+    [[nodiscard]] uint prepare_count() const noexcept {
+        return _prepare_count;
+    }
+    [[nodiscard]] uint dispatch_count() const noexcept {
+        return _dispatch_count;
+    }
+};
+
 }// namespace
 
 void reg_coro_wavefront(luisa::test::coro_test::Options options) {
@@ -1937,6 +2046,91 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             expect(has_resumed_publisher)
                 << "incremental accounting must be isolated in scheduler-"
                    "owned publication kernels";
+        };
+
+    "wavefront_extension_handler_chain_preserves_stage_dataflow"_test =
+        [options] {
+            constexpr uint N = 257u;
+            constexpr uint capacity = 17u;
+            constexpr auto add_schema =
+                "luisa.test.coro.extension.add";
+            constexpr auto multiply_schema =
+                "luisa.test.coro.extension.multiply";
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+            auto coroutine = Coroutine<void(Buffer<uint>)>(
+                [](BufferUInt values) noexcept {
+                    auto tid = dispatch_x();
+                    auto value = tid + 1u;
+                    $suspend(
+                        "external_chain",
+                        coro_stage(add_schema)
+                            .read_write("value", value),
+                        coro_annotation(
+                            "luisa.test.coro.extension.ignored")
+                            .read("watch", value),
+                        coro_stage(multiply_schema)
+                            .read_write("value", value));
+                    values.write(tid, value);
+                });
+
+            WavefrontCoroScheduler<Buffer<uint>> scheduler{
+                device, coroutine,
+                WavefrontCoroSchedulerConfig{
+                    .thread_count = capacity,
+                    .global_memory_soa = true,
+                    .gather_by_sorting = true,
+                    .frame_buffer_compaction = true,
+                    .report_stats = true,
+                    .execution_block_size = 32u,
+                    .largest_continuation_first = true,
+                    .refill_threshold = capacity / 2u,
+                    .incremental_continuation_counts = true}};
+            auto first =
+                luisa::make_shared<TestWavefrontExtensionHandler>(
+                    "first-add-handler", true);
+            auto second =
+                luisa::make_shared<TestWavefrontExtensionHandler>(
+                    "catch-all-arithmetic-handler", false);
+            scheduler.register_extension_handler(first);
+            scheduler.register_extension_handler(second);
+            scheduler(output).dispatch(N)(stream);
+
+            luisa::vector<uint> host(N);
+            stream << output.copy_to(luisa::span{host})
+                   << synchronize();
+            auto correct = true;
+            for (auto i = 0u; i < N; ++i) {
+                correct &= host[i] == (i + 4u) * 5u;
+            }
+            expect(correct)
+                << "Extension handlers must execute ordered typed binding "
+                   "transformations without losing compacted frames";
+            expect(first->prepare_count() == 1u);
+            expect(second->prepare_count() == 1u)
+                << "the first matching handler must retain ownership of the "
+                   "add stage; the later catch-all only owns multiply";
+            expect(first->dispatch_count() != 0u);
+            expect(second->dispatch_count() != 0u);
+
+            auto &&stats = scheduler.last_dispatch_stats();
+            expect(stats.extensions.size() == 3u);
+            expect(stats.extension_count == static_cast<uint64_t>(N) * 2u);
+            if (stats.extensions.size() == 3u) {
+                expect(stats.extensions[0u].handler ==
+                       "first-add-handler");
+                expect(stats.extensions[1u].handler.empty());
+                expect(stats.extensions[1u].dispatch_count == 0u)
+                    << "an unclaimed ignore annotation must be spliced out "
+                       "of the executable stage chain";
+                expect(stats.extensions[2u].handler ==
+                       "catch-all-arithmetic-handler");
+                expect(stats.extensions[0u].executed_count == N);
+                expect(stats.extensions[2u].executed_count == N);
+            }
         };
 }
 
