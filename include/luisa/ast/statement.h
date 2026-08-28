@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/concepts.h>
+#include <luisa/ast/coro_suspend.h>
 #include <luisa/ast/variable.h>
 #include <luisa/ast/expression.h>
 
@@ -282,24 +283,33 @@ private:
     uint32_t _token;
     luisa::string _name;
     luisa::vector<CoroFrameExport> _frame_exports;
+    luisa::vector<CoroSuspendExtensionPtr> _extensions;
+    luisa::vector<const Expression *> _extension_binding_values;
 
 private:
     SuspendStmt() noexcept = default;
+    void _validate_extension_bindings() const noexcept;
+    void _mark_extension_bindings() const noexcept;
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     explicit SuspendStmt(
         uint32_t token, luisa::string name = "",
-        luisa::vector<CoroFrameExport> frame_exports = {}) noexcept
+        luisa::vector<CoroFrameExport> frame_exports = {},
+        luisa::vector<CoroSuspendExtensionPtr> extensions = {},
+        luisa::vector<const Expression *> extension_binding_values = {}) noexcept
         : Statement{Tag::SUSPEND},
           _token{token},
           _name{std::move(name)},
-          _frame_exports{std::move(frame_exports)} {
+          _frame_exports{std::move(frame_exports)},
+          _extensions{std::move(extensions)},
+          _extension_binding_values{std::move(extension_binding_values)} {
         for (auto &&frame_export : _frame_exports) {
             if (frame_export.value != nullptr) {
                 frame_export.value->mark(Usage::READ);
             }
         }
+        _mark_extension_bindings();
     }
     explicit SuspendStmt(luisa::string name) noexcept
         : Statement{Tag::SUSPEND}, _token{0u}, _name{std::move(name)} {}
@@ -307,6 +317,13 @@ public:
     [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
     [[nodiscard]] auto frame_exports() const noexcept {
         return luisa::span<const CoroFrameExport>{_frame_exports};
+    }
+    [[nodiscard]] auto extensions() const noexcept {
+        return luisa::span<const CoroSuspendExtensionPtr>{_extensions};
+    }
+    [[nodiscard]] auto extension_binding_values() const noexcept {
+        return luisa::span<const Expression *const>{
+            _extension_binding_values};
     }
     LUISA_STATEMENT_COMMON()
 };
@@ -711,6 +728,10 @@ void traverse_expressions(
             auto suspend_stmt = static_cast<const SuspendStmt *>(stmt);
             for (auto &&frame_export : suspend_stmt->frame_exports()) {
                 do_visit(frame_export.value);
+            }
+            for (auto *binding :
+                 suspend_stmt->extension_binding_values()) {
+                do_visit(binding);
             }
             break;
         }

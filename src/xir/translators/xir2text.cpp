@@ -1,3 +1,5 @@
+#include <type_traits>
+
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
@@ -266,7 +268,12 @@ private:
     void _emit_coro_suspend_inst(const CoroSuspendInst *inst) noexcept {
         _main << "coro_suspend " << inst->token() << " ";
         _emit_string_escaped(_main, inst->name());
-        _main << " " << _value_ident(inst->frame());
+        _main << " ";
+        if (inst->frame() == nullptr) {
+            _main << "null";
+        } else {
+            _main << _value_ident(inst->frame());
+        }
         for (size_t i = 0u;
              i < inst->frame_export_count(); ++i) {
             _main << ", export ";
@@ -275,10 +282,59 @@ private:
             _main << "="
                   << _value_ident(inst->frame_export_value(i));
         }
+        for (auto &&extension : inst->extensions()) {
+            _main << ", extension ";
+            _emit_string_escaped(_main, extension->schema());
+            _main << " v" << extension->version()
+                  << (extension->is_annotation() ? " annotation" : " semantic")
+                  << " fallback="
+                  << static_cast<uint32_t>(extension->fallback())
+                  << " {";
+            auto first = true;
+            for (auto &&binding : extension->bindings()) {
+                if (!first) { _main << ", "; }
+                first = false;
+                _main << "binding ";
+                _emit_string_escaped(_main, binding.name);
+                _main << " access="
+                      << static_cast<uint32_t>(binding.access)
+                      << " lifetime="
+                      << static_cast<uint32_t>(binding.lifetime)
+                      << " value="
+                      << _value_ident(inst->extension_binding_value(
+                             binding.index));
+            }
+            for (auto &&attribute : extension->attributes()) {
+                if (!first) { _main << ", "; }
+                first = false;
+                _main << "attribute ";
+                _emit_string_escaped(_main, attribute.name);
+                _main << " type=" << attribute.value.index()
+                      << " value=";
+                luisa::visit(
+                    [&](auto &&value) noexcept {
+                        using T = std::remove_cvref_t<decltype(value)>;
+                        if constexpr (std::is_same_v<T, luisa::string>) {
+                            _emit_string_escaped(_main, value);
+                        } else if constexpr (std::is_same_v<T, bool>) {
+                            _main << (value ? "true" : "false");
+                        } else {
+                            _main << luisa::format("{}", value);
+                        }
+                    },
+                    attribute.value);
+            }
+            _main << "}";
+        }
     }
 
     void _emit_coro_resume_inst(const CoroResumeInst *inst) noexcept {
-        _main << "coro_resume " << inst->token() << " " << _value_ident(inst->frame());
+        _main << "coro_resume " << inst->token() << " ";
+        if (inst->frame() == nullptr) {
+            _main << "null";
+        } else {
+            _main << _value_ident(inst->frame());
+        }
     }
 
     void _emit_coro_terminate_inst(const CoroTerminateInst *inst [[maybe_unused]]) noexcept {

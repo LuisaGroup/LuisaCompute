@@ -1037,6 +1037,54 @@ private:
             }
             return a;
         }();
+        j["extensions"] = [&] {
+            JSON::Array extensions;
+            extensions.reserve(stmt->extensions().size());
+            for (auto &&extension : stmt->extensions()) {
+                JSON e;
+                e["schema"] = extension->schema();
+                e["version"] = extension->version();
+                e["annotation"] = extension->is_annotation();
+                e["fallback"] = static_cast<uint8_t>(
+                    extension->fallback());
+                e["bindings"] = [&] {
+                    JSON::Array bindings;
+                    bindings.reserve(extension->bindings().size());
+                    for (auto &&binding : extension->bindings()) {
+                        JSON b;
+                        b["name"] = binding.name;
+                        b["access"] = static_cast<uint8_t>(
+                            binding.access);
+                        b["lifetime"] = static_cast<uint8_t>(
+                            binding.lifetime);
+                        b["index"] = binding.index;
+                        b["value"] = _convert_expr(
+                            stmt->extension_binding_values()[binding.index]);
+                        bindings.emplace_back(std::move(b));
+                    }
+                    return bindings;
+                }();
+                e["attributes"] = [&] {
+                    JSON::Array attributes;
+                    attributes.reserve(extension->attributes().size());
+                    for (auto &&attribute : extension->attributes()) {
+                        JSON a;
+                        a["name"] = attribute.name;
+                        a["type"] = static_cast<uint8_t>(
+                            attribute.value.index());
+                        luisa::visit(
+                            [&](auto &&value) noexcept {
+                                a["value"] = value;
+                            },
+                            attribute.value);
+                        attributes.emplace_back(std::move(a));
+                    }
+                    return attributes;
+                }();
+                extensions.emplace_back(std::move(e));
+            }
+            return extensions;
+        }();
     }
     void _convert_ray_query_stmt(JSON &j, const RayQueryStmt *stmt) noexcept {
         j["query"] = _convert_expr(stmt->query());

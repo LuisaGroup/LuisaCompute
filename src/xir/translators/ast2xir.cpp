@@ -1686,11 +1686,47 @@ private:
                             _translate_expression(
                                 b, frame_export.value, true));
                     }
+                    luisa::vector<CoroSuspendExtensionPtr> extensions;
+                    extensions.reserve(ast_suspend->extensions().size());
+                    for (auto &&extension : ast_suspend->extensions()) {
+                        extensions.emplace_back(extension->clone());
+                    }
+                    luisa::vector<CoroSuspendBindingAccess>
+                        binding_accesses(
+                            ast_suspend->extension_binding_values().size(),
+                            CoroSuspendBindingAccess::read);
+                    for (auto &&extension : ast_suspend->extensions()) {
+                        for (auto &&binding : extension->bindings()) {
+                            LUISA_ASSERT(
+                                binding.index < binding_accesses.size(),
+                                "Coroutine suspend extension '{}' binding "
+                                "'{}' has invalid AST owner index {}.",
+                                extension->schema(), binding.name,
+                                binding.index);
+                            binding_accesses[binding.index] =
+                                binding.access;
+                        }
+                    }
+                    luisa::vector<Value *> extension_binding_values;
+                    extension_binding_values.reserve(
+                        ast_suspend->extension_binding_values().size());
+                    for (size_t i = 0u;
+                         i < ast_suspend->extension_binding_values().size();
+                         ++i) {
+                        auto access = binding_accesses[i];
+                        extension_binding_values.emplace_back(
+                            _translate_expression(
+                                b,
+                                ast_suspend->extension_binding_values()[i],
+                                access == CoroSuspendBindingAccess::read));
+                    }
                     _commented(b.coro_suspend(
                         ast_suspend->token(),
                         luisa::string{ast_suspend->name()}, nullptr,
                         luisa::span{frame_export_names},
-                        luisa::span{frame_export_values}));
+                        luisa::span{frame_export_values},
+                        std::move(extensions),
+                        luisa::span{extension_binding_values}));
 
                     auto *always_true = _module->create_constant_one(compute::Type::of<bool>());
                     b.set_insertion_point(parent_bb);
