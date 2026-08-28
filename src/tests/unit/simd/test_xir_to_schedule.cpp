@@ -430,6 +430,46 @@ void register_loop_tests() {
 }
 
 void register_block_barrier_tests() {
+    "simd_xir_canonicalizes_terminal_block_barrier"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *entry = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.call(
+            nullptr, ThreadGroupOp::SYNCHRONIZE_BLOCK, {});
+        builder.return_void();
+
+        auto canonical = canonicalize_block_barriers(kernel);
+        expect(canonical.succeeded());
+        expect(canonical.barrier_count == 1u);
+        expect(canonical.split_block_count == 1u);
+        auto result = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 1u});
+        expect(result.succeeded()) << diagnostics_text(result);
+        if (!result.succeeded()) { return; }
+
+        auto barrier_count = size_t{0u};
+        for (auto &&block : result.function->blocks()) {
+            auto *barrier = std::get_if<BlockBarrierTerminator>(
+                &block.terminator);
+            if (barrier == nullptr) { continue; }
+            barrier_count++;
+            expect(
+                barrier->resume_edge.target.value <
+                result.function->blocks().size());
+            if (barrier->resume_edge.target.value <
+                result.function->blocks().size()) {
+                const auto &resume = result.function->blocks()[
+                    barrier->resume_edge.target.value];
+                expect(std::holds_alternative<ReturnTerminator>(
+                    resume.terminator));
+            }
+        }
+        expect(barrier_count == 1u);
+        expect(verify(*result.function).succeeded());
+    };
+
     "simd_xir_canonicalizes_and_lowers_block_barrier_phase"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
