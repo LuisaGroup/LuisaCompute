@@ -52,9 +52,53 @@ function(luisa_compute_add_ios_rendering_example name display_name source)
             INFO_PLIST "${CMAKE_CURRENT_LIST_DIR}/common/Info.plist.in")
 
     if (name STREQUAL "path_tracing_spectrum")
+        set(spectrum_dat
+                "${CMAKE_SOURCE_DIR}/src/tests/SRGBToFourierEvenPacked.dat")
+        set(spectrum_embed_cpp
+                "${generated_dir}/srgb_to_fourier_embedded.cpp")
+        set(spectrum_embed_h
+                "${generated_dir}/srgb_to_fourier_embedded.h")
+
+        # The regular embed utility is built for the target platform and an
+        # iPhone executable cannot run during a macOS cross build. Build the
+        # tiny source-only utility for the host and generate the spectrum LUT
+        # in the build tree so a clean checkout does not depend on ignored
+        # generated files under examples/rendering.
+        execute_process(
+                COMMAND /usr/bin/xcrun --sdk macosx --show-sdk-path
+                OUTPUT_VARIABLE luisa_ios_macos_sdk
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                COMMAND_ERROR_IS_FATAL ANY)
+        set(luisa_ios_host_embedder
+                "${CMAKE_CURRENT_BINARY_DIR}/luisa_embed_device_lib_host")
+        add_custom_command(
+                OUTPUT "${luisa_ios_host_embedder}"
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${CMAKE_CURRENT_BINARY_DIR}"
+                COMMAND /usr/bin/xcrun --sdk macosx clang++
+                -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macos14.0"
+                -isysroot "${luisa_ios_macos_sdk}"
+                -std=c++20
+                "${CMAKE_SOURCE_DIR}/utils/embed_device_lib.cpp"
+                -o "${luisa_ios_host_embedder}"
+                DEPENDS "${CMAKE_SOURCE_DIR}/utils/embed_device_lib.cpp"
+                COMMENT "Building the host spectrum-data embedder..."
+                VERBATIM)
+        add_custom_command(
+                OUTPUT "${spectrum_embed_cpp}" "${spectrum_embed_h}"
+                COMMAND "${luisa_ios_host_embedder}"
+                "${spectrum_dat}"
+                --unsigned
+                --prefix luisa_compute_
+                -o "${spectrum_embed_cpp}"
+                -h "${spectrum_embed_h}"
+                DEPENDS "${luisa_ios_host_embedder}" "${spectrum_dat}"
+                COMMENT "Embedding the spectrum LUT for iOS..."
+                VERBATIM)
         target_sources(${target} PRIVATE
-                ${CMAKE_SOURCE_DIR}/examples/rendering/srgb_to_fourier_embedded.cpp
-                ${CMAKE_SOURCE_DIR}/examples/rendering/srgb_to_fourier_embedded.h)
+                "${spectrum_embed_cpp}"
+                "${spectrum_embed_h}")
+        target_include_directories(${target} PRIVATE "${generated_dir}")
     endif ()
     set_property(GLOBAL APPEND PROPERTY
             LUISA_IOS_RENDERING_EXAMPLE_TARGETS ${target})
