@@ -1438,11 +1438,13 @@ void Clanguage_CodegenUtils::codegen(
         vstd::push_back_all(arg_decs, desc.data(), desc.size());
         arg_decs.emplace_back(' ');
     }
-    vstd::MD5 md5{luisa::span{reinterpret_cast<uint8_t const *>(arg_decs.data()), arg_decs.size_bytes()}};
+    vstd::MD5 md5{luisa::span{
+        reinterpret_cast<uint8_t const *>(arg_decs.data()),
+        arg_decs.size() * sizeof(*arg_decs.data())}};
     auto &md5_data = md5.to_binary();
-    PrintValue<uint64_t>{}(md5_data.data0, sb);
+    PrintValue<ulong>{}(static_cast<ulong>(md5_data.data0), sb);
     sb << ", ";
-    PrintValue<uint64_t>{}(md5_data.data1, sb);
+    PrintValue<ulong>{}(static_cast<ulong>(md5_data.data1), sb);
     sb << "};\n}\n";
     sb << "typedef struct {\n";
     size_t arg_idx = 0;

@@ -40,7 +40,9 @@ class Clanguage_CodegenUtils {
             if (a.arg_types.size() > b.arg_types.size()) return 1;
             if (a.arg_types.size() < b.arg_types.size()) return -1;
             if (!a.arg_types.empty()) {
-                return std::memcmp(a.arg_types.data(), b.arg_types.data(), a.arg_types.size_bytes());
+                return std::memcmp(
+                    a.arg_types.data(), b.arg_types.data(),
+                    a.arg_types.size() * sizeof(*a.arg_types.data()));
             }
             return 0;
         }
@@ -58,7 +60,10 @@ class Clanguage_CodegenUtils {
         Key &&key) {
         key.hash = luisa::hash64(&key.flag, sizeof(key.flag), luisa::hash64_default_seed) + key.type;
         if (!key.arg_types.empty()) {
-            key.hash = luisa::hash64(key.arg_types.data(), key.arg_types.size_bytes(), key.hash);
+            key.hash = luisa::hash64(
+                key.arg_types.data(),
+                key.arg_types.size() * sizeof(*key.arg_types.data()),
+                key.hash);
         }
         auto iter = func_map.try_emplace(std::move(key));
         if (iter.second) {
@@ -267,8 +272,8 @@ struct PrintValue<Vector<EleType, N>> {
 };
 
 template<uint64 N>
-struct PrintValue<Matrix<N>> {
-    using T = Matrix<N>;
+struct PrintValue<Matrix<float, N>> {
+    using T = Matrix<float, N>;
     using EleType = float;
     void operator()(T const &v, vstd::StringBuilder &varName) {
         varName << "make_float";
