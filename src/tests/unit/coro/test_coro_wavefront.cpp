@@ -492,7 +492,10 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .tail_megakernel_threshold = 0u,
                     .report_stats = true,
                     .hint_range = hint_range,
-                    .hint_fields = {"sort_me", "finish"}}};
+                    .hint_fields = {"sort_me", "finish"},
+                    .hint_partition_size = 16u}};
+            expect(scheduler.config().hint_partition_size == 16u)
+                << "graph hint locality partition must remain explicit";
             expect(scheduler.config().hint_fields.size() == 1u)
                 << "small-range graph hint sorting is subgroup independent "
                    "and must reject a target without the exported hint";
@@ -550,6 +553,78 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             expect(stats.continuation_hint_sort_count[finish_node->index] ==
                    0u)
                 << "unconfigured continuation queues must remain unsorted";
+        };
+
+    "graph_wavefront_hint_partition_orders_stable_frame_ranges"_test =
+        [options] {
+            constexpr uint N = 65u;
+            constexpr uint hint_range = 64u;
+            constexpr uint partition_size = 33u;
+
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            auto stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+            auto order = device.create_buffer<uint>(N);
+            luisa::vector<uint> zeros(N);
+            stream << output.copy_from(luisa::span{zeros})
+                   << order.copy_from(luisa::span{zeros}) << synchronize();
+
+            auto coroutine =
+                Coroutine<void(Buffer<uint>, Buffer<uint>)>{
+                    [](BufferUInt values, BufferUInt physical_order) noexcept {
+                        auto tid = dispatch_x();
+                        auto coro_hint = (tid * 13u) & 63u;
+                        $suspend(
+                            "sort_me",
+                            coro_frame_export("coro_hint", coro_hint));
+                        // The complete continuation fits in one threadgroup,
+                        // so the physical lane exposes resume_indices after
+                        // graph-wavefront hint sorting.
+                        physical_order.write(thread_x(), tid);
+                        values.write(tid, tid + coro_hint);
+                    }};
+
+            GraphWavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+                device, coroutine,
+                GraphWavefrontCoroSchedulerConfig{
+                    .thread_count = N,
+                    .global_memory_soa = true,
+                    .execution_block_size = 128u,
+                    .worker_count = N,
+                    .selective_scheduling = true,
+                    .counter_readback_batch_size = 1u,
+                    .counter_readback_pipeline_depth = 1u,
+                    .tail_megakernel_threshold = 0u,
+                    .hint_range = hint_range,
+                    .hint_fields = {"sort_me"},
+                    .hint_partition_size = partition_size}};
+            scheduler(output, order).dispatch(N)(stream);
+
+            luisa::vector<uint> host_output(N);
+            luisa::vector<uint> host_order(N);
+            stream << output.copy_to(luisa::span{host_output})
+                   << order.copy_to(luisa::span{host_order})
+                   << synchronize();
+            auto correct = true;
+            auto ordered = true;
+            auto composite_key = [](uint tid) noexcept {
+                return (tid / partition_size) * hint_range +
+                       ((tid * 13u) & 63u);
+            };
+            for (auto i = 0u; i < N; ++i) {
+                auto hint = (i * 13u) & 63u;
+                correct &= host_output[i] == i + hint;
+                if (i + 1u < N) {
+                    ordered &= composite_key(host_order[i]) <=
+                               composite_key(host_order[i + 1u]);
+                }
+            }
+            expect(correct)
+                << "graph hint sorting must preserve frame associations";
+            expect(ordered)
+                << "graph hint sorting must order stable-frame partitions "
+                   "before exported hints";
         };
 
     "graph_wavefront_tail_megakernel_finishes_residual_frames"_test =
@@ -1361,15 +1436,24 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         Stream stream = device.create_stream();
 
         auto output = device.create_buffer<uint>(N);
+        auto order = device.create_buffer<uint>(N);
+        luisa::vector<uint> zero_order(N);
+        stream << order.copy_from(luisa::span{zero_order}) << synchronize();
 
-        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt buf) {
-            auto tid = dispatch_x();
-            auto coro_hint = (tid * 13u) & 63u;
-            auto v = tid + 1u;
-            $suspend("sort_me", coro_frame_export(
-                                     "coro_hint", coro_hint));
-            buf.write(tid, v + coro_hint);
-        });
+        auto coro = Coroutine<void(Buffer<uint>, Buffer<uint>)>(
+            [](BufferUInt buf, BufferUInt order_buffer) {
+                auto tid = dispatch_x();
+                auto coro_hint = (tid * 13u) & 63u;
+                auto v = tid + 1u;
+                $suspend("sort_me", coro_frame_export(
+                                        "coro_hint", coro_hint));
+                // All N entries fit in one continuation threadgroup. Unlike the
+                // coroutine dispatch id, thread_x is the physical lane after the
+                // scheduler has applied resume_indices, so it exposes the sorted
+                // order without relying on cross-lane atomic execution order.
+                order_buffer.write(thread_x(), tid);
+                buf.write(tid, v + coro_hint);
+            });
 
         WavefrontCoroSchedulerConfig cfg{
             .thread_count = capacity,
@@ -1378,13 +1462,21 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             .frame_buffer_compaction = true,
             .hint_range = 64u,
             .hint_fields = {"sort_me"},
+            .execution_block_size = 128u,
+            .hint_partition_size = 33u,
         };
-        WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
+        WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+            device, coro, cfg};
+        expect(scheduler.config().hint_partition_size == 33u)
+            << "wavefront hint locality partition must remain explicit";
         expect(scheduler.config().hint_fields.size() == 1u);
 
-        scheduler(output).dispatch(N)(stream);
+        scheduler(output, order).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(luisa::span{host}) << synchronize();
+        luisa::vector<uint> host_order(N);
+        stream << output.copy_to(luisa::span{host})
+               << order.copy_to(luisa::span{host_order})
+               << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -1397,6 +1489,18 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             }
         }
         expect(ok) << "hint sorting scratch buffers must cover padded sort size";
+
+        auto ordered = true;
+        auto composite_key = [](uint tid) noexcept {
+            return (tid / 33u) * 64u + ((tid * 13u) & 63u);
+        };
+        for (auto i = 0u; i + 1u < N; ++i) {
+            ordered &= composite_key(host_order[i]) <=
+                       composite_key(host_order[i + 1u]);
+        }
+        expect(ordered)
+            << "hint sorting must order first by stable-frame partition and "
+               "then by the declared hint";
     };
 
     "wavefront_hint_sort_works_after_sorted_token_gather"_test = [options] {

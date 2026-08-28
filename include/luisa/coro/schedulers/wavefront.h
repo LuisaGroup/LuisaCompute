@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <limits>
 #include <utility>
 
 #include <luisa/coro/coro_frame_storage.h>
@@ -27,6 +28,7 @@ struct WavefrontCoroSchedulerConfig {
     bool global_memory_soa = true;
     bool gather_by_sorting = true;
     bool frame_buffer_compaction = true;
+    // Exclusive upper bound for every exported hint value.
     uint hint_range = 0xffffffffu;
     luisa::vector<luisa::string> hint_fields;
     bool report_stats = false;
@@ -65,6 +67,11 @@ struct WavefrontCoroSchedulerConfig {
     // one-continuation-at-a-time scheduling. Kept last for positional source
     // compatibility.
     bool incremental_continuation_counts = false;
+    // Optional stable-frame locality partition for hint sorting. A nonzero
+    // value sorts first by frame_index / hint_partition_size and then by the
+    // exported hint. The key operands remain runtime shader arguments; only
+    // the maximum composite range affects sort scratch/pass structure.
+    uint hint_partition_size = 0u;
 };
 
 /// Host-observed work executed by one coroutine graph node during the most
@@ -154,7 +161,8 @@ private:
     Buffer<uint> _sort_index;
     radix_sort::temp_storage _sort_temp_storage;
     radix_sort::instance<ByteBuffer, uint> _sort_token;
-    radix_sort::instance<Buffer<uint>, ByteBuffer, uint> _sort_hint;
+    radix_sort::instance<Buffer<uint>, ByteBuffer, uint, uint, uint>
+        _sort_hint;
     luisa::vector<uint> _host_count;
     luisa::vector<uint> _host_offset;
     luisa::vector<bool> _have_hint;
@@ -166,6 +174,7 @@ private:
     WavefrontCoroDispatchStats _last_dispatch_stats;
     luisa::vector<RegisteredAuxiliaryWork> _auxiliary_work;
     size_t _hint_field_index{static_cast<size_t>(-1)};
+    uint _hint_key_range{0u};
     uint _used_frame_count{0u};
     uint _active_frame_capacity{0u};
     bool _has_hint_sort{false};
@@ -300,14 +309,37 @@ private:
         // scheduling optimization, so disable that hint when the device does
         // not satisfy the algorithmic precondition; coroutine semantics and
         // token gathering remain unchanged.
+        if (_valid_hint_field_count() != 0u) {
+            LUISA_ASSERT(
+                _config.hint_range != 0u,
+                "Wavefront hint range must be a positive exclusive bound.");
+            auto partition_count = 1u;
+            if (_config.hint_partition_size != 0u) {
+                partition_count =
+                    _config.thread_count /
+                        _config.hint_partition_size +
+                    static_cast<uint>(
+                        _config.thread_count %
+                            _config.hint_partition_size !=
+                        0u);
+            }
+            auto key_range =
+                static_cast<uint64_t>(std::max(_config.hint_range, 1u)) *
+                partition_count;
+            LUISA_ASSERT(
+                key_range <= std::numeric_limits<uint>::max(),
+                "Wavefront composite hint range {} x {} exceeds uint.",
+                _config.hint_range, partition_count);
+            _hint_key_range = static_cast<uint>(key_range);
+        }
         if (_valid_hint_field_count() != 0u &&
-            _config.hint_range > radix_sort::hist_block_size &&
+            _hint_key_range > radix_sort::hist_block_size &&
             device.compute_warp_size() != radix_sort::warp_size) {
             LUISA_WARNING(
                 "Wavefront coroutine hint sorting over range {} requires "
                 "{}-lane subgroups, but the device reports {}; hint sorting "
                 "is disabled.",
-                _config.hint_range, radix_sort::warp_size,
+                _hint_key_range, radix_sort::warp_size,
                 device.compute_warp_size());
             std::fill(_have_hint.begin(), _have_hint.end(), false);
             _config.hint_fields.clear();
@@ -341,8 +373,10 @@ private:
             _sort_index = device.create_buffer<uint>(_config.thread_count);
             _sort_key[0] = device.create_buffer<uint>(_config.thread_count);
             _sort_key[1] = device.create_buffer<uint>(_config.thread_count);
-            auto max_digit = std::max<uint>(static_cast<uint>(nc),
-                                            std::min<uint>(_config.hint_range, radix_sort::hist_block_size));
+            auto max_digit = std::max<uint>(
+                static_cast<uint>(nc),
+                std::min<uint>(_hint_key_range,
+                               radix_sort::hist_block_size));
             _sort_temp_storage = radix_sort::temp_storage{device, _config.thread_count, max_digit};
         }
 
@@ -372,32 +406,43 @@ private:
                 "wavefront_token_sort"};
         }
         if (_has_hint_sort) {
-            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint)> keep_index = [](
-                                                                               UInt index, BufferUInt values,
-                                                                               ByteBufferVar, UInt) noexcept {
-                return values.read(index);
-            };
-            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint)> get_coro_hint = [layout = _frame_layout, soa = _config.global_memory_soa,
-                                                                                  hint_field_index = static_cast<uint>(_hint_field_index)](
-                                                                                     UInt index, BufferUInt values,
-                                                                                     ByteBufferVar frame_buf,
-                                                                                     UInt frame_capacity) noexcept {
-                auto frame_index = values.read(index);
-                return coro_frame_read_field<uint>(
-                    frame_buf, frame_index, frame_capacity,
-                    layout, soa, hint_field_index);
-            };
-            if (_config.hint_range <= radix_sort::hist_block_size) {
-                auto hint_digit = std::max<uint>(_config.hint_range, 1u);
-                _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer, uint>{
+            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint, uint, uint)>
+                keep_index = [](
+                                 UInt index, BufferUInt values,
+                                 ByteBufferVar, UInt, UInt, UInt) noexcept {
+                    return values.read(index);
+                };
+            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint, uint, uint)>
+                get_coro_hint =
+                    [layout = _frame_layout,
+                     soa = _config.global_memory_soa,
+                     hint_field_index = static_cast<uint>(_hint_field_index)](
+                        UInt index, BufferUInt values,
+                        ByteBufferVar frame_buf, UInt frame_capacity,
+                        UInt hint_range, UInt partition_size) noexcept {
+                        auto frame_index = values.read(index);
+                        auto hint = coro_frame_read_field<uint>(
+                            frame_buf, frame_index, frame_capacity,
+                            layout, soa, hint_field_index);
+                        auto partition = def(0u);
+                        $if (partition_size != 0u) {
+                            partition = frame_index / partition_size;
+                        };
+                        return hint + partition * hint_range;
+                    };
+            if (_hint_key_range <= radix_sort::hist_block_size) {
+                auto hint_digit = std::max<uint>(_hint_key_range, 1u);
+                _sort_hint = radix_sort::instance<
+                    Buffer<uint>, ByteBuffer, uint, uint, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_coro_hint, &keep_index, &get_coro_hint,
                     1u, hint_digit, 0u, 31u,
                     "wavefront_hint_sort"};
             } else {
                 auto high_bit = 0u;
-                while ((_config.hint_range >> high_bit) != 1u) { high_bit++; }
-                _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer, uint>{
+                while ((_hint_key_range >> high_bit) != 1u) { high_bit++; }
+                _sort_hint = radix_sort::instance<
+                    Buffer<uint>, ByteBuffer, uint, uint, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_coro_hint, &keep_index, &get_coro_hint,
                     0u, radix_sort::hist_block_size, 0u, high_bit,
@@ -782,7 +827,9 @@ private:
             _sort_key[1].view().subview(offset, count)};
         return _sort_hint.sort_switch(stream, keys, indices, count,
                                       _resume_index.view().subview(offset, count),
-                                      _frame_buffer, _config.thread_count);
+                                      _frame_buffer, _config.thread_count,
+                                      _config.hint_range,
+                                      _config.hint_partition_size);
     }
 
     void _dispatch(
