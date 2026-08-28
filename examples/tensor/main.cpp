@@ -49,7 +49,6 @@
 #include "mnist.h"
 #include "rnn.h"
 #include "torch2_import.h"
-#include "transformer_import.h"
 #include "tensor_basics.h"
 
 #include <luisa/core/stl/memory.h>

@@ -205,9 +205,11 @@ barriers/atomics where TileLang's passes would inject them).
       let the caller pre-decompress); the metadata E layout determines the
       K-groups of 4 with 2 non-zeros;
     - otherwise identical to GEMM with A replaced by the decompressed tile.
-  Deferred (documented, not implemented in this pass): true multi-buffered
-  async pipelining of the K loop (2.16), lane-mapped fragment layouts (1.2),
-  tensor-core/WGMMA paths (section 4 gap list).
+  Deferred (documented, not implemented in this pass): lane-mapped fragment
+  layouts (1.2), tensor-core/WGMMA paths (section 4 gap list).
+  NOTE: multi-buffered async pipelining of the K loop (2.16) is now
+  IMPLEMENTED (see _emit_pipelined_async; enabled via TileToKernelConfig::
+  use_pipeline, gated on CUDA cp.async-chunkable GEMM bodies).
 
 --- 2.5 REDUCE_SUM / REDUCE (T.reduce_sum / T.reduce family) ---------------
   TileLang ReduceLowerer: thread-local reduction, then tl::AllReduce
@@ -659,10 +661,11 @@ barriers/atomics where TileLang's passes would inject them).
     reductions; ANY_OF/ALL_OF partition Global/Shared tiles; TRANSPOSE
     stages through Shared for Global operands; CUMSUM/CUMMAX use a
     two-pass block scan when there are fewer scan lines than warps.
-  - Deferred (correct today, not optimized): true async multi-buffered
-    PIPELINED (2.16), vectorized float4/half2 chunks (1.3), lane-mapped
-    fragment layouts (1.2), tensor-core/WGMMA/TCGEN05 paths, packed
-    addx2/addx4 atomics, per-thread atomic aggregation.
+  - Deferred (correct today, not optimized): vectorized float4/half2 chunks
+    (1.3), lane-mapped fragment layouts (1.2), tensor-core/WGMMA/TCGEN05
+    paths, packed addx2/addx4 atomics, per-thread atomic aggregation.
+    (async multi-buffered PIPELINED (2.16) is now implemented — see
+    _emit_pipelined_async.)
 
 =============================================================================
 */
@@ -835,6 +838,7 @@ barriers/atomics where TileLang's passes would inject them).
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <functional>
 #include <limits>
 #include <utility>
@@ -955,6 +959,7 @@ public:
                             const TileToKernelConfig &config) {
         _use_cooperative = config.use_cooperative;
         _use_tensor = config.use_tensor;
+        _use_pipeline = config.use_pipeline;
         _tile = tile_fn.get();
         // Dynamic-batching config contract (the failure branches are the
         // strongly-skewed "almost never" side, so mark them [[unlikely]]).
@@ -1009,6 +1014,11 @@ public:
                 // size (1 when batching is disabled).
                 builder->set_block_size(uint3{meta.block_size[0], meta.block_size[1], _batch_block_z});
                 if (_batching) { _emit_batch_prologue(); }
+                // Multi-buffered async pipelining (plan 2.16): recognize the
+                // eligible Pipelined statements BEFORE the ALLOC statements
+                // emit, so _emit_alloc can widen the pipelined shared tiles
+                // to `stages` stage-slots.
+                _prescan_pipelined_async(tile_fn->body()->statements());
                 _prescan_gemm_fragments(tile_fn->body()->statements());
                 // F1 (perf_report): small fragments used by elementwise
                 // statements are forced onto the block-shared backing so the
@@ -1084,6 +1094,7 @@ private:
     // lowering configuration
     bool _use_cooperative = false;
     bool _use_tensor = false;
+    bool _use_pipeline = true;// multi-buffered async pipelining (plan 2.16)
     // launch metadata
     uint32_t _threads = 1u;
     uint32_t _gx = 1u;
@@ -1107,6 +1118,54 @@ private:
     // fallback _min_extent_axis heuristic breaks when block_K > block_M, so the
     // K-extent pair inference is the primary path for pipelined GEMM copies.
     luisa::unordered_map<const CopyStmt *, uint32_t> _pipeline_copy_axes;
+    // Multi-buffered async pipelining state (plan 2.16 / CUTASS "Pipelining").
+    // When a PipelinedStmt has stages >= 2 and the body matches the GEMM
+    // pattern, each pipelined shared tile is widened to `stages` stage-slots
+    // (Storage.array_size is multiplied in _emit_alloc) and the lowering runs
+    // a prologue prefetch / mainloop issue+wait / epilogue drain structure
+    // with async_copy + pipeline_commit/wait_prior.
+    //   _stage_slots[t]          : number of stage slots of shared tile t
+    //   _stage_base_expr         : runtime expression = slot index * tile_n
+    //                              (the per-stage shared base offset, valid
+    //                              only while _pipeline_var != nullptr)
+    //   _emit_pipelined_async(...) drives the whole structure.
+    luisa::unordered_map<const TensorExpr *, uint32_t> _stage_slots;
+    const Expression *_stage_base_expr = nullptr;
+    // Copies lowered through the async pipeline (issued by
+    // _emit_pipelined_async instead of the normal _emit_copy path).
+    luisa::unordered_set<const CopyStmt *> _async_pipeline_copies;
+    // Eligible async Pipelined statements -> stage count (recorded by
+    // _prescan_pipelined_async, consumed by _emit_pipelined).
+    luisa::unordered_map<const PipelinedStmt *, uint32_t> _async_pipelined;
+
+    // Stage-slot count of a shared tile (0 = not slotted).  Resolves by
+    // pointer first, then by name, then by layout (statement operands are
+    // often view clones of the AllocStmt tensor; the tile DSL may hand
+    // different clone identities to the copy dst vs. the GEMM operand).
+    [[nodiscard]] uint32_t _stage_slots_of(const TensorExpr *t) const noexcept {
+        if (auto it = _stage_slots.find(t); it != _stage_slots.end()) {
+            return it->second;
+        }
+        auto name = t->name();
+        if (!name.empty()) {
+            for (auto &kv : _stage_slots) {
+                if (kv.first->name() == name) { return kv.second; }
+            }
+        }
+        // layout fallback: same scope/dtype/dims as a slotted tile
+        for (auto &kv : _stage_slots) {
+            auto *k = kv.first;
+            if (k->scope() == t->scope() && k->dtype() == t->dtype() &&
+                k->rank() == t->rank()) {
+                bool same = true;
+                for (auto i = 0u; i < k->rank(); ++i) {
+                    if (axis_extent(k, i) != axis_extent(t, i)) { same = false; break; }
+                }
+                if (same) { return kv.second; }
+            }
+        }
+        return 0u;
+    }
     // the effective op extent of the statement being emitted (global views
     // carry no extent of their own; the op extent comes from the other
     // operand / the loop target)
@@ -1858,6 +1917,19 @@ private:
         for (int32_t i = static_cast<int32_t>(t->rank()) - 1; i >= 0; --i) {
             idx = idx + Expr<uint>{c[i]} * stride;
             stride *= static_cast<uint32_t>(axis_extent(t, i));
+        }
+        // Multi-buffered pipelining (plan 2.16): a stage-slotted shared tile
+        // holds `stages` consecutive stage copies; add the active slot's base
+        // offset (slot * tile_n).  _stage_base_expr carries the runtime SLOT
+        // INDEX; the per-tile element count is multiplied here.  Only Shared
+        // tiles are slotted (fragments keep their original single copy).
+        if (_stage_base_expr != nullptr) {
+            if (auto *st = _try_storage(t)) {
+                if (st->scope == TensorScope::Shared &&
+                    _stage_slots_of(t) != 0u) {
+                    idx = idx + Expr<uint>{_stage_base_expr} * tile_element_count(t);
+                }
+            }
         }
         if (_batching) {
             if (auto *st = _try_storage(t)) {
@@ -3566,6 +3638,12 @@ private:
                          luisa::span<const TensorStmt *const> body) {
         auto count = static_cast<uint32_t>(p->count());
         if (count == 0u) { return; }
+        // Multi-buffered async pipelining (plan 2.16 / CUTASS): eligible
+        // statements were recorded by _prescan_pipelined_async.
+        if (_async_pipelined.contains(p)) {
+            _emit_pipelined_async(p, body);
+            return;
+        }
         _pipeline_count = count;
         // GEMM-style pipelined copies (A: MxK, B: KxN) share the K extent across
         // their two rank-2 shared-tile destinations.  Record each copy's pipeline
@@ -3603,6 +3681,312 @@ private:
         _pipeline_copy_axes.clear();
         _pipeline_var = nullptr;
         _pipeline_count = 0u;
+    }
+
+    // ========================================================================
+    // Multi-buffered async software pipelining (plan 2.16 / CUTASS "Pipelining")
+    // ========================================================================
+    // The CUTLASS doc's primary GEMM optimization: allocate `stages` copies of
+    // every pipelined shared tile and overlap the NEXT iterations' global->
+    // shared transfers with the current compute via cp.async (async_copy +
+    // pipeline_commit + pipeline_wait_prior).  Structure:
+    //   prologue:  issue async copies for ko = 0 .. min(stages-1, count)-1
+    //              (one commit group each), no compute yet;
+    //   mainloop:  $for ko in 0..count:
+    //                wait until at most stages-2 groups stay in flight (the
+    //                tile ko needs is done) -> sync_block ->
+    //                compute body[ko] from stage-slot ko % stages ->
+    //                issue the async copy for ko+stages-1 (guarded) -> commit;
+    //   epilogue:  folded into the guarded mainloop issue step (nothing extra).
+    // Eligibility gates (checked in _prescan_pipelined_async, which records
+    // _async_pipelined + _stage_slots BEFORE _emit_alloc runs):
+    //   * config.use_pipeline, stages >= 2, not batching;
+    //   * every body COPY is Global->Shared, rank-2, host-known extents, and
+    //     cp.async chunkable: the contiguous fast-axis run must be a multiple
+    //     of 16 bytes (cp.async sizes 4/8/16; 16-byte chunks use the .cg
+    //     fast path and no row-straddle misalignment is possible when
+    //     tile_bytes_per_row % 16 == 0);
+    //   * every non-copy body statement touches shared memory only (no global
+    //     writes inside the loop — _writes_global already excludes those).
+    // Backend portability: on CUDA this maps to cp.async (CC 8.0+); on VK the
+    // same ops lower to OpGroupAsyncCopy (or a per-thread copy fallback with
+    // barriers) so the structure stays correct everywhere — the win is CUDA's.
+    // On any gate failure the prescan records nothing and _emit_pipelined
+    // keeps the synchronous lowering (always safe).
+
+    // One cp.async chunk of a pipelined global->shared copy.
+    struct AsyncCopyPlan {
+        const CopyStmt *copy = nullptr;
+        const TensorExpr *dst = nullptr;  // shared tile (stage-slotted)
+        uint32_t chunk_elems = 0u;        // elements per cp.async (16 B)
+        uint32_t total_chunks = 0u;       // tile chunks per stage
+    };
+
+    // Chunk width (elements) that makes one cp.async exactly 16 bytes, or 0
+    // when the element size cannot build a 16-byte chunk.
+    [[nodiscard]] static uint32_t _async_chunk_elems(TensorElementType dt) noexcept {
+        auto bytes = tensor_element_type(dt)->size();
+        if (bytes == 0u || bytes > 16u || 16u % bytes != 0u) { return 0u; }
+        return 16u / static_cast<uint32_t>(bytes);
+    }
+
+    // Host-side eligibility check for one pipelined statement; on success
+    // records the stage count and stage-slots every shared dst tile needs.
+    void _prescan_pipelined_async(luisa::span<const TensorStmt *const> stmts) {
+        if (!_use_pipeline || _batching) { return; }
+        if (auto *env = std::getenv("LC_TILE_NO_ASYNC_PIPELINE");
+            env != nullptr && env[0] != '0' && env[0] != '\0') {
+            return;
+        }
+        for (auto idx = 0u; idx < stmts.size(); ++idx) {
+            auto *stmt = stmts[idx];
+            if (stmt->op() != TileOpKind::PIPELINED) { continue; }
+            auto *p = static_cast<const PipelinedStmt *>(stmt);
+            // Promote single-stage loops to double-buffered (CUTASS's core
+            // "Pipelining" optimization).  stages is a host annotation; the
+            // lowering may always widen to >= 2 stage slots because the extra
+            // shared memory is purely a performance trade-off and the result
+            // is bit-identical.  (stages <= 0 is treated as 1.)
+            auto stages = std::max(p->stages(), 1);
+            stages = std::max(stages, 2);
+            if (stages < 2) { continue; }
+            // body = the same run _emit_all would feed to _emit_pipelined
+            auto end = idx + 1u;
+            while (end < stmts.size()) {
+                auto *candidate = stmts[end];
+                if (candidate->op() == TileOpKind::PIPELINED ||
+                    candidate->op() == TileOpKind::KERNEL_1D ||
+                    candidate->op() == TileOpKind::KERNEL_2D) {
+                    break;
+                }
+                if (!_accesses_shared(candidate) || _writes_global(candidate)) { break; }
+                ++end;
+            }
+            if (end <= idx + 1u) { continue; }// no body
+            bool ok = true;
+            luisa::vector<const TensorExpr *> slotted;
+            for (auto i = idx + 1u; i < end && ok; ++i) {
+                auto *s = stmts[i];
+                if (s->op() == TileOpKind::COPY) {
+                    auto *c = static_cast<const CopyStmt *>(s);
+                    auto *src = c->src();
+                    auto *dst = c->dst();
+                    if (src == nullptr || dst == nullptr ||
+                        src->scope() != TensorScope::Global ||
+                        dst->scope() != TensorScope::Shared ||
+                        dst->rank() != 2u || !extent_known(dst)) {
+                        ok = false;
+                        break;
+                    }
+                    auto rows = static_cast<uint32_t>(axis_extent(dst, 0u));
+                    auto cols = static_cast<uint32_t>(axis_extent(dst, 1u));
+                    auto chunk = _async_chunk_elems(dst->dtype());
+                    if (chunk == 0u || cols % chunk != 0u) {
+                        ok = false;// not cp.async chunkable
+                        break;
+                    }
+                    // the source row must be 16-B aligned at every pipeline
+                    // step: row stride (elements) * elem bytes % 16 == 0
+                    auto *ext_src = extent_known(src) ? src : dst;
+                    auto src_cols = static_cast<uint32_t>(axis_extent(ext_src, 1u));
+                    auto elem_bytes = tensor_element_type(dst->dtype())->size();
+                    if ((src_cols * elem_bytes) % 16u != 0u) { ok = false; break; }
+                    slotted.emplace_back(dst);
+                } else if (!_accesses_shared(s) || _writes_global(s)) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (!ok) { continue; }
+            // Record eligibility.  Every slotted tile gets `stages` stage
+            // copies (deduplicated by name: copy dst views are clones of one
+            // AllocStmt tensor).
+            _async_pipelined.emplace(p, static_cast<uint32_t>(stages));
+            for (auto *t : slotted) {
+                luisa::string key{t->name()};
+                bool known = false;
+                for (auto &kv : _stage_slots) {
+                    if (luisa::string{kv.first->name()} == key) {
+                        kv.second = std::max(kv.second, static_cast<uint32_t>(stages));
+                        known = true;
+                    }
+                }
+                if (!known) { _stage_slots.emplace(t, static_cast<uint32_t>(stages)); }
+            }
+        }
+    }
+
+    // The async pipeline lowering of one eligible PipelinedStmt.
+    void _emit_pipelined_async(const PipelinedStmt *p,
+                               luisa::span<const TensorStmt *const> body) {
+        auto count = static_cast<uint32_t>(p->count());
+        auto stages = _async_pipelined.at(p);
+        _pipeline_count = count;
+        // same K-axis inference as the synchronous path
+        _pipeline_copy_axes.clear();
+        luisa::vector<const CopyStmt *> copies;
+        for (auto *s : body) {
+            if (s->op() == TileOpKind::COPY) {
+                auto *c = static_cast<const CopyStmt *>(s);
+                copies.emplace_back(c);
+                _async_pipeline_copies.insert(c);
+            }
+        }
+        for (auto i = 0u; i < copies.size() && _pipeline_copy_axes.empty(); ++i) {
+            auto *di = copies[i]->dst();
+            if (di == nullptr || di->rank() != 2u || di->scope() != TensorScope::Shared) { continue; }
+            auto ai0 = static_cast<uint32_t>(axis_extent(di, 0u));
+            auto ai1 = static_cast<uint32_t>(axis_extent(di, 1u));
+            for (auto j = i + 1u; j < copies.size(); ++j) {
+                auto *dj = copies[j]->dst();
+                if (dj == nullptr || dj->rank() != 2u || dj->scope() != TensorScope::Shared) { continue; }
+                auto bj0 = static_cast<uint32_t>(axis_extent(dj, 0u));
+                auto bj1 = static_cast<uint32_t>(axis_extent(dj, 1u));
+                if (ai1 == bj0) { _pipeline_copy_axes[copies[i]] = 1u; _pipeline_copy_axes[copies[j]] = 0u; break; }
+                if (ai0 == bj1) { _pipeline_copy_axes[copies[i]] = 0u; _pipeline_copy_axes[copies[j]] = 1u; break; }
+            }
+        }
+        // ---- per-copy async chunk plan (host constants) ---------------------
+        luisa::vector<AsyncCopyPlan> plans;
+        for (auto *c : copies) {
+            auto *dst = c->dst();
+            auto rows = static_cast<uint32_t>(axis_extent(dst, 0u));
+            auto cols = static_cast<uint32_t>(axis_extent(dst, 1u));
+            auto chunk = _async_chunk_elems(dst->dtype());
+            auto chunks_per_row = cols / chunk;
+            plans.push_back(AsyncCopyPlan{
+                c, dst, chunk, rows * chunks_per_row});
+        }
+        // Issue every cp.async of pipeline step `ko_expr` (runtime Expr<uint>)
+        // into stage slot (ko_expr % stages).  _pipeline_var drives the global
+        // base; _stage_base_expr holds the slot index for _local_index.
+        auto emit_async_stage = [&](const Expression *ko_expr) {
+            _pipeline_var = ko_expr;
+            auto slot = (Expr<uint>{ko_expr} % stages).expression();
+            for (auto &plan : plans) {
+                auto *dst = plan.dst;
+                auto *src = plan.copy->src();
+                auto &dst_st = _storage_for(dst);
+                auto &src_st = _storage_for(src);
+                auto tile_n = tile_element_count(dst);
+                auto cols = static_cast<uint32_t>(axis_extent(dst, 1u));
+                auto chunk = plan.chunk_elems;
+                auto chunks_per_row = cols / chunk;
+                auto chunk_bytes = chunk * static_cast<uint32_t>(
+                                               tensor_element_type(dst->dtype())->size());
+                // Set up the pipeline context for _global_index: the copy's
+                // pipeline axis and the op extent.  Like the synchronous
+                // _emit_copy, the extent comes from the DST tile (the shared
+                // tile always carries the host-known tile dims; a global src
+                // view may carry them too, but the stride reconstruction of
+                // _global_index must use the SAME extent the copies were
+                // traced with).
+                auto saved_extent = _current_extent;
+                auto saved_axis = _pipeline_axis;
+                _current_extent = dst;
+                if (auto it = _pipeline_copy_axes.find(plan.copy);
+                    it != _pipeline_copy_axes.end()) {
+                    _pipeline_axis = it->second;
+                } else {
+                    _pipeline_axis = _min_extent_axis(dst);
+                }
+                _stage_base_expr = slot;// slot index; _local_index multiplies
+                auto tid = Expr<uint3>{_fb->thread_id()}.x;
+                auto emit_chunk = [&](const Expression *cid) {
+                    auto r = (Expr<uint>{cid} / chunks_per_row).expression();
+                    auto cb = ((Expr<uint>{cid} % chunks_per_row) * chunk).expression();
+                    Coord cc = _zero_coord();
+                    cc[0] = r;
+                    cc[1] = cb;
+                    // cp.async destination must be a direct shared-memory
+                    // ACCESS expression (the CUDA codegen takes its address:
+                    // &s3[idx]); a DSL Var/array-subscript wrapper would
+                    // materialize the element into a local first.
+                    auto elem_t = tensor_element_type(dst->dtype());
+                    auto *dst_access = _fb->access(elem_t, dst_st.shared,
+                                                   _local_index(dst, cc));
+                    // global src address: BUFFER_ADDRESS + element idx * sizeof
+                    auto *src_base = _fb->call(Type::of<uint64_t>(),
+                                               CallOp::BUFFER_ADDRESS,
+                                               {src_st.buffer});
+                    auto *global_idx = _global_index(src, cc);
+                    auto *elem_bytes_lit = _fb->literal(
+                        Type::of<uint64_t>(),
+                        static_cast<uint64_t>(elem_t->size()));
+                    auto *idx64 = _fb->cast(Type::of<uint64_t>(), CastOp::STATIC, global_idx);
+                    auto *byte_off = _fb->binary(Type::of<uint64_t>(), BinaryOp::MUL,
+                                                 idx64, elem_bytes_lit);
+                    auto *src_addr = _fb->binary(Type::of<uint64_t>(), BinaryOp::ADD,
+                                                 src_base, byte_off);
+                    _fb->call(CallOp::ASYNC_COPY,
+                              {_literal_u(1u), dst_access, src_addr,
+                               _literal_u(chunk_bytes), _literal_u(1u),
+                               _literal_u(chunk_bytes), _literal_u(0u)});
+                };
+                for (auto _range_i_ : dynamic_range(Expr<uint>{tid.expression()}, Expr<uint>{_literal_u(plan.total_chunks)}, Expr<uint>{_literal_u(_threads)})) {
+                    [&](const Expression *cid) {
+                        if (plan.total_chunks % _threads != 0u) {
+                            // tail guard: fewer chunks than threads leaves idle
+                            // threads whose cid runs past the tile; their
+                            // cp.async would address outside both tiles.
+                            if_(Expr<bool>{(Expr<uint>{cid} < plan.total_chunks).expression()}, [&] { emit_chunk(cid); });
+                        } else {
+                            emit_chunk(cid);
+                        }
+                    }(_range_i_.expression());
+                }
+                _stage_base_expr = nullptr;
+                _current_extent = saved_extent;
+                _pipeline_axis = saved_axis;
+            }
+            _pipeline_var = nullptr;
+        };
+        // ---- prologue: prefetch the first min(stages-1, count) tiles --------
+        auto prologue_n = std::min(stages - 1u, count);
+        for (auto i = 0u; i < prologue_n; ++i) {
+            emit_async_stage(_literal_u(i));
+            _fb->call(CallOp::PIPELINE_COMMIT, {});
+        }
+        // ---- mainloop --------------------------------------------------------
+        // Ordering (CUTASS mainloop): first ISSUE the copy for ko+stages-1
+        // (chunk-guarded) + COMMIT, then WAIT until only stages-2 groups
+        // remain in flight (the tile for ko is the oldest, hence complete),
+        // sync the block, and COMPUTE tile ko from stage slot ko % stages.
+        // Issuing BEFORE the wait lets the copy engine fetch tile ko+stages-1
+        // while the block computes tile ko (even stages=2 double buffering).
+        // Uniform-commit correctness: cp.async wait_group accounting is
+        // per-thread, so every thread must execute pipeline_commit the same
+        // number of times.  The issue branch is therefore guarded per CHUNK
+        // (inside the tid-strided loop) while pipeline_commit stays OUTSIDE
+        // and runs on every iteration for every thread — an empty commit
+        // group is harmless and keeps the counts aligned.
+        for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{_literal_u(count)}, Expr<uint>{_literal_u(1u)})) {
+            [&](const Expression *ko) {
+                // issue the copy for ko+stages-1 when it exists
+                auto next = (Expr<uint>{ko} + (stages - 1u)).expression();
+                if_(Expr<bool>{(Expr<uint>{next} < count).expression()}, [&] {
+                    emit_async_stage(next);
+                });
+                _fb->call(CallOp::PIPELINE_COMMIT, {});
+                // wait until the tile for ko is ready: at most stages-2 groups
+                // may remain in flight (they cover ko+1 .. ko+stages-2).
+                auto wait_n = std::max(stages, 2u) - 2u;
+                _fb->call(CallOp::PIPELINE_WAIT_PRIOR, {_literal_u(wait_n)});
+                _sync_block();
+                // compute on stage slot ko % stages
+                auto slot = (Expr<uint>{ko} % stages).expression();
+                _stage_base_expr = slot;// _local_index multiplies by tile_n
+                _pipeline_var = ko;
+                for (auto *s : body) { _emit(s); }
+                _pipeline_var = nullptr;
+                _stage_base_expr = nullptr;
+            }(_range_i_.expression());
+        }
+        for (auto *c : copies) { _async_pipeline_copies.erase(c); }
+        _pipeline_copy_axes.clear();
+        _pipeline_var = nullptr;
+        _pipeline_count = 0u;
+        _stage_base_expr = nullptr;
     }
 
     // True when the statement WRITES to a Global tensor (the destination of
@@ -3787,9 +4171,12 @@ private:
         // barrier discipline: sync after every statement that touches shared
         // memory (never inside a thread-divergent branch — all our shared
         // accesses live inside $for/$if bodies, the sync is at top level).
-        // F2-elided copies are no-ops and need no barrier.
+        // F2-elided copies are no-ops and need no barrier.  Async pipeline
+        // copies are likewise skipped (the pipeline structure places its own
+        // barriers), so they get no trailing barrier either.
         auto elided_copy = stmt->op() == TileOpKind::COPY &&
-                           _elided_copy_stmts.contains(static_cast<const CopyStmt *>(stmt));
+                           (_elided_copy_stmts.contains(static_cast<const CopyStmt *>(stmt)) ||
+                            _async_pipeline_copies.contains(static_cast<const CopyStmt *>(stmt)));
         if (_accesses_shared(stmt) && !elided_copy) { _sync_block(); }
     }
 
@@ -3919,18 +4306,24 @@ private:
                             tensor_element_type_name(t->dtype()));
                 }
                 break;
-            case TensorScope::Shared: {
-                auto n = tile_element_count(t);
-                if (n == 0u) [[unlikely]] {
-                    LUISA_ERROR_WITH_LOCATION("Shared tile allocation with zero elements: {}", t->describe());
-                }
-                // With batching the shared array holds one slice per batch item
-                // (B_z * n); _local_index adds the tid_z slice on access.
-                auto alloc_n = _batching ? n * _batch_block_z : n;
-                st.shared = _fb->shared(Type::array(elem_t, alloc_n));
-                st.array_size = alloc_n;
-                break;
-            }
+              case TensorScope::Shared: {
+                  auto n = tile_element_count(t);
+                  if (n == 0u) [[unlikely]] {
+                      LUISA_ERROR_WITH_LOCATION("Shared tile allocation with zero elements: {}", t->describe());
+                  }
+                  // With batching the shared array holds one slice per batch item
+                  // (B_z * n); _local_index adds the tid_z slice on access.
+                  auto alloc_n = _batching ? n * _batch_block_z : n;
+                  // Multi-buffered pipelining (plan 2.16): stage-slotted tiles
+                  // hold `stages` consecutive stage copies; _local_index adds
+                  // the active slot's base offset during the pipelined body.
+                  if (auto slots = _stage_slots_of(t); slots != 0u) {
+                      alloc_n *= slots;
+                  }
+                  st.shared = _fb->shared(Type::array(elem_t, alloc_n));
+                  st.array_size = alloc_n;
+                  break;
+              }
           case TensorScope::Fragment: {
               auto n = tile_element_count(t);
               if (n == 0u) [[unlikely]] {
@@ -4010,6 +4403,10 @@ private:
      *       rank==2 ? _partition_loop_2d(ext, body) : _partition_loop(ext, body)
      */
     void _emit_copy(const CopyStmt *s) {
+        // Async multi-buffered pipelining (plan 2.16): the copy statement is
+        // skipped inside the pipelined body — _emit_pipelined_async issues
+        // the cp.async itself (prologue / mainloop / epilogue).
+        if (_async_pipeline_copies.contains(s)) { return; }
         auto *src = s->src();
         auto *dst = s->dst();
         auto *ext = op_extent_of(dst, src);

@@ -520,7 +520,12 @@ int main(int argc, char *argv[]) {
     for (auto i = 3; i < argc; ++i) {
         if (argv[i] != nullptr && luisa::string_view{argv[i]} == "--tensor") { use_tensor = true; }
     }
-    TileToKernelConfig tile_config{.use_tensor = use_tensor};
+    // Multi-buffered async software pipelining (CUTASS-style double buffering):
+    // the lowering emits the CUDA cp.async pipeline builtins, so enable it only
+    // on the CUDA backend; other backends keep the synchronous per-stage path.
+    auto use_pipeline = backend == "cuda";
+    TileToKernelConfig tile_config{.use_tensor = use_tensor,
+                                   .use_pipeline = use_pipeline};
     // NOTE: do NOT dispatch kernel.to_kernel<2>() when use_tensor is enabled —
     // it re-lowers with the DEFAULT config (use_tensor=false, partition path)
     // and its dispatch_size disagrees with the tensor-op lowering (e.g. the

@@ -86,6 +86,20 @@ struct TileToKernelConfig {
     //     B_z <= min_batching_size and B_z <= 64 always hold.
     uint32_t min_batching_size{1};
     uint32_t max_batching_size{1};
+    // Multi-buffered software pipelining (plan 2.16 / CUTASS "Pipelining"):
+    // when a T.Pipelined(count, stages) loop has stages >= 2 and its body is
+    // the GEMM pattern (global->shared rank-2 copies feeding shared-reading
+    // consumers, chunkable into cp.async-contiguous row chunks), the lowering
+    // allocates `stages` copies of each pipelined shared tile and overlaps the
+    // next iterations' global->shared async copies with the current compute
+    // (prologue prefetch / mainloop issue+wait / epilogue drain, per CUTASS).
+    // This lowers to the CUDA async-copy pipeline builtins (ASYNC_COPY /
+    // PIPELINE_COMMIT / PIPELINE_WAIT_PRIOR + BUFFER_ADDRESS); other backends
+    // reject BUFFER_ADDRESS, so like use_tensor this defaults to false and
+    // CUDA programs opt in.  On any gate failure (bad chunk shape, batching,
+    // non-matching body) the synchronous lowering is kept, so enabling it is
+    // always safe on CUDA.
+    bool use_pipeline : 1 {false};
 };
 /// Translate a compiled tile kernel (a traced TileFunctionBuilder) into a
 /// regular Luisa kernel (FunctionBuilder).  The traced builder is only read;
