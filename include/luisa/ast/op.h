@@ -634,10 +634,16 @@ enum struct CallOp : uint32_t {
     // ray-query candidate handler. Its direction is not normalized, so the
     // ray parameter and [t_min, t_max] remain invariant under instancing.
     RAY_QUERY_OBJECT_SPACE_RAY,// (RayQuery): Ray
+
+    // An arbitrary value of the result type. This is a value-level lifetime
+    // seed, not a zero initializer: observing it before a dominating
+    // definition has unspecified results. Appended to preserve every existing
+    // public CallOp value.
+    UNDEFINED,// (): T
 };
 
 static constexpr size_t call_op_count =
-    to_underlying(CallOp::RAY_QUERY_OBJECT_SPACE_RAY) + 1u;
+    to_underlying(CallOp::UNDEFINED) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -960,6 +966,6 @@ public:
 
   };// namespace luisa::compute
 
-  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, CLOCK)
+  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, UNDEFINED)
 
 #endif// LUISA_AST_OP_H

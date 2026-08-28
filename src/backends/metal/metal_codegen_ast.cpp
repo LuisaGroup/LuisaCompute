@@ -1235,6 +1235,13 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             _scratch << ">";
             break;
         }
+        case CallOp::UNDEFINED: {
+            // Zero is a legal concrete refinement for direct AST codegen.
+            _scratch << "lc_zero<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::ONE: {
             _scratch << "lc_one<";
             _emit_type_name(expr->type());

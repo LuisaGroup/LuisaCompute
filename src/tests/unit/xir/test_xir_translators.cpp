@@ -5,6 +5,7 @@
 // - parseable JSON schema, counts, payload, and null-module diagnostics
 
 #include "ut/ut.hpp"
+#include <array>
 #include <luisa/luisa-compute.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
@@ -82,6 +83,37 @@ find_kernel_definition(const Module *module) noexcept {
 }// namespace
 
 void reg_ast2xir() {
+
+    "xir_ast_to_xir_preserves_undefined_aggregate"_test = [] {
+        using Bank = std::array<float4, 3u>;
+        expect(luisa::to_string(CallOp::UNDEFINED) == "UNDEFINED")
+            << "the appended operation must remain discoverable by CallOp users";
+        Kernel1D kernel = [](BufferVar<Bank> output) {
+            output.write(dispatch_id().x, undefined<Bank>());
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto undefined_operand_count = 0u;
+        auto *definition = find_kernel_definition(module.get());
+        expect(definition != nullptr);
+        definition->traverse_instructions(
+            [&](const Instruction *instruction) noexcept {
+                for (auto i = 0u; i < instruction->operand_count(); ++i) {
+                    auto *operand = instruction->operand(i);
+                    if (operand != nullptr &&
+                        operand->derived_value_tag() ==
+                        DerivedValueTag::UNDEFINED) {
+                        expect(operand->type() == Type::of<Bank>());
+                        undefined_operand_count++;
+                    }
+                }
+            });
+        expect(undefined_operand_count == 1u)
+            << "undefined must remain a value, not become a zero constant";
+    };
 
     "xir_ast_to_xir_simple_kernel"_test = [] {
         Kernel1D kernel = [](BufferFloat buf) {

@@ -789,6 +789,13 @@ private:
             case CallOp::RASTER_DISCARD: return b.raster_discard();
             case CallOp::ZERO: return _module->create_constant_zero(expr->type());
             case CallOp::ONE: return _module->create_constant_one(expr->type());
+            case CallOp::UNDEFINED: {
+                LUISA_ASSERT(expr->type() != nullptr &&
+                                 expr->type() != Type::of<void>() &&
+                                 expr->arguments().empty(),
+                             "UNDEFINED requires a non-void result type and no arguments.");
+                return _module->create_undefined(expr->type());
+            }
             case CallOp::PACK: LUISA_NOT_IMPLEMENTED();
             case CallOp::UNPACK: LUISA_NOT_IMPLEMENTED();
             case CallOp::REQUIRES_GRADIENT: {

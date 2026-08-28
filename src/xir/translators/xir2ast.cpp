@@ -541,8 +541,7 @@ private:
     [[nodiscard]] const Expression *_undefined(const Undefined *u) noexcept {
         auto type = u->type();
         LUISA_ASSERT(type != nullptr, "Cannot translate void undefined value to AST.");
-        luisa::vector<std::byte> data(type->size());
-        return _current_builder()->constant(ConstantData::create(type, data.data(), data.size()));
+        return _current_builder()->call(type, CallOp::UNDEFINED, {});
     }
 
     [[nodiscard]] const Expression *_special_register(const SpecialRegister *r) noexcept {

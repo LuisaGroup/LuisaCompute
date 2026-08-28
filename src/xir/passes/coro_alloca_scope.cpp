@@ -349,7 +349,9 @@ struct FirstDefinitionPlan {
     } else if (value->derived_value_tag() !=
                    DerivedValueTag::ARGUMENT &&
                value->derived_value_tag() !=
-                   DerivedValueTag::CONSTANT) {
+                   DerivedValueTag::CONSTANT &&
+               value->derived_value_tag() !=
+                   DerivedValueTag::UNDEFINED) {
         // A special register is evaluated at its use site and may change at a
         // continuation boundary (notably the current coroutine token). It is
         // not an SSA snapshot unless materialized by an instruction.

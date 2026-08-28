@@ -381,6 +381,13 @@ void CodegenVisitor::visit(const CallExpr *expr) {
                << luisa::format("{}", args[0]->type()->size())
                << ')';
         } break;
+        case CallOp::UNDEFINED: {
+            // C has no undef expression. A zero compound literal is a legal
+            // concrete refinement of the arbitrary-value contract.
+            sb << "((";
+            utils.get_type_name(sb, expr->type());
+            sb << "){0})";
+        } break;
         case CallOp::ONE: {
             sb << "memone(&(";
             args[0]->accept(*this);
