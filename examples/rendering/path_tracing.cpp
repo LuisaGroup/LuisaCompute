@@ -18,9 +18,11 @@
 
 #include "common/reference_compare.h"
 #include "common/path_tracing_sample_plan.h"
+#include "rendering/path_tracing_test.h"
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/gui/window.h>
 
 #include "cornell_box.h"
 #include <luisa/dsl/sugar.h>
@@ -45,23 +47,8 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
     }
 };
 
-int main(int argc, char *argv[]) {
-
-    log_level_verbose();
-
-    Context context{argv[0]};
-    if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-spp-per-dispatch N]. <backend>: cuda, dx, metal, vk, hip, fallback, simd", argv[0]);
-        exit(1);
-    }
-
-    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
-    if (!opts.valid()) {
-        LUISA_WARNING("Invalid command line: {}", opts.error_message);
-        return 1;
-    }
-
-    Device device = context.create_device(argv[1]);
+luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
+    Device &device, const PathTracingTestOptions &opts) {
 
     // Load the Cornell Box scene from embedded OBJ string
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -365,7 +352,8 @@ int main(int argc, char *argv[]) {
         set_name("hdr2ldr_kernel");
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
-        Float3 ldr = linear_to_srgb(clamp(hdr.xyz() / hdr.w * scale, 0.f, 1.f));
+        Float3 ldr = linear_to_srgb(clamp(
+            hdr.xyz() / max(hdr.w, 1.0e-6f) * scale, 0.f, 1.f));
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
@@ -388,16 +376,30 @@ int main(int argc, char *argv[]) {
     stream << clear_shader(accum_image).dispatch(resolution)
            << make_sampler_shader(seed_image).dispatch(resolution);
 
-    // Setup window and swapchain conditionally
+    // Setup the platform Window and common Luisa Swapchain presentation path.
+    // Desktop owns a GLFW window by default; iOS passes a Window that wraps the
+    // UIKit-owned CAMetalLayer.
     std::unique_ptr<Window> window;
+    Window *active_window = opts.window;
     std::optional<Swapchain> swap_chain;
     if (!opts.offline) {
-        window = std::make_unique<Window>("path tracing", resolution, false);
+#if defined(LUISA_PLATFORM_IOS)
+        if (active_window == nullptr) {
+            return {
+                .success = false,
+                .error = "Interactive iOS rendering requires a native Window."};
+        }
+#else
+        if (active_window == nullptr) {
+            window = std::make_unique<Window>("path tracing", resolution, false);
+            active_window = window.get();
+        }
+#endif
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{
-                .display = window->native_display(),
-                .window = window->native_handle(),
+                .display = active_window->native_display(),
+                .window = active_window->native_handle(),
                 .size = make_uint2(resolution),
                 .wants_hdr = false,
                 .wants_vsync = false,
@@ -410,6 +412,7 @@ int main(int argc, char *argv[]) {
         resolution);
     double last_time = 0.0;
     uint64_t frame_count = 0u;
+    bool snapshot_captured = false;
     Clock clock;
 
     // Main render loop
@@ -422,28 +425,85 @@ int main(int argc, char *argv[]) {
         if (!opts.offline && swap_chain.has_value()) {
             stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
                    << swap_chain->present(ldr_image);
-            if (window->should_close()) { break; }
-            window->poll_events();
+            if (active_window->should_close()) { break; }
+            active_window->poll_events();
         }
         double dt = clock.toc() - last_time;
         LUISA_INFO("dt = {:.2f}ms ({:.2f} spp/s)", dt, dispatch_spp / dt * 1000);
         last_time = clock.toc();
         frame_count += dispatch_spp;
+        if (opts.progress_callback) {
+            opts.progress_callback(frame_count, last_time);
+        }
+        if (!snapshot_captured && opts.snapshot_spp != 0u &&
+            frame_count >= opts.snapshot_spp && opts.snapshot_callback) {
+            stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
+                   << ldr_image.copy_to(luisa::span{host_image})
+                   << synchronize();
+            auto snapshot_elapsed = clock.toc();
+            opts.snapshot_callback(
+                resolution, frame_count, snapshot_elapsed, host_image);
+            snapshot_captured = true;
+        }
     }
     stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
            << ldr_image.copy_to(luisa::span{host_image})
            << synchronize();
-    LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
-    stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (opts.offline) {
-        if (opts.compare_path) {
-            auto result = luisa::ref::compare_with_reference_file(
-                reinterpret_cast<const uint8_t *>(host_image.data()),
-                resolution.x, resolution.y, 4,
-                *opts.compare_path);
-            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-            if (!result.passed) { return 1; }
-        }
+    auto elapsed = clock.toc();
+    LUISA_INFO("FPS: {}", frame_count / elapsed * 1000);
+    return {
+        .success = true,
+        .resolution = resolution,
+        .completed_spp = frame_count,
+        .elapsed_ms = elapsed,
+        .pixels = std::move(host_image)};
+}
+
+#if !defined(LUISA_PATH_TRACING_LIBRARY_ONLY)
+int main(int argc, char *argv[]) {
+
+    log_level_verbose();
+
+    Context context{argv[0]};
+    if (argc <= 1) {
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-spp-per-dispatch N]. <backend>: cuda, dx, metal, vk, hip, fallback, simd", argv[0]);
+        return 1;
+    }
+
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
+
+    Device device = context.create_device(argv[1]);
+    auto result = luisa::ref::run_path_tracing_test(
+        device,
+        luisa::ref::PathTracingTestOptions{
+            .offline = opts.offline,
+            .spp = opts.spp,
+            .max_spp_per_dispatch = opts.max_spp_per_dispatch});
+    if (!result.success) {
+        LUISA_WARNING("Path tracing failed: {}", result.error);
+        return 1;
+    }
+    stbi_write_png(
+        "test_path_tracing.png",
+        static_cast<int>(result.resolution.x),
+        static_cast<int>(result.resolution.y), 4,
+        result.pixels.data(), 0);
+    if (opts.offline && opts.compare_path) {
+        auto comparison = luisa::ref::compare_with_reference_file(
+            reinterpret_cast<const uint8_t *>(result.pixels.data()),
+            static_cast<int>(result.resolution.x),
+            static_cast<int>(result.resolution.y), 4,
+            *opts.compare_path);
+        LUISA_INFO(
+            "Reference comparison: {} ({})",
+            comparison.passed ? "PASSED" : "FAILED",
+            comparison.message);
+        if (!comparison.passed) { return 1; }
     }
     return 0;
 }
+#endif

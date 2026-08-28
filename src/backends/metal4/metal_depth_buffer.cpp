@@ -1,10 +1,27 @@
 #include <luisa/core/logging.h>
 
+#include <objc/runtime.h>
+
 #include "metal_depth_buffer.h"
 
 namespace luisa::compute::metal {
 
 namespace {
+
+[[nodiscard]] bool supports_depth24_stencil8(
+    MTL::Device *device) noexcept {
+    // Some iOS AGX devices provide a method signature for this macOS-only
+    // query without actually responding to the selector. metal-cpp's
+    // sendMessageSafe also accepts methodSignatureForSelector(), which would
+    // consequently dispatch an unrecognized selector and abort the process.
+    // Check real selector responsiveness before invoking the generated API.
+    auto selector = sel_registerName(
+        "isDepth24Stencil8PixelFormatSupported");
+    auto device_class = object_getClass(
+        reinterpret_cast<id>(device));
+    return class_respondsToSelector(device_class, selector) &&
+           device->isDepth24Stencil8PixelFormatSupported();
+}
 
 [[nodiscard]] MTL::PixelFormat depth_pixel_format(
     MTL::Device *device, DepthFormat format) noexcept {
@@ -12,7 +29,7 @@ namespace {
         case DepthFormat::D16: return MTL::PixelFormatDepth16Unorm;
         case DepthFormat::D32: return MTL::PixelFormatDepth32Float;
         case DepthFormat::D24S8: {
-            if (device->isDepth24Stencil8PixelFormatSupported()) {
+            if (supports_depth24_stencil8(device)) {
                 return MTL::PixelFormatDepth24Unorm_Stencil8;
             }
             LUISA_WARNING_WITH_LOCATION(

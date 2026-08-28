@@ -19,9 +19,15 @@ code. Metal still performs the normal runtime compilation of GPU AIR.
 The app must pass all of the following before it writes a successful result:
 
 - Metal LogState shader logging with an exact callback message;
+- four-byte `{bool, bool, bool, bool}` and `bool4` ABI, four-byte `byte4`
+  load/store, device atomics, and direct texture I/O;
+- `ExternalCallable` value/reference ABI with LLVM IR supplied through
+  `ShaderOption::native_include`, linked before AIR optimization/downgrade;
+- cross-stream timeline ordering at an unsigned fence value above `INT64_MAX`;
 - bindless table update and typed buffer read;
 - GPU-authored MTL4 indirect dispatch and kernel-ID propagation;
-- offscreen AIR vertex/fragment rasterization with D32 depth and readback;
+- offscreen AIR vertex/fragment rasterization with `base_instance`, D32 depth,
+  D24S8/D32S8A24 stencil compare/replace, and readback;
 - real triangle Mesh and TLAS construction through the runtime feature guard;
 - closest-hit and any-hit AIR ray tracing, shader execution reordering, and a
   seven-bounce Cornell-style path trace;
@@ -48,7 +54,17 @@ General -> VPN & Device Management -> Developer App.
 
 ## Configure and sign the runtime-linked app
 
-From the repository root, replace the LLVM and development-team placeholders:
+The reproducible shortcut is:
+
+~~~sh
+scripts/build_ios_llvm.sh \
+  --host-llvm-prefix "$(brew --prefix llvm@21)"
+scripts/build_ios_metal4.sh \
+  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --team <apple-development-team> --mode all
+~~~
+
+From the repository root, the expanded manual equivalent is:
 
 ~~~sh
 cmake -S . -B cmake-build-ios-metal4-device-air-xcode -G Xcode \
@@ -59,11 +75,13 @@ cmake -S . -B cmake-build-ios-metal4-device-air-xcode -G Xcode \
   -DCMAKE_BUILD_TYPE=Release \
   -DLLVM_DIR=<ios-llvm21>/lib/cmake/llvm \
   -DLUISA_COMPUTE_BUILD_TESTS=OFF \
+  -DLUISA_COMPUTE_BUILD_IOS_TESTS=ON \
+  -DLUISA_COMPUTE_BUILD_IOS_EXAMPLES=ON \
   -DLUISA_COMPUTE_ENABLE_CLANG_CXX=OFF \
   -DLUISA_COMPUTE_ENABLE_CUDA=OFF \
   -DLUISA_COMPUTE_ENABLE_DX=OFF \
   -DLUISA_COMPUTE_ENABLE_FALLBACK=OFF \
-  -DLUISA_COMPUTE_ENABLE_GUI=OFF \
+  -DLUISA_COMPUTE_ENABLE_GUI=ON \
   -DLUISA_COMPUTE_ENABLE_HIP=OFF \
   -DLUISA_COMPUTE_ENABLE_METAL=OFF \
   -DLUISA_COMPUTE_ENABLE_METAL4=ON \
@@ -75,11 +93,16 @@ cmake -S . -B cmake-build-ios-metal4-device-air-xcode -G Xcode \
 
 cmake --build cmake-build-ios-metal4-device-air-xcode \
   --config Release \
-  --target luisa-metal4-ios-device-air-path-tracer -j 8
+  --target example_ios_path_tracing -j 8
 
 codesign --verify --deep --strict --verbose=2 \
-  cmake-build-ios-metal4-device-air-xcode/bin/Release/luisa-metal4-ios-device-air-path-tracer.app
+  cmake-build-ios-metal4-device-air-xcode/bin/Release/example_ios_path_tracing.app
 ~~~
+
+`example_ios_path_tracing` is the interactive example bundle. The independent
+`LUISA_COMPUTE_BUILD_IOS_TESTS` mirror is named
+`luisa-metal4-ios-device-air-path-tracer`; it uses the same shared conformance
+and repository path-tracing sources but a test-specific bundle identifier.
 
 The resulting executable is intentionally large because it contains the iOS
 LLVM 21 static libraries. That size is acceptable for this conformance runner;
@@ -96,7 +119,7 @@ xcrun devicectl list devices
 
 xcrun devicectl device install app \
   --device <device-udid> \
-  cmake-build-ios-metal4-device-air-xcode/bin/Release/luisa-metal4-ios-device-air-path-tracer.app
+  cmake-build-ios-metal4-device-air-xcode/bin/Release/example_ios_path_tracing.app
 
 xcrun devicectl device process launch \
   --device <device-udid> \
@@ -126,8 +149,14 @@ Do not count installation or launch as a pass. The JSON must report at least:
 - the exact shader-log message `ios-metal4-air-log value=42`;
 - bindless value `0x13579bdf` (decimal `324508639`) and indirect checksum
   `8084`;
-- approximately 1,352 colored pixels in the 64x64 raster probe and a nonblack
-  interpolated center pixel;
+- ABI checksum `166`, atomic value `64`, and timeline value `2^63`;
+- native-include/`ExternalCallable` checksum `3840`;
+- nonzero matrix-motion hit count and a positive time-dependent centroid
+  delta; on Apple9 or newer, the SRT/component-motion probe must also be
+  reported as exercised with the same invariants;
+- exactly 1,352 colored pixels in the 64x64 varying/`base_instance` raster
+  probe, 2,704 colored pixels across the D24S8 and D32S8A24 stencil probes,
+  and a nonblack interpolated center pixel;
 - a nonzero acceleration-build, raster, compile, and dispatch/readback time;
 - a nondegenerate path-traced image, its raw-pixel SHA-256, and PNG path.
 
@@ -163,9 +192,17 @@ all shader compilation and dispatch. The normal run produced:
 | Check | Result |
 |---|---:|
 | Shader log | `ios-metal4-air-log value=42` |
+| bool/byte ABI checksum | 166 |
+| Device atomic result | 64 |
+| Direct BYTE4 texture RGBA | `(1.0, 0.066667, 0.129412, 1.0)` |
+| ExternalCallable/native-include checksum | 3,840 |
+| Unsigned cross-stream timeline | `0x8000000000000000` |
+| Matrix/primitive motion | 464 hits, 8.36-pixel centroid delta |
+| Component motion | Correctly skipped by the Apple9 feature guard |
 | Bindless value | `0x13579bdf` |
 | Indirect checksum | 8,084 |
 | Raster colored pixels | 1,352 |
+| D24S8 plus D32S8A24 stencil colored pixels | 2,704 |
 | Raster center RGBA | `(63, 67, 125, 255)` |
 | AS build | 44.33 ms |
 | RTX compile | 192.15 ms |
@@ -175,8 +212,53 @@ all shader compilation and dispatch. The normal run produced:
 | Mean normalized RGB | 0.340667 |
 | PNG SHA-256 | `02859d00fd996b0fd3bd054de7bab6d5176828c0d62b2e6133a2a329a59e3b01` |
 
-The whole host suite also passed 160/160 tests, including the rendering,
+The whole host suite also passed 159/159 tests, including the rendering,
 tutorial, Metal4 AIR, raster, ray tracing, and validation groups.
+
+## Runtime-linked iPhone result (2026-08-28)
+
+The signed `example_ios_path_tracing` bundle passed on an iPhone 17 Pro Max
+running iOS 26.6. Metal reported `Apple A19 Pro GPU`, Luisa selected family
+Apple10, the MTL4 runtime and address-driven acceleration-structure path were
+active, and the pre-Apple9 compatibility bridge was not used. Every feature in
+the emitted `exercised_features` map reported `passed`, including the static
+`DeviceInterface`, device XIR/LLVM/AIR generation, LLVM 14 downgrade, MTL4
+compiler/queue/command buffer/compute encoder, native shader logging,
+bool/byte ABI, atomics, direct textures, external callable/native include,
+unsigned timeline event, bindless and indirect dispatch, raster
+`base_instance`, both stencil formats, matrix/component motion, address-driven
+AS construction, closest/any-hit ray tracing, shader execution reordering,
+Window/Swapchain presentation, and repository path tracing.
+
+The A19 GPU exposes a method signature for the macOS-oriented
+`isDepth24Stencil8PixelFormatSupported` query but does not respond to that
+selector. The runtime now checks actual Objective-C selector responsiveness
+before calling it and safely maps Luisa D24S8 storage to D32S8A24 when the
+query is unavailable. Both logical depth formats then passed the real two-draw
+Replace/Equal stencil probe.
+
+| Check | A19 Pro device result |
+|---|---:|
+| Shader log | `ios-metal4-air-log value=42` |
+| bool/byte ABI / atomic / native include | 166 / 64 / 3,840 |
+| Unsigned cross-stream timeline | `0x8000000000000000` |
+| Matrix motion | 464 hits, 8.357-pixel centroid delta |
+| Component/SRT motion | 448 hits, 7.397-pixel centroid delta |
+| Bindless / indirect | `0x13579bdf` / 8,084 |
+| Raster / stencil colored pixels | 1,352 / 2,704 |
+| Conformance RTX compile | 74.67 ms |
+| Conformance RTX dispatch/readback, 512x512 at 8 spp | 22.67 ms |
+| Conformance image | 262,144 nonblack, max 247, mean luma 0.358485 |
+| Conformance raw RGBA SHA-256 | `633e3d5a62273d90f93f59c6856b0c7b1f572895fdd29622f2487c48d1a95080` |
+
+After conformance, the same app invoked the real
+`examples/rendering/path_tracing.cpp` implementation and continued presenting
+through `Window -> Swapchain -> MTL4`. Its retrieved 1024x1024, 64-spp snapshot
+completed in 2,002.36 ms, contained 1,046,904 nonblack pixels with maximum
+channel 255 and mean luma 0.329453, and had raw RGBA SHA-256
+`8e865e0ac3272b42b9b7362a6c15caf7679bd126b3eb9c6698fc2adc01769433`.
+The retrieved image was visually inspected as a correctly oriented Cornell
+box rather than treating the success flag alone as rendering evidence.
 
 ## Host-AOT baseline
 

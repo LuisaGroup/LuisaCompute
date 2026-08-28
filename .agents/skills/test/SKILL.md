@@ -21,6 +21,7 @@ All test source files live in `src/tests/` under one of the directories below. N
 | `unit/xir/` | XIR builder, module, translators, and pass tests (early-cse, licm, simplify-cfg, restructure-cfg, etc.) | No (CTest-registered) |
 | `integration/runtime/` | bindless, curves, RTX, motion blur, AOT, indirect, denoiser, dstorage, present/swapchain, select device, runtime, texture3d, native include, procedural callable, device debugger, mesh tests, transient resource, plus backend-specific tests (CUDA graph, raster, memory compact, HIPRT) | Yes |
 | `integration/xir/` | XIR↔AST roundtrip integration coverage | Yes |
+| `ios/` | Shared Metal4 device conformance, iOS path-tracing kernel, signed test bundle, and host-AOT oracle | Physical iPhone for acceptance |
 | `common/` | shared headers: `test_device.h`, `ut/` (Boost.UT), `cornell_box.h`, `tinyexr.h`, `tiny_obj_loader.h`, `projection.hpp`, `spectrum_data.h`, `reference_image.h` | — |
 | `python/` | Python frontend tests (run directly with `python src/tests/python/test_xxx.py [backend]`) | — |
 | `cxx_shaders/` | `clangcxx` source shaders consumed by tests/extension examples | — |
@@ -445,6 +446,32 @@ cmake --build <build-dir> --parallel
 ```
 
 A target-only build is useful for compilation diagnostics but does not satisfy this gate. If source changes after the full build starts, repeat the full build before resuming tests.
+
+### iOS Metal4 device tests
+
+iOS tests are opt-in application bundles, not ordinary CTest registrations.
+Use the repository scripts rather than copying a desktop toolchain:
+
+```bash
+scripts/build_ios_llvm.sh \
+  --host-llvm-prefix "$(brew --prefix llvm@21)"
+scripts/build_ios_metal4.sh \
+  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --team <team-id> --mode tests
+```
+
+`src/tests/ios/metal4_device_conformance.cpp` is also compiled into the macOS
+`test_metal4_device_conformance` preflight and the interactive
+`examples/ios` path tracer. Keep that body portable and preserve exact numeric
+checks for ABI, logging, native include, unsigned timelines, bindless,
+indirect dispatch, raster/base-instance/stencil, motion, AS build, and RTX.
+
+An unsigned `luisa-ios-device-tests` build plus
+`scripts/audit_ios_bundles.sh` proves cross-compilation/link/package closure
+only. A pass requires a signed physical-device launch, visible progressive
+Window/Swapchain output, `success: true`, every supported feature marked
+`passed`, and retrieved nondegenerate JSON/PNG evidence. Do not infer device
+execution from installation, bundle names, GPU-family queries, or CI success.
 
 CMake build:
 ```bash

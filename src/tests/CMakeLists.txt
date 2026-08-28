@@ -399,9 +399,9 @@ if (TARGET luisa-compute-backend-metal4)
             LABELS "integration;integration_metal4;integration_render"
             ARGS metal4)
     target_sources(test_metal4_device_conformance PRIVATE
-            ../backends/metal4/tools/ios_device_conformance.cpp)
+            ios/metal4_device_conformance.cpp)
     target_include_directories(test_metal4_device_conformance PRIVATE
-            ../backends/metal4/tools)
+            ios)
     set_tests_properties(test_metal4_device_conformance PROPERTIES
             TIMEOUT 300)
 
@@ -503,6 +503,9 @@ if (TARGET luisa-compute-spirv-llvm)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_GUI)
+    luisa_compute_add_test(test_native_window_events
+            unit/runtime/test_native_window_events.cpp
+            LABELS "unit;unit_runtime;unit_gui")
 endif ()
 
 # --- unit/ast: standalone tests (backend-free tests are labeled for CTest) ---

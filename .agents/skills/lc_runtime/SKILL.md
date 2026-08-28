@@ -199,6 +199,15 @@ Swapchain swapchain = device.create_swapchain(stream, SwapchainOption{
 stream << swapchain.present(image);
 ```
 
+On iOS, UIKit owns the `UIView`/`CAMetalLayer`; rendering sources should still
+construct the ordinary `Window` and `Swapchain`. The app host installs a
+process-wide `Window::set_native_handle_provider(...)` before entering the
+example. The provider returns the native layer/display handles, and platform
+touch/keyboard/resize events are queued through the `post_native_*` functions
+and delivered by `Window::poll_events()` on the rendering thread. Clear the
+provider only after every provider-backed window has been destroyed. Do not
+teach each rendering example about UIKit or bypass `Window -> Swapchain`.
+
 ## Ray Tracing
 
 ```cpp

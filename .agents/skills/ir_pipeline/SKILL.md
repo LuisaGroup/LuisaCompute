@@ -18,8 +18,11 @@ Treat these files as the source of truth:
 - `src/xir/translators/xir2text.cpp` for debugging output.
 - `src/backends/metal4/metal_xir_pipeline.cpp` for the Metal4-specific XIR
   schedule.
-- `src/backends/metal4/llvm_codegen/metal_codegen_llvm.cpp` for the AIR ABI,
-  support preflight, and XIR-to-LLVM lowering.
+- `src/backends/metal4/llvm_codegen/metal_codegen_llvm.cpp` and the sibling
+  `metal_codegen_llvm_{function,type,resource,access,atomic,arithmetic,
+  metadata,raster,preflight,builtin}.cpp` units for AIR orchestration, ABI,
+  support preflight, and XIR-to-LLVM lowering. Keep each implementation unit
+  below roughly 2,000 lines instead of rebuilding a monolithic emitter.
 - `src/backends/metal4/llvm_codegen/metal_codegen_llvm_builtin.cpp` and
   `src/backends/metal4/metal_builtin_air.cpp` for LLVM-generated runtime
   support kernels, verification, LLVM 14 downgrade, and five-entry MTLB
@@ -28,9 +31,10 @@ Treat these files as the source of truth:
   LLVM 14 bitcode downgrade, including explicit macOS/iOS AIR targets.
 - `src/backends/metal4/metal_metallib.cpp` for target-specific metallib
   container headers and validation.
-- `src/backends/metal4/tools/ios_path_tracing_aot.cpp` and
-  `src/backends/metal4/tools/ios_path_tracer_app/` for the host-AOT regression
-  and the runtime-linked, on-device XIR/LLVM/AIR physical-device probe.
+- `src/tests/ios/metal4_ios_path_tracing_aot.cpp`,
+  `src/tests/ios/metal4_device_conformance.cpp`, and
+  `examples/ios/metal4_path_tracing/` for the host-AOT oracle, shared
+  conformance workload, and runtime-linked on-device XIR/LLVM/AIR probe.
 - `src/backends/metal4/metal_raster_ext.cpp`, `metal_raster_shader.cpp`, and
   `metal_command_encoder.cpp` for the Metal raster host ABI, PSO creation, and
   render-command encoding.
@@ -279,7 +283,9 @@ Preserve these ABI rules when changing lowering or adding types:
   reference, excludes that reference from its PSO cache key, and attaches the
   same texture to both depth and stencil render-pass planes. Logical D24S8 uses
   physical D32S8A24 when the device does not support depth24-stencil8; preserve
-  the logical `DepthFormat`. Shader-written stencil reference and conservative
+  the logical `DepthFormat`. On AGX/iOS, test actual Objective-C selector
+  responsiveness before invoking the depth24 support query: a method signature
+  alone is insufficient. Shader-written stencil reference and conservative
   rasterization remain fail-closed.
 - Keep direct and indirect entry generation separate. Direct dispatch reads a
   constant-space `uint3`; indirect dispatch reads a device-space `uint4` whose
@@ -314,6 +320,10 @@ Preserve these ABI rules when changing lowering or adding types:
   path, while Apple7/Apple8 synchronously bridge only build/refit/compact to an
   isolated legacy `MTL::CommandQueue`. Shaders, AIR pipelines, argument tables,
   and compute/render dispatch remain MTL4 on both paths.
+- Treat Apple9/Apple10 component-motion support as an executing device claim,
+  not a family-name claim. Physical-device conformance must observe nonzero
+  hits and a positive time-dependent centroid delta; Apple7/Apple8 must report
+  an intentional feature-guard skip rather than silently creating an empty AS.
 - Keep standalone `MotionInstance` runtime packing separate from the AIR
   `LCAccel` ABI. Shaders always see the 72-byte `LCInstance` record; a motion
   TLAS is built from 48-byte indirect-motion descriptors and a separate

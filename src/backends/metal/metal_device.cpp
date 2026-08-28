@@ -54,7 +54,10 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
 
     // create a default binary IO if none is provided
     if (config == nullptr || config->binary_io == nullptr) {
-        _default_io = luisa::make_unique<DefaultBinaryIO>(context());
+        auto headless = config != nullptr && config->headless;
+        auto use_lmdb = config != nullptr && config->use_lmdb;
+        _default_io = luisa::make_unique<DefaultBinaryIO>(
+            context(), headless, use_lmdb);
         _io = _default_io.get();
     } else {
         _io = config->binary_io;

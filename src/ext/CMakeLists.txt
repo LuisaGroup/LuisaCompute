@@ -351,7 +351,7 @@ else ()
 endif ()
 
 # glfw
-if (LUISA_COMPUTE_ENABLE_GUI)
+if (LUISA_COMPUTE_ENABLE_GUI AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     if (LUISA_COMPUTE_USE_SYSTEM_GLFW)
         find_package(glfw3 REQUIRED)
         if (TARGET glfw)

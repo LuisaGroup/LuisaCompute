@@ -8,7 +8,7 @@
 
 #include "metal_air_pipeline.h"
 #include "metal_xir_pipeline.h"
-#include "ios_path_tracing_kernel.h"
+#include "metal4_ios_path_tracing_kernel.h"
 
 using namespace luisa;
 using namespace luisa::compute;

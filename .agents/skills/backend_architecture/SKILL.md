@@ -1,5 +1,5 @@
 ---
-name: backend_architecture
+name: backend-architecture
 description: Backend plugin architecture, DeviceInterface, dynamic loading, and command encoding.
 ---
 
@@ -120,6 +120,23 @@ Plus version export (`src/backends/common/export_version.inl.h`):
 LUISA_EXPORT_API int backend_version() { return LUISA_COMPUTE_VERSION; }
 ```
 
+### Static iOS registration
+
+iOS cannot discover an in-bundle backend through desktop `MODULE` loading.
+The app calls `luisa_compute_metal4_register_static_backend()` from
+`src/backends/metal4/metal_static_backend.h` before device creation. That
+bridge registers the normal create/destroy/device-name functions through
+`Context::register_static_backend("metal4", ...)`; `Context` checks this
+case-insensitive registry before dynamic loading. Keep
+`create_device("metal4")`, ordinary `DeviceInterface` ownership, and the
+validation-layer path intact instead of constructing a backend directly in a
+UIKit host.
+
+Each iOS bundle is a static application closure (`BUILD_SHARED_LIBS=OFF`):
+runtime, DSL, XIR, Metal4, llvm-downgrade, and target LLVM archives are inside
+the arm64 Mach-O. Audit with `scripts/audit_ios_bundles.sh`; `otool -L` should
+show Apple system paths only.
+
 ## Command Encoder (Visitor Pattern)
 
 Commands dispatched via `MutableCommandVisitor`:
@@ -166,6 +183,14 @@ packing occurs later in `AccelBuildCommand`. Preserve the shader-visible
 records and a transform buffer for the build descriptor. Matrix motion is
 available where primitive motion blur is reported; component/SRT motion must
 be rejected before resource creation below Apple9.
+
+On iOS, do not call
+`MTL::Device::isDepth24Stencil8PixelFormatSupported()` merely because
+metal-cpp's safe-send helper finds a method signature. Some AGX devices expose
+that signature without responding to the selector. Check real Objective-C
+class selector responsiveness first, then map logical D24S8 storage to
+D32S8A24 when unavailable; preserve the public logical format and execute both
+stencil paths.
 
 ### Command reordering and bindless hazards
 

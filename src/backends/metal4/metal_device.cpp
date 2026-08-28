@@ -20,6 +20,7 @@
 #include "metal_raster_ext.h"
 #include "metal_raster_shader.h"
 #include "metal_device.h"
+#include "metal_static_backend.h"
 
 #include "llvm_codegen/metal_codegen_llvm.h"
 #include "metal_air_pipeline.h"
@@ -172,7 +173,10 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
 
     // create a default binary IO if none is provided
     if (config == nullptr || config->binary_io == nullptr) {
-        _default_io = luisa::make_unique<DefaultBinaryIO>(context());
+        auto headless = config != nullptr && config->headless;
+        auto use_lmdb = config != nullptr && config->use_lmdb;
+        _default_io = luisa::make_unique<DefaultBinaryIO>(
+            context(), headless, use_lmdb);
         _io = _default_io.get();
     } else {
         _io = config->binary_io;
@@ -765,6 +769,12 @@ void MetalDevice::destroy_accel(uint64_t handle) noexcept {
 }
 
 luisa::string MetalDevice::query(luisa::string_view property) noexcept {
+    auto bool_string = [](bool value) noexcept -> luisa::string {
+        return value ? "true" : "false";
+    };
+    if (property == "device_name") {
+        return _handle->name()->utf8String();
+    }
     if (property == "total_memory") {
         return luisa::format("{}", _handle->recommendedMaxWorkingSetSize());
     }
@@ -772,13 +782,70 @@ luisa::string MetalDevice::query(luisa::string_view property) noexcept {
         return luisa::format("{}", _handle->recommendedMaxWorkingSetSize());
     }
     if (property == "metal4_address_driven_acceleration_structures") {
-        return _handle->supportsFamily(MTL::GPUFamilyApple9) ? "true" : "false";
+        return bool_string(_handle->supportsFamily(MTL::GPUFamilyApple9));
     }
     if (property == "metal4_component_motion") {
-        return _handle->supportsFamily(MTL::GPUFamilyApple9) ? "true" : "false";
+        return bool_string(_handle->supportsFamily(MTL::GPUFamilyApple9));
     }
     if (property == "metal_motion_blur") {
-        return _handle->supportsPrimitiveMotionBlur() ? "true" : "false";
+        return bool_string(_handle->supportsPrimitiveMotionBlur());
+    }
+    if (property == "metal4_gpu_family") {
+        if (_handle->supportsFamily(MTL::GPUFamilyApple10)) { return "Apple10"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyApple9)) { return "Apple9"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyApple8)) { return "Apple8"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyApple7)) { return "Apple7"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyApple6)) { return "Apple6"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyApple5)) { return "Apple5"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyApple4)) { return "Apple4"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyApple3)) { return "Apple3"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyApple2)) { return "Apple2"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyApple1)) { return "Apple1"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyMac2)) { return "Mac2"; }
+        if (_handle->supportsFamily(MTL::GPUFamilyMac1)) { return "Mac1"; }
+        return "unknown";
+    }
+    if (property == "metal4_runtime") {
+        return bool_string(_handle->supportsFamily(MTL::GPUFamilyMetal4) &&
+                           _metal4_compiler != nullptr);
+    }
+    if (property == "metal_ray_tracing") {
+        return bool_string(_handle->supportsRaytracing());
+    }
+    if (property == "metal_ray_tracing_from_render") {
+        return bool_string(_handle->supportsRaytracingFromRender());
+    }
+    if (property == "metal_function_pointers") {
+        return bool_string(_handle->supportsFunctionPointers());
+    }
+    if (property == "metal_function_pointers_from_render") {
+        return bool_string(_handle->supportsFunctionPointersFromRender());
+    }
+    if (property == "metal_dynamic_libraries") {
+        return bool_string(_handle->supportsDynamicLibraries());
+    }
+    if (property == "metal_render_dynamic_libraries") {
+        return bool_string(_handle->supportsRenderDynamicLibraries());
+    }
+    if (property == "metal_argument_buffer_tier") {
+        return luisa::format("{}", static_cast<uint32_t>(
+                                      _handle->argumentBuffersSupport()));
+    }
+    if (property == "metal_read_write_texture_tier") {
+        return luisa::format("{}", static_cast<uint32_t>(
+                                      _handle->readWriteTextureSupport()));
+    }
+    if (property == "metal_raster_order_groups") {
+        return bool_string(_handle->areRasterOrderGroupsSupported());
+    }
+    if (property == "metal_bc_texture_compression") {
+        return bool_string(_handle->supportsBCTextureCompression());
+    }
+    if (property == "metal_shader_barycentric_coordinates") {
+        return bool_string(_handle->supportsShaderBarycentricCoordinates());
+    }
+    if (property == "metal_pull_model_interpolation") {
+        return bool_string(_handle->supportsPullModelInterpolation());
     }
     LUISA_WARNING_WITH_LOCATION("Device property \"{}\" is not supported on Metal.", property);
     return {};
@@ -966,16 +1033,10 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
 }
 
 #if defined(LUISA_PLATFORM_IOS)
-LUISA_EXPORT_API luisa::compute::DeviceInterface *
-luisa_compute_metal4_create_static(
-    luisa::compute::Context &&ctx,
-    const luisa::compute::DeviceConfig *config) noexcept {
-    return create(std::move(ctx), config);
-}
-
-LUISA_EXPORT_API void luisa_compute_metal4_destroy_static(
-    luisa::compute::DeviceInterface *device) noexcept {
-    destroy(device);
+LUISA_EXPORT_API void
+luisa_compute_metal4_register_static_backend() noexcept {
+    luisa::compute::Context::register_static_backend(
+        "metal4", create, destroy, backend_device_names);
 }
 #endif
 

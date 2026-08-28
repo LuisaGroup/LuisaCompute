@@ -23,7 +23,10 @@ endfunction()
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     # rendering
-    luisa_compute_add_example(example_path_tracing rendering/path_tracing.cpp MIRROR_AS_TEST)
+    luisa_compute_add_example(example_path_tracing
+            rendering/path_tracing.cpp
+            rendering/path_tracing_test.h
+            MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_camera rendering/path_tracing_camera.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_cutout rendering/path_tracing_cutout.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_hdr rendering/path_tracing_hdr.cpp MIRROR_AS_TEST)

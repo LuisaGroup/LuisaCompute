@@ -3435,7 +3435,7 @@ itself validate the newer runtime-linked `DeviceInterface` app described in
 Section 15.7; that app requires a separate physical-device launch and its own
 retrieved PNG/JSON evidence.
 
-### 16.4 Runtime-linked device-conformance preflight (2026-08-28)
+### 16.4 Runtime-linked device conformance (2026-08-28)
 
 The iOS conformance body is compiled into the macOS
 `test_metal4_device_conformance` executable as well as the signed iOS app. This
@@ -3452,9 +3452,17 @@ dispatch. The ordinary 256x256, 4-spp result was:
 | Check | Result |
 |---|---:|
 | Shader log | `ios-metal4-air-log value=42` |
+| bool/byte ABI checksum | 166 |
+| Device atomic result | 64 |
+| Direct BYTE4 texture RGBA | `(1.0, 0.066667, 0.129412, 1.0)` |
+| ExternalCallable/native-include checksum | 3,840 |
+| Unsigned cross-stream timeline | `0x8000000000000000` |
+| Primitive plus matrix motion traversal | 464 hits, 8.36-pixel centroid delta |
+| SRT/component motion traversal | Skipped on pre-Apple9; mandatory on Apple9+ |
 | Bindless value | `0x13579bdf` |
 | GPU-authored indirect checksum | 8,084 |
 | Raster colored pixels | 1,352 |
+| D24S8 plus D32S8A24 stencil colored pixels | 2,704 |
 | Raster center RGBA | `(63, 67, 125, 255)` |
 | AS build | 44.33 ms |
 | RTX compile | 192.15 ms |
@@ -3467,10 +3475,48 @@ dispatch. The ordinary 256x256, 4-spp result was:
 Visual inspection shows a correctly oriented Cornell-style room with red and
 green walls, a blue box, a ceiling emitter, occlusion, direct shadows, indirect
 light, and Monte Carlo noise. The full CMake/Ninja host build and CTest suite
-then passed 160/160, including all registered rendering, tutorial, Metal4 AIR,
-raster, ray-tracing, and validation tests. The runtime-linked iPhone result
-remains a distinct acceptance item until its PNG and JSON are retrieved from
-the A19 Pro device.
+then passed 159/159, including all registered rendering, tutorial, Metal4 AIR,
+raster, ray-tracing, and validation tests.
+
+The runtime-linked acceptance item was then completed on an iPhone 17 Pro Max
+running iOS 26.6. Metal reported `Apple A19 Pro GPU`, the capability query and
+Luisa feature guard selected Apple10, native MTL4 address-driven AS builds and
+component/SRT motion were exercised, and the compatibility AS bridge reported
+`not_used`. The retrieved JSON records `passed` for every claimed feature,
+including device-side XIR/LLVM/AIR generation and downgrade, MTL4 compiler,
+queue, command buffer and compute encoder, LogState shader logging, bool/byte
+layout, native include/external callable linkage, unsigned timeline events,
+bindless access, GPU-authored indirect dispatch, raster `base_instance`, both
+stencil formats, matrix/component motion, closest/any-hit tracing, shader
+execution reordering, and Window/Swapchain presentation.
+
+| Check | Apple A19 Pro result |
+|---|---:|
+| Matrix motion | 464 hits, 8.357-pixel centroid delta |
+| Component/SRT motion | 448 hits, 7.397-pixel centroid delta |
+| Bindless / indirect | `0x13579bdf` / 8,084 |
+| Raster / stencil colored pixels | 1,352 / 2,704 |
+| AS build | 9.86 ms |
+| RTX compile | 74.67 ms |
+| RTX dispatch plus readback, 512x512 at 8 spp | 22.67 ms |
+| Nonblack pixels / maximum channel | 262,144 / 247 |
+| Mean normalized luma | 0.358485 |
+| Raw RGBA SHA-256 | `633e3d5a62273d90f93f59c6856b0c7b1f572895fdd29622f2487c48d1a95080` |
+
+The same signed app invokes the repository's
+`examples/rendering/path_tracing.cpp` rather than a custom replacement. Its
+retrieved 1024x1024, 64-spp interactive snapshot took 2,002.36 ms, contained
+1,046,904 nonblack pixels with mean luma 0.329453, and had raw RGBA SHA-256
+`8e865e0ac3272b42b9b7362a6c15caf7679bd126b3eb9c6698fc2adc01769433`.
+Visual inspection confirmed the expected Cornell room and correct portrait
+aspect-fit presentation.
+
+On this AGX implementation, Objective-C exposes a method signature for
+`isDepth24Stencil8PixelFormatSupported` without responding to the selector.
+metal-cpp's signature-based safe-send check is therefore insufficient. The
+depth-buffer implementation first checks actual class selector responsiveness;
+when absent, Luisa D24S8 storage safely uses D32S8A24. Both logical formats
+still execute their independent two-draw Replace/Equal stencil tests.
 
 ### 16.5 Useful commands
 
@@ -3593,10 +3639,11 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
   shader-visible 72-byte instance records and native 48-byte indirect-motion
   descriptors. Matrix motion and refit are strict-runtime-tested on Apple7;
   component/SRT interpolation remains Apple9-only and must not be approximated
-  on Apple7/Apple8. A TLAS has one native transform representation, so mixed
+  on Apple7/Apple8. It is layout/oracle matched and now executes strictly on
+  the Apple10 A19 Pro device; the local Apple7 M1 Max correctly skips it. A
+  TLAS has one native transform representation, so mixed
   MATRIX/SRT resources fail closed, as does a non-translation outer transform
-  around SRT motion. The Apple9 SRT path is layout/oracle matched but cannot be
-  executed on the local M1 Max and still needs Apple9 hardware validation.
+  around SRT motion.
 - Typed resource identities are carried by emitter-only metadata until the
   LLVM 14 writer serializes them. Dropping `ret_eltype`, flattening a nested
   texture or sampler wrapper to a bare pointer, or failing to consume
@@ -3628,9 +3675,10 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | LLVM O2, version selection, dual entries, packaging | [metal_air_pipeline.cpp](../metal_air_pipeline.cpp) |
 | Runtime builtin verification, downgrade, and five-entry packaging | [metal_builtin_air.cpp](../metal_builtin_air.cpp) |
 | MTLB writer and validator | [metal_metallib.cpp](../metal_metallib.cpp) |
-| iOS compute AIR path-tracing AOT generator | [ios_path_tracing_aot.cpp](../tools/ios_path_tracing_aot.cpp) |
-| iOS MTL4 device runner and artifact capture | [ios_path_tracer_app](../tools/ios_path_tracer_app) |
-| Shared iOS/macOS device-conformance workload | [ios_device_conformance.cpp](../tools/ios_device_conformance.cpp), [ios_path_tracing_kernel.h](../tools/ios_path_tracing_kernel.h) |
+| iOS compute AIR path-tracing AOT generator | [metal4_ios_path_tracing_aot.cpp](../../../tests/ios/metal4_ios_path_tracing_aot.cpp) |
+| iOS MTL4 device runner and artifact capture | [metal4_path_tracing](../../../../examples/ios/metal4_path_tracing) |
+| Shared iOS/macOS device-conformance workload | [metal4_device_conformance.cpp](../../../tests/ios/metal4_device_conformance.cpp), [metal4_ios_path_tracing_kernel.h](../../../tests/ios/metal4_ios_path_tracing_kernel.h) |
+| Generic UIKit Window/Swapchain rendering host | [rendering_example_host.mm](../../../../examples/ios/common/rendering_example_host.mm) |
 | Raster extension and paired AIR creation | [metal_raster_ext.cpp](../metal_raster_ext.cpp) |
 | Public raster/stencil state and cross-backend reference binding | [raster_state.h](../../../../include/luisa/runtime/raster/raster_state.h), [LCCmdBuffer.cpp](../../dx/DXApi/LCCmdBuffer.cpp), [raster_shader.cpp](../../vk/raster_shader.cpp) |
 | Raster PSO, stencil/depth state, root/object binding, and draw encoding | [metal_raster_shader.cpp](../metal_raster_shader.cpp), [metal_command_encoder.cpp](../metal_command_encoder.cpp) |

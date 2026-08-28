@@ -79,6 +79,31 @@ endif ()
 # runtime shell reaches parity with the selected fallback core suite.
 option(LUISA_COMPUTE_ENABLE_SIMD "Enable experimental SIMD CPU backend" OFF)
 
+# iOS device tests are signed application bundles rather than host executables.
+# Keep them separate from the ordinary test suite so cross-compiling the runtime
+# does not implicitly pull test applications, provisioning, or UIKit into a
+# production build.
+option(LUISA_COMPUTE_BUILD_IOS_TESTS
+        "Build the opt-in Metal4 iOS device conformance applications" OFF)
+option(LUISA_COMPUTE_BUILD_IOS_EXAMPLES
+        "Build the opt-in interactive Metal4 iOS example applications" OFF)
+if ((LUISA_COMPUTE_BUILD_IOS_TESTS OR
+        LUISA_COMPUTE_BUILD_IOS_EXAMPLES) AND NOT APPLE)
+    message(FATAL_ERROR
+            "The iOS applications require an Apple host/toolchain.")
+endif ()
+if ((LUISA_COMPUTE_BUILD_IOS_TESTS OR
+        LUISA_COMPUTE_BUILD_IOS_EXAMPLES) AND
+        NOT LUISA_COMPUTE_ENABLE_METAL4)
+    message(FATAL_ERROR
+            "The iOS applications require LUISA_COMPUTE_ENABLE_METAL4=ON.")
+endif ()
+if (LUISA_COMPUTE_BUILD_IOS_EXAMPLES AND
+        NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    message(FATAL_ERROR
+            "LUISA_COMPUTE_BUILD_IOS_EXAMPLES requires an iOS toolchain.")
+endif ()
+
 option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR to SPIR-V code generation for Vulkan backend" ON)
 option(LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV "Use AST LLVM codegen for Vulkan backend SPIR-V generation" OFF)
 option(LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY
@@ -255,6 +280,10 @@ endif ()
 
 add_subdirectory(utils)
 add_subdirectory(src)
+
+if (LUISA_COMPUTE_BUILD_IOS_EXAMPLES)
+    add_subdirectory(examples/ios)
+endif ()
 
 if (NOT SKBUILD)
     include(CMakePackageConfigHelpers)

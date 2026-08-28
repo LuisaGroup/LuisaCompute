@@ -93,6 +93,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
             # Metal runtime
             metal_api.cpp metal_api.h
+            metal_static_backend.h
             metal_device.cpp metal_device.h
             metal_compiler.cpp metal_compiler.h
             metal_texture.cpp metal_texture.h
@@ -176,84 +177,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_link_libraries(luisa-compute-backend-metal4 PRIVATE
                 luisa-compute-metal4-air-codegen
                 luisa-compute-metal-cpp)
-    endif ()
-
-    if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
-        add_executable(luisa-metal4-ios-path-tracer-aot
-                tools/ios_path_tracing_aot.cpp
-                metal_api.cpp)
-        target_compile_definitions(luisa-metal4-ios-path-tracer-aot PRIVATE
-                ${LUISA_METAL4_COMPILE_DEFINITIONS})
-        target_link_libraries(luisa-metal4-ios-path-tracer-aot PRIVATE
-                luisa-compute-metal4-air-codegen
-                luisa-compute-dsl
-                luisa-compute-metal-cpp
-                "-framework Foundation"
-                "-framework Metal"
-                "-framework QuartzCore")
-    else ()
-        set(LUISA_IOS_DEVELOPMENT_TEAM "" CACHE STRING
-                "Apple development team used to sign the iOS AIR test app")
-        set(LUISA_IOS_PATH_TRACING_SPP 8 CACHE STRING
-                "Samples per pixel rendered by the iOS AIR test app")
-        add_executable(luisa-metal4-ios-device-air-path-tracer MACOSX_BUNDLE
-                tools/ios_path_tracer_app/main.mm
-                tools/ios_device_conformance.cpp
-                tools/ios_device_conformance.h
-                tools/ios_path_tracing_kernel.h)
-        target_compile_features(
-                luisa-metal4-ios-device-air-path-tracer PRIVATE cxx_std_20)
-        target_compile_options(
-                luisa-metal4-ios-device-air-path-tracer PRIVATE -fblocks)
-        target_include_directories(
-                luisa-metal4-ios-device-air-path-tracer PRIVATE
-                ${CMAKE_CURRENT_LIST_DIR}
-                ${CMAKE_CURRENT_LIST_DIR}/tools)
-        target_compile_definitions(
-                luisa-metal4-ios-device-air-path-tracer PRIVATE
-                ${LUISA_METAL4_COMPILE_DEFINITIONS}
-                LUISA_IOS_ON_DEVICE_AIR=1
-                LUISA_IOS_RUNTIME_DEVICE=1
-                LUISA_IOS_PATH_TRACING_SPP=${LUISA_IOS_PATH_TRACING_SPP}
-                LUISA_IOS_AIR_DEPLOYMENT_VERSION="${CMAKE_OSX_DEPLOYMENT_TARGET}"
-                LUISA_IOS_AIR_SDK_VERSION="${LUISA_METAL4_AIR_SDK_VERSION}")
-        target_link_libraries(
-                luisa-metal4-ios-device-air-path-tracer PRIVATE
-                luisa-compute-metal4-air-codegen
-                luisa-compute-backend-metal4
-                luisa-compute-dsl
-                luisa-compute-metal-cpp
-                "-framework Foundation"
-                "-framework UIKit"
-                "-framework Metal"
-                "-framework QuartzCore"
-                "-framework CoreGraphics"
-                "-framework ImageIO")
-        set_target_properties(
-                luisa-metal4-ios-device-air-path-tracer PROPERTIES
-                MACOSX_BUNDLE_INFO_PLIST
-                "${CMAKE_CURRENT_LIST_DIR}/tools/ios_path_tracer_app/Info.plist.in"
-                MACOSX_BUNDLE_BUNDLE_NAME "Luisa Metal4 Device AIR"
-                MACOSX_BUNDLE_GUI_IDENTIFIER
-                "org.luisa-compute.metal4-path-tracer"
-                MACOSX_BUNDLE_BUNDLE_VERSION "2"
-                MACOSX_BUNDLE_SHORT_VERSION_STRING "2.0"
-                XCODE_GENERATE_SCHEME TRUE
-                XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER
-                "org.luisa-compute.metal4-path-tracer"
-                XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic
-                XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET
-                "${CMAKE_OSX_DEPLOYMENT_TARGET}"
-                XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1"
-                XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos"
-                XCODE_ATTRIBUTE_SUPPORTS_MACCATALYST NO
-                XCODE_ATTRIBUTE_ENABLE_BITCODE NO)
-        if (LUISA_IOS_DEVELOPMENT_TEAM)
-            set_target_properties(
-                    luisa-metal4-ios-device-air-path-tracer PROPERTIES
-                    XCODE_ATTRIBUTE_DEVELOPMENT_TEAM
-                    "${LUISA_IOS_DEVELOPMENT_TEAM}")
-        endif ()
     endif ()
 
     if (LUISA_COMPUTE_METAL4_BUILD_RUNTIME)

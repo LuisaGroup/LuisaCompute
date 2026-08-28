@@ -7,7 +7,13 @@ set(LUISA_COMPUTE_CORO_SOURCES
         schedulers/wavefront.cpp
         schedulers/persistent.cpp)
 
-add_library(luisa-compute-coro SHARED ${LUISA_COMPUTE_CORO_SOURCES})
+if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(_LUISA_CORO_LIBRARY_TYPE STATIC)
+else ()
+    set(_LUISA_CORO_LIBRARY_TYPE SHARED)
+endif ()
+add_library(luisa-compute-coro
+        ${_LUISA_CORO_LIBRARY_TYPE} ${LUISA_COMPUTE_CORO_SOURCES})
 target_link_libraries(luisa-compute-coro PUBLIC luisa-compute-dsl luisa-compute-xir)
 target_compile_definitions(luisa-compute-coro
         PRIVATE LUISA_CORO_EXPORT_DLL=1)

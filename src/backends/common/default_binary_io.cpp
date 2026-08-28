@@ -120,11 +120,24 @@ void DefaultBinaryIO::_write(const luisa::string &file_path, luisa::span<std::by
 DefaultBinaryIO::DefaultBinaryIO(Context &&ctx, bool headless, bool use_lmdb) noexcept
     : _ctx(std::move(ctx)),
       _headless(headless),
-      _use_lmdb(use_lmdb) {
+      _use_lmdb{
+#if defined(LUISA_PLATFORM_IOS)
+          false
+#else
+          use_lmdb
+#endif
+      } {
+#if defined(LUISA_PLATFORM_IOS)
+    if (use_lmdb) {
+        LUISA_WARNING_WITH_LOCATION(
+            "LMDB is unavailable in the iOS application sandbox; "
+            "using the file-backed shader cache instead.");
+    }
+#endif
     if (!headless) {
-        _cache_dir = _ctx.create_runtime_subdir(".cache"sv);
-        _data_dir = _ctx.create_runtime_subdir(".data"sv);
-        if (use_lmdb) {
+        _cache_dir = _ctx.create_data_subdir(".cache"sv);
+        _data_dir = _ctx.create_data_subdir(".data"sv);
+        if (_use_lmdb) {
             _data_lmdb.create(_data_dir, std::max<size_t>(126ull, std::thread::hardware_concurrency() * 2));
             _cache_lmdb.create(_cache_dir, std::max<size_t>(126ull, std::thread::hardware_concurrency() * 2));
         }

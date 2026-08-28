@@ -80,6 +80,8 @@ Auto-finds `cmake` and `ninja` (PATH → `.deps/` → pip). Auto-prepares MSVC e
 | `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` | ON | Native XIR-to-SPIR-V codegen path for Vulkan |
 | `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV` | OFF | Experimental AST→LLVM SPIR-V path; requires LLVM's native `SPIRV` target |
 | `LUISA_COMPUTE_BUILD_TESTS` | ON in master project | Build tests, examples and tutorials |
+| `LUISA_COMPUTE_BUILD_IOS_EXAMPLES` | OFF | Build the 19 opt-in UIKit rendering-example bundles; requires an iPhoneOS toolchain and Metal4 |
+| `LUISA_COMPUTE_BUILD_IOS_TESTS` | OFF | Build the independent iOS device-conformance bundle (or its host-AOT oracle on macOS) |
 | `LUISA_COMPUTE_ENABLE_SAFE_MODE` | OFF | Runtime safe mode |
 | `LUISA_COMPUTE_ENABLE_UNITY_BUILD` | OFF | Unity build |
 | `LUISA_COMPUTE_ENABLE_SANITIZERS` | OFF | Address/UB sanitizers |
@@ -193,23 +195,30 @@ luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 Key: output renamed to `luisa-backend-<name>`, installed to `bin/`, supports `luisa_embed_device_lib` for builtin device libs.
 
 On iOS, the same helper emits a static backend. A signed Metal4 AIR device app
-configuration has this shape:
+also requires static arm64 iPhoneOS LLVM 21 archives; an arm64 macOS LLVM build
+is not platform-compatible. Prefer the checked scripts so local and CI options
+remain identical:
 
 ```bash
-cmake -S . -B build-ios-metal4 -G Xcode \
-  -D CMAKE_SYSTEM_NAME=iOS \
-  -D CMAKE_OSX_SYSROOT=iphoneos \
-  -D CMAKE_OSX_ARCHITECTURES=arm64 \
-  -D CMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
-  -D LLVM_DIR=<ios-llvm21>/lib/cmake/llvm \
-  -D LUISA_COMPUTE_ENABLE_METAL=OFF \
-  -D LUISA_COMPUTE_ENABLE_METAL4=ON \
-  -D LUISA_COMPUTE_ENABLE_FALLBACK=OFF \
-  -D LUISA_COMPUTE_BUILD_TESTS=OFF \
-  -D LUISA_IOS_DEVELOPMENT_TEAM=<team-id>
-cmake --build build-ios-metal4 --config Release \
-  --target luisa-metal4-ios-device-air-path-tracer
+scripts/build_ios_llvm.sh \
+  --host-llvm-prefix "$(brew --prefix llvm@21)"
+scripts/build_ios_metal4.sh \
+  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --team <team-id> --mode all
+
+# CI/link closure only; these bundles are not installable.
+scripts/build_ios_metal4.sh \
+  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --mode all --unsigned
+scripts/audit_ios_bundles.sh \
+  --bin-dir cmake-build-ios-metal4-device-air-xcode/bin/Release
 ```
+
+`build_ios_llvm.sh` downloads the official LLVM 21.1.8 source when needed and
+uses CMake/Ninja with `arm64-apple-ios<deployment>` host/default triples. The
+application script uses CMake's Xcode generator only because provisioning and
+automatic signing are Xcode workflows. `--mode examples`, `tests`, or `all`
+maps to `luisa-ios-rendering-examples`, `luisa-ios-device-tests`, or both.
 
 Metal4 user shaders and fixed runtime builtins are LLVM/AIR. BC6H/BC7 fixed
 support sources are compiled to target-specific metallibs by `xcrun metal`

@@ -1,9 +1,11 @@
 #import <UIKit/UIKit.h>
+#import <QuartzCore/CAMetalLayer.h>
 
 #include <Metal/Metal.hpp>
 
 #include <CommonCrypto/CommonDigest.h>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <chrono>
@@ -11,20 +13,25 @@
 #include <cstdint>
 #include <cstring>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
+
+#include <luisa/gui/window.h>
 
 #if defined(LUISA_IOS_ON_DEVICE_AIR)
 #include <luisa/luisa-compute.h>
 #include <luisa/runtime/rhi/resource.h>
 
 #if defined(LUISA_IOS_RUNTIME_DEVICE)
-#include "ios_device_conformance.h"
+#include "metal4_device_conformance.h"
 #endif
-#include "ios_path_tracing_kernel.h"
+#include "metal4_ios_path_tracing_kernel.h"
 #include "metal_air_pipeline.h"
+#include "metal_static_backend.h"
 #include "metal_xir_pipeline.h"
+#include "rendering/path_tracing_test.h"
 #endif
 
 namespace {
@@ -106,9 +113,11 @@ static_assert(sizeof(DispatchSize) == 16u);
     return [[urls firstObject] URLByAppendingPathComponent:filename];
 }
 
-[[nodiscard]] UIImage *image_from_rgba8(const void *bytes) noexcept {
+[[nodiscard]] UIImage *image_from_rgba8(
+    const void *bytes, uint32_t width, uint32_t height) noexcept {
+    auto image_row_bytes = static_cast<size_t>(width) * bytes_per_pixel;
     auto data = [NSData dataWithBytes:bytes
-                               length:row_bytes * image_height];
+                               length:image_row_bytes * height];
     auto provider = CGDataProviderCreateWithCFData(
         (__bridge CFDataRef)data);
     auto color_space = CGColorSpaceCreateDeviceRGB();
@@ -116,7 +125,7 @@ static_assert(sizeof(DispatchSize) == 16u);
         static_cast<uint32_t>(kCGBitmapByteOrder32Big) |
         static_cast<uint32_t>(kCGImageAlphaLast));
     auto cg_image = CGImageCreate(
-        image_width, image_height, 8u, 32u, row_bytes,
+        width, height, 8u, 32u, image_row_bytes,
         color_space, bitmap_info, provider, nullptr, false,
         kCGRenderingIntentDefault);
     auto image = [UIImage imageWithCGImage:cg_image
@@ -138,6 +147,10 @@ static_assert(sizeof(DispatchSize) == 16u);
 
 @implementation LuisaRenderOutcome
 @end
+
+using LuisaProgressHandler = void (^)(uint64_t completed_spp,
+                                      double elapsed_ms);
+using LuisaMilestoneHandler = void (^)(LuisaRenderOutcome *outcome);
 
 namespace {
 
@@ -177,16 +190,11 @@ void persist_metadata(NSDictionary *metadata) noexcept {
 }
 
 #if defined(LUISA_IOS_RUNTIME_DEVICE)
-extern "C" luisa::compute::DeviceInterface *
-luisa_compute_metal4_create_static(
-    luisa::compute::Context &&context,
-    const luisa::compute::DeviceConfig *config) noexcept;
-
-extern "C" void luisa_compute_metal4_destroy_static(
-    luisa::compute::DeviceInterface *device) noexcept;
-
 [[nodiscard]] LuisaRenderOutcome *
-render_path_tracing_runtime() noexcept {
+render_path_tracing_runtime(
+    luisa::compute::Window *window,
+    LuisaProgressHandler progress_handler,
+    LuisaMilestoneHandler milestone_handler) noexcept {
     using namespace luisa;
     using namespace luisa::compute;
     using namespace luisa::compute::metal;
@@ -228,29 +236,101 @@ render_path_tracing_runtime() noexcept {
                 @"GPUFamilyMetal4 is not supported", metadata);
         }
 
-        auto device_begin = std::chrono::steady_clock::now();
-        Context context{luisa::string_view{}};
-        auto interface = luisa_compute_metal4_create_static(
-            std::move(context), nullptr);
-        if (interface == nullptr) {
+        auto file_manager = [NSFileManager defaultManager];
+        auto application_support_urls = [file_manager
+            URLsForDirectory:NSApplicationSupportDirectory
+                   inDomains:NSUserDomainMask];
+        auto application_support_url = [application_support_urls firstObject];
+        if (application_support_url == nil) {
             return failure(
-                @"runtime device",
-                @"Metal4 DeviceInterface creation failed", metadata);
+                @"runtime data directory",
+                @"Application Support directory is unavailable", metadata);
         }
-        auto handle = Device::Handle{
-            interface,
-            [](DeviceInterface *p) noexcept {
-                luisa_compute_metal4_destroy_static(p);
-            }};
-        Device device{std::move(handle)};
+        auto runtime_data_url = [application_support_url
+            URLByAppendingPathComponent:@"LuisaCompute"
+                            isDirectory:YES];
+        NSError *directory_error = nil;
+        if (![file_manager
+                createDirectoryAtURL:runtime_data_url
+          withIntermediateDirectories:YES
+                           attributes:nil
+                                error:&directory_error]) {
+            return failure(
+                @"runtime data directory",
+                directory_error.localizedDescription, metadata);
+        }
+        auto runtime_data_path = runtime_data_url.path;
+        metadata[@"runtime_data_path"] = runtime_data_path;
+
+        auto device_begin = std::chrono::steady_clock::now();
+        Context context{
+            luisa::string_view{},
+            luisa::string_view{runtime_data_path.UTF8String}};
+        Device device = context.create_device("metal4");
         auto device_end = std::chrono::steady_clock::now();
         metadata[@"runtime_device_ms"] = @(
             elapsed_ms(device_begin, device_end));
         metadata[@"thread_execution_width"] = @(
             device.compute_warp_size());
+        auto query_string = [&device](luisa::string_view property) noexcept {
+            auto value = device.query(property);
+            return [NSString stringWithUTF8String:value.c_str()];
+        };
+        auto query_bool = [&query_string](
+                              luisa::string_view property) noexcept {
+            return [query_string(property) isEqualToString:@"true"];
+        };
+        metadata[@"luisa_device"] = query_string("device_name");
+        metadata[@"luisa_gpu_family"] = query_string("metal4_gpu_family");
+        metadata[@"reported_capabilities"] = @{
+            @"metal4_runtime" : @(query_bool("metal4_runtime")),
+            @"address_driven_acceleration_structures" : @(
+                query_bool("metal4_address_driven_acceleration_structures")),
+            @"component_motion" : @(
+                query_bool("metal4_component_motion")),
+            @"primitive_motion_blur" : @(
+                query_bool("metal_motion_blur")),
+            @"ray_tracing" : @(query_bool("metal_ray_tracing")),
+            @"ray_tracing_from_render" : @(
+                query_bool("metal_ray_tracing_from_render")),
+            @"function_pointers" : @(
+                query_bool("metal_function_pointers")),
+            @"function_pointers_from_render" : @(
+                query_bool("metal_function_pointers_from_render")),
+            @"dynamic_libraries" : @(
+                query_bool("metal_dynamic_libraries")),
+            @"render_dynamic_libraries" : @(
+                query_bool("metal_render_dynamic_libraries")),
+            @"argument_buffer_tier" : @(
+                [query_string("metal_argument_buffer_tier") integerValue]),
+            @"read_write_texture_tier" : @(
+                [query_string("metal_read_write_texture_tier") integerValue]),
+            @"raster_order_groups" : @(
+                query_bool("metal_raster_order_groups")),
+            @"bc_texture_compression" : @(
+                query_bool("metal_bc_texture_compression")),
+            @"shader_barycentric_coordinates" : @(
+                query_bool("metal_shader_barycentric_coordinates")),
+            @"pull_model_interpolation" : @(
+                query_bool("metal_pull_model_interpolation"))
+        };
 
-        auto conformance = run_ios_metal4_conformance(
+        auto conformance = run_metal4_device_conformance(
             device, image_width, image_height, samples_per_pixel);
+        metadata[@"matrix_motion_valid"] = @(
+            conformance.matrix_motion_valid);
+        metadata[@"matrix_motion_hit_count"] = @(
+            conformance.matrix_motion_hit_count);
+        metadata[@"matrix_motion_centroid_delta"] = @(
+            conformance.matrix_motion_centroid_delta);
+        metadata[@"component_motion_exercised"] = @(
+            conformance.component_motion_exercised);
+        metadata[@"component_motion_valid"] = @(
+            conformance.component_motion_valid);
+        metadata[@"component_motion_hit_count"] = @(
+            conformance.component_motion_hit_count);
+        metadata[@"component_motion_centroid_delta"] = @(
+            conformance.component_motion_centroid_delta);
         if (!conformance.success) {
             auto stage = [NSString stringWithUTF8String:
                                        conformance.failed_stage.c_str()];
@@ -273,6 +353,33 @@ render_path_tracing_runtime() noexcept {
                                                  conformance.motion_blur.c_str()];
         metadata[@"component_motion"] = [NSString stringWithUTF8String:
                                                       conformance.component_motion.c_str()];
+        metadata[@"abi_layout_checksum"] = @(conformance.abi_layout_checksum);
+        metadata[@"atomic_value"] = @(conformance.atomic_value);
+        metadata[@"texture_read_rgba"] = @[
+            @(conformance.texture_read[0u]),
+            @(conformance.texture_read[1u]),
+            @(conformance.texture_read[2u]),
+            @(conformance.texture_read[3u])
+        ];
+        metadata[@"native_include_checksum"] = @(
+            conformance.native_include_checksum);
+        metadata[@"native_include_ms"] = @(
+            conformance.native_include_ms);
+        metadata[@"timeline_value"] = @(conformance.timeline_value);
+        metadata[@"compute_abi_ms"] = @(conformance.compute_abi_ms);
+        metadata[@"timeline_event_ms"] = @(conformance.timeline_event_ms);
+        metadata[@"matrix_motion_hit_count"] = @(
+            conformance.matrix_motion_hit_count);
+        metadata[@"matrix_motion_centroid_delta"] = @(
+            conformance.matrix_motion_centroid_delta);
+        metadata[@"component_motion_exercised"] = @(
+            conformance.component_motion_exercised);
+        metadata[@"component_motion_hit_count"] = @(
+            conformance.component_motion_hit_count);
+        metadata[@"component_motion_centroid_delta"] = @(
+            conformance.component_motion_centroid_delta);
+        metadata[@"motion_instance_ms"] = @(
+            conformance.motion_instance_ms);
         metadata[@"shader_log_message"] = [NSString stringWithUTF8String:
                                                         conformance.printer_message.c_str()];
         metadata[@"shader_log_ms"] = @(conformance.printer_ms);
@@ -286,6 +393,8 @@ render_path_tracing_runtime() noexcept {
             conformance.raster_dispatch_readback_ms);
         metadata[@"raster_colored_pixels"] = @(
             conformance.raster_colored_pixels);
+        metadata[@"raster_stencil_colored_pixels"] = @(
+            conformance.raster_stencil_colored_pixels);
         metadata[@"raster_center_rgba"] = @[
             @(conformance.raster_center[0u]),
             @(conformance.raster_center[1u]),
@@ -298,13 +407,50 @@ render_path_tracing_runtime() noexcept {
             conformance.path_trace_max_channel);
         metadata[@"path_trace_mean_luma"] = @(
             conformance.path_trace_mean_luma);
+        auto address_driven_as =
+            conformance.acceleration_structure_path == "true";
+        auto exercised_features =
+            [NSMutableDictionary dictionaryWithDictionary:@{
+                @"static_device_interface" : @"passed",
+                @"xir_llvm_air_codegen" : @"passed",
+                @"llvm_14_downgrade" : @"passed",
+                @"mtl4_compiler_queue_command_buffer" : @"passed",
+                @"compute_encoder" : @"passed",
+                @"shader_logging" : @"passed",
+                @"bool_byte_abi" : @"passed",
+                @"device_atomics" : @"passed",
+                @"direct_texture_io" : @"passed",
+                @"external_callable_native_include" : @"passed",
+                @"unsigned_timeline_event" : @"passed",
+                @"bindless_resources" : @"passed",
+                @"gpu_indirect_dispatch" : @"passed",
+                @"raster_encoder" : @"passed",
+                @"raster_base_instance" : @"passed",
+                @"raster_d24s8_stencil" : @"passed",
+                @"raster_d32s8a24_stencil" : @"passed",
+                @"primitive_motion" : @"passed",
+                @"matrix_motion" : @"passed",
+                @"component_motion" :
+                    (conformance.component_motion_exercised ?
+                         @"passed" : @"guarded_unsupported"),
+                @"address_driven_acceleration_structure" :
+                    (address_driven_as ?
+                         @"passed" : @"guarded_unsupported"),
+                @"compatibility_acceleration_structure_bridge" :
+                    (address_driven_as ? @"not_used" : @"passed"),
+                @"closest_any_hit_ray_tracing" : @"passed",
+                @"shader_execution_reordering" : @"passed",
+                @"window_swapchain_present" : @"pending",
+                @"repository_path_tracing" : @"pending"
+            }];
+        metadata[@"exercised_features"] = exercised_features;
 
         auto pixels = std::move(conformance.pixels);
         auto dispatch_ms = conformance.path_trace_dispatch_readback_ms;
-
         auto pixel_count = pixels.size() * sizeof(pixels.front());
         auto pixel_sha = sha256_hex(pixels.data(), pixel_count);
-        auto image = image_from_rgba8(pixels.data());
+        auto image = image_from_rgba8(
+            pixels.data(), image_width, image_height);
         auto png = UIImagePNGRepresentation(image);
         auto png_url = documents_url(
             @"luisa_metal4_path_tracing.png");
@@ -317,30 +463,184 @@ render_path_tracing_runtime() noexcept {
                 metadata);
         }
 
-        metadata[@"success"] = @YES;
         metadata[@"pixel_sha256"] = pixel_sha;
         metadata[@"png_path"] = png_url.path;
-        auto status = [NSString stringWithFormat:
-                                    @"Luisa Metal4 AIR runtime complete\n%@\n"
-                                     "%ux%u, %u spp\ncompile %.2f ms, "
-                                     "dispatch/readback %.2f ms\npixel SHA %@",
-                                    device_name, image_width, image_height,
-                                    samples_per_pixel,
-                                    [metadata[@"pipeline_compile_ms"]
-                                        doubleValue],
-                                    dispatch_ms,
-                                    [pixel_sha substringToIndex:16u]];
-        NSLog(@"LUISA_IOS_METAL4_PATH_TRACING success=1 runtime=DeviceInterface renderer=RTX device='%@' size=%ux%u spp=%u as_path='%@' raster_pixels=%u log='%@' compile_ms=%.6f dispatch_readback_ms=%.6f pixel_sha256=%@ png='%@'",
-              device_name, image_width, image_height,
-              samples_per_pixel,
-              metadata[@"acceleration_structure_path"],
-              conformance.raster_colored_pixels,
-              metadata[@"shader_log_message"],
-              [metadata[@"pipeline_compile_ms"] doubleValue],
-              dispatch_ms, pixel_sha, png_url.path);
+        metadata[@"renderer"] =
+            @"interactive repository MIS path tracing plus Metal4 conformance";
+        metadata[@"interactive"] = @YES;
+        metadata[@"presentation_path"] =
+            @"UIKit CAMetalLayer -> Luisa Window -> Luisa Swapchain -> MTL4 present";
+        metadata[@"interactive_snapshot_spp"] =
+            @(LUISA_IOS_INTERACTIVE_SNAPSHOT_SPP);
+
+        if (window == nullptr || window->native_handle() == 0u) {
+            return failure(
+                @"native window",
+                @"UIKit CAMetalLayer was not wrapped by a Luisa Window",
+                metadata);
+        }
+
+        bool snapshot_valid = false;
+        NSString *snapshot_error = nil;
+        UIImage *repository_image = nil;
+        NSString *repository_status = nil;
+        double last_progress_ms = -1000.0;
+        auto process_snapshot = [&] (
+                                    uint2 repository_resolution,
+                                    uint64_t repository_spp,
+                                    double repository_elapsed_ms,
+                                    const luisa::vector<std::array<uint8_t, 4u>>
+                                        &repository_pixels) noexcept {
+            uint32_t repository_nonblack_pixels = 0u;
+            uint8_t repository_max_channel = 0u;
+            uint64_t repository_channel_sum = 0u;
+            for (auto pixel : repository_pixels) {
+                auto rgb_sum = static_cast<uint32_t>(pixel[0u]) +
+                               pixel[1u] + pixel[2u];
+                repository_channel_sum += rgb_sum;
+                if (rgb_sum > 6u) { repository_nonblack_pixels++; }
+                repository_max_channel = std::max(
+                    repository_max_channel,
+                    std::max(pixel[0u], std::max(pixel[1u], pixel[2u])));
+            }
+            if (repository_pixels.empty() ||
+                repository_nonblack_pixels < repository_pixels.size() / 8u ||
+                repository_max_channel < 32u) {
+                snapshot_error =
+                    @"the interactive repository image is empty or degenerate";
+                window->set_should_close();
+                return;
+            }
+            auto repository_pixel_bytes =
+                repository_pixels.size() * sizeof(repository_pixels.front());
+            auto repository_pixel_sha = sha256_hex(
+                repository_pixels.data(), repository_pixel_bytes);
+            repository_image = image_from_rgba8(
+                repository_pixels.data(),
+                repository_resolution.x, repository_resolution.y);
+            auto repository_png = UIImagePNGRepresentation(repository_image);
+            auto repository_png_url = documents_url(
+                @"luisa_test_path_tracing.png");
+            NSError *repository_write_error = nil;
+            if (![repository_png writeToURL:repository_png_url
+                                    options:NSDataWritingAtomic
+                                      error:&repository_write_error]) {
+                snapshot_error = repository_write_error.localizedDescription;
+                window->set_should_close();
+                return;
+            }
+            auto repository_mean_luma =
+                static_cast<double>(repository_channel_sum) /
+                static_cast<double>(repository_pixels.size() * 3u * 255u);
+            metadata[@"repository_path_tracing_source"] =
+                @"examples/rendering/path_tracing.cpp";
+            metadata[@"repository_path_tracing_width"] =
+                @(repository_resolution.x);
+            metadata[@"repository_path_tracing_height"] =
+                @(repository_resolution.y);
+            metadata[@"repository_path_tracing_spp"] = @(repository_spp);
+            metadata[@"repository_path_tracing_elapsed_ms"] =
+                @(repository_elapsed_ms);
+            metadata[@"repository_path_tracing_nonblack_pixels"] =
+                @(repository_nonblack_pixels);
+            metadata[@"repository_path_tracing_max_channel"] =
+                @(repository_max_channel);
+            metadata[@"repository_path_tracing_mean_luma"] =
+                @(repository_mean_luma);
+            metadata[@"repository_path_tracing_pixel_sha256"] =
+                repository_pixel_sha;
+            metadata[@"repository_path_tracing_png_path"] =
+                repository_png_url.path;
+            exercised_features[@"window_swapchain_present"] = @"passed";
+            exercised_features[@"repository_path_tracing"] = @"passed";
+            metadata[@"success"] = @YES;
+            repository_status = [NSString stringWithFormat:
+                @"Luisa Path Tracing live on %@\n"
+                 "%ux%u, %llu spp, %.2f s\n"
+                 "Window -> Swapchain -> Metal4 AIR\n"
+                 "continuing to accumulate samples...",
+                device_name,
+                repository_resolution.x, repository_resolution.y,
+                static_cast<unsigned long long>(repository_spp),
+                repository_elapsed_ms * 1.0e-3];
+            NSLog(@"LUISA_IOS_REPOSITORY_PATH_TRACING success=1 interactive=1 source='examples/rendering/path_tracing.cpp' presentation='Window->Swapchain->MTL4' device='%@' size=%ux%u spp=%llu elapsed_ms=%.6f nonblack=%u max_channel=%u mean_luma=%.9f pixel_sha256=%@ png='%@'",
+                  device_name,
+                  repository_resolution.x, repository_resolution.y,
+                  static_cast<unsigned long long>(repository_spp),
+                  repository_elapsed_ms,
+                  repository_nonblack_pixels, repository_max_channel,
+                  repository_mean_luma, repository_pixel_sha,
+                  repository_png_url.path);
+            NSLog(@"LUISA_IOS_METAL4_PATH_TRACING success=1 runtime=DeviceInterface renderer=RTX interactive=1 device='%@' size=%ux%u spp=%llu as_path='%@' raster_pixels=%u stencil_pixels=%u log='%@' compile_ms=%.6f dispatch_readback_ms=%.6f pixel_sha256=%@ png='%@'",
+                  device_name,
+                  repository_resolution.x, repository_resolution.y,
+                  static_cast<unsigned long long>(repository_spp),
+                  metadata[@"acceleration_structure_path"],
+                  conformance.raster_colored_pixels,
+                  conformance.raster_stencil_colored_pixels,
+                  metadata[@"shader_log_message"],
+                  [metadata[@"pipeline_compile_ms"] doubleValue],
+                  dispatch_ms, repository_pixel_sha,
+                  repository_png_url.path);
+            snapshot_valid = true;
+            persist_metadata(metadata);
+            if (milestone_handler != nil) {
+                auto milestone = [LuisaRenderOutcome new];
+                milestone.image = repository_image;
+                milestone.status = repository_status;
+                milestone.metadata = metadata;
+                milestone_handler(milestone);
+            }
+        };
+
+        auto repository_test = luisa::ref::run_path_tracing_test(
+            device,
+            luisa::ref::PathTracingTestOptions{
+                .offline = false,
+                .spp = 0u,
+                .max_spp_per_dispatch = 1u,
+                .window = window,
+                .snapshot_spp = LUISA_IOS_INTERACTIVE_SNAPSHOT_SPP,
+                .progress_callback = [&] (uint64_t completed_spp,
+                                           double elapsed_ms) noexcept {
+                    if (progress_handler != nil &&
+                        (completed_spp == 1u ||
+                         elapsed_ms - last_progress_ms >= 100.0)) {
+                        last_progress_ms = elapsed_ms;
+                        progress_handler(completed_spp, elapsed_ms);
+                    }
+                },
+                .snapshot_callback = process_snapshot});
+        if (!repository_test.success) {
+            return failure(
+                @"repository path tracing",
+                [NSString stringWithUTF8String:
+                              repository_test.error.c_str()],
+                metadata);
+        }
+        if (snapshot_error != nil) {
+            return failure(
+                @"interactive repository snapshot",
+                snapshot_error, metadata);
+        }
+        if (!snapshot_valid && repository_test.completed_spp != 0u) {
+            process_snapshot(
+                repository_test.resolution,
+                repository_test.completed_spp,
+                repository_test.elapsed_ms,
+                repository_test.pixels);
+        }
+        if (snapshot_error != nil) {
+            return failure(
+                @"interactive repository snapshot",
+                snapshot_error, metadata);
+        }
         auto outcome = [LuisaRenderOutcome new];
-        outcome.image = image;
-        outcome.status = status;
+        outcome.image = repository_image;
+        outcome.status = snapshot_valid ?
+            [repository_status stringByAppendingString:
+                                  @"\nrendering stopped"] :
+            @"Interactive rendering stopped before the evidence snapshot.";
         outcome.metadata = metadata;
         return outcome;
     }
@@ -349,9 +649,17 @@ render_path_tracing_runtime() noexcept {
 }
 #endif
 
-[[nodiscard]] LuisaRenderOutcome *render_path_tracing() noexcept {
+[[nodiscard]] LuisaRenderOutcome *render_path_tracing(
+    luisa::compute::Window *window,
+    LuisaProgressHandler progress_handler,
+    LuisaMilestoneHandler milestone_handler) noexcept {
 #if defined(LUISA_IOS_RUNTIME_DEVICE)
-    return render_path_tracing_runtime();
+    return render_path_tracing_runtime(
+        window, progress_handler, milestone_handler);
+#else
+    static_cast<void>(window);
+    static_cast<void>(progress_handler);
+    static_cast<void>(milestone_handler);
 #endif
     auto metadata = [NSMutableDictionary dictionary];
 #if !defined(LUISA_IOS_ON_DEVICE_AIR)
@@ -672,7 +980,8 @@ render_path_tracing_runtime() noexcept {
         auto pixel_bytes = readback->contents();
         auto pixel_count = row_bytes * image_height;
         auto pixel_sha = sha256_hex(pixel_bytes, pixel_count);
-        auto image = image_from_rgba8(pixel_bytes);
+        auto image = image_from_rgba8(
+            pixel_bytes, image_width, image_height);
         auto png = UIImagePNGRepresentation(image);
         auto png_url = documents_url(@"luisa_metal4_path_tracing.png");
         NSError *write_error = nil;
@@ -706,13 +1015,25 @@ render_path_tracing_runtime() noexcept {
 
 }// namespace
 
+@interface LuisaMetalView : UIView
+@end
+
+@implementation LuisaMetalView
+
++ (Class)layerClass {
+    return [CAMetalLayer class];
+}
+
+@end
+
 @interface LuisaPathTracingViewController : UIViewController
 @end
 
 @implementation LuisaPathTracingViewController {
-    UIImageView *_image_view;
+    LuisaMetalView *_metal_view;
     UILabel *_status_label;
     UIActivityIndicatorView *_spinner;
+    std::unique_ptr<luisa::compute::Window> _luisa_window;
     BOOL _started;
 }
 
@@ -720,11 +1041,12 @@ render_path_tracing_runtime() noexcept {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.blackColor;
 
-    _image_view = [UIImageView new];
-    _image_view.translatesAutoresizingMaskIntoConstraints = NO;
-    _image_view.contentMode = UIViewContentModeScaleAspectFit;
-    _image_view.backgroundColor = UIColor.blackColor;
-    [self.view addSubview:_image_view];
+    _metal_view = [LuisaMetalView new];
+    _metal_view.translatesAutoresizingMaskIntoConstraints = YES;
+    _metal_view.backgroundColor = UIColor.blackColor;
+    _metal_view.opaque = YES;
+    _metal_view.clipsToBounds = YES;
+    [self.view addSubview:_metal_view];
 
     _status_label = [UILabel new];
     _status_label.translatesAutoresizingMaskIntoConstraints = NO;
@@ -733,6 +1055,9 @@ render_path_tracing_runtime() noexcept {
                                                      weight:UIFontWeightRegular];
     _status_label.numberOfLines = 0;
     _status_label.textAlignment = NSTextAlignmentCenter;
+    _status_label.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.62];
+    _status_label.layer.cornerRadius = 10.0;
+    _status_label.layer.masksToBounds = YES;
 #if defined(LUISA_IOS_ON_DEVICE_AIR)
     _status_label.text =
         @"Generating AST -> XIR -> LLVM -> AIR on this iPhone...";
@@ -751,37 +1076,85 @@ render_path_tracing_runtime() noexcept {
 
     auto guide = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
-        [_image_view.topAnchor constraintEqualToAnchor:guide.topAnchor],
-        [_image_view.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor],
-        [_image_view.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor],
-        [_image_view.heightAnchor constraintEqualToAnchor:guide.heightAnchor
-                                               multiplier:0.72],
-        [_status_label.topAnchor constraintEqualToAnchor:_image_view.bottomAnchor
-                                                constant:8.0],
         [_status_label.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor
                                                     constant:12.0],
         [_status_label.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor
                                                      constant:-12.0],
-        [_spinner.centerXAnchor constraintEqualToAnchor:_image_view.centerXAnchor],
-        [_spinner.centerYAnchor constraintEqualToAnchor:_image_view.centerYAnchor],
+        [_status_label.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor
+                                                 constant:-12.0],
+        [_status_label.heightAnchor constraintGreaterThanOrEqualToConstant:78.0],
+        [_spinner.centerXAnchor constraintEqualToAnchor:_metal_view.centerXAnchor],
+        [_spinner.centerYAnchor constraintEqualToAnchor:_metal_view.centerYAnchor],
     ]];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    auto safe_frame = self.view.safeAreaLayoutGuide.layoutFrame;
+    auto side = std::min(
+        CGRectGetWidth(safe_frame), CGRectGetHeight(safe_frame));
+    _metal_view.frame = CGRectMake(
+        CGRectGetMidX(safe_frame) - side * 0.5,
+        CGRectGetMidY(safe_frame) - side * 0.5,
+        side, side);
 }
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     if (_started) { return; }
     _started = YES;
+    [self.view layoutIfNeeded];
+    auto metal_layer = static_cast<CAMetalLayer *>(_metal_view.layer);
+    metal_layer.contentsScale = self.view.window.windowScene.screen.nativeScale;
+    metal_layer.opaque = YES;
+    auto native_layer = reinterpret_cast<uint64_t>(
+        (__bridge void *)metal_layer);
+    _luisa_window = std::make_unique<luisa::compute::Window>(
+        "Luisa Path Tracing",
+        luisa::make_uint2(1024u),
+        luisa::compute::Window::NativeHandle{
+            .window = native_layer,
+            .display = 0u});
+    auto render_window = _luisa_window.get();
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
-            auto outcome = render_path_tracing();
+            auto outcome = render_path_tracing(
+                render_window,
+                ^(uint64_t completed_spp, double elapsed_ms) {
+                    auto spp_per_second = elapsed_ms > 0.0 ?
+                        static_cast<double>(completed_spp) * 1000.0 / elapsed_ms :
+                        0.0;
+                    auto status = [NSString stringWithFormat:
+                        @"Luisa Path Tracing live\n"
+                         "1024x1024, %llu spp, %.1f spp/s\n"
+                         "Window -> Swapchain -> Metal4 AIR",
+                        static_cast<unsigned long long>(completed_spp),
+                        spp_per_second];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self->_spinner stopAnimating];
+                        self->_status_label.text = status;
+                    });
+                },
+                ^(LuisaRenderOutcome *milestone) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self->_spinner stopAnimating];
+                        self->_status_label.text = milestone.status;
+                    });
+                });
             persist_metadata(outcome.metadata);
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self->_spinner stopAnimating];
-                self->_image_view.image = outcome.image;
                 self->_status_label.text = outcome.status;
+                self->_luisa_window.reset();
+                self->_started = NO;
             });
         }
     });
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    if (_luisa_window) { _luisa_window->set_should_close(); }
 }
 
 @end
@@ -815,6 +1188,7 @@ render_path_tracing_runtime() noexcept {
     didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     (void)application;
     (void)launchOptions;
+    luisa_compute_metal4_register_static_backend();
     return YES;
 }
 
