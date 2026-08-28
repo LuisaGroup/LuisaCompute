@@ -1,5 +1,7 @@
 #pragma once
 
+#include "simd_embree_packet_support.h"
+
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
 #include <embree3/rtcore.h>
 #else
@@ -9,6 +11,21 @@
 #include <luisa/runtime/rhi/resource.h>
 
 namespace luisa::compute::simd {
+
+[[nodiscard]] inline auto simd_embree_native_ray_packet_support(
+    RTCDevice device) noexcept {
+    return SIMDEmbreeNativeRayPacketSupport{
+        .w4 = rtcGetDeviceProperty(
+                  device,
+                  RTC_DEVICE_PROPERTY_NATIVE_RAY4_SUPPORTED) != 0,
+        .w8 = rtcGetDeviceProperty(
+                  device,
+                  RTC_DEVICE_PROPERTY_NATIVE_RAY8_SUPPORTED) != 0,
+        .w16 = rtcGetDeviceProperty(
+                   device,
+                   RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED) != 0,
+    };
+}
 
 inline void simd_accel_set_flags(
     RTCScene scene, const AccelOption &option) noexcept {

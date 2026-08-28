@@ -61,6 +61,16 @@ add_test(NAME test_simd_reference_warp_collectives
 set_tests_properties(test_simd_reference_warp_collectives PROPERTIES
         LABELS "unit;unit_simd")
 
+add_executable(test_simd_embree_packet_support
+        unit/simd/test_simd_embree_packet_support.cpp)
+target_compile_features(test_simd_embree_packet_support PRIVATE cxx_std_20)
+target_include_directories(test_simd_embree_packet_support PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/runtime)
+add_test(NAME test_simd_embree_packet_support
+        COMMAND test_simd_embree_packet_support)
+set_tests_properties(test_simd_embree_packet_support PROPERTIES
+        LABELS "unit;unit_simd")
+
 add_executable(test_simd_schedule_ir
         unit/simd/test_schedule_ir.cpp
         ../backends/simd/schedule/schedule_ir.cpp)
