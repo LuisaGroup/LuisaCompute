@@ -5,7 +5,11 @@ description: Backend plugin architecture, DeviceInterface, dynamic loading, and 
 
 # Backend Plugin Architecture
 
-Backends are dynamically loaded shared libraries (`luisa-backend-<name>.dll/.so/.dylib`) implementing `DeviceInterface`. Discovered and loaded at runtime by `Context`.
+On desktop platforms, backends are dynamically loaded shared libraries
+(`luisa-backend-<name>.dll/.so/.dylib`) implementing `DeviceInterface` and
+discovered by `Context`. iOS links the selected backend and core runtime as
+static slices into the signed app; it calls an explicit static create/destroy
+bridge while preserving the same `DeviceInterface` ownership contract.
 
 **Header**: `include/luisa/runtime/rhi/device_interface.h`
 
@@ -440,7 +444,13 @@ void destroy_buffer(uint64_t handle) noexcept {
 ```cmake
 function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "SUPPORT_DIR;BUILTIN_DIR" "SOURCES" ${ARGN})
-    add_library(luisa-compute-backend-${name} MODULE ${BACKEND_SOURCES})
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(_LUISA_BACKEND_LIBRARY_TYPE STATIC)
+    else ()
+        set(_LUISA_BACKEND_LIBRARY_TYPE MODULE)
+    endif ()
+    add_library(luisa-compute-backend-${name}
+        ${_LUISA_BACKEND_LIBRARY_TYPE} ${BACKEND_SOURCES})
     target_link_libraries(luisa-compute-backend-${name} PRIVATE
         luisa-compute-ast
         luisa-compute-runtime
@@ -505,7 +515,7 @@ AST Function / XIR KernelModule / IRv2 KernelModule
 
 ## Key Design Decisions
 
-1. **Plugin Architecture** — Backends are shared libs loaded at runtime, distributable separately
+1. **Backend Boundary** — Desktop backends are shared plugins; iOS statically links the selected backend but keeps the same `DeviceInterface` boundary
 2. **Handle-based Resources** — Opaque `uint64_t` handles for ABI stability
 3. **Visitor Pattern** — Double dispatch via `MutableCommandVisitor` for type-safe command handling
 4. **Version Checking** — Strict match between runtime and backend prevents ABI mismatches

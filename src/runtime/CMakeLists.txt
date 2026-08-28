@@ -40,7 +40,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         ${LUISA_COMPUTE_RUNTIME_RASTER_SOURCES}
         rhi/command.cpp)
 
-add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
+add_library(luisa-compute-runtime ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime
         PUBLIC luisa-compute-ast
         PRIVATE luisa-compute-vstl luisa-compute-ext-stb)

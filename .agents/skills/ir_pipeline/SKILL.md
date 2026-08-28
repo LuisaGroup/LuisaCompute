@@ -1,6 +1,6 @@
 ---
 name: ir-pipeline
-description: Navigate and modify LuisaCompute legacy IR and XIR lowering, CFG/SSA representation changes, pass composition, and Metal XIR-to-LLVM/AIR normalization. Use when tracing AST-to-XIR calls, changing pass order, debugging structured versus plain CFG, or extending AIR ABI features such as bool/byte layout, PACK, acceleration, raster stages, stateful ray queries, external linkage, and fail-closed boundaries.
+description: Navigate and modify LuisaCompute AST-to-XIR lowering, CFG/SSA representation changes, pass composition, and Metal XIR-to-LLVM/AIR normalization. Use when tracing AST-to-XIR calls, changing pass order, debugging structured versus plain CFG, or extending AIR ABI features such as bool/byte layout, PACK, acceleration, raster stages, runtime builtins, stateful ray queries, external linkage, and fail-closed boundaries.
 ---
 
 # LuisaCompute IR and XIR Pipelines
@@ -9,7 +9,6 @@ description: Navigate and modify LuisaCompute legacy IR and XIR lowering, CFG/SS
 
 Treat these files as the source of truth:
 
-- `src/ir/ast2ir.cpp` and `src/rust/` for the legacy Rust IR path.
 - `src/xir/translators/ast2xir.cpp` for AST-to-XIR lowering.
 - `include/luisa/xir/` and `src/xir/` for the XIR object model.
 - `include/luisa/xir/passes/` and `src/xir/passes/` for pass contracts and implementations.
@@ -21,13 +20,17 @@ Treat these files as the source of truth:
   schedule.
 - `src/backends/metal4/llvm_codegen/metal_codegen_llvm.cpp` for the AIR ABI,
   support preflight, and XIR-to-LLVM lowering.
+- `src/backends/metal4/llvm_codegen/metal_codegen_llvm_builtin.cpp` and
+  `src/backends/metal4/metal_builtin_air.cpp` for LLVM-generated runtime
+  support kernels, verification, LLVM 14 downgrade, and five-entry MTLB
+  packaging.
 - `src/backends/metal4/metal_air_pipeline.cpp` for LLVM O2, verification, and
   LLVM 14 bitcode downgrade, including explicit macOS/iOS AIR targets.
 - `src/backends/metal4/metal_metallib.cpp` for target-specific metallib
   container headers and validation.
 - `src/backends/metal4/tools/ios_path_tracing_aot.cpp` and
-  `src/backends/metal4/tools/ios_path_tracer_app/` for the host-generated iOS
-  artifact and physical-device MTL4 execution probe.
+  `src/backends/metal4/tools/ios_path_tracer_app/` for the host-AOT regression
+  and the runtime-linked, on-device XIR/LLVM/AIR physical-device probe.
 - `src/backends/metal4/metal_raster_ext.cpp`, `metal_raster_shader.cpp`, and
   `metal_command_encoder.cpp` for the Metal raster host ABI, PSO creation, and
   render-command encoding.
@@ -41,12 +44,12 @@ Inspect the relevant public header and implementation before changing a pass
 order. Do not rely on a copied pass inventory: several registered passes are
 intentional placeholders, and factory contents evolve.
 
-## Choose the correct IR path
+## Use the current IR path
 
-| Path | Flow | Use |
-|---|---|---|
-| Legacy IR | AST -> JSON bridge -> Rust IR | Compatibility and backends still using the Rust IR ABI |
-| XIR | AST -> native C++ XIR -> backend passes | Active C++ compiler and backend development |
+The removed Rust/JSON legacy IR tree is not a fallback implementation. Current
+compiler work starts at AST and lowers into native C++ XIR before backend
+legalization. Do not recreate a parallel legacy route to bypass an XIR or AIR
+failure.
 
 Do not use XIR JSON as serialization. `xir2json.cpp` emits debug-only metadata
 and flat XIR text, while `json2xir.cpp` has no implementation. Use
@@ -408,23 +411,38 @@ preflight, LLVM emission, downgrade, or AIR loading fails. Compute and raster
 AOT loaders consume their compiled archives directly and do not rerun XIR
 preflight; neither has a source-code fallback.
 
-Choose the AIR target explicitly when the artifact is not for the host. The
-default target remains the current macOS host, while `MetalAIRTarget` can select
-iOS and its minimum OS/SDK versions. An iOS artifact must use an
+Apply the same rule to runtime support. Acceleration-instance update,
+bindless-table update, indirect-command preparation, and swapchain presentation
+live in `metal_codegen_llvm_builtin.cpp`; `metal_builtin_air.cpp` verifies,
+optimizes, downgrades, and packages them as three kernel plus vertex/fragment
+entries. BC6H/BC7 are fixed support metallibs compiled for the selected SDK at
+build time. Runtime code loads their bytes and must not construct MSL source,
+compile options, or a source library descriptor.
+
+Choose the AIR target explicitly when the artifact is not for the current
+runtime device. The default target follows the current macOS or iOS process,
+while `MetalAIRTarget` can select iOS and its minimum OS/SDK versions for host
+AOT. An iOS artifact must use an
 `air64_v28-apple-ios...` triple and SDK metadata matching the selected target.
 Its metallib header uses platform byte `0x82` and leaves the file-major high bit
 clear; macOS uses platform byte `0x81` and sets that bit. Keep the generator and
 validator symmetric, and use Apple's `metallib --app-store-validate` as an
 independent check.
 
-Do not describe the iOS path as inherently AOT-only. iOS forbids arbitrary CPU
-executable-memory JIT, but Metal shader compilation produces GPU code. The
-current standalone iOS path-tracing runner deliberately bundles a host-generated
-metallib so it can validate the container and MTL4 runtime boundary first.
-On-device XIR-to-AIR JIT becomes available when LLVM 21, the LLVM downgrade,
-and the Luisa Metal4 AIR codegen dependencies are built as iOS static slices and
-linked into the app; account for binary size, startup compilation cost, private
-AIR ABI stability, and distribution policy separately.
+Do not reject a current iOS device merely because it has a newer minor/patch
+than the linked SDK (for example runtime 26.6 with SDK 26.4). The current-device
+path accepts that same-major update and targets the runtime version; it still
+rejects a runtime major newer than the SDK. Explicit host-AOT targets retain
+the stricter full `SDK >= deployment` check.
+
+Do not describe the iOS path as AOT-only. The device app statically links LLVM
+21, the in-tree downgrade, AST, XIR, runtime, DSL, AIR codegen, and the Metal4
+backend, then performs AST -> XIR -> LLVM -> LLVM 14-compatible AIR -> MTLB on
+the phone before dispatching through the real `DeviceInterface`. LLVM is used
+as an IR optimizer/writer and does not generate executable CPU pages, so this
+does not cross iOS's arbitrary-CPU-JIT boundary. Keep the older host-AOT probe
+as a separate container/runtime baseline; account for app size, startup
+compilation cost, private AIR ABI stability, and distribution policy.
 
 Every Metal4 graphics or rendering pass is AIR coverage by construction, but
 still keep focused tests that localize the failing feature. Put each new AIR
@@ -526,17 +544,23 @@ cmake --build cmake-build-metal4-air --target test_metal4_raster_stencil -j 8
 ctest --test-dir cmake-build-metal4-air -R '^test_metal4_raster_stencil(_validation)?$' --output-on-failure
 cmake --build cmake-build-metal4-air --target luisa-metal4-ios-path-tracer-aot -j 8
 ctest --test-dir cmake-build-metal4-air -R '^test_metal4_ios_air_aot_codegen$' --output-on-failure
+cmake --build cmake-build-metal4-air --target test_texture_compress -j 8
+cmake-build-metal4-air/bin/test_texture_compress metal4
 LUISA_ENABLE_VALIDATION=1 MTL_DEBUG_LAYER=1 \
   ctest --test-dir cmake-build-metal4-air -L integration_metal4 --output-on-failure -j 1
 ~~~
 
-For physical-device iOS validation, configure
-`src/backends/metal4/tools/ios_path_tracer_app` with the Xcode generator and an
-`iphoneos` SDK after producing the AOT metallib. Sign, install, and launch it on
-the device, then retrieve both the PNG and JSON report. A successful build or
-app launch alone is insufficient: require matching bundled/expected metallib
-SHA-256 values, successful MTL4 library and pipeline creation, completed GPU
-feedback, and a nondegenerate rendered image.
+For physical-device iOS validation, configure the project with the Xcode
+generator, `iphoneos`, LLVM 21 iOS static libraries, Metal4 enabled, and the
+signing team, then build the
+`luisa-metal4-ios-device-air-path-tracer` application target. Verify the final
+link contains `libluisa-backend-metal4.a` and the static create/destroy symbols,
+then sign, install, and launch it. Retrieve both PNG and JSON. A successful
+build or launch alone is insufficient: require metadata identifying the
+on-device XIR/LLVM/AIR plus `DeviceInterface` path, successful MTL4 library and
+pipeline creation, completed readback, a stable pixel hash, and a visually
+nondegenerate render. Keep the host-AOT SHA comparison as a distinct regression
+rather than substituting it for the runtime-linked device run.
 
 Use the `unit_xir` CTest label when a change can affect more than one XIR pass.
 For another Metal4 runtime test, invoke the binary with the `metal4` backend;

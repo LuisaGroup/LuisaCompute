@@ -2,7 +2,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/ast/statement.h>
 
-#include "metal_builtin_embedded.hpp"
+#include "metal_builtin_air.h"
 #include "metal_compiler.h"
 #include "metal_buffer.h"
 #include "metal_texture.h"
@@ -122,6 +122,20 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
                                 config->device_index == std::numeric_limits<size_t>::max() ?
                             0u :
                             config->device_index;
+#if defined(LUISA_PLATFORM_IOS)
+    if (!__builtin_available(iOS 26.0, *)) {
+        LUISA_ERROR_WITH_LOCATION(
+            "The Metal 4 backend requires iOS 26.0 or newer.");
+    }
+    auto compatible_device_count = static_cast<size_t>(0u);
+    if (auto device = MTL::CreateSystemDefaultDevice()) {
+        if (device->supportsFamily(MTL::GPUFamilyMetal4)) {
+            compatible_device_count = 1u;
+            if (device_index == 0u) { _handle = device; }
+        }
+        if (_handle == nullptr) { device->release(); }
+    }
+#else
     if (!__builtin_available(macOS 26.0, *)) {
         LUISA_ERROR_WITH_LOCATION(
             "The Metal 4 backend requires macOS 26.0 or newer.");
@@ -136,6 +150,7 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
         }
     }
     all_devices->release();
+#endif
     LUISA_ASSERT(
         _handle != nullptr,
         "Metal 4 device index out of range (required = {}, count = {}).",
@@ -166,35 +181,26 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     // create a compiler
     _compiler = luisa::make_unique<MetalCompiler>(this);
 
-    // Compile the fixed runtime-support kernels with the Metal 4 compiler.
-    auto builtin_kernel_source = NS::String::alloc()->init(
-        const_cast<void *>(static_cast<const void *>(luisa_compute_metal_builtin_kernels)),
-        luisa_compute_metal_builtin_kernels_size,
-        NS::UTF8StringEncoding, false);
-    auto compile_options = MTL::CompileOptions::alloc()->init();
-    compile_options->setFastMathEnabled(true);
-    compile_options->setLanguageVersion(MTL::LanguageVersion4_0);
-    compile_options->setLibraryType(MTL::LibraryTypeExecutable);
-    auto builtin_library_desc = MTL4::LibraryDescriptor::alloc()->init();
-    builtin_library_desc->setName(MTLSTR("luisa_builtin"));
-    builtin_library_desc->setSource(builtin_kernel_source);
-    builtin_library_desc->setOptions(compile_options);
+    // Generate the fixed runtime-support library through the same LLVM/AIR
+    // path as user shaders. The Metal 4 backend never invokes an MSL compiler.
+    auto builtin_metallib = metal_codegen_builtin_air(
+        metal_air_target_for_current_device());
+    auto builtin_library_data = dispatch_data_create(
+        builtin_metallib.data(), builtin_metallib.size(), nullptr,
+        DISPATCH_DATA_DESTRUCTOR_DEFAULT);
     error = nullptr;
-    auto builtin_library = _metal4_compiler->newLibrary(
-        builtin_library_desc, &error);
-    builtin_library_desc->release();
-
-    builtin_kernel_source->release();
-    compile_options->release();
+    auto builtin_library = _handle->newLibrary(
+        builtin_library_data, &error);
+    dispatch_release(builtin_library_data);
 
     if (error != nullptr) {
         LUISA_WARNING_WITH_LOCATION(
-            "Failed to compile built-in Metal kernels: {}",
+            "Failed to load built-in Metal AIR library: {}",
             error->localizedDescription()->utf8String());
     }
     error = nullptr;
     LUISA_ASSERT(builtin_library != nullptr,
-                 "Failed to compile built-in Metal kernels.");
+                 "Failed to load built-in Metal AIR library.");
     builtin_library->setLabel(MTLSTR("luisa_builtin"));
 
     // compute pipelines
@@ -935,6 +941,15 @@ LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept 
 LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
     ::luisa::compute::metal::with_autorelease_pool([&names] {
         names.clear();
+#if defined(LUISA_PLATFORM_IOS)
+        if (!__builtin_available(iOS 26.0, *)) { return; }
+        if (auto device = MTL::CreateSystemDefaultDevice()) {
+            if (device->supportsFamily(MTL::GPUFamilyMetal4)) {
+                names.emplace_back(device->name()->utf8String());
+            }
+            device->release();
+        }
+#else
         if (!__builtin_available(macOS 26.0, *)) { return; }
         auto all_devices = MTL::CopyAllDevices();
         if (auto n = all_devices->count()) {
@@ -946,7 +961,22 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
             }
         }
         all_devices->release();
+#endif
     });
 }
+
+#if defined(LUISA_PLATFORM_IOS)
+LUISA_EXPORT_API luisa::compute::DeviceInterface *
+luisa_compute_metal4_create_static(
+    luisa::compute::Context &&ctx,
+    const luisa::compute::DeviceConfig *config) noexcept {
+    return create(std::move(ctx), config);
+}
+
+LUISA_EXPORT_API void luisa_compute_metal4_destroy_static(
+    luisa::compute::DeviceInterface *device) noexcept {
+    destroy(device);
+}
+#endif
 
 #include "../common/export_version.inl.h"

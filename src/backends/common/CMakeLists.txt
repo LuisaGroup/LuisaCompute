@@ -162,6 +162,23 @@ function(luisa_compute_link_llvm_into_backend backend)
         endif ()
     endif ()
 
+    # LLVM's generic Unix configuration appends librt to LLVMSupport. Apple
+    # platforms provide the corresponding APIs from libSystem, and iOS does
+    # not ship a standalone librt archive. Keep the imported target otherwise
+    # intact so the compiler stack remains linked exactly as exported by the
+    # selected LLVM package.
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS" AND TARGET LLVMSupport)
+        get_target_property(_luisa_llvm_support_link_libraries
+                LLVMSupport INTERFACE_LINK_LIBRARIES)
+        if (_luisa_llvm_support_link_libraries)
+            list(FILTER _luisa_llvm_support_link_libraries
+                    EXCLUDE REGEX "^rt$")
+            set_property(TARGET LLVMSupport PROPERTY
+                    INTERFACE_LINK_LIBRARIES
+                    "${_luisa_llvm_support_link_libraries}")
+        endif ()
+    endif ()
+
     include(HandleLLVMOptions)
 
     message(STATUS "Linking LLVM to target ${LUISA_LINK_LLVM_TARGET} with components: ${LUISA_LINK_LLVM_COMPONENTS}")

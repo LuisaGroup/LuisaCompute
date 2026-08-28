@@ -7,6 +7,22 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
                 "The in-tree llvm-downgrade sources currently require LLVM 21, "
                 "but LLVM ${LLVM_PACKAGE_VERSION} was found. Point LLVM_DIR at LLVM 21.")
     endif ()
+    # LLVM may have been configured on a generic Unix host while targeting
+    # iOS, in which case its exported LLVMSupport target carries a standalone
+    # librt dependency. iOS provides those APIs from libSystem and has no
+    # librt archive, so remove the invalid dependency before this static
+    # target captures LLVM's transitive link interface.
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS" AND TARGET LLVMSupport)
+        get_target_property(_luisa_llvm_support_link_libraries
+                LLVMSupport INTERFACE_LINK_LIBRARIES)
+        if (_luisa_llvm_support_link_libraries)
+            list(FILTER _luisa_llvm_support_link_libraries
+                    EXCLUDE REGEX "^rt$")
+            set_property(TARGET LLVMSupport PROPERTY
+                    INTERFACE_LINK_LIBRARIES
+                    "${_luisa_llvm_support_link_libraries}")
+        endif ()
+    endif ()
 
     set(LUISA_LLVM_DOWNGRADE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade")
     set(LUISA_LLVM_DOWNGRADE_PATCH

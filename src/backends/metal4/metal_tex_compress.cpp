@@ -13,22 +13,13 @@ namespace luisa::compute::metal {
 
 namespace {
 
-#ifdef LUISA_BIN_2_OBJ
-#define LUISA_METAL_TEX_COMPRESS_DECL(name)                          \
-    extern "C" const uint8_t _binary_##name##_patched_metal_start[]; \
-    extern "C" const uint8_t _binary_##name##_patched_metal_end[];
-
-LUISA_METAL_TEX_COMPRESS_DECL(BC6HEncode_EncodeBlockCS)
-LUISA_METAL_TEX_COMPRESS_DECL(BC6HEncode_TryModeG10CS)
-LUISA_METAL_TEX_COMPRESS_DECL(BC6HEncode_TryModeLE10CS)
-LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_EncodeBlockCS)
-LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_TryMode02CS)
-LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_TryMode137CS)
-LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_TryMode456CS)
-#undef LUISA_METAL_TEX_COMPRESS_DECL
-#else
-#include "metal_tex_compress_embedded.h"
-#endif
+#include "metal_tex_compress_air/BC6HEncode_EncodeBlockCS.inc"
+#include "metal_tex_compress_air/BC6HEncode_TryModeG10CS.inc"
+#include "metal_tex_compress_air/BC6HEncode_TryModeLE10CS.inc"
+#include "metal_tex_compress_air/BC7Encode_EncodeBlockCS.inc"
+#include "metal_tex_compress_air/BC7Encode_TryMode02CS.inc"
+#include "metal_tex_compress_air/BC7Encode_TryMode137CS.inc"
+#include "metal_tex_compress_air/BC7Encode_TryMode456CS.inc"
 
 constexpr auto metal_texture_compress_thread_group_size = 64u;
 constexpr auto metal_texture_compress_format_bc6h_uf16 = 95u;
@@ -79,32 +70,25 @@ void dispatch_bc_encode_shader(MTL::ComputePipelineState *shader,
 }// namespace
 
 MetalTexCompressExt::MetalTexCompressExt(MetalDevice *device) noexcept : _device{device} {
-    auto compile_shader = [device](luisa::string_view f, luisa::string_view s) noexcept {
-        LUISA_VERBOSE("Compiling texture compression shader: {}.", f);
-        auto source = NS::TransferPtr(NS::String::alloc()->init(
-            const_cast<char *>(s.data()), s.size(), NS::UTF8StringEncoding, false));
-        auto compile_options = NS::TransferPtr(MTL::CompileOptions::alloc()->init());
-        compile_options->setFastMathEnabled(true);
-        compile_options->setOptimizationLevel(MTL::LibraryOptimizationLevelDefault);
-        compile_options->setLibraryType(MTL::LibraryTypeExecutable);
-        compile_options->setMaxTotalThreadsPerThreadgroup(metal_texture_compress_thread_group_size);
-        compile_options->setLanguageVersion(MTL::LanguageVersion4_0);
+    auto load_shader = [device](
+                           luisa::string_view f,
+                           const unsigned char *data,
+                           size_t size) noexcept {
+        LUISA_VERBOSE("Loading texture compression AIR shader: {}.", f);
         auto func_name = NS::TransferPtr(NS::String::alloc()->init(
             const_cast<char *>(f.data()), f.size(), NS::UTF8StringEncoding, false));
-        NS::Error *compile_error = nullptr;
-        auto library_desc = NS::TransferPtr(
-            MTL4::LibraryDescriptor::alloc()->init());
-        library_desc->setName(func_name.get());
-        library_desc->setSource(source.get());
-        library_desc->setOptions(compile_options.get());
+        auto library_data = dispatch_data_create(
+            data, size, nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+        NS::Error *library_error = nullptr;
         auto library = NS::TransferPtr(
-            device->metal4_compiler()->newLibrary(
-                library_desc.get(), &compile_error));
-        if (compile_error != nullptr) {
-            LUISA_WARNING("Errors during texture compression shader compilation: {}.",
-                          compile_error->localizedDescription()->utf8String());
+            device->handle()->newLibrary(library_data, &library_error));
+        dispatch_release(library_data);
+        if (library_error != nullptr) {
+            LUISA_WARNING("Errors while loading texture compression AIR: {}.",
+                          library_error->localizedDescription()->utf8String());
         }
-        LUISA_ASSERT(library, "Failed to compile texture compression shader.");
+        LUISA_ASSERT(library, "Failed to load texture compression AIR shader.");
+        library->setLabel(func_name.get());
         auto func_desc = NS::TransferPtr(
             MTL4::LibraryFunctionDescriptor::alloc()->init());
         func_desc->setLibrary(library.get());
@@ -126,22 +110,31 @@ MetalTexCompressExt::MetalTexCompressExt(MetalDevice *device) noexcept : _device
         LUISA_ASSERT(pipeline, "Failed to create texture compression pipeline.");
         return pipeline;
     };
-#ifdef LUISA_BIN_2_OBJ
-#define LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(name)                                   \
-    luisa::string_view{reinterpret_cast<const char *>(_binary_##name##_patched_metal_start), \
-                       static_cast<size_t>(_binary_##name##_patched_metal_end - _binary_##name##_patched_metal_start)}
-#else
-#define LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(name)                    \
-    luisa::string_view{luisa_compute_metal_texture_compress_##name##_patched, \
-                       luisa_compute_metal_texture_compress_##name##_patched_size}
-#endif
-    _bc7_encode_try_mode_456 = compile_shader("TryMode456CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode456CS));
-    _bc7_encode_try_mode_137 = compile_shader("TryMode137CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode137CS));
-    _bc7_encode_try_mode_02 = compile_shader("TryMode02CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode02CS));
-    _bc7_encode_encode_block = compile_shader("EncodeBlockCS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_EncodeBlockCS));
-    _bc6h_encode_try_mode_g10 = compile_shader("TryModeG10CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC6HEncode_TryModeG10CS));
-    _bc6h_encode_try_mode_le10 = compile_shader("TryModeLE10CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC6HEncode_TryModeLE10CS));
-    _bc6h_encode_encode_block = compile_shader("EncodeBlockCS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC6HEncode_EncodeBlockCS));
+#define LUISA_METAL4_TEX_COMPRESS_LIBRARY(name)             \
+    luisa_compute_metal_texture_compress_##name##_metallib, \
+        luisa_compute_metal_texture_compress_##name##_metallib_len
+    _bc7_encode_try_mode_456 = load_shader(
+        "TryMode456CS",
+        LUISA_METAL4_TEX_COMPRESS_LIBRARY(BC7Encode_TryMode456CS));
+    _bc7_encode_try_mode_137 = load_shader(
+        "TryMode137CS",
+        LUISA_METAL4_TEX_COMPRESS_LIBRARY(BC7Encode_TryMode137CS));
+    _bc7_encode_try_mode_02 = load_shader(
+        "TryMode02CS",
+        LUISA_METAL4_TEX_COMPRESS_LIBRARY(BC7Encode_TryMode02CS));
+    _bc7_encode_encode_block = load_shader(
+        "EncodeBlockCS",
+        LUISA_METAL4_TEX_COMPRESS_LIBRARY(BC7Encode_EncodeBlockCS));
+    _bc6h_encode_try_mode_g10 = load_shader(
+        "TryModeG10CS",
+        LUISA_METAL4_TEX_COMPRESS_LIBRARY(BC6HEncode_TryModeG10CS));
+    _bc6h_encode_try_mode_le10 = load_shader(
+        "TryModeLE10CS",
+        LUISA_METAL4_TEX_COMPRESS_LIBRARY(BC6HEncode_TryModeLE10CS));
+    _bc6h_encode_encode_block = load_shader(
+        "EncodeBlockCS",
+        LUISA_METAL4_TEX_COMPRESS_LIBRARY(BC6HEncode_EncodeBlockCS));
+#undef LUISA_METAL4_TEX_COMPRESS_LIBRARY
 }
 
 TexCompressExt::Result MetalTexCompressExt::check_builtin_shader() noexcept {

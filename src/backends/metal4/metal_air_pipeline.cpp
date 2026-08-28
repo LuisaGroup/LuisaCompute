@@ -35,6 +35,13 @@ namespace {
             static_cast<uint32_t>(version.patchVersion)};
 }
 
+[[nodiscard]] MetalAIRVersion host_ios_version() noexcept {
+    auto version = NS::ProcessInfo::processInfo()->operatingSystemVersion();
+    return {static_cast<uint32_t>(version.majorVersion),
+            static_cast<uint32_t>(version.minorVersion),
+            static_cast<uint32_t>(version.patchVersion)};
+}
+
 [[nodiscard]] MetalAIRVersion parse_macos_version(luisa::string_view text) noexcept {
     MetalAIRVersion version{};
     auto component = 0u;
@@ -64,6 +71,30 @@ namespace {
     return version;
 #else
     return host_macos_version();
+#endif
+}
+
+[[nodiscard]] MetalAIRVersion sdk_ios_version() noexcept {
+#ifdef LUISA_METAL_AIR_SDK_VERSION
+    auto text = luisa::string_view{LUISA_METAL_AIR_SDK_VERSION};
+    MetalAIRVersion version{};
+    auto component = 0u;
+    for (auto c : text) {
+        if (c == '.') {
+            component++;
+            if (component > 2u) { break; }
+        } else if (c >= '0' && c <= '9') {
+            auto *value = component == 0u ? &version.major :
+                          component == 1u ? &version.minor :
+                                            &version.patch;
+            *value = *value * 10u + static_cast<uint32_t>(c - '0');
+        }
+    }
+    LUISA_ASSERT(version.major >= 16u,
+                 "Invalid Metal AIR iOS SDK version '{}'.", text);
+    return version;
+#else
+    return host_ios_version();
 #endif
 }
 
@@ -101,6 +132,19 @@ namespace {
     if (lhs.minor != rhs.minor) { return lhs.minor < rhs.minor; }
     return lhs.patch < rhs.patch;
 }
+
+[[nodiscard]] constexpr bool current_device_sdk_compatible(
+    MetalAIRVersion operating_system_version,
+    MetalAIRVersion sdk_version) noexcept {
+    return sdk_version.major >= operating_system_version.major;
+}
+
+static_assert(current_device_sdk_compatible(
+    MetalAIRVersion{26u, 6u, 0u},
+    MetalAIRVersion{26u, 4u, 0u}));
+static_assert(!current_device_sdk_compatible(
+    MetalAIRVersion{27u, 0u, 0u},
+    MetalAIRVersion{26u, 4u, 0u}));
 
 [[nodiscard]] MetalLibTarget metallib_target_for_air(
     const MetalAIRTarget &target) noexcept {
@@ -262,13 +306,59 @@ MetalAIRTarget metal_air_target_for_ios(
         .sdk_version = sdk_version};
 }
 
-MetalAIRCodegenResult
-metal_codegen_air(const xir::Module &module, const ShaderOption &option) noexcept {
-    auto target = MetalAIRTarget{
+MetalAIRTarget metal_air_target_for_current_device() noexcept {
+#if defined(LUISA_PLATFORM_IOS) && LUISA_PLATFORM_IOS
+    auto operating_system_version = host_ios_version();
+    auto sdk_version = sdk_ios_version();
+    // A signed application built with (for example) the iOS 26.4 SDK must
+    // continue to generate AIR after the device receives an iOS 26.6 update.
+    // The current device proves that its own minor/patch target is executable;
+    // reject only a newer OS major, whose AIR/language ABI may be unknown to
+    // this SDK and emitter. Explicit cross-target AOT retains the stricter
+    // full-version ordering in metal_air_target_for_ios().
+    LUISA_ASSERT(
+        current_device_sdk_compatible(
+            operating_system_version, sdk_version),
+        "Metal AIR generation on iOS {}.{}.{} requires an SDK with major "
+        "version {} or newer, but SDK {}.{}.{} is linked.",
+        operating_system_version.major,
+        operating_system_version.minor,
+        operating_system_version.patch,
+        operating_system_version.major,
+        sdk_version.major,
+        sdk_version.minor,
+        sdk_version.patch);
+    return {
+        .platform = MetalAIRPlatform::IOS,
+        .operating_system_version = operating_system_version,
+        .sdk_version = sdk_version};
+#else
+    return {
         .platform = MetalAIRPlatform::MACOS,
         .operating_system_version = host_macos_version(),
         .sdk_version = sdk_macos_version()};
-    return metal_codegen_air(module, option, target);
+#endif
+}
+
+MetalCodegenLLVMConfig metal_air_codegen_config(
+    const MetalAIRTarget &target,
+    luisa::string source_file) noexcept {
+    auto platform_version = target.operating_system_version;
+    return {
+        .platform = target.platform,
+        .platform_version = platform_version,
+        .sdk_version = target.sdk_version,
+        .air_version = air_version_for_target(
+            target.platform, platform_version.major),
+        .metal_version = metal_version_for_target(
+            target.platform, platform_version.major),
+        .source_file = std::move(source_file)};
+}
+
+MetalAIRCodegenResult
+metal_codegen_air(const xir::Module &module, const ShaderOption &option) noexcept {
+    return metal_codegen_air(
+        module, option, metal_air_target_for_current_device());
 }
 
 MetalAIRCodegenResult metal_codegen_air(
@@ -282,25 +372,17 @@ MetalAIRCodegenResult metal_codegen_air(
             verification.errors.front().message,
             verification.errors.size());
     }
-    auto platform_version = target.operating_system_version;
     auto source_file = option.name;
     if (source_file.empty()) {
         source_file = module.name().value_or("kernel");
     }
-    auto config = MetalCodegenLLVMConfig{
-        .platform = target.platform,
-        .platform_version = platform_version,
-        .sdk_version = target.sdk_version,
-        .air_version = air_version_for_target(
-            target.platform, platform_version.major),
-        .metal_version = metal_version_for_target(
-            target.platform, platform_version.major),
-        .source_file = std::move(source_file),
-        .native_include = option.native_include,
-        .enable_fast_math = option.enable_fast_math,
-        .enable_extended_accel_limits =
-            option.enable_extended_accel_limits,
-        .entry = MetalAIRKernelEntry::DIRECT};
+    auto config = metal_air_codegen_config(
+        target, std::move(source_file));
+    config.native_include = option.native_include;
+    config.enable_fast_math = option.enable_fast_math;
+    config.enable_extended_accel_limits =
+        option.enable_extended_accel_limits;
+    config.entry = MetalAIRKernelEntry::DIRECT;
     luisa::string unsupported_reason;
     LUISA_ASSERT(
         luisa_compute_metal_codegen_llvm_supported(
@@ -395,24 +477,15 @@ MetalAIRRasterCodegenResult metal_codegen_air(
         }
     }
 
-    auto macos = host_macos_version();
-    auto sdk = sdk_macos_version();
+    auto target = metal_air_target_for_current_device();
     auto source_file = option.name;
     if (source_file.empty()) { source_file = "raster"; }
-    auto base_config = MetalCodegenLLVMConfig{
-        .platform = MetalAIRPlatform::MACOS,
-        .platform_version = macos,
-        .sdk_version = sdk,
-        .air_version = air_version_for_target(
-            MetalAIRPlatform::MACOS, macos.major),
-        .metal_version = metal_version_for_target(
-            MetalAIRPlatform::MACOS, macos.major),
-        .source_file = source_file,
-        .native_include = option.native_include,
-        .enable_fast_math = option.enable_fast_math,
-        .entry = MetalAIRKernelEntry::DIRECT,
-        .program = MetalAIRProgram::RASTER_VERTEX,
-        .raster = raster_config};
+    auto base_config = metal_air_codegen_config(target, source_file);
+    base_config.native_include = option.native_include;
+    base_config.enable_fast_math = option.enable_fast_math;
+    base_config.entry = MetalAIRKernelEntry::DIRECT;
+    base_config.program = MetalAIRProgram::RASTER_VERTEX;
+    base_config.raster = raster_config;
     auto vertex_config = base_config;
     vertex_config.source_file.append(".vertex");
     auto vertex_air = codegen_raster_entry(
@@ -433,10 +506,7 @@ MetalAIRRasterCodegenResult metal_codegen_air(
                  "Metal AIR fragment stage reported an invalid output count {}.",
                  fragment_air.fragment_output_count);
 
-    auto target = metallib_target_for_macos(
-        static_cast<uint16_t>(macos.major),
-        static_cast<uint16_t>(macos.minor),
-        static_cast<uint16_t>(macos.patch));
+    auto library_target = metallib_target_for_air(target);
     std::array functions{
         MetalLibFunction{
             "vertex_main", vertex_air.bitcode,
@@ -444,7 +514,7 @@ MetalAIRRasterCodegenResult metal_codegen_air(
         MetalLibFunction{
             "fragment_main", fragment_air.bitcode,
             MetalLibProgramType::FRAGMENT}};
-    auto library = make_metallib(target, functions);
+    auto library = make_metallib(library_target, functions);
     std::array<luisa::string_view, 2u> entry_points{
         "vertex_main", "fragment_main"};
     constexpr std::array program_types{

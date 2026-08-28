@@ -5,12 +5,23 @@
 #include <CommonCrypto/CommonDigest.h>
 
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <string>
+#include <string_view>
+
+#if defined(LUISA_IOS_ON_DEVICE_AIR)
+#include <luisa/luisa-compute.h>
+#include <luisa/runtime/rhi/resource.h>
+
+#include "ios_path_tracing_kernel.h"
+#include "metal_air_pipeline.h"
+#include "metal_xir_pipeline.h"
+#endif
 
 namespace {
 
@@ -43,6 +54,31 @@ static_assert(sizeof(DispatchSize) == 16u);
     std::chrono::steady_clock::time_point end) noexcept {
     return std::chrono::duration<double, std::milli>{end - begin}.count();
 }
+
+#if defined(LUISA_IOS_ON_DEVICE_AIR)
+[[nodiscard]] luisa::compute::metal::MetalAIRVersion parse_air_version(
+    std::string_view text) noexcept {
+    using luisa::compute::metal::MetalAIRVersion;
+    MetalAIRVersion version{};
+    uint32_t *components[]{
+        &version.major, &version.minor, &version.patch};
+    for (auto component = 0u; component < 3u; component++) {
+        auto separator = text.find('.');
+        auto token = text.substr(0u, separator);
+        if (token.empty()) { return {}; }
+        auto [end, error] = std::from_chars(
+            token.data(), token.data() + token.size(),
+            *components[component]);
+        if (error != std::errc{} ||
+            end != token.data() + token.size()) {
+            return {};
+        }
+        if (separator == std::string_view::npos) { break; }
+        text.remove_prefix(separator + 1u);
+    }
+    return version;
+}
+#endif
 
 [[nodiscard]] NSString *string_from_error(NS::Error *error) noexcept {
     if (error == nullptr) { return @"unknown error"; }
@@ -136,16 +172,170 @@ void persist_metadata(NSDictionary *metadata) noexcept {
     }
 }
 
-[[nodiscard]] LuisaRenderOutcome *render_path_tracing() noexcept {
+#if defined(LUISA_IOS_RUNTIME_DEVICE)
+extern "C" luisa::compute::DeviceInterface *
+luisa_compute_metal4_create_static(
+    luisa::compute::Context &&context,
+    const luisa::compute::DeviceConfig *config) noexcept;
+
+extern "C" void luisa_compute_metal4_destroy_static(
+    luisa::compute::DeviceInterface *device) noexcept;
+
+[[nodiscard]] LuisaRenderOutcome *
+render_path_tracing_runtime() noexcept {
+    using namespace luisa;
+    using namespace luisa::compute;
+    using namespace luisa::compute::metal;
+
     auto metadata = [NSMutableDictionary dictionary];
+    metadata[@"width"] = @(image_width);
+    metadata[@"height"] = @(image_height);
+    metadata[@"samples_per_pixel"] = @(samples_per_pixel);
+    metadata[@"shader_generation"] =
+        @"device AST -> XIR -> LLVM -> LLVM 14 downgrade -> AIR";
+    metadata[@"runtime_path"] =
+        @"Luisa DeviceInterface -> MTL4 queue/command buffer/encoder";
+    metadata[@"system"] = [[UIDevice currentDevice] systemVersion];
+
+    if (@available(iOS 26.0, *)) {
+        auto native_device = NS::TransferPtr(
+            MTL::CreateSystemDefaultDevice());
+        if (!native_device) {
+            return failure(
+                @"device", @"Metal device is unavailable", metadata);
+        }
+        auto device_name = [NSString stringWithUTF8String:
+                                         native_device->name()->utf8String()];
+        auto supports_metal4 = native_device->supportsFamily(
+            MTL::GPUFamilyMetal4);
+        auto supports_apple9 = native_device->supportsFamily(
+            MTL::GPUFamilyApple9);
+        auto supports_apple10 = native_device->supportsFamily(
+            MTL::GPUFamilyApple10);
+        metadata[@"device"] = device_name;
+        metadata[@"metal4"] = @(supports_metal4);
+        metadata[@"apple9"] = @(supports_apple9);
+        metadata[@"apple10"] = @(supports_apple10);
+        metadata[@"mtl4_acceleration_structure_build"] =
+            @(supports_apple9);
+        if (!supports_metal4) {
+            return failure(
+                @"feature_guard",
+                @"GPUFamilyMetal4 is not supported", metadata);
+        }
+
+        auto device_begin = std::chrono::steady_clock::now();
+        Context context{luisa::string_view{}};
+        auto interface = luisa_compute_metal4_create_static(
+            std::move(context), nullptr);
+        if (interface == nullptr) {
+            return failure(
+                @"runtime device",
+                @"Metal4 DeviceInterface creation failed", metadata);
+        }
+        auto handle = Device::Handle{
+            interface,
+            [](DeviceInterface *p) noexcept {
+                luisa_compute_metal4_destroy_static(p);
+            }};
+        Device device{std::move(handle)};
+        auto device_end = std::chrono::steady_clock::now();
+        metadata[@"runtime_device_ms"] = @(
+            elapsed_ms(device_begin, device_end));
+        metadata[@"thread_execution_width"] = @(
+            device.compute_warp_size());
+
+        auto output = device.create_image<float>(
+            PixelStorage::BYTE4,
+            make_uint2(image_width, image_height));
+        auto stream = device.create_stream();
+        auto kernel = make_ios_path_tracing_kernel();
+        auto option = ShaderOption{
+            .enable_cache = false,
+            .enable_fast_math = true,
+            .enable_debug_info = false,
+            .compile_only = false,
+            .name = {}};
+        auto compile_begin = std::chrono::steady_clock::now();
+        auto shader = device.compile(kernel, option);
+        auto compile_end = std::chrono::steady_clock::now();
+        metadata[@"pipeline_compile_ms"] = @(
+            elapsed_ms(compile_begin, compile_end));
+
+        luisa::vector<std::array<uint8_t, 4u>> pixels(
+            image_width * image_height);
+        auto dispatch_begin = std::chrono::steady_clock::now();
+        stream << shader(output, samples_per_pixel).dispatch(image_width, image_height)
+               << output.copy_to(luisa::span{pixels})
+               << synchronize();
+        auto dispatch_end = std::chrono::steady_clock::now();
+        auto dispatch_ms = elapsed_ms(dispatch_begin, dispatch_end);
+        metadata[@"dispatch_readback_ms"] = @(dispatch_ms);
+
+        auto pixel_count = pixels.size() * sizeof(pixels.front());
+        auto pixel_sha = sha256_hex(pixels.data(), pixel_count);
+        auto image = image_from_rgba8(pixels.data());
+        auto png = UIImagePNGRepresentation(image);
+        auto png_url = documents_url(
+            @"luisa_metal4_path_tracing.png");
+        NSError *write_error = nil;
+        if (![png writeToURL:png_url
+                     options:NSDataWritingAtomic
+                       error:&write_error]) {
+            return failure(
+                @"PNG write", write_error.localizedDescription,
+                metadata);
+        }
+
+        metadata[@"success"] = @YES;
+        metadata[@"pixel_sha256"] = pixel_sha;
+        metadata[@"png_path"] = png_url.path;
+        auto status = [NSString stringWithFormat:
+                                    @"Luisa Metal4 AIR runtime complete\n%@\n"
+                                     "%ux%u, %u spp\ncompile %.2f ms, "
+                                     "dispatch/readback %.2f ms\npixel SHA %@",
+                                    device_name, image_width, image_height,
+                                    samples_per_pixel,
+                                    [metadata[@"pipeline_compile_ms"]
+                                        doubleValue],
+                                    dispatch_ms,
+                                    [pixel_sha substringToIndex:16u]];
+        NSLog(@"LUISA_IOS_METAL4_PATH_TRACING success=1 runtime=DeviceInterface device='%@' size=%ux%u spp=%u compile_ms=%.6f dispatch_readback_ms=%.6f pixel_sha256=%@ png='%@'",
+              device_name, image_width, image_height,
+              samples_per_pixel,
+              [metadata[@"pipeline_compile_ms"] doubleValue],
+              dispatch_ms, pixel_sha, png_url.path);
+        auto outcome = [LuisaRenderOutcome new];
+        outcome.image = image;
+        outcome.status = status;
+        outcome.metadata = metadata;
+        return outcome;
+    }
+    return failure(
+        @"availability", @"iOS 26.0 or newer is required", metadata);
+}
+#endif
+
+[[nodiscard]] LuisaRenderOutcome *render_path_tracing() noexcept {
+#if defined(LUISA_IOS_RUNTIME_DEVICE)
+    return render_path_tracing_runtime();
+#endif
+    auto metadata = [NSMutableDictionary dictionary];
+#if !defined(LUISA_IOS_ON_DEVICE_AIR)
     metadata[@"air_sha256"] = @LUISA_IOS_AIR_SHA256;
+#endif
     metadata[@"width"] = @(image_width);
     metadata[@"height"] = @(image_height);
     metadata[@"samples_per_pixel"] = @(samples_per_pixel);
     metadata[@"root_argument_size"] = @(sizeof(RootArguments));
     metadata[@"dispatch_size_size"] = @(sizeof(DispatchSize));
+#if defined(LUISA_IOS_ON_DEVICE_AIR)
+    metadata[@"shader_generation"] =
+        @"device AST -> XIR -> LLVM -> LLVM 14 downgrade -> AIR";
+#else
     metadata[@"shader_generation"] =
         @"host XIR -> LLVM -> AIR AOT; device MTL4 pipeline creation";
+#endif
     metadata[@"runtime_path"] = @"MTL4 compiler + queue + command buffer + compute encoder";
 
     if (@available(iOS 26.0, *)) {
@@ -163,14 +353,73 @@ void persist_metadata(NSDictionary *metadata) noexcept {
         metadata[@"apple10"] = @(supports_apple10);
         metadata[@"mtl4_acceleration_structure_build"] = @(supports_apple9);
         metadata[@"system"] = [[UIDevice currentDevice] systemVersion];
+#if defined(LUISA_IOS_ON_DEVICE_AIR)
+        NSLog(@"LUISA_IOS_METAL4_PATH_TRACING device='%@' metal4=%d apple9=%d apple10=%d codegen=device",
+              device_name, supports_metal4, supports_apple9, supports_apple10);
+#else
         NSLog(@"LUISA_IOS_METAL4_PATH_TRACING device='%@' metal4=%d apple9=%d apple10=%d air_sha256=%s",
               device_name, supports_metal4, supports_apple9, supports_apple10,
               LUISA_IOS_AIR_SHA256);
+#endif
         if (!supports_metal4) {
             return failure(@"feature_guard",
                            @"GPUFamilyMetal4 is not supported", metadata);
         }
 
+        NS::Error *metal_error = nullptr;
+        NS::SharedPtr<MTL::Library> library;
+#if defined(LUISA_IOS_ON_DEVICE_AIR)
+        using namespace luisa::compute;
+        using namespace luisa::compute::metal;
+        auto ast_begin = std::chrono::steady_clock::now();
+        auto kernel = make_ios_path_tracing_kernel();
+        auto ast_end = std::chrono::steady_clock::now();
+        auto option = ShaderOption{
+            .enable_cache = false,
+            .enable_fast_math = true,
+            .enable_debug_info = false,
+            .compile_only = true,
+            .name = "luisa_ios_path_tracing_device_codegen"};
+        auto xir_begin = std::chrono::steady_clock::now();
+        auto module = metal_translate_ast_to_xir(
+            kernel.function()->function(), option);
+        auto xir_end = std::chrono::steady_clock::now();
+        auto deployment = parse_air_version(
+            LUISA_IOS_AIR_DEPLOYMENT_VERSION);
+        auto sdk = parse_air_version(LUISA_IOS_AIR_SDK_VERSION);
+        if (deployment.major == 0u || sdk.major == 0u) {
+            return failure(@"AIR target", @"invalid deployment or SDK version", metadata);
+        }
+        auto air_begin = std::chrono::steady_clock::now();
+        auto air = metal_codegen_air(
+            *module, option,
+            metal_air_target_for_ios(deployment, sdk));
+        auto air_end = std::chrono::steady_clock::now();
+        metadata[@"ast_build_ms"] = @(elapsed_ms(ast_begin, ast_end));
+        metadata[@"xir_opt_ms"] = @(elapsed_ms(xir_begin, xir_end));
+        metadata[@"llvm_air_ms"] = @(elapsed_ms(air_begin, air_end));
+        metadata[@"air_bytes"] = @(air.library.size());
+        metadata[@"air_root_argument_size"] = @(air.root_argument_size);
+        metadata[@"air_target"] = [NSString stringWithFormat:
+                                                @"iOS %u.%u.%u SDK %u.%u.%u",
+                                                deployment.major, deployment.minor, deployment.patch,
+                                                sdk.major, sdk.minor, sdk.patch];
+        if (air.library.empty() || air.root_argument_size != sizeof(RootArguments)) {
+            return failure(@"AIR codegen", @"empty library or invalid root ABI", metadata);
+        }
+        auto generated_air_sha = sha256_hex(
+            air.library.data(), air.library.size());
+        metadata[@"air_sha256"] = generated_air_sha;
+        auto library_data = dispatch_data_create(
+            air.library.data(), air.library.size(), nullptr,
+            DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+        auto library_begin = std::chrono::steady_clock::now();
+        library = NS::TransferPtr(device->newLibrary(
+            library_data, &metal_error));
+        auto library_end = std::chrono::steady_clock::now();
+        dispatch_release(library_data);
+        metadata[@"library_load_ms"] = @(elapsed_ms(library_begin, library_end));
+#else
         auto metallib_path = [[NSBundle mainBundle]
             pathForResource:@"luisa_ios_path_tracing"
                      ofType:@"metallib"];
@@ -191,12 +440,12 @@ void persist_metadata(NSDictionary *metadata) noexcept {
             return failure(@"bundle", @"AIR metallib SHA-256 mismatch", metadata);
         }
         auto metallib_url = [NSURL fileURLWithPath:metallib_path];
-        NS::Error *metal_error = nullptr;
         auto library_begin = std::chrono::steady_clock::now();
-        auto library = NS::TransferPtr(device->newLibrary(
+        library = NS::TransferPtr(device->newLibrary(
             reinterpret_cast<NS::URL *>(metallib_url), &metal_error));
         auto library_end = std::chrono::steady_clock::now();
         metadata[@"library_load_ms"] = @(elapsed_ms(library_begin, library_end));
+#endif
         if (!library) {
             return failure(@"AIR library", string_from_error(metal_error), metadata);
         }
@@ -451,8 +700,13 @@ void persist_metadata(NSDictionary *metadata) noexcept {
                                                      weight:UIFontWeightRegular];
     _status_label.numberOfLines = 0;
     _status_label.textAlignment = NSTextAlignmentCenter;
+#if defined(LUISA_IOS_ON_DEVICE_AIR)
+    _status_label.text =
+        @"Generating AST -> XIR -> LLVM -> AIR on this iPhone...";
+#else
     _status_label.text =
         @"Loading host-generated XIR -> LLVM -> AIR and running it on Metal4...";
+#endif
     [self.view addSubview:_status_label];
 
     _spinner = [[UIActivityIndicatorView alloc]

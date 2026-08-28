@@ -16,7 +16,7 @@ set(LUISA_COMPUTE_AST_SOURCES
         type.cpp
         variable.cpp)
 
-add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
+add_library(luisa-compute-ast ${LUISA_COMPUTE_AST_SOURCES})
 target_compile_definitions(luisa-compute-ast PRIVATE LUISA_AST_EXPORT_DLL=1)
 
 target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core luisa-compute-ext)

@@ -10,8 +10,15 @@ endif ()
 set(FETCHCONTENT_QUIET OFF)
 function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "SUPPORT_DIR;BUILTIN_DIR" "SOURCES" ${ARGN})
-    # DLL target
-    add_library(luisa-compute-backend-${name} MODULE ${BACKEND_SOURCES})
+    # iOS backends are linked into the signed application image. Other
+    # platforms retain the discoverable runtime-module model.
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(_LUISA_BACKEND_LIBRARY_TYPE STATIC)
+    else ()
+        set(_LUISA_BACKEND_LIBRARY_TYPE MODULE)
+    endif ()
+    add_library(luisa-compute-backend-${name}
+            ${_LUISA_BACKEND_LIBRARY_TYPE} ${BACKEND_SOURCES})
     target_link_libraries(luisa-compute-backend-${name} PRIVATE
             luisa-compute-ast
             luisa-compute-runtime

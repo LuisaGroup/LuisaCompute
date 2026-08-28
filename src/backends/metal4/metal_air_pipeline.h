@@ -25,6 +25,13 @@ struct MetalAIRTarget {
     MetalAIRVersion operating_system_version,
     MetalAIRVersion sdk_version) noexcept;
 
+[[nodiscard]] MetalAIRTarget
+metal_air_target_for_current_device() noexcept;
+
+[[nodiscard]] MetalCodegenLLVMConfig metal_air_codegen_config(
+    const MetalAIRTarget &target,
+    luisa::string source_file = {}) noexcept;
+
 struct MetalAIRCodegenResult {
     luisa::vector<std::byte> library;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;

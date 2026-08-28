@@ -41,7 +41,8 @@ luisa_compute_add_test(test_my_feature unit/runtime/test_my_feature.cpp)
 luisa_compute_add_test(test_my_pure unit/core/test_my_pure.cpp LABELS "unit;unit_core")
 
 # Passing fixed arguments to CTest (e.g. forcing the DX backend):
-luisa_compute_add_test(test_raster integration/runtime/test_raster.cpp ARGS dx)
+luisa_compute_add_test(test_raster integration/runtime/test_raster.cpp
+    LABELS "integration" ARGS dx)
 ```
 
 xmake (`src/tests/xmake.lua`):

@@ -91,7 +91,7 @@ if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(py)
 endif ()
 
-if (NOT SKBUILD)
+if (NOT SKBUILD AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     install(EXPORT LuisaComputeTargets
             FILE LuisaComputeTargets.cmake
             NAMESPACE luisa::

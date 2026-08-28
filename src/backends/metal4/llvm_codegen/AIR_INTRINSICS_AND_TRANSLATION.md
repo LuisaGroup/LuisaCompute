@@ -13,6 +13,10 @@ The authoritative implementation is:
   [metal_codegen_llvm.h](metal_codegen_llvm.h), and the focused
   `metal_codegen_llvm_{type,function,access,resource,atomic,arithmetic,metadata,preflight}.cpp`
   translation units for XIR-to-LLVM/AIR lowering.
+- [metal_codegen_llvm_builtin.cpp](metal_codegen_llvm_builtin.cpp) for the five
+  fixed runtime-support entry points expressed directly as LLVM/AIR, and
+  [metal_builtin_air.cpp](../metal_builtin_air.cpp) for their verification,
+  optimization, downgrade, and joint MTLB packaging.
 - [metal_xir_pipeline.cpp](../metal_xir_pipeline.cpp) for AST-to-XIR lowering
   and XIR optimization.
 - [metal_air_pipeline.cpp](../metal_air_pipeline.cpp) for LLVM optimization,
@@ -22,6 +26,9 @@ The authoritative implementation is:
 - [metal_device.cpp](../metal_device.cpp) and
   [metal_compiler.cpp](../metal_compiler.cpp) for loading,
   caching, and pipeline-state creation.
+- [metal_tex_compress.cpp](../metal_tex_compress.cpp) and the Metal4 CMake
+  target for loading target-specific, build-time-precompiled BC6H/BC7 support
+  metallibs without carrying an MSL compiler into the runtime.
 - [metal_raster_ext.cpp](../metal_raster_ext.cpp) and
   [metal_raster_shader.cpp](../metal_raster_shader.cpp) for paired
   vertex/fragment creation, render pipeline states, binding, and draw encoding.
@@ -332,14 +339,19 @@ An explicitly targeted iOS 26.0 library with the iOS 26.4 SDK emits:
 air64_v28-apple-ios26.0.0
 ~~~
 
-The default compute and raster overloads remain macOS-host targeted. Their
-macOS version comes from the **runtime host**, not
-`CMAKE_OSX_DEPLOYMENT_TARGET`; the host version selects the AIR and Metal
-language versions and the MTLB platform/version header. The separately
-detected command-line-tools SDK version appears only in the LLVM `SDK Version`
-module flag described in Section 7. CMake obtains it from
-`xcrun --sdk macosx --show-sdk-version`; if that query is unavailable, the
-emitter falls back to the host version for the flag.
+The default compute and raster overloads target the **current runtime
+platform**. On macOS, the operating-system version comes from the runtime host
+and applies the 16-through-25 compatibility normalization. On iOS, the native
+iOS product version is used without that macOS-only normalization. In both
+cases the runtime version selects the AIR and Metal language versions and the
+MTLB platform/version header; it is deliberately not replaced with
+`CMAKE_OSX_DEPLOYMENT_TARGET`.
+
+The separately detected platform SDK version appears only in the LLVM
+`SDK Version` module flag described in Section 7. CMake obtains it from
+`xcrun --sdk macosx --show-sdk-version` for macOS and
+`xcrun --sdk iphoneos --show-sdk-version` for iOS. If the query is unavailable,
+the emitter falls back to the current platform version for the flag.
 
 The explicit compute overload accepts a `MetalAIRTarget`. For iOS, its
 deployment version selects the triple, AIR/Metal versions, and MTLB platform
@@ -348,14 +360,25 @@ an SDK older than the requested deployment target. This target object is what
 allows a macOS host tool to create an iOS AIR library without pretending that
 the host itself is iOS.
 
-This makes default generated AIR and raster AOT archives host-targeted.
-An archive generated on macOS 26, for example, is not promised to load on the
-project’s macOS 13 deployment floor even when the host C++ binary was built
-with a macOS 13 deployment target. Producing a genuinely portable archive
-requires a separately validated older AIR/Metal target and corresponding
-toolchain contract; merely substituting the CMake deployment number caused
-Apple's runtime compiler service to reject the generated library during the
-current investigation.
+The current-device iOS overload has a deliberately different update rule. A
+signed app built with the iOS 26.4 SDK must continue working after its device
+updates to iOS 26.6, so a newer runtime minor/patch within the same major is
+accepted and the runtime version remains the AIR/MTLB target. A runtime major
+newer than the linked SDK still fails closed because it may select an AIR or
+Metal language ABI the emitter and SDK do not know. This mirrors the practical
+macOS host/SDK split while retaining the stricter full-version ordering for
+explicit cross-target AOT.
+
+This makes default generated AIR and raster AOT archives current-device
+targeted. An archive generated on macOS 26, for example, is not promised to
+load on the project’s macOS 13 deployment floor even when the host C++ binary
+was built with a macOS 13 deployment target. Likewise, the on-device iOS path
+uses the running iOS version rather than claiming portability to every older
+deployment target. Producing a genuinely portable archive requires a
+separately validated older AIR/Metal target and corresponding toolchain
+contract; merely substituting the CMake deployment number caused Apple's
+runtime compiler service to reject the generated library during the current
+investigation.
 
 ### 3.2 Data layout
 
@@ -2772,10 +2795,10 @@ LLVM-21 discovery, pinned llvm-downgrade validation, disposable patched-source
 mirror, and backend link graph have no xmake equivalent yet; no placeholder
 xmake target is provided under `backends/metal4`.
 
-At runtime the module requires macOS 26 or newer, a device reporting
-`MTL::GPUFamilyMetal4`, and successful creation of an `MTL4::Compiler`.
-Unsupported hosts expose no `metal4` device rather than silently behaving like
-the original Metal backend.
+At runtime the module requires macOS 26 or iOS 26 (according to the compiled
+platform), a device reporting `MTL::GPUFamilyMetal4`, and successful creation
+of an `MTL4::Compiler`. Unsupported hosts expose no `metal4` device rather
+than silently behaving like the original Metal backend.
 
 ### 15.2 Unconditional AIR path
 
@@ -2785,6 +2808,16 @@ does not compile or link `MetalCodegenAST`. Unsupported preflight, LLVM
 verification, downgrade, metallib construction/loading, or PSO creation fails
 the requested shader operation. Compute and raster AOT loaders consume their
 validated archives directly and likewise have no source-code fallback.
+
+The same rule now includes the fixed device-runtime shaders. Acceleration
+instance updates, bindless-table updates, indirect-command preparation, and
+swapchain presentation are LLVM/AIR modules, not embedded MSL strings. BC6H
+and BC7 compression are the one fixed support family still authored as MSL;
+CMake invokes the target SDK's `metal` and `metallib` tools at **build time**,
+embeds only the resulting target-specific metallib bytes, and the runtime only
+calls `newLibrary(data)` plus the MTL4 pipeline compiler. No source string,
+`MTLCompileOptions`, `MTLLibraryDescriptor::setSource`, or runtime MSL compiler
+path is linked into the Metal4 backend.
 
 ### 15.3 Device-gated acceleration-structure build path
 
@@ -2951,32 +2984,78 @@ blob. Debug information suppresses loading an existing disk archive. Raw MTLB
 dumping is a separate diagnostic path and only occurs when a configured shader
 I/O destination is available.
 
-### 15.6 iOS compilation model and JIT boundary
+### 15.6 LLVM/AIR runtime-support library
+
+`MetalDevice` constructs one five-function runtime-support metallib for the
+current platform. Each function starts in a separate LLVM 21 module, receives
+the same AIR target triple, module flags, fast-math policy, pointer-element
+recovery metadata, and source-file convention as ordinary user shaders, then
+passes the following fail-closed sequence:
+
+1. LLVM construction and verification.
+2. The default per-module O2 pipeline with full loop unrolling disabled.
+3. A second LLVM verification.
+4. In-tree JuliaLLVM serialization as LLVM 14-compatible AIR bitcode.
+5. Joint deterministic MTLB assembly in kernel, kernel, kernel, vertex,
+   fragment order.
+6. Structural validation of every entry name, program type, payload range,
+   and hash before `MTLDevice::newLibrary(data)`.
+
+The entries and their reconstructed ABI conventions are:
+
+| Entry | Kind / block size | AIR-facing contract |
+|---|---|---|
+| `update_accel_instances` | kernel / 256 | Device `AccelInstance[72 B]`, device `Modification[80 B, align 16]`, constant `uint` count, and `thread_position_in_grid`. Flags independently update primitive (bit 0), affine transform (bit 1), opaque state (bits 2/3), visibility (bit 4), and user ID (bit 5). The three source `float4` rows are written into the runtime's 12-float column-major transform order. |
+| `update_bindless_array` | kernel / 256 | Device indirect `BindlessSlot[32 B, align 16]`, device indirect `Modification[64 B, align 16]`, constant count, and grid ID. Operation 0 preserves, 1 updates, and 2 removes each resource. The packed `uint64` stores the buffer size in bits 0..47, the 2D sampler code in 48..55, and the 3D sampler code in 56..63, where each sampler code is `(filter << 2) | address`. Removal uses `air.get_null_texture_2d` or `air.get_null_texture_3d`, not an integer null masquerading as a texture handle. |
+| `prepare_indirect_dispatches` | kernel / 64 | Constant indirect `ICB[32 B]`, constant root-argument bytes, and grid ID. It resets every in-capacity command, bounds execution by the dispatch header count, installs `air.set_pipeline_state_compute_command`, binds the root block at slot 0 with the constant-pointer overload, binds the per-dispatch size at slot 1 with the device-pointer overload, computes ceil-divided threadgroup counts, and calls `air.concurrent_dispatch_threadgroups_compute_command`. Zero in any dispatch dimension leaves the command reset and undispatched. |
+| `swapchain_vertex_shader` | vertex | Constant `float2` vertex data and `vertex_id`; returns packed `{position: float4, uv: float2}` with `air.position` plus the generated varying identity. UV is `saturate(position.xy * {0.5, -0.5} + 0.5)`. |
+| `swapchain_fragment_shader` | fragment | Position, perspective-center UV, and sampled 2D texture; calls `air.sample_texture_2d.v4f32` with the constant sampler state registered in `air.sampler_states`, forces alpha to one, and returns render target 0. |
+
+Opaque command-buffer, compute-pipeline, texture, and sampler pointers use
+`arg_eltypes`, `ret_eltype`, and `llvm.struct_eltypes` so the LLVM 14 writer
+recovers the legacy typed-pointer identities Metal expects. Entry reflection
+uses `air.kernel`, `air.vertex`, or `air.fragment`; the swapchain sampler also
+uses `air.sampler_states`. The library is loaded once per `MetalDevice`; its
+three compute PSOs and two format-specific present PSOs are all created by
+`MTL4::Compiler`. Failure to generate, downgrade, validate, load, find, or
+compile any required entry aborts device creation instead of falling back to
+MSL.
+
+### 15.7 iOS compilation model and JIT boundary
 
 iOS's prohibition on arbitrary CPU executable-memory JIT does not imply that
 Metal shaders must be fixed at app-build time. Loading a library and asking
 Metal to create a pipeline compiles GPU code through the system Metal service;
 it does not create CPU executable pages in the application.
 
-The current physical-device probe intentionally separates two boundaries:
+The current iOS device app implements dynamic on-device XIR-to-AIR without
+`MAP_JIT`. It cross-builds LLVM 21, the in-tree LLVM downgrade, AST, XIR,
+runtime, DSL, Metal4 AIR codegen, and the Metal4 backend as arm64 iOS static
+libraries. The signed app then performs this sequence inside the iPhone
+process:
 
-1. The macOS host runs the Luisa DSL/AST -> XIR pipeline, LLVM 21 emission and
-   O2 passes, LLVM 14 downgrade, and deterministic iOS MTLB assembly.
-2. The iOS app verifies and loads that bundled metallib, creates its pipeline
-   with `MTL4::Compiler`, and executes it with MTL4 queue, command-buffer,
-   compute-encoder, argument-table, allocator, residency-set, and feedback
-   APIs.
+1. Build the path-tracing DSL/AST and translate/optimize it as XIR.
+2. Construct and optimize LLVM 21 IR for the running iOS target.
+3. Serialize LLVM 14-compatible AIR and assemble the deterministic iOS MTLB.
+4. Load the bytes with `MTLDevice::newLibrary(data)` and create the GPU
+   pipeline through the system Metal service.
+5. Dispatch through the real Luisa `DeviceInterface`, MTL4 queue,
+   command-buffer, compute encoder, argument table, allocator, residency set,
+   and feedback path, then copy the image back and persist PNG/JSON evidence.
 
-Thus the current probe is host-AOT plus device-side Metal pipeline compilation,
-not on-device XIR/LLVM generation. A true dynamic iOS XIR-to-AIR path is
-architecturally possible without `MAP_JIT`: cross-build LLVM 21, the in-tree
-LLVM downgrade, XIR/AST/runtime support, and the Metal4 AIR codegen library as
-iOS arm64 static slices, link them into the app, and call the same explicit
-`MetalAIRTarget` path before `newLibrary`. That follow-up must account for app
-size, startup cost, private AIR/MTLB ABI drift, memory pressure, and App Store
-policy. It must also retain the current SHA/container/runtime checks; the fact
-that the system accepts a GPU compilation request is not proof that a private
-AIR artifact is portable across OS releases.
+None of steps 1 through 3 executes generated CPU machine code: LLVM is used as
+an IR builder, optimizer, verifier, and bitcode writer. iOS's CPU JIT policy is
+therefore not crossed. Step 4 is Apple's supported GPU-pipeline compilation
+service and likewise does not grant the app arbitrary executable CPU pages.
+
+iOS uses exported static create/destroy entry points because a dynamically
+loaded backend plugin is inappropriate inside the signed app bundle. The
+final app target defines `LUISA_IOS_RUNTIME_DEVICE=1`; an older manual MTL4
+host-AOT/direct-encoder branch remains in the diagnostic source but is not the
+selected application path. The current signed runtime-linked bundle is about
+24 MiB. Private AIR/MTLB ABI drift, startup codegen cost, memory pressure, and
+App Store policy remain deployment concerns even though the local toolchain
+can build and sign the app.
 
 ## 16. Validation and reverse-engineering workflow
 
@@ -3217,9 +3296,9 @@ The closure configuration uses CMake/Ninja Release builds with legacy Metal,
 Metal4, and fallback enabled, Homebrew LLVM 21.1.8, Apple metalfe 32023.883,
 and the macOS 26.4 SDK. The work starts from branch revision `11e6c3012`, which
 contains `origin/next` at `eeda4b154`. After a complete rebuild, the configured
-parallel CTest run passes **158/158** in 43.51 seconds: **36/36**
+parallel CTest run passes **159/159** in 43.39 seconds: **36/36**
 `integration_metal4` tests, **15/15** offline graphics/rendering executables,
-**11/11** tutorials, and **112/112** unit registrations are included. These
+**11/11** tutorials, and **113/113** unit registrations are included. These
 tests compile and execute on an Apple M1 Max; the independent Metal4 module has
 no MSL code generator or source fallback that could hide an AIR failure.
 
@@ -3307,9 +3386,9 @@ LUISA_METAL_SHADER_INFO=1 ./bin/benchmark_metal4 metal 64 1101
 LUISA_METAL_SHADER_INFO=1 ./bin/benchmark_metal4 metal4 64 1101
 ~~~
 
-### 16.3 Physical iPhone MTL4/AIR path tracing (2026-08-28)
+### 16.3 Physical iPhone host-AOT baseline (2026-08-28)
 
-The standalone device probe was signed, installed, and executed on an iPhone
+The earlier standalone host-AOT probe was signed, installed, and executed on an iPhone
 17 Pro Max running iOS 26.6. Metal identifies the device as
 `Apple A19 Pro GPU`; `GPUFamilyMetal4`, `GPUFamilyApple9`, and
 `GPUFamilyApple10` all report true. Therefore this device takes the native
@@ -3341,6 +3420,11 @@ inspection shows the expected sphere, box, checker floor, environment light,
 occlusion, and Monte Carlo noise rather than an empty or uniform texture. See
 the device runner README for reproducible signing, installation, launch, and
 artifact-retrieval commands.
+
+This table is retained as the host-AOT/manual-encoder baseline. It does not by
+itself validate the newer runtime-linked `DeviceInterface` app described in
+Section 15.7; that app requires a separate physical-device launch and its own
+retrieved PNG/JSON evidence.
 
 ### 16.4 Useful commands
 
@@ -3419,11 +3503,10 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 - AIR intrinsic names and metadata are private Apple implementation details.
 - The macOS/AIR/Metal/file-format table is hand-maintained and empirical.
 - Default AIR triples, AIR/Metal language versions, and MTLB platform fields
-  target the macOS runtime host. Explicit iOS compute AOT can target a supplied
-  deployment/SDK pair, but raster archives remain host-macOS-only and the
-  current iOS runner does not yet link the XIR/LLVM codegen stack for on-device
-  generation. An archive generated on a newer release is not guaranteed to
-  load at an older C++ deployment floor.
+  target the current runtime platform and OS version. Explicit iOS compute AOT
+  can target a supplied deployment/SDK pair; the runtime-linked iOS runner
+  instead performs XIR/LLVM/AIR generation on-device. An archive generated on
+  a newer release is not guaranteed to load at an older C++ deployment floor.
 - The MTLB writer uses empty public/private metadata groups; more advanced
   function kinds may require real records.
 - The internal structural validator is not a semantic AIR validator.
@@ -3493,9 +3576,11 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Resource, curve, motion, and query lowering | [metal_codegen_llvm_resource.cpp](metal_codegen_llvm_resource.cpp), [metal_codegen_llvm_access.cpp](metal_codegen_llvm_access.cpp) |
 | Fail-closed support preflight | [metal_codegen_llvm_preflight.cpp](metal_codegen_llvm_preflight.cpp) |
 | Public codegen configuration/result | [metal_codegen_llvm.h](metal_codegen_llvm.h) |
+| LLVM-generated runtime builtin entries and ABI metadata | [metal_codegen_llvm_builtin.cpp](metal_codegen_llvm_builtin.cpp) |
 | AST-to-XIR orchestration | [metal_xir_pipeline.cpp](../metal_xir_pipeline.cpp) |
 | Shared XIR pipeline factories | [pass_pipeline.cpp](../../../xir/passes/pass_pipeline.cpp) |
 | LLVM O2, version selection, dual entries, packaging | [metal_air_pipeline.cpp](../metal_air_pipeline.cpp) |
+| Runtime builtin verification, downgrade, and five-entry packaging | [metal_builtin_air.cpp](../metal_builtin_air.cpp) |
 | MTLB writer and validator | [metal_metallib.cpp](../metal_metallib.cpp) |
 | iOS compute AIR path-tracing AOT generator | [ios_path_tracing_aot.cpp](../tools/ios_path_tracing_aot.cpp) |
 | iOS MTL4 device runner and artifact capture | [ios_path_tracer_app](../tools/ios_path_tracer_app) |
@@ -3510,6 +3595,7 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Parent-owned LLVM 21/AIR downgrade overlay and regressions | [llvm-downgrade-llvm21-air.patch](../../../ext/llvm-downgrade-llvm21-air.patch) |
 | Pinned upstream typed-pointer and LLVM 14 writer base | [PointerRewriter.cpp](../../../ext/llvm-downgrade/src/PointerRewriter.cpp), [ValueEnumerator140.cpp](../../../ext/llvm-downgrade/src/ValueEnumerator140.cpp), [BitcodeWriter140.cpp](../../../ext/llvm-downgrade/src/BitcodeWriter140.cpp) |
 | AIR-only shader creation | [metal_device.cpp](../metal_device.cpp) |
+| Build-time BC6H/BC7 metallib embedding and runtime binary loading | [metal_tex_compress.cpp](../metal_tex_compress.cpp), [CMakeLists.txt](../CMakeLists.txt) |
 | In-memory MTLB loading and PSO creation | [metal_compiler.cpp](../metal_compiler.cpp) |
 | Host argument packing, minimum root block, and direct/indirect dispatch | [metal_shader.cpp](../metal_shader.cpp) |
 | 256-byte-aligned root/upload staging allocations | [metal_stage_buffer_pool.cpp](../metal_stage_buffer_pool.cpp) |

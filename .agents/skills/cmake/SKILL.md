@@ -68,6 +68,7 @@ Auto-finds `cmake` and `ninja` (PATH → `.deps/` → pip). Auto-prepares MSVC e
 | `LUISA_COMPUTE_ENABLE_DSL` | ON | C++ DSL |
 | `LUISA_COMPUTE_ENABLE_CUDA` | ON | CUDA backend |
 | `LUISA_COMPUTE_ENABLE_METAL` | ON | Metal backend (macOS only) |
+| `LUISA_COMPUTE_ENABLE_METAL4` | OFF | Independent Metal4 XIR→LLVM→AIR backend; requires LLVM 21 and Apple Metal 4 tools |
 | `LUISA_COMPUTE_ENABLE_DX` | ON | DirectX backend (Windows only) |
 | `LUISA_COMPUTE_ENABLE_VULKAN` | ON | Vulkan backend |
 | `LUISA_COMPUTE_ENABLE_HIP` | OFF | HIP backend (work in progress) |
@@ -120,20 +121,28 @@ cmake --build build
 ```
 luisa-compute-include (INTERFACE, header-only)
   → luisa-compute-ext (INTERFACE, third-party deps)
-    → luisa-compute-core (SHARED)
-      → luisa-compute-ast (SHARED)
-        → luisa-compute-xir (SHARED)
-      → luisa-compute-runtime (SHARED)
+    → luisa-compute-core
+      → luisa-compute-ast
+        → luisa-compute-xir
+      → luisa-compute-runtime
         → luisa-compute-dsl, luisa-compute-gui
           → luisa-compute-backends (INTERFACE aggregator)
 ```
+
+These libraries follow `BUILD_SHARED_LIBS`: ordinary desktop builds force it
+ON, while iOS forces it OFF so the signed app contains static core/runtime/XIR
+and backend slices.
 
 Additional modules linked by the umbrella target `luisa::compute` include `luisa-compute-vstl` (object helper), `luisa-compute-osl`, `luisa-compute-coro`, and `luisa-compute-clangcxx`.
 
 ## Custom CMake Functions
 
 ### `luisa_compute_add_backend(name [SOURCES ...] [SUPPORT_DIR dir])`
-Creates a backend plugin `MODULE` target. Links `luisa-compute-ast`, `luisa-compute-runtime`, and `luisa-compute-gui`. Output name is `luisa-backend-<name>` and runtime artifacts are installed to `bin/`. If `SUPPORT_DIR` is given, its contents are copied next to the runtime outputs and installed to `bin/`.
+Creates a backend `MODULE` target on desktop platforms and a `STATIC` target
+on iOS. It links `luisa-compute-ast`, `luisa-compute-runtime`, and
+`luisa-compute-gui`. Desktop output is named `luisa-backend-<name>` and runtime
+artifacts are installed to `bin/`. If `SUPPORT_DIR` is given, its contents are
+copied next to the runtime outputs and installed to `bin/`.
 ```cmake
 luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 ```
@@ -151,7 +160,10 @@ luisa_compute_add_executable(my_app)
 ```
 
 ### `luisa_compute_add_test(name source [LABELS ...] [ARGS ...])`
-**File**: `src/tests/CMakeLists.txt`. Builds one standalone executable per source. With `LABELS`, registers a CTest entry (CPU-only tests). Without `LABELS`, just builds the binary (GPU-using tests are invoked manually with a backend arg).
+**File**: `src/tests/CMakeLists.txt`. Builds one standalone executable per
+source. With `LABELS`, registers a CTest entry; `ARGS` can pin a backend for a
+GPU integration test. Without `LABELS`, it just builds the binary and any
+device test is invoked manually with a backend argument.
 ```cmake
 luisa_compute_add_test(test_basic_traits unit/core/test_basic_traits.cpp LABELS "unit;unit_core")
 luisa_compute_add_test(test_my_gpu unit/runtime/test_my_gpu.cpp)  # no CTest
@@ -173,12 +185,36 @@ luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver
 
 ## Backend Plugin Build
 
-Backends built as `MODULE` (runtime-loadable shared libs):
+Desktop backends are built as `MODULE` runtime-loadable libraries:
 ```cmake
 luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 ```
 
 Key: output renamed to `luisa-backend-<name>`, installed to `bin/`, supports `luisa_embed_device_lib` for builtin device libs.
+
+On iOS, the same helper emits a static backend. A signed Metal4 AIR device app
+configuration has this shape:
+
+```bash
+cmake -S . -B build-ios-metal4 -G Xcode \
+  -D CMAKE_SYSTEM_NAME=iOS \
+  -D CMAKE_OSX_SYSROOT=iphoneos \
+  -D CMAKE_OSX_ARCHITECTURES=arm64 \
+  -D CMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
+  -D LLVM_DIR=<ios-llvm21>/lib/cmake/llvm \
+  -D LUISA_COMPUTE_ENABLE_METAL=OFF \
+  -D LUISA_COMPUTE_ENABLE_METAL4=ON \
+  -D LUISA_COMPUTE_ENABLE_FALLBACK=OFF \
+  -D LUISA_COMPUTE_BUILD_TESTS=OFF \
+  -D LUISA_IOS_DEVELOPMENT_TEAM=<team-id>
+cmake --build build-ios-metal4 --config Release \
+  --target luisa-metal4-ios-device-air-path-tracer
+```
+
+Metal4 user shaders and fixed runtime builtins are LLVM/AIR. BC6H/BC7 fixed
+support sources are compiled to target-specific metallibs by `xcrun metal`
+and `metallib` at build time; the runtime embeds and loads only their binary
+bytes.
 
 ## Third-Party Extension Pattern
 

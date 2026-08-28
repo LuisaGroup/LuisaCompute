@@ -18,6 +18,8 @@ MetalSwapchain::MetalSwapchain(MetalDevice *device, uint64_t window_handle,
                     device->builtin_swapchain_present_ldr()},
       _render_pass_desc{MTL4::RenderPassDescriptor::alloc()->init()},
       _command_label{} {
+    LUISA_ASSERT(_layer != nullptr,
+                 "Failed to create a Metal swapchain layer.");
     _layer->retain();
     auto attachment_desc = _render_pass_desc->colorAttachments()->object(0);
     attachment_desc->setLoadAction(MTL::LoadActionDontCare);
