@@ -2579,6 +2579,129 @@ void reg_coro_cfg_distill() {
         }
     };
 
+    "fresh_aggregate_definition_after_resume_is_scope_local"_test = [] {
+        // The alloca instruction itself may be recorded in coroutine root
+        // scope (DSL Local objects are commonly constructed while the host
+        // assembles the whole kernel). A full definition after resume starts
+        // a fresh memory-value lifetime. Reads and conservative reference
+        // escapes dominated by that definition must not make the undefined
+        // entry contents part of the persistent frame.
+        Module m;
+        auto *array_type = Type::array(Type::of<float>(), 255u);
+        auto *observer = m.create_callable(nullptr);
+        static_cast<void>(observer->create_reference_argument(array_type));
+        auto *observer_entry = observer->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(observer_entry);
+        b.return_void();
+
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *surface = kernel->create_basic_block();
+        auto *after_surface = kernel->create_basic_block();
+        b.set_insertion_point(entry);
+        auto *scratch = b.alloca_local(array_type);
+        scratch->set_name("scope_local_svm_stack");
+        b.coro_suspend(211u, "surface", nullptr);
+        b.set_insertion_point(surface);
+        b.coro_resume(211u, nullptr);
+        b.store(scratch, m.create_undefined(array_type));
+        static_cast<void>(b.call(nullptr, observer, {scratch}));
+        b.coro_suspend(223u, "after-surface", nullptr);
+        b.set_insertion_point(after_surface);
+        b.coro_resume(223u, nullptr);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        expect(std::none_of(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &value) noexcept {
+                return value.value == scratch;
+            }));
+        auto surface_scope = std::find_if(
+            result.scopes.begin(), result.scopes.end(),
+            [](const auto &scope) noexcept {
+                return scope.trigger_token == 211u;
+            });
+        expect(surface_scope != result.scopes.end());
+        if (surface_scope != result.scopes.end()) {
+            expect(std::find(surface_scope->external_values.begin(),
+                             surface_scope->external_values.end(),
+                             scratch) ==
+                   surface_scope->external_values.end());
+            expect(std::find(surface_scope->touched_values.begin(),
+                             surface_scope->touched_values.end(),
+                             scratch) !=
+                   surface_scope->touched_values.end());
+        }
+        auto after_edge = std::find_if(
+            result.transition_edges.begin(),
+            result.transition_edges.end(),
+            [](const auto &edge) noexcept {
+                return edge.token == 223u;
+            });
+        expect(after_edge != result.transition_edges.end());
+        if (after_edge != result.transition_edges.end()) {
+            expect(std::find(after_edge->store_values.begin(),
+                             after_edge->store_values.end(),
+                             scratch) ==
+                   after_edge->store_values.end());
+        }
+    };
+
+    "inherited_aggregate_state_still_crosses_suspend"_test = [] {
+        // The preceding case is a definition-sensitive lifetime rule, not a
+        // blanket exemption for allocations used in only one continuation.
+        // When the aggregate is defined before suspension and first observed
+        // after resume, its exact value must remain in the frame.
+        Module m;
+        auto *array_type = Type::array(Type::of<float>(), 4u);
+        auto *observer = m.create_callable(nullptr);
+        static_cast<void>(observer->create_reference_argument(array_type));
+        auto *observer_entry = observer->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(observer_entry);
+        b.return_void();
+
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        b.set_insertion_point(entry);
+        auto *state = b.alloca_local(array_type);
+        state->set_name("inherited_aggregate");
+        Value *initial = m.create_undefined(array_type);
+        for (uint32_t i = 0u; i < 4u; ++i) {
+            auto *index = m.create_constant(Type::of<uint32_t>(), &i);
+            initial = b.call(
+                array_type, ArithmeticOp::INSERT,
+                {initial, m.create_constant_one(Type::of<float>()), index});
+        }
+        b.store(state, initial);
+        b.coro_suspend(227u, "inherit", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(227u, nullptr);
+        static_cast<void>(b.call(nullptr, observer, {state}));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto result = coro_cfg_distill_pass_run_on_function(kernel);
+
+        expect(result.succeeded());
+        auto frame_value = std::find_if(
+            result.frame_values.begin(), result.frame_values.end(),
+            [&](const auto &value) noexcept {
+                return value.value == state;
+            });
+        expect(frame_value != result.frame_values.end());
+        if (frame_value != result.frame_values.end()) {
+            expect(frame_value->type == array_type);
+            expect(frame_value->access_chain.empty());
+        }
+    };
+
     "static_disjoint_aggregate_paths_form_independent_frame_atoms"_test = [] {
         Module m;
         BasicBlock *entry;
