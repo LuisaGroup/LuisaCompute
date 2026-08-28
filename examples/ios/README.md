@@ -28,17 +28,17 @@ brew install llvm@21 ninja
 scripts/build_ios_llvm.sh \
   --host-llvm-prefix "$(brew --prefix llvm@21)"
 
-# Configure all 19 examples plus the independent device-test mirror, and sign
-# the bundles through Xcode's automatic-signing workflow.
+# Configure all 19 examples, the matched Metal4 benchmark, and the independent
+# device-test mirror; sign the bundles through Xcode automatic signing.
 scripts/build_ios_metal4.sh \
   --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
   --team <apple-development-team> \
   --mode all
 ~~~
 
-Pass `--mode examples` or `--mode tests` to build only one opt-in group. For a
-CI/cross-link check without a certificate, use `--unsigned`; those bundles
-cannot be installed on a device:
+Pass `--mode examples`, `--mode tests`, or `--mode benchmark` to build only one
+opt-in group. For a CI/cross-link check without a certificate, use `--unsigned`;
+those bundles cannot be installed on a device:
 
 ~~~sh
 scripts/build_ios_metal4.sh \
@@ -69,14 +69,19 @@ source or backend build system.
 
 ## Build separation
 
-Two independent options keep examples and device tests out of normal builds:
+Three independent options keep examples, tests, and the benchmark out of
+normal builds:
 
 - `LUISA_COMPUTE_BUILD_IOS_EXAMPLES=ON` builds the interactive examples here.
 - `LUISA_COMPUTE_BUILD_IOS_TESTS=ON` builds the conformance mirror under
   `src/tests/ios`.
+- `LUISA_COMPUTE_BUILD_IOS_BENCHMARKS=ON` builds the matched offline backend
+  comparison under `examples/ios/benchmark`.
 
-Both require an iOS toolchain, Metal4, GUI support, and an arm64 iPhoneOS LLVM
-21 static build. The legacy Metal backend should remain disabled.
+The examples and device tests require an iOS toolchain, Metal4, GUI support,
+and an arm64 iPhoneOS LLVM 21 static build. The comparison selects exactly one
+of `metal` or `metal4`; the generic benchmark build script configures those
+backend requirements without linking both into one app.
 
 The following is the expanded manual equivalent of
 `scripts/build_ios_metal4.sh`; the script is preferred so local and CI flags do
@@ -92,6 +97,8 @@ cmake -S . -B cmake-build-ios-metal4-device-air-xcode -G Xcode \
   -DLUISA_COMPUTE_BUILD_TESTS=OFF \
   -DLUISA_COMPUTE_BUILD_IOS_EXAMPLES=ON \
   -DLUISA_COMPUTE_BUILD_IOS_TESTS=ON \
+  -DLUISA_COMPUTE_BUILD_IOS_BENCHMARKS=ON \
+  -DLUISA_COMPUTE_IOS_BENCHMARK_BACKEND=metal4 \
   -DLUISA_COMPUTE_ENABLE_CLANG_CXX=OFF \
   -DLUISA_COMPUTE_ENABLE_CUDA=OFF \
   -DLUISA_COMPUTE_ENABLE_DX=OFF \
@@ -106,7 +113,9 @@ cmake -S . -B cmake-build-ios-metal4-device-air-xcode -G Xcode \
   -DLUISA_IOS_DEVELOPMENT_TEAM=<team-id>
 
 cmake --build cmake-build-ios-metal4-device-air-xcode \
-  --config Release --target luisa-ios-rendering-examples -j 8
+  --config Release \
+  --target luisa-ios-rendering-examples luisa-ios-device-tests \
+           example_ios_path_tracing_benchmark -j 8
 ~~~
 
 `example_ios_path_tracing` is the primary interactive path tracer. It also runs
@@ -147,8 +156,9 @@ archives are linked statically and dead-stripped. No Luisa or LLVM dynamic
 library is expected in `otool -L`; only Apple system frameworks and libraries
 should remain.
 
-The unsigned arm64 audit on 2026-08-28 built all 19 rendering-example bundles
-plus the separate device-test mirror. All 20 executables were arm64 and
+The unsigned arm64 audit on 2026-08-28 built all 19 rendering-example bundles,
+the Metal4 benchmark, and the separate device-test mirror. All 21 executables
+were arm64 and
 `otool -L` found only Apple system frameworks/libraries: LLVM,
 `llvm-downgrade`, Luisa, and the Metal4 backend were all inside each Mach-O.
 
@@ -179,15 +189,19 @@ retrieved evidence before declaring a rendering target supported.
 
 See [metal4_path_tracing/README.md](metal4_path_tracing/README.md) for the
 physical-device conformance workflow.
+See [benchmark/README.md](benchmark/README.md) for matched old-Metal/Metal4
+build, execution, cache interpretation, and A19 Pro measurements.
 
 ## Continuous integration boundary
 
 `.github/workflows/build-ios.yml` runs on GitHub's arm64 `macos-26` image with
 Xcode 26.6. It downloads/caches the same official LLVM 21.1.8 source, builds the
-static iPhoneOS libraries, compiles all example and test bundles without code
-signing, and runs `scripts/audit_ios_bundles.sh`. CI therefore enforces target
-count, arm64 architecture, iPhoneOS Mach-O platform, system-only dynamic
-dependencies, and static inclusion of LLVM/llvm-downgrade/Luisa/Metal4.
+static iPhoneOS libraries, compiles all Metal4 example/test/benchmark bundles
+and a separate old-Metal benchmark without code signing, and runs
+`scripts/audit_ios_bundles.sh`. CI therefore enforces target count, arm64
+architecture, iPhoneOS Mach-O platform, system-only dynamic dependencies, and
+static inclusion of the selected Luisa backend and LLVM/llvm-downgrade where
+applicable.
 
 A hosted runner has neither this repository's development identity nor the
 physical iPhone. CI success is build/link/package evidence, not a substitute

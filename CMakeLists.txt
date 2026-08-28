@@ -87,8 +87,17 @@ option(LUISA_COMPUTE_BUILD_IOS_TESTS
         "Build the opt-in Metal4 iOS device conformance applications" OFF)
 option(LUISA_COMPUTE_BUILD_IOS_EXAMPLES
         "Build the opt-in interactive Metal4 iOS example applications" OFF)
+option(LUISA_COMPUTE_BUILD_IOS_BENCHMARKS
+        "Build the opt-in iOS Metal backend comparison application" OFF)
+set(LUISA_COMPUTE_IOS_BENCHMARK_BACKEND "metal4" CACHE STRING
+        "Backend linked into the iOS comparison application (metal or metal4)")
+set_property(CACHE LUISA_COMPUTE_IOS_BENCHMARK_BACKEND PROPERTY STRINGS
+        metal metal4)
+set(LUISA_COMPUTE_IOS_BENCHMARK_BUNDLE_ID "" CACHE STRING
+        "Optional bundle identifier for signing the iOS comparison application")
 if ((LUISA_COMPUTE_BUILD_IOS_TESTS OR
-        LUISA_COMPUTE_BUILD_IOS_EXAMPLES) AND NOT APPLE)
+        LUISA_COMPUTE_BUILD_IOS_EXAMPLES OR
+        LUISA_COMPUTE_BUILD_IOS_BENCHMARKS) AND NOT APPLE)
     message(FATAL_ERROR
             "The iOS applications require an Apple host/toolchain.")
 endif ()
@@ -102,6 +111,28 @@ if (LUISA_COMPUTE_BUILD_IOS_EXAMPLES AND
         NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     message(FATAL_ERROR
             "LUISA_COMPUTE_BUILD_IOS_EXAMPLES requires an iOS toolchain.")
+endif ()
+if (LUISA_COMPUTE_BUILD_IOS_BENCHMARKS)
+    if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        message(FATAL_ERROR
+                "LUISA_COMPUTE_BUILD_IOS_BENCHMARKS requires an iOS toolchain.")
+    endif ()
+    string(TOLOWER "${LUISA_COMPUTE_IOS_BENCHMARK_BACKEND}"
+            _LUISA_COMPUTE_IOS_BENCHMARK_BACKEND)
+    if (_LUISA_COMPUTE_IOS_BENCHMARK_BACKEND STREQUAL "metal4")
+        if (NOT LUISA_COMPUTE_ENABLE_METAL4)
+            message(FATAL_ERROR
+                    "The Metal4 iOS benchmark requires LUISA_COMPUTE_ENABLE_METAL4=ON.")
+        endif ()
+    elseif (_LUISA_COMPUTE_IOS_BENCHMARK_BACKEND STREQUAL "metal")
+        if (NOT LUISA_COMPUTE_ENABLE_METAL)
+            message(FATAL_ERROR
+                    "The old Metal iOS benchmark requires LUISA_COMPUTE_ENABLE_METAL=ON.")
+        endif ()
+    else ()
+        message(FATAL_ERROR
+                "LUISA_COMPUTE_IOS_BENCHMARK_BACKEND must be 'metal' or 'metal4'.")
+    endif ()
 endif ()
 
 option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR to SPIR-V code generation for Vulkan backend" ON)
@@ -283,6 +314,9 @@ add_subdirectory(src)
 
 if (LUISA_COMPUTE_BUILD_IOS_EXAMPLES)
     add_subdirectory(examples/ios)
+endif ()
+if (LUISA_COMPUTE_BUILD_IOS_BENCHMARKS)
+    add_subdirectory(examples/ios/benchmark)
 endif ()
 
 if (NOT SKBUILD)

@@ -24,7 +24,7 @@ usage() {
 #   --llvm-dir PATH           arm64 iOS LLVM 21 lib/cmake/llvm directory.
 #   --build-dir PATH          Output directory (default shown below).
 #   --team ID                 Apple Development team for automatic signing.
-#   --mode MODE               all, examples, or tests (default: all).
+#   --mode MODE               all, examples, tests, or benchmark (default: all).
 #   --configuration NAME      Xcode configuration (default: Release).
 #   --deployment-target VER   iOS deployment target (default: 26.0).
 #   --jobs N                  Parallel build jobs (default: logical CPU count).
@@ -99,17 +99,29 @@ case "$mode" in
     all)
         build_examples=ON
         build_tests=ON
-        build_targets=(luisa-ios-rendering-examples luisa-ios-device-tests)
+        build_benchmark=ON
+        build_targets=(
+            luisa-ios-rendering-examples
+            luisa-ios-device-tests
+            example_ios_path_tracing_benchmark)
         ;;
     examples)
         build_examples=ON
         build_tests=OFF
+        build_benchmark=OFF
         build_targets=(luisa-ios-rendering-examples)
         ;;
     tests)
         build_examples=OFF
         build_tests=ON
+        build_benchmark=OFF
         build_targets=(luisa-ios-device-tests)
+        ;;
+    benchmark)
+        build_examples=OFF
+        build_tests=OFF
+        build_benchmark=ON
+        build_targets=(example_ios_path_tracing_benchmark)
         ;;
     *)
         printf 'Invalid --mode value: %s\n' "$mode" >&2
@@ -161,6 +173,8 @@ cmake_args=(
     -DLUISA_COMPUTE_BUILD_TESTS=OFF
     -DLUISA_COMPUTE_BUILD_IOS_EXAMPLES="$build_examples"
     -DLUISA_COMPUTE_BUILD_IOS_TESTS="$build_tests"
+    -DLUISA_COMPUTE_BUILD_IOS_BENCHMARKS="$build_benchmark"
+    -DLUISA_COMPUTE_IOS_BENCHMARK_BACKEND=metal4
     -DLUISA_COMPUTE_ENABLE_CLANG_CXX=OFF
     -DLUISA_COMPUTE_ENABLE_CUDA=OFF
     -DLUISA_COMPUTE_ENABLE_DX=OFF
@@ -192,6 +206,8 @@ build_args=(
 )
 if ((unsigned)); then
     build_args+=(CODE_SIGNING_ALLOWED=NO)
+else
+    build_args+=(-allowProvisioningUpdates)
 fi
 cmake "${build_args[@]}"
 

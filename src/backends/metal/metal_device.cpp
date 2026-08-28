@@ -16,6 +16,7 @@
 #include "metal_procedural_primitive.h"
 #include "metal_shader.h"
 #include "metal_device.h"
+#include "metal_static_backend.h"
 
 // extensions
 #include "metal_denoiser.h"
@@ -40,6 +41,13 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
                                 config->device_index == std::numeric_limits<size_t>::max() ?
                             0u :
                             config->device_index;
+#if defined(LUISA_PLATFORM_IOS)
+    LUISA_ASSERT(device_index == 0u,
+                 "Metal device index out of range on iOS (required = {}, count = 1).",
+                 device_index);
+    _handle = MTL::CreateSystemDefaultDevice();
+    LUISA_ASSERT(_handle != nullptr, "Failed to create the default iOS Metal device.");
+#else
     auto all_devices = MTL::CopyAllDevices();
     auto device_count = all_devices->count();
     LUISA_ASSERT(device_index < device_count,
@@ -47,6 +55,7 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
                  device_index, device_count);
     _handle = all_devices->object<MTL::Device>(device_index)->retain();
     all_devices->release();
+#endif
 
     LUISA_ASSERT(_handle->supportsFamily(MTL::GPUFamilyMetal3),
                  "Metal device '{}' at index {} does not support Metal 3.",
@@ -792,6 +801,12 @@ LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept 
 LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
     ::luisa::compute::metal::with_autorelease_pool([&names] {
         names.clear();
+#if defined(LUISA_PLATFORM_IOS)
+        if (auto device = MTL::CreateSystemDefaultDevice()) {
+            names.emplace_back(device->name()->utf8String());
+            device->release();
+        }
+#else
         auto all_devices = MTL::CopyAllDevices();
         if (auto n = all_devices->count()) {
             names.reserve(n);
@@ -801,7 +816,16 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
             }
         }
         all_devices->release();
+#endif
     });
 }
+
+#if defined(LUISA_PLATFORM_IOS)
+LUISA_EXPORT_API void
+luisa_compute_metal_register_static_backend() noexcept {
+    luisa::compute::Context::register_static_backend(
+        "metal", create, destroy, backend_device_names);
+}
+#endif
 
 #include "../common/export_version.inl.h"

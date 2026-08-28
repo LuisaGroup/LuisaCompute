@@ -12,7 +12,7 @@ env:
 
 jobs:
   build-ios-metal4:
-    name: iPhoneOS arm64 / Metal4 AIR / unsigned
+    name: iPhoneOS arm64 / Metal + Metal4 AIR / unsigned
     runs-on: macos-26
     timeout-minutes: 120
     steps:
@@ -61,7 +61,7 @@ jobs:
           grep -q "LLVM_HOST_TRIPLE:STRING=arm64-apple-ios${IOS_DEPLOYMENT_TARGET}" .ci/llvm-ios/CMakeCache.txt
           grep -q "LLVM_DEFAULT_TARGET_TRIPLE:STRING=arm64-apple-ios${IOS_DEPLOYMENT_TARGET}" .ci/llvm-ios/CMakeCache.txt
 
-      - name: Build all iOS examples and device tests without signing
+      - name: Build all Metal4 iOS examples, benchmark, and device tests without signing
         run: |
           scripts/build_ios_metal4.sh \
             --llvm-dir .ci/llvm-ios/lib/cmake/llvm \
@@ -75,4 +75,19 @@ jobs:
         run: |
           scripts/audit_ios_bundles.sh \
             --bin-dir build-ios/bin/Release \
-            --expected-count 20
+            --expected-count 21
+
+      - name: Build matched old-Metal iOS benchmark without signing
+        run: |
+          scripts/build_ios_backend_benchmark.sh \
+            --backend metal \
+            --build-dir build-ios-metal-benchmark \
+            --deployment-target "$IOS_DEPLOYMENT_TARGET" \
+            --unsigned \
+            --jobs 4
+
+      - name: Audit old-Metal iPhoneOS benchmark bundle
+        run: |
+          scripts/audit_ios_bundles.sh \
+            --bin-dir build-ios-metal-benchmark/bin/Release \
+            --expected-count 1

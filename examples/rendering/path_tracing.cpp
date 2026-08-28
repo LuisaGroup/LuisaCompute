@@ -50,6 +50,9 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
 luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
     Device &device, const PathTracingTestOptions &opts) {
 
+    Clock total_clock;
+    Clock scene_setup_clock;
+
     // Load the Cornell Box scene from embedded OBJ string
     tinyobj::ObjReaderConfig obj_reader_config;
     obj_reader_config.triangulate = true;
@@ -133,6 +136,15 @@ luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
     };
     auto materials = device.create_buffer<float3>(8);
     stream << materials.copy_from(luisa::span{materials_array, std::size(materials_array)});
+    auto scene_setup_cpu_ms = scene_setup_clock.toc();
+    double acceleration_build_ms = 0.0;
+    if (opts.collect_stage_timings) {
+        Clock acceleration_build_clock;
+        stream << synchronize();
+        acceleration_build_ms = acceleration_build_clock.toc();
+    }
+
+    Clock kernel_definition_clock;
 
     // Convert linear RGB to sRGB with proper gamma correction
     Callable linear_to_srgb = [&](Var<float3> x) noexcept {
@@ -356,16 +368,20 @@ luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
             hdr.xyz() / max(hdr.w, 1.0e-6f) * scale, 0.f, 1.f));
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
+    auto kernel_definition_ms = kernel_definition_clock.toc();
 
     // Compile shaders
     ShaderOption o{.enable_debug_info = false};
+    Clock shader_compile_clock;
     auto raytracing_shader = device.compile(raytracing_kernel, ShaderOption{.name = "path_tracing"});
     auto clear_shader = device.compile(clear_kernel, o);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
     auto accumulate_shader = device.compile(accumulate_kernel, o);
     auto make_sampler_shader = device.compile(make_sampler_kernel, o);
+    auto shader_compile_ms = shader_compile_clock.toc();
 
     // Create images and window
+    Clock initialization_clock;
     static constexpr uint2 resolution = make_uint2(1024u);
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
@@ -410,10 +426,12 @@ luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
     Image<float> ldr_image = device.create_image<float>(
         (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
+    if (opts.collect_stage_timings) { stream << synchronize(); }
+    auto initialization_ms = initialization_clock.toc();
     double last_time = 0.0;
     uint64_t frame_count = 0u;
     bool snapshot_captured = false;
-    Clock clock;
+    Clock render_clock;
 
     // Main render loop
     while (sample_plan.has_next(frame_count)) {
@@ -428,9 +446,9 @@ luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
             if (active_window->should_close()) { break; }
             active_window->poll_events();
         }
-        double dt = clock.toc() - last_time;
+        double dt = render_clock.toc() - last_time;
         LUISA_INFO("dt = {:.2f}ms ({:.2f} spp/s)", dt, dispatch_spp / dt * 1000);
-        last_time = clock.toc();
+        last_time = render_clock.toc();
         frame_count += dispatch_spp;
         if (opts.progress_callback) {
             opts.progress_callback(frame_count, last_time);
@@ -440,22 +458,47 @@ luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
             stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
                    << ldr_image.copy_to(luisa::span{host_image})
                    << synchronize();
-            auto snapshot_elapsed = clock.toc();
+            auto snapshot_elapsed = render_clock.toc();
             opts.snapshot_callback(
                 resolution, frame_count, snapshot_elapsed, host_image);
             snapshot_captured = true;
         }
     }
+    double render_ms = 0.0;
+    if (opts.collect_stage_timings) {
+        stream << synchronize();
+        render_ms = render_clock.toc();
+    }
+    Clock readback_clock;
     stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
            << ldr_image.copy_to(luisa::span{host_image})
            << synchronize();
-    auto elapsed = clock.toc();
-    LUISA_INFO("FPS: {}", frame_count / elapsed * 1000);
+    auto readback_ms = readback_clock.toc();
+    auto elapsed = opts.collect_stage_timings ? render_ms : render_clock.toc();
+    auto total_ms = total_clock.toc();
+    LUISA_INFO("SPP throughput: {} spp/s", frame_count / elapsed * 1000);
+    if (opts.collect_stage_timings) {
+        LUISA_INFO(
+            "Path tracing timings (ms): scene_setup_cpu={:.3f}, "
+            "acceleration_build={:.3f}, kernel_definition={:.3f}, "
+            "shader_compile={:.3f}, "
+            "initialization={:.3f}, render={:.3f}, readback={:.3f}, total={:.3f}",
+            scene_setup_cpu_ms, acceleration_build_ms, kernel_definition_ms,
+            shader_compile_ms, initialization_ms, render_ms, readback_ms, total_ms);
+    }
     return {
         .success = true,
         .resolution = resolution,
         .completed_spp = frame_count,
         .elapsed_ms = elapsed,
+        .scene_setup_cpu_ms = scene_setup_cpu_ms,
+        .acceleration_build_ms = acceleration_build_ms,
+        .kernel_definition_ms = kernel_definition_ms,
+        .shader_compile_ms = shader_compile_ms,
+        .initialization_ms = initialization_ms,
+        .render_ms = render_ms,
+        .readback_ms = readback_ms,
+        .total_ms = total_ms,
         .pixels = std::move(host_image)};
 }
 

@@ -4,11 +4,6 @@ if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     message(FATAL_ERROR
             "Luisa iOS application bundles require an iOS toolchain.")
 endif ()
-if (NOT TARGET luisa-compute-backend-metal4 OR
-        NOT TARGET luisa-compute-metal4-air-codegen)
-    message(FATAL_ERROR
-            "Luisa iOS application bundles require the complete Metal4 AIR backend.")
-endif ()
 if (NOT LUISA_COMPUTE_ENABLE_GUI)
     message(FATAL_ERROR
             "Luisa iOS application bundles require LUISA_COMPUTE_ENABLE_GUI=ON.")
@@ -18,6 +13,11 @@ set(LUISA_IOS_DEVELOPMENT_TEAM "" CACHE STRING
         "Apple development team used to sign LuisaCompute iOS applications")
 
 function(luisa_compute_link_ios_metal4_application target)
+    if (NOT TARGET luisa-compute-backend-metal4 OR
+            NOT TARGET luisa-compute-metal4-air-codegen)
+        message(FATAL_ERROR
+                "Target '${target}' requires the complete Metal4 AIR backend.")
+    endif ()
     target_compile_features(${target} PRIVATE cxx_std_20)
     target_compile_options(${target} PRIVATE -fblocks)
     target_include_directories(${target} PRIVATE
@@ -28,6 +28,31 @@ function(luisa_compute_link_ios_metal4_application target)
     target_link_libraries(${target} PRIVATE
             luisa-compute-metal4-air-codegen
             luisa-compute-backend-metal4
+            luisa-compute-dsl
+            luisa-compute-gui
+            luisa-compute-metal-cpp
+            "-framework Foundation"
+            "-framework UIKit"
+            "-framework Metal"
+            "-framework QuartzCore"
+            "-framework CoreGraphics"
+            "-framework ImageIO")
+endfunction()
+
+function(luisa_compute_link_ios_metal_application target)
+    if (NOT TARGET luisa-compute-backend-metal)
+        message(FATAL_ERROR
+                "Target '${target}' requires the old Metal MSL backend.")
+    endif ()
+    target_compile_features(${target} PRIVATE cxx_std_20)
+    target_compile_options(${target} PRIVATE -fblocks)
+    target_include_directories(${target} PRIVATE
+            ${CMAKE_SOURCE_DIR}/examples
+            ${CMAKE_SOURCE_DIR}/src/backends/metal
+            ${CMAKE_SOURCE_DIR}/src/tests
+            ${CMAKE_SOURCE_DIR}/src/tests/common)
+    target_link_libraries(${target} PRIVATE
+            luisa-compute-backend-metal
             luisa-compute-dsl
             luisa-compute-gui
             luisa-compute-metal-cpp

@@ -21,7 +21,18 @@ struct PathTracingTestResult {
     luisa::string error;
     uint2 resolution{};
     uint64_t completed_spp{};
+    /// Backward-compatible elapsed time. When collect_stage_timings is true,
+    /// this is the synchronized pure render time; otherwise it retains the
+    /// historical end-to-end render-loop timing.
     double elapsed_ms{};
+    double scene_setup_cpu_ms{};
+    double acceleration_build_ms{};
+    double kernel_definition_ms{};
+    double shader_compile_ms{};
+    double initialization_ms{};
+    double render_ms{};
+    double readback_ms{};
+    double total_ms{};
     luisa::vector<std::array<uint8_t, 4u>> pixels;
 };
 
@@ -35,6 +46,10 @@ struct PathTracingTestOptions {
     bool offline{true};
     uint32_t spp{1u};
     std::optional<uint32_t> max_spp_per_dispatch;
+    /// Insert synchronization boundaries around setup, rendering, and
+    /// readback so benchmarks can report non-overlapping stage timings.
+    /// Disabled by default to preserve the interactive renderer's pipelining.
+    bool collect_stage_timings{false};
     /// Optional externally owned platform window. If omitted, interactive
     /// desktop runs create a GLFW-backed Window as before. iOS supplies a
     /// Window that wraps its UIKit-owned CAMetalLayer.

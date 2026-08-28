@@ -53,8 +53,11 @@ done
 shopt -s nullglob
 apps=(
     "$bin_dir"/example_ios_*.app
-    "$bin_dir"/luisa-metal4-ios-device-air-path-tracer.app
 )
+device_test_app="$bin_dir/luisa-metal4-ios-device-air-path-tracer.app"
+if [[ -d "$device_test_app" ]]; then
+    apps+=("$device_test_app")
+fi
 if ((${#apps[@]} != expected_count)); then
     printf 'Expected %s iOS bundles, found %s in %s.\n' \
         "$expected_count" "${#apps[@]}" "$bin_dir" >&2
@@ -102,4 +105,4 @@ fi
 printf 'Audited %s iOS bundles: arm64, iPhoneOS, Apple system dylibs only.\n' \
     "${#apps[@]}"
 printf '%s\n' \
-    'LLVM, llvm-downgrade, Luisa, and Metal4 are statically linked.'
+    'Luisa and backend libraries (including LLVM where used) are statically linked.'
