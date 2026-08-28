@@ -26,7 +26,7 @@ size_t cst(const ScopeStmt *s, Statement::Tag t) {
     return n;
 }
 
-} // namespace
+}// namespace
 
 int main() {
 
@@ -107,8 +107,7 @@ int main() {
                 expect(binding.lifetime ==
                        CoroSuspendBindingLifetime::queued);
                 expect(binding.index == 0u);
-                auto *value = sus->extension_binding_values()[
-                    binding.index];
+                auto *value = sus->extension_binding_values()[binding.index];
                 expect(value != nullptr);
                 expect(value->type() == Type::of<uint>());
                 expect((to_underlying(value->usage()) &
@@ -125,6 +124,104 @@ int main() {
                            64u);
                 }
             }
+        }
+    };
+
+    "semantic_stage_builder_records_complete_read_write_contract"_test = [] {
+        Coroutine c = [](Var<uint> page) {
+            Var<uint> handle = 0u;
+            Var<bool> resident = false;
+            $suspend(
+                "texture_page",
+                coro_stage("luisa.coro.resource.texture-page", 3u)
+                    .fallback(CoroSuspendFallback::warn)
+                    .read("page", page)
+                    .write("handle", handle)
+                    .read_write("resident", resident)
+                    .attribute("cache", "virtual-texture")
+                    .attribute("priority", 7u));
+        };
+        auto *s = fst(c.function_builder()->body(),
+                      Statement::Tag::SUSPEND);
+        expect(s != nullptr);
+        auto *sus = static_cast<const SuspendStmt *>(s);
+        expect(sus->extensions().size() == 1u);
+        expect(sus->extension_binding_values().size() == 3u);
+        if (sus->extensions().size() == 1u) {
+            auto &&extension = sus->extensions().front();
+            expect(extension->schema() ==
+                   "luisa.coro.resource.texture-page");
+            expect(extension->version() == 3u);
+            expect(!extension->is_annotation());
+            expect(extension->fallback() ==
+                   CoroSuspendFallback::warn);
+            expect(extension->bindings().size() == 3u);
+            expect(extension->attributes().size() == 2u);
+            if (extension->bindings().size() == 3u) {
+                auto &&page = extension->bindings()[0u];
+                auto &&handle = extension->bindings()[1u];
+                auto &&resident = extension->bindings()[2u];
+                expect(page.name == "page");
+                expect(page.access == CoroSuspendBindingAccess::read);
+                expect(page.lifetime ==
+                       CoroSuspendBindingLifetime::queued);
+                expect(handle.name == "handle");
+                expect(handle.access == CoroSuspendBindingAccess::write);
+                expect(handle.lifetime ==
+                       CoroSuspendBindingLifetime::resumed);
+                expect(resident.name == "resident");
+                expect(resident.access ==
+                       CoroSuspendBindingAccess::read_write);
+                expect(resident.lifetime ==
+                       CoroSuspendBindingLifetime::resumed);
+                auto usage = [&](auto &&binding) noexcept {
+                    return to_underlying(
+                        sus->extension_binding_values()[binding.index]
+                            ->usage());
+                };
+                expect((usage(page) & to_underlying(Usage::READ)) != 0u);
+                expect((usage(page) & to_underlying(Usage::WRITE)) == 0u);
+                expect((usage(handle) & to_underlying(Usage::READ)) == 0u);
+                expect((usage(handle) & to_underlying(Usage::WRITE)) != 0u);
+                expect((usage(resident) & to_underlying(Usage::READ)) != 0u);
+                expect((usage(resident) & to_underlying(Usage::WRITE)) != 0u);
+            }
+            if (extension->attributes().size() == 2u) {
+                // Data-backed extensions canonicalize attribute order while
+                // retaining the complete values.
+                expect(extension->attributes()[0u].name == "cache");
+                expect(luisa::get<luisa::string>(
+                           extension->attributes()[0u].value) ==
+                       "virtual-texture");
+                expect(extension->attributes()[1u].name == "priority");
+                expect(luisa::get<uint64_t>(
+                           extension->attributes()[1u].value) == 7u);
+            }
+        }
+    };
+
+    "annotation_builder_defaults_to_ignorable"_test = [] {
+        Coroutine c = [](Var<float> value) {
+            $suspend(42u, "watch",
+                     coro_annotation("luisa.coro.debug.watch")
+                         .read("value", value)
+                         .attribute("channel", "radiance"));
+        };
+        auto *s = fst(c.function_builder()->body(),
+                      Statement::Tag::SUSPEND);
+        expect(s != nullptr);
+        auto *sus = static_cast<const SuspendStmt *>(s);
+        expect(sus->token() == 42u);
+        expect(sus->extensions().size() == 1u);
+        if (sus->extensions().size() == 1u) {
+            auto &&extension = sus->extensions().front();
+            expect(extension->schema() == "luisa.coro.debug.watch");
+            expect(extension->is_annotation());
+            expect(extension->fallback() ==
+                   CoroSuspendFallback::ignore);
+            expect(extension->bindings().size() == 1u);
+            expect(extension->bindings().front().lifetime ==
+                   CoroSuspendBindingLifetime::queued);
         }
     };
 
