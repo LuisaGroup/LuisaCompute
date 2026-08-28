@@ -6,17 +6,14 @@
 #include <stb/stb_image_write.h>
 
 #include <luisa/luisa-compute.h>
-#include <luisa/coro/coro_frame_storage.h>
+#include <luisa/coro/schedulers/wavefront.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
 
-#include "coro/external_stage_common.h"
-
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
-using namespace luisa::compute::coro::example;
 
 namespace {
 
@@ -64,6 +61,214 @@ struct Options {
     return pixels;
 }
 
+class OnDemandTextureHandler final
+    : public WavefrontCoroSchedulerExtensionHandler<
+          Image<float>, Buffer<uint>, Buffer<float4>> {
+
+private:
+    struct StageKernel {
+        size_t queue_index{0u};
+        Shader1D<ByteBuffer, Buffer<uint>, uint, uint, Buffer<uint>>
+            shader;
+    };
+
+    Options _options;
+    uint _page_texel_count{0u};
+    Buffer<uint> _requests;
+    luisa::vector<StageKernel> _kernels;
+    luisa::vector<float4> _virtual_texture;
+    luisa::vector<uint> _host_page_table;
+    luisa::vector<int> _slot_pages;
+    luisa::vector<float4> _host_cache;
+    luisa::vector<uint> _host_requests;
+    size_t _page_load_count{0u};
+    size_t _round_count{0u};
+
+public:
+    OnDemandTextureHandler(
+        Options options,
+        luisa::vector<float4> virtual_texture) noexcept
+        : _options{options},
+          _page_texel_count{options.page_size * options.page_size},
+          _virtual_texture{std::move(virtual_texture)},
+          _host_page_table(virtual_page_count, 0u),
+          _slot_pages(physical_page_count, -1),
+          _host_cache(
+              physical_page_count * _page_texel_count,
+              make_float4(0.0f)) {}
+
+    [[nodiscard]] luisa::string_view name() const noexcept override {
+        return "on-demand-texture-cache";
+    }
+
+    [[nodiscard]] bool can_handle(
+        const WavefrontCoroExtensionStage &stage) const noexcept override {
+        return stage.extension->schema() == request_schema &&
+               stage.extension->version() == 1u;
+    }
+
+    void prepare(
+        const WavefrontCoroExtensionPrepareContext &context,
+        const WavefrontCoroExtensionStage &stage) noexcept override {
+        LUISA_ASSERT(
+            stage.extension->is_annotation() &&
+                stage.extension->fallback() ==
+                    CoroSuspendFallback::reject &&
+                stage.dataflow->def.slots.empty(),
+            "A required virtual-texture request must be a read-only "
+            "coroutine annotation.");
+        if (!_requests) {
+            _requests = context.device.create_buffer<uint>(
+                context.frame_capacity);
+            _host_requests.resize(context.frame_capacity);
+        }
+        auto reconstruct_slots = stage.dataflow->reconstruct_slots;
+        auto *page = &stage.binding("page");
+        auto *desc = &context.frame_desc;
+        Kernel1D collect = [desc, page,
+                            layout = context.frame_layout,
+                            soa = context.global_memory_soa,
+                            reconstruct_slots](
+                               ByteBufferVar frame_storage,
+                               BufferUInt frame_indices,
+                               UInt frame_capacity, UInt count,
+                               BufferUInt requests) noexcept {
+            auto x = dispatch_x();
+            $if (x >= count) { $return(); };
+            auto frame_index = frame_indices.read(x);
+            auto frame = CoroFrame::create(desc);
+            coro_frame_load_into(
+                frame, frame_storage, frame_index, frame_capacity,
+                layout, soa, luisa::span{reconstruct_slots},
+                false, false);
+            // Zero denotes no request in host-side diagnostics.
+            requests.write(x, page->read<uint>(frame) + 1u);
+        };
+        auto label = luisa::format(
+            "wavefront_extension_texture_request_{}",
+            stage.queue_index);
+        auto shader = coro::detail::coro_scheduler_label_shader(
+            context.device.compile(
+                collect,
+                coro::detail::coro_scheduler_shader_option(
+                    context.shader_option, label)),
+            label);
+        _kernels.emplace_back(StageKernel{
+            .queue_index = stage.queue_index,
+            .shader = std::move(shader)});
+    }
+
+    void dispatch(
+        const WavefrontCoroExtensionDispatchContext &context,
+        ImageView<float>, BufferView<uint> page_table,
+        BufferView<float4> physical_cache) noexcept override {
+        auto kernel = std::find_if(
+            _kernels.begin(), _kernels.end(),
+            [&](auto &&candidate) noexcept {
+                return candidate.queue_index ==
+                       context.stage.queue_index;
+            });
+        LUISA_ASSERT(kernel != _kernels.end(),
+                     "Texture handler has no prepared stage {}.",
+                     context.stage.queue_index);
+        auto request_span = luisa::span{
+            _host_requests.data(), context.frame_count};
+        context.stream
+            << kernel->shader(
+                   context.frame_buffer, context.frame_indices,
+                   context.frame_capacity, context.frame_count,
+                   _requests)
+                   .dispatch(context.frame_count)
+            << _requests.view()
+                   .subview(0u, context.frame_count)
+                   .copy_to(request_span)
+            << synchronize();
+
+        luisa::vector<bool> requested(virtual_page_count, false);
+        for (auto encoded : request_span) {
+            LUISA_ASSERT(
+                encoded != 0u && encoded <= virtual_page_count,
+                "Invalid virtual-texture page request {}.", encoded);
+            requested[encoded - 1u] = true;
+        }
+        LUISA_ASSERT(
+            std::any_of(
+                requested.begin(), requested.end(),
+                [](auto value) noexcept { return value; }),
+            "Selected texture Extension queue contains no page request.");
+
+        for (auto page = 0u; page < virtual_page_count; ++page) {
+            if (!requested[page] || _host_page_table[page] != 0u) {
+                continue;
+            }
+            auto slot = physical_page_count;
+            for (auto i = 0u; i < physical_page_count; ++i) {
+                if (_slot_pages[i] < 0) {
+                    slot = i;
+                    break;
+                }
+            }
+            if (slot == physical_page_count) {
+                for (auto i = 0u; i < physical_page_count; ++i) {
+                    auto resident =
+                        static_cast<uint>(_slot_pages[i]);
+                    if (!requested[resident]) {
+                        slot = i;
+                        break;
+                    }
+                }
+            }
+            // All physical slots contain pages needed by this resume batch.
+            // Remaining misses re-enter the same suspend point next round.
+            if (slot == physical_page_count) { break; }
+            if (_slot_pages[slot] >= 0) {
+                _host_page_table[
+                    static_cast<uint>(_slot_pages[slot])] = 0u;
+            }
+            _slot_pages[slot] = static_cast<int>(page);
+            _host_page_table[page] = slot + 1u;
+            auto page_x = page % page_grid_size;
+            auto page_y = page / page_grid_size;
+            for (auto y = 0u; y < _options.page_size; ++y) {
+                for (auto x = 0u; x < _options.page_size; ++x) {
+                    auto source_x =
+                        page_x * _options.page_size + x;
+                    auto source_y =
+                        page_y * _options.page_size + y;
+                    _host_cache[
+                        slot * _page_texel_count +
+                        x + y * _options.page_size] =
+                        _virtual_texture[
+                            source_x + source_y * _options.dimension];
+                }
+            }
+            _page_load_count++;
+        }
+        _round_count++;
+        context.stream
+            << page_table.copy_from(luisa::span{_host_page_table})
+            << physical_cache.copy_from(luisa::span{_host_cache});
+    }
+
+    void initialize(
+        Stream &stream, const Buffer<uint> &page_table,
+        const Buffer<float4> &physical_cache) const noexcept {
+        stream << page_table.copy_from(luisa::span{_host_page_table})
+               << physical_cache.copy_from(luisa::span{_host_cache});
+    }
+
+    [[nodiscard]] size_t page_load_count() const noexcept {
+        return _page_load_count;
+    }
+    [[nodiscard]] size_t round_count() const noexcept {
+        return _round_count;
+    }
+    [[nodiscard]] luisa::span<const float4>
+    virtual_texture() const noexcept {
+        return _virtual_texture;
+    }
+};
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -87,7 +292,6 @@ int main(int argc, char *argv[]) {
     auto page_table = device.create_buffer<uint>(virtual_page_count);
     auto physical_cache = device.create_buffer<float4>(
         physical_page_count * page_texel_count);
-    auto requests = device.create_buffer<uint>(pixel_count);
 
     Coroutine<void(Image<float>, Buffer<uint>, Buffer<float4>)> coroutine =
         [options, page_texel_count](
@@ -98,9 +302,8 @@ int main(int argc, char *argv[]) {
             auto local_coord = coord % options.page_size;
             Var page = page_coord.x + page_coord.y * page_grid_size;
 
-            // This is the intended source spelling: the coroutine remains
-            // suspended while the page is absent. The annotation carries a
-            // queued snapshot of `page`; a host cache handler services it.
+            // The scheduler repeatedly routes this exact static stage until
+            // the handler makes the requested page resident.
             $while (table.read(page) == 0u) {
                 $suspend(
                     "texture_miss",
@@ -117,261 +320,44 @@ int main(int argc, char *argv[]) {
             output_image.write(coord, texel);
         };
 
-    auto request_views = find_external_stages(
-        coroutine.graph(), request_schema);
-    for (auto &&view : request_views) {
-        LUISA_ASSERT(
-            view.extension->is_annotation() &&
-                view.extension->fallback() == CoroSuspendFallback::reject,
-            "Virtual-texture request must be a required annotation.");
-        LUISA_ASSERT(
-            view.stage->def.frame_values.empty() &&
-                view.stage->required_writeback_slot_span().empty(),
-            "A texture request must not mutate coroutine frame values.");
-    }
+    WavefrontCoroScheduler<
+        Image<float>, Buffer<uint>, Buffer<float4>> scheduler{
+        device, coroutine,
+        WavefrontCoroSchedulerConfig{
+            .thread_count = pixel_count,
+            .global_memory_soa = true,
+            .gather_by_sorting = true,
+            .frame_buffer_compaction = false,
+            .report_stats = true,
+            .execution_block_size = 256u,
+            .largest_continuation_first = true,
+            .incremental_continuation_counts = true}};
+    auto texture_cache = luisa::make_shared<OnDemandTextureHandler>(
+        options, make_virtual_texture(options.dimension));
+    scheduler.register_extension_handler(texture_cache);
+    texture_cache->initialize(stream, page_table, physical_cache);
+    scheduler(output, page_table, physical_cache)
+        .dispatch(options.dimension, options.dimension)(stream);
 
-    auto layout = CoroFrameStorageLayout::make_aos(
-        coroutine.frame(), pixel_count);
-    auto frames = device.create_byte_buffer(layout.size_bytes);
-    auto routes = device.create_buffer<uint>(pixel_count);
-    auto scheduled_routes = device.create_buffer<uint>(pixel_count);
-    // Route tokens live in the scheduler's side buffer, so field 6 is not
-    // duplicated in CoroFrame storage.
-    auto io_plan = coro_frame_make_io_plan(
-        coroutine.graph(), coroutine.frame().frame_field_count());
-    auto outgoing_routes = [&](size_t source) noexcept {
-        return collect_external_stage_routes(coroutine.graph(), source);
-    };
-
-    auto entry_outputs = io_plan.transition_output_fields[0u];
-    auto entry_routes = outgoing_routes(0u);
-    Kernel1D generate = [&coroutine, layout, entry_outputs, entry_routes,
-                         options, pixel_count](
-                            ByteBufferVar frame_storage, ImageFloat image,
-                            BufferUInt table, BufferVar<float4> cache,
-                            BufferUInt route_buffer) noexcept {
-        auto index = dispatch_x();
-        $if (index >= pixel_count) { $return(); };
-        auto x = index % options.dimension;
-        auto y = index / options.dimension;
-        auto frame = coroutine.instantiate(
-            make_uint3(x, y, 0u),
-            make_uint3(options.dimension, options.dimension, 1u));
-        frame.target_token = 0u;
-        coroutine.entry()(frame, image, table, cache);
-        Var next = 0u;
-        Var next_route = 0u;
-        for (auto route : entry_routes) {
-            $if (frame.target_token == route.token) {
-                next = route.target;
-                next_route = route.boundary;
-            };
-        }
-        route_buffer.write(index, next_route);
-        for (auto target = 0u; target < entry_outputs.size(); ++target) {
-            $if (next == static_cast<uint>(target)) {
-                coro_frame_store(
-                    frame_storage, index, frame, layout, false,
-                    luisa::span{entry_outputs[target]}, false, false);
-            };
-        }
-    };
-    auto generate_shader = device.compile(generate);
-
-    Kernel1D copy_routes = [](BufferUInt source,
-                              BufferUInt destination) noexcept {
-        auto index = dispatch_x();
-        destination.write(index, source.read(index));
-    };
-    Kernel1D clear_requests = [](BufferUInt request_buffer) noexcept {
-        request_buffer.write(dispatch_x(), 0u);
-    };
-    auto copy_routes_shader = device.compile(copy_routes);
-    auto clear_requests_shader = device.compile(clear_requests);
-
-    luisa::vector<Shader1D<ByteBuffer, Buffer<uint>, Buffer<uint>>>
-        request_stages;
-    request_stages.reserve(request_views.size());
-    for (auto &&view : request_views) {
-        auto reconstruct_slots = merge_stage_slots(
-            view.stage->reconstruct_slot_span());
-        auto page = &view.binding("page");
-        auto route = static_cast<uint>(view.boundary->index + 1u);
-        Kernel1D request = [&coroutine, layout, reconstruct_slots, page,
-                            route, pixel_count](
-                               ByteBufferVar frame_storage,
-                               BufferUInt scheduled_route_buffer,
-                               BufferUInt request_buffer) noexcept {
-            auto index = dispatch_x();
-            $if (index >= pixel_count) { $return(); };
-            $if (scheduled_route_buffer.read(index) != route) { $return(); };
-            auto frame = CoroFrame::create(&coroutine.frame());
-            coro_frame_load_into(
-                frame, frame_storage, index, layout, false,
-                luisa::span{reconstruct_slots}, false, false);
-            // Zero means no request, so encode the virtual page as page + 1.
-            request_buffer.write(index, page->read<uint>(frame) + 1u);
-            // Read-only annotation: no frame writeback at all.
-        };
-        request_stages.emplace_back(device.compile(request));
-    }
-
-    using ResumeShader =
-        Shader1D<ByteBuffer, Image<float>, Buffer<uint>, Buffer<float4>,
-                 Buffer<uint>, Buffer<uint>>;
-    luisa::vector<ResumeShader> resume_shaders;
-    resume_shaders.reserve(request_views.size());
-    for (auto &&view : request_views) {
-        auto node = view.boundary->to_index;
-        auto route = static_cast<uint>(view.boundary->index + 1u);
-        auto input_slots = io_plan.input_fields[node];
-        auto output_slots = io_plan.transition_output_fields[node];
-        auto next_routes = outgoing_routes(node);
-        Kernel1D resume = [&coroutine, layout, node, route, input_slots,
-                           output_slots, next_routes, pixel_count](
-                              ByteBufferVar frame_storage, ImageFloat image,
-                              BufferUInt table, BufferVar<float4> cache,
-                              BufferUInt route_buffer,
-                              BufferUInt scheduled_route_buffer) noexcept {
-            auto index = dispatch_x();
-            $if (index >= pixel_count) { $return(); };
-            $if (scheduled_route_buffer.read(index) != route) { $return(); };
-            auto frame = CoroFrame::create(&coroutine.frame());
-            coro_frame_load_into(
-                frame, frame_storage, index, layout, false,
-                luisa::span{input_slots}, false, false);
-            frame.target_token = CoroFrame::TERMINAL_TOKEN;
-            coroutine[node](frame, image, table, cache);
-            Var next = 0u;
-            Var next_route = 0u;
-            for (auto candidate : next_routes) {
-                $if (frame.target_token == candidate.token) {
-                    next = candidate.target;
-                    next_route = candidate.boundary;
-                };
-            }
-            route_buffer.write(index, next_route);
-            for (auto target = 0u; target < output_slots.size(); ++target) {
-                $if (next == static_cast<uint>(target)) {
-                    coro_frame_store(
-                        frame_storage, index, frame, layout, false,
-                        luisa::span{output_slots[target]}, false, false);
-                };
-            }
-        };
-        resume_shaders.emplace_back(device.compile(resume));
-    }
-
-    auto virtual_texture = make_virtual_texture(options.dimension);
-    luisa::vector<uint> host_page_table(virtual_page_count, 0u);
-    luisa::vector<int> slot_pages(physical_page_count, -1);
-    luisa::vector<float4> host_cache(
-        physical_page_count * page_texel_count, make_float4(0.0f));
-    luisa::vector<uint> host_requests(pixel_count, 0u);
-    luisa::vector<uint> host_routes(pixel_count, 0u);
-    stream << page_table.copy_from(luisa::span{host_page_table})
-           << physical_cache.copy_from(luisa::span{host_cache})
-           << generate_shader(frames, output, page_table, physical_cache,
-                              routes)
-                  .dispatch(pixel_count);
-
-    size_t page_load_count = 0u;
-    size_t round_count = 0u;
-    for (; round_count < virtual_page_count; ++round_count) {
-        stream << copy_routes_shader(routes, scheduled_routes)
-                      .dispatch(pixel_count)
-               << clear_requests_shader(requests).dispatch(pixel_count);
-        for (auto &&shader : request_stages) {
-            stream << shader(frames, scheduled_routes, requests)
-                          .dispatch(pixel_count);
-        }
-        stream << requests.copy_to(luisa::span{host_requests})
-               << synchronize();
-
-        luisa::vector<bool> requested(virtual_page_count, false);
-        for (auto encoded : host_requests) {
-            if (encoded != 0u) {
-                LUISA_ASSERT(encoded <= virtual_page_count,
-                             "Invalid virtual-texture page request {}.",
-                             encoded);
-                requested[encoded - 1u] = true;
-            }
-        }
-        LUISA_ASSERT(std::any_of(requested.begin(), requested.end(),
-                                 [](auto value) noexcept { return value; }),
-                     "Texture scheduler has live routes but no page request.");
-
-        for (auto page = 0u; page < virtual_page_count; ++page) {
-            if (!requested[page] || host_page_table[page] != 0u) { continue; }
-            auto slot = physical_page_count;
-            for (auto i = 0u; i < physical_page_count; ++i) {
-                if (slot_pages[i] < 0) {
-                    slot = i;
-                    break;
-                }
-            }
-            if (slot == physical_page_count) {
-                for (auto i = 0u; i < physical_page_count; ++i) {
-                    auto resident = static_cast<uint>(slot_pages[i]);
-                    if (!requested[resident]) {
-                        slot = i;
-                        break;
-                    }
-                }
-            }
-            // All physical slots contain pages needed by this resume batch.
-            // Defer remaining faults until the next host round.
-            if (slot == physical_page_count) { break; }
-            if (slot_pages[slot] >= 0) {
-                host_page_table[static_cast<uint>(slot_pages[slot])] = 0u;
-            }
-            slot_pages[slot] = static_cast<int>(page);
-            host_page_table[page] = slot + 1u;
-            auto page_x = page % page_grid_size;
-            auto page_y = page / page_grid_size;
-            for (auto y = 0u; y < options.page_size; ++y) {
-                for (auto x = 0u; x < options.page_size; ++x) {
-                    auto source_x = page_x * options.page_size + x;
-                    auto source_y = page_y * options.page_size + y;
-                    host_cache[slot * page_texel_count +
-                               x + y * options.page_size] =
-                        virtual_texture[source_x +
-                                        source_y * options.dimension];
-                }
-            }
-            page_load_count++;
-        }
-
-        stream << page_table.copy_from(luisa::span{host_page_table})
-               << physical_cache.copy_from(luisa::span{host_cache});
-        for (auto &&shader : resume_shaders) {
-            stream << shader(frames, output, page_table, physical_cache,
-                             routes, scheduled_routes)
-                          .dispatch(pixel_count);
-        }
-        stream << routes.copy_to(luisa::span{host_routes}) << synchronize();
-        if (std::all_of(host_routes.begin(), host_routes.end(),
-                        [](auto route) noexcept { return route == 0u; })) {
-            round_count++;
-            break;
-        }
-    }
-
-    LUISA_ASSERT(round_count ==
-                     virtual_page_count / physical_page_count,
-                 "Expected {} cache-fault rounds, got {}.",
-                 virtual_page_count / physical_page_count, round_count);
-    LUISA_ASSERT(page_load_count == virtual_page_count,
-                 "Expected every virtual page to be loaded once, got {} "
-                 "loads for {} pages.",
-                 page_load_count, virtual_page_count);
+    LUISA_ASSERT(
+        texture_cache->round_count() ==
+            virtual_page_count / physical_page_count,
+        "Expected {} cache-fault rounds, got {}.",
+        virtual_page_count / physical_page_count,
+        texture_cache->round_count());
+    LUISA_ASSERT(
+        texture_cache->page_load_count() == virtual_page_count,
+        "Expected every virtual page to be loaded once, got {} loads for "
+        "{} pages.",
+        texture_cache->page_load_count(), virtual_page_count);
 
     luisa::vector<float> host_output(
         static_cast<size_t>(pixel_count) * 4u);
     stream << output.copy_to(luisa::span{host_output}) << synchronize();
     float max_error = 0.0f;
+    auto reference = texture_cache->virtual_texture();
     for (auto i = 0u; i < pixel_count; ++i) {
-        auto expected = virtual_texture[i];
+        auto expected = reference[i];
         for (auto channel = 0u; channel < 4u; ++channel) {
             auto actual = host_output[i * 4u + channel];
             max_error = std::max(
@@ -401,10 +387,11 @@ int main(int argc, char *argv[]) {
 
     LUISA_INFO(
         "On-demand coroutine texture passed on '{}': {}x{}, 64 virtual "
-        "pages / 8 physical pages, {} fault rounds, {} loads, max error "
+        "pages / 8 physical pages, {} handler rounds, {} loads, max error "
         "{:.9f}{}.",
-        argv[1], options.dimension, options.dimension, round_count,
-        page_load_count, max_error,
+        argv[1], options.dimension, options.dimension,
+        texture_cache->round_count(), texture_cache->page_load_count(),
+        max_error,
         options.write_image ? ", wrote coro_on_demand_texture.png" : "");
     return 0;
 }

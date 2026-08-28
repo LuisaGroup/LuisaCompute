@@ -7,13 +7,12 @@
 #include <stb/stb_image_write.h>
 
 #include <luisa/luisa-compute.h>
-#include <luisa/coro/coro_frame_storage.h>
+#include <luisa/coro/schedulers/wavefront.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
 
-#include "coro/external_stage_common.h"
 #include "coro/neural_bunny_sdf.h"
 
 using namespace luisa;
@@ -84,6 +83,127 @@ void validate_neural_sdf_values(
             i, actual[i], expected[i]);
     }
 }
+
+class NeuralSdfHandler final
+    : public WavefrontCoroSchedulerExtensionHandler<
+          Image<float>, Buffer<uint>> {
+
+private:
+    struct StageKernel {
+        size_t queue_index{0u};
+        Shader1D<ByteBuffer, Buffer<uint>, uint, uint> shader;
+    };
+
+    Callable<float2(float3)> _scene;
+    Callable<float3(float3)> _normal;
+    luisa::vector<StageKernel> _kernels;
+
+private:
+    template<typename Evaluate>
+    void _prepare_stage(
+        const WavefrontCoroExtensionPrepareContext &context,
+        const WavefrontCoroExtensionStage &stage,
+        luisa::string_view result_name,
+        Evaluate evaluate) noexcept {
+        auto reconstruct_slots = stage.dataflow->reconstruct_slots;
+        auto writeback_slots = stage.dataflow->required_def.slots;
+        auto *point = &stage.binding("point");
+        auto *result = &stage.binding(result_name);
+        auto *desc = &context.frame_desc;
+        Kernel1D kernel = [desc, point, result,
+                           layout = context.frame_layout,
+                           soa = context.global_memory_soa,
+                           reconstruct_slots, writeback_slots,
+                           evaluate = std::move(evaluate)](
+                              ByteBufferVar frame_storage,
+                              BufferUInt frame_indices,
+                              UInt frame_capacity, UInt count) noexcept {
+            auto x = dispatch_x();
+            $if (x >= count) { $return(); };
+            auto frame_index = frame_indices.read(x);
+            auto frame = CoroFrame::create(desc);
+            coro_frame_load_into(
+                frame, frame_storage, frame_index, frame_capacity,
+                layout, soa, luisa::span{reconstruct_slots},
+                false, false);
+            evaluate(*result, frame, point->read<float3>(frame));
+            coro_frame_store(
+                frame_storage, frame_index, frame_capacity, frame,
+                layout, soa, luisa::span{writeback_slots},
+                false, false);
+        };
+        auto label = luisa::format(
+            "wavefront_extension_neural_sdf_{}", stage.queue_index);
+        auto shader = coro::detail::coro_scheduler_label_shader(
+            context.device.compile(
+                kernel,
+                coro::detail::coro_scheduler_shader_option(
+                    context.shader_option, label)),
+            label);
+        _kernels.emplace_back(StageKernel{
+            .queue_index = stage.queue_index,
+            .shader = std::move(shader)});
+    }
+
+public:
+    NeuralSdfHandler(
+        Callable<float2(float3)> scene,
+        Callable<float3(float3)> normal) noexcept
+        : _scene{std::move(scene)}, _normal{std::move(normal)} {}
+
+    [[nodiscard]] luisa::string_view name() const noexcept override {
+        return "neural-sdf";
+    }
+
+    [[nodiscard]] bool can_handle(
+        const WavefrontCoroExtensionStage &stage) const noexcept override {
+        auto schema = stage.extension->schema();
+        return stage.extension->version() == 1u &&
+               (schema == distance_schema || schema == normal_schema);
+    }
+
+    void prepare(
+        const WavefrontCoroExtensionPrepareContext &context,
+        const WavefrontCoroExtensionStage &stage) noexcept override {
+        if (stage.extension->schema() == distance_schema) {
+            auto *scene = &_scene;
+            _prepare_stage(
+                context, stage, "sample",
+                [scene](const CoroSlotAccess &result,
+                        CoroFrame &frame, Float3 point) noexcept {
+                    result.write<float2>(frame, (*scene)(point));
+                });
+        } else {
+            auto *normal = &_normal;
+            _prepare_stage(
+                context, stage, "normal",
+                [normal](const CoroSlotAccess &result,
+                         CoroFrame &frame, Float3 point) noexcept {
+                    result.write<float3>(frame, (*normal)(point));
+                });
+        }
+    }
+
+    void dispatch(
+        const WavefrontCoroExtensionDispatchContext &context,
+        ImageView<float>, BufferView<uint>) noexcept override {
+        auto kernel = std::find_if(
+            _kernels.begin(), _kernels.end(),
+            [&](auto &&candidate) noexcept {
+                return candidate.queue_index ==
+                       context.stage.queue_index;
+            });
+        LUISA_ASSERT(kernel != _kernels.end(),
+                     "Neural-SDF handler has no prepared stage {}.",
+                     context.stage.queue_index);
+        context.stream << kernel->shader(
+                              context.frame_buffer,
+                              context.frame_indices,
+                              context.frame_capacity,
+                              context.frame_count)
+                              .dispatch(context.frame_count);
+    }
+};
 
 }// namespace
 
@@ -212,179 +332,24 @@ int main(int argc, char *argv[]) {
                        cast<uint>(any_hit));
         };
 
-    auto distance_views = find_external_stages(
-        coroutine.graph(), distance_schema);
-    auto normal_views = find_external_stages(
-        coroutine.graph(), normal_schema);
     auto bunny = make_neural_bunny_sdf();
     validate_neural_sdf_values(device, stream, bunny);
     auto scene = make_neural_bunny_scene(bunny);
     auto scene_normal = make_neural_bunny_normal(scene);
+    WavefrontCoroScheduler<Image<float>, Buffer<uint>> scheduler{
+        device, coroutine,
+        WavefrontCoroSchedulerConfig{
+            .thread_count = frame_count,
+            .global_memory_soa = true,
+            .gather_by_sorting = true,
+            .frame_buffer_compaction = false,
+            .execution_block_size = 256u,
+            .largest_continuation_first = true,
+            .incremental_continuation_counts = true}};
+    auto neural_sdf = luisa::make_shared<NeuralSdfHandler>(
+        std::move(scene), std::move(scene_normal));
+    scheduler.register_extension_handler(neural_sdf);
 
-    auto layout = CoroFrameStorageLayout::make_aos(
-        coroutine.frame(), frame_count);
-    auto frames = device.create_byte_buffer(layout.size_bytes);
-    auto routes = device.create_buffer<uint>(frame_count);
-    auto scheduled_routes = device.create_buffer<uint>(frame_count);
-    auto io_plan = coro_frame_make_io_plan(
-        coroutine.graph(), coroutine.frame().frame_field_count(),
-        CoroFrameIOPlanConfig{.externalize_target_token = true});
-
-    auto outgoing_routes = [&](size_t source) noexcept {
-        return collect_external_stage_routes(coroutine.graph(), source);
-    };
-
-    auto entry_outputs = io_plan.transition_output_fields[0u];
-    auto entry_routes = outgoing_routes(0u);
-    Kernel1D generate = [&coroutine, layout, entry_outputs, entry_routes,
-                         frame_count, options](
-                            ByteBufferVar frame_storage, ImageFloat output,
-                            BufferUInt hits, BufferUInt route_buffer) noexcept {
-        auto index = dispatch_x();
-        $if (index >= frame_count) { $return(); };
-        auto x = index % options.width;
-        auto y = index / options.width;
-        auto frame = coroutine.instantiate(
-            make_uint3(x, y, 0u),
-            make_uint3(options.width, options.height, 1u));
-        frame.target_token = 0u;
-        coroutine.entry()(frame, output, hits);
-        Var next = 0u;
-        Var next_route = 0u;
-        for (auto route : entry_routes) {
-            $if (frame.target_token == route.token) {
-                next = route.target;
-                next_route = route.boundary;
-            };
-        }
-        route_buffer.write(index, next_route);
-        for (auto target = 0u; target < entry_outputs.size(); ++target) {
-            $if (next == static_cast<uint>(target)) {
-                coro_frame_store(
-                    frame_storage, index, frame, layout, false,
-                    luisa::span{entry_outputs[target]}, false, false);
-            };
-        }
-    };
-
-    auto generate_shader = device.compile(generate);
-    Kernel1D snapshot_routes = [](BufferUInt source,
-                                  BufferUInt destination) noexcept {
-        auto index = dispatch_x();
-        destination.write(index, source.read(index));
-    };
-    auto snapshot_routes_shader = device.compile(snapshot_routes);
-    auto make_stage_shader =
-        [&](const ExternalStageView &view, auto &&evaluate) {
-            auto reconstruct_slots = merge_stage_slots(
-                view.stage->reconstruct_slot_span());
-            auto writeback_slots = merge_stage_slots(
-                view.stage->required_writeback_slot_span());
-            auto point = &view.binding("point");
-            auto result_name = view.extension->schema() == distance_schema ?
-                                   luisa::string_view{"sample"} :
-                                   luisa::string_view{"normal"};
-            auto result = &view.binding(result_name);
-            auto route = static_cast<uint>(view.boundary->index + 1u);
-            Kernel1D kernel = [&coroutine, layout, reconstruct_slots,
-                               writeback_slots, point, result, route,
-                               frame_count,
-                               evaluate = std::forward<decltype(evaluate)>(
-                                   evaluate)](
-                                  ByteBufferVar frame_storage,
-                                  BufferUInt scheduled_route_buffer) noexcept {
-                auto index = dispatch_x();
-                $if (index >= frame_count) { $return(); };
-                $if (scheduled_route_buffer.read(index) != route) {
-                    $return();
-                };
-                auto frame = CoroFrame::create(&coroutine.frame());
-                coro_frame_load_into(
-                    frame, frame_storage, index, layout, false,
-                    luisa::span{reconstruct_slots}, false, false);
-                auto p = point->read<float3>(frame);
-                evaluate(*result, frame, p);
-                coro_frame_store(
-                    frame_storage, index, frame, layout, false,
-                    luisa::span{writeback_slots}, false, false);
-            };
-            return device.compile(kernel);
-        };
-
-    luisa::vector<Shader1D<ByteBuffer, Buffer<uint>>> distance_stages;
-    distance_stages.reserve(distance_views.size());
-    for (auto &&view : distance_views) {
-        distance_stages.emplace_back(make_stage_shader(
-            view,
-            [&scene](const CoroSlotAccess &result, CoroFrame &frame,
-                     Float3 p) noexcept {
-                result.write<float2>(frame, scene(p));
-            }));
-    }
-    luisa::vector<Shader1D<ByteBuffer, Buffer<uint>>> normal_stages;
-    normal_stages.reserve(normal_views.size());
-    for (auto &&view : normal_views) {
-        normal_stages.emplace_back(make_stage_shader(
-            view,
-            [&scene_normal](const CoroSlotAccess &result, CoroFrame &frame,
-                            Float3 p) noexcept {
-                result.write<float3>(frame, scene_normal(p));
-            }));
-    }
-
-    auto make_resume_shader = [&](const ExternalStageView &view) {
-        auto node = view.boundary->to_index;
-        auto route = static_cast<uint>(view.boundary->index + 1u);
-        auto input_slots = io_plan.input_fields[node];
-        auto output_slots = io_plan.transition_output_fields[node];
-        auto next_routes = outgoing_routes(node);
-        Kernel1D kernel = [&coroutine, layout, node, route, input_slots,
-                           output_slots, next_routes, frame_count](
-                              ByteBufferVar frame_storage, ImageFloat output,
-                              BufferUInt hits, BufferUInt route_buffer,
-                              BufferUInt scheduled_route_buffer) noexcept {
-            auto index = dispatch_x();
-            $if (index >= frame_count) { $return(); };
-            $if (scheduled_route_buffer.read(index) != route) { $return(); };
-            auto frame = CoroFrame::create(&coroutine.frame());
-            coro_frame_load_into(
-                frame, frame_storage, index, layout, false,
-                luisa::span{input_slots}, false, false);
-            frame.target_token = CoroFrame::TERMINAL_TOKEN;
-            coroutine[node](frame, output, hits);
-            Var next = 0u;
-            Var next_route = 0u;
-            for (auto candidate : next_routes) {
-                $if (frame.target_token == candidate.token) {
-                    next = candidate.target;
-                    next_route = candidate.boundary;
-                };
-            }
-            route_buffer.write(index, next_route);
-            for (auto target = 0u; target < output_slots.size(); ++target) {
-                $if (next == static_cast<uint>(target)) {
-                    coro_frame_store(
-                        frame_storage, index, frame, layout, false,
-                        luisa::span{output_slots[target]}, false, false);
-                };
-            }
-        };
-        return device.compile(kernel);
-    };
-
-    using ResumeShader =
-        Shader1D<ByteBuffer, Image<float>, Buffer<uint>, Buffer<uint>,
-                 Buffer<uint>>;
-    luisa::vector<ResumeShader> distance_resumes;
-    distance_resumes.reserve(distance_views.size());
-    for (auto &&view : distance_views) {
-        distance_resumes.emplace_back(make_resume_shader(view));
-    }
-    luisa::vector<ResumeShader> normal_resumes;
-    normal_resumes.reserve(normal_views.size());
-    for (auto &&view : normal_views) {
-        normal_resumes.emplace_back(make_resume_shader(view));
-    }
     Kernel2D hdr_to_ldr = [](ImageFloat source, ImageFloat destination) {
         auto coord = dispatch_id().xy();
         auto color = source.read(coord).xyz();
@@ -394,33 +359,8 @@ int main(int argc, char *argv[]) {
     auto hdr_to_ldr_shader = device.compile(hdr_to_ldr);
 
     Clock clock;
-    stream << generate_shader(frames, hdr, hit_mask, routes)
-                  .dispatch(frame_count);
-    // One loop iteration advances every active path through at most one
-    // distance query and one normal query. Two bounces each contain at most
-    // 96 distance steps, so 192 iterations are a complete static bound.
-    for (auto iteration = 0u; iteration < 192u; ++iteration) {
-        stream << snapshot_routes_shader(routes, scheduled_routes)
-                      .dispatch(frame_count);
-        for (auto &&shader : distance_stages) {
-            stream << shader(frames, scheduled_routes).dispatch(frame_count);
-        }
-        for (auto &&shader : distance_resumes) {
-            stream << shader(frames, hdr, hit_mask, routes,
-                             scheduled_routes)
-                          .dispatch(frame_count);
-        }
-        stream << snapshot_routes_shader(routes, scheduled_routes)
-                      .dispatch(frame_count);
-        for (auto &&shader : normal_stages) {
-            stream << shader(frames, scheduled_routes).dispatch(frame_count);
-        }
-        for (auto &&shader : normal_resumes) {
-            stream << shader(frames, hdr, hit_mask, routes,
-                             scheduled_routes)
-                          .dispatch(frame_count);
-        }
-    }
+    scheduler(hdr, hit_mask)
+        .dispatch(options.width, options.height)(stream);
 
     luisa::vector<float> host_hdr(
         static_cast<size_t>(frame_count) * 4u);
