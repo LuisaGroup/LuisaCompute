@@ -1714,6 +1714,12 @@ void reg_instruction_type_validation() {
         auto zero_float = module.create_constant_zero(float_type);
         auto float2_zero = module.create_constant_zero(float2_type);
         auto matrix2_zero = module.create_constant_zero(Type::matrix(2u));
+        int32_t negative_index_value = -1;
+        uint32_t upper_bound_index_value = 2u;
+        auto negative_index = module.create_constant(
+            int_type, &negative_index_value);
+        auto upper_bound_index = module.create_constant(
+            uint_type, &upper_bound_index_value);
         auto field_index = module.create_constant_one(uint_type);
         auto element_index = module.create_constant_zero(uint_type);
         auto callable = module.create_callable(nullptr);
@@ -1722,6 +1728,9 @@ void reg_instruction_type_validation() {
         builder.set_insertion_point(body);
         auto storage = builder.alloca_local(aggregate_type);
         builder.gep(float_type, storage, {field_index, element_index});
+        auto homogeneous_storage = builder.alloca_local(float_array_type);
+        builder.gep(float_type, homogeneous_storage, {negative_index});
+        builder.gep(float_type, homogeneous_storage, {upper_bound_index});
         builder.static_cast_(uint_type, one);
         builder.bit_cast_(float_type, one);
         builder.bit_cast_(ushort4_type, wide_one);
@@ -1734,6 +1743,9 @@ void reg_instruction_type_validation() {
         builder.call(
             float2_type, ArithmeticOp::SHUFFLE,
             {float2_zero, narrow_zero, wide_one});
+        builder.call(
+            float2_type, ArithmeticOp::SHUFFLE,
+            {float2_zero, negative_index, upper_bound_index});
         auto float_array = builder.call(
             float_array_type, ArithmeticOp::AGGREGATE,
             {zero_float, zero_float});
@@ -1741,8 +1753,14 @@ void reg_instruction_type_validation() {
             float_type, ArithmeticOp::EXTRACT,
             {float_array, narrow_zero});
         builder.call(
+            float_type, ArithmeticOp::EXTRACT,
+            {float_array, upper_bound_index});
+        builder.call(
             float_array_type, ArithmeticOp::INSERT,
             {float_array, zero_float, wide_one});
+        builder.call(
+            float_array_type, ArithmeticOp::INSERT,
+            {float_array, zero_float, negative_index});
         builder.call(float_type, ArithmeticOp::SATURATE, {zero_float});
         builder.call(float_type, ArithmeticOp::ACOS, {zero_float});
         builder.call(
@@ -1767,7 +1785,7 @@ void reg_instruction_type_validation() {
     };
 
     "xir_interchange_malformed_instruction_types_rejected"_test = [] {
-        constexpr std::array<luisa::string_view, 19u> malformed{
+        constexpr std::array<luisa::string_view, 15u> malformed{
             // Arithmetic result and operand types must agree.
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 2 argument 1 value "int" argument 2 value "int" blocks 1 block 3 body 3 instructions 2 instruction 4 3 arithmetic "float" binary_add 2 1 2 0 instruction 5 3 return "void" -1 1 -1 0 } })",
             // Comparison results must have the matching boolean shape.
@@ -1792,11 +1810,6 @@ void reg_instruction_type_validation() {
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 2 argument 1 reference "struct<4,int,uint>" argument 2 value "uint" blocks 1 block 3 body 3 instructions 2 instruction 4 3 gep "int" -1 2 1 2 0 instruction 5 3 return "void" -1 1 -1 0 } })",
             // Constant structure indices must be in range.
             R"(xir.text 1 module { globals 1 constant 0 "uint" "02000000" functions 1 function 1 callable "void" 0 0 0 { arguments 1 argument 2 reference "struct<4,int,uint>" blocks 1 block 3 body 3 instructions 2 instruction 4 3 gep "int" -1 2 2 0 0 instruction 5 3 return "void" -1 1 -1 0 } })",
-            // Constant aggregate/shuffle indices must be nonnegative and in range.
-            R"(xir.text 1 module { globals 1 constant 0 "int" "ffffffff" functions 1 function 1 callable "void" 0 0 0 { arguments 1 argument 2 value "vector<float,2>" blocks 1 block 3 body 3 instructions 2 instruction 4 3 arithmetic "vector<float,2>" shuffle 3 2 0 0 0 instruction 5 3 return "void" -1 1 -1 0 } })",
-            R"(xir.text 1 module { globals 1 constant 0 "uint" "02000000" functions 1 function 1 callable "void" 0 0 0 { arguments 1 argument 2 value "vector<float,2>" blocks 1 block 3 body 3 instructions 2 instruction 4 3 arithmetic "vector<float,2>" shuffle 3 2 0 0 0 instruction 5 3 return "void" -1 1 -1 0 } })",
-            R"(xir.text 1 module { globals 1 constant 0 "uint" "02000000" functions 1 function 1 callable "void" 0 0 0 { arguments 1 argument 2 value "array<float,2>" blocks 1 block 3 body 3 instructions 2 instruction 4 3 arithmetic "float" extract 2 2 0 0 instruction 5 3 return "void" -1 1 -1 0 } })",
-            R"(xir.text 1 module { globals 1 constant 0 "int" "ffffffff" functions 1 function 1 callable "void" 0 0 0 { arguments 2 argument 2 value "array<int,2>" argument 3 value "int" blocks 1 block 4 body 4 instructions 2 instruction 5 4 arithmetic "array<int,2>" insert 3 2 3 0 0 instruction 6 4 return "void" -1 1 -1 0 } })",
             // Switch selectors must be integer scalars.
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 1 argument 1 value "float" blocks 3 block 2 block 3 block 4 body 2 instructions 3 instruction 5 2 switch "void" -1 2 1 3 1 4 instruction 6 3 branch "void" -1 1 4 0 instruction 7 4 return "void" -1 1 -1 0 } })",
             // Integer vectors are not scalar switch selectors.

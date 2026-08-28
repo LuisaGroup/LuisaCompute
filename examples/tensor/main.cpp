@@ -33,6 +33,9 @@
 // example_tensor_stub <backend> --rnn-pt2 [rnn_exported.pt2.json] [--tol F]
 // -- torch.export'd RNN graph import (torch2_export.py artifact,
 // parsed + executed on the backend, verified vs PyTorch reference)
+// example_tensor_stub <backend> --transformer-pt2 [transformer_exported.pt2.json] [--tol F]
+// -- torch.export'd tiny-transformer graph import (transformer_train.py artifact,
+// parsed + executed on the backend, verified vs PyTorch reference)
 // example_tensor_stub <backend> --basics
 // -- tensor basics exercises (C++ twin of
 // tensor_basics.py)
@@ -47,6 +50,8 @@
 #include "rnn.h"
 #include "torch2_import.h"
 #include "tensor_basics.h"
+
+#include <luisa/core/stl/memory.h>
 
 int main(int argc, char *argv[]) {
     using namespace luisa::compute;// Kernel / Device / Context / detail for the translation test
@@ -82,6 +87,8 @@ int main(int argc, char *argv[]) {
       if (has_flag("--rnn")) { return rnntrain::run_rnn(argc, argv); }
       // --rnn-pt2: run the torch.export'd RNN graph import (torch2 pipeline).
       if (has_flag("--rnn-pt2")) { return torch2::run_rnn_import(argc, argv); }
+      // --transformer-pt2: run the torch.export'd tiny-transformer graph import.
+      if (has_flag("--transformer-pt2")) { return transformer2::run_transformer_import(argc, argv); }
       // --basics: run the tensor-basics exercises.
     if (has_flag("--basics")) { return basics::run_basics(argc, argv); }
 
@@ -135,7 +142,7 @@ int main(int argc, char *argv[]) {
                    name, kernel.function()->body()->size(), kernel.describe());
         auto result = translate_and_verify(name, kernel.function(),
                                            expected_dispatch, expected_block, expected_buffers);
-        return std::make_pair(std::move(kernel), std::move(result));
+        return luisa::make_pair(std::move(kernel), std::move(result));
     };
 
     // =========================================================================

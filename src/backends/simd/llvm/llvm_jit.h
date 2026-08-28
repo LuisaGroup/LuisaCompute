@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -37,6 +38,12 @@ private:
         ::llvm::Module &module) noexcept;
 
 public:
+    // Full O2 is retained for ordinary kernels. Very large scheduler modules
+    // use O1 so compile time remains bounded instead of spending minutes in
+    // whole-module IPO over a million-instruction state machine.
+    [[nodiscard]] static bool selects_size_bounded_pipeline(
+        size_t block_count, size_t instruction_count) noexcept;
+
     explicit LLVMJIT(bool capture_object = false) noexcept;
     ~LLVMJIT() noexcept;
     LLVMJIT(LLVMJIT &&) noexcept;

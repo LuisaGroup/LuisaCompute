@@ -601,13 +601,7 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
             break;
         case xir::DerivedValueTag::UNDEFINED: {
             auto spv_type = _convert_type(value->type(), Usage::READ);
-            if (_builder.isPointerType(spv_type)) {
-                id = _builder.createUndefined(spv_type);
-            } else {
-                spirv_codegen_add_narrow_constant_capabilities(
-                    _builder, value->type());
-                id = _builder.makeNullConstant(spv_type);
-            }
+            id = _builder.createUndefined(spv_type);
             break;
         }
         case xir::DerivedValueTag::SPECIAL_REGISTER: {

@@ -168,6 +168,73 @@ void register_diamond_tests() {
         }
     };
 
+    "simd_xir_lowering_materializes_undef_phi_incoming_as_zero"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *entry = kernel->create_body_block();
+        auto *defined = kernel->create_basic_block();
+        auto *undefined = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        entry->set_name("entry");
+        defined->set_name("defined");
+        undefined->set_name("undefined");
+        merge->set_name("merge");
+
+        auto *one = module.create_constant_one(Type::of<uint>());
+        auto *undef = module.create_undefined(Type::of<uint>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.cond_br(condition, defined, undefined);
+        builder.set_insertion_point(defined);
+        builder.br(merge);
+        builder.set_insertion_point(undefined);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        auto *selected = builder.phi(
+            Type::of<uint>(),
+            {{one, defined}, {undef, undefined}});
+        selected->set_name("selected_with_undef");
+        static_cast<void>(builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {selected, one}));
+        builder.return_void();
+
+        auto result = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 8u});
+        expect(result.succeeded()) << diagnostics_text(result);
+        if (!result.succeeded()) { return; }
+        expect(verify(*result.function).succeeded());
+
+        auto *undefined_block = find_block(
+            *result.function, "undefined");
+        expect(undefined_block != nullptr);
+        if (undefined_block == nullptr) { return; }
+        auto *branch = std::get_if<BranchTerminator>(
+            &undefined_block->terminator);
+        expect(branch != nullptr);
+        if (branch == nullptr) { return; }
+        expect(branch->edge.assignments.size() == 1u);
+        if (branch->edge.assignments.size() != 1u) { return; }
+        auto *source = result.function->value(
+            branch->edge.assignments.front().source);
+        expect(source != nullptr);
+        if (source == nullptr) { return; }
+        expect(source->origin == ValueOrigin::constant);
+        auto *constant = std::get_if<ConstantValueMetadata>(
+            &source->metadata);
+        expect(constant != nullptr);
+        if (constant != nullptr) {
+            expect(constant->bytes.size() == sizeof(uint32_t));
+            expect(std::all_of(
+                constant->bytes.begin(), constant->bytes.end(),
+                [](auto byte) noexcept {
+                    return byte == std::byte{0};
+                }));
+        }
+    };
+
     "simd_xir_lowering_keeps_uniform_branch_scalar"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -363,6 +430,46 @@ void register_loop_tests() {
 }
 
 void register_block_barrier_tests() {
+    "simd_xir_canonicalizes_terminal_block_barrier"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *entry = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.call(
+            nullptr, ThreadGroupOp::SYNCHRONIZE_BLOCK, {});
+        builder.return_void();
+
+        auto canonical = canonicalize_block_barriers(kernel);
+        expect(canonical.succeeded());
+        expect(canonical.barrier_count == 1u);
+        expect(canonical.split_block_count == 1u);
+        auto result = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 1u});
+        expect(result.succeeded()) << diagnostics_text(result);
+        if (!result.succeeded()) { return; }
+
+        auto barrier_count = size_t{0u};
+        for (auto &&block : result.function->blocks()) {
+            auto *barrier = std::get_if<BlockBarrierTerminator>(
+                &block.terminator);
+            if (barrier == nullptr) { continue; }
+            barrier_count++;
+            expect(
+                barrier->resume_edge.target.value <
+                result.function->blocks().size());
+            if (barrier->resume_edge.target.value <
+                result.function->blocks().size()) {
+                const auto &resume = result.function->blocks()[
+                    barrier->resume_edge.target.value];
+                expect(std::holds_alternative<ReturnTerminator>(
+                    resume.terminator));
+            }
+        }
+        expect(barrier_count == 1u);
+        expect(verify(*result.function).succeeded());
+    };
+
     "simd_xir_canonicalizes_and_lowers_block_barrier_phase"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

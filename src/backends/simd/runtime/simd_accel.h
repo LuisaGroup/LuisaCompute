@@ -107,6 +107,7 @@ private:
     bool _enable_triangle_only_ray_query{true};
     bool _enable_surface_filter_pipeline{true};
     bool _enable_surface_filter_ray_packet{true};
+    bool _embree_native_ray_packet{true};
     bool _enable_direct_surface_filter_candidate{true};
     bool _enable_output_only_empty_surface_filter{true};
     bool _enable_direct_output_surface_filter{true};

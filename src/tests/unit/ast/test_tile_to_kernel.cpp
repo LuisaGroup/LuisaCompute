@@ -79,6 +79,29 @@ Tensor<tile_f16, 2> pipelined_matmul(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> 
     return C;
 }
 
+// Same Pipelined GEMM with a multi-warp block: exercises the Tier-2
+// warp-specialized manual pipeline (copy warps vs. compute warps).
+Tensor<tile_f16, 2> pipelined_matmul_multi_warp(Tensor<tile_f16, 2> A, Tensor<tile_f16, 2> B) {
+    constexpr tile_i32 M = 64, N = 64, K = 64;
+    constexpr tile_i32 block_M = 16, block_N = 16, block_K = 8;
+    constexpr tile_i32 threads = 128;
+    constexpr tile_i32 num_stages = 2;
+    Tensor<tile_f16, 2> C = T.empty(T.shape(M, N), tile_f16{});
+    for (auto [bx, by] : T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads)) {
+        auto A_shared = T.alloc_shared(T.shape(block_M, block_K), tile_f16{});
+        auto B_shared = T.alloc_shared(T.shape(block_K, block_N), tile_f16{});
+        auto C_local = T.alloc_fragment(T.shape(block_M, block_N), tile_f32{});
+        T.clear(C_local);
+        for (auto ko : T.Pipelined(T.ceildiv(K, block_K), num_stages)) {
+            T.copy(A(by * block_M, ko * block_K), A_shared);
+            T.copy(B(ko * block_K, bx * block_N), B_shared);
+            T.gemm(A_shared, B_shared, C_local);
+        }
+        T.copy(C_local, C(by * block_M, bx * block_N));
+    }
+    return C;
+}
+
 Tensor<tile_f32, 2> rms_norm(Tensor<tile_f32, 2> A) {
     constexpr tile_i32 M = 64, N = 64;
     constexpr tile_i32 blk_m = 8;
@@ -916,5 +939,42 @@ int main(int argc, char *argv[]) {
         expect(!calls.uses_tensor_ops());
         expect(calls.test(CallOp::BUFFER_READ));
         expect(calls.test(CallOp::BUFFER_WRITE));
+    };
+
+    "manual_pipeline_emits_no_cuda_async_ops"_test = [] {
+        // The portable manual-copy pipeline (pipeline_use_async_copy=false)
+        // must never emit the CUDA-only cp.async builtins: BUFFER_ADDRESS /
+        // ASYNC_COPY / PIPELINE_COMMIT / PIPELINE_WAIT_PRIOR.  The multi-warp
+        // kernel engages the Tier-2 warp-specialized manual pipeline; the
+        // single-warp kernel cannot specialize (no spare compute warp) and
+        // stays on the synchronous path — neither emits the CUDA async ops.
+        {
+            tile::Kernel kernel{pipelined_matmul};// 32 threads -> synchronous fallback
+            auto result = tile_to_kernel(kernel.function(),
+                                         TileToKernelConfig{.use_pipeline = true,
+                                                            .pipeline_use_async_copy = false});
+            expect(result.function != nullptr);
+            auto calls = result.function->direct_builtin_callables();
+            expect(!calls.test(CallOp::BUFFER_ADDRESS));
+            expect(!calls.test(CallOp::ASYNC_COPY));
+            expect(!calls.test(CallOp::PIPELINE_COMMIT));
+            expect(!calls.test(CallOp::PIPELINE_WAIT_PRIOR));
+            expect(calls.test(CallOp::BUFFER_READ));
+            expect(!result.function->shared_variables().empty());
+        }
+        {
+            tile::Kernel kernel{pipelined_matmul_multi_warp};// 128 threads -> Tier 2
+            auto result = tile_to_kernel(kernel.function(),
+                                         TileToKernelConfig{.use_pipeline = true,
+                                                            .pipeline_use_async_copy = false});
+            expect(result.function != nullptr);
+            auto calls = result.function->direct_builtin_callables();
+            expect(!calls.test(CallOp::BUFFER_ADDRESS));
+            expect(!calls.test(CallOp::ASYNC_COPY));
+            expect(!calls.test(CallOp::PIPELINE_COMMIT));
+            expect(!calls.test(CallOp::PIPELINE_WAIT_PRIOR));
+            expect(calls.test(CallOp::BUFFER_READ));
+            expect(!result.function->shared_variables().empty());
+        }
     };
 }

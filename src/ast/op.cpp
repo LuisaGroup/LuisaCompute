@@ -160,6 +160,13 @@ LUISA_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Ty
 
 LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept {
     switch (op) {
+        case CallOp::UNDEFINED: {
+            LUISA_ASSERT(return_type != nullptr &&
+                             return_type != Type::of<void>() &&
+                             args.empty(),
+                         "UNDEFINED requires a non-void result type and no arguments.");
+            break;
+        }
         case CallOp::PACK: {
             if (!(return_type == Type::of<void>() &&
                   args.size() == 3u &&

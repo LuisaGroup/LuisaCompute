@@ -665,6 +665,40 @@ void register_coro_alloca_scope_tests() {
         expect(xir_verify_module(&module).succeeded());
     };
 
+    "undefined_full_definition_moves_with_fresh_lifetime"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *phase = kernel->create_basic_block();
+        auto *array_type = Type::array(Type::of<float4>(), 3u);
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(array_type);
+        auto *seed = module.create_undefined(array_type);
+        auto *definition = builder.store(scratch, seed);
+        auto *unrelated = builder.clock();
+        builder.br(phase);
+        builder.set_insertion_point(phase);
+        auto *observation = builder.load(array_type, scratch);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.delayed_first_definition_count == 1u);
+        expect(info.cross_block_first_definition_delay_count == 1u);
+        expect(info.contracted_alloca_count == 1u);
+        expect(scratch->parent_block() == phase);
+        expect(definition->parent_block() == phase);
+        expect(definition->value() == seed);
+        expect(unrelated->parent_block() == entry);
+        expect(instruction_index(phase, scratch) <
+               instruction_index(phase, definition));
+        expect(instruction_index(phase, definition) <
+               instruction_index(phase, observation));
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "single_definition_can_initialize_each_new_loop_lifetime"_test = [] {
         Module module;
         BasicBlock *entry;

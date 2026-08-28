@@ -116,6 +116,43 @@ template<typename F>
 
 void reg_xir2ast_direct() {
 
+    "xir_to_ast_roundtrip_preserves_undefined_aggregate"_test = [] {
+        using Bank = std::array<float4, 3u>;
+        Module module;
+        auto *callable = module.create_callable(Type::of<Bank>());
+        XIRBuilder builder;
+        builder.set_insertion_point(callable->create_body_block());
+        builder.return_(module.create_undefined(Type::of<Bank>()));
+        expect(xir_verify_module(&module).succeeded());
+
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(rebuilt != nullptr);
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+
+        auto undefined_operand_count = 0u;
+        for (auto *function : rebuilt->function_list()) {
+            auto *definition = function->definition();
+            if (definition == nullptr) { continue; }
+            definition->traverse_instructions(
+                [&](const Instruction *instruction) noexcept {
+                    for (auto i = 0u;
+                         i < instruction->operand_count(); ++i) {
+                        auto *operand = instruction->operand(i);
+                        if (operand != nullptr &&
+                            operand->derived_value_tag() ==
+                            DerivedValueTag::UNDEFINED) {
+                            expect(operand->type() == Type::of<Bank>());
+                            undefined_operand_count++;
+                        }
+                    }
+                });
+        }
+        expect(undefined_operand_count == 1u)
+            << "XIR-to-AST must not refine undefined to zero";
+    };
+
     "xir_to_ast_roundtrips_canonical_low_level_ray_query_state"_test = [] {
         Module module;
         auto *callable = module.create_callable(nullptr);

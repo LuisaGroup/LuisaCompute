@@ -39,7 +39,8 @@
 
 #include <cmath>
 #include <cstdlib>
-#include <vector>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/vector.h>
 
 namespace {
 
@@ -52,16 +53,16 @@ constexpr int N_TEST = 2 * B;    // 64 sequences
 constexpr int N_ALL = 256;       // all 2^8 bitstrings
 
 struct RnnData {
-    std::vector<float> x[5];     // [T, B, 1] per minibatch
-    std::vector<float> xt[5];    // [T, 1, B] per minibatch
-    std::vector<float> y_onehot[5];// [B, C]
-    std::vector<int> y_test;     // [N_TEST]
-    std::vector<float> x_test[2];// [T, B, 1] per test minibatch
+    luisa::vector<float> x[5];     // [T, B, 1] per minibatch
+    luisa::vector<float> xt[5];    // [T, 1, B] per minibatch
+    luisa::vector<float> y_onehot[5];// [B, C]
+    luisa::vector<int> y_test;     // [N_TEST]
+    luisa::vector<float> x_test[2];// [T, B, 1] per test minibatch
 };
 
 RnnData make_rnn_data() {
-    std::vector<int> y_all(N_ALL);
-    std::vector<std::vector<float>> seq(N_ALL, std::vector<float>(T));
+    luisa::vector<int> y_all(N_ALL);
+    luisa::vector<luisa::vector<float>> seq(N_ALL, luisa::vector<float>(T));
     for (int i = 0; i < N_ALL; ++i) {
         int ones = 0;
         for (int t = 0; t < T; ++t) {
@@ -71,18 +72,18 @@ RnnData make_rnn_data() {
         }
         y_all[i] = ones >= 3 ? 1 : 0;
     }
-    std::vector<int> perm(N_ALL);
+    luisa::vector<int> perm(N_ALL);
     for (int i = 0; i < N_ALL; ++i) { perm[i] = i; }
     unsigned s = 42u * 2654435761u + 12345u;
     for (int i = N_ALL - 1; i > 0; --i) {
         s = s * 1664525u + 1013904223u;
         int j = static_cast<int>((s >> 8) & 0xFFFFFFu) % (i + 1);
-        std::swap(perm[i], perm[j]);
+        luisa::swap(perm[i], perm[j]);
     }
 
     RnnData d;
-    auto fill_block = [&](std::vector<float> &x, std::vector<float> &xt,
-                          std::vector<float> &yo, const std::vector<int> &ids,
+    auto fill_block = [&](luisa::vector<float> &x, luisa::vector<float> &xt,
+                          luisa::vector<float> &yo, const luisa::vector<int> &ids,
                           int base) {
         x.assign(static_cast<size_t>(T) * B, 0.0f);
         xt.assign(static_cast<size_t>(T) * B, 0.0f);
@@ -102,7 +103,7 @@ RnnData make_rnn_data() {
 
     for (int b = 0; b < 5; ++b) { fill_block(d.x[b], d.xt[b], d.y_onehot[b], perm, b * B); }
     for (int b = 0; b < 2; ++b) {
-        std::vector<float> dummy_xt, dummy_y;
+        luisa::vector<float> dummy_xt, dummy_y;
         fill_block(d.x_test[b], dummy_xt, dummy_y, perm, 5 * B + b * B);
     }
     d.y_test.resize(N_TEST);
@@ -112,13 +113,13 @@ RnnData make_rnn_data() {
 
 // ---- host reference: exact same algorithm as the device, in double ----------
 struct RnnHostRef {
-    std::vector<double> Wih;      // [1, H]
-    std::vector<double> Whh;      // [H, H]
-    std::vector<double> Wfc;      // [H, C]
-    std::vector<double> Bias_ih;  // [1, H]
-    std::vector<double> Bias_hh;  // [1, H]
-    std::vector<double> Bias_fc;  // [1, C]
-    std::vector<double> epoch_losses;
+    luisa::vector<double> Wih;      // [1, H]
+    luisa::vector<double> Whh;      // [H, H]
+    luisa::vector<double> Wfc;      // [H, C]
+    luisa::vector<double> Bias_ih;  // [1, H]
+    luisa::vector<double> Bias_hh;  // [1, H]
+    luisa::vector<double> Bias_fc;  // [1, C]
+    luisa::vector<double> epoch_losses;
     double test_acc = 0.0;
 };
 
@@ -139,8 +140,8 @@ RnnHostRef rnn_host_reference(const RnnData &d, int epochs) {
     for (auto &v : r.Bias_fc) { v = 0.5 * rng.gauss(); }
 
     const double lr = 0.1;// dW/db already include the 1/B from the CE gradient
-    auto matmul = [](const std::vector<double> &A, const std::vector<double> &X,
-                     int M, int K, int N, std::vector<double> &Y) {
+    auto matmul = [](const luisa::vector<double> &A, const luisa::vector<double> &X,
+                     int M, int K, int N, luisa::vector<double> &Y) {
         Y.assign(static_cast<size_t>(M) * N, 0.0);
         for (int i = 0; i < M; ++i) {
             for (int n = 0; n < N; ++n) {
@@ -157,10 +158,10 @@ RnnHostRef rnn_host_reference(const RnnData &d, int epochs) {
         double ep_loss = 0.0;
         for (int b = 0; b < 5; ++b) {
             const auto &xb = d.x[b];
-            std::vector<double> Hst(static_cast<size_t>(B) * H, 0.0);
-            std::vector<std::vector<double>> Hs(T);
+            luisa::vector<double> Hst(static_cast<size_t>(B) * H, 0.0);
+            luisa::vector<luisa::vector<double>> Hs(T);
             for (int t = 0; t < T; ++t) {
-                std::vector<double> z(B * H), h(B * H);
+                luisa::vector<double> z(B * H), h(B * H);
                 for (int i = 0; i < B; ++i) {
                     for (int o = 0; o < H; ++o) {
                         double s = r.Bias_ih[o] + r.Bias_hh[o];
@@ -175,7 +176,7 @@ RnnHostRef rnn_host_reference(const RnnData &d, int epochs) {
                 Hs[t] = h;
                 Hst = h;
             }
-            std::vector<double> logits(B * C), P(B * C);
+            luisa::vector<double> logits(B * C), P(B * C);
             matmul(Hst, r.Wfc, B, H, C, logits);
             for (int i = 0; i < B * C; ++i) { logits[i] += r.Bias_fc[i % C]; }
             double loss = 0.0;
@@ -191,10 +192,10 @@ RnnHostRef rnn_host_reference(const RnnData &d, int epochs) {
             }
             loss /= B;
             ep_loss += loss;
-            std::vector<double> G(B * C);
+            luisa::vector<double> G(B * C);
             for (int i = 0; i < B * C; ++i) { G[i] = (P[i] - d.y_onehot[b][i]) / B; }
             // fc backward
-            std::vector<double> dWfc(static_cast<size_t>(H) * C, 0.0), dH(B * H, 0.0), db_fc(C, 0.0);
+            luisa::vector<double> dWfc(static_cast<size_t>(H) * C, 0.0), dH(B * H, 0.0), db_fc(C, 0.0);
             for (int k = 0; k < H; ++k)
                 for (int c = 0; c < C; ++c) {
                     double s = 0.0;
@@ -213,11 +214,11 @@ RnnHostRef rnn_host_reference(const RnnData &d, int epochs) {
                     dH[static_cast<size_t>(i) * H + o] = s;
                 }
             // BPTT
-            std::vector<double> dWih(H, 0.0), dWhh(static_cast<size_t>(H) * H, 0.0);
-            std::vector<double> db_ih(H, 0.0), db_hh(H, 0.0);
-            std::vector<double> dH_cur = dH;
+            luisa::vector<double> dWih(H, 0.0), dWhh(static_cast<size_t>(H) * H, 0.0);
+            luisa::vector<double> db_ih(H, 0.0), db_hh(H, 0.0);
+            luisa::vector<double> dH_cur = dH;
             for (int t = T - 1; t >= 0; --t) {
-                std::vector<double> dZ(B * H);
+                luisa::vector<double> dZ(B * H);
                 for (int i = 0; i < B * H; ++i) {
                     double h = Hs[t][i];
                     dZ[i] = dH_cur[i] * (1.0 - h * h);
@@ -244,7 +245,7 @@ RnnHostRef rnn_host_reference(const RnnData &d, int epochs) {
                             }
                             dWhh[static_cast<size_t>(k) * H + o] += s;
                         }
-                    std::vector<double> dH_next(B * H, 0.0);
+                    luisa::vector<double> dH_next(B * H, 0.0);
                     for (int i = 0; i < B; ++i)
                         for (int o = 0; o < H; ++o) {
                             double s = 0.0;
@@ -270,9 +271,9 @@ RnnHostRef rnn_host_reference(const RnnData &d, int epochs) {
     int correct = 0;
     for (int b = 0; b < 2; ++b) {
         const auto &xb = d.x_test[b];
-        std::vector<double> Hst(static_cast<size_t>(B) * H, 0.0);
+        luisa::vector<double> Hst(static_cast<size_t>(B) * H, 0.0);
         for (int t = 0; t < T; ++t) {
-            std::vector<double> z(B * H), h(B * H);
+            luisa::vector<double> z(B * H), h(B * H);
             for (int i = 0; i < B; ++i) {
                 for (int o = 0; o < H; ++o) {
                     double s = r.Bias_ih[o] + r.Bias_hh[o];
@@ -286,7 +287,7 @@ RnnHostRef rnn_host_reference(const RnnData &d, int epochs) {
             for (int i = 0; i < B * H; ++i) { h[i] = std::tanh(z[i]); }
             Hst = h;
         }
-        std::vector<double> logits(B * C);
+        luisa::vector<double> logits(B * C);
         matmul(Hst, r.Wfc, B, H, C, logits);
         for (int i = 0; i < B * C; ++i) { logits[i] += r.Bias_fc[i % C]; }
         for (int i = 0; i < B; ++i) {

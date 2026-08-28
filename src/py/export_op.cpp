@@ -276,6 +276,7 @@ void export_op(py::module &m) {
         .value("DETACH", CallOp::DETACH)
         .value("ZERO", CallOp::ZERO)
         .value("ONE", CallOp::ONE)
+        .value("UNDEFINED", CallOp::UNDEFINED)
         .value("REDUCE_SUM", CallOp::REDUCE_SUM)
         .value("REDUCE_PRODUCT", CallOp::REDUCE_PRODUCT)
         .value("REDUCE_MIN", CallOp::REDUCE_MIN)

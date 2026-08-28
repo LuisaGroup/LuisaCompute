@@ -64,6 +64,16 @@ add_test(NAME test_simd_reference_warp_collectives
 set_tests_properties(test_simd_reference_warp_collectives PROPERTIES
         LABELS "unit;unit_simd")
 
+add_executable(test_simd_embree_packet_support
+        unit/simd/test_simd_embree_packet_support.cpp)
+target_compile_features(test_simd_embree_packet_support PRIVATE cxx_std_20)
+target_include_directories(test_simd_embree_packet_support PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/runtime)
+add_test(NAME test_simd_embree_packet_support
+        COMMAND test_simd_embree_packet_support)
+set_tests_properties(test_simd_embree_packet_support PROPERTIES
+        LABELS "unit;unit_simd")
+
 add_executable(test_simd_schedule_ir
         unit/simd/test_schedule_ir.cpp
         ../backends/simd/schedule/schedule_ir.cpp)
@@ -363,7 +373,6 @@ if (TARGET luisa-compute-backend-vk)
 endif ()
 luisa_compute_add_test(test_argument_block_layout unit/ext/test_argument_block_layout.cpp LABELS "unit;unit_ext")
 target_include_directories(test_argument_block_layout PRIVATE ../backends/common)
-
 if (TARGET luisa-compute-backend-metal4)
     luisa_compute_add_test(benchmark_metal4
             benchmark/benchmark_metal4.cpp)
@@ -442,6 +451,18 @@ if (TARGET luisa-compute-backend-metal4)
             TIMEOUT 300)
 endif ()
 
+luisa_compute_add_test(test_c_codegen_undefined
+        unit/ext/test_c_codegen_undefined.cpp
+        LABELS "unit;unit_ext;c_codegen")
+target_sources(test_c_codegen_undefined PRIVATE
+        ../backends/common/c_codegen/codegen_utils.cpp
+        ../backends/common/c_codegen/codegen_visitor.cpp)
+target_include_directories(test_c_codegen_undefined PRIVATE
+        ../backends/common/c_codegen)
+target_link_libraries(test_c_codegen_undefined PRIVATE
+        luisa-compute-runtime
+        luisa-compute-core
+        luisa-compute-vstl)
 luisa_compute_add_test(test_pixel_storage unit/core/test_pixel_storage.cpp LABELS "unit;unit_core")
 if (NOT LUISA_COMPUTE_USE_SYSTEM_STL)
     luisa_compute_add_test(test_eastl_allocation unit/core/test_eastl_allocation.cpp LABELS "unit;unit_core")
@@ -466,6 +487,8 @@ if (TARGET luisa-compute-spirv)
     target_link_libraries(test_spirv_ray_culling PRIVATE luisa-compute-spirv)
     luisa_compute_add_test(test_spirv_xir_dialect unit/ext/test_spirv_xir_dialect.cpp LABELS "unit;unit_ext;spirv")
     target_link_libraries(test_spirv_xir_dialect PRIVATE luisa-compute-spirv)
+    luisa_compute_add_test(test_spirv_undefined unit/ext/test_spirv_undefined.cpp LABELS "unit;unit_ext;spirv")
+    target_link_libraries(test_spirv_undefined PRIVATE luisa-compute-spirv)
     luisa_compute_add_test(test_spirv_handoff_boundaries unit/ext/test_spirv_handoff_boundaries.cpp LABELS "unit;unit_ext;spirv")
     target_link_libraries(test_spirv_handoff_boundaries PRIVATE luisa-compute-spirv)
     luisa_compute_add_test(test_spirv_volatile_buffers unit/ext/test_spirv_volatile_buffers.cpp LABELS "unit;unit_ext;spirv")

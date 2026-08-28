@@ -81,6 +81,7 @@ struct GraphWavefrontCoroDispatchStats {
     uint64_t counter_readback_count{0u};
     uint64_t counter_readback_bytes{0u};
     uint64_t host_wait_count{0u};
+    double host_wait_elapsed_ms{0.0};
     uint64_t generated_count{0u};
     uint max_live_count{0u};
     uint max_readbacks_in_flight{0u};
@@ -897,7 +898,9 @@ private:
             if (!_counter_readback_done_event.is_completed(p.done_fence)) {
                 if (!allow_wait) { return false; }
                 _last_dispatch_stats.host_wait_count++;
+                Clock wait_clock;
                 _counter_readback_done_event.synchronize(p.done_fence);
+                _last_dispatch_stats.host_wait_elapsed_ms += wait_clock.toc();
             }
             auto slot_offset = static_cast<size_t>(p.slot) * elements_per_slot;
             for (auto epoch = 0u; epoch < snapshots_per_slot; ++epoch) {
@@ -1142,7 +1145,8 @@ private:
             _last_dispatch_stats.elapsed_ms = clock.toc();
             LUISA_INFO(
                 "Graph wavefront stats: sweeps={} snapshots={} "
-                "readbacks={} bytes={} waits={} max_in_flight={} generated={} "
+                "readbacks={} bytes={} waits={} wait_ms={:.3f} "
+                "max_in_flight={} generated={} "
                 "max_live={} workers={} tail_dispatches={} tail_instances={} "
                 "tail_threshold={} fairness_dispatches={} elapsed_ms={:.3f}.",
                 _last_dispatch_stats.sweep_count,
@@ -1150,6 +1154,7 @@ private:
                 _last_dispatch_stats.counter_readback_count,
                 _last_dispatch_stats.counter_readback_bytes,
                 _last_dispatch_stats.host_wait_count,
+                _last_dispatch_stats.host_wait_elapsed_ms,
                 _last_dispatch_stats.max_readbacks_in_flight,
                 _last_dispatch_stats.generated_count,
                 _last_dispatch_stats.max_live_count,

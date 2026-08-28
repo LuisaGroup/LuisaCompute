@@ -1757,6 +1757,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         }
+        case CallOp::UNDEFINED: {
+            // Zero is a legal concrete refinement for direct AST codegen.
+            str << "_zero("sv;
+            GetTypeName(*expr->type(), str, Usage::READ, true);
+            str << ')';
+            return;
+        }
         case CallOp::ONE: {
             str << "_one("sv;
             GetTypeName(*expr->type(), str, Usage::READ, true);

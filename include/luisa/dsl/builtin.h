@@ -1945,6 +1945,16 @@ template<typename T>
         Type::of<X>(), CallOp::ZERO, {}));
 }
 
+/// Creates an arbitrary value of T. Every component must be overwritten on
+/// every path before it is observed. This is useful for marking the beginning
+/// of a fresh aggregate lifetime without materializing a zero initialization.
+template<typename T>
+[[nodiscard]] auto undefined() noexcept {
+    using X = expr_value_t<T>;
+    return def<X>(detail::FunctionBuilder::current()->call(
+        Type::of<X>(), CallOp::UNDEFINED, {}));
+}
+
 template<typename T>
 [[nodiscard]] auto one() noexcept {
     using X = expr_value_t<T>;
