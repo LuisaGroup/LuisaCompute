@@ -340,6 +340,24 @@ void ScheduleEmitter::_fail(std::string message) {
     });
 }
 
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_insert_lane(
+    ::llvm::Value *value, ::llvm::Value *lane_value,
+    const Type *type, ::llvm::Value *lane) {
+    if (_is_scalar_data(type)) {
+        return _builder.CreateInsertElement(value, lane_value, lane);
+    }
+    for (auto i = uint32_t{0u}; i < _child_count(type); i++) {
+        auto *child_type = _child_type(type, i);
+        auto *child = _insert_lane(
+            _extract_child(value, type, i, true),
+            _extract_child(lane_value, type, i, false),
+            child_type, lane);
+        if (child == nullptr) { return nullptr; }
+        value = _insert_child(value, child, type, i, true);
+    }
+    return value;
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_masked_merge(
     ::llvm::Value *new_value, ::llvm::Value *old_value,
     const Type *type, ::llvm::Value *mask) {

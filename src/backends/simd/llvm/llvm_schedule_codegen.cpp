@@ -12,6 +12,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
 
+#include <luisa/core/logging.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/special_register.h>
 
@@ -715,14 +716,31 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         schedule_instruction_count <= 32u &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_W16_LINEAR_1D_PACKET_INLINE");
-    auto enable_linear_1d_block_coalescing_candidate =
+    auto linear_block_agnostic = false;
+    auto linear_block_shape_candidate =
         enable_block_batch_entry &&
         enable_linear_1d_packet_tail_narrowing &&
         function.blocks().size() == 1u &&
-        schedule_instruction_count <= 32u &&
-        is_linear_block_agnostic(function) &&
+        schedule_instruction_count <= 32u;
+    if (linear_block_shape_candidate) {
+        linear_block_agnostic = is_linear_block_agnostic(function);
+    }
+    auto enable_linear_1d_block_coalescing_candidate =
+        linear_block_shape_candidate && linear_block_agnostic &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_LINEAR_1D_BLOCK_COALESCING");
+    if (enable_block_batch_entry &&
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_REPORT_OPTIMIZATIONS")) {
+        LUISA_INFO(
+            "SIMD linear 1D block-coalescing candidate '{}': "
+            "enabled={}, packet_tail={}, blocks={}, instructions={}, "
+            "block_agnostic={}",
+            entry_name, enable_linear_1d_block_coalescing_candidate,
+            enable_linear_1d_packet_tail_narrowing,
+            function.blocks().size(), schedule_instruction_count,
+            linear_block_agnostic);
+    }
     auto result = detail::ScheduleEmitter{
         module, function, specialization_width, entry_name,
         enable_fast_math, static_block_size,
@@ -807,6 +825,17 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
             result.direct_control_flow &&
             lowering == PacketBatchLowering::inlined_loop &&
             static_packet_count != 0u;
+        if (enable_block_batch_entry &&
+            luisa::compute::detail::env_flag(
+                "LUISA_SIMD_REPORT_OPTIMIZATIONS")) {
+            LUISA_INFO(
+                "SIMD linear 1D block-coalescing selection '{}': "
+                "enabled={}, direct={}, lowering={}, packets={}",
+                entry_name, enable_linear_1d_block_coalescing,
+                result.direct_control_flow,
+                static_cast<uint32_t>(lowering),
+                static_packet_count);
+        }
         result.packet_batch_entry = build_packet_batch_entry(
             module, result.entry, specialization_width,
             static_packet_count, static_block_size[0u], lowering,
