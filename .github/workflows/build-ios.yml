@@ -2,6 +2,10 @@ name: build-ios
 
 on: [push, pull_request]
 
+permissions:
+  contents: read
+  attestations: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -43,6 +47,8 @@ jobs:
 
       - name: Build static arm64 iPhoneOS LLVM 21
         if: steps.cache-ios-llvm.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           scripts/build_ios_llvm.sh \
             --llvm-version "$LLVM_VERSION" \

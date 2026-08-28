@@ -461,8 +461,7 @@ target_include_directories(test_c_codegen_undefined PRIVATE
         ../backends/common/c_codegen)
 target_link_libraries(test_c_codegen_undefined PRIVATE
         luisa-compute-runtime
-        luisa-compute-core
-        luisa-compute-vstl)
+        luisa-compute-core)
 luisa_compute_add_test(test_pixel_storage unit/core/test_pixel_storage.cpp LABELS "unit;unit_core")
 if (NOT LUISA_COMPUTE_USE_SYSTEM_STL)
     luisa_compute_add_test(test_eastl_allocation unit/core/test_eastl_allocation.cpp LABELS "unit;unit_core")
