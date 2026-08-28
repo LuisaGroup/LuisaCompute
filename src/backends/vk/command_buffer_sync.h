@@ -123,7 +123,6 @@ namespace lc::vk::detail {
 }
 
 // vkCmdCopyBuffer with a capability-adaptive dispatch.
-// TODO: make luisa::vector to luisa::fixed_vector<T, 8> to save memory allocation performance
 inline void cmd_copy_buffer(
     VkCommandBuffer cmd, Device const *device,
     VkCopyBufferInfo2 const *info) noexcept {
@@ -141,7 +140,11 @@ inline void cmd_copy_buffer(
 #endif
         return;
     }
-    luisa::vector<VkBufferCopy> regions;
+    // Inline capacity is sized from the element type so the stack footprint
+    // stays comparable across helpers: VkBufferCopy is 24 B, so 8 elements
+    // cost 192 B and cover the common multi-region case without a heap
+    // allocation; larger counts overflow to the heap.
+    luisa::fixed_vector<VkBufferCopy, 8> regions;
     regions.reserve(info->regionCount);
     for (uint32_t i = 0u; i < info->regionCount; ++i) {
         auto const &r = info->pRegions[i];
@@ -167,7 +170,9 @@ inline void cmd_copy_buffer_to_image(
 #endif
         return;
     }
-    luisa::vector<VkBufferImageCopy> regions;
+    // VkBufferImageCopy is 56 B: 4 elements cost 224 B of stack (the usual
+    // per-mip upload set); larger counts overflow to the heap.
+    luisa::fixed_vector<VkBufferImageCopy, 4> regions;
     regions.reserve(info->regionCount);
     for (uint32_t i = 0u; i < info->regionCount; ++i) {
         auto const &r = info->pRegions[i];
@@ -195,7 +200,9 @@ inline void cmd_copy_image_to_buffer(
 #endif
         return;
     }
-    luisa::vector<VkBufferImageCopy> regions;
+    // VkBufferImageCopy is 56 B: 4 elements cost 224 B of stack; larger
+    // counts overflow to the heap.
+    luisa::fixed_vector<VkBufferImageCopy, 4> regions;
     regions.reserve(info->regionCount);
     for (uint32_t i = 0u; i < info->regionCount; ++i) {
         auto const &r = info->pRegions[i];
@@ -223,7 +230,9 @@ inline void cmd_copy_image(
 #endif
         return;
     }
-    luisa::vector<VkImageCopy> regions;
+    // VkImageCopy is 68 B: 4 elements cost 272 B of stack; larger counts
+    // overflow to the heap.
+    luisa::fixed_vector<VkImageCopy, 4> regions;
     regions.reserve(info->regionCount);
     for (uint32_t i = 0u; i < info->regionCount; ++i) {
         auto const &r = info->pRegions[i];
@@ -258,9 +267,14 @@ inline void cmd_pipeline_barrier(
 #endif
         return;
     }
-    luisa::vector<VkMemoryBarrier> memory_barriers;
-    luisa::vector<VkBufferMemoryBarrier> buffer_barriers;
-    luisa::vector<VkImageMemoryBarrier> image_barriers;
+    // Inline capacities follow the element type sizes so the barrier path
+    // stays within a comparable stack budget (~700 B total): VkMemoryBarrier
+    // is 24 B (8 x 192 B), VkBufferMemoryBarrier is 56 B (4 x 224 B), and
+    // VkImageMemoryBarrier is 72 B (4 x 288 B). Larger counts overflow to
+    // the heap.
+    luisa::fixed_vector<VkMemoryBarrier, 8> memory_barriers;
+    luisa::fixed_vector<VkBufferMemoryBarrier, 4> buffer_barriers;
+    luisa::fixed_vector<VkImageMemoryBarrier, 4> image_barriers;
     VkPipelineStageFlags2 combined_src_stages = 0u;
     VkPipelineStageFlags2 combined_dst_stages = 0u;
     if (info->memoryBarrierCount != 0u) {

@@ -2806,6 +2806,13 @@ luisa::string Device::query(luisa::string_view property) noexcept {
     if (property == "shader_int64") {
         return _numeric_features.shader_int64 ? "true" : "false";
     }
+    if (property == "timeline_semaphore_max_value_difference") {
+        // The largest one-shot timeline-semaphore jump from the current
+        // counter (VkPhysicalDeviceTimelineSemaphoreProperties::
+        // maxTimelineSemaphoreValueDifference). 0 (no limit) is normalized to
+        // UINT64_MAX by max_timeline_semaphore_value_difference().
+        return luisa::format("{}", max_timeline_semaphore_value_difference());
+    }
     return DeviceInterface::query(property);
 }
 
