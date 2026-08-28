@@ -2038,6 +2038,12 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     return info.stage ==
                            "wavefront_publish_resumed_count";
                 });
+            auto has_unused_extension_kernel = std::any_of(
+                incremental_infos.begin(), incremental_infos.end(),
+                [](auto &&info) noexcept {
+                    return info.stage ==
+                           "wavefront_advance_extension_stage";
+                });
             expect(user_kernel_count == coro.subroutine_count());
             expect(user_kernels_match)
                 << "incremental queue accounting must not alter a user "
@@ -2046,6 +2052,9 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             expect(has_resumed_publisher)
                 << "incremental accounting must be isolated in scheduler-"
                    "owned publication kernels";
+            expect(!has_unused_extension_kernel)
+                << "a coroutine without Extensions must not compile or bind "
+                   "Extension routing infrastructure";
         };
 
     "wavefront_extension_handler_chain_preserves_stage_dataflow"_test =

@@ -473,8 +473,10 @@ private:
         // queue-accounting policy.
         _resume_offset = device.create_buffer<uint>(_queue_count);
         _global_buffer = device.create_buffer<uint>(1u);
-        _extension_route_buffer = device.create_buffer<uint>(
-            std::max<size_t>(coro.graph().boundary_count(), 1u));
+        if (!_extension_stages.empty()) {
+            _extension_route_buffer = device.create_buffer<uint>(
+                coro.graph().boundary_count());
+        }
         auto *extension_route_buffer = &_extension_route_buffer;
         if (use_sort) {
             _sort_index = device.create_buffer<uint>(_config.thread_count);
@@ -576,28 +578,30 @@ private:
                 auto frame_id = compact ? frame_offset + x : resume_index.read(index_offset + x);
                 auto logical_id = _dispatch_id_from_linear_index(global_start + x, dispatch_shape);
                 auto frame = coro.instantiate(logical_id, dispatch_shape);
-                auto route_table =
-                    Expr<Buffer<uint>>{*extension_route_buffer};
                 frame.target_token = 0u;
                 coro.entry()(frame, k_args...);
                 auto raw_next = def(frame.target_token);
                 auto next = def(token_to_index(raw_next));
                 auto routed = def(false);
-                for (auto &&route : routes) {
-                    $if (raw_next == route.token) {
-                        auto stage_queue =
-                            route_table.read(route.boundary_index);
-                        $if (stage_queue != 0u) {
-                            next = stage_queue;
-                            frame.target_token = next;
-                            coro_frame_store(
-                                frame_buf, frame_id, frame_capacity, frame,
-                                layout, soa,
-                                luisa::span{route.source_store_fields},
-                                false, false);
-                            routed = true;
+                if (!routes.empty()) {
+                    auto route_table =
+                        Expr<Buffer<uint>>{*extension_route_buffer};
+                    for (auto &&route : routes) {
+                        $if (raw_next == route.token) {
+                            auto stage_queue =
+                                route_table.read(route.boundary_index);
+                            $if (stage_queue != 0u) {
+                                next = stage_queue;
+                                frame.target_token = next;
+                                coro_frame_store(
+                                    frame_buf, frame_id, frame_capacity, frame,
+                                    layout, soa,
+                                    luisa::span{route.source_store_fields},
+                                    false, false);
+                                routed = true;
+                            };
                         };
-                    };
+                    }
                 }
                 frame.target_token = next;
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
@@ -642,28 +646,30 @@ private:
                 auto frame = coro_frame_load(
                     &coro.frame(), frame_buf, idx, frame_capacity,
                     layout, soa, luisa::span{input_fields}, false, false);
-                auto route_table =
-                    Expr<Buffer<uint>>{*extension_route_buffer};
                 frame.target_token = CoroFrame::TERMINAL_TOKEN;
                 coro[i](frame, k_args...);
                 auto raw_next = def(frame.target_token);
                 auto next = def(token_to_index(raw_next));
                 auto routed = def(false);
-                for (auto &&route : routes) {
-                    $if (raw_next == route.token) {
-                        auto stage_queue =
-                            route_table.read(route.boundary_index);
-                        $if (stage_queue != 0u) {
-                            next = stage_queue;
-                            frame.target_token = next;
-                            coro_frame_store(
-                                frame_buf, idx, frame_capacity, frame,
-                                layout, soa,
-                                luisa::span{route.source_store_fields},
-                                false, false);
-                            routed = true;
+                if (!routes.empty()) {
+                    auto route_table =
+                        Expr<Buffer<uint>>{*extension_route_buffer};
+                    for (auto &&route : routes) {
+                        $if (raw_next == route.token) {
+                            auto stage_queue =
+                                route_table.read(route.boundary_index);
+                            $if (stage_queue != 0u) {
+                                next = stage_queue;
+                                frame.target_token = next;
+                                coro_frame_store(
+                                    frame_buf, idx, frame_capacity, frame,
+                                    layout, soa,
+                                    luisa::span{route.source_store_fields},
+                                    false, false);
+                                routed = true;
+                            };
                         };
-                    };
+                    }
                 }
                 frame.target_token = next;
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
@@ -687,31 +693,33 @@ private:
                               coro.graph().node(i).name));
         }
 
-        Kernel1D advance_extension_stage =
-            [frame_buffer, layout = _frame_layout,
-             soa = _config.global_memory_soa,
-             read_scheduler_token](
-                UInt frame_capacity, BufferUInt indices,
-                UInt index_offset, UInt count,
-                UInt current_queue, UInt next_queue) noexcept {
-                auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
-                auto x = dispatch_x();
-                $if (x >= count) { $return(); };
-                auto frame_index = indices.read(index_offset + x);
-                auto token = read_scheduler_token(
-                    frame_index, frame_buf, frame_capacity);
-                $if (token == current_queue) {
-                    coro_frame_write_field(
-                        frame_buf, frame_index, frame_capacity,
-                        layout, soa, 6u, next_queue);
+        if (!_extension_stages.empty()) {
+            Kernel1D advance_extension_stage =
+                [frame_buffer, layout = _frame_layout,
+                 soa = _config.global_memory_soa,
+                 read_scheduler_token](
+                    UInt frame_capacity, BufferUInt indices,
+                    UInt index_offset, UInt count,
+                    UInt current_queue, UInt next_queue) noexcept {
+                    auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
+                    auto x = dispatch_x();
+                    $if (x >= count) { $return(); };
+                    auto frame_index = indices.read(index_offset + x);
+                    auto token = read_scheduler_token(
+                        frame_index, frame_buf, frame_capacity);
+                    $if (token == current_queue) {
+                        coro_frame_write_field(
+                            frame_buf, frame_index, frame_capacity,
+                            layout, soa, 6u, next_queue);
+                    };
                 };
-            };
-        _advance_extension_stage_shader = _compile_shader(
-            device, advance_extension_stage,
-            detail::coro_scheduler_shader_option(
-                _config.shader_option,
-                "wavefront_advance_extension_stage"),
-            "wavefront_advance_extension_stage");
+            _advance_extension_stage_shader = _compile_shader(
+                device, advance_extension_stage,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option,
+                    "wavefront_advance_extension_stage"),
+                "wavefront_advance_extension_stage");
+        }
 
         Kernel1D initialize_kernel =
             [frame_buffer, layout = _frame_layout,
@@ -1020,6 +1028,11 @@ private:
 
     void _finalize_extension_handlers() noexcept {
         if (_extension_handlers_finalized) { return; }
+        if (_extension_stages.empty()) {
+            _extension_route_table.clear();
+            _extension_handlers_finalized = true;
+            return;
+        }
         auto route_count = std::max<size_t>(
             _coro->graph().boundary_count(), 1u);
         _extension_route_table.assign(route_count, 0u);
@@ -1116,8 +1129,10 @@ private:
         Stream &stream, uint3 dispatch_size,
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept override {
         _finalize_extension_handlers();
-        stream << _extension_route_buffer.copy_from(
-            luisa::span{_extension_route_table});
+        if (!_extension_route_table.empty()) {
+            stream << _extension_route_buffer.copy_from(
+                luisa::span{_extension_route_table});
+        }
         uint N = dispatch_size.x * dispatch_size.y * dispatch_size.z;
         auto report_stats = _config.report_stats ||
                             std::getenv("LUISA_CORO_WAVEFRONT_STATS") != nullptr;
