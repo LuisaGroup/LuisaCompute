@@ -228,16 +228,31 @@ path must produce those values. A `read_write` binding is in both `U_i` and
 `CoroSlotAccess` records the binding-local projections of `use`, `def`, and
 read-modify-write carrier slots. The boundary's stage plan records the logical
 and physical projections of `live_in`, `live_out`, `preserve`, and
-`required_def`. A user executes an external pass as follows:
+`required_def`. A user executes an external pass as follows. Let `A_in` and
+`A_out` be additional physical fields required by that user's scheduler or
+application (for example, a debugger's coroutine id or an application-owned
+residency tag). These are an explicit policy layered on the compiler
+certificate; they are not inferred extension storage.
 
-1. Reconstruct a partial `CoroFrame` by loading only `phi(U_i)` plus the RMW
-   carriers required by partial physical writes.
+1. The user reconstructs a partial `CoroFrame` from the slot information and
+   its scheduling/application policy. The minimum load set is
+   `reconstruct_i = phi(U_i) union RMW_i`; the actual set is
+   `reconstruct_i union A_in`. The user is responsible for ensuring every
+   application-added field was initialized by the source transport.
 2. Read and write bindings through their typed `CoroSlotAccess` callables.
    Those callables may access only the slots declared by the plan.
-3. Write back only `phi(required_def_i)`. If scheduling relocates a frame to a
+3. The user commits frame changes according to the slot information. Every
+   member of `phi(required_def_i)` must be written back; explicitly requested
+   `A_out` fields may also be committed. If scheduling relocates a frame to a
    different queue or storage allocation, transport `phi(live_in_i)` into the
    stage and `phi(live_out_i)` out of it. An in-place stage leaves
    `preserve_i` resident and performs no traffic for it.
+
+The API deliberately does not own a hidden load/store kernel. The user chooses
+AoS, SoA, shared memory, an out-of-core cache, or another storage policy and
+uses the slot spans to build those operations. `CoroSlotAccess` callables only
+project bindings into the user-created local `CoroFrame`; they neither fetch
+nor commit backing storage themselves.
 
 The source continuation uses the same transfer. If `K_e` is the set
 must-defined by source code before edge `e`, `T_e` is the set touched on that

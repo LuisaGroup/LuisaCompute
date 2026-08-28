@@ -120,6 +120,8 @@ luisa_compute_add_example(example_multi_head_attention
 # coroutine (headless)
 luisa_compute_add_example(example_coro_external_stage_debug
         coro/external_stage_debug.cpp)
+luisa_compute_add_example(example_coro_external_stage_neural_sdf
+        coro/external_stage_neural_sdf.cpp)
 if (LUISA_COMPUTE_BUILD_TESTS AND TARGET luisa-compute-backend-metal)
     add_test(NAME metal_example_coro_external_stage_debug
             COMMAND $<TARGET_FILE:example_coro_external_stage_debug> metal)
@@ -128,6 +130,15 @@ if (LUISA_COMPUTE_BUILD_TESTS AND TARGET luisa-compute-backend-metal)
             TIMEOUT 120
             WORKING_DIRECTORY
             $<TARGET_FILE_DIR:example_coro_external_stage_debug>)
+    add_test(NAME metal_example_coro_external_stage_neural_sdf
+            COMMAND $<TARGET_FILE:example_coro_external_stage_neural_sdf>
+            metal --test)
+    set_tests_properties(
+            metal_example_coro_external_stage_neural_sdf PROPERTIES
+            LABELS "integration_metal;coro_external_stage;graphics_metal"
+            TIMEOUT 180
+            WORKING_DIRECTORY
+            $<TARGET_FILE_DIR:example_coro_external_stage_neural_sdf>)
 endif ()
 luisa_compute_add_example(example_coro_path_tracing rendering/coro_path_tracing.cpp)
 luisa_compute_add_example(example_coro_path_tracing_wavefront rendering/coro_path_tracing.cpp)

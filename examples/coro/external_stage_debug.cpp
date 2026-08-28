@@ -56,17 +56,23 @@ int main(int argc, char *argv[]) {
     auto layout = CoroFrameStorageLayout::make_aos(
         coroutine.frame(), frame_count);
     auto frames = device.create_byte_buffer(layout.size_bytes);
+    auto io_plan = coro_frame_make_io_plan(
+        coroutine.graph(), coroutine.frame().frame_field_count());
 
     // Step 1 is user-owned: this debugger additionally needs coro_id_x for
     // record attribution, so it combines that application requirement with
     // the stage's exact reconstruction certificate.
     auto reconstruct_slots = merge_stage_slots(
         stage.reconstruct_slot_span(), {0u});
-    auto source_store_slots = luisa::vector<size_t>{
-        boundary.source_store.slots.begin(),
-        boundary.source_store.slots.end()};
+    // The same application-required id must also be initialized by the source
+    // frame transport. Ordinary continuation IO comes from the graph-edge
+    // plan; adding field zero is an explicit debugger policy, not a hidden
+    // whole-header spill.
+    auto source_store_slots = merge_stage_slots(
+        io_plan.output(boundary.from_index, boundary.to_index), {0u});
     auto resume_slots = luisa::vector<size_t>{
-        coroutine.graph().node(boundary.to_index).input_fields};
+        io_plan.input(boundary.to_index).begin(),
+        io_plan.input(boundary.to_index).end()};
 
     Kernel1D generate = [&coroutine, layout, source_store_slots](
                             ByteBufferVar frame_storage,
@@ -78,7 +84,7 @@ int main(int argc, char *argv[]) {
         coroutine.entry()(frame, output_buffer);
         coro_frame_store(
             frame_storage, id, frame, layout, false,
-            luisa::span{source_store_slots});
+            luisa::span{source_store_slots}, false, false);
     };
 
     Kernel1D observe = [&coroutine, &watched, layout, reconstruct_slots](

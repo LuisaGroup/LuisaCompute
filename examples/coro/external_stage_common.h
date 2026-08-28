@@ -41,9 +41,9 @@ struct ExternalStageView {
 
 /// Resolve exactly one schema instance. Examples deliberately reject
 /// ambiguity instead of silently coalescing static suspend boundaries.
-[[nodiscard]] inline ExternalStageView find_external_stage(
+[[nodiscard]] inline luisa::vector<ExternalStageView> find_external_stages(
     const CoroGraph &graph, luisa::string_view schema) noexcept {
-    ExternalStageView result;
+    luisa::vector<ExternalStageView> result;
     for (auto &&boundary : graph.boundaries()) {
         for (auto &&stage : boundary.stages) {
             LUISA_ASSERT(stage.extension_index < boundary.extensions.size(),
@@ -52,22 +52,28 @@ struct ExternalStageView {
             auto *extension =
                 boundary.extensions[stage.extension_index].get();
             if (extension != nullptr && extension->schema() == schema) {
-                LUISA_ASSERT(
-                    result.extension == nullptr,
-                    "Coroutine external-stage schema '{}' is ambiguous; "
-                    "select a static boundary before scheduling it.",
-                    schema);
-                result = ExternalStageView{
+                result.emplace_back(ExternalStageView{
                     .boundary = &boundary,
                     .extension = extension,
-                    .stage = &stage};
+                    .stage = &stage});
             }
         }
     }
-    LUISA_ASSERT(result.extension != nullptr,
+    LUISA_ASSERT(!result.empty(),
                  "Coroutine has no external stage with schema '{}'.",
                  schema);
     return result;
+}
+
+[[nodiscard]] inline ExternalStageView find_external_stage(
+    const CoroGraph &graph, luisa::string_view schema) noexcept {
+    auto stages = find_external_stages(graph, schema);
+    LUISA_ASSERT(
+        stages.size() == 1u,
+        "Coroutine external-stage schema '{}' has {} static boundaries; "
+        "select one boundary before scheduling it.",
+        schema, stages.size());
+    return stages.front();
 }
 
 /// Combine the compiler-proved slot set with storage required by the user's
