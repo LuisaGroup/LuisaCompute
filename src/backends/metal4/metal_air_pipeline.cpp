@@ -67,20 +67,57 @@ namespace {
 #endif
 }
 
-[[nodiscard]] MetalAIRVersion air_version_for_macos(uint32_t major) noexcept {
+[[nodiscard]] MetalAIRVersion air_version_for_target(
+    MetalAIRPlatform platform, uint32_t major) noexcept {
     if (major >= 27u) { return {2u, 9u, 0u}; }
-    if (major >= 26u || (major >= 16u && major < 26u)) { return {2u, 8u, 0u}; }
-    if (major >= 15u) { return {2u, 7u, 0u}; }
-    if (major >= 14u) { return {2u, 6u, 0u}; }
+    if (major >= 26u ||
+        (platform == MetalAIRPlatform::MACOS && major >= 16u && major < 26u)) {
+        return {2u, 8u, 0u};
+    }
+    if ((platform == MetalAIRPlatform::MACOS && major >= 15u) ||
+        (platform == MetalAIRPlatform::IOS && major >= 18u)) {
+        return {2u, 7u, 0u};
+    }
+    if ((platform == MetalAIRPlatform::MACOS && major >= 14u) ||
+        (platform == MetalAIRPlatform::IOS && major >= 17u)) {
+        return {2u, 6u, 0u};
+    }
     return {2u, 5u, 0u};
 }
 
-[[nodiscard]] MetalAIRVersion metal_version_for_macos(uint32_t major) noexcept {
-    if (major >= 27u) { return {4u, 1u, 0u}; }
-    if (major >= 26u || (major >= 16u && major < 26u)) { return {4u, 0u, 0u}; }
-    if (major >= 15u) { return {3u, 2u, 0u}; }
-    if (major >= 14u) { return {3u, 1u, 0u}; }
+[[nodiscard]] MetalAIRVersion metal_version_for_target(
+    MetalAIRPlatform platform, uint32_t major) noexcept {
+    auto air = air_version_for_target(platform, major);
+    if (air.major == 2u && air.minor >= 9u) { return {4u, 1u, 0u}; }
+    if (air.major == 2u && air.minor >= 8u) { return {4u, 0u, 0u}; }
+    if (air.major == 2u && air.minor >= 7u) { return {3u, 2u, 0u}; }
+    if (air.major == 2u && air.minor >= 6u) { return {3u, 1u, 0u}; }
     return {3u, 0u, 0u};
+}
+
+[[nodiscard]] bool version_less(
+    MetalAIRVersion lhs, MetalAIRVersion rhs) noexcept {
+    if (lhs.major != rhs.major) { return lhs.major < rhs.major; }
+    if (lhs.minor != rhs.minor) { return lhs.minor < rhs.minor; }
+    return lhs.patch < rhs.patch;
+}
+
+[[nodiscard]] MetalLibTarget metallib_target_for_air(
+    const MetalAIRTarget &target) noexcept {
+    auto version = target.operating_system_version;
+    switch (target.platform) {
+        case MetalAIRPlatform::MACOS:
+            return metallib_target_for_macos(
+                static_cast<uint16_t>(version.major),
+                static_cast<uint16_t>(version.minor),
+                static_cast<uint16_t>(version.patch));
+        case MetalAIRPlatform::IOS:
+            return metallib_target_for_ios(
+                static_cast<uint16_t>(version.major),
+                static_cast<uint16_t>(version.minor),
+                static_cast<uint16_t>(version.patch));
+    }
+    LUISA_ERROR_WITH_LOCATION("Invalid Metal AIR target platform.");
 }
 
 void optimize_llvm_module(llvm::Module &module) noexcept {
@@ -136,6 +173,7 @@ void dump_llvm_module(const llvm::Module &module, luisa::string_view path) noexc
 struct AIRCodegenEntry {
     std::vector<std::byte> bitcode;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
+    size_t root_argument_size;
 };
 
 [[nodiscard]] AIRCodegenEntry codegen_entry(
@@ -153,7 +191,8 @@ struct AIRCodegenEntry {
         dump_llvm_module(*result.module, path);
     }
     return {.bitcode = llvm_downgrade_to_14(std::move(result.module)),
-            .format_types = std::move(result.format_types)};
+            .format_types = std::move(result.format_types),
+            .root_argument_size = result.root_argument_size};
 }
 
 struct RasterAIRCodegenEntry {
@@ -206,8 +245,35 @@ struct RasterAIRCodegenEntry {
 
 }// namespace
 
+MetalAIRTarget metal_air_target_for_ios(
+    MetalAIRVersion operating_system_version,
+    MetalAIRVersion sdk_version) noexcept {
+    LUISA_ASSERT(operating_system_version.major >= 16u,
+                 "Metal AIR iOS target requires iOS 16 or newer.");
+    LUISA_ASSERT(!version_less(sdk_version, operating_system_version),
+                 "Metal AIR iOS SDK {}.{}.{} is older than deployment target {}.{}.{}.",
+                 sdk_version.major, sdk_version.minor, sdk_version.patch,
+                 operating_system_version.major,
+                 operating_system_version.minor,
+                 operating_system_version.patch);
+    return {
+        .platform = MetalAIRPlatform::IOS,
+        .operating_system_version = operating_system_version,
+        .sdk_version = sdk_version};
+}
+
 MetalAIRCodegenResult
 metal_codegen_air(const xir::Module &module, const ShaderOption &option) noexcept {
+    auto target = MetalAIRTarget{
+        .platform = MetalAIRPlatform::MACOS,
+        .operating_system_version = host_macos_version(),
+        .sdk_version = sdk_macos_version()};
+    return metal_codegen_air(module, option, target);
+}
+
+MetalAIRCodegenResult metal_codegen_air(
+    const xir::Module &module, const ShaderOption &option,
+    const MetalAIRTarget &target) noexcept {
     auto verification = xir::xir_verify_module(
         &module, {.require_reachable_blocks = true});
     if (!verification.succeeded()) {
@@ -216,17 +282,19 @@ metal_codegen_air(const xir::Module &module, const ShaderOption &option) noexcep
             verification.errors.front().message,
             verification.errors.size());
     }
-    auto macos = host_macos_version();
-    auto sdk = sdk_macos_version();
+    auto platform_version = target.operating_system_version;
     auto source_file = option.name;
     if (source_file.empty()) {
         source_file = module.name().value_or("kernel");
     }
     auto config = MetalCodegenLLVMConfig{
-        .macos_version = macos,
-        .sdk_version = sdk,
-        .air_version = air_version_for_macos(macos.major),
-        .metal_version = metal_version_for_macos(macos.major),
+        .platform = target.platform,
+        .platform_version = platform_version,
+        .sdk_version = target.sdk_version,
+        .air_version = air_version_for_target(
+            target.platform, platform_version.major),
+        .metal_version = metal_version_for_target(
+            target.platform, platform_version.major),
         .source_file = std::move(source_file),
         .native_include = option.native_include,
         .enable_fast_math = option.enable_fast_math,
@@ -245,15 +313,14 @@ metal_codegen_air(const xir::Module &module, const ShaderOption &option) noexcep
         module, config, MetalAIRKernelEntry::INDIRECT, "indirect.air");
     LUISA_ASSERT(direct.format_types == indirect.format_types,
                  "Metal AIR direct and indirect printer format tables differ.");
+    LUISA_ASSERT(direct.root_argument_size == indirect.root_argument_size,
+                 "Metal AIR direct and indirect root argument layouts differ.");
 
-    auto target = metallib_target_for_macos(
-        static_cast<uint16_t>(macos.major),
-        static_cast<uint16_t>(macos.minor),
-        static_cast<uint16_t>(macos.patch));
+    auto library_target = metallib_target_for_air(target);
     std::array functions{
         MetalLibFunction{"kernel_main", direct.bitcode},
         MetalLibFunction{"kernel_main_indirect", indirect.bitcode}};
-    auto library = make_metallib(target, functions);
+    auto library = make_metallib(library_target, functions);
     std::array<luisa::string_view, 2u> entry_points{
         "kernel_main", "kernel_main_indirect"};
     constexpr std::array program_types{
@@ -262,7 +329,8 @@ metal_codegen_air(const xir::Module &module, const ShaderOption &option) noexcep
     LUISA_ASSERT(validate_metallib(library, entry_points, program_types),
                  "Generated Metal library failed structural validation.");
     return {.library = std::move(library),
-            .format_types = std::move(direct.format_types)};
+            .format_types = std::move(direct.format_types),
+            .root_argument_size = direct.root_argument_size};
 }
 
 MetalAIRRasterCodegenResult metal_codegen_air(
@@ -332,10 +400,13 @@ MetalAIRRasterCodegenResult metal_codegen_air(
     auto source_file = option.name;
     if (source_file.empty()) { source_file = "raster"; }
     auto base_config = MetalCodegenLLVMConfig{
-        .macos_version = macos,
+        .platform = MetalAIRPlatform::MACOS,
+        .platform_version = macos,
         .sdk_version = sdk,
-        .air_version = air_version_for_macos(macos.major),
-        .metal_version = metal_version_for_macos(macos.major),
+        .air_version = air_version_for_target(
+            MetalAIRPlatform::MACOS, macos.major),
+        .metal_version = metal_version_for_target(
+            MetalAIRPlatform::MACOS, macos.major),
         .source_file = source_file,
         .native_include = option.native_include,
         .enable_fast_math = option.enable_fast_math,

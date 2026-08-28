@@ -310,10 +310,13 @@ pointee identities.
 
 ### 3.1 Target triple
 
-The architecture component always carries the selected AIR major/minor pair:
+The architecture component always carries the selected AIR major/minor pair.
+The operating-system component is selected explicitly by
+`MetalCodegenLLVMConfig::platform`:
 
 ~~~text
 air64_v<air-major><air-minor>-apple-macosx<major>.<minor>.<patch>
+air64_v<air-major><air-minor>-apple-ios<major>.<minor>.<patch>
 ~~~
 
 The digits after `v` are concatenated, so AIR 2.8 uses `air64_v28`. For
@@ -323,17 +326,31 @@ example, the validated macOS 26.3 configuration emits:
 air64_v28-apple-macosx26.3.0
 ~~~
 
-The macOS version in this triple currently comes from the **runtime host**, not
-`CMAKE_OSX_DEPLOYMENT_TARGET`. The same host version selects the AIR and Metal
+An explicitly targeted iOS 26.0 library with the iOS 26.4 SDK emits:
+
+~~~text
+air64_v28-apple-ios26.0.0
+~~~
+
+The default compute and raster overloads remain macOS-host targeted. Their
+macOS version comes from the **runtime host**, not
+`CMAKE_OSX_DEPLOYMENT_TARGET`; the host version selects the AIR and Metal
 language versions and the MTLB platform/version header. The separately
 detected command-line-tools SDK version appears only in the LLVM `SDK Version`
 module flag described in Section 7. CMake obtains it from
 `xcrun --sdk macosx --show-sdk-version`; if that query is unavailable, the
 emitter falls back to the host version for the flag.
 
-This makes the current generated AIR and raster AOT archives host-targeted.
+The explicit compute overload accepts a `MetalAIRTarget`. For iOS, its
+deployment version selects the triple, AIR/Metal versions, and MTLB platform
+fields, while its SDK version selects the module flag. The generator rejects
+an SDK older than the requested deployment target. This target object is what
+allows a macOS host tool to create an iOS AIR library without pretending that
+the host itself is iOS.
+
+This makes default generated AIR and raster AOT archives host-targeted.
 An archive generated on macOS 26, for example, is not promised to load on the
-project's macOS 13 deployment floor even when the host C++ binary was built
+project’s macOS 13 deployment floor even when the host C++ binary was built
 with a macOS 13 deployment target. Producing a genuinely portable archive
 requires a separately validated older AIR/Metal target and corresponding
 toolchain contract; merely substituting the CMake deployment number caused
@@ -2622,10 +2639,22 @@ the tested compatibility/version-number transition.
 | 26 | 1.2.9 | 2.8 | 4.0 |
 | 27+ | 1.2.9 | 2.9 | 4.1 |
 
+iOS uses its native product-version sequence and does not apply the macOS
+16-through-25 compatibility normalization:
+
+| iOS | MTLB file format | AIR | Metal language |
+|---:|---|---|---|
+| 16 | 1.2.7 | 2.5 | 3.0 |
+| 17 | 1.2.7 | 2.6 | 3.1 |
+| 18-25 | 1.2.8 | 2.7 | 3.2 |
+| 26 | 1.2.9 | 2.8 | 4.0 |
+| 27+ | 1.2.9 | 2.9 | 4.1 |
+
 This mapping is empirical and must be extended deliberately for future OS
 versions. It describes the versions the writer can encode, not a cross-target
-portability guarantee: the current AIR pipeline selects the row for the
-runtime host, as described in Section 3.1.
+portability guarantee. The default pipeline selects the macOS runtime-host
+row; the explicit iOS compute path selects the requested iOS row, as described
+in Section 3.1.
 
 ### 14.2 Fixed header
 
@@ -2634,11 +2663,11 @@ The header is 88 bytes:
 | Offset | Size | Meaning |
 |---:|---:|---|
 | 0 | 4 | ASCII `MTLB` |
-| 4 | 2 | file major with bit 15 set |
+| 4 | 2 | file major; macOS sets bit 15, iOS leaves it clear |
 | 6 | 2 | file minor |
 | 8 | 2 | file patch |
 | 10 | 1 | file type, currently 0 |
-| 11 | 1 | platform type, currently `0x81` |
+| 11 | 1 | platform type: macOS `0x81`, iOS `0x82` |
 | 12 | 2 | platform major |
 | 14 | 1 | platform minor |
 | 15 | 1 | platform patch |
@@ -2922,6 +2951,33 @@ blob. Debug information suppresses loading an existing disk archive. Raw MTLB
 dumping is a separate diagnostic path and only occurs when a configured shader
 I/O destination is available.
 
+### 15.6 iOS compilation model and JIT boundary
+
+iOS's prohibition on arbitrary CPU executable-memory JIT does not imply that
+Metal shaders must be fixed at app-build time. Loading a library and asking
+Metal to create a pipeline compiles GPU code through the system Metal service;
+it does not create CPU executable pages in the application.
+
+The current physical-device probe intentionally separates two boundaries:
+
+1. The macOS host runs the Luisa DSL/AST -> XIR pipeline, LLVM 21 emission and
+   O2 passes, LLVM 14 downgrade, and deterministic iOS MTLB assembly.
+2. The iOS app verifies and loads that bundled metallib, creates its pipeline
+   with `MTL4::Compiler`, and executes it with MTL4 queue, command-buffer,
+   compute-encoder, argument-table, allocator, residency-set, and feedback
+   APIs.
+
+Thus the current probe is host-AOT plus device-side Metal pipeline compilation,
+not on-device XIR/LLVM generation. A true dynamic iOS XIR-to-AIR path is
+architecturally possible without `MAP_JIT`: cross-build LLVM 21, the in-tree
+LLVM downgrade, XIR/AST/runtime support, and the Metal4 AIR codegen library as
+iOS arm64 static slices, link them into the app, and call the same explicit
+`MetalAIRTarget` path before `newLibrary`. That follow-up must account for app
+size, startup cost, private AIR/MTLB ABI drift, memory pressure, and App Store
+policy. It must also retain the current SHA/container/runtime checks; the fact
+that the system accepts a GPU compilation request is not proof that a private
+AIR artifact is portable across OS releases.
+
 ## 16. Validation and reverse-engineering workflow
 
 The patched JuliaLLVM tree retains its standalone FileCheck suite. Its
@@ -3155,15 +3211,15 @@ structurally valid. The strict raster integration test exercises the complete
 compile-only/write/load/draw AOT boundary rather than stopping at archive
 deserialization.
 
-### 16.2 Validation and benchmark snapshot (2026-08-27)
+### 16.2 Validation and benchmark snapshot (2026-08-28)
 
 The closure configuration uses CMake/Ninja Release builds with legacy Metal,
 Metal4, and fallback enabled, Homebrew LLVM 21.1.8, Apple metalfe 32023.883,
-and the macOS 26.4 SDK. It is based on `origin/next` at `eeda4b154`. After a
-complete rebuild, the configured parallel CTest run passes **157/157** in
-29.23 seconds: **36/36**
+and the macOS 26.4 SDK. The work starts from branch revision `11e6c3012`, which
+contains `origin/next` at `eeda4b154`. After a complete rebuild, the configured
+parallel CTest run passes **158/158** in 43.51 seconds: **36/36**
 `integration_metal4` tests, **15/15** offline graphics/rendering executables,
-**11/11** tutorials, and **111/111** unit registrations are included. These
+**11/11** tutorials, and **112/112** unit registrations are included. These
 tests compile and execute on an Apple M1 Max; the independent Metal4 module has
 no MSL code generator or source fallback that could hide an AIR failure.
 
@@ -3251,7 +3307,42 @@ LUISA_METAL_SHADER_INFO=1 ./bin/benchmark_metal4 metal 64 1101
 LUISA_METAL_SHADER_INFO=1 ./bin/benchmark_metal4 metal4 64 1101
 ~~~
 
-### 16.3 Useful commands
+### 16.3 Physical iPhone MTL4/AIR path tracing (2026-08-28)
+
+The standalone device probe was signed, installed, and executed on an iPhone
+17 Pro Max running iOS 26.6. Metal identifies the device as
+`Apple A19 Pro GPU`; `GPUFamilyMetal4`, `GPUFamilyApple9`, and
+`GPUFamilyApple10` all report true. Therefore this device takes the native
+MTL4 acceleration-structure-build branch rather than the synchronized
+pre-Apple9 compatibility bridge.
+
+The host artifact targets iOS 26.0 with the iOS 26.4 SDK. Its direct and
+indirect modules use `air64_v28-apple-ios26.0.0`, and the produced 19,233-byte
+library passes the internal validator and Apple's
+`metallib --app-store-validate`. The app embeds and independently hashes that
+library; the expected and bundled SHA-256 values both equal
+`196772346877401c29a128ad2da35111c9f5a575de2f489d8e44efe638870853`.
+It also confirms the 32-byte root-argument ABI, 16-byte dispatch-size record,
+32-wide execution width, and 64-thread maximum selected for the 8x8 group.
+
+Two 512x512 executions completed successfully:
+
+| Run | Library load | MTL4 pipeline creation | GPU | Submit to feedback | Raw RGBA SHA-256 |
+|---|---:|---:|---:|---:|---|
+| 8 spp, first launch | 0.352 ms | 38.538 ms | 7.257 ms | 8.966 ms | `4e2c200c7df77b0ae8fc9819c54610c2848e9d4e04b394fe978df4f020c8a9ff` |
+| 32 spp, two warm repetitions | 0.086..0.109 ms | 1.100..1.205 ms | 25.853..28.005 ms | 26.952..29.472 ms | `bbfc3f0354d3171f540db106a9d161f5a6b8a9f06385e24da77732a7c4607dcc` |
+
+The pipeline numbers are deliberately labelled cold and warm; the 32-spp runs
+benefit from the system compiler cache and are not a codegen speedup. Their raw
+pixel hashes and encoded PNG bytes match exactly. The retrieved 32-spp PNG is a
+valid 512x512 RGBA image with 15,144 distinct RGBA
+values. Channel extrema are R 2..168, G 4..167, B 5..169, and A 255; visual
+inspection shows the expected sphere, box, checker floor, environment light,
+occlusion, and Monte Carlo noise rather than an empty or uniform texture. See
+the device runner README for reproducible signing, installation, launch, and
+artifact-retrieval commands.
+
+### 16.4 Useful commands
 
 Dump XIR and optimized LLVM:
 
@@ -3327,9 +3418,12 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 
 - AIR intrinsic names and metadata are private Apple implementation details.
 - The macOS/AIR/Metal/file-format table is hand-maintained and empirical.
-- AIR triples, AIR/Metal language versions, and MTLB platform fields currently
-  target the runtime host. A raster archive generated on a newer macOS release
-  is not guaranteed to load at the project's older C++ deployment floor.
+- Default AIR triples, AIR/Metal language versions, and MTLB platform fields
+  target the macOS runtime host. Explicit iOS compute AOT can target a supplied
+  deployment/SDK pair, but raster archives remain host-macOS-only and the
+  current iOS runner does not yet link the XIR/LLVM codegen stack for on-device
+  generation. An archive generated on a newer release is not guaranteed to
+  load at an older C++ deployment floor.
 - The MTLB writer uses empty public/private metadata groups; more advanced
   function kinds may require real records.
 - The internal structural validator is not a semantic AIR validator.
@@ -3403,6 +3497,8 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Shared XIR pipeline factories | [pass_pipeline.cpp](../../../xir/passes/pass_pipeline.cpp) |
 | LLVM O2, version selection, dual entries, packaging | [metal_air_pipeline.cpp](../metal_air_pipeline.cpp) |
 | MTLB writer and validator | [metal_metallib.cpp](../metal_metallib.cpp) |
+| iOS compute AIR path-tracing AOT generator | [ios_path_tracing_aot.cpp](../tools/ios_path_tracing_aot.cpp) |
+| iOS MTL4 device runner and artifact capture | [ios_path_tracer_app](../tools/ios_path_tracer_app) |
 | Raster extension and paired AIR creation | [metal_raster_ext.cpp](../metal_raster_ext.cpp) |
 | Public raster/stencil state and cross-backend reference binding | [raster_state.h](../../../../include/luisa/runtime/raster/raster_state.h), [LCCmdBuffer.cpp](../../dx/DXApi/LCCmdBuffer.cpp), [raster_shader.cpp](../../vk/raster_shader.cpp) |
 | Raster PSO, stencil/depth state, root/object binding, and draw encoding | [metal_raster_shader.cpp](../metal_raster_shader.cpp), [metal_command_encoder.cpp](../metal_command_encoder.cpp) |

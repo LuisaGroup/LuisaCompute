@@ -107,11 +107,15 @@ function(luisa_compute_link_wayland_if_enabled backend)
     endif ()
 endfunction()
 
-# luisa_compute_backend_link_llvm(backend REQUIRED COMPONENTS llvm_components...)
+# luisa_compute_link_llvm_into_backend(
+#     backend [TARGET target] [REQUIRED] COMPONENTS llvm_components...)
 function(luisa_compute_link_llvm_into_backend backend)
 
-    set(LUISA_LINK_LLVM_TARGET luisa-compute-backend-${backend})
-    cmake_parse_arguments(LUISA_LINK_LLVM "REQUIRED" "" "COMPONENTS;DEFINITIONS" ${ARGN})
+    cmake_parse_arguments(
+            LUISA_LINK_LLVM "REQUIRED" "TARGET" "COMPONENTS;DEFINITIONS" ${ARGN})
+    if (NOT LUISA_LINK_LLVM_TARGET)
+        set(LUISA_LINK_LLVM_TARGET luisa-compute-backend-${backend})
+    endif ()
 
     # find LLVM
     if (NOT LUISA_LINK_LLVM_REQUIRED)

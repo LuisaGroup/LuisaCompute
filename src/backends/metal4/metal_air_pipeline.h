@@ -3,6 +3,8 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 
+#include "llvm_codegen/metal_codegen_llvm.h"
+
 namespace luisa::compute {
 class MeshFormat;
 struct ShaderOption;
@@ -13,9 +15,20 @@ class Module;
 
 namespace luisa::compute::metal {
 
+struct MetalAIRTarget {
+    MetalAIRPlatform platform{MetalAIRPlatform::MACOS};
+    MetalAIRVersion operating_system_version{14u, 0u, 0u};
+    MetalAIRVersion sdk_version{14u, 0u, 0u};
+};
+
+[[nodiscard]] MetalAIRTarget metal_air_target_for_ios(
+    MetalAIRVersion operating_system_version,
+    MetalAIRVersion sdk_version) noexcept;
+
 struct MetalAIRCodegenResult {
     luisa::vector<std::byte> library;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
+    size_t root_argument_size{0u};
 };
 
 struct MetalAIRRasterCodegenResult {
@@ -28,6 +41,11 @@ struct MetalAIRRasterCodegenResult {
 
 [[nodiscard]] MetalAIRCodegenResult
 metal_codegen_air(const xir::Module &module, const ShaderOption &option) noexcept;
+
+[[nodiscard]] MetalAIRCodegenResult
+metal_codegen_air(
+    const xir::Module &module, const ShaderOption &option,
+    const MetalAIRTarget &target) noexcept;
 
 [[nodiscard]] MetalAIRRasterCodegenResult
 metal_codegen_air(

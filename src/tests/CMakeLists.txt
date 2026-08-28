@@ -384,6 +384,16 @@ if (TARGET luisa-compute-backend-metal4)
     target_include_directories(test_metal4_raster_archive PRIVATE
             ../backends/metal4)
 
+    if (TARGET luisa-metal4-ios-path-tracer-aot)
+        add_test(NAME test_metal4_ios_air_aot_codegen
+                COMMAND luisa-metal4-ios-path-tracer-aot
+                "${CMAKE_CURRENT_BINARY_DIR}/metal4-ios-aot-test/luisa_ios_path_tracing.metallib"
+                26.0 26.4)
+        set_tests_properties(test_metal4_ios_air_aot_codegen PROPERTIES
+                LABELS "unit;unit_metal4;integration_codegen"
+                TIMEOUT 60)
+    endif ()
+
     foreach (_metal4_test IN ITEMS
             test_metal_xir_air
             test_metal_xir_air_accel

@@ -26,6 +26,11 @@ struct MetalAIRVersion {
     uint32_t patch;
 };
 
+enum class MetalAIRPlatform : uint8_t {
+    MACOS,
+    IOS,
+};
+
 enum class MetalAIRKernelEntry : uint8_t {
     DIRECT,
     INDIRECT,
@@ -49,7 +54,8 @@ struct MetalAIRRasterConfig {
 };
 
 struct MetalCodegenLLVMConfig {
-    MetalAIRVersion macos_version{14u, 0u, 0u};
+    MetalAIRPlatform platform{MetalAIRPlatform::MACOS};
+    MetalAIRVersion platform_version{14u, 0u, 0u};
     MetalAIRVersion sdk_version{14u, 0u, 0u};
     MetalAIRVersion air_version{2u, 6u, 0u};
     MetalAIRVersion metal_version{3u, 1u, 0u};

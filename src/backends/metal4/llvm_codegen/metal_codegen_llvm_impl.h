@@ -254,7 +254,11 @@ enum class AIRRasterDepthMode : uint8_t {
 [[nodiscard]] static std::string air_target_triple(const MetalCodegenLLVMConfig &config) noexcept {
     auto architecture = "air64_v" + std::to_string(config.air_version.major) +
                         std::to_string(config.air_version.minor);
-    return architecture + "-apple-macosx" + version_string(config.macos_version);
+    auto operating_system = config.platform == MetalAIRPlatform::MACOS ?
+                                "macosx" :
+                                "ios";
+    return architecture + "-apple-" + operating_system +
+           version_string(config.platform_version);
 }
 
 [[nodiscard]] static llvm::Metadata *md_i32(llvm::LLVMContext &context, uint32_t value) noexcept {

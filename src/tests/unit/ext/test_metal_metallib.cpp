@@ -133,6 +133,32 @@ int main(int argc, char *argv[]) {
         expect(static_cast<bool>(macos_27.file_format == MetalLibVersion{1u, 2u, 9u}));
         expect(static_cast<bool>(macos_27.air == MetalLibVersion{2u, 9u, 0u}));
         expect(static_cast<bool>(macos_27.metal == MetalLibVersion{4u, 1u, 0u}));
+
+        auto ios_26 = metallib_target_for_ios(26u, 4u);
+        expect(ios_26.operating_system == MetalLibPlatform::IOS);
+        expect(static_cast<bool>(ios_26.file_format == MetalLibVersion{1u, 2u, 9u}));
+        expect(static_cast<bool>(ios_26.platform == MetalLibVersion{26u, 4u, 0u}));
+        expect(static_cast<bool>(ios_26.air == MetalLibVersion{2u, 8u, 0u}));
+        expect(static_cast<bool>(ios_26.metal == MetalLibVersion{4u, 0u, 0u}));
+    };
+
+    "metal_metallib_ios_header_convention"_test = [] {
+        auto functions = test_functions();
+        auto library = make_metallib(
+            metallib_target_for_ios(26u, 4u), functions);
+        expect(!library.empty());
+        expect(validate_metallib(library, kEntryPoints, kProgramTypes));
+        expect(eq(read_u16(library, 4u), uint16_t{1u}));
+        expect(eq(std::to_integer<uint8_t>(library[11u]), uint8_t{0x82u}));
+        expect(eq(read_u16(library, 12u), uint16_t{26u}));
+        expect(eq(std::to_integer<uint8_t>(library[14u]), uint8_t{4u}));
+
+        auto mismatched_header = library;
+        mismatched_header[5u] = std::byte{0x80u};
+        expect(!validate_metallib(mismatched_header));
+        mismatched_header = library;
+        mismatched_header[11u] = std::byte{0x81u};
+        expect(!validate_metallib(mismatched_header));
     };
 
     "metal_metallib_two_distinct_functions"_test = [] {

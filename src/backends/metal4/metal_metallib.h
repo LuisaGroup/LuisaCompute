@@ -17,7 +17,13 @@ struct MetalLibVersion {
     [[nodiscard]] constexpr bool operator==(const MetalLibVersion &) const noexcept = default;
 };
 
+enum class MetalLibPlatform : uint8_t {
+    MACOS = 0x81u,
+    IOS = 0x82u,
+};
+
 struct MetalLibTarget {
+    MetalLibPlatform operating_system{MetalLibPlatform::MACOS};
     MetalLibVersion file_format;
     MetalLibVersion platform;
     MetalLibVersion air;
@@ -43,6 +49,9 @@ struct MetalLibFunction {
 };
 
 [[nodiscard]] MetalLibTarget metallib_target_for_macos(
+    uint16_t major, uint16_t minor = 0u, uint16_t patch = 0u) noexcept;
+
+[[nodiscard]] MetalLibTarget metallib_target_for_ios(
     uint16_t major, uint16_t minor = 0u, uint16_t patch = 0u) noexcept;
 
 [[nodiscard]] luisa::vector<std::byte> make_metallib(

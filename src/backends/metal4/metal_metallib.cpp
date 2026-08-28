@@ -420,26 +420,55 @@ struct FunctionRecord {
 
 }// namespace
 
-MetalLibTarget metallib_target_for_macos(uint16_t major, uint16_t minor, uint16_t patch) noexcept {
-    auto normalized_major = major >= 16u && major < 26u ? static_cast<uint16_t>(major + 10u) : major;
-    auto file_format = normalized_major >= 26u ? MetalLibVersion{1u, 2u, 9u} :
-                       normalized_major >= 15u ? MetalLibVersion{1u, 2u, 8u} :
-                                                 MetalLibVersion{1u, 2u, 7u};
-    auto air = normalized_major >= 27u ? MetalLibVersion{2u, 9u, 0u} :
-               normalized_major >= 26u ? MetalLibVersion{2u, 8u, 0u} :
-               normalized_major >= 15u ? MetalLibVersion{2u, 7u, 0u} :
-               normalized_major >= 14u ? MetalLibVersion{2u, 6u, 0u} :
-                                         MetalLibVersion{2u, 5u, 0u};
-    auto metal = normalized_major >= 27u ? MetalLibVersion{4u, 1u, 0u} :
-                 normalized_major >= 26u ? MetalLibVersion{4u, 0u, 0u} :
-                 normalized_major >= 15u ? MetalLibVersion{3u, 2u, 0u} :
-                 normalized_major >= 14u ? MetalLibVersion{3u, 1u, 0u} :
-                                           MetalLibVersion{3u, 0u, 0u};
+namespace {
+
+[[nodiscard]] MetalLibTarget metallib_target_for_apple_platform(
+    MetalLibPlatform operating_system,
+    uint16_t major, uint16_t minor, uint16_t patch) noexcept {
+    auto generation = operating_system == MetalLibPlatform::MACOS ?
+                          (major >= 16u && major < 26u ?
+                               static_cast<uint16_t>(major + 10u) :
+                               major) :
+                          major;
+    auto air_27 = generation >= 27u;
+    auto air_26 = generation >= 26u;
+    auto air_27_predecessor = operating_system == MetalLibPlatform::MACOS ?
+                                  generation >= 15u :
+                                  generation >= 18u;
+    auto air_26_predecessor = operating_system == MetalLibPlatform::MACOS ?
+                                  generation >= 14u :
+                                  generation >= 17u;
+    auto file_format = air_26             ? MetalLibVersion{1u, 2u, 9u} :
+                       air_27_predecessor ? MetalLibVersion{1u, 2u, 8u} :
+                                            MetalLibVersion{1u, 2u, 7u};
+    auto air = air_27             ? MetalLibVersion{2u, 9u, 0u} :
+               air_26             ? MetalLibVersion{2u, 8u, 0u} :
+               air_27_predecessor ? MetalLibVersion{2u, 7u, 0u} :
+               air_26_predecessor ? MetalLibVersion{2u, 6u, 0u} :
+                                    MetalLibVersion{2u, 5u, 0u};
+    auto metal = air_27             ? MetalLibVersion{4u, 1u, 0u} :
+                 air_26             ? MetalLibVersion{4u, 0u, 0u} :
+                 air_27_predecessor ? MetalLibVersion{3u, 2u, 0u} :
+                 air_26_predecessor ? MetalLibVersion{3u, 1u, 0u} :
+                                      MetalLibVersion{3u, 0u, 0u};
     return MetalLibTarget{
+        .operating_system = operating_system,
         .file_format = file_format,
-        .platform = MetalLibVersion{normalized_major, minor, patch},
+        .platform = MetalLibVersion{generation, minor, patch},
         .air = air,
         .metal = metal};
+}
+
+}// namespace
+
+MetalLibTarget metallib_target_for_macos(uint16_t major, uint16_t minor, uint16_t patch) noexcept {
+    return metallib_target_for_apple_platform(
+        MetalLibPlatform::MACOS, major, minor, patch);
+}
+
+MetalLibTarget metallib_target_for_ios(uint16_t major, uint16_t minor, uint16_t patch) noexcept {
+    return metallib_target_for_apple_platform(
+        MetalLibPlatform::IOS, major, minor, patch);
 }
 
 luisa::vector<std::byte> make_metallib(
@@ -447,6 +476,8 @@ luisa::vector<std::byte> make_metallib(
     luisa::span<const MetalLibFunction> functions) noexcept {
 
     if (functions.empty() || functions.size() > std::numeric_limits<uint32_t>::max() ||
+        (target.operating_system != MetalLibPlatform::MACOS &&
+         target.operating_system != MetalLibPlatform::IOS) ||
         target.file_format.major != 1u || target.file_format.minor != 2u || target.file_format.patch < 7u ||
         target.platform.major < 13u || target.platform.minor > std::numeric_limits<uint8_t>::max() ||
         target.platform.patch > std::numeric_limits<uint8_t>::max() ||
@@ -478,11 +509,15 @@ luisa::vector<std::byte> make_metallib(
         functions.size() > (std::numeric_limits<size_t>::max() - total_module_size - 256u) / 160u) { return {}; }
     writer.reserve(256u + total_module_size + functions.size() * 160u);
     writer.write_ascii("MTLB");
-    writer.write_u16(static_cast<uint16_t>(target.file_format.major | 0x8000u));
+    auto file_major = target.file_format.major;
+    if (target.operating_system == MetalLibPlatform::MACOS) {
+        file_major = static_cast<uint16_t>(file_major | 0x8000u);
+    }
+    writer.write_u16(file_major);
     writer.write_u16(target.file_format.minor);
     writer.write_u16(target.file_format.patch);
     writer.write_u8(0u);
-    writer.write_u8(0x81u);
+    writer.write_u8(static_cast<uint8_t>(target.operating_system));
     writer.write_u16(target.platform.major);
     writer.write_u8(static_cast<uint8_t>(target.platform.minor));
     writer.write_u8(static_cast<uint8_t>(target.platform.patch));
@@ -546,9 +581,13 @@ bool validate_metallib(
     auto platform_major = reader.read_u16();
     static_cast<void>(reader.read_u8());
     static_cast<void>(reader.read_u8());
-    if (!reader.valid() || (file_major & 0x8000u) == 0u ||
+    auto is_macos = platform_type == static_cast<uint8_t>(MetalLibPlatform::MACOS);
+    auto is_ios = platform_type == static_cast<uint8_t>(MetalLibPlatform::IOS);
+    auto has_macos_file_bit = (file_major & 0x8000u) != 0u;
+    if (!reader.valid() || (!is_macos && !is_ios) ||
+        has_macos_file_bit != is_macos ||
         (file_major & 0x7fffu) != 1u || file_minor != 2u || file_patch < 7u ||
-        file_type != 0u || platform_type != 0x81u || platform_major < 13u) { return false; }
+        file_type != 0u || platform_major < 13u) { return false; }
 
     auto file_size = reader.read_u64();
     auto function_list_offset = reader.read_u64();

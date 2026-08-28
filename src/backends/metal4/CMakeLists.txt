@@ -17,6 +17,25 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             COMMENT "Embedding Metal 4 built-in sources..."
             VERBATIM)
 
+    set(METAL4_AIR_CODEGEN_SOURCES
+            metal_metallib.cpp metal_metallib.h
+            metal_raster_archive.cpp metal_raster_archive.h
+            metal_xir_pipeline.cpp metal_xir_pipeline.h
+            metal_air_pipeline.cpp metal_air_pipeline.h
+            llvm_codegen/metal_codegen_llvm.cpp
+            llvm_codegen/metal_codegen_llvm.h
+            llvm_codegen/metal_codegen_llvm_impl.h
+            llvm_codegen/metal_codegen_llvm_impl.cpp
+            llvm_codegen/metal_codegen_llvm_type.cpp
+            llvm_codegen/metal_codegen_llvm_function.cpp
+            llvm_codegen/metal_codegen_llvm_access.cpp
+            llvm_codegen/metal_codegen_llvm_resource.cpp
+            llvm_codegen/metal_codegen_llvm_atomic.cpp
+            llvm_codegen/metal_codegen_llvm_arithmetic.cpp
+            llvm_codegen/metal_codegen_llvm_raster.cpp
+            llvm_codegen/metal_codegen_llvm_metadata.cpp
+            llvm_codegen/metal_codegen_llvm_preflight.cpp)
+
     set(METAL4_SOURCES
 
             # common
@@ -33,8 +52,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_compiler.cpp metal_compiler.h
             metal_texture.cpp metal_texture.h
             metal_depth_buffer.cpp metal_depth_buffer.h
-            metal_metallib.cpp metal_metallib.h
-            metal_raster_archive.cpp metal_raster_archive.h
             metal_raster_ext.cpp metal_raster_ext.h
             metal_raster_shader.cpp metal_raster_shader.h
             metal_stream.cpp metal_stream.h
@@ -59,24 +76,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_dstorage.cpp metal_dstorage.h
             metal_debug_capture.cpp metal_debug_capture.h
             metal_pinned_memory.cpp metal_pinned_memory.h
-            metal_tex_compress.cpp metal_tex_compress.h
-
-            # XIR -> LLVM -> AIR
-            metal_xir_pipeline.cpp metal_xir_pipeline.h
-            metal_air_pipeline.cpp metal_air_pipeline.h
-            llvm_codegen/metal_codegen_llvm.cpp
-            llvm_codegen/metal_codegen_llvm.h
-            llvm_codegen/metal_codegen_llvm_impl.h
-            llvm_codegen/metal_codegen_llvm_impl.cpp
-            llvm_codegen/metal_codegen_llvm_type.cpp
-            llvm_codegen/metal_codegen_llvm_function.cpp
-            llvm_codegen/metal_codegen_llvm_access.cpp
-            llvm_codegen/metal_codegen_llvm_resource.cpp
-            llvm_codegen/metal_codegen_llvm_atomic.cpp
-            llvm_codegen/metal_codegen_llvm_arithmetic.cpp
-            llvm_codegen/metal_codegen_llvm_raster.cpp
-            llvm_codegen/metal_codegen_llvm_metadata.cpp
-            llvm_codegen/metal_codegen_llvm_preflight.cpp)
+            metal_tex_compress.cpp metal_tex_compress.h)
 
     luisa_compute_add_backend(metal4 SOURCES ${METAL4_SOURCES})
     add_dependencies(luisa-compute-backend-metal4
@@ -97,13 +97,46 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_definitions(luisa-compute-backend-metal4 PRIVATE
             ${LUISA_METAL4_COMPILE_DEFINITIONS})
 
-    target_link_libraries(luisa-compute-backend-metal4 PRIVATE
+    add_library(luisa-compute-metal4-air-codegen STATIC
+            ${METAL4_AIR_CODEGEN_SOURCES})
+    set_target_properties(luisa-compute-metal4-air-codegen PROPERTIES
+            POSITION_INDEPENDENT_CODE ON
+            UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
+            FOLDER backends)
+    target_compile_definitions(luisa-compute-metal4-air-codegen PRIVATE
+            ${LUISA_METAL4_COMPILE_DEFINITIONS})
+    target_include_directories(luisa-compute-metal4-air-codegen PUBLIC
+            ${CMAKE_CURRENT_LIST_DIR})
+    target_link_libraries(luisa-compute-metal4-air-codegen
+            PUBLIC
+            luisa-compute-ast
+            luisa-compute-runtime
             luisa-compute-xir
             luisa-compute-ext-llvm-downgrade
-            luisa-compute-metal-cpp)
-    luisa_compute_link_llvm_into_backend(metal4 REQUIRED COMPONENTS
+            luisa-compute-metal-cpp
+            "-framework Foundation")
+    luisa_compute_link_llvm_into_backend(metal4-air-codegen
+            TARGET luisa-compute-metal4-air-codegen
+            REQUIRED COMPONENTS
             core support bitreader bitwriter irreader linker passes analysis transformutils
             ipo scalaropts instcombine vectorize)
+
+    target_link_libraries(luisa-compute-backend-metal4 PRIVATE
+            luisa-compute-metal4-air-codegen
+            luisa-compute-metal-cpp)
+
+    add_executable(luisa-metal4-ios-path-tracer-aot
+            tools/ios_path_tracing_aot.cpp
+            metal_api.cpp)
+    target_compile_definitions(luisa-metal4-ios-path-tracer-aot PRIVATE
+            ${LUISA_METAL4_COMPILE_DEFINITIONS})
+    target_link_libraries(luisa-metal4-ios-path-tracer-aot PRIVATE
+            luisa-compute-metal4-air-codegen
+            luisa-compute-dsl
+            luisa-compute-metal-cpp
+            "-framework Foundation"
+            "-framework Metal"
+            "-framework QuartzCore")
 
     if (TARGET luisa-compute-oidn-ext)
         target_link_libraries(luisa-compute-backend-metal4 PRIVATE
