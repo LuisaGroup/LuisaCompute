@@ -11,6 +11,7 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 
@@ -549,6 +550,128 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         expect(correct)
             << "GME exchange must preserve both immediate live-ins and state "
                "that is live through an intermediate continuation";
+    };
+
+    "T33_persistent_frame_io_is_exact_per_graph_edge"_test = [options] {
+        constexpr uint N = 64u;
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        Stream stream = device.create_stream();
+        auto output = device.create_buffer<uint>(N);
+
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto tid = dispatch_x();
+            $suspend("route_payload");
+            $if ((tid & 1u) == 0u) {
+                // Distinct physical types prevent the mutually exclusive
+                // payloads from sharing a colored frame slot.
+                auto even = make_uint4(
+                    tid + 1u, tid + 2u, tid + 3u, tid + 4u);
+                $suspend("even_payload");
+                output.write(
+                    tid, even.x + even.y + even.z + even.w);
+            }
+            $else {
+                auto base = cast<float>(tid);
+                auto odd = make_float3(
+                    base + 5.0f, base + 6.0f, base + 7.0f);
+                $suspend("odd_payload");
+                // This builtin is first used in the late continuation. Its
+                // immutable field must survive through route_payload, but it
+                // must not be rewritten on route_payload -> odd_payload.
+                output.write(
+                    tid,
+                    cast<uint>(odd.x + odd.y + odd.z) +
+                        dispatch_size_x());
+            };
+        });
+
+        auto *route = coro.graph().node_by_name("route_payload");
+        auto *even = coro.graph().node_by_name("even_payload");
+        auto *odd = coro.graph().node_by_name("odd_payload");
+        expect(route != nullptr && even != nullptr && odd != nullptr);
+        if (route == nullptr || even == nullptr || odd == nullptr) { return; }
+
+        PersistentThreadsCoroSchedulerConfig config{
+            .thread_count = N,
+            .block_size = 32u,
+            .fetch_size = 4u,
+            .global_memory_ext = true,
+            .global_memory_frames = true,
+        };
+        PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{
+            device, coro, config};
+        auto &&plan = scheduler.frame_io_plan();
+        auto contains = [](luisa::span<const size_t> fields,
+                           size_t field) noexcept {
+            return std::find(fields.begin(), fields.end(), field) !=
+                   fields.end();
+        };
+
+        auto even_store = plan.output(route->index, even->index);
+        auto odd_store = plan.output(route->index, odd->index);
+        auto even_only = std::find_if(
+            even_store.begin(), even_store.end(),
+            [&](auto field) noexcept {
+                return field >= CoroFrameDesc::reserved_field_count &&
+                       !contains(odd_store, field);
+            });
+        auto odd_only = std::find_if(
+            odd_store.begin(), odd_store.end(),
+            [&](auto field) noexcept {
+                return field >= CoroFrameDesc::reserved_field_count &&
+                       !contains(even_store, field);
+            });
+        expect(even_only != even_store.end());
+        expect(odd_only != odd_store.end());
+        expect(plan.output(even->index, odd->index).empty())
+            << "an impossible continuation edge must generate no frame writes";
+        expect(even_store.size() < route->output_fields.size());
+        expect(odd_store.size() < route->output_fields.size())
+            << "each transition must use its edge projection, not the "
+               "source-node union";
+
+        constexpr size_t dispatch_size_x_field = 3u;
+        expect(contains(plan.input(odd->index), dispatch_size_x_field));
+        expect(contains(plan.relocation(route->index),
+                        dispatch_size_x_field));
+        expect(contains(plan.output(0u, route->index),
+                        dispatch_size_x_field));
+        expect(!contains(odd_store, dispatch_size_x_field))
+            << "immutable invocation identity is initialized once and "
+               "retained, not rewritten on every transition";
+
+        constexpr size_t target_token_field = 6u;
+        for (auto node = 0u; node < coro.subroutine_count(); ++node) {
+            expect(!contains(plan.input(node), target_token_field));
+            expect(!contains(plan.relocation(node), target_token_field));
+            for (auto target = 0u;
+                 target < coro.subroutine_count(); ++target) {
+                expect(!contains(plan.output(node, target),
+                                 target_token_field));
+            }
+        }
+
+        scheduler(output).dispatch(N)(stream);
+        luisa::vector<uint> host(N);
+        stream << output.copy_to(luisa::span{host}) << synchronize();
+        auto correct = true;
+        for (auto tid = 0u; tid < N; ++tid) {
+            auto expected = (tid & 1u) == 0u ?
+                                4u * tid + 10u :
+                                3u * tid + 18u + N;
+            if (host[tid] != expected) {
+                LUISA_WARNING(
+                    "edge-exact persistent I/O mismatch at {}: got {}, "
+                    "expected {}",
+                    tid, host[tid], expected);
+                correct = false;
+                break;
+            }
+        }
+        expect(correct)
+            << "the exact edge plan must preserve both tagged payloads and "
+               "dormant immutable identity through global-frame exchange";
     };
 
     "T33_shared_frame_lower_bound_selects_global_frames"_test = [options] {

@@ -160,9 +160,7 @@ private:
     luisa::vector<bool> _have_hint;
     luisa::vector<bool> _refill_at;
     CoroFrameStorageLayout _frame_layout;
-    luisa::vector<luisa::vector<size_t>> _input_fields;
-    luisa::vector<luisa::vector<size_t>> _output_fields;
-    luisa::vector<luisa::vector<luisa::vector<size_t>>> _transition_output_fields;
+    CoroFrameIOPlan _frame_io_plan;
     luisa::vector<uint64_t> _shader_structure_hashes;
     luisa::vector<WavefrontCoroShaderInfo> _shader_infos;
     WavefrontCoroDispatchStats _last_dispatch_stats;
@@ -235,9 +233,12 @@ private:
         _frame_layout = _config.global_memory_soa ?
                             CoroFrameStorageLayout::make_runtime_soa(coro.frame(), _config.thread_count) :
                             CoroFrameStorageLayout::make_aos(coro.frame(), _config.thread_count);
-        _input_fields.resize(nc);
-        _output_fields.resize(nc);
-        _transition_output_fields.resize(nc);
+        // This scheduler gathers and validates continuations through the
+        // target-token field in global frame storage, so the token belongs to
+        // its physical transfer plan.
+        _frame_io_plan = coro_frame_make_io_plan(
+            coro.graph(), coro.frame().frame_field_count(),
+            {.externalize_target_token = true});
         _last_dispatch_stats.continuations.clear();
         _last_dispatch_stats.continuations.reserve(nc);
         for (auto i = 0u; i < nc; i++) {
@@ -249,12 +250,6 @@ private:
                     .name = node.index == 0u ?
                                 luisa::string{"<entry>"} :
                                 node.name});
-            _input_fields[i] = coro_frame_collect_input_fields(coro.graph(), i);
-            _output_fields[i] = coro_frame_collect_output_fields(coro.graph(), i);
-            _transition_output_fields[i].resize(nc);
-            for (auto j = 0u; j < nc; j++) {
-                _transition_output_fields[i][j] = coro_frame_collect_output_fields(coro.graph(), i, j);
-            }
         }
         _resume_kernels.resize(nc);
         _host_count.resize(nc);
@@ -411,7 +406,7 @@ private:
         }
 
         if (auto entry_sub = coro[0u]) {
-            Kernel1D k_gen = [&coro, frame_buffer, layout = _frame_layout, output_fields = _transition_output_fields[0u],
+            Kernel1D k_gen = [&coro, frame_buffer, layout = _frame_layout, output_fields = _frame_io_plan.transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
                               execution_block_size = _config.execution_block_size,
                               token_to_index](
@@ -432,10 +427,12 @@ private:
                 auto next = token_to_index(frame.target_token);
                 frame.target_token = next;
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
+                    if (output_fields[target].empty()) { continue; }
                     $if (next == static_cast<uint>(target)) {
                         coro_frame_store(
                             frame_buf, frame_id, frame_capacity, frame,
-                            layout, soa, luisa::span{output_fields[target]});
+                            layout, soa, luisa::span{output_fields[target]},
+                            false, false);
                     };
                 }
             };
@@ -450,7 +447,7 @@ private:
         for (size_t i = 1u; i < nc; ++i) {
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
-            Kernel1D k_cont = [&coro, frame_buffer, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
+            Kernel1D k_cont = [&coro, frame_buffer, layout = _frame_layout, input_fields = _frame_io_plan.input_fields[i], output_fields = _frame_io_plan.transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
                                execution_block_size = _config.execution_block_size,
                                read_scheduler_token, token_to_index](
@@ -467,16 +464,18 @@ private:
                 $if (tok != static_cast<uint>(i)) { $return(); };
                 auto frame = coro_frame_load(
                     &coro.frame(), frame_buf, idx, frame_capacity,
-                    layout, soa, luisa::span{input_fields});
+                    layout, soa, luisa::span{input_fields}, false, false);
                 frame.target_token = CoroFrame::TERMINAL_TOKEN;
                 coro[i](frame, k_args...);
                 auto next = token_to_index(frame.target_token);
                 frame.target_token = next;
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
+                    if (output_fields[target].empty()) { continue; }
                     $if (next == static_cast<uint>(target)) {
                         coro_frame_store(
                             frame_buf, idx, frame_capacity, frame,
-                            layout, soa, luisa::span{output_fields[target]});
+                            layout, soa, luisa::span{output_fields[target]},
+                            false, false);
                     };
                 }
             };
@@ -672,8 +671,8 @@ private:
                 "wavefront_gather_selected");
         }
 
-        auto relocation_partition = coro_frame_partition_relocation_fields(
-            coro.graph(), coro.frame().frame_field_count());
+        auto relocation_partition =
+            coro_frame_partition_relocation_fields(_frame_io_plan);
         Kernel1D compact_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
              read_scheduler_token, desc = &coro.frame(),
@@ -1298,6 +1297,9 @@ private:
 
 public:
     [[nodiscard]] const Config &config() const noexcept { return _config; }
+    [[nodiscard]] const CoroFrameIOPlan &frame_io_plan() const noexcept {
+        return _frame_io_plan;
+    }
     [[nodiscard]] uint active_frame_capacity() const noexcept { return _active_frame_capacity; }
     [[nodiscard]] const WavefrontCoroDispatchStats &
     last_dispatch_stats() const noexcept {

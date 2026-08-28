@@ -55,8 +55,7 @@ private:
     Buffer<uint> _global;
     ByteBuffer _global_frames;
     CoroFrameStorageLayout _global_frame_layout;
-    luisa::vector<luisa::vector<size_t>> _input_fields;
-    luisa::vector<luisa::vector<size_t>> _output_fields;
+    CoroFrameIOPlan _frame_io_plan;
     size_t _static_shared_memory_size_bytes{};
     uint64_t _main_shader_structure_hash{};
 
@@ -177,14 +176,13 @@ private:
                     coro.frame(), global_frame_capacity);
         };
         update_global_frame_layout();
-        _input_fields.resize(coro.subroutine_count());
-        _output_fields.resize(coro.subroutine_count());
-        for (auto i = 0u; i < coro.subroutine_count(); i++) {
-            _input_fields[i] = coro_frame_collect_input_fields(coro.graph(), i);
-            _output_fields[i] = coro_frame_collect_output_fields(coro.graph(), i);
-        }
-        auto relocation_partition = coro_frame_partition_relocation_fields(
-            coro.graph(), coro.frame().frame_field_count());
+        // `all_token` is the persistent scheduler's routing tag, so target
+        // tokens must not be redundantly externalized in frame storage.
+        _frame_io_plan = coro_frame_make_io_plan(
+            coro.graph(), coro.frame().frame_field_count(),
+            {.externalize_target_token = false});
+        auto relocation_partition =
+            coro_frame_partition_relocation_fields(_frame_io_plan);
         auto token_to_index = detail::make_coro_token_index_callable(coro);
 
         auto make_main_kernel = [&]() noexcept {
@@ -204,8 +202,9 @@ private:
                              global_memory_frames,
                              common_relocation_fields,
                              residual_relocation_fields,
-                             input_fields = _input_fields,
-                             output_fields = _output_fields,
+                             input_fields = _frame_io_plan.input_fields,
+                             output_fields =
+                                 _frame_io_plan.transition_output_fields,
                              global_layout = _global_frame_layout](
                                 BufferUInt global, ByteBufferVar global_frames,
                                 UInt3 dispatch_size_prefix_product,
@@ -260,7 +259,8 @@ private:
                         coro_frame_load_into(
                             result, global_frames, global_id,
                             global_layout, false,
-                            luisa::span<const size_t>{common_relocation_fields}, true);
+                            luisa::span<const size_t>{common_relocation_fields},
+                            true, false);
                     }
                     auto load = switch_(token);
                     for (size_t i = 1u;
@@ -286,7 +286,8 @@ private:
                     if (!common_relocation_fields.empty()) {
                         shared_frames->write(
                             shared_id, frame,
-                            luisa::span<const size_t>{common_relocation_fields});
+                            luisa::span<const size_t>{common_relocation_fields},
+                            false);
                     }
                     auto store = switch_(token);
                     for (size_t i = 1u;
@@ -311,11 +312,13 @@ private:
                     if (!common_relocation_fields.empty()) {
                         shared_frames->read_into(
                             shared_id, frame,
-                            luisa::span<const size_t>{common_relocation_fields});
+                            luisa::span<const size_t>{common_relocation_fields},
+                            false);
                         coro_frame_store(
                             global_frames, global_id, frame,
                             global_layout, false,
-                            luisa::span<const size_t>{common_relocation_fields}, true);
+                            luisa::span<const size_t>{common_relocation_fields},
+                            true, false);
                     }
                     auto spill = switch_(token);
                     for (size_t i = 1u;
@@ -345,12 +348,6 @@ private:
                      index < shared_queue_factor; index++) {
                     auto s = index * _config.block_size + thread_x();
                     all_token[s] = 0u;
-                    if (_config.shared_memory_soa) {
-                        auto frame = CoroFrame::create(&coro.frame());
-                        shared_frames->write(
-                            s, frame,
-                            luisa::span{input_fields[0u]});
-                    }
                 }
                 if (_config.global_memory_ext) {
                     $for (index, 0u, global_queue_factor) {
@@ -555,17 +552,30 @@ private:
                                 $if (frame.target_token == CoroFrame::TERMINAL_TOKEN) {
                                     frame.target_token = 0u;
                                 };
-                                if (global_memory_frames) {
-                                    auto global_frame_id =
-                                        block_x() * global_queue_size + pid;
-                                    coro_frame_store(
-                                        global_frames, global_frame_id,
-                                        frame, global_layout, false,
-                                        luisa::span{output_fields[0u]}, true);
-                                } else {
-                                    shared_frames->write(
-                                        pid, frame,
-                                        luisa::span{output_fields[0u]});
+                                for (size_t target = 1u;
+                                     target < output_fields[0u].size();
+                                     ++target) {
+                                    if (output_fields[0u][target].empty()) {
+                                        continue;
+                                    }
+                                    $if (next == static_cast<uint>(target)) {
+                                        if (global_memory_frames) {
+                                            auto global_frame_id =
+                                                block_x() * global_queue_size + pid;
+                                            coro_frame_store(
+                                                global_frames, global_frame_id,
+                                                frame, global_layout, false,
+                                                luisa::span{
+                                                    output_fields[0u][target]},
+                                                true, false);
+                                        } else {
+                                            shared_frames->write(
+                                                pid, frame,
+                                                luisa::span{
+                                                    output_fields[0u][target]},
+                                                false);
+                                        }
+                                    };
                                 }
                                 all_token[pid] = next;
                                 work_counter.atomic(next).fetch_add(1u);
@@ -586,28 +596,48 @@ private:
                                                 &coro.frame(), global_frames,
                                                 global_frame_id,
                                                 global_layout, false,
-                                                luisa::span{input_fields[i]}, true);
+                                                luisa::span{input_fields[i]},
+                                                true, false);
                                         }
                                         return shared_frames->read(
                                             pid,
-                                            luisa::span{input_fields[i]});
+                                            luisa::span{input_fields[i]},
+                                            false);
                                     }();
+                                    frame.target_token =
+                                        CoroFrame::TERMINAL_TOKEN;
                                     coro[i](frame, args...);
                                     auto next = token_to_index(frame.target_token);
                                     $if (frame.target_token == CoroFrame::TERMINAL_TOKEN) {
                                         frame.target_token = 0u;
                                     };
-                                    if (global_memory_frames) {
-                                        auto global_frame_id =
-                                            block_x() * global_queue_size + pid;
-                                        coro_frame_store(
-                                            global_frames, global_frame_id,
-                                            frame, global_layout, false,
-                                            luisa::span{output_fields[i]}, true);
-                                    } else {
-                                        shared_frames->write(
-                                            pid, frame,
-                                            luisa::span{output_fields[i]});
+                                    for (size_t target = 1u;
+                                         target < output_fields[i].size();
+                                         ++target) {
+                                        if (output_fields[i][target].empty()) {
+                                            continue;
+                                        }
+                                        $if (next == static_cast<uint>(target)) {
+                                            if (global_memory_frames) {
+                                                auto global_frame_id =
+                                                    block_x() * global_queue_size + pid;
+                                                coro_frame_store(
+                                                    global_frames,
+                                                    global_frame_id, frame,
+                                                    global_layout, false,
+                                                    luisa::span{
+                                                        output_fields[i]
+                                                                     [target]},
+                                                    true, false);
+                                            } else {
+                                                shared_frames->write(
+                                                    pid, frame,
+                                                    luisa::span{
+                                                        output_fields[i]
+                                                                     [target]},
+                                                    false);
+                                            }
+                                        };
                                     }
                                     all_token[pid] = next;
                                     work_counter.atomic(next).fetch_add(1u);
@@ -756,6 +786,9 @@ public:
     [[nodiscard]] const Config &config() const noexcept { return _config; }
     [[nodiscard]] size_t static_shared_memory_size_bytes() const noexcept {
         return _static_shared_memory_size_bytes;
+    }
+    [[nodiscard]] const CoroFrameIOPlan &frame_io_plan() const noexcept {
+        return _frame_io_plan;
     }
     /// Structural identity of the persistent state-machine kernel. Worker
     /// capacity and task-fetch granularity are dispatch policy and therefore

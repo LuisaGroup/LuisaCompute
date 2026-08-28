@@ -278,6 +278,11 @@ private:
         auto snapshot_stride = _snapshot_stride;
         auto layout = _frame_layout;
         auto soa = _config.global_memory_soa;
+        // Queue identity carries the routing token independently of frame
+        // storage, so only semantic continuation payload belongs here.
+        auto frame_io_plan = coro_frame_make_io_plan(
+            coro.graph(), coro.frame().frame_field_count(),
+            {.externalize_target_token = false});
 
         Kernel1D initialize = [queue_indices, queue_counts, dispatch_state,
                                active_node_count](
@@ -495,12 +500,8 @@ private:
                 };
             }};
 
-        auto entry_output_fields = luisa::vector<luisa::vector<size_t>>{};
-        entry_output_fields.resize(_node_count);
-        for (auto target = 0u; target < _node_count; ++target) {
-            entry_output_fields[target] = coro_frame_collect_output_fields(
-                coro.graph(), 0u, target);
-        }
+        auto entry_output_fields =
+            frame_io_plan.transition_output_fields[0u];
         Kernel1D entry = [&coro, frame_buffer, queue_indices, work_state,
                           block_size, active_node_count,
                           layout, soa,
@@ -531,11 +532,13 @@ private:
                 frame.target_token = next;
                 for (auto target = 1u;
                      target < output_fields.size(); ++target) {
+                    if (output_fields[target].empty()) { continue; }
                     $if (next == static_cast<uint>(target)) {
                         coro_frame_store(
                             Expr<ByteBuffer>{*frame_buffer}, frame_index,
                             storage_capacity, frame, layout, soa,
-                            luisa::span{output_fields[target]});
+                            luisa::span{output_fields[target]}, false,
+                            false);
                     };
                 };
                 push_frame(destination_bank, next, frame_index,
@@ -558,13 +561,10 @@ private:
             LUISA_ASSERT(subroutine,
                          "CoroGraph node {} has no materialized consumer.",
                          node_index);
-            auto input_fields = coro_frame_collect_input_fields(
-                coro.graph(), node_index);
-            auto output_fields = luisa::vector<luisa::vector<size_t>>{};
-            output_fields.resize(_node_count);
+            auto input_fields = frame_io_plan.input_fields[node_index];
+            auto output_fields =
+                frame_io_plan.transition_output_fields[node_index];
             for (auto target = 0u; target < _node_count; ++target) {
-                output_fields[target] = coro_frame_collect_output_fields(
-                    coro.graph(), node_index, target);
                 _max_transition_output_field_count[node_index] = std::max(
                     _max_transition_output_field_count[node_index],
                     static_cast<uint>(output_fields[target].size()));
@@ -590,19 +590,21 @@ private:
                         auto frame = coro_frame_load(
                             &coro.frame(), Expr<ByteBuffer>{*frame_buffer},
                             frame_index, storage_capacity, layout, soa,
-                            luisa::span{input_fields});
+                            luisa::span{input_fields}, false, false);
                         frame.target_token = CoroFrame::TERMINAL_TOKEN;
                         subroutine(frame, args...);
                         auto next = token_to_index(frame.target_token);
                         frame.target_token = next;
                         for (auto target = 1u;
                              target < output_fields.size(); ++target) {
+                            if (output_fields[target].empty()) { continue; }
                             $if (next == static_cast<uint>(target)) {
                                 coro_frame_store(
                                     Expr<ByteBuffer>{*frame_buffer},
                                     frame_index, storage_capacity, frame,
                                     layout, soa,
-                                    luisa::span{output_fields[target]});
+                                    luisa::span{output_fields[target]},
+                                    false, false);
                             };
                         }
                         push_frame(destination_bank, next, frame_index,
@@ -721,8 +723,7 @@ private:
                 device, prepare_tail_offsets,
                 "graph_wavefront_prepare_tail_offsets");
 
-            auto relocation_fields = coro_frame_collect_relocation_fields(
-                coro.graph(), coro.frame().frame_field_count());
+            auto relocation_fields = frame_io_plan.relocation_fields;
             Kernel1D tail =
                 [&coro, frame_buffer, queue_indices, tail_offsets,
                  block_size, active_node_count, node_count,
@@ -769,7 +770,8 @@ private:
                                 coro_frame_load_into(
                                     frame, Expr<ByteBuffer>{*frame_buffer},
                                     frame_index, storage_capacity, layout, soa,
-                                    luisa::span{relocation_fields[node]});
+                                    luisa::span{relocation_fields[node]},
+                                    false, false);
                             });
                         }
                         std::move(load).default_([] {

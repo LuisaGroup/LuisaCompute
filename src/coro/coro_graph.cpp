@@ -10,6 +10,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
+#include <luisa/xir/passes/pointer_usage.h>
 #include <luisa/xir/passes/coro_split.h>
 
 namespace luisa::compute::coro {
@@ -19,12 +20,6 @@ namespace {
 static void append_unique(luisa::vector<size_t> &fields, size_t field) noexcept {
     if (std::find(fields.begin(), fields.end(), field) == fields.end()) {
         fields.emplace_back(field);
-    }
-}
-
-static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
-    for (auto i = 0u; i < CoroFrameDesc::reserved_field_count; i++) {
-        append_unique(fields, i);
     }
 }
 
@@ -370,7 +365,8 @@ void CoroSlotAccess::_write(
     static_cast<void>(m);
     CoroGraph graph;
 
-    luisa::vector<const xir::CallableFunction *> callables(cfg.scopes.size(), nullptr);
+    luisa::vector<xir::CallableFunction *> callables(cfg.scopes.size(), nullptr);
+    luisa::vector<xir::Value *> frame_arguments(cfg.scopes.size(), nullptr);
     for (auto &subroutine : split.subroutines) {
         LUISA_ASSERT(
             subroutine.scope_index < callables.size() &&
@@ -381,6 +377,8 @@ void CoroSlotAccess::_write(
             "CoroGraph received inconsistent split metadata for scope {}.",
             subroutine.scope_index);
         callables[subroutine.scope_index] = subroutine.callable;
+        frame_arguments[subroutine.scope_index] =
+            subroutine.frame_argument;
     }
     if (!split.subroutines.empty()) {
         LUISA_ASSERT(
@@ -607,11 +605,6 @@ void CoroSlotAccess::_write(
         }
     }
 
-    for (auto &node : graph._nodes) {
-        append_reserved_fields(node.input_fields);
-        append_reserved_fields(node.output_fields);
-    }
-
     // cfg-distill has already solved the backward may-liveness equation
     //
     //   L(s) = External(s) union U_(s -> t)
@@ -631,7 +624,6 @@ void CoroSlotAccess::_write(
             "Coroutine transition {} -> {} has an out-of-range target.",
             transition.from_scope, transition.to_scope);
         auto projected = luisa::vector<size_t>{};
-        append_reserved_fields(projected);
         for (auto frame_value_index :
              transition.live_frame_value_indices) {
             LUISA_ASSERT(
@@ -681,6 +673,108 @@ void CoroSlotAccess::_write(
             for (auto field : edge.load_fields) {
                 append_unique(to_node.input_fields, field);
             }
+        }
+    }
+
+    // The six immutable invocation-identity fields are scheduler ABI state,
+    // not ordinary user frame values. Analyze their actual reads in each
+    // materialized continuation, then solve the immutable-state liveness
+    // equation
+    //
+    //   I(n) = UseIdentity(n) union U_(n -> t) I(t)
+    //
+    // to its least fixed point. Since continuations never redefine identity,
+    // there is no kill term. A queued frame for token n must relocate exactly
+    // I(n), while only an entry transition has to initialize I(t) in external
+    // storage; later transitions retain the resident immutable fields. Pointer
+    // analysis is field-sensitive and projected to the frame reference. Any
+    // malformed/unsupported callable fails closed to all identity fields.
+    constexpr auto identity_field_count =
+        CoroFrameDesc::reserved_field_count - 1u;
+    luisa::vector<luisa::vector<uint8_t>> identity_live(
+        graph._nodes.size(),
+        luisa::vector<uint8_t>(identity_field_count, 0u));
+    for (size_t scope_index = 0u;
+         scope_index < graph._nodes.size(); ++scope_index) {
+        auto fail_closed = split.subroutines.empty();
+        if (!fail_closed) {
+            auto *callable = callables[scope_index];
+            auto *frame_argument = frame_arguments[scope_index];
+            auto *definition = callable == nullptr ?
+                                   nullptr :
+                                   callable->definition();
+            auto *body = definition == nullptr ?
+                             nullptr :
+                             definition->body_block();
+            xir::PointerUsageAnalysis analysis;
+            xir::Value *requested[]{frame_argument};
+            auto info = analysis.analyze(
+                definition,
+                luisa::span<xir::Value *const>{requested});
+            auto *usage = info.succeeded() && body != nullptr &&
+                                  frame_argument != nullptr ?
+                              analysis.in_usage(body, frame_argument) :
+                              nullptr;
+            fail_closed = !info.succeeded() || usage == nullptr;
+            if (!fail_closed) {
+                for (auto field = 0u;
+                     field < identity_field_count; ++field) {
+                    if (usage->live.access(field).any()) {
+                        identity_live[scope_index][field] = 1u;
+                        append_unique(
+                            graph._nodes[scope_index].input_fields,
+                            field);
+                    }
+                }
+            }
+        }
+        if (fail_closed) {
+            for (auto field = 0u;
+                 field < identity_field_count; ++field) {
+                identity_live[scope_index][field] = 1u;
+                append_unique(
+                    graph._nodes[scope_index].input_fields, field);
+            }
+        }
+    }
+    auto changed = true;
+    while (changed) {
+        changed = false;
+        for (auto &&edge : graph._edges) {
+            auto &source = identity_live[edge.from_index];
+            auto &target = identity_live[edge.to_index];
+            for (auto field = 0u;
+                 field < identity_field_count; ++field) {
+                if (source[field] == 0u && target[field] != 0u) {
+                    source[field] = 1u;
+                    changed = true;
+                }
+            }
+        }
+    }
+    for (size_t node_index = 1u;
+         node_index < graph._nodes.size(); ++node_index) {
+        for (auto field = 0u;
+             field < identity_field_count; ++field) {
+            if (identity_live[node_index][field] != 0u) {
+                append_unique(
+                    graph._nodes[node_index].relocation_fields,
+                    field);
+            }
+        }
+    }
+    for (auto &edge : graph._edges) {
+        if (edge.from_index == graph.entry_index()) {
+            for (auto field = 0u;
+                 field < identity_field_count; ++field) {
+                if (identity_live[edge.to_index][field] != 0u) {
+                    append_unique(edge.store_fields, field);
+                }
+            }
+        }
+        auto &from_node = graph._nodes[edge.from_index];
+        for (auto field : edge.store_fields) {
+            append_unique(from_node.output_fields, field);
         }
     }
     for (auto &node : graph._nodes) {
