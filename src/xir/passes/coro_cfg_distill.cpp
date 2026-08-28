@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <bit>
 #include <cstdlib>
 #include <type_traits>
 #include <utility>
@@ -75,13 +76,81 @@ static void hash_optional_token(DistillCertificateHasher &h,
     if (value.has_value()) { h.add(*value); }
 }
 
+static void hash_coro_suspend_extension(
+    DistillCertificateHasher &h,
+    const CoroSuspendExtension *extension) noexcept {
+    h.add(extension != nullptr);
+    if (extension == nullptr) { return; }
+    h.add_string(extension->schema());
+    h.add(extension->version());
+    h.add(extension->is_annotation());
+    h.add(extension->fallback());
+    h.add(extension->bindings().size());
+    for (auto &&binding : extension->bindings()) {
+        h.add_string(binding.name);
+        h.add(binding.access);
+        h.add(binding.lifetime);
+        h.add(binding.index);
+    }
+    h.add(extension->attributes().size());
+    for (auto &&attribute : extension->attributes()) {
+        h.add_string(attribute.name);
+        h.add(attribute.value.index());
+        luisa::visit(
+            [&](auto &&value) noexcept {
+                using T = std::remove_cvref_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, luisa::string>) {
+                    h.add_string(value);
+                } else if constexpr (std::is_same_v<T, double>) {
+                    h.add(std::bit_cast<uint64_t>(value));
+                } else {
+                    h.add(value);
+                }
+            },
+            attribute.value);
+    }
+}
+
+static void hash_coro_suspend_extension_owner(
+    DistillCertificateHasher &h,
+    const CoroSuspendExtensionOwner &owner) noexcept {
+    h.add(owner.extensions.size());
+    for (auto &&extension : owner.extensions) {
+        hash_coro_suspend_extension(h, extension.get());
+    }
+    h.add(owner.binding_values.size());
+    for (auto *value : owner.binding_values) {
+        h.add_pointer(value);
+    }
+}
+
+[[nodiscard]] static CoroSuspendExtensionOwner
+clone_coro_suspend_extension_owner(
+    CoroSuspendInst *suspend) noexcept {
+    CoroSuspendExtensionOwner owner;
+    if (suspend == nullptr) { return owner; }
+    owner.extensions.reserve(suspend->extensions().size());
+    for (auto &&extension : suspend->extensions()) {
+        owner.extensions.emplace_back(
+            extension == nullptr ? nullptr : extension->clone());
+    }
+    owner.binding_values.reserve(
+        suspend->extension_binding_value_count());
+    for (size_t i = 0u;
+         i < suspend->extension_binding_value_count(); ++i) {
+        owner.binding_values.emplace_back(
+            suspend->extension_binding_value(i));
+    }
+    return owner;
+}
+
 [[nodiscard]] static uint64_t compute_distill_validation_hash(
     const CoroCfgDistillResult &result,
     const FunctionDefinition *definition) noexcept {
     DistillCertificateHasher h;
     // Version the schema so adding a semantic field cannot silently retain a
     // certificate computed by an older layout.
-    h.add(uint64_t{4u});
+    h.add(uint64_t{5u});
     h.add_pointer(definition);
     if (definition != nullptr) {
         h.add_pointer(definition->body_block());
@@ -123,6 +192,11 @@ static void hash_optional_token(DistillCertificateHasher &h,
                              suspend->frame_export_names()) {
                             h.add_string(name);
                         }
+                        h.add(suspend->extensions().size());
+                        for (auto &&extension : suspend->extensions()) {
+                            hash_coro_suspend_extension(
+                                h, extension.get());
+                        }
                         break;
                     }
                     case DerivedInstructionTag::CORO_RESUME:
@@ -143,6 +217,8 @@ static void hash_optional_token(DistillCertificateHasher &h,
             h.add_pointer(point.block);
             h.add(point.token);
             h.add_string(point.name);
+            hash_coro_suspend_extension_owner(
+                h, point.extension_owner);
         }
         h.add(scope.scope_id);
         hash_optional_token(h, scope.suspend_token);
@@ -189,6 +265,8 @@ static void hash_optional_token(DistillCertificateHasher &h,
         h.add(edge.token);
         h.add_pointer(edge.exit_block);
         h.add(edge.is_suspend);
+        hash_coro_suspend_extension_owner(
+            h, edge.extension_owner);
         auto hash_values = [&](auto &values) noexcept {
             h.add(values.size());
             for (auto *value : values) { h.add_pointer(value); }
@@ -209,6 +287,11 @@ static void hash_optional_token(DistillCertificateHasher &h,
         hash_indices(edge.touched_frame_value_indices);
         hash_indices(edge.live_frame_value_indices);
         hash_indices(edge.store_frame_value_indices);
+        h.add(edge.extension_binding_frame_value_indices.size());
+        for (auto &&binding_indices :
+             edge.extension_binding_frame_value_indices) {
+            hash_indices(binding_indices);
+        }
         hash_names(edge.killed_variables);
         hash_names(edge.touched_variables);
         hash_names(edge.live_variables);
@@ -667,6 +750,7 @@ static void analyze_live_variables(
     // atom domain. A designated value may otherwise be omitted as replayable
     // or always available even though the host needs a concrete frame field.
     luisa::vector<Value *> designated_values;
+    luisa::vector<Value *> legacy_designated_values;
     luisa::unordered_map<luisa::string, Value *>
         designated_values_by_name;
     luisa::unordered_map<Value *, luisa::vector<luisa::string>>
@@ -692,11 +776,35 @@ static void analyze_live_variables(
                     designated_aliases_by_value.try_emplace(value);
                 if (value_inserted) {
                     designated_values.emplace_back(value);
+                    legacy_designated_values.emplace_back(value);
                 }
                 if (std::find(alias_iter->second.begin(),
                               alias_iter->second.end(), name) ==
                     alias_iter->second.end()) {
                     alias_iter->second.emplace_back(name);
+                }
+            }
+            // Queued and resumed read operands need a concrete snapshot even
+            // when ordinary coroutine analysis would replay the expression or
+            // treat it as always available. Add the exact XIR value to the
+            // same immutable atom domain used by all other continuation data;
+            // repeated bindings and legacy exports intentionally collapse to
+            // one atom here.
+            for (auto &&extension : suspend->extensions()) {
+                for (auto &&binding : extension->bindings()) {
+                    if (binding.lifetime ==
+                            CoroSuspendBindingLifetime::boundary ||
+                        binding.access !=
+                            CoroSuspendBindingAccess::read) {
+                        continue;
+                    }
+                    auto *value = suspend->extension_binding_value(
+                        binding.index);
+                    if (std::find(designated_values.begin(),
+                                  designated_values.end(), value) ==
+                        designated_values.end()) {
+                        designated_values.emplace_back(value);
+                    }
                 }
             }
         }
@@ -708,7 +816,7 @@ static void analyze_live_variables(
     auto designated_atoms = DenseValueSet{value_count};
     luisa::unordered_map<size_t, luisa::vector<luisa::string>>
         designated_aliases_by_atom;
-    for (auto *value : designated_values) {
+    for (auto *value : legacy_designated_values) {
         auto atom_index = value_domain.ssa_index(value);
         LUISA_ASSERT(
             atom_index.has_value(),
@@ -802,13 +910,21 @@ static void analyze_live_variables(
         DenseValueSet killed;
         DenseValueSet touched;
         DenseValueSet designated;
+        DenseValueSet extension_live;
+        DenseValueSet extension_store;
         DenseValueSet live;
         DenseValueSet store;
+        // Owner binding index -> existing global atom indices. These are
+        // projections into the one DenseValueDomain above, never a second
+        // extension-specific frame namespace.
+        luisa::vector<luisa::vector<size_t>> extension_binding_atoms;
 
         explicit DenseTransitionData(size_t count) noexcept
             : killed{count},
               touched{count},
               designated{count},
+              extension_live{count},
+              extension_store{count},
               live{count},
               store{count} {}
     };
@@ -837,6 +953,10 @@ static void analyze_live_variables(
         if (is_suspend) {
             auto *suspend = static_cast<CoroSuspendInst *>(
                 exit_block->terminator());
+            edge.extension_owner =
+                clone_coro_suspend_extension_owner(suspend);
+            dense.extension_binding_atoms.resize(
+                suspend->extension_binding_value_count());
             for (size_t i = 0u;
                  i < suspend->frame_export_count(); ++i) {
                 auto atom_index = value_domain.ssa_index(
@@ -845,6 +965,60 @@ static void analyze_live_variables(
                     atom_index.has_value(),
                     "Validated coroutine designated value has no frame atom.");
                 dense.designated.set(*atom_index);
+            }
+            for (auto &&extension : suspend->extensions()) {
+                for (auto &&binding : extension->bindings()) {
+                    if (binding.lifetime ==
+                        CoroSuspendBindingLifetime::boundary) {
+                        continue;
+                    }
+                    auto *value = suspend->extension_binding_value(
+                        binding.index);
+                    auto &binding_atoms =
+                        dense.extension_binding_atoms[binding.index];
+                    auto append_atom = [&](size_t atom_index) noexcept {
+                        if (std::find(binding_atoms.begin(),
+                                      binding_atoms.end(), atom_index) ==
+                            binding_atoms.end()) {
+                            binding_atoms.emplace_back(atom_index);
+                        }
+                    };
+                    if (binding.access ==
+                        CoroSuspendBindingAccess::read) {
+                        if (auto atom_index =
+                                value_domain.ssa_index(value)) {
+                            append_atom(*atom_index);
+                        }
+                    } else {
+                        for (auto access :
+                             value_domain.memory_accesses(value)) {
+                            append_atom(access.atom_index);
+                        }
+                    }
+                    if (binding_atoms.empty()) {
+                        // A queued/resumed operand must have a stable frame
+                        // representation. Non-local lvalues, resources, and
+                        // other non-materializable operands are rejected here
+                        // instead of acquiring an ad-hoc extension slot.
+                        ++result.invalid_cfg_error_count;
+                        continue;
+                    }
+                    for (auto atom_index : binding_atoms) {
+                        dense.extension_live.set(atom_index);
+                        switch (binding.access) {
+                            case CoroSuspendBindingAccess::read:
+                                dense.extension_store.set(atom_index);
+                                break;
+                            case CoroSuspendBindingAccess::write:
+                                dense.killed.set(atom_index);
+                                break;
+                            case CoroSuspendBindingAccess::read_write:
+                                dense.extension_store.set(atom_index);
+                                dense.killed.set(atom_index);
+                                break;
+                        }
+                    }
+                }
             }
         }
     };
@@ -864,6 +1038,7 @@ static void analyze_live_variables(
             });
         }
     }
+    if (result.invalid_cfg_error_count != 0u) { return; }
 
     luisa::vector<luisa::vector<size_t>> outgoing_edges(n);
     luisa::vector<luisa::vector<size_t>> dependent_scopes(n);
@@ -963,7 +1138,10 @@ static void analyze_live_variables(
             edge_data[edge_index].live = live_begin[edge.to_scope];
             edge_data[edge_index].live.union_with(
                 edge_data[edge_index].designated);
+            edge_data[edge_index].live.union_with(
+                edge_data[edge_index].extension_live);
             store.union_with(edge_data[edge_index].designated);
+            store.union_with(edge_data[edge_index].extension_store);
             edge_data[edge_index].store = std::move(store);
             live_out[s].union_with(edge_data[edge_index].store);
         }
@@ -976,6 +1154,9 @@ static void analyze_live_variables(
         frame_value_set.union_with(live_out[i]);
     }
     frame_value_set.union_with(designated_atoms);
+    for (auto &dense : edge_data) {
+        frame_value_set.union_with(dense.extension_live);
+    }
 
     struct PlannedFrameAtom {
         size_t atom_index;
@@ -1124,6 +1305,33 @@ static void analyze_live_variables(
         append_frame_value_indices(
             edge.store_frame_value_indices, dense.store,
             atom_to_frame_value_range);
+        edge.extension_binding_frame_value_indices.clear();
+        edge.extension_binding_frame_value_indices.resize(
+            dense.extension_binding_atoms.size());
+        for (size_t binding_index = 0u;
+             binding_index < dense.extension_binding_atoms.size();
+             ++binding_index) {
+            auto &projection =
+                edge.extension_binding_frame_value_indices[binding_index];
+            for (auto atom_index :
+                 dense.extension_binding_atoms[binding_index]) {
+                LUISA_DEBUG_ASSERT(
+                    atom_index < atom_to_frame_value_range.size(),
+                    "Coroutine extension binding atom is out of range.");
+                auto [first, count] =
+                    atom_to_frame_value_range[atom_index];
+                LUISA_DEBUG_ASSERT(
+                    first != static_cast<size_t>(-1),
+                    "Coroutine extension binding atom was not materialized.");
+                for (size_t i = 0u; i < count; ++i) {
+                    projection.emplace_back(first + i);
+                }
+            }
+            std::sort(projection.begin(), projection.end());
+            projection.erase(
+                std::unique(projection.begin(), projection.end()),
+                projection.end());
+        }
         append_names_from_frame_values(
             edge.killed_variables, edge.killed_frame_value_indices, result);
         append_names_from_frame_values(
@@ -1186,9 +1394,15 @@ static void analyze_live_variables(
             oracle_edge_touched;
         luisa::vector<luisa::unordered_set<size_t>>
             oracle_edge_designated;
+        luisa::vector<luisa::unordered_set<size_t>>
+            oracle_edge_extension_live;
+        luisa::vector<luisa::unordered_set<size_t>>
+            oracle_edge_extension_store;
         oracle_edge_killed.reserve(edge_data.size());
         oracle_edge_touched.reserve(edge_data.size());
         oracle_edge_designated.reserve(edge_data.size());
+        oracle_edge_extension_live.reserve(edge_data.size());
+        oracle_edge_extension_store.reserve(edge_data.size());
         for (auto &data : edge_data) {
             oracle_edge_killed.emplace_back(
                 to_pointer_set(data.killed));
@@ -1196,6 +1410,10 @@ static void analyze_live_variables(
                 to_pointer_set(data.touched));
             oracle_edge_designated.emplace_back(
                 to_pointer_set(data.designated));
+            oracle_edge_extension_live.emplace_back(
+                to_pointer_set(data.extension_live));
+            oracle_edge_extension_store.emplace_back(
+                to_pointer_set(data.extension_store));
         }
 
         luisa::vector<luisa::unordered_set<size_t>>
@@ -1243,11 +1461,15 @@ static void analyze_live_variables(
                     oracle_live_begin[edge.to_scope];
                 append(oracle_edge_live[edge_index],
                        oracle_edge_designated[edge_index]);
+                append(oracle_edge_live[edge_index],
+                       oracle_edge_extension_live[edge_index]);
                 oracle_edge_store[edge_index] = intersection(
                     oracle_live_begin[edge.to_scope],
                     oracle_edge_touched[edge_index]);
                 append(oracle_edge_store[edge_index],
                        oracle_edge_designated[edge_index]);
+                append(oracle_edge_store[edge_index],
+                       oracle_edge_extension_store[edge_index]);
                 append(oracle_live_out[scope],
                        oracle_edge_store[edge_index]);
             }
@@ -1515,8 +1737,12 @@ static void analyze_live_variables(
             switch (term->derived_instruction_tag()) {
                 case DerivedInstructionTag::CORO_SUSPEND: {
                     auto *s = static_cast<CoroSuspendInst *>(term);
-                    scope.suspend_points.emplace_back(
-                        CoroCfgDistillResult::Scope::SuspendPoint{bb, s->token(), s->name()});
+                    auto &point = scope.suspend_points.emplace_back();
+                    point.block = bb;
+                    point.token = s->token();
+                    point.name = s->name();
+                    point.extension_owner =
+                        clone_coro_suspend_extension_owner(s);
                     if (!scope.suspend_token.has_value()) {
                         scope.suspend_token = s->token();
                         scope.suspend_name = s->name();

@@ -7,6 +7,7 @@
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/ast/coro_suspend.h>
 #include <luisa/xir/passes/pass_verification.h>
 
 namespace luisa::compute::xir {
@@ -24,6 +25,42 @@ class Type;
 }// namespace luisa::compute
 
 namespace luisa::compute::xir {
+
+// Complete suspend-extension ownership at one coroutine boundary. Binding
+// indices in every extension resolve into binding_values. The wrapper is
+// deeply copyable so a distilled CFG remains a regular analysis certificate;
+// copying never aliases plugin objects or loses unknown extension payloads.
+struct CoroSuspendExtensionOwner {
+    luisa::vector<CoroSuspendExtensionPtr> extensions;
+    luisa::vector<Value *> binding_values;
+
+    CoroSuspendExtensionOwner() noexcept = default;
+    CoroSuspendExtensionOwner(
+        const CoroSuspendExtensionOwner &other) noexcept
+        : binding_values{other.binding_values} {
+        extensions.reserve(other.extensions.size());
+        for (auto &&extension : other.extensions) {
+            extensions.emplace_back(
+                extension == nullptr ? nullptr : extension->clone());
+        }
+    }
+    CoroSuspendExtensionOwner(
+        CoroSuspendExtensionOwner &&) noexcept = default;
+    CoroSuspendExtensionOwner &operator=(
+        const CoroSuspendExtensionOwner &other) noexcept {
+        if (this != &other) {
+            CoroSuspendExtensionOwner copy{other};
+            *this = std::move(copy);
+        }
+        return *this;
+    }
+    CoroSuspendExtensionOwner &operator=(
+        CoroSuspendExtensionOwner &&) noexcept = default;
+
+    [[nodiscard]] bool empty() const noexcept {
+        return extensions.empty() && binding_values.empty();
+    }
+};
 
 struct CoroCfgDistillResult {
 
@@ -67,6 +104,7 @@ struct CoroCfgDistillResult {
             BasicBlock *block{nullptr};
             uint32_t token{0u};
             luisa::string name;
+            CoroSuspendExtensionOwner extension_owner;
         };
         luisa::vector<BasicBlock *> blocks;
         luisa::vector<SuspendPoint> suspend_points;
@@ -99,6 +137,13 @@ struct CoroCfgDistillResult {
         uint32_t token{0u};
         BasicBlock *exit_block{nullptr};
         bool is_suspend{false};
+        CoroSuspendExtensionOwner extension_owner;
+        // For each owner binding, the logical frame-value pieces that encode
+        // it after ABI decomposition. CoroGraph projects these through slot
+        // coloring into CoroSlotAccess; the full Extension above remains the
+        // semantic source of schema, access, lifetime, and attributes.
+        luisa::vector<luisa::vector<size_t>>
+            extension_binding_frame_value_indices;
         luisa::vector<Value *> killed_values;
         luisa::vector<Value *> touched_values;
         luisa::vector<Value *> live_values;

@@ -297,6 +297,33 @@ void transfer_instruction(Instruction *inst, State &state) noexcept {
                  i < suspend->frame_export_count(); ++i) {
                 use_value(suspend->frame_export_value(i), state);
             }
+            // Extension operands participate in the same use/def domain as
+            // ordinary coroutine state. Reads consume the pre-suspend value;
+            // writes are definitions performed outside this source scope and
+            // are therefore attached to the transition by CFG distillation,
+            // not manufactured here as reads of an uninitialized lvalue.
+            for (auto &&extension : suspend->extensions()) {
+                for (auto &&binding : extension->bindings()) {
+                    auto *value = suspend->extension_binding_value(
+                        binding.index);
+                    switch (binding.access) {
+                        case CoroSuspendBindingAccess::read:
+                            use_value(value, state);
+                            break;
+                        case CoroSuspendBindingAccess::read_write:
+                            use_pointer_indices(value, state);
+                            if (trace_local_alloca(value) != nullptr) {
+                                use_memory(value, state);
+                            } else {
+                                use_value(value, state);
+                            }
+                            break;
+                        case CoroSuspendBindingAccess::write:
+                            use_pointer_indices(value, state);
+                            break;
+                    }
+                }
+            }
             break;
         }
         case DerivedInstructionTag::CORO_TERMINATE:
