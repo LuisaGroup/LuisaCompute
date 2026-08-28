@@ -19,6 +19,7 @@ class SourceTrackingBinaryIO final : public BinaryIO {
 
 public:
     mutable size_t shader_source_write_count{};
+    mutable std::string last_shader_source;
 
     void clear_shader_cache() const noexcept override {}
 
@@ -51,8 +52,10 @@ public:
 
     luisa::filesystem::path write_shader_source(
         luisa::string_view,
-        luisa::span<const std::byte>) const noexcept override {
+        luisa::span<const std::byte> source) const noexcept override {
         shader_source_write_count++;
+        last_shader_source.assign(
+            reinterpret_cast<const char *>(source.data()), source.size());
         return {};
     }
 
@@ -226,6 +229,57 @@ void test_metal_codegen_regressions(
             << "Equivalent callable graphs with different insertion order must reuse the in-memory Metal shader cache";
         static_cast<void>(forward_shader);
         static_cast<void>(reverse_shader);
+
+        uint root_local_uid = ~0u;
+        uint branch_local_uid = ~0u;
+        Kernel1D scoped_locals = [&](BufferUInt values) noexcept {
+            auto id = dispatch_x();
+            UInt result = id + 3u;
+            root_local_uid = static_cast<const RefExpr *>(
+                                 result.expression())->variable().uid();
+            $if (id == 0u) {
+                UInt branch_value = result * 2u;
+                branch_local_uid = static_cast<const RefExpr *>(
+                                       branch_value.expression())->variable().uid();
+                result = branch_value;
+            };
+            values.write(id, result);
+        };
+        auto scoped_output = device.create_buffer<uint>(2u);
+        std::array<uint, 2u> scoped_result{};
+        const auto *old_scoped_dump_source = std::getenv("LUISA_DUMP_SOURCE");
+        auto old_scoped_dump_source_value =
+            old_scoped_dump_source == nullptr ?
+                std::string{} : std::string{old_scoped_dump_source};
+        set_dump_source_environment("1");
+        binary_io.last_shader_source.clear();
+        auto scoped_shader = device.compile(scoped_locals);
+        set_dump_source_environment(
+            old_scoped_dump_source == nullptr ? nullptr :
+                                                old_scoped_dump_source_value.c_str());
+        stream << scoped_shader(scoped_output).dispatch(2u)
+               << scoped_output.copy_to(luisa::span{scoped_result})
+               << synchronize();
+        expect(scoped_result == std::array<uint, 2u>{6u, 4u})
+            << "Lexically scoped Metal locals must preserve execution semantics";
+        const auto root_initializer =
+            luisa::format("uint v{} = ", root_local_uid);
+        const auto branch_initializer =
+            luisa::format("uint v{} = ", branch_local_uid);
+        expect(binary_io.last_shader_source.find(root_initializer) !=
+               std::string::npos)
+            << "A root local's first dominating assignment must become its declaration";
+        expect(binary_io.last_shader_source.find(branch_initializer) !=
+               std::string::npos)
+            << "A branch-local first assignment must become a branch-local declaration";
+        expect(binary_io.last_shader_source.find(
+                   luisa::format("uint v{}{{}};", root_local_uid)) ==
+               std::string::npos)
+            << "A directly initialized root local must not retain an eager zero declaration";
+        expect(binary_io.last_shader_source.find(
+                   luisa::format("uint v{}{{}};", branch_local_uid)) ==
+               std::string::npos)
+            << "A directly initialized branch local must not retain an eager zero declaration";
     }
 }
 
