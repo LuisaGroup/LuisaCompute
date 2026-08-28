@@ -120,8 +120,12 @@ int main(int argc, char *argv[]) {
             constexpr auto max_distance = 8.0f;
             auto coord = dispatch_id().xy();
             auto resolution = make_float2(dispatch_size().xy());
-            auto uv = (make_float2(coord) + .5f - resolution * .5f) /
-                      resolution.y;
+            auto centered =
+                (make_float2(coord) + .5f - resolution * .5f) /
+                resolution.y;
+            // Shadertoy's fragment origin is bottom-left, while the host-side
+            // PNG receives row zero as the top scanline.
+            auto uv = make_float2(centered.x, -centered.y);
             // Match the reference shader's default camera. Even with no
             // mouse input it pitches both the origin and ray direction by
             // 0.5 radians; looking straight down +X only shows an ambiguous
@@ -427,6 +431,12 @@ int main(int argc, char *argv[]) {
 
     auto hit_count = static_cast<size_t>(std::count(
         host_hits.begin(), host_hits.end(), 1u));
+    uint64_t hit_y_sum = 0u;
+    for (auto i = 0u; i < frame_count; ++i) {
+        if (host_hits[i] != 0u) {
+            hit_y_sum += i / options.width;
+        }
+    }
     auto min_value = std::numeric_limits<float>::max();
     auto max_value = std::numeric_limits<float>::lowest();
     for (auto i = 0u; i < frame_count; ++i) {
@@ -444,6 +454,12 @@ int main(int argc, char *argv[]) {
                      hit_count < frame_count * 19u / 20u,
                  "Neural-SDF path tracing hit coverage is invalid: {}/{}.",
                  hit_count, frame_count);
+    LUISA_ASSERT(
+        hit_y_sum * 2u >
+            static_cast<uint64_t>(hit_count) * (options.height - 1u),
+        "Neural-SDF camera/image Y convention is inverted: hit-row sum {} "
+        "for {} hits over {} rows.",
+        hit_y_sum, hit_count, options.height);
     LUISA_ASSERT(max_value - min_value > .1f,
                  "Neural-SDF path tracing output is unexpectedly uniform.");
 
