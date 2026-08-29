@@ -1,5 +1,32 @@
 local fallback_xmake_dir = os.scriptdir()
 
+-- Resolve the Embree library and binary directories from an installation root.
+-- A standard Embree install exposes lib/ (import libs + shared libs on Linux)
+-- and bin/ (DLLs on Windows). The Embree distribution bundled inside
+-- src/ext/HIPRT/contrib/embree uses a platform-specific layout instead:
+-- include/ (headers), win/ (Windows .lib + .dll), linux/ (Linux .so).
+local function embree_resolve_dirs(embree_root)
+    local function pick(subdir, plat_subdir)
+        local dir = path.join(embree_root, subdir)
+        if not os.isdir(dir) then
+            dir = path.join(embree_root, plat_subdir)
+        end
+        return dir
+    end
+    local lib_dir, bin_dir
+    if is_plat("windows") then
+        lib_dir = pick("lib", "win")
+        bin_dir = pick("bin", "win")
+    elseif is_plat("linux") then
+        lib_dir = pick("lib", "linux")
+        bin_dir = pick("bin", "linux")
+    else
+        lib_dir = path.join(embree_root, "lib")
+        bin_dir = path.join(embree_root, "bin")
+    end
+    return lib_dir, bin_dir
+end
+
 target("lc-fallback-embed-device-lib")
 set_basename("luisa-embed-device-lib")
 set_kind("binary")
@@ -21,9 +48,26 @@ on_load(function(target, opt)
     local libs = {}
     local lc_llvm_path = get_config("lc_llvm_path")
     local lc_embree_path = get_config("lc_embree_path")
-    target:add("linkdirs", path.join(lc_llvm_path, "lib"), path.join(lc_embree_path, "lib"))
+    local embree_lib_dir = embree_resolve_dirs(lc_embree_path)
+    target:add("linkdirs", path.join(lc_llvm_path, "lib"), embree_lib_dir)
     target:add("includedirs", path.join(lc_llvm_path, "include"), path.join(lc_embree_path, "include"))
     target:add("links", "embree4", "tbb12")
+    -- Detect the Embree major version from rtcore_config.h so the
+    -- LUISA_COMPUTE_FALLBACK_EMBREE_VERSION define matches the linked library.
+    local embree_version = 4
+    local embree_include = path.join(lc_embree_path, "include")
+    for _, rel in ipairs({"embree4/rtcore_config.h", "embree3/rtcore_config.h"}) do
+        local config_file = path.join(embree_include, rel)
+        if os.isfile(config_file) then
+            local content = io.readfile(config_file)
+            local major = content:match("RTC_VERSION_MAJOR%s+(%d+)")
+            if major then
+                embree_version = tonumber(major)
+                break
+            end
+        end
+    end
+    target:add("defines", "LUISA_COMPUTE_FALLBACK_EMBREE_VERSION=" .. embree_version)
     for __, filepath in ipairs(os.files(path.join(lc_llvm_path, "lib/*.lib"))) do
         local basename = path.basename(filepath)
         if basename:match("LLVM") ~= nil and basename ~= "LLVM-C" then
@@ -179,8 +223,9 @@ after_build(function(target)
     end
     local lc_llvm_path = get_config("lc_llvm_path")
     local lc_embree_path = get_config("lc_embree_path")
+    local _, embree_bin_dir = embree_resolve_dirs(lc_embree_path)
     local dst_path = target:targetdir()
-    for __, filepath in ipairs(os.files(path.join(lc_embree_path, "bin/*.dll"))) do
+    for __, filepath in ipairs(os.files(path.join(embree_bin_dir, "*.dll"))) do
         copy(filepath, path.join(dst_path, path.filename(filepath)))
     end
     for __, filepath in ipairs(os.files(path.join(lc_llvm_path, "bin/*.dll"))) do
@@ -190,5 +235,17 @@ after_build(function(target)
 end)
 add_files("*.cpp")
 add_files("../common/default_binary_io.cpp")
+add_files(
+    "../common/llvm_native_math.cpp",
+    "../common/llvm_native_math_atan2.cpp",
+    "../common/llvm_native_math_fast_exp_log.cpp",
+    "../common/llvm_native_math_fast_inverse_trig.cpp",
+    "../common/llvm_native_math_fast_trig.cpp",
+    "../common/llvm_native_math_hyperbolic.cpp",
+    "../common/llvm_native_math_pow.cpp",
+    "../common/llvm_native_math_precise_exp_log.cpp",
+    "../common/llvm_native_math_precise_inverse_trig.cpp",
+    "../common/llvm_native_math_precise_trig.cpp",
+    "../common/llvm_native_math_range_reduction.cpp")
 add_deps("lc-runtime")
 target_end()
