@@ -32,6 +32,35 @@ namespace {
            hiprt_instance_handle(lhs) == hiprt_instance_handle(rhs);
 }
 
+// ROCm 7.2's pitched-copy implementation can successfully return after
+// processing only the first 2^20 rows of a larger transfer. It can also reject
+// a large transfer when either endpoint is an interior allocation address.
+// Keep every individual transfer well below that implementation boundary.
+//
+// Formally, iteration k copies the half-open row interval [r_k, r_{k+1}),
+// where r_0 = 0 and r_{k+1} = min(r_k + C, height). These intervals are
+// pairwise disjoint and their union is [0, height); adding r_k times the pitch
+// to both endpoints preserves the original two-dimensional row relation.
+constexpr size_t hip_pitched_copy_chunk_rows = 1u << 18u;
+
+void hip_memcpy_2d_async_chunked(
+    void *dst, size_t dst_pitch, const void *src, size_t src_pitch,
+    size_t width, size_t height, hipMemcpyKind kind,
+    hipStream_t stream) noexcept {
+    LUISA_ASSERT(width <= dst_pitch && width <= src_pitch,
+                 "Pitched-copy width exceeds its row pitch.");
+    auto dst_bytes = static_cast<std::byte *>(dst);
+    auto src_bytes = static_cast<const std::byte *>(src);
+    for (auto row = size_t{0u}; row < height;) {
+        auto rows = std::min(hip_pitched_copy_chunk_rows, height - row);
+        LUISA_CHECK_HIP(hipMemcpy2DAsync(
+            dst_bytes + row * dst_pitch, dst_pitch,
+            src_bytes + row * src_pitch, src_pitch,
+            width, rows, kind, stream));
+        row += rows;
+    }
+}
+
 }// namespace
 
 HIPAccel::HIPAccel(hiprtContext ctx, const AccelOption &option) noexcept
@@ -129,14 +158,14 @@ hiprtSceneBuildInput HIPAccel::_make_scene_build_input(HIPCommandEncoder &encode
     // transform and visibility fields from that authoritative device buffer so
     // both HIPRT refits and rebuilds observe all preceding shader writes.
     auto instance_data = reinterpret_cast<const std::byte *>(_instance_buffer);
-    LUISA_CHECK_HIP(hipMemcpy2DAsync(
+    hip_memcpy_2d_async_chunked(
         reinterpret_cast<void *>(_scene_frames), sizeof(hiprtFrameMatrix),
         instance_data + offsetof(CodegenInstance, affine), sizeof(CodegenInstance),
-        sizeof(CodegenInstance::affine), n, hipMemcpyDeviceToDevice, hip_stream));
-    LUISA_CHECK_HIP(hipMemcpy2DAsync(
+        sizeof(CodegenInstance::affine), n, hipMemcpyDeviceToDevice, hip_stream);
+    hip_memcpy_2d_async_chunked(
         reinterpret_cast<void *>(_scene_masks), sizeof(uint32_t),
         instance_data + offsetof(CodegenInstance, visibility_mask), sizeof(CodegenInstance),
-        sizeof(uint32_t), n, hipMemcpyDeviceToDevice, hip_stream));
+        sizeof(uint32_t), n, hipMemcpyDeviceToDevice, hip_stream);
 
     hiprtSceneBuildInput input{};
     input.instanceCount = n;
@@ -438,10 +467,10 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
                                 reinterpret_cast<hipDeviceptr_t>(device_field),
                                 staging_field, size, hip_stream));
                         } else {
-                            LUISA_CHECK_HIP(hipMemcpy2DAsync(
+                            hip_memcpy_2d_async_chunked(
                                 device_field, sizeof(CodegenInstance),
                                 staging_field, sizeof(CodegenInstance),
-                                size, end - begin, hipMemcpyHostToDevice, hip_stream));
+                                size, end - begin, hipMemcpyHostToDevice, hip_stream);
                         }
                         begin = end;
                     }

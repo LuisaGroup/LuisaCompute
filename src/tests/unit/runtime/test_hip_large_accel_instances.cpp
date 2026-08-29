@@ -16,7 +16,10 @@ using namespace boost::ut;
 namespace {
 
 constexpr auto grid_width = 1024u;
-constexpr auto grid_height = 1024u;
+// Deliberately cross the 2^20-row boundary used by ROCm's internal pitched-
+// copy implementation. A power-of-two square only exercises the last row
+// before that boundary and cannot prove that the tail remains resident.
+constexpr auto grid_height = 1025u;
 constexpr auto instance_count = grid_width * grid_height;
 
 }// namespace
