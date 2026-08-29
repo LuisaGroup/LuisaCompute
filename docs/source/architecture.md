@@ -490,7 +490,6 @@ LuisaCompute uses XMake (3.0.6+) as an alternative build system with a more stre
 | `lc_vk_backend` | true | Enable Vulkan backend |
 | `lc_metal_backend` | true | Enable Metal backend |
 | `lc_fallback_backend` | false | Enable fallback backend |
-| `lc_toy_c_backend` | false | Enable toy C backend (experimental) |
 | **Backend Extensions** |||
 | `lc_cuda_ext_lcub` | false | Enable NVIDIA CUB extension (long compile time) |
 | `lc_dx_cuda_interop` | false | Enable DirectX-CUDA interop |

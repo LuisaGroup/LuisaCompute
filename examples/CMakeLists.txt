@@ -103,6 +103,7 @@ target_sources(example_tensor_stub PRIVATE
  tensor/mlp.cpp
  tensor/mnist.cpp
  tensor/rnn.cpp
+ tensor/torch2_import.cpp
  tensor/tensor_basics.cpp)
 luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)

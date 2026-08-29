@@ -440,7 +440,6 @@ Each backend has a switch on `CallOp` that emits native code or IR. Add your cas
 | **XIR** (intermediate) | `src/xir/translators/ast2xir.cpp` | AST→XIR; CUDA, HIP, Vulkan, and Fallback consume XIR directly, while DX/Metal use XIR for lowering before AST codegen |
 | **Fallback** | `src/backends/fallback/` + `src/xir/translators/ast2xir.cpp` | Uses XIR as input; no direct AST CallOp switch |
 | **Hip/AMD** | `src/backends/hip/` + `src/xir/translators/ast2xir.cpp` | Uses XIR as input; no direct AST CallOp switch |
-| **Toy C** | `src/backends/toy_c/` | Simple C output; no direct AST CallOp switch |
 | **Validation** | `src/backends/validation/` | AST validation layer wrapping another backend; no own CallOp switch |
 
 Example CUDA addition:
@@ -644,11 +643,6 @@ src/backends/
 ├── CMakeLists.txt
 ├── xmake.lua
 ├── common/
-│   ├── c_codegen/          # LLVM CPU codegen (AST→LLVM IR)
-│   │   ├── codegen_visitor.cpp/h   — main visitor dispatching on Expression/Statement tags
-│   │   ├── codegen_utils.cpp/h     — helper utilities
-│   │   ├── builtin/                — builtin function implementations
-│   │   └── lc_ccodegen_pch.h
 │   ├── hlsl/               # HLSL codegen (AST→HLSL string)
 │   │   ├── hlsl_codegen.cpp/h      — top-level HLSL codegen
 │   │   ├── codegen_stack_data.cpp/h— per-function state
@@ -679,7 +673,6 @@ src/backends/
 │   └── llvm_codegen/           — own LLVM codegen (input: XIR, not direct AST)
 ├── fallback/              # Fallback CPU reference implementation (uses XIR)
 │   └── fallback_codegen.cpp    — XIR-based LLVM codegen
-├── toy_c/                 # Simple C output for debugging
 └── validation/            # AST validation layer (wraps another backend)
 ```
 
@@ -694,7 +687,6 @@ Look for the giant `switch` on `CallOp` in each of these files:
 | `src/backends/metal/metal_codegen_ast.cpp` | Emits Metal Shading Language strings |
 | `src/backends/common/hlsl/codegen_utils/function_codegen.cpp` | Emits HLSL strings (main HLSL dispatch; used by DX12) |
 | `src/backends/common/spirv_llvm/llvm_state_visitor.cpp` | Generates LLVM IR that gets translated to SPIR-V (used by Vulkan) |
-| `src/backends/common/c_codegen/codegen_visitor.cpp` | Generates LLVM IR for the CPU JIT backend |
 | `src/xir/translators/ast2xir.cpp` | Translates AST → XIR IR; backends using XIR (CUDA XIR path, Metal XIR path, HIP, Fallback) handle CallOp through their own XIR visitors |
 
 ### For `Expression::Tag`:
@@ -706,7 +698,6 @@ Each direct-AST codegen visitor has a switch on `Expression::Tag`:
 | `src/backends/metal/metal_codegen_ast.cpp` | Full AST visitor with switch on `Expression::Tag` |
 | `src/backends/common/hlsl/hlsl_codegen.cpp` | Full AST visitor with switch on `Expression::Tag` (used by DX12) |
 | `src/backends/common/spirv_llvm/llvm_state_visitor.cpp` | Full AST visitor with switch on `Expression::Tag` (used by Vulkan) |
-| `src/backends/common/c_codegen/codegen_visitor.cpp` | Full AST visitor with switch on `Expression::Tag` (used by CPU) |
 | `src/xir/translators/ast2xir.cpp` | AST→XIR translator; has its own switch |
 
 ### For `Statement::Tag`:
@@ -718,5 +709,4 @@ Same files as `Expression::Tag` — each visitor also has a `switch` on `Stateme
 | `src/backends/metal/metal_codegen_ast.cpp` | Full AST visitor with switch on `Statement::Tag` |
 | `src/backends/common/hlsl/hlsl_codegen.cpp` | Full AST visitor with switch on `Statement::Tag` (used by DX12) |
 | `src/backends/common/spirv_llvm/llvm_state_visitor.cpp` | Full AST visitor with switch on `Statement::Tag` (used by Vulkan) |
-| `src/backends/common/c_codegen/codegen_visitor.cpp` | Full AST visitor with switch on `Statement::Tag` (used by CPU) |
 | `src/xir/translators/ast2xir.cpp` | AST→XIR translator; has its own switch |

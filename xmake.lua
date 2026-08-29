@@ -55,8 +55,6 @@ option("lc_vk_backend_use_xir_spirv", {default = false})
 -- the backend then fails at configuration time unless a native SPIR-V route
 -- is enabled.
 option("lc_vk_backend_enable_dxc_compatibility", {default = true})
--- enable toy C backend for testing and debugging
-option("lc_toy_c_backend", {default = false})
 -- enable NVIDIA-CUDA backend
 option("lc_cuda_backend", {default = true})
 -- enable NVIDIA-CUDA Extension CUB, default false, because of long compile time

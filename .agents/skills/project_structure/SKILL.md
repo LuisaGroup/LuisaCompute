@@ -103,9 +103,8 @@ Dynamically loaded (`luisa-backend-<name>.dll/.so`). Each: codegen (AST/XIR→na
 | **Vulkan** (`vk/`) | Vulkan + SPIR-V |
 | **HIP** (`hip/`) | AMD HIP |
 | **Fallback** (`fallback/`) | Native C++ LLVM JIT + Embree |
-| **Common** (`common/`) | `c_codegen/`, `hlsl/`, `spirv/`, `spirv_llvm/`, Vulkan swapchain helpers |
+| **Common** (`common/`) | `hlsl/`, `spirv/`, `spirv_llvm/`, Vulkan swapchain helpers |
 | **Validation** (`validation/`) | Debug layer |
-| **Toy C** (`toy_c/`) | Minimal C codegen |
 
 ### `src/py/` — Python
 - `lcapi.cpp` — pybind11 entry; `export_*.cpp` — per-component bindings
