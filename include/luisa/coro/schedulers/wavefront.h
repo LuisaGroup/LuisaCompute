@@ -142,8 +142,9 @@ class WavefrontCoroScheduler : public CoroScheduler<Args...> {
 public:
     using Coro = Coroutine<void(Args...)>;
     using Config = WavefrontCoroSchedulerConfig;
+    using ExtensionPrepareContext = WavefrontCoroExtensionPrepareContext;
+    using ExtensionStage = WavefrontCoroExtensionStage;
     using ExtensionHandler = WavefrontCoroSchedulerExtensionHandler;
-    using ExtensionInstance = WavefrontCoroSchedulerExtensionInstance;
 
 private:
     using AuxiliaryWork = WavefrontCoroAuxiliaryWork<Args...>;
@@ -153,8 +154,7 @@ private:
     };
     struct RegisteredExtensionStage {
         WavefrontCoroExtensionStage stage;
-        luisa::shared_ptr<ExtensionHandler> handler;
-        luisa::unique_ptr<ExtensionInstance> instance;
+        luisa::unique_ptr<ExtensionHandler> handler;
         uint next_queue{0u};
     };
     struct ExtensionRoute {
@@ -200,7 +200,6 @@ private:
     CoroFrameStorageLayout _frame_layout;
     CoroFrameIOPlan _frame_io_plan;
     luisa::vector<RegisteredExtensionStage> _extension_stages;
-    luisa::vector<luisa::shared_ptr<ExtensionHandler>> _extension_handlers;
     luisa::vector<luisa::vector<ExtensionRoute>> _extension_routes;
     luisa::vector<uint> _extension_route_table;
     luisa::vector<uint64_t> _shader_structure_hashes;
@@ -1016,10 +1015,12 @@ private:
         }
     }
 
+    template<typename Prepare>
     void _claim_extension_stages(
-        const luisa::shared_ptr<ExtensionHandler> &handler) noexcept {
+        Stream &stream, Prepare &prepare) noexcept {
         auto context = WavefrontCoroExtensionPrepareContext{
             .device = *_device,
+            .stream = stream,
             .frame_desc = _coro->frame(),
             .frame_layout = _frame_layout,
             .frame_capacity = _config.thread_count,
@@ -1027,21 +1028,18 @@ private:
             .shader_option = _config.shader_option};
         for (size_t i = 0u; i < _extension_stages.size(); ++i) {
             auto &registered = _extension_stages[i];
-            if (registered.handler != nullptr ||
-                !handler->can_handle(registered.stage)) {
-                continue;
-            }
-            auto instance = handler->prepare(context, registered.stage);
-            LUISA_ASSERT(
-                instance != nullptr,
-                "Wavefront Extension handler '{}' returned no instance "
-                "for claimed Extension '{}' at queue {}.",
-                handler->name(), registered.stage.extension->schema(),
-                registered.stage.queue_index);
-            registered.handler = handler;
-            registered.instance = std::move(instance);
+            if (registered.handler != nullptr) { continue; }
+            luisa::unique_ptr<ExtensionHandler> handler{
+                prepare(context, std::as_const(registered.stage))};
+            if (handler == nullptr) { continue; }
+            LUISA_ASSERT(!handler->name().empty(),
+                         "Wavefront Extension handler name must be "
+                         "non-empty for Extension '{}' at queue {}.",
+                         registered.stage.extension->schema(),
+                         registered.stage.queue_index);
             _last_dispatch_stats.extensions[i].handler =
                 luisa::string{handler->name()};
+            registered.handler = std::move(handler);
         }
     }
 
@@ -1606,13 +1604,12 @@ private:
                         _extension_stages[stage_index];
                     LUISA_ASSERT(
                         registered.handler != nullptr &&
-                            registered.instance != nullptr &&
                             registered.next_queue < nq,
                         "Selected unresolved coroutine Extension queue {}.",
                         i);
                     auto indices = _resume_index.view().subview(
                         _host_offset[i], count);
-                    registered.instance->dispatch(
+                    registered.handler->dispatch(
                         WavefrontCoroExtensionDispatchContext{
                             .stream = stream,
                             .frame_buffer = _frame_buffer.view(),
@@ -1746,30 +1743,22 @@ public:
     last_dispatch_stats() const noexcept {
         return _last_dispatch_stats;
     }
-    /// Append one responsibility-chain element. The first registered handler
-    /// that accepts a static Extension stage owns it for the scheduler's
-    /// lifetime. Registration also performs per-stage preparation immediately,
-    /// so compilation remains outside the render/simulation dispatch timing.
+    /// Append one responsibility-chain facade. The facade is called once for
+    /// each still-unclaimed static Extension stage and returns nullptr to
+    /// decline it or a unique stage-local handler to claim it. The facade is
+    /// not retained. Registration therefore performs preparation immediately,
+    /// outside render/simulation dispatch timing. Initialization commands may
+    /// be enqueued on stream; dispatching on another stream requires explicit
+    /// caller-managed synchronization.
+    template<typename Prepare>
     void register_extension_handler(
-        luisa::shared_ptr<ExtensionHandler> handler) noexcept {
-        LUISA_ASSERT(handler != nullptr,
-                     "Cannot register null wavefront Extension handler.");
+        Stream &stream, Prepare &&prepare) noexcept {
         LUISA_ASSERT(!_has_dispatched &&
                          !_extension_handlers_finalized,
                      "Wavefront Extension handlers must be registered before "
                      "the first dispatch.");
-        LUISA_ASSERT(!handler->name().empty(),
-                     "Wavefront Extension handler name must be non-empty.");
-        LUISA_ASSERT(
-            std::none_of(
-                _extension_handlers.begin(), _extension_handlers.end(),
-                [&](auto &&registered) noexcept {
-                    return registered.get() == handler.get();
-                }),
-            "Wavefront Extension handler '{}' is already registered.",
-            handler->name());
-        _extension_handlers.emplace_back(handler);
-        _claim_extension_stages(handler);
+        auto &&prepare_facade = prepare;
+        _claim_extension_stages(stream, prepare_facade);
     }
     void register_auxiliary_work(
         luisa::shared_ptr<AuxiliaryWork> work) noexcept {

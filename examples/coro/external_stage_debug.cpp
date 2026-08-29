@@ -14,12 +14,11 @@ namespace {
 
 constexpr auto debug_schema = "luisa.coro.debug.structured-watch";
 
-class StructuredDebugHandler final
-    : public WavefrontCoroSchedulerExtensionHandler {
+class StructuredDebugger final {
 
 private:
-    class Instance final
-        : public WavefrontCoroSchedulerExtensionInstance {
+    class Handler final
+        : public WavefrontCoroSchedulerExtensionHandler {
 
     private:
         Shader1D<ByteBuffer, Buffer<uint>, uint, uint, Buffer<uint>>
@@ -27,11 +26,15 @@ private:
         BufferView<uint> _records;
 
     public:
-        Instance(
+        Handler(
             Shader1D<ByteBuffer, Buffer<uint>, uint, uint, Buffer<uint>>
                 shader,
             BufferView<uint> records) noexcept
             : _shader{std::move(shader)}, _records{records} {}
+
+        [[nodiscard]] luisa::string_view name() const noexcept override {
+            return "structured-debugger";
+        }
 
         void dispatch(
             const WavefrontCoroExtensionDispatchContext &context) noexcept override {
@@ -47,24 +50,18 @@ private:
     Buffer<uint> _records;
 
 public:
-    StructuredDebugHandler(Device &device, uint frame_count)
+    StructuredDebugger(Device &device, uint frame_count)
         : _records{device.create_buffer<uint>(frame_count * 2u)} {}
 
-    [[nodiscard]] luisa::string_view name() const noexcept override {
-        return "structured-debugger";
-    }
-
-    [[nodiscard]] bool can_handle(
-        const WavefrontCoroExtensionStage &stage) const noexcept override {
-        return stage.extension->schema() == debug_schema &&
-               stage.extension->version() == 1u;
-    }
-
     [[nodiscard]] luisa::unique_ptr<
-        WavefrontCoroSchedulerExtensionInstance>
-    prepare(
-        const WavefrontCoroExtensionPrepareContext &context,
-        const WavefrontCoroExtensionStage &stage) noexcept override {
+        WavefrontCoroSchedulerExtensionHandler>
+    operator()(
+        WavefrontCoroExtensionPrepareContext &context,
+        const WavefrontCoroExtensionStage &stage) noexcept {
+        if (stage.extension->schema() != debug_schema ||
+            stage.extension->version() != 1u) {
+            return nullptr;
+        }
         LUISA_ASSERT(
             stage.dataflow->required_writeback_slot_span().empty(),
             "A structured debug observer must not write coroutine state.");
@@ -101,7 +98,7 @@ public:
                 coro::detail::coro_scheduler_shader_option(
                     context.shader_option, label)),
             label);
-        return luisa::make_unique<Instance>(
+        return luisa::make_unique<Handler>(
             std::move(shader), _records.view());
     }
 
@@ -147,14 +144,18 @@ int main(int argc, char *argv[]) {
             .report_stats = true,
             .execution_block_size = 32u,
             .largest_continuation_first = true}};
-    auto debugger =
-        luisa::make_shared<StructuredDebugHandler>(device, frame_count);
-    scheduler.register_extension_handler(debugger);
+    StructuredDebugger debugger{device, frame_count};
+    scheduler.register_extension_handler(
+        stream,
+        [&debugger](WavefrontCoroExtensionPrepareContext &prepare_context,
+                    const WavefrontCoroExtensionStage &stage) noexcept {
+            return debugger(prepare_context, stage);
+        });
 
     luisa::vector<uint> host_records(frame_count * 2u);
     luisa::vector<uint> host_output(frame_count);
     stream << scheduler(output).dispatch(frame_count)
-           << debugger->records().copy_to(luisa::span{host_records})
+           << debugger.records().copy_to(luisa::span{host_records})
            << output.copy_to(luisa::span{host_output})
            << synchronize();
 

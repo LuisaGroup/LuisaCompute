@@ -45,11 +45,14 @@ struct WavefrontCoroExtensionStage {
     }
 };
 
-/// Immutable compilation context supplied once for every static stage claimed
-/// by a handler. A handler typically compiles a small frame-indexed kernel here
-/// and stores it under stage.queue_index for later dispatch.
+/// Preparation context supplied to an Extension facade for every unclaimed
+/// static stage. A facade typically compiles a small frame-indexed kernel and
+/// may enqueue one-time resource initialization on stream. If the scheduler
+/// is later dispatched on a different stream, the caller is responsible for
+/// the required cross-stream synchronization.
 struct WavefrontCoroExtensionPrepareContext {
     Device &device;
+    Stream &stream;
     const CoroFrameDesc &frame_desc;
     const CoroFrameStorageLayout &frame_layout;
     uint frame_capacity{0u};
@@ -74,44 +77,32 @@ struct WavefrontCoroExtensionDispatchContext {
     const WavefrontCoroExtensionStage &stage;
 };
 
-/// One prepared executable for one static suspend Extension stage.
+/// One prepared handler for one static suspend Extension stage.
 ///
-/// A responsibility-chain handler may claim any number of static stages. It
-/// creates one instance for each claimed stage, so stage-local compiled code
-/// and state never have to be keyed by scheduler queue indices inside the
-/// handler. dispatch() must enqueue all work required to establish
-/// Stage::required_writeback_slot_span() before returning.
-class WavefrontCoroSchedulerExtensionInstance {
-
-public:
-    virtual ~WavefrontCoroSchedulerExtensionInstance() noexcept = default;
-    virtual void dispatch(
-        const WavefrontCoroExtensionDispatchContext &context) noexcept = 0;
-};
-
-/// Responsibility-chain element for WavefrontCoroScheduler.
+/// WavefrontCoroScheduler::register_extension_handler accepts a facade
+/// callable with the shape
 ///
-/// Registration order is semantic: the first handler whose can_handle()
-/// returns true owns a static stage. A handler is independent of the
-/// coroutine invocation signature and may claim zero, one, or many suspend
-/// Extension stages. prepare() runs once per claimed static stage before the
-/// first scheduler dispatch and returns its stage-local executable. The
-/// scheduler owns frame allocation, queue selection, stage ordering, and
-/// continuation resume; handlers own only their external operations and any
-/// explicitly bound external resources.
+///     (PrepareContext &, const ExtensionStage &)
+///         -> unique_ptr<ExtensionHandler>
+///
+/// for every still-unclaimed stage. Returning nullptr declines the stage and
+/// lets the next registered facade try it; returning a handler claims it for
+/// the scheduler's lifetime. The facade itself is not retained. One facade
+/// may therefore create independent handlers for zero, one, or many static
+/// stages without keeping a queue-indexed handler table of its own.
+///
+/// dispatch() must enqueue all work required to establish
+/// Stage::required_writeback_slot_span() before returning. The scheduler owns
+/// frame allocation, queue selection, stage ordering, and continuation resume;
+/// handlers own only their external operation and explicitly bound resources.
 class WavefrontCoroSchedulerExtensionHandler {
 
 public:
     virtual ~WavefrontCoroSchedulerExtensionHandler() noexcept = default;
 
     [[nodiscard]] virtual luisa::string_view name() const noexcept = 0;
-    [[nodiscard]] virtual bool can_handle(
-        const WavefrontCoroExtensionStage &stage) const noexcept = 0;
-    [[nodiscard]] virtual luisa::unique_ptr<
-        WavefrontCoroSchedulerExtensionInstance>
-    prepare(
-        const WavefrontCoroExtensionPrepareContext &context,
-        const WavefrontCoroExtensionStage &stage) noexcept = 0;
+    virtual void dispatch(
+        const WavefrontCoroExtensionDispatchContext &context) noexcept = 0;
 };
 
 }// namespace luisa::compute::coro

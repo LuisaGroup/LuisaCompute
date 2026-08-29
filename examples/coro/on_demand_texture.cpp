@@ -61,24 +61,27 @@ struct Options {
     return pixels;
 }
 
-class OnDemandTextureHandler final
-    : public WavefrontCoroSchedulerExtensionHandler {
+class OnDemandTextureCache final {
 
 private:
-    class Instance final
-        : public WavefrontCoroSchedulerExtensionInstance {
+    class Handler final
+        : public WavefrontCoroSchedulerExtensionHandler {
 
     private:
-        OnDemandTextureHandler *_owner;
+        OnDemandTextureCache *_owner;
         Shader1D<ByteBuffer, Buffer<uint>, uint, uint, Buffer<uint>>
             _shader;
 
     public:
-        Instance(
-            OnDemandTextureHandler *owner,
+        Handler(
+            OnDemandTextureCache *owner,
             Shader1D<ByteBuffer, Buffer<uint>, uint, uint, Buffer<uint>>
                 shader) noexcept
             : _owner{owner}, _shader{std::move(shader)} {}
+
+        [[nodiscard]] luisa::string_view name() const noexcept override {
+            return "on-demand-texture-cache";
+        }
 
         void dispatch(
             const WavefrontCoroExtensionDispatchContext &context) noexcept override;
@@ -96,6 +99,7 @@ private:
     luisa::vector<uint> _host_requests;
     size_t _page_load_count{0u};
     size_t _round_count{0u};
+    bool _initialized{false};
 
 private:
     void _dispatch(
@@ -182,7 +186,7 @@ private:
     }
 
 public:
-    OnDemandTextureHandler(
+    OnDemandTextureCache(
         Options options,
         luisa::vector<float4> virtual_texture,
         BufferView<uint> page_table,
@@ -198,21 +202,15 @@ public:
               physical_page_count * _page_texel_count,
               make_float4(0.0f)) {}
 
-    [[nodiscard]] luisa::string_view name() const noexcept override {
-        return "on-demand-texture-cache";
-    }
-
-    [[nodiscard]] bool can_handle(
-        const WavefrontCoroExtensionStage &stage) const noexcept override {
-        return stage.extension->schema() == request_schema &&
-               stage.extension->version() == 1u;
-    }
-
     [[nodiscard]] luisa::unique_ptr<
-        WavefrontCoroSchedulerExtensionInstance>
-    prepare(
-        const WavefrontCoroExtensionPrepareContext &context,
-        const WavefrontCoroExtensionStage &stage) noexcept override {
+        WavefrontCoroSchedulerExtensionHandler>
+    operator()(
+        WavefrontCoroExtensionPrepareContext &context,
+        const WavefrontCoroExtensionStage &stage) noexcept {
+        if (stage.extension->schema() != request_schema ||
+            stage.extension->version() != 1u) {
+            return nullptr;
+        }
         LUISA_ASSERT(
             stage.extension->is_annotation() &&
                 stage.extension->fallback() ==
@@ -220,6 +218,12 @@ public:
                 stage.dataflow->def.slots.empty(),
             "A required virtual-texture request must be a read-only "
             "coroutine annotation.");
+        if (!_initialized) {
+            context.stream
+                << _page_table.copy_from(luisa::span{_host_page_table})
+                << _physical_cache.copy_from(luisa::span{_host_cache});
+            _initialized = true;
+        }
         if (!_requests) {
             _requests = context.device.create_buffer<uint>(
                 context.frame_capacity);
@@ -256,12 +260,7 @@ public:
                 coro::detail::coro_scheduler_shader_option(
                     context.shader_option, label)),
             label);
-        return luisa::make_unique<Instance>(this, std::move(shader));
-    }
-
-    void initialize(Stream &stream) const noexcept {
-        stream << _page_table.copy_from(luisa::span{_host_page_table})
-               << _physical_cache.copy_from(luisa::span{_host_cache});
+        return luisa::make_unique<Handler>(this, std::move(shader));
     }
 
     [[nodiscard]] size_t page_load_count() const noexcept {
@@ -276,7 +275,7 @@ public:
     }
 };
 
-void OnDemandTextureHandler::Instance::dispatch(
+void OnDemandTextureCache::Handler::dispatch(
     const WavefrontCoroExtensionDispatchContext &context) noexcept {
     _owner->_dispatch(context, _shader);
 }
@@ -304,6 +303,15 @@ int main(int argc, char *argv[]) {
     auto page_table = device.create_buffer<uint>(virtual_page_count);
     auto physical_cache = device.create_buffer<float4>(
         physical_page_count * page_texel_count);
+    luisa::vector<uint> test_page_table_poison;
+    if (!options.write_image) {
+        // Prove that handler preparation initializes the external cache before
+        // the coroutine entry kernel observes it.
+        test_page_table_poison.assign(
+            virtual_page_count, 0xffffffffu);
+        stream << page_table.copy_from(
+            luisa::span{test_page_table_poison});
+    }
 
     Coroutine<void(Image<float>, Buffer<uint>, Buffer<float4>)> coroutine =
         [options, page_texel_count](
@@ -344,11 +352,16 @@ int main(int argc, char *argv[]) {
             .execution_block_size = 256u,
             .largest_continuation_first = true,
             .incremental_continuation_counts = true}};
-    auto texture_cache = luisa::make_shared<OnDemandTextureHandler>(
+    auto texture_cache = luisa::make_shared<OnDemandTextureCache>(
         options, make_virtual_texture(options.dimension),
         page_table.view(), physical_cache.view());
-    scheduler.register_extension_handler(texture_cache);
-    texture_cache->initialize(stream);
+    scheduler.register_extension_handler(
+        stream,
+        [texture_cache](
+            WavefrontCoroExtensionPrepareContext &prepare_context,
+            const WavefrontCoroExtensionStage &stage) noexcept {
+            return (*texture_cache)(prepare_context, stage);
+        });
     stream << scheduler(output, page_table, physical_cache)
                   .dispatch(options.dimension, options.dimension);
 

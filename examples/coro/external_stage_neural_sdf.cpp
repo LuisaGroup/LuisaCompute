@@ -83,20 +83,23 @@ void validate_neural_sdf_values(
     }
 }
 
-class NeuralSdfHandler final
-    : public WavefrontCoroSchedulerExtensionHandler {
+class NeuralSdfFacade final {
 
 private:
-    class Instance final
-        : public WavefrontCoroSchedulerExtensionInstance {
+    class Handler final
+        : public WavefrontCoroSchedulerExtensionHandler {
 
     private:
         Shader1D<ByteBuffer, Buffer<uint>, uint, uint> _shader;
 
     public:
-        explicit Instance(
+        explicit Handler(
             Shader1D<ByteBuffer, Buffer<uint>, uint, uint> shader) noexcept
             : _shader{std::move(shader)} {}
+
+        [[nodiscard]] luisa::string_view name() const noexcept override {
+            return "neural-sdf";
+        }
 
         void dispatch(
             const WavefrontCoroExtensionDispatchContext &context) noexcept override {
@@ -115,7 +118,7 @@ private:
 private:
     template<typename Evaluate>
     [[nodiscard]] luisa::unique_ptr<
-        WavefrontCoroSchedulerExtensionInstance>
+        WavefrontCoroSchedulerExtensionHandler>
     _prepare_stage(
         const WavefrontCoroExtensionPrepareContext &context,
         const WavefrontCoroExtensionStage &stage,
@@ -156,32 +159,26 @@ private:
                 coro::detail::coro_scheduler_shader_option(
                     context.shader_option, label)),
             label);
-        return luisa::make_unique<Instance>(std::move(shader));
+        return luisa::make_unique<Handler>(std::move(shader));
     }
 
 public:
-    NeuralSdfHandler(
+    NeuralSdfFacade(
         Callable<float2(float3)> scene,
         Callable<float3(float3)> normal) noexcept
         : _scene{std::move(scene)}, _normal{std::move(normal)} {}
 
-    [[nodiscard]] luisa::string_view name() const noexcept override {
-        return "neural-sdf";
-    }
-
-    [[nodiscard]] bool can_handle(
-        const WavefrontCoroExtensionStage &stage) const noexcept override {
-        auto schema = stage.extension->schema();
-        return stage.extension->version() == 1u &&
-               (schema == distance_schema || schema == normal_schema);
-    }
-
     [[nodiscard]] luisa::unique_ptr<
-        WavefrontCoroSchedulerExtensionInstance>
-    prepare(
-        const WavefrontCoroExtensionPrepareContext &context,
-        const WavefrontCoroExtensionStage &stage) noexcept override {
-        if (stage.extension->schema() == distance_schema) {
+        WavefrontCoroSchedulerExtensionHandler>
+    operator()(
+        WavefrontCoroExtensionPrepareContext &context,
+        const WavefrontCoroExtensionStage &stage) noexcept {
+        auto schema = stage.extension->schema();
+        if (stage.extension->version() != 1u ||
+            (schema != distance_schema && schema != normal_schema)) {
+            return nullptr;
+        }
+        if (schema == distance_schema) {
             auto *scene = &_scene;
             return _prepare_stage(
                 context, stage, "sample",
@@ -342,9 +339,15 @@ int main(int argc, char *argv[]) {
             .execution_block_size = 256u,
             .largest_continuation_first = true,
             .incremental_continuation_counts = true}};
-    auto neural_sdf = luisa::make_shared<NeuralSdfHandler>(
-        std::move(scene), std::move(scene_normal));
-    scheduler.register_extension_handler(neural_sdf);
+    NeuralSdfFacade neural_sdf{
+        std::move(scene), std::move(scene_normal)};
+    scheduler.register_extension_handler(
+        stream,
+        [&neural_sdf](
+            WavefrontCoroExtensionPrepareContext &prepare_context,
+            const WavefrontCoroExtensionStage &stage) noexcept {
+            return neural_sdf(prepare_context, stage);
+        });
 
     Kernel2D hdr_to_ldr = [](ImageFloat source, ImageFloat destination) {
         auto coord = dispatch_id().xy();
