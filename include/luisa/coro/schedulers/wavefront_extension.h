@@ -74,15 +74,31 @@ struct WavefrontCoroExtensionDispatchContext {
     const WavefrontCoroExtensionStage &stage;
 };
 
+/// One prepared executable for one static suspend Extension stage.
+///
+/// A responsibility-chain handler may claim any number of static stages. It
+/// creates one instance for each claimed stage, so stage-local compiled code
+/// and state never have to be keyed by scheduler queue indices inside the
+/// handler. dispatch() must enqueue all work required to establish
+/// Stage::required_writeback_slot_span() before returning.
+class WavefrontCoroSchedulerExtensionInstance {
+
+public:
+    virtual ~WavefrontCoroSchedulerExtensionInstance() noexcept = default;
+    virtual void dispatch(
+        const WavefrontCoroExtensionDispatchContext &context) noexcept = 0;
+};
+
 /// Responsibility-chain element for WavefrontCoroScheduler.
 ///
 /// Registration order is semantic: the first handler whose can_handle()
-/// returns true owns that static stage. prepare() runs once before the first
-/// scheduler dispatch. dispatch() must enqueue all work required to establish
-/// Stage::required_writeback_slot_span() before returning. The scheduler owns
-/// frame allocation, queue selection, stage ordering, and continuation resume;
-/// handlers own only their external operation.
-template<typename... Args>
+/// returns true owns a static stage. A handler is independent of the
+/// coroutine invocation signature and may claim zero, one, or many suspend
+/// Extension stages. prepare() runs once per claimed static stage before the
+/// first scheduler dispatch and returns its stage-local executable. The
+/// scheduler owns frame allocation, queue selection, stage ordering, and
+/// continuation resume; handlers own only their external operations and any
+/// explicitly bound external resources.
 class WavefrontCoroSchedulerExtensionHandler {
 
 public:
@@ -91,12 +107,11 @@ public:
     [[nodiscard]] virtual luisa::string_view name() const noexcept = 0;
     [[nodiscard]] virtual bool can_handle(
         const WavefrontCoroExtensionStage &stage) const noexcept = 0;
-    virtual void prepare(
+    [[nodiscard]] virtual luisa::unique_ptr<
+        WavefrontCoroSchedulerExtensionInstance>
+    prepare(
         const WavefrontCoroExtensionPrepareContext &context,
         const WavefrontCoroExtensionStage &stage) noexcept = 0;
-    virtual void dispatch(
-        const WavefrontCoroExtensionDispatchContext &context,
-        compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept = 0;
 };
 
 }// namespace luisa::compute::coro

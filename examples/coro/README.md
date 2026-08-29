@@ -8,13 +8,18 @@ each registered handler owns only the external operation it understands.
 The public shape is:
 
 ```cpp
+class MyInstance final
+    : public WavefrontCoroSchedulerExtensionInstance {
+    void dispatch(
+        const WavefrontCoroExtensionDispatchContext &) override;
+};
+
 class MyHandler final
-    : public WavefrontCoroSchedulerExtensionHandler<CoroutineArgs...> {
+    : public WavefrontCoroSchedulerExtensionHandler {
     bool can_handle(const WavefrontCoroExtensionStage &) const override;
-    void prepare(const WavefrontCoroExtensionPrepareContext &,
-                 const WavefrontCoroExtensionStage &) override;
-    void dispatch(const WavefrontCoroExtensionDispatchContext &,
-                  InvocationArgs...) override;
+    luisa::unique_ptr<WavefrontCoroSchedulerExtensionInstance>
+    prepare(const WavefrontCoroExtensionPrepareContext &,
+            const WavefrontCoroExtensionStage &) override;
 };
 
 WavefrontCoroScheduler scheduler{device, coroutine, config};
@@ -23,12 +28,17 @@ scheduler.register_extension_handler(handler_b);
 stream << scheduler(args...).dispatch(size);
 ```
 
-Registration order is semantic: the first matching handler owns a static
-stage. `prepare()` runs once at registration time, outside dispatch timing.
-When that queue is selected, `dispatch()` receives the same stream, the
-scheduler-owned frame buffer, and an exact `frame_indices` subview; work
-enqueued on the stream completes before those frames advance to the next stage
-or continuation.
+Registration order is semantic: the first matching handler owns each static
+stage. One handler may claim any number of suspend Extension stages and
+`prepare()` returns a separate executable instance for every one of them. It
+runs at registration time, outside dispatch timing. When a queue is selected,
+that stage's instance receives the same stream, the scheduler-owned frame
+buffer, the exact Extension metadata, and an exact `frame_indices` subview;
+work enqueued on the stream completes before those frames advance to the next
+stage or continuation. Neither handlers nor instances are templated on, or
+receive, the coroutine's complete invocation argument list. External resources
+needed by an operation are bound explicitly to the handler or its prepared
+instance.
 
 Handlers follow the compiler's partial-frame contract:
 

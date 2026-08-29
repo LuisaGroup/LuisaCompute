@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
@@ -85,22 +84,39 @@ void validate_neural_sdf_values(
 }
 
 class NeuralSdfHandler final
-    : public WavefrontCoroSchedulerExtensionHandler<
-          Image<float>, Buffer<uint>> {
+    : public WavefrontCoroSchedulerExtensionHandler {
 
 private:
-    struct StageKernel {
-        size_t queue_index{0u};
-        Shader1D<ByteBuffer, Buffer<uint>, uint, uint> shader;
+    class Instance final
+        : public WavefrontCoroSchedulerExtensionInstance {
+
+    private:
+        Shader1D<ByteBuffer, Buffer<uint>, uint, uint> _shader;
+
+    public:
+        explicit Instance(
+            Shader1D<ByteBuffer, Buffer<uint>, uint, uint> shader) noexcept
+            : _shader{std::move(shader)} {}
+
+        void dispatch(
+            const WavefrontCoroExtensionDispatchContext &context) noexcept override {
+            context.stream << _shader(
+                                  context.frame_buffer,
+                                  context.frame_indices,
+                                  context.frame_capacity,
+                                  context.frame_count)
+                                  .dispatch(context.frame_count);
+        }
     };
 
     Callable<float2(float3)> _scene;
     Callable<float3(float3)> _normal;
-    luisa::vector<StageKernel> _kernels;
 
 private:
     template<typename Evaluate>
-    void _prepare_stage(
+    [[nodiscard]] luisa::unique_ptr<
+        WavefrontCoroSchedulerExtensionInstance>
+    _prepare_stage(
         const WavefrontCoroExtensionPrepareContext &context,
         const WavefrontCoroExtensionStage &stage,
         luisa::string_view result_name,
@@ -140,9 +156,7 @@ private:
                 coro::detail::coro_scheduler_shader_option(
                     context.shader_option, label)),
             label);
-        _kernels.emplace_back(StageKernel{
-            .queue_index = stage.queue_index,
-            .shader = std::move(shader)});
+        return luisa::make_unique<Instance>(std::move(shader));
     }
 
 public:
@@ -162,12 +176,14 @@ public:
                (schema == distance_schema || schema == normal_schema);
     }
 
-    void prepare(
+    [[nodiscard]] luisa::unique_ptr<
+        WavefrontCoroSchedulerExtensionInstance>
+    prepare(
         const WavefrontCoroExtensionPrepareContext &context,
         const WavefrontCoroExtensionStage &stage) noexcept override {
         if (stage.extension->schema() == distance_schema) {
             auto *scene = &_scene;
-            _prepare_stage(
+            return _prepare_stage(
                 context, stage, "sample",
                 [scene](const CoroSlotAccess &result,
                         CoroFrame &frame, Float3 point) noexcept {
@@ -175,33 +191,13 @@ public:
                 });
         } else {
             auto *normal = &_normal;
-            _prepare_stage(
+            return _prepare_stage(
                 context, stage, "normal",
                 [normal](const CoroSlotAccess &result,
                          CoroFrame &frame, Float3 point) noexcept {
                     result.write<float3>(frame, (*normal)(point));
                 });
         }
-    }
-
-    void dispatch(
-        const WavefrontCoroExtensionDispatchContext &context,
-        ImageView<float>, BufferView<uint>) noexcept override {
-        auto kernel = std::find_if(
-            _kernels.begin(), _kernels.end(),
-            [&](auto &&candidate) noexcept {
-                return candidate.queue_index ==
-                       context.stage.queue_index;
-            });
-        LUISA_ASSERT(kernel != _kernels.end(),
-                     "Neural-SDF handler has no prepared stage {}.",
-                     context.stage.queue_index);
-        context.stream << kernel->shader(
-                              context.frame_buffer,
-                              context.frame_indices,
-                              context.frame_capacity,
-                              context.frame_count)
-                              .dispatch(context.frame_count);
     }
 };
 

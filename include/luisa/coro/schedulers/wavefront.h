@@ -142,8 +142,8 @@ class WavefrontCoroScheduler : public CoroScheduler<Args...> {
 public:
     using Coro = Coroutine<void(Args...)>;
     using Config = WavefrontCoroSchedulerConfig;
-    using ExtensionHandler =
-        WavefrontCoroSchedulerExtensionHandler<Args...>;
+    using ExtensionHandler = WavefrontCoroSchedulerExtensionHandler;
+    using ExtensionInstance = WavefrontCoroSchedulerExtensionInstance;
 
 private:
     using AuxiliaryWork = WavefrontCoroAuxiliaryWork<Args...>;
@@ -154,6 +154,7 @@ private:
     struct RegisteredExtensionStage {
         WavefrontCoroExtensionStage stage;
         luisa::shared_ptr<ExtensionHandler> handler;
+        luisa::unique_ptr<ExtensionInstance> instance;
         uint next_queue{0u};
     };
     struct ExtensionRoute {
@@ -314,10 +315,21 @@ private:
             // part of Extension logical dataflow. Preserve precisely the
             // identity fields required by the eventual continuation while the
             // frame is resident in Extension queues.
-            for (auto field :
-                 _frame_io_plan.relocation_fields[boundary.to_index]) {
-                if (field < CoroFrameDesc::reserved_field_count - 1u) {
-                    coro_frame_append_unique(source_store_fields, field);
+            // Invocation identity is initialized exactly once by the entry
+            // kernel and remains resident thereafter. A later continuation
+            // need not load dormant identity fields into its local frame, so
+            // writing those local fields on an Extension route would replace
+            // the resident identity with zero. Entry routes must establish
+            // the target's identity payload; all later routes preserve it and
+            // let queue relocation copy the resident fields.
+            if (boundary.from_index == coro.graph().entry_index()) {
+                for (auto field :
+                     _frame_io_plan.relocation_fields[boundary.to_index]) {
+                    if (field <
+                        CoroFrameDesc::reserved_field_count - 1u) {
+                        coro_frame_append_unique(
+                            source_store_fields, field);
+                    }
                 }
             }
             coro_frame_append_unique(source_store_fields, 6u);
@@ -1019,10 +1031,17 @@ private:
                 !handler->can_handle(registered.stage)) {
                 continue;
             }
+            auto instance = handler->prepare(context, registered.stage);
+            LUISA_ASSERT(
+                instance != nullptr,
+                "Wavefront Extension handler '{}' returned no instance "
+                "for claimed Extension '{}' at queue {}.",
+                handler->name(), registered.stage.extension->schema(),
+                registered.stage.queue_index);
             registered.handler = handler;
+            registered.instance = std::move(instance);
             _last_dispatch_stats.extensions[i].handler =
                 luisa::string{handler->name()};
-            handler->prepare(context, registered.stage);
         }
     }
 
@@ -1587,12 +1606,13 @@ private:
                         _extension_stages[stage_index];
                     LUISA_ASSERT(
                         registered.handler != nullptr &&
+                            registered.instance != nullptr &&
                             registered.next_queue < nq,
                         "Selected unresolved coroutine Extension queue {}.",
                         i);
                     auto indices = _resume_index.view().subview(
                         _host_offset[i], count);
-                    registered.handler->dispatch(
+                    registered.instance->dispatch(
                         WavefrontCoroExtensionDispatchContext{
                             .stream = stream,
                             .frame_buffer = _frame_buffer.view(),
@@ -1600,8 +1620,7 @@ private:
                             .frame_count = count,
                             .frame_capacity = _config.thread_count,
                             .logical_dispatch_size = dispatch_size,
-                            .stage = registered.stage},
-                        args...);
+                            .stage = registered.stage});
                     stream << _advance_extension_stage_shader(
                                   _config.thread_count, indices,
                                   0u, count, static_cast<uint>(i),

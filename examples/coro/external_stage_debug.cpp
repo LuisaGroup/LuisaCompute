@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <cstdlib>
 
 #include <luisa/luisa-compute.h>
@@ -16,17 +15,36 @@ namespace {
 constexpr auto debug_schema = "luisa.coro.debug.structured-watch";
 
 class StructuredDebugHandler final
-    : public WavefrontCoroSchedulerExtensionHandler<Buffer<uint>> {
+    : public WavefrontCoroSchedulerExtensionHandler {
 
 private:
-    struct StageKernel {
-        size_t queue_index{0u};
+    class Instance final
+        : public WavefrontCoroSchedulerExtensionInstance {
+
+    private:
         Shader1D<ByteBuffer, Buffer<uint>, uint, uint, Buffer<uint>>
-            shader;
+            _shader;
+        BufferView<uint> _records;
+
+    public:
+        Instance(
+            Shader1D<ByteBuffer, Buffer<uint>, uint, uint, Buffer<uint>>
+                shader,
+            BufferView<uint> records) noexcept
+            : _shader{std::move(shader)}, _records{records} {}
+
+        void dispatch(
+            const WavefrontCoroExtensionDispatchContext &context) noexcept override {
+            context.stream << _shader(
+                                  context.frame_buffer,
+                                  context.frame_indices,
+                                  context.frame_capacity,
+                                  context.frame_count, _records)
+                                  .dispatch(context.frame_count);
+        }
     };
 
     Buffer<uint> _records;
-    luisa::vector<StageKernel> _kernels;
 
 public:
     StructuredDebugHandler(Device &device, uint frame_count)
@@ -42,7 +60,9 @@ public:
                stage.extension->version() == 1u;
     }
 
-    void prepare(
+    [[nodiscard]] luisa::unique_ptr<
+        WavefrontCoroSchedulerExtensionInstance>
+    prepare(
         const WavefrontCoroExtensionPrepareContext &context,
         const WavefrontCoroExtensionStage &stage) noexcept override {
         LUISA_ASSERT(
@@ -81,29 +101,8 @@ public:
                 coro::detail::coro_scheduler_shader_option(
                     context.shader_option, label)),
             label);
-        _kernels.emplace_back(StageKernel{
-            .queue_index = stage.queue_index,
-            .shader = std::move(shader)});
-    }
-
-    void dispatch(
-        const WavefrontCoroExtensionDispatchContext &context,
-        BufferView<uint>) noexcept override {
-        auto kernel = std::find_if(
-            _kernels.begin(), _kernels.end(),
-            [&](auto &&candidate) noexcept {
-                return candidate.queue_index ==
-                       context.stage.queue_index;
-            });
-        LUISA_ASSERT(kernel != _kernels.end(),
-                     "Structured debugger has no prepared stage {}.",
-                     context.stage.queue_index);
-        context.stream << kernel->shader(
-                              context.frame_buffer,
-                              context.frame_indices,
-                              context.frame_capacity,
-                              context.frame_count, _records)
-                              .dispatch(context.frame_count);
+        return luisa::make_unique<Instance>(
+            std::move(shader), _records.view());
     }
 
     [[nodiscard]] const Buffer<uint> &records() const noexcept {
