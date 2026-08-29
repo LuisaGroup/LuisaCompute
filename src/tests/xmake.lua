@@ -506,6 +506,25 @@ if has_config("lc_cuda_backend") then
     test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
 end
 
+-- integration/runtime: external device config extension tests
+-- Exercises backend-specific DeviceConfigExt subclasses (CUDA/DX/Vulkan) and,
+-- for DX and Vulkan, the borrowed-command-list/command-buffer submission path.
+if has_config("lc_cuda_backend") or has_config("lc_dx_backend") or has_config("lc_vk_backend") then
+    test_proj("test_external_device", "integration/runtime/test_external_device.cpp", false, function()
+        if has_config("lc_cuda_backend") then
+            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_CUDA=1")
+        end
+        if has_config("lc_dx_backend") then
+            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_DX=1")
+            add_syslinks("dxgi", "d3d12")
+        end
+        if has_config("lc_vk_backend") then
+            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1")
+            add_deps("lc-volk")
+        end
+    end)
+end
+
 -- integration/runtime: DX-only tests
 if has_config("lc_dx_backend") then
     test_proj("test_raster", "integration/runtime/test_raster.cpp", true)

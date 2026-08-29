@@ -712,6 +712,24 @@ endif ()
       luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
   endif ()
 
+# --- integration/runtime: external device config extension tests ---
+# Exercises backend-specific DeviceConfigExt subclasses (CUDA/DX/Vulkan) and,
+# for DX and Vulkan, the borrowed-command-list/command-buffer submission path.
+# Requires a physical device; invoked manually with a backend argument.
+if (LUISA_COMPUTE_ENABLE_CUDA OR LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
+    luisa_compute_add_test(test_external_device integration/runtime/test_external_device.cpp)
+    if (LUISA_COMPUTE_ENABLE_CUDA)
+        target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_CUDA=1)
+    endif ()
+    if (LUISA_COMPUTE_ENABLE_DX)
+        target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_DX=1)
+    endif ()
+    if (LUISA_COMPUTE_ENABLE_VULKAN)
+        target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1)
+        target_link_libraries(test_external_device PRIVATE luisa-compute-ext-volk)
+    endif ()
+endif ()
+
 # --- integration/xir: standalone tests ---
 luisa_compute_add_test(test_xir2ast_roundtrip integration/xir/test_xir2ast_roundtrip.cpp LABELS "unit;unit_xir")
 
