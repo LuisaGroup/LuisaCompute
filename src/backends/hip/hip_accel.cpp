@@ -38,7 +38,8 @@ HIPAccel::HIPAccel(hiprtContext ctx, const AccelOption &option) noexcept
     : _option{option}, _hiprt_ctx{ctx} {}
 
 HIPAccel::~HIPAccel() noexcept {
-    if (_scene || _instance_allocation || _scene_build_buffer) {
+    if (_scene || _instance_allocation || _scene_instances ||
+        _scene_frames || _scene_masks) {
         // Scene builds and traces are asynchronous, while HIPRT destruction and
         // hipFree below have no stream on which to order their deallocation.
         LUISA_CHECK_HIP(hipDeviceSynchronize());
@@ -50,8 +51,14 @@ HIPAccel::~HIPAccel() noexcept {
         LUISA_CHECK_HIP(hipFree(
             reinterpret_cast<void *>(_instance_allocation)));
     }
-    if (_scene_build_buffer) {
-        LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_scene_build_buffer)));
+    if (_scene_instances) {
+        LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_scene_instances)));
+    }
+    if (_scene_frames) {
+        LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_scene_frames)));
+    }
+    if (_scene_masks) {
+        LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_scene_masks)));
     }
 }
 
@@ -64,35 +71,48 @@ hiprtSceneBuildInput HIPAccel::_make_scene_build_input(HIPCommandEncoder &encode
     auto instance_bytes = _instance_count * sizeof(hiprtInstance);
 
     if (_scene_build_capacity < _instance_count) {
-        auto aligned_size = [](size_t size, size_t alignment) noexcept {
-            return (size + alignment - 1u) & ~(alignment - 1u);
-        };
         auto new_capacity = _instance_count;
         auto new_instance_bytes = new_capacity * sizeof(hiprtInstance);
         auto new_frame_bytes = new_capacity * sizeof(hiprtFrameMatrix);
         auto new_mask_bytes = new_capacity * sizeof(uint32_t);
-        auto frame_offset = aligned_size(new_instance_bytes, alignof(hiprtFrameMatrix));
-        auto mask_offset = aligned_size(frame_offset + new_frame_bytes, alignof(uint32_t));
-        auto allocation_size = mask_offset + new_mask_bytes;
 
-        hipDeviceptr_t new_buffer{};
+        // Keep every pitched-copy destination at the base of its own device
+        // allocation. ROCm 7.2 rejects otherwise-valid large
+        // hipMemcpy2DAsync operations when the destination is an interior
+        // pointer into one packed allocation. The transform and mask gathers
+        // are independent arrays in HIPRT's input algebra, so separate
+        // ownership is also the exact representation rather than a special
+        // large-instance path.
+        hipDeviceptr_t new_instances{};
+        hipDeviceptr_t new_frames{};
+        hipDeviceptr_t new_masks{};
         LUISA_CHECK_HIP(hipMallocAsync(
-            reinterpret_cast<void **>(&new_buffer), allocation_size, hip_stream));
+            reinterpret_cast<void **>(&new_instances), new_instance_bytes, hip_stream));
+        LUISA_CHECK_HIP(hipMallocAsync(
+            reinterpret_cast<void **>(&new_frames), new_frame_bytes, hip_stream));
+        LUISA_CHECK_HIP(hipMallocAsync(
+            reinterpret_cast<void **>(&new_masks), new_mask_bytes, hip_stream));
         // hiprtFrameMatrix includes a time field and tail padding outside the
         // affine matrix copied below. Initialize the allocation once so every
         // persistent frame remains a zero-time static transform.
         LUISA_CHECK_HIP(hipMemsetAsync(
-            reinterpret_cast<void *>(new_buffer), 0, allocation_size, hip_stream));
-        if (_scene_build_buffer) {
+            reinterpret_cast<void *>(new_frames), 0, new_frame_bytes, hip_stream));
+        if (_scene_instances) {
             LUISA_CHECK_HIP(hipFreeAsync(
-                reinterpret_cast<void *>(_scene_build_buffer), hip_stream));
+                reinterpret_cast<void *>(_scene_instances), hip_stream));
         }
-        auto new_buffer_bytes = reinterpret_cast<std::byte *>(new_buffer);
-        _scene_build_buffer = new_buffer;
+        if (_scene_frames) {
+            LUISA_CHECK_HIP(hipFreeAsync(
+                reinterpret_cast<void *>(_scene_frames), hip_stream));
+        }
+        if (_scene_masks) {
+            LUISA_CHECK_HIP(hipFreeAsync(
+                reinterpret_cast<void *>(_scene_masks), hip_stream));
+        }
         _scene_build_capacity = new_capacity;
-        _scene_instances = new_buffer;
-        _scene_frames = reinterpret_cast<hipDeviceptr_t>(new_buffer_bytes + frame_offset);
-        _scene_masks = reinterpret_cast<hipDeviceptr_t>(new_buffer_bytes + mask_offset);
+        _scene_instances = new_instances;
+        _scene_frames = new_frames;
+        _scene_masks = new_masks;
         _hiprt_instances_dirty = true;
     }
 

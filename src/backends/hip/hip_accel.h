@@ -86,7 +86,6 @@ private:
     hipDeviceptr_t _instance_allocation{};
     hipDeviceptr_t _instance_buffer{};
     size_t _instance_buffer_size{};
-    hipDeviceptr_t _scene_build_buffer{};
     size_t _scene_build_capacity{};
     hipDeviceptr_t _scene_instances{};
     hipDeviceptr_t _scene_frames{};
