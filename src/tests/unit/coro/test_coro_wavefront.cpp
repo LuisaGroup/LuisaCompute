@@ -2106,7 +2106,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     "catch-all-arithmetic-handler", false);
             scheduler.register_extension_handler(first);
             scheduler.register_extension_handler(second);
-            scheduler(output).dispatch(N)(stream);
+            stream << scheduler(output).dispatch(N);
 
             luisa::vector<uint> host(N);
             stream << output.copy_to(luisa::span{host})

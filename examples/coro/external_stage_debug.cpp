@@ -154,8 +154,8 @@ int main(int argc, char *argv[]) {
 
     luisa::vector<uint> host_records(frame_count * 2u);
     luisa::vector<uint> host_output(frame_count);
-    scheduler(output).dispatch(frame_count)(stream);
-    stream << debugger->records().copy_to(luisa::span{host_records})
+    stream << scheduler(output).dispatch(frame_count)
+           << debugger->records().copy_to(luisa::span{host_records})
            << output.copy_to(luisa::span{host_output})
            << synchronize();
 

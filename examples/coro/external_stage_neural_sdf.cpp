@@ -359,8 +359,8 @@ int main(int argc, char *argv[]) {
     auto hdr_to_ldr_shader = device.compile(hdr_to_ldr);
 
     Clock clock;
-    scheduler(hdr, hit_mask)
-        .dispatch(options.width, options.height)(stream);
+    stream << scheduler(hdr, hit_mask)
+                  .dispatch(options.width, options.height);
 
     luisa::vector<float> host_hdr(
         static_cast<size_t>(frame_count) * 4u);

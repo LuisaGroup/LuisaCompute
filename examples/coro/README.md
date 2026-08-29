@@ -20,7 +20,7 @@ class MyHandler final
 WavefrontCoroScheduler scheduler{device, coroutine, config};
 scheduler.register_extension_handler(handler_a);
 scheduler.register_extension_handler(handler_b);
-scheduler(args...).dispatch(size)(stream);
+stream << scheduler(args...).dispatch(size);
 ```
 
 Registration order is semantic: the first matching handler owns a static

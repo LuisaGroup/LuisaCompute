@@ -336,8 +336,8 @@ int main(int argc, char *argv[]) {
         options, make_virtual_texture(options.dimension));
     scheduler.register_extension_handler(texture_cache);
     texture_cache->initialize(stream, page_table, physical_cache);
-    scheduler(output, page_table, physical_cache)
-        .dispatch(options.dimension, options.dimension)(stream);
+    stream << scheduler(output, page_table, physical_cache)
+                  .dispatch(options.dimension, options.dimension);
 
     LUISA_ASSERT(
         texture_cache->round_count() ==
