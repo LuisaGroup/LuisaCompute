@@ -7,6 +7,7 @@
 #include "hip_check.h"
 #include "hip_buffer.h"
 #include "hip_command_encoder.h"
+#include "hip_geometry_build_policy.h"
 #include "hip_stream.h"
 #include "hip_device.h"
 #include "hip_procedural_primitive.h"
@@ -71,12 +72,14 @@ void HIPProceduralPrimitive::build(HIPCommandEncoder &encoder, ProceduralPrimiti
     build_input.type = hiprtPrimitiveTypeAABBList;
     build_input.primitive.aabbList = aabb_prim;
 
-    hiprtBuildOptions build_options{};
-    build_options.buildFlags = make_hiprt_build_flags(_option);
-
     auto hip_stream = encoder.stream()->handle();
 
     if (requires_build) {
+        auto policy = select_hiprt_geometry_build_policy(
+            _hiprt_ctx, build_input, _option);
+        recreate_geometry = recreate_geometry ||
+                            (_geometry &&
+                             policy.options.buildFlags != _build_flags);
         if (recreate_geometry) {
             if (_geometry) {
                 LUISA_CHECK_HIP(hipStreamSynchronize(hip_stream));
@@ -84,16 +87,16 @@ void HIPProceduralPrimitive::build(HIPCommandEncoder &encoder, ProceduralPrimiti
                 _geometry = nullptr;
             }
             LUISA_CHECK_HIPRT(hiprtCreateGeometry(_hiprt_ctx, build_input,
-                                                  build_options, _geometry));
+                                                  policy.options, _geometry));
+            _build_flags = policy.options.buildFlags;
         }
 
-        size_t temp_size = 0;
-        LUISA_CHECK_HIPRT(hiprtGetGeometryBuildTemporaryBufferSize(_hiprt_ctx, build_input, build_options, temp_size));
         auto temp_buffer =
-            encoder.stream()->rt_scratch_buffer(temp_size);
+            encoder.stream()->rt_scratch_buffer(
+                policy.temporary_buffer_size);
 
         LUISA_CHECK_HIPRT(hiprtBuildGeometry(_hiprt_ctx, hiprtBuildOperationBuild,
-                                             build_input, build_options,
+                                             build_input, policy.options,
                                              temp_buffer, hip_stream, _geometry));
 
         if (_option.allow_compaction) {
@@ -101,6 +104,8 @@ void HIPProceduralPrimitive::build(HIPCommandEncoder &encoder, ProceduralPrimiti
                 _hiprt_ctx, hip_stream, _geometry, _geometry));
         }
     } else {
+        hiprtBuildOptions build_options{};
+        build_options.buildFlags = _build_flags;
         LUISA_CHECK_HIPRT(hiprtBuildGeometry(_hiprt_ctx, hiprtBuildOperationUpdate,
                                              build_input, build_options,
                                              nullptr, hip_stream, _geometry));
