@@ -14,6 +14,8 @@ if (hip_FOUND)
             hip_curve.cpp hip_curve.h
             hip_curve_bounds.cpp hip_curve_bounds.h
             hip_event.cpp hip_event.h
+            hip_geometry_build_policy.cpp hip_geometry_build_policy.h
+            hip_geometry_memory_policy.h
             hip_mesh.cpp hip_mesh.h
             hip_motion_mesh_builtin.cpp hip_motion_mesh_builtin.h
             hip_motion_instance.cpp hip_motion_instance.h
