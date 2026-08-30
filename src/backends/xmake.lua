@@ -34,8 +34,12 @@ if has_config("lc_vk_backend") then
 end
 includes("validation")
 
--- Builtin shader compilation tool (AOT .dxil / .spv via headless device).
-includes("tools")
+-- Builtin shader compilation tool (AOT-compile raw HLSL builtins to the DX/VK
+-- bytecode artifacts). It links the shared HLSL codegen/dxc wrapper, so it is
+-- only available when one of those backends is configured.
+if has_config("lc_dx_backend") or has_config("lc_vk_backend") then
+    includes("tools")
+end
 
 rule("lc-backend-deps")
 on_load(function(target)
