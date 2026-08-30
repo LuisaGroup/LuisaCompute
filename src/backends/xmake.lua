@@ -34,6 +34,9 @@ if has_config("lc_vk_backend") then
 end
 includes("validation")
 
+-- Builtin shader compilation tool (AOT .dxil / .spv via headless device).
+includes("tools")
+
 rule("lc-backend-deps")
 on_load(function(target)
     target:add("deps", "lc-validation-layer", {
