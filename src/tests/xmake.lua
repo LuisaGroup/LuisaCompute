@@ -390,6 +390,8 @@ if has_config("lc_enable_xir") then
     end)
     test_proj("test_xir_translators", "unit/xir/test_xir_translators.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
+        -- the translator test exercises Coroutine/$suspend translation
+        add_deps("lc-coro")
     end)
     test_proj("test_xir_interchange", "unit/xir/test_xir_interchange.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
