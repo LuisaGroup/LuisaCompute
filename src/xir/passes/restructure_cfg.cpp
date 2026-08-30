@@ -32,6 +32,7 @@
 
 #include "helpers.h"
 #include "irreducible_cfg_analysis.h"
+#include "restructure_cfg_construct_boundary.h"
 #include "restructure_cfg_loop_boundary.h"
 #include "restructure_cfg_post_dom.h"
 #include "restructure_cfg_selection_merge.h"
@@ -7018,6 +7019,7 @@ analyze_post_merge_selection_reentries(
                                              DomTree &dom,
                                              bool &dom_valid,
                                              const luisa::unordered_set<BasicBlock *> &loop_boundary_selection_entries,
+                                             const EnclosingConstructBoundaryAnalysis &boundary_analysis,
                                              luisa::unordered_set<Instruction *> &rewritten_sites) noexcept {
     ScopedTimer _timer_enforce_entries("enforce_construct_entries");
     // A loop-boundary IfInst is the structured XIR spelling of a physical
@@ -7060,6 +7062,34 @@ analyze_post_merge_selection_reentries(
                 }
             });
             if (offenders.empty()) { break; }
+
+            // E is a boundary of an enclosing structured construct, not an
+            // arm region owned by this construct. Make the declared H -> E
+            // arm unique by subdividing that edge with a payload-free proxy:
+            //
+            //   H -> E  =>  H -> Q -> E.
+            //
+            // Q has H as its sole predecessor, while all sibling exits still
+            // reach the one enclosing boundary E. Cloning E would instead
+            // duplicate loop-update or merge payload and change the dynamic
+            // execution count. Edge subdivision preserves every path and
+            // instruction order, and strictly removes one boundary identity
+            // from this construct's finite entry set.
+            if (boundary_analysis.contains(
+                    header_bb, E, dom)) {
+                auto *proxy = def->create_basic_block();
+                XIRBuilder builder;
+                builder.set_insertion_point(proxy);
+                builder.br(E);
+                LUISA_ASSERT(
+                    retarget_executable_edge(
+                        header_bb->terminator(), E, proxy),
+                    "Failed to proxy an enclosing construct boundary "
+                    "used as a nested construct entry.");
+                changed_any = true;
+                dom_valid = false;
+                return true;
+            }
             if (!site_claimed && rewritten_sites.contains(site)) {
                 ++info.iteration_limit_count;
                 return changed_any;
@@ -7107,11 +7137,13 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     for (;;) {
         auto changed = false;
         // The body of this scan observes one immutable CFG version. This set
-        // is the value-numbered result of the boundary predicate for that
+        // is the indexed result of the boundary predicate for that
         // version; a successful rewrite exits the scan and invalidates it.
         ++info.construct_entry_boundary_analysis_count;
         const auto loop_boundary_selection_entries =
             collect_loop_boundary_selection_entries(def);
+        const EnclosingConstructBoundaryAnalysis
+            boundary_analysis{def};
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> construct_sites;// header_bb, merge_bb
         def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
             if (!bb->is_terminated()) { return; }
@@ -7135,6 +7167,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
             if (enforce_construct_entries(
                     def, hbb, mbb, info, dom, dom_valid,
                     loop_boundary_selection_entries,
+                    boundary_analysis,
                     rewritten_sites)) {
                 ++info.canonicalized_cfg_count;
                 changed = true;
