@@ -346,6 +346,8 @@ public:
         FLOAT64,
         FLOAT8_E4M3,
         FLOAT8_E5M2,
+        INT4,
+        FP4_E2M1,
 
         VECTOR,
         MATRIX,
@@ -370,8 +372,17 @@ private:
                   static_cast<uint32_t>(Tag::BOOL) + 1u);
     static_assert(static_cast<uint32_t>(Tag::FLOAT8_E5M2) ==
                   static_cast<uint32_t>(Tag::INT8) + 12u);
-    static_assert(static_cast<uint32_t>(Tag::VECTOR) ==
+    // INT4 / FP4_E2M1 are 4-bit sub-byte scalar types (stored as 1 byte per
+    // element on the host/device; the lower nibble holds the value, the upper
+    // nibble is zero/unused).  They are appended after the 8-bit scalars so the
+    // pre-existing scalar range invariants (is_scalar / is_arithmetic) extend
+    // naturally; VECTOR follows the 4-bit group.
+    static_assert(static_cast<uint32_t>(Tag::INT4) ==
                   static_cast<uint32_t>(Tag::FLOAT8_E5M2) + 1u);
+    static_assert(static_cast<uint32_t>(Tag::FP4_E2M1) ==
+                  static_cast<uint32_t>(Tag::INT4) + 1u);
+    static_assert(static_cast<uint32_t>(Tag::VECTOR) ==
+                  static_cast<uint32_t>(Tag::FP4_E2M1) + 1u);
     static_assert(static_cast<uint32_t>(Tag::FLOAT8_E5M2) ==
                   static_cast<uint32_t>(Tag::FLOAT16) + 4u);
     static_assert(static_cast<uint32_t>(Tag::ACCEL) ==
@@ -496,9 +507,9 @@ public:
     [[nodiscard]] CoopRefVecType coop_vec_ref_type() const noexcept;
     [[nodiscard]] uint2 coop_matrix_dimension() const noexcept;
 
-    /// Scalar = bool || float || int || uint
+    /// Scalar = bool || float || int || uint || quantized (int4/fp4)
     [[nodiscard]] bool is_scalar() const noexcept {
-        return _tag <= Tag::FLOAT8_E5M2;
+        return _tag <= Tag::FP4_E2M1;
     }
     [[nodiscard]] bool is_bool() const noexcept { return _tag == Tag::BOOL; }
     [[nodiscard]] bool is_int32() const noexcept { return _tag == Tag::INT32; }
@@ -510,7 +521,8 @@ public:
     }
     [[nodiscard]] bool is_int() const noexcept {
         return _tag == Tag::INT8 || _tag == Tag::INT16 ||
-               _tag == Tag::INT32 || _tag == Tag::INT64;
+               _tag == Tag::INT32 || _tag == Tag::INT64 ||
+               _tag == Tag::INT4;
     }
     [[nodiscard]] bool is_uint() const noexcept {
         return _tag == Tag::UINT8 || _tag == Tag::UINT16 ||
@@ -526,6 +538,11 @@ public:
     [[nodiscard]] bool is_float8_e5m2() const noexcept { return _tag == Tag::FLOAT8_E5M2; }
     [[nodiscard]] bool is_int8() const noexcept { return _tag == Tag::INT8; }
     [[nodiscard]] bool is_uint8() const noexcept { return _tag == Tag::UINT8; }
+    [[nodiscard]] bool is_int4() const noexcept { return _tag == Tag::INT4; }
+    [[nodiscard]] bool is_fp4() const noexcept { return _tag == Tag::FP4_E2M1; }
+    [[nodiscard]] bool is_quantized() const noexcept {
+        return _tag == Tag::INT4 || _tag == Tag::FP4_E2M1;
+    }
     [[nodiscard]] bool is_int16() const noexcept { return _tag == Tag::INT16; }
     [[nodiscard]] bool is_uint16() const noexcept { return _tag == Tag::UINT16; }
 
@@ -538,8 +555,9 @@ public:
     [[nodiscard]] bool is_float_or_float_vector() const noexcept;
 
     /// Arithmetic = float || int || uint
+    /// Arithmetic = float || int || uint || quantized (int4/fp4)
     [[nodiscard]] bool is_arithmetic() const noexcept {
-        return _tag >= Tag::INT8 && _tag <= Tag::FLOAT8_E5M2;
+        return _tag >= Tag::INT8 && _tag <= Tag::FP4_E2M1;
     }
 
     /// Basic = scalar || vector || matrix

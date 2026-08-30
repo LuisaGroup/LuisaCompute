@@ -2052,6 +2052,13 @@ void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) n
         case Type::Tag::FLOAT64: _scratch << (hack_float_to_int ? "lc_ulong" : "lc_double"); break;
         case Type::Tag::INT8: _scratch << "lc_byte"; break;
         case Type::Tag::UINT8: _scratch << "lc_ubyte"; break;
+        // FP8 / I4 / FP4 have no CUDA scalar type.  Placeholder: map to
+        // byte storage so the type switch is exhaustive.  Standalone
+        // sub-byte typed buffers are not yet exercised on CUDA.
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::FP4_E2M1: _scratch << "lc_ubyte"; break;
+        case Type::Tag::INT4: _scratch << "lc_byte"; break;
         case Type::Tag::INT16: _scratch << "lc_short"; break;
         case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;

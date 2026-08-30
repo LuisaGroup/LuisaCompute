@@ -223,6 +223,31 @@ int main(int argc, char *argv[]) {
         trace_and_verify("reciprocal_kernel", reciprocal_kernel,
                          luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
 
+        // ---- all TensorElementType dtypes (structural) ----------------------
+        // Each dtype_copy_* kernel copies a 1-D N-element tensor through a
+        // fragment tile; dispatch=(1,1), block=(32,1,1), 2 buffer args.
+        trace_and_verify("dtype_copy_f16", dtype_copy_f16,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("dtype_copy_f32", dtype_copy_f32,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("dtype_copy_i32", dtype_copy_i32,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("dtype_copy_i8", dtype_copy_i8,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("dtype_copy_fp8", dtype_copy_fp8,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("dtype_copy_i4", dtype_copy_i4,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("dtype_copy_fp4", dtype_copy_fp4,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+        trace_and_verify("dtype_add_f32", dtype_add_f32,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+        trace_and_verify("dtype_add_i32", dtype_add_i32,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+        trace_and_verify("dtype_neg_f32", dtype_neg_f32,
+                         luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+
+
         // ---- dynamic batching (structural) ----------------------------------
         // elementwise_add (threads=32, shared) with {min=8, max=64} is
         // compute/LDS-bound (target 256 threads) and therefore selects
@@ -1292,6 +1317,173 @@ int main(int argc, char *argv[]) {
             auto err = 0.0f;
             for (auto i = 0u; i < N; ++i) { err = luisa::max(err, luisa::abs(hB[i] - hRef[i])); }
             check("reciprocal_kernel", err, 1e-3f);
+        }
+
+        // ---- all TensorElementType dtypes (device dispatch + verify) --------
+        // Typed dtypes (F16/F32/I32/I8) use the typed to_kernel<1>() path.
+        // Quantized dtypes (FP8/I4/FP4) have no C++ Buffer<T> element type
+        // (tile_dtype_to_runtime = void), so they use the manual Kernel2D
+        // path with byte buffers; the copy is a pure byte move, so the
+        // device output is compared byte-for-byte against the input.
+        {
+            constexpr uint32_t N = 64u;
+            // F32 copy
+            {
+                auto [k, r] = trace_and_verify("dtype_copy_f32", dtype_copy_f32,
+                                               luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                auto bufA = device.create_buffer<float>(N);
+                auto bufB = device.create_buffer<float>(N);
+                luisa::vector<float> hA(N), hB(N);
+                for (auto i = 0u; i < N; ++i) { hA[i] = static_cast<float>(i) * 0.5f - 16.0f; }
+                stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+                k.validate(bufA, bufB);
+                auto sh = device.compile(k.to_kernel<1>());
+                stream << sh(bufA, bufB).dispatch(r.dispatch_size.x)
+                       << bufB.copy_to(luisa::span{hB}) << synchronize();
+                auto err = 0.0f;
+                for (auto i = 0u; i < N; ++i) { err = luisa::max(err, luisa::abs(hB[i] - hA[i])); }
+                check("dtype_copy_f32", err, 1e-5f);
+            }
+            // I32 copy
+            {
+                auto [k, r] = trace_and_verify("dtype_copy_i32", dtype_copy_i32,
+                                               luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                auto bufA = device.create_buffer<int>(N);
+                auto bufB = device.create_buffer<int>(N);
+                luisa::vector<int> hA(N), hB(N);
+                for (auto i = 0u; i < N; ++i) { hA[i] = static_cast<int>(i) - 32; }
+                stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+                k.validate(bufA, bufB);
+                auto sh = device.compile(k.to_kernel<1>());
+                stream << sh(bufA, bufB).dispatch(r.dispatch_size.x)
+                       << bufB.copy_to(luisa::span{hB}) << synchronize();
+                auto err = 0;
+                for (auto i = 0u; i < N; ++i) { err = std::max(err, std::abs(hB[i] - hA[i])); }
+                check("dtype_copy_i32", static_cast<float>(err), 0.5f);
+            }
+            // F16 copy
+            {
+                auto [k, r] = trace_and_verify("dtype_copy_f16", dtype_copy_f16,
+                                               luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                auto bufA = device.create_buffer<luisa::half>(N);
+                auto bufB = device.create_buffer<luisa::half>(N);
+                luisa::vector<luisa::half> hA(N), hB(N);
+                for (auto i = 0u; i < N; ++i) { hA[i] = luisa::half{static_cast<float>(i) * 0.25f}; }
+                stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+                k.validate(bufA, bufB);
+                auto sh = device.compile(k.to_kernel<1>());
+                stream << sh(bufA, bufB).dispatch(r.dispatch_size.x)
+                       << bufB.copy_to(luisa::span{hB}) << synchronize();
+                auto err = 0.0f;
+                for (auto i = 0u; i < N; ++i) { err = luisa::max(err, luisa::abs(static_cast<float>(hB[i] - hA[i]))); }
+                check("dtype_copy_f16", err, 1e-3f);
+            }
+            // I8 / FP8 / I4 / FP4 copies use sub-4-byte buffer elements.  DX12
+            // StructuredBuffer requires a >= 4-byte element stride, so these
+            // typed-buffer copies are skipped on the DX backend (the structural
+            // tile_to_kernel lowering above still validates them); the VK
+            // backend dispatches and verifies them byte-for-byte.
+            auto is_dx = backend == luisa::string_view{"dx"};
+            if (!is_dx) {
+            // I8 copy (byte buffer)
+            {
+                auto [k, r] = trace_and_verify("dtype_copy_i8", dtype_copy_i8,
+                                               luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                auto bufA = device.create_buffer<luisa::byte>(N);
+                auto bufB = device.create_buffer<luisa::byte>(N);
+                luisa::vector<luisa::byte> hA(N), hB(N);
+                for (auto i = 0u; i < N; ++i) { hA[i] = luisa::byte{static_cast<int8_t>((i % 31) - 15)}; }
+                stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+                Kernel2D<Buffer<luisa::byte>, Buffer<luisa::byte>> typed{
+                    luisa::const_pointer_cast<const luisa::compute::detail::FunctionBuilder>(r.function)};
+                auto sh = device.compile(typed);
+                stream << sh(bufA, bufB).dispatch(r.dispatch_size.x, r.dispatch_size.y)
+                       << bufB.copy_to(luisa::span{hB}) << synchronize();
+                auto err = 0;
+                for (auto i = 0u; i < N; ++i) { err = std::max(err, std::abs(static_cast<int>(hB[i]) - static_cast<int>(hA[i]))); }
+                check("dtype_copy_i8", static_cast<float>(err), 0.5f);
+            }
+            // FP8 / I4 / FP4 copy (byte buffers, manual Kernel2D path)
+            {
+                auto run_quant = [&](luisa::string_view name, auto kernel_fn) {
+                    auto [k, r] = trace_and_verify(name, kernel_fn,
+                                                   luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                    auto bufA = device.create_buffer<luisa::byte>(N);
+                    auto bufB = device.create_buffer<luisa::byte>(N);
+                    luisa::vector<luisa::byte> hA(N), hB(N);
+                    for (auto i = 0u; i < N; ++i) { hA[i] = luisa::byte{static_cast<int8_t>((i % 17) - 8)}; }
+                    stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+                    Kernel2D<Buffer<luisa::byte>, Buffer<luisa::byte>> typed{
+                        luisa::const_pointer_cast<const luisa::compute::detail::FunctionBuilder>(r.function)};
+                    auto sh = device.compile(typed);
+                    stream << sh(bufA, bufB).dispatch(r.dispatch_size.x, r.dispatch_size.y)
+                           << bufB.copy_to(luisa::span{hB}) << synchronize();
+                    auto err = 0;
+                    for (auto i = 0u; i < N; ++i) { err = std::max(err, std::abs(static_cast<int>(hB[i]) - static_cast<int>(hA[i]))); }
+                    check(name, static_cast<float>(err), 0.5f);
+                };
+                run_quant("dtype_copy_fp8", dtype_copy_fp8);
+                run_quant("dtype_copy_i4", dtype_copy_i4);
+                run_quant("dtype_copy_fp4", dtype_copy_fp4);
+            }
+            } else {
+                LUISA_INFO("[tensor-stub] skipping I8/FP8/I4/FP4 device dispatch on DX "
+                           "(DX12 StructuredBuffer requires >=4-byte element stride; "
+                           "structural lowering was verified above).");
+            }
+            // dtype_add_f32
+            {
+                auto [k, r] = trace_and_verify("dtype_add_f32", dtype_add_f32,
+                                               luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                auto bufA = device.create_buffer<float>(N);
+                auto bufB = device.create_buffer<float>(N);
+                auto bufC = device.create_buffer<float>(N);
+                luisa::vector<float> hA(N), hB(N), hC(N), hRef(N);
+                for (auto i = 0u; i < N; ++i) { hA[i] = static_cast<float>(i) * 0.5f; hB[i] = static_cast<float>(i) * 0.25f + 1.0f; hRef[i] = hA[i] + hB[i]; }
+                stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
+                k.validate(bufA, bufB, bufC);
+                auto sh = device.compile(k.to_kernel<1>());
+                stream << sh(bufA, bufB, bufC).dispatch(r.dispatch_size.x)
+                       << bufC.copy_to(luisa::span{hC}) << synchronize();
+                auto err = 0.0f;
+                for (auto i = 0u; i < N; ++i) { err = luisa::max(err, luisa::abs(hC[i] - hRef[i])); }
+                check("dtype_add_f32", err, 1e-4f);
+            }
+            // dtype_add_i32
+            {
+                auto [k, r] = trace_and_verify("dtype_add_i32", dtype_add_i32,
+                                               luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 3u);
+                auto bufA = device.create_buffer<int>(N);
+                auto bufB = device.create_buffer<int>(N);
+                auto bufC = device.create_buffer<int>(N);
+                luisa::vector<int> hA(N), hB(N), hC(N), hRef(N);
+                for (auto i = 0u; i < N; ++i) { hA[i] = static_cast<int>(i); hB[i] = -static_cast<int>(i); hRef[i] = hA[i] + hB[i]; }
+                stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << synchronize();
+                k.validate(bufA, bufB, bufC);
+                auto sh = device.compile(k.to_kernel<1>());
+                stream << sh(bufA, bufB, bufC).dispatch(r.dispatch_size.x)
+                       << bufC.copy_to(luisa::span{hC}) << synchronize();
+                auto err = 0;
+                for (auto i = 0u; i < N; ++i) { err = std::max(err, std::abs(hC[i] - hRef[i])); }
+                check("dtype_add_i32", static_cast<float>(err), 0.5f);
+            }
+            // dtype_neg_f32
+            {
+                auto [k, r] = trace_and_verify("dtype_neg_f32", dtype_neg_f32,
+                                               luisa::uint2{32u, 1u}, luisa::uint3{32u, 1u, 1u}, 2u);
+                auto bufA = device.create_buffer<float>(N);
+                auto bufB = device.create_buffer<float>(N);
+                luisa::vector<float> hA(N), hB(N), hRef(N);
+                for (auto i = 0u; i < N; ++i) { hA[i] = static_cast<float>(i) * 0.5f - 16.0f; hRef[i] = -hA[i]; }
+                stream << bufA.copy_from(luisa::span{hA}) << synchronize();
+                k.validate(bufA, bufB);
+                auto sh = device.compile(k.to_kernel<1>());
+                stream << sh(bufA, bufB).dispatch(r.dispatch_size.x)
+                       << bufB.copy_to(luisa::span{hB}) << synchronize();
+                auto err = 0.0f;
+                for (auto i = 0u; i < N; ++i) { err = luisa::max(err, luisa::abs(hB[i] - hRef[i])); }
+                check("dtype_neg_f32", err, 1e-4f);
+            }
         }
 
         LUISA_INFO("[tensor-stub] all {} translated kernels compiled, dispatched and verified on '{}'.",

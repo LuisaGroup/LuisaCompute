@@ -219,6 +219,7 @@ test_proj("test_tile_kernel_dsl", "unit/ast/test_tile_kernel_dsl.cpp")
 test_proj("test_tile_to_kernel", "unit/ast/test_tile_to_kernel.cpp")
 test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
 test_proj("test_tensor", "unit/ast/test_tensor.cpp")
+test_proj("test_tensor_element_types", "unit/ast/test_tensor_element_types.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")
 

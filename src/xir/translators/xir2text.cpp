@@ -165,6 +165,8 @@ private:
             case Type::Tag::FLOAT64: return "f64";
             case Type::Tag::FLOAT8_E4M3: return "f8e4m3";
             case Type::Tag::FLOAT8_E5M2: return "f8e5m2";
+            case Type::Tag::INT4: return "i4";
+            case Type::Tag::FP4_E2M1: return "f4e2m1";
             case Type::Tag::VECTOR: return luisa::format("vector<{}, {}>", _type_ident(type->element()), type->dimension());
             case Type::Tag::MATRIX: return luisa::format("matrix<{}, {}>", _type_ident(type->element()), type->dimension());
             case Type::Tag::ARRAY: return luisa::format("array<{}, {}>", _type_ident(type->element()), type->dimension());

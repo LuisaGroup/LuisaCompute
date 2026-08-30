@@ -871,6 +871,68 @@ template<typename F>
             LUISA_ERROR_WITH_LOCATION(
                 "tile_to_kernel: fp8 has no C++ scalar type; use the raw "
                 "dtype-erased access path instead of with_elem_type.");
+        case TensorElementType::I4:
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: int4 has no C++ scalar type; use the raw "
+                "dtype-erased access path instead of with_elem_type.");
+        case TensorElementType::FP4:
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: fp4 has no C++ scalar type; use the raw "
+                "dtype-erased access path instead of with_elem_type.");
+    }
+    LUISA_ERROR_WITH_LOCATION("Unsupported tensor element type {}.",
+                              static_cast<uint32_t>(e));
+}
+
+// Quantized dtypes (FP8 / I4 / FP4) have no C++ scalar type, so they cannot
+// use the typed DSL-sugar path (with_elem_type / Expr<T>).  They share a
+// dtype-erased raw access path (raw FunctionBuilder buffer/access calls with
+// the AST element Type*) for storage; arithmetic always widens to a compute
+// type (f32 for FP8/FP4, i32 for I4) via _compute_type / _widen / _narrow.
+[[nodiscard]] static constexpr bool _is_quantized_dtype(TensorElementType e) noexcept {
+    return e == TensorElementType::FP8 ||
+           e == TensorElementType::I4 ||
+           e == TensorElementType::FP4;
+}
+
+// Sub-byte quantized dtypes (I4 / FP4): 4-bit values packed 2-per-byte.
+// FP8 is 8-bit (1 byte per element) and does NOT need sub-byte packing.
+[[nodiscard]] static constexpr bool _is_sub_byte_dtype(TensorElementType e) noexcept {
+    return e == TensorElementType::I4 ||
+           e == TensorElementType::FP4;
+}
+
+// Compute (arithmetic) type for a quantized dtype: the wider type used for
+// element-wise operations.  FP8 / FP4 widen to float; I4 widens to int.
+[[nodiscard]] static const Type *_compute_type(TensorElementType e) noexcept {
+    switch (e) {
+        case TensorElementType::FP8:
+        case TensorElementType::FP4: return Type::of<float>();
+        case TensorElementType::I4: return Type::of<int>();
+        default:
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: dtype {} is not quantized; _compute_type "
+                "applies only to FP8/I4/FP4.",
+                tensor_element_type_name(e));
+    }
+}
+
+// Instantiate the template lambda for the C++ compute scalar of a tensor
+// element dtype.  For the typed dtypes (F16/F32/I32/I8) this is the element
+// type itself; for the quantized dtypes (FP8/FP4 -> float, I4 -> int) it is
+// the wider compute type, so the whole typed code body (Var<T>, Shared<T>,
+// Expr<T> arithmetic, warp_reduce_typed<T>) runs in the compute type and the
+// result is narrowed back to the storage element type on write.
+template<typename F>
+[[nodiscard]] static decltype(auto) with_compute_type(TensorElementType e, F &&f) {
+    switch (e) {
+        case TensorElementType::F16: return std::forward<F>(f).template operator()<half>();
+        case TensorElementType::F32: return std::forward<F>(f).template operator()<float>();
+        case TensorElementType::I32: return std::forward<F>(f).template operator()<int>();
+        case TensorElementType::I8: return std::forward<F>(f).template operator()<byte>();
+        case TensorElementType::FP8:
+        case TensorElementType::FP4: return std::forward<F>(f).template operator()<float>();
+        case TensorElementType::I4: return std::forward<F>(f).template operator()<int>();
     }
     LUISA_ERROR_WITH_LOCATION("Unsupported tensor element type {}.",
                               static_cast<uint32_t>(e));
@@ -887,8 +949,8 @@ const Type *tensor_element_type(TensorElementType e) noexcept {
         case TensorElementType::I32: return Type::of<int>();
         case TensorElementType::I8: return Type::of<byte>();
         case TensorElementType::FP8: return Type::from("float8e4m3");
-        // I4 / FP4 are 4-bit sub-byte dtypes with no core element Type yet:
-        // they reach the error below instead of being silently mis-lowered.
+        case TensorElementType::I4: return Type::from("int4");
+        case TensorElementType::FP4: return Type::from("fp4e2m1");
     }
     LUISA_ERROR_WITH_LOCATION("Unsupported tensor element type {}.",
                               static_cast<uint32_t>(e));
@@ -1644,6 +1706,21 @@ private:
                 return luisa::bit_cast<uint32_t>(static_cast<float>(value));
             case TensorElementType::I32:
                 return luisa::bit_cast<uint32_t>(static_cast<int32_t>(value));
+            case TensorElementType::I8:
+                return static_cast<uint32_t>(
+                    luisa::bit_cast<uint8_t>(static_cast<int8_t>(value)));
+            case TensorElementType::FP8:
+                // fp8 e4m3 zero pattern; full encoding is host-side only and
+                // not required by the tile lowering (FILL on fp8 tiles is rare;
+                // the value is carried as the byte bit pattern).
+                return static_cast<uint32_t>(
+                    luisa::bit_cast<uint8_t>(static_cast<int8_t>(value)));
+            case TensorElementType::I4:
+                return static_cast<uint32_t>(
+                    static_cast<uint8_t>(static_cast<int8_t>(value)));
+            case TensorElementType::FP4:
+                return static_cast<uint32_t>(
+                    static_cast<uint8_t>(static_cast<int8_t>(value)));
             default:
                 LUISA_ERROR_WITH_LOCATION(
                     "tile_to_kernel: tensor-op fill with unsupported dtype '{}'.",
@@ -1820,6 +1897,35 @@ private:
     // combine step of a TileReduceOp: acc <- acc `op` v (runtime-dtype entry)
     [[nodiscard]] const Expression *_reduce_combine(TileReduceOp op, TensorElementType e,
                                                     const Expression *acc, const Expression *v) const {
+        // Quantized dtypes combine in the compute type via raw FunctionBuilder
+        // calls (no C++ scalar type for with_elem_type).
+        if (_is_quantized_dtype(e)) {
+            auto comp_t = _compute_type(e);
+            auto a = _maybe_cast(acc, comp_t);
+            auto b = _maybe_cast(v, comp_t);
+            switch (op) {
+                case TileReduceOp::SUM:
+                case TileReduceOp::ABS_SUM:
+                    return _fb->binary(comp_t, BinaryOp::ADD, a, b);
+                case TileReduceOp::MAX:
+                case TileReduceOp::ABS_MAX:
+                    return _fb->call(comp_t, CallOp::MAX, {a, b});
+                case TileReduceOp::MIN:
+                    return _fb->call(comp_t, CallOp::MIN, {a, b});
+                case TileReduceOp::BIT_AND:
+                    if (comp_t->is_int()) { return _fb->binary(comp_t, BinaryOp::BIT_AND, a, b); }
+                    break;
+                case TileReduceOp::BIT_OR:
+                    if (comp_t->is_int()) { return _fb->binary(comp_t, BinaryOp::BIT_OR, a, b); }
+                    break;
+                case TileReduceOp::BIT_XOR:
+                    if (comp_t->is_int()) { return _fb->binary(comp_t, BinaryOp::BIT_XOR, a, b); }
+                    break;
+            }
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: reduce op {} not valid for quantized dtype {}.",
+                static_cast<uint32_t>(op), tensor_element_type_name(e));
+        }
         return with_elem_type(e, [&]<typename T>() -> const Expression * {
             return _combine_expr<T>(op, acc, v);
         });
@@ -1854,15 +1960,22 @@ private:
         _sync_block();
         _full_loop(t, [&](const Coord &c) {
             auto idx = _staging_index(t, c);
-            auto value = with_elem_type(e, [&]<typename T>() -> const Expression * {
-                // DSL access: staging[idx] (array element read).  A named
-                // Var<std::array<T,1>> wrapper is required: the rvalue
-                // Expr<std::array<T,1>>{...}[idx] form is rejected for half /
-                // byte (array element must be >= 4-byte aligned) and its
-                // operator[] returns a temporary whose assignment is deleted.
-                Var<std::array<T, 1>> arr{staging};
-                return arr[Expr<uint>{idx}].expression();
-            });
+            const Expression *value = nullptr;
+            if (_is_quantized_dtype(e)) {
+                // dtype-erased raw access for quantized dtypes (no C++ scalar).
+                auto elem_t = tensor_element_type(e);
+                value = _fb->access(elem_t, staging, idx);
+            } else {
+                value = with_elem_type(e, [&]<typename T>() -> const Expression * {
+                    // DSL access: staging[idx] (array element read).  A named
+                    // Var<std::array<T,1>> wrapper is required: the rvalue
+                    // Expr<std::array<T,1>>{...}[idx] form is rejected for half /
+                    // byte (array element must be >= 4-byte aligned) and its
+                    // operator[] returns a temporary whose assignment is deleted.
+                    Var<std::array<T, 1>> arr{staging};
+                    return arr[Expr<uint>{idx}].expression();
+                });
+            }
             _write_to(t, c, value);
         });
     }
@@ -1880,8 +1993,12 @@ private:
                 // alternative yet, so the zero is carried as a byte and cast to
                 // the fp8 element type by the caller (_write_to / _maybe_cast).
                 return _fb->literal(Type::of<byte>(), byte{0});
-            // I4 / FP4 have no core element Type: the caller fails via
-            // tensor_element_type() before a zero can be materialized.
+            case TensorElementType::I4:
+                // int4 zero: 0 (carried as int8; cast to int4 by the caller).
+                return _fb->literal(Type::of<int8_t>(), int8_t{0});
+            case TensorElementType::FP4:
+                // fp4 (e2m1) zero: 0 (carried as uint8; cast to fp4 by caller).
+                return _fb->literal(Type::of<uint8_t>(), uint8_t{0});
         }
         LUISA_ERROR_WITH_LOCATION("Unsupported tensor element type.");
     }
@@ -1892,6 +2009,34 @@ private:
 
     // identity element of a TileReduceOp for the given dtype
     [[nodiscard]] const Expression *_reduce_identity(TileReduceOp op, TensorElementType e) const {
+        // Quantized dtypes reduce in their compute type (float for FP8/FP4,
+        // int for I4); materialize the identity in that type.
+        if (_is_quantized_dtype(e)) {
+            auto comp_t = _compute_type(e);
+            switch (op) {
+                case TileReduceOp::SUM:
+                case TileReduceOp::ABS_SUM:
+                case TileReduceOp::BIT_OR:
+                case TileReduceOp::BIT_XOR:
+                    return comp_t->is_float() ? _fb->literal(comp_t, 0.f)
+                                             : _fb->literal(comp_t, 0);
+                case TileReduceOp::MAX:
+                case TileReduceOp::ABS_MAX:
+                    return comp_t->is_float()
+                               ? _fb->literal(comp_t, std::numeric_limits<float>::lowest())
+                               : _fb->literal(comp_t, std::numeric_limits<int>::min());
+                case TileReduceOp::MIN:
+                    return comp_t->is_float()
+                               ? _fb->literal(comp_t, std::numeric_limits<float>::max())
+                               : _fb->literal(comp_t, std::numeric_limits<int>::max());
+                case TileReduceOp::BIT_AND:
+                    if (comp_t->is_int()) { return _fb->literal(comp_t, -1); }
+                    break;
+            }
+            LUISA_ERROR_WITH_LOCATION(
+                "tile_to_kernel: reduce op {} has no identity for quantized dtype {}.",
+                static_cast<uint32_t>(op), tensor_element_type_name(e));
+        }
         switch (op) {
             case TileReduceOp::SUM:
             case TileReduceOp::ABS_SUM:
@@ -1904,6 +2049,7 @@ private:
                     case TensorElementType::F16: return _fb->literal(Type::of<half>(), half{-65504.f});
                     case TensorElementType::F32: return _fb->literal(Type::of<float>(), std::numeric_limits<float>::lowest());
                     case TensorElementType::I32: return _fb->literal(Type::of<int>(), std::numeric_limits<int>::min());
+                    case TensorElementType::I8: return _fb->literal(Type::of<byte>(), byte{static_cast<int8_t>(-128)});
                     default: break;
                 }
                 break;
@@ -1912,11 +2058,13 @@ private:
                     case TensorElementType::F16: return _fb->literal(Type::of<half>(), half{65504.f});
                     case TensorElementType::F32: return _fb->literal(Type::of<float>(), std::numeric_limits<float>::max());
                     case TensorElementType::I32: return _fb->literal(Type::of<int>(), std::numeric_limits<int>::max());
+                    case TensorElementType::I8: return _fb->literal(Type::of<byte>(), byte{static_cast<int8_t>(127)});
                     default: break;
                 }
                 break;
             case TileReduceOp::BIT_AND:
                 if (e == TensorElementType::I32) { return _fb->literal(Type::of<int>(), -1); }
+                if (e == TensorElementType::I8) { return _fb->literal(Type::of<byte>(), byte{static_cast<int8_t>(-1)}); }
                 break;
         }
         LUISA_ERROR_WITH_LOCATION(
@@ -1926,6 +2074,93 @@ private:
 
     [[nodiscard]] const Expression *_maybe_cast(const Expression *v, const Type *t) const noexcept {
         return v->type() == t ? v : _fb->cast(t, CastOp::STATIC, v);
+    }
+
+    // Widen a quantized element value to its compute type for arithmetic:
+    //   FP8 / FP4  -> float (bit-cast bytes are reinterpreted; the cast
+    //                is a static reinterpret of the storage bits — for the
+    //                tile lowering the device-side value is already in the
+    //                quantized encoding, and arithmetic is done in float).
+    //   I4         -> int.
+    // When the source already has the compute type, return as-is.
+    [[nodiscard]] const Expression *_widen(const Expression *v, TensorElementType e) const noexcept {
+        if (!_is_quantized_dtype(e)) { return v; }
+        return _maybe_cast(v, _compute_type(e));
+    }
+
+    // Narrow a compute-type value back to the quantized element type for
+    // storage.  Mirrors _widen (the static cast truncates/reinterprets).
+    [[nodiscard]] const Expression *_narrow(const Expression *v, TensorElementType e) const noexcept {
+        if (!_is_quantized_dtype(e)) { return v; }
+        return _maybe_cast(v, tensor_element_type(e));
+    }
+
+    // ---- sub-byte (4-bit) pack / unpack ---------------------------------
+    // I4 / FP4 are 4-bit values packed 2-per-byte.  Storage is a byte array
+    // (int8 for I4, uint8 for FP4); element `idx` lives in byte `idx/2`, in
+    // the low nibble when `idx` is even, the high nibble when `idx` is odd.
+    //   read:  (byte[idx/2] >> ((idx&1)*4)) & 0x0f
+    //   write: byte[idx/2] = (byte[idx/2] & mask) | (nibble << shift)
+    // where mask clears the target nibble.  The value carried in / out is
+    // the 4-bit pattern stored in an i8/u8 (0..15); interpretation (sign,
+    // e2m1) is up to the compute-type arithmetic.
+    [[nodiscard]] const Type *_sub_byte_storage_type(TensorElementType e) const noexcept {
+        // I4 packs into int8 bytes; FP4 into uint8 bytes.
+        return e == TensorElementType::I4 ? Type::of<int8_t>() : Type::of<uint8_t>();
+    }
+
+    // Extract the 4-bit nibble at element index `elem_idx` from the byte
+    // storage `byte_val` (an Expression of the storage byte type).
+    [[nodiscard]] const Expression *_sub_byte_unpack(TensorElementType e,
+                                                     const Expression *byte_val,
+                                                     const Expression *elem_idx) const noexcept {
+        // Widen the byte to int for the shift/mask arithmetic, then narrow back.
+        auto b = Expr<int>{_maybe_cast(byte_val, Type::of<int>())};
+        auto shift_expr = (Expr<uint>{elem_idx} & 1u) * 4u;
+        auto nibble = (b >> Expr<int>{_fb->cast(Type::of<int>(), CastOp::STATIC, shift_expr.expression())}) & 0x0f;
+        return _maybe_cast(nibble.expression(), _sub_byte_storage_type(e));
+    }
+
+    // Pack the low 4 bits of `value` into byte storage `byte_val` at element
+    // index `elem_idx`, returning the updated byte value (read-modify-write).
+    [[nodiscard]] const Expression *_sub_byte_pack(TensorElementType e,
+                                                   const Expression *byte_val,
+                                                   const Expression *elem_idx,
+                                                   const Expression *value) const noexcept {
+        auto b = Expr<int>{_maybe_cast(byte_val, Type::of<int>())};
+        auto v = Expr<int>{_maybe_cast(value, Type::of<int>())} & 0x0f;
+        auto shift_expr = (Expr<uint>{elem_idx} & 1u) * 4u;
+        auto shift = Expr<int>{_fb->cast(Type::of<int>(), CastOp::STATIC, shift_expr.expression())};
+        auto cleared = b & ~(0x0f << shift);
+        auto packed = cleared | (v << shift);
+        return _maybe_cast(packed.expression(), _sub_byte_storage_type(e));
+    }
+
+    // Read one sub-byte element from the storage backing (byte array) at
+    // element index `elem_idx`.  `read_byte(idx)` is a callable returning the
+    // byte Expression at byte index `idx`.
+    template<typename ReadByte>
+    [[nodiscard]] const Expression *_sub_byte_read(TensorElementType e,
+                                                   const Expression *elem_idx,
+                                                   ReadByte &&read_byte) const noexcept {
+        auto byte_idx = (Expr<uint>{elem_idx} >> 1u).expression();
+        auto byte_val = read_byte(byte_idx);
+        return _sub_byte_unpack(e, byte_val, elem_idx);
+    }
+
+    // Write one sub-byte element into the storage backing (byte array) at
+    // element index `elem_idx`.  `read_byte(idx)` / `write_byte(idx, val)`
+    // are callables for the backing byte storage.
+    template<typename ReadByte, typename WriteByte>
+    void _sub_byte_write(TensorElementType e,
+                         const Expression *elem_idx,
+                         const Expression *value,
+                         ReadByte &&read_byte,
+                         WriteByte &&write_byte) const noexcept {
+        auto byte_idx = (Expr<uint>{elem_idx} >> 1u).expression();
+        auto old_byte = read_byte(byte_idx);
+        auto new_byte = _sub_byte_pack(e, old_byte, elem_idx, value);
+        write_byte(byte_idx, new_byte);
     }
 
     // ---- storage resolution --------------------------------------------------
@@ -2112,10 +2347,39 @@ private:
             }
         }
         if (auto *st = _try_storage(t)) {
-            // fp8 has no C++ scalar type: keep the dtype-erased raw access
-            // (byte storage + later cast to the fp8 element type).
-            if (st->dtype == TensorElementType::FP8) {
+            // Quantized dtypes (FP8 / I4 / FP4) have no C++ scalar type: keep
+            // the dtype-erased raw access (byte storage + later cast/widening
+            // to the element / compute type).
+            if (_is_quantized_dtype(st->dtype)) {
                 auto elem_t = tensor_element_type(st->dtype);
+                // Sub-byte dtypes (I4 / FP4): 4-bit values packed 2-per-byte.
+                // Read byte[idx/2], then shift/mask the target nibble.
+                if (_is_sub_byte_dtype(st->dtype)) {
+                    auto byte_t = _sub_byte_storage_type(st->dtype);
+                    switch (st->scope) {
+                        case TensorScope::Global: {
+                            auto elem_idx = _global_index(t, c);
+                            return _sub_byte_read(st->dtype, elem_idx, [&](const Expression *bi) {
+                                return _fb->call(byte_t, CallOp::BUFFER_READ, {st->buffer, bi});
+                            });
+                        }
+                        case TensorScope::Shared: {
+                            auto elem_idx = _local_index(t, c);
+                            return _sub_byte_read(st->dtype, elem_idx, [&](const Expression *bi) {
+                                return _fb->access(byte_t, st->shared, bi);
+                            });
+                        }
+                        case TensorScope::Fragment: {
+                            auto elem_idx = _local_index(t, c);
+                            auto ref = st->shared != nullptr ? st->shared : st->fragment;
+                            return _sub_byte_read(st->dtype, elem_idx, [&](const Expression *bi) {
+                                return _fb->access(byte_t, ref, bi);
+                            });
+                        }
+                    }
+                    LUISA_ERROR_WITH_LOCATION("Invalid tensor scope.");
+                }
+                // FP8: 1 byte per element, no sub-byte packing.
                 switch (st->scope) {
                     case TensorScope::Global: {
                         auto idx = _global_index(t, c);
@@ -2168,9 +2432,62 @@ private:
     void _write_to(const TensorExpr *t, const Coord &c, const Expression *value) {
         auto &st = _storage_for(t);
         auto elem_t = tensor_element_type(st.dtype);
-        value = _maybe_cast(value, elem_t);
-        if (st.dtype == TensorElementType::FP8) {
-            // dtype-erased raw path (fp8 has no C++ scalar type)
+        // For sub-byte dtypes, skip the cast to the element type (INT4/FP4
+        // are metadata tags; the actual packing operates on bytes + int32).
+        if (!_is_sub_byte_dtype(st.dtype)) {
+            value = _maybe_cast(value, elem_t);
+        }
+        if (_is_quantized_dtype(st.dtype)) {
+            // Sub-byte dtypes (I4 / FP4): read-modify-write the packed byte.
+            if (_is_sub_byte_dtype(st.dtype)) {
+                auto byte_t = _sub_byte_storage_type(st.dtype);
+                switch (st.scope) {
+                    case TensorScope::Global: {
+                        auto elem_idx = _global_index(t, c);
+                        auto do_write = [&] {
+                            _sub_byte_write(st.dtype, elem_idx, value,
+                                [&](const Expression *bi) {
+                                    return _fb->call(byte_t, CallOp::BUFFER_READ, {st.buffer, bi});
+                                },
+                                [&](const Expression *bi, const Expression *v) {
+                                    _fb->call(CallOp::BUFFER_WRITE, {st.buffer, bi, v});
+                                });
+                        };
+                        if (_batching) {
+                            if_(Expr<bool>{_batch_valid}, do_write);
+                        } else {
+                            do_write();
+                        }
+                        break;
+                    }
+                    case TensorScope::Shared: {
+                        auto elem_idx = _local_index(t, c);
+                        _sub_byte_write(st.dtype, elem_idx, value,
+                            [&](const Expression *bi) {
+                                return _fb->access(byte_t, st.shared, bi);
+                            },
+                            [&](const Expression *bi, const Expression *v) {
+                                _fb->assign(_fb->access(byte_t, st.shared, bi), v);
+                            });
+                        break;
+                    }
+                    case TensorScope::Fragment: {
+                        auto elem_idx = _local_index(t, c);
+                        auto ref = st.shared != nullptr ? st.shared : st.fragment;
+                        _sub_byte_write(st.dtype, elem_idx, value,
+                            [&](const Expression *bi) {
+                                return _fb->access(byte_t, ref, bi);
+                            },
+                            [&](const Expression *bi, const Expression *v) {
+                                _fb->assign(_fb->access(byte_t, ref, bi), v);
+                            });
+                        break;
+                    }
+                }
+                return;
+            }
+            // FP8: 1 byte per element, no sub-byte packing.
+            // dtype-erased raw path (quantized dtypes have no C++ scalar type)
             switch (st.scope) {
                 case TensorScope::Global: {
                     auto idx = _global_index(t, c);
@@ -4352,9 +4669,16 @@ private:
                     Coord cc = _zero_coord();
                     cc[0] = r;
                     cc[1] = (Expr<uint>{cb} + u).expression();
-                    v[u] = with_elem_type(src->dtype(), [&]<typename T>() -> const Expression * {
-                        return Var<T>{Expr<T>{_value_at(src, cc)}}.expression();
-                    });
+                    v[u] = _is_quantized_dtype(src->dtype())
+                               ? [&]() -> const Expression * {
+                                     auto elem_t = tensor_element_type(src->dtype());
+                                     auto tmp = _fb->local(elem_t);
+                                     _fb->assign(tmp, _value_at(src, cc));
+                                     return tmp;
+                                 }()
+                               : with_elem_type(src->dtype(), [&]<typename T>() -> const Expression * {
+                                     return Var<T>{Expr<T>{_value_at(src, cc)}}.expression();
+                                 });
                 }
                 for (uint32_t u = 0u; u < chunk; ++u) {
                     Coord cc = _zero_coord();
@@ -4795,6 +5119,12 @@ private:
         st.scope = t->scope();
         st.dtype = t->dtype();
         auto elem_t = tensor_element_type(t->dtype());
+        // Sub-byte dtypes (I4 / FP4) allocate byte storage (2 elements per
+        // byte); the element Type tag is only a metadata marker, the actual
+        // backing array uses the byte type.
+        auto storage_elem_t = _is_sub_byte_dtype(t->dtype())
+                                  ? _sub_byte_storage_type(t->dtype())
+                                  : elem_t;
         switch (t->scope()) {
             case TensorScope::Global:
                 // one Buffer<T> kernel argument per Global tensor (AllocStmt order)
@@ -4804,13 +5134,15 @@ private:
                     case TensorElementType::I32: st.buffer = _fb->buffer(Type::of<Buffer<int>>()); break;
                     case TensorElementType::I8: st.buffer = _fb->buffer(Type::of<Buffer<byte>>()); break;
                     case TensorElementType::FP8: st.buffer = _fb->buffer(Type::from("buffer<float8e4m3>")); break;
+                    // Sub-byte dtypes (I4/FP4) use byte buffer storage (2
+                    // elements packed per byte); the element Type tag is a
+                    // metadata marker, the backing buffer holds bytes.
+                    case TensorElementType::I4: st.buffer = _fb->buffer(Type::from("buffer<byte>")); break;
+                    case TensorElementType::FP4: st.buffer = _fb->buffer(Type::from("buffer<ubyte>")); break;
                     default:
-                        // I4 / FP4 are 4-bit sub-byte dtypes with no core
-                        // element Type: reject instead of mis-allocating.
                         LUISA_ERROR_WITH_LOCATION(
                             "tile_to_kernel: tensor element type {} is not "
-                            "lowerable to a kernel buffer (no core element "
-                            "Type for 4-bit dtypes).",
+                            "lowerable to a kernel buffer.",
                             tensor_element_type_name(t->dtype()));
                 }
                 break;
@@ -4819,6 +5151,8 @@ private:
                   if (n == 0u) [[unlikely]] {
                       LUISA_ERROR_WITH_LOCATION("Shared tile allocation with zero elements: {}", t->describe());
                   }
+                  // Sub-byte packing: 2 elements per byte -> ceil(n/2) bytes.
+                  if (_is_sub_byte_dtype(t->dtype())) { n = (n + 1u) / 2u; }
                   // With batching the shared array holds one slice per batch item
                   // (B_z * n); _local_index adds the tid_z slice on access.
                   auto alloc_n = _batching ? n * _batch_block_z : n;
@@ -4828,7 +5162,7 @@ private:
                   if (auto slots = _stage_slots_of(t); slots != 0u) {
                       alloc_n *= slots;
                   }
-                  st.shared = _fb->shared(Type::array(elem_t, alloc_n));
+                  st.shared = _fb->shared(Type::array(storage_elem_t, alloc_n));
                   st.array_size = alloc_n;
                   break;
               }
@@ -4837,6 +5171,8 @@ private:
               if (n == 0u) [[unlikely]] {
                   LUISA_ERROR_WITH_LOCATION("Fragment tile allocation with zero elements: {}", t->describe());
               }
+              // Sub-byte packing: 2 elements per byte -> ceil(n/2) bytes.
+              if (_is_sub_byte_dtype(t->dtype())) { n = (n + 1u) / 2u; }
               if (n >= kFragmentSharedThreshold || _is_forced_shared_fragment(t)) {
                   // Large fragment (or a GEMM accumulator forced by
                   // _prescan_gemm_fragments): back it with a block-shared
@@ -4846,10 +5182,10 @@ private:
                   // _is_fragment_shared_backed.  With batching
                   // the array is B_z * n (one slice per batch item).
                   auto alloc_n = _batching ? n * _batch_block_z : n;
-                  st.shared = _fb->shared(Type::array(elem_t, alloc_n));
+                  st.shared = _fb->shared(Type::array(storage_elem_t, alloc_n));
                   st.array_size = alloc_n;
               } else {
-                  st.fragment = _fb->local(Type::array(elem_t, n));
+                  st.fragment = _fb->local(Type::array(storage_elem_t, n));
                   st.array_size = n;
               }
               break;
@@ -4971,9 +5307,16 @@ private:
                         Coord cc = _zero_coord();
                         cc[0] = r;
                         cc[1] = (Expr<uint>{cb} + u).expression();
-                        v[u] = with_elem_type(src->dtype(), [&]<typename T>() -> const Expression * {
-                            return Var<T>{Expr<T>{_value_at(src, cc)}}.expression();
-                        });
+                        v[u] = _is_quantized_dtype(src->dtype())
+                                   ? [&]() -> const Expression * {
+                                         auto elem_t = tensor_element_type(src->dtype());
+                                         auto tmp = _fb->local(elem_t);
+                                         _fb->assign(tmp, _value_at(src, cc));
+                                         return tmp;
+                                     }()
+                                   : with_elem_type(src->dtype(), [&]<typename T>() -> const Expression * {
+                                         return Var<T>{Expr<T>{_value_at(src, cc)}}.expression();
+                                     });
                     }
                     for (uint32_t u = 0u; u < chunk; ++u) {
                         Coord cc = _zero_coord();
@@ -5011,10 +5354,14 @@ private:
                       // DSL: staging[_staging_index(dst, c)] = cast(src[c], elem_t)
                       auto idx = Expr<uint>{_staging_index(dst, c)};
                       auto val = _maybe_cast(_value_at(src, c), elem_t);
-                      with_elem_type(dst->dtype(), [&]<typename T>() {
-                          Var<std::array<T, 1>> arr{staging};
-                          arr[idx] = Expr<T>{val};
-                      });
+                      if (_is_quantized_dtype(dst->dtype())) {
+                          _fb->assign(_fb->access(elem_t, staging, idx.expression()), val);
+                      } else {
+                          with_elem_type(dst->dtype(), [&]<typename T>() {
+                              Var<std::array<T, 1>> arr{staging};
+                              arr[idx] = Expr<T>{val};
+                          });
+                      }
                   });
                   _replicate_from_staging(dst, dst->dtype(), staging);
               } else {
@@ -5066,10 +5413,18 @@ private:
             if (s->op() == 1) {// lhs *= rhs (row-broadcast scale)
                 auto lhs_t = tensor_element_type(lhs->dtype());
                 rhs = _maybe_cast(rhs, lhs_t);
-                // DSL: lhs[c] * cast(rhs, elem_t)
-                rhs = with_elem_type(lhs->dtype(), [&]<typename T>() -> const Expression * {
-                    return (Expr<T>{_value_at(lhs, c)} * Expr<T>{rhs}).expression();
-                });
+                // Quantized: widen to compute type, multiply there.
+                if (_is_quantized_dtype(lhs->dtype())) {
+                    auto comp_t = _compute_type(lhs->dtype());
+                    auto lw = _maybe_cast(_value_at(lhs, c), comp_t);
+                    auto rw = _maybe_cast(rhs, comp_t);
+                    rhs = _fb->binary(comp_t, BinaryOp::MUL, lw, rw);
+                } else {
+                    // DSL: lhs[c] * cast(rhs, elem_t)
+                    rhs = with_elem_type(lhs->dtype(), [&]<typename T>() -> const Expression * {
+                        return (Expr<T>{_value_at(lhs, c)} * Expr<T>{rhs}).expression();
+                    });
+                }
             }
             _write_to(lhs, c, rhs);
         };
@@ -5151,6 +5506,45 @@ private:
                         "operands are not supported.");
                 }
                 r = _maybe_cast(r, elem_t);
+                // Quantized dtypes (FP8 / I4 / FP4) have no C++ scalar type:
+                // widen both operands to the compute type, perform the binary
+                // op there, and return the compute-type result.  The consumer
+                // (_write_to) narrows back to the storage element type.
+                if (_is_quantized_dtype(dtype)) {
+                    auto comp_t = _compute_type(dtype);
+                    auto lw = _maybe_cast(l, comp_t);
+                    auto rw = _maybe_cast(r, comp_t);
+                    switch (op) {
+                        case BinaryOp::ADD: return _fb->binary(comp_t, BinaryOp::ADD, lw, rw);
+                        case BinaryOp::SUB: return _fb->binary(comp_t, BinaryOp::SUB, lw, rw);
+                        case BinaryOp::MUL: return _fb->binary(comp_t, BinaryOp::MUL, lw, rw);
+                        case BinaryOp::DIV: return _fb->binary(comp_t, BinaryOp::DIV, lw, rw);
+                        case BinaryOp::MOD:
+                            if (comp_t->is_int()) {
+                                return _fb->binary(comp_t, BinaryOp::MOD, lw, rw);
+                            }
+                            break;
+                        case BinaryOp::BIT_AND:
+                            if (comp_t->is_int()) {
+                                return _fb->binary(comp_t, BinaryOp::BIT_AND, lw, rw);
+                            }
+                            break;
+                        case BinaryOp::BIT_OR:
+                            if (comp_t->is_int()) {
+                                return _fb->binary(comp_t, BinaryOp::BIT_OR, lw, rw);
+                            }
+                            break;
+                        case BinaryOp::BIT_XOR:
+                            if (comp_t->is_int()) {
+                                return _fb->binary(comp_t, BinaryOp::BIT_XOR, lw, rw);
+                            }
+                            break;
+                        default: break;
+                    }
+                    LUISA_ERROR_WITH_LOCATION(
+                        "tile_to_kernel: unsupported tile binary op {} for quantized dtype {}.",
+                        static_cast<uint32_t>(op), tensor_element_type_name(dtype));
+                }
                 // DSL: l OP r on the concrete element type
                 return with_elem_type(dtype, [&]<typename T>() -> const Expression * {
                     auto le = Expr<T>{l};
@@ -5191,6 +5585,13 @@ private:
             [this, s, a, dtype, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
                 auto bv = _maybe_cast(_recreate_literal(s->b()), elem_t);
+                // Quantized: widen to compute type, max there.
+                if (_is_quantized_dtype(dtype)) {
+                    auto comp_t = _compute_type(dtype);
+                    auto lw = _maybe_cast(av, comp_t);
+                    auto rw = _maybe_cast(bv, comp_t);
+                    return _fb->call(comp_t, CallOp::MAX, {lw, rw});
+                }
                 // DSL: max(a[c], cast(b_literal, elem_t))
                 return with_elem_type(dtype, [&]<typename T>() -> const Expression * {
                     return max(Expr<T>{av}, Expr<T>{bv}).expression();
@@ -5206,6 +5607,12 @@ private:
             dtype,
             [this, s, a, dtype, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
+                // Quantized: widen to float (rsqrt is float-only), compute there.
+                if (_is_quantized_dtype(dtype)) {
+                    auto comp_t = _compute_type(dtype);
+                    auto x = _maybe_cast(av, comp_t);
+                    return _fb->call(comp_t, CallOp::RSQRT, {x});
+                }
                 // DSL: rsqrt(a[c]) — floating element types only; integral
                 // tiles fall back to the dtype-erased call (never exercised
                 // by the tile IR, which only rsqrt's F16/F32 tiles).
@@ -5262,6 +5669,32 @@ private:
             dtype,
             [this, s, a, dtype, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
+                // Quantized dtypes (FP8 / I4 / FP4): widen to the compute type
+                // (float for FP8/FP4, int for I4) and run the fast-math op
+                // there via the dtype-erased CallOp path.  The result is in the
+                // compute type; the consumer narrows back on store.
+                if (_is_quantized_dtype(dtype)) {
+                    auto comp_t = _compute_type(dtype);
+                    auto x = _maybe_cast(av, comp_t);
+                    auto call = [&](CallOp op) { return _fb->call(comp_t, op, {x}); };
+                    switch (s->op()) {
+                        case TileFastMathOp::EXP: return call(CallOp::EXP);
+                        case TileFastMathOp::EXP10: return call(CallOp::EXP10);
+                        case TileFastMathOp::LOG: return call(CallOp::LOG);
+                        case TileFastMathOp::LOG2: return call(CallOp::LOG2);
+                        case TileFastMathOp::LOG10: return call(CallOp::LOG10);
+                        case TileFastMathOp::SIN: return call(CallOp::SIN);
+                        case TileFastMathOp::COS: return call(CallOp::COS);
+                        case TileFastMathOp::TAN: return call(CallOp::TAN);
+                        case TileFastMathOp::TANH: return call(CallOp::TANH);
+                        case TileFastMathOp::ERF: return _erf(x, comp_t);
+                        default:
+                            LUISA_ERROR_WITH_LOCATION(
+                                "tile_to_kernel: unsupported fast math op {} for quantized dtype {}.",
+                                static_cast<uint32_t>(s->op()),
+                                tensor_element_type_name(dtype));
+                    }
+                }
                 // DSL: exp/exp10/log/log2/log10/sin/cos/tan/tanh on Expr<T>
                 return with_elem_type(dtype, [&]<typename T>() -> const Expression * {
                     auto x = Expr<T>{av};
@@ -5322,6 +5755,38 @@ private:
                 // differ, so keep the dtype-erased cast expression.
                 if (s->op() == TileIeeeOp::CAST) {
                     return _fb->cast(result_elem_t, CastOp::STATIC, av);
+                }
+                // Quantized source dtype (FP8 / I4 / FP4): widen to the compute
+                // type and run the ieee-math op via the dtype-erased CallOp
+                // path.  The result is in the compute type.
+                if (_is_quantized_dtype(dtype)) {
+                    auto comp_t = _compute_type(dtype);
+                    auto x = _maybe_cast(av, comp_t);
+                    auto call = [&](CallOp op) { return _fb->call(comp_t, op, {x}); };
+                    switch (s->op()) {
+                        case TileIeeeOp::SQRT:
+                        case TileIeeeOp::FSQRT: return call(CallOp::SQRT);
+                        case TileIeeeOp::POW: {
+                            LUISA_ASSERT(b != nullptr,
+                                         "tile_to_kernel: ieee POW requires a second input tensor (b).");
+                            auto bv = _maybe_cast(_value_at(b, c), comp_t);
+                            return _fb->call(comp_t, CallOp::POW, {x, bv});
+                        }
+                        case TileIeeeOp::CEIL: return call(CallOp::CEIL);
+                        case TileIeeeOp::FLOOR: return call(CallOp::FLOOR);
+                        case TileIeeeOp::ROUND: return call(CallOp::ROUND);
+                        case TileIeeeOp::ISINF:
+                        case TileIeeeOp::ISNAN:
+                            return _fb->cast(comp_t, CastOp::STATIC,
+                                             _fb->call(Type::of<bool>(),
+                                                       s->op() == TileIeeeOp::ISINF ? CallOp::ISINF : CallOp::ISNAN,
+                                                       {x}));
+                        default:
+                            LUISA_ERROR_WITH_LOCATION(
+                                "tile_to_kernel: unsupported ieee math op {} for quantized dtype {}.",
+                                static_cast<uint32_t>(s->op()),
+                                tensor_element_type_name(dtype));
+                    }
                 }
                 // DSL form of the remaining ops on the result element type
                 // (for ISINF/ISNAN the result dtype equals the source dtype).
@@ -5487,10 +5952,13 @@ private:
         const RefExpr *staging = frag_out ? _staging_for(y, out_t) : nullptr;
         if (frag_out) { _sync_block(); }// staging write-after-read hazard
         // The element arithmetic is dtype-generic (runtime tag), so the whole
-        // device body is written in the DSL sugar inside with_elem_type:
+        // device body is written in the DSL sugar inside with_compute_type:
+        // for quantized dtypes T is the compute type (float/int) and the
+        // result is narrowed on write; for typed dtypes this is the element
+        // type itself.
         //   Var<T> acc = identity; $for (...) { ...; acc = combine(op, acc, v); }
         //   total = warp_reduce_typed<T>(op, acc); ...
-        with_elem_type(x->dtype(), [&]<typename T>() {
+        with_compute_type(x->dtype(), [&]<typename T>() {
             auto identity_v = [&]() -> const Expression * {
                 return _reduce_identity(op, x->dtype());
             };
@@ -5565,10 +6033,14 @@ private:
                             if (frag_out) {
                         auto sidx = Expr<uint>{_staging_index(y, yc)};
                                 auto bcast = _maybe_cast(block, out_t);
-                                with_elem_type(y->dtype(), [&]<typename U>() {
-                                    Var<std::array<U, 1>> arr{staging};
-                                    arr[sidx] = Expr<U>{bcast};
-                                });
+                                if (_is_quantized_dtype(y->dtype())) {
+                                    _fb->assign(_fb->access(out_t, staging, sidx.expression()), bcast);
+                                } else {
+                                    with_elem_type(y->dtype(), [&]<typename U>() {
+                                        Var<std::array<U, 1>> arr{staging};
+                                        arr[sidx] = Expr<U>{bcast};
+                                    });
+                                }
                             } else {
                                 _write_to(y, yc, block);
                             }
@@ -5637,14 +6109,18 @@ private:
                  }
                  auto total = _warp_reduce_typed<T>(op, acc.expression());
                  auto is_lane0 = (Expr<uint>{lane} == 0u).expression();
-                 if_(Expr<bool>{is_lane0}, [&] {
+                    if_(Expr<bool>{is_lane0}, [&] {
                      if (frag_out) {
                          auto sidx = Expr<uint>{_staging_index(y, yc)};
                          auto tcast = _maybe_cast(total, out_t);
-                         with_elem_type(y->dtype(), [&]<typename U>() {
-                             Var<std::array<U, 1>> arr{staging};
-                             arr[sidx] = Expr<U>{tcast};
-                         });
+                         if (_is_quantized_dtype(y->dtype())) {
+                             _fb->assign(_fb->access(out_t, staging, sidx.expression()), tcast);
+                         } else {
+                             with_elem_type(y->dtype(), [&]<typename U>() {
+                                 Var<std::array<U, 1>> arr{staging};
+                                 arr[sidx] = Expr<U>{tcast};
+                             });
+                         }
                      } else {
                          _write_to(y, yc, total);
                      }
@@ -5958,10 +6434,14 @@ private:
                         if (frag) {
                             auto sidx = Expr<uint>{_staging_index(c, cc)};
                             auto cval = _maybe_cast(acc[i * ksplit_TN + j].expression(), out_t);
-                            with_elem_type(c->dtype(), [&]<typename U>() {
-                                Var<std::array<U, 1>> s{staging};
-                                s[sidx] = Expr<U>{cval};
-                            });
+                            if (_is_quantized_dtype(c->dtype())) {
+                                _fb->assign(_fb->access(out_t, staging, sidx.expression()), cval);
+                            } else {
+                                with_elem_type(c->dtype(), [&]<typename U>() {
+                                    Var<std::array<U, 1>> s{staging};
+                                    s[sidx] = Expr<U>{cval};
+                                });
+                            }
                         } else {
                             _write_to(c, cc, acc[i * ksplit_TN + j].expression());
                         }
@@ -6227,10 +6707,14 @@ private:
                                     auto cval = _maybe_cast(acc[i * TN + j].expression(), out_t);
                                     // DSL staging write (output dtype may be half):
                                     //   Var<std::array<U,1>> s{staging}; s[idx] = cast(value, U)
-                                    with_elem_type(c->dtype(), [&]<typename U>() {
-                                        Var<std::array<U, 1>> s{staging};
-                                        s[sidx] = Expr<U>{cval};
-                                    });
+                                    if (_is_quantized_dtype(c->dtype())) {
+                                        _fb->assign(_fb->access(out_t, staging, sidx.expression()), cval);
+                                    } else {
+                                        with_elem_type(c->dtype(), [&]<typename U>() {
+                                            Var<std::array<U, 1>> s{staging};
+                                            s[sidx] = Expr<U>{cval};
+                                        });
+                                    }
                                 } else {
                                     _write_to(c, cc, _maybe_cast(acc[i * TN + j].expression(), out_t));
                                 }
@@ -6361,10 +6845,14 @@ private:
                         auto cval = _maybe_cast(acc[i * TN + j].expression(), out_t);
                         // DSL staging write (output dtype may be half):
                         //   Var<std::array<U,1>> s{staging}; s[idx] = cast(value, U)
-                        with_elem_type(c->dtype(), [&]<typename U>() {
-                            Var<std::array<U, 1>> s{staging};
-                            s[sidx] = Expr<U>{cval};
-                        });
+                        if (_is_quantized_dtype(c->dtype())) {
+                            _fb->assign(_fb->access(out_t, staging, sidx.expression()), cval);
+                        } else {
+                            with_elem_type(c->dtype(), [&]<typename U>() {
+                                Var<std::array<U, 1>> s{staging};
+                                s[sidx] = Expr<U>{cval};
+                            });
+                        }
                     } else {
                         _write_to(c, cc, acc[i * TN + j].expression());
                     }
@@ -6693,13 +7181,16 @@ private:
             _invalidate_lazy(dst);
         } else if ((src->scope() == TensorScope::Global || dst->scope() == TensorScope::Global) &&
                    tile_element_count(ext) >= 64u &&
-                   _pipeline_var == nullptr && !_batching) {
+                   _pipeline_var == nullptr && !_batching &&
+                   !_is_quantized_dtype(ext->dtype())) {
             // Staged tiled transpose (plan 2.14): coalesced read of the src
             // tile into a shared staging tile, sync, then coalesced write of
             // the transposed tile to dst.  This replaces the strided global
             // read/write pattern for non-tiny Global operands.  The internal
             // sync covers the staging hazard; cross-statement hazards are
             // covered by _emit's trailing barrier logic via the operand scopes.
+            // Skipped for quantized dtypes (no C++ scalar type for the typed
+            // Shared<T> staging); the partition-loop fallback below handles them.
             // DSL: Shared<T> staging{n} (element type is the runtime tag, so
             // the whole staged block is dtype-generic inside with_elem_type).
             with_elem_type(ext->dtype(), [&]<typename T>() {
@@ -6755,16 +7246,30 @@ private:
             if (s->lo_literal() != nullptr) { lo = _maybe_cast(_recreate_literal(s->lo_literal()), elem_t); }
             if (s->hi_literal() != nullptr) { hi = _maybe_cast(_recreate_literal(s->hi_literal()), elem_t); }
             auto clamped = v;
-            // DSL: max/min on the concrete element type
-            if (lo != nullptr) {
-                clamped = with_elem_type(dst->dtype(), [&]<typename T>() -> const Expression * {
-                    return max(Expr<T>{clamped}, Expr<T>{lo}).expression();
-                });
-            }
-            if (hi != nullptr) {
-                clamped = with_elem_type(dst->dtype(), [&]<typename T>() -> const Expression * {
-                    return min(Expr<T>{clamped}, Expr<T>{hi}).expression();
-                });
+            // Quantized: widen to compute type, clamp there.
+            if (_is_quantized_dtype(dst->dtype())) {
+                auto comp_t = _compute_type(dst->dtype());
+                clamped = _maybe_cast(clamped, comp_t);
+                if (lo != nullptr) {
+                    auto lw = _maybe_cast(lo, comp_t);
+                    clamped = _fb->call(comp_t, CallOp::MAX, {clamped, lw});
+                }
+                if (hi != nullptr) {
+                    auto hw = _maybe_cast(hi, comp_t);
+                    clamped = _fb->call(comp_t, CallOp::MIN, {clamped, hw});
+                }
+            } else {
+                // DSL: max/min on the concrete element type
+                if (lo != nullptr) {
+                    clamped = with_elem_type(dst->dtype(), [&]<typename T>() -> const Expression * {
+                        return max(Expr<T>{clamped}, Expr<T>{lo}).expression();
+                    });
+                }
+                if (hi != nullptr) {
+                    clamped = with_elem_type(dst->dtype(), [&]<typename T>() -> const Expression * {
+                        return min(Expr<T>{clamped}, Expr<T>{hi}).expression();
+                    });
+                }
             }
             _write_to(dst, c, clamped);
         };
@@ -7027,8 +7532,9 @@ private:
             const uint32_t seg_len = (scan_len + seg_count - 1u) / seg_count;
             const uint32_t seg_chunks = (seg_len + 32u - 1u) / 32u;// lanes pinned to 32
             // The element arithmetic is dtype-generic (runtime tag), so the
-            // device body is written in the DSL sugar inside with_elem_type.
-            with_elem_type(src->dtype(), [&]<typename T>() {
+            // device body is written in the DSL sugar inside with_compute_type
+            // (compute type for quantized dtypes, element type otherwise).
+            with_compute_type(src->dtype(), [&]<typename T>() {
                 // DSL shared workspaces (element type T)
                 Shared<T> totals_s{seg_count};
                 Shared<T> prefix_s{seg_count};
@@ -7127,10 +7633,14 @@ private:
                                  auto res_cast = _maybe_cast(res, out_t);
                                  // DSL staging write (dst dtype may differ):
                                  //   Var<std::array<U,1>> s{staging}; s[idx] = cast(res, U)
-                                 with_elem_type(dst->dtype(), [&]<typename U>() {
-                                     Var<std::array<U, 1>> s{staging};
-                                     s[sidx] = Expr<U>{res_cast};
-                                 });
+                                 if (_is_quantized_dtype(dst->dtype())) {
+                                     _fb->assign(_fb->access(out_t, staging, sidx.expression()), res_cast);
+                                 } else {
+                                     with_elem_type(dst->dtype(), [&]<typename U>() {
+                                         Var<std::array<U, 1>> s{staging};
+                                         s[sidx] = Expr<U>{res_cast};
+                                     });
+                                 }
                              } else {
                                  _write_to(dst, scc, res);
                              }
@@ -7142,10 +7652,14 @@ private:
                                      auto res_cast = _maybe_cast(res, out_t);
                                      // DSL staging write (dst dtype may differ):
                                      //   Var<std::array<U,1>> s{staging}; s[idx] = cast(res, U)
-                                     with_elem_type(dst->dtype(), [&]<typename U>() {
-                                         Var<std::array<U, 1>> s{staging};
-                                         s[sidx] = Expr<U>{res_cast};
-                                     });
+                                     if (_is_quantized_dtype(dst->dtype())) {
+                                         _fb->assign(_fb->access(out_t, staging, sidx.expression()), res_cast);
+                                     } else {
+                                         with_elem_type(dst->dtype(), [&]<typename U>() {
+                                             Var<std::array<U, 1>> s{staging};
+                                             s[sidx] = Expr<U>{res_cast};
+                                         });
+                                     }
                                  } else {
                                      _write_to(dst, scc, res);
                                  }
@@ -7215,7 +7729,7 @@ private:
             return;
         }
         // ---- normal warp-per-line scan (existing path) ----
-        with_elem_type(src->dtype(), [&]<typename T>() {
+        with_compute_type(src->dtype(), [&]<typename T>() {
             for (auto _range_i_ : dynamic_range(Expr<uint>{_literal_u(0u)}, Expr<uint>{line_iters}, Expr<uint>{_literal_u(1u)})) {
                 [&](const Expression *li) {
          // DSL: line = li * nw + warp
@@ -7293,10 +7807,14 @@ private:
                      if (frag_out) {
                          auto sidx = Expr<uint>{_staging_index(dst, cc)};
                          auto res_cast = _maybe_cast(res, out_t);
-                         with_elem_type(dst->dtype(), [&]<typename U>() {
-                             Var<std::array<U, 1>> s{staging};
-                             s[sidx] = Expr<U>{res_cast};
-                         });
+                         if (_is_quantized_dtype(dst->dtype())) {
+                             _fb->assign(_fb->access(out_t, staging, sidx.expression()), res_cast);
+                         } else {
+                             with_elem_type(dst->dtype(), [&]<typename U>() {
+                                 Var<std::array<U, 1>> s{staging};
+                                 s[sidx] = Expr<U>{res_cast};
+                             });
+                         }
                      } else {
                          _write_to(dst, cc, res);
                      }
@@ -7356,8 +7874,9 @@ private:
         auto truth_at = [&](const Coord &c) {
             auto v = _value_at(buf, c);
             const Expression *truth = nullptr;
-            if (buf->dtype() == TensorElementType::FP8) {
-                // fp8 has no C++ scalar type: keep the dtype-erased raw compare
+            if (_is_quantized_dtype(buf->dtype())) {
+                // quantized dtypes have no C++ scalar type: keep the dtype-erased
+                // raw compare (compare against the zero bit pattern).
                 truth = _fb->binary(Type::of<bool>(), BinaryOp::NOT_EQUAL,
                                     v, _maybe_cast(_zero_of(buf->dtype()), elem_t));
             } else {
@@ -7460,8 +7979,9 @@ private:
                     "regular-kernel lowering.",
                     static_cast<uint32_t>(s->op()));
         }
-        if (v->dtype() == TensorElementType::FP8) {
-            // fp8 has no C++ scalar type: keep the dtype-erased raw path
+        if (_is_quantized_dtype(v->dtype())) {
+            // quantized dtypes have no C++ scalar type: keep the dtype-erased
+            // raw path (warp_read_lane is a transport op — no arithmetic).
             auto tmp = _fb->local(elem_t);
             _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_READ_LANE, {val, peer}));
         } else {
@@ -7488,6 +8008,13 @@ private:
             [this, s, a, elem_t](const Coord &c) -> const Expression * {
                 auto av = _value_at(a, c);
                 auto bv = _maybe_cast(_recreate_literal(s->b()), elem_t);
+                // Quantized: widen to compute type, min there.
+                if (_is_quantized_dtype(a->dtype())) {
+                    auto comp_t = _compute_type(a->dtype());
+                    auto lw = _maybe_cast(av, comp_t);
+                    auto rw = _maybe_cast(bv, comp_t);
+                    return _fb->call(comp_t, CallOp::MIN, {lw, rw});
+                }
                 // DSL: min(a[c], cast(b_literal, elem_t))
                 return with_elem_type(a->dtype(), [&]<typename T>() -> const Expression * {
                     return min(Expr<T>{av}, Expr<T>{bv}).expression();
@@ -7507,6 +8034,12 @@ private:
         _temps[_tile->temp_output(s)] = TempValue{
             a->dtype(),
             [this, a](const Coord &c) -> const Expression * {
+                // Quantized: widen to compute type, abs there.
+                if (_is_quantized_dtype(a->dtype())) {
+                    auto comp_t = _compute_type(a->dtype());
+                    auto x = _maybe_cast(_value_at(a, c), comp_t);
+                    return _fb->call(comp_t, CallOp::ABS, {x});
+                }
                 // DSL: abs(a[c]) on the concrete element type
                 return with_elem_type(a->dtype(), [&]<typename T>() -> const Expression * {
                     return abs(Expr<T>{_value_at(a, c)}).expression();
@@ -7533,24 +8066,38 @@ private:
         auto saved = _current_extent;
         _current_extent = v;
         auto val = _value_at(v, _zero_coord());
-        if (v->dtype() == TensorElementType::FP8) {
-            // fp8 has no C++ scalar type: keep the dtype-erased raw path
-            auto tmp = _fb->local(elem_t);
+        if (_is_quantized_dtype(v->dtype())) {
+            // Quantized dtypes (FP8 / I4 / FP4) have no C++ scalar type and no
+            // native warp-collective: widen to the compute type, reduce there,
+            // and narrow the result back to the element type.
+            auto comp_t = _compute_type(v->dtype());
+            auto wv = _maybe_cast(val, comp_t);
+            auto tmp = _fb->local(comp_t);
             switch (s->op()) {
                 case TileWarpReduceOp::SUM:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_SUM, {val}));
+                    _fb->assign(tmp, _fb->call(comp_t, CallOp::WARP_ACTIVE_SUM, {wv}));
                     break;
                 case TileWarpReduceOp::MAX:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_MAX, {val}));
+                    _fb->assign(tmp, _fb->call(comp_t, CallOp::WARP_ACTIVE_MAX, {wv}));
                     break;
                 case TileWarpReduceOp::MIN:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_MIN, {val}));
+                    _fb->assign(tmp, _fb->call(comp_t, CallOp::WARP_ACTIVE_MIN, {wv}));
                     break;
                 case TileWarpReduceOp::BIT_AND:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_BIT_AND, {val}));
+                    if (comp_t->is_int()) {
+                        _fb->assign(tmp, _fb->call(comp_t, CallOp::WARP_ACTIVE_BIT_AND, {wv}));
+                    } else {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "tile_to_kernel: WARP_ACTIVE_BIT_AND requires an integral element type.");
+                    }
                     break;
                 case TileWarpReduceOp::BIT_OR:
-                    _fb->assign(tmp, _fb->call(elem_t, CallOp::WARP_ACTIVE_BIT_OR, {val}));
+                    if (comp_t->is_int()) {
+                        _fb->assign(tmp, _fb->call(comp_t, CallOp::WARP_ACTIVE_BIT_OR, {wv}));
+                    } else {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "tile_to_kernel: WARP_ACTIVE_BIT_OR requires an integral element type.");
+                    }
                     break;
                 default:
                     LUISA_ERROR_WITH_LOCATION("tile_to_kernel: invalid tile warp-reduce op.");

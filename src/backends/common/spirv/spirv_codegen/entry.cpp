@@ -44,6 +44,8 @@ namespace {
             return type->element() != nullptr;
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
         case Type::Tag::FLOAT16:
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:

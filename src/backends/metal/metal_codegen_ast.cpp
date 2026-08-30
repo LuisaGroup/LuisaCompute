@@ -272,8 +272,17 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage, bool sample
         case Type::Tag::FLOAT16: _scratch << "half"; break;
         case Type::Tag::FLOAT32: _scratch << "float"; break;
         case Type::Tag::FLOAT64: _scratch << "double"; break;
-        case Type::Tag::INT8: _scratch << "char"; break;
-        case Type::Tag::UINT8: _scratch << "uchar"; break;
+case Type::Tag::INT8: _scratch << "char"; break;
+case Type::Tag::UINT8: _scratch << "uchar"; break;
+// FP8 / I4 / FP4 have no Metal scalar type.  They are represented as
+// byte storage (char / uchar) on the host-device boundary; the tile
+// lowering handles pack/unpack.  These placeholders keep the type
+// switch exhaustive so the Metal backend compiles cleanly even though
+// standalone sub-byte typed buffers are not yet exercised on Metal.
+case Type::Tag::FLOAT8_E4M3:
+case Type::Tag::FLOAT8_E5M2:
+case Type::Tag::FP4_E2M1: _scratch << "uchar"; break;
+case Type::Tag::INT4: _scratch << "char"; break;
         case Type::Tag::INT16: _scratch << "short"; break;
         case Type::Tag::UINT16: _scratch << "ushort"; break;
         case Type::Tag::INT32: _scratch << "int"; break;

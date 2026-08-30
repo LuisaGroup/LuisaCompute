@@ -1446,6 +1446,11 @@ namespace detail {
     switch (c->type()->tag()) {
         case Type::Tag::INT8: return c->as<int8_t>();
         case Type::Tag::UINT8: return c->as<uint8_t>();
+        // FP8 / I4 / FP4 placeholders: evaluate as i8/u8.
+        case Type::Tag::INT4: return c->as<int8_t>();
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::FP4_E2M1: return c->as<uint8_t>();
         case Type::Tag::INT16: return c->as<int16_t>();
         case Type::Tag::UINT16: return c->as<uint16_t>();
         case Type::Tag::INT32: return c->as<int32_t>();

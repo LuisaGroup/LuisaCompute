@@ -69,6 +69,15 @@ CUDACodegenLLVMImpl::_get_llvm_type(const Type *type) noexcept {
                 auto llvm_i8_type = llvm::Type::getInt8Ty(_llvm_context);
                 return make_llvm_type_info(llvm_i8_type, llvm_i8_type, sizeof(int8_t), alignof(int8_t));
             }
+            // FP8 / I4 / FP4 placeholders: 8-bit storage (1 byte per element;
+            // sub-byte packing is handled in the tile lowering, not here).
+            case Type::Tag::FLOAT8_E4M3: [[fallthrough]];
+            case Type::Tag::FLOAT8_E5M2: [[fallthrough]];
+            case Type::Tag::INT4: [[fallthrough]];
+            case Type::Tag::FP4_E2M1: {
+                auto llvm_i8_type = llvm::Type::getInt8Ty(_llvm_context);
+                return make_llvm_type_info(llvm_i8_type, llvm_i8_type, sizeof(int8_t), alignof(int8_t));
+            }
             case Type::Tag::INT16: [[fallthrough]];
             case Type::Tag::UINT16: {
                 auto llvm_i16_type = llvm::Type::getInt16Ty(_llvm_context);

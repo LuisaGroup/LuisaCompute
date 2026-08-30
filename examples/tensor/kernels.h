@@ -29,6 +29,10 @@ using luisa::compute::tile::language::Tensor;
 using tile_f16 = luisa::compute::tile::half;
 using tile_f32 = luisa::compute::tile::float32;
 using tile_i32 = luisa::compute::tile::int32;
+using tile_i8 = luisa::compute::tile::int8;
+using tile_fp8 = luisa::compute::tile::fp8;
+using tile_i4 = luisa::compute::tile::int4;
+using tile_fp4 = luisa::compute::tile::fp4;
 
 // =============================================================================
 // Kernel function declarations
@@ -147,6 +151,28 @@ Tensor<tile_f32, 1> identity_kernel(Tensor<tile_f32, 1> A);
 
 // 39. reciprocal_kernel — RECIPROCAL
 Tensor<tile_f32, 1> reciprocal_kernel(Tensor<tile_f32, 1> A);
+
+// 41. dtype_copy_f16 — COPY / KERNEL_1D for TensorElementType::F16
+Tensor<tile_f16, 1> dtype_copy_f16(Tensor<tile_f16, 1> A);
+// 42. dtype_copy_f32 — COPY / KERNEL_1D for TensorElementType::F32
+Tensor<tile_f32, 1> dtype_copy_f32(Tensor<tile_f32, 1> A);
+// 43. dtype_copy_i32 — COPY / KERNEL_1D for TensorElementType::I32
+Tensor<tile_i32, 1> dtype_copy_i32(Tensor<tile_i32, 1> A);
+// 44. dtype_copy_i8 — COPY / KERNEL_1D for TensorElementType::I8
+Tensor<tile_i8, 1> dtype_copy_i8(Tensor<tile_i8, 1> A);
+// 45. dtype_copy_fp8 — COPY / KERNEL_1D for TensorElementType::FP8
+Tensor<tile_fp8, 1> dtype_copy_fp8(Tensor<tile_fp8, 1> A);
+// 46. dtype_copy_i4 — COPY / KERNEL_1D for TensorElementType::I4
+Tensor<tile_i4, 1> dtype_copy_i4(Tensor<tile_i4, 1> A);
+// 47. dtype_copy_fp4 — COPY / KERNEL_1D for TensorElementType::FP4
+Tensor<tile_fp4, 1> dtype_copy_fp4(Tensor<tile_fp4, 1> A);
+
+// 48. dtype_add_f32 — BINARY ADD for F32 (elementwise)
+Tensor<tile_f32, 1> dtype_add_f32(Tensor<tile_f32, 1> A, Tensor<tile_f32, 1> B);
+// 49. dtype_add_i32 — BINARY ADD for I32
+Tensor<tile_i32, 1> dtype_add_i32(Tensor<tile_i32, 1> A, Tensor<tile_i32, 1> B);
+// 50. dtype_neg_f32 — NEG (SUB from zero) for F32
+Tensor<tile_f32, 1> dtype_neg_f32(Tensor<tile_f32, 1> A);
 
 // 40. Multiple-T.Kernel guard (INVALID — triggers abort)
 Tensor<tile_f32, 2> two_kernels(Tensor<tile_f32, 2> A, Tensor<tile_f32, 2> B);

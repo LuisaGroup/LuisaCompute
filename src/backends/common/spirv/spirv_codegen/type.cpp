@@ -222,6 +222,16 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             _uses_float8 = true;
             id = _builder.makeFloatE5M2Type();
             break;
+        // 4-bit sub-byte quantized types have no SPIR-V scalar representation;
+        // represent them as 8-bit integer storage (1 byte per element, the
+        // lower nibble holds the value).  Pack/unpack is handled in the tile
+        // lowering; the SPIR-V backend only transports the bytes.
+        case Type::Tag::INT4:
+            id = _builder.makeIntType(8);
+            break;
+        case Type::Tag::FP4_E2M1:
+            id = _builder.makeUintType(8);
+            break;
         case Type::Tag::COOPERATIVE_VECTOR: {
             _require_target_feature(target_feature::cooperative_vector,
                                     _target_features.cooperative_vector);
@@ -336,6 +346,8 @@ void SpirvCodegenEntry::_mark_8bit_storage_usage(const Type *type, spv::StorageC
         mark_storage();
     } else if (type->tag() == Type::Tag::FLOAT8_E4M3 || type->tag() == Type::Tag::FLOAT8_E5M2) {
         _uses_float8 = true;
+        mark_storage();
+    } else if (type->tag() == Type::Tag::INT4 || type->tag() == Type::Tag::FP4_E2M1) {
         mark_storage();
     } else if (type->is_structure()) {
         for (auto m : type->members()) { _mark_8bit_storage_usage(m, storage); }

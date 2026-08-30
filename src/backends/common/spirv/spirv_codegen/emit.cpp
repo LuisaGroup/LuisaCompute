@@ -290,6 +290,8 @@ void spirv_codegen_add_narrow_constant_capabilities(
     switch (type->tag()) {
         case Type::Tag::INT8:
         case Type::Tag::UINT8:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             builder.addCapability(spv::Capability::Int8);
             break;
         case Type::Tag::INT16:
@@ -328,6 +330,8 @@ void spirv_codegen_add_narrow_constant_capabilities(
         case Type::Tag::BOOL: return builder.makeBoolConstant(*static_cast<const bool *>(data));
         case Type::Tag::INT8: return builder.makeInt8Constant(*static_cast<const int8_t *>(data));
         case Type::Tag::UINT8: return builder.makeUint8Constant(*static_cast<const uint8_t *>(data));
+        case Type::Tag::INT4: return builder.makeInt8Constant(*static_cast<const int8_t *>(data));
+        case Type::Tag::FP4_E2M1: return builder.makeUint8Constant(*static_cast<const uint8_t *>(data));
         case Type::Tag::INT16: return builder.makeInt16Constant(*static_cast<const int16_t *>(data));
         case Type::Tag::UINT16: return builder.makeUint16Constant(*static_cast<const uint16_t *>(data));
         case Type::Tag::INT32: return builder.makeIntConstant(*static_cast<const int32_t *>(data));
@@ -371,6 +375,8 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             return spirv_codegen_emit_scalar_constant(_builder, spv_type, type, data);
         case Type::Tag::VECTOR: {
             auto elem_type = type->element();

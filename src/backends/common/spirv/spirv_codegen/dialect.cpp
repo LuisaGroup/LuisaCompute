@@ -113,7 +113,9 @@ template<typename Enum>
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
-        case Type::Tag::FLOAT8_E5M2: return true;
+        case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1: return true;
         case Type::Tag::VECTOR:
             return type->element() != nullptr &&
                    type->element()->is_scalar();

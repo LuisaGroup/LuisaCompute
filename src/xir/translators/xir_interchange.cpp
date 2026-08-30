@@ -55,6 +55,8 @@ constexpr size_t max_string_payload_size = 1u * 1024u * 1024u;
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             size = type->size();
             return size == 1u || size == 2u || size == 4u || size == 8u;
         case Type::Tag::VECTOR:
