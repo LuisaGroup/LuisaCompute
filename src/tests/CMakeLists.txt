@@ -715,6 +715,7 @@ if (LUISA_COMPUTE_ENABLE_CUDA OR LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE
     endif ()
     if (LUISA_COMPUTE_ENABLE_DX)
         target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_DX=1)
+        target_link_libraries(test_external_device PRIVATE D3D12 dxgi)
     endif ()
     if (LUISA_COMPUTE_ENABLE_VULKAN)
         target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1)
