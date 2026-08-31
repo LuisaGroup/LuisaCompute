@@ -253,6 +253,41 @@ inline void device_assert(Expr<bool> pred, luisa::string_view msg) noexcept {
 [[nodiscard]] inline auto kernel_id() noexcept {
     return def<uint>(detail::FunctionBuilder::current()->kernel_id());
 }
+/// Get the per-draw object identifier in a raster stage.
+[[nodiscard]] inline auto raster_object_id() noexcept {
+    return def<uint>(detail::FunctionBuilder::current()->raster_object_id());
+}
+/// Return whether the current fragment belongs to a front-facing primitive.
+[[nodiscard]] inline auto raster_is_front_face() noexcept {
+    return def<bool>(detail::FunctionBuilder::current()->raster_is_front_face());
+}
+/// Return the first instance selected by the current raster draw.
+[[nodiscard]] inline auto raster_base_instance() noexcept {
+    return def<uint>(detail::FunctionBuilder::current()->raster_base_instance());
+}
+/// Get perspective-correct triangle barycentric coordinates in a fragment stage.
+[[nodiscard]] inline auto raster_barycentrics() noexcept {
+    return def<float3>(detail::FunctionBuilder::current()->raster_barycentrics());
+}
+/// Discard the current fragment without writing render targets or depth.
+inline void raster_discard() noexcept {
+    detail::FunctionBuilder::current()->call(CallOp::RASTER_DISCARD, {});
+}
+/// Write an arbitrary fragment depth. This may disable early depth testing.
+inline void raster_set_z_depth(Expr<float> depth) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RASTER_SET_Z_DEPTH, {depth.expression()});
+}
+/// Write fragment depth while promising it is no less than interpolated depth.
+inline void raster_set_z_depth_greater_equal(Expr<float> depth) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL, {depth.expression()});
+}
+/// Write fragment depth while promising it is no greater than interpolated depth.
+inline void raster_set_z_depth_less_equal(Expr<float> depth) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL, {depth.expression()});
+}
 [[nodiscard]] inline auto warp_lane_count() noexcept {
     return def<uint>(detail::FunctionBuilder::current()->warp_lane_count());
 }

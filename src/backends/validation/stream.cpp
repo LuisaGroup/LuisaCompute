@@ -11,6 +11,7 @@
 #include "curve.h"
 #include "motion_instance.h"
 #include "procedural_primitives.h"
+#include "raster_shader.h"
 #include "shader.h"
 #include "swap_chain.h"
 #include <luisa/core/logging.h>
@@ -250,26 +251,103 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             mark_handle(c->handle(), Usage::WRITE, Range{c->level(), 1});
         } break;
         case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
-            // auto c = static_cast<DrawRasterSceneCommand *>(cmd);
-            // mark_shader_dispatch(dev, c, false);
-            // if (c->_dsv_tex.handle != invalid_resource_handle) {
-            //     mark_handle(c->_dsv_tex.handle, Usage::READ_WRITE, Range{0, 1});
-            // }
-            // for (auto i : vstd::range(c->_rtv_count)) {
-            //     mark_handle(c->_rtv_texs[i].handle, Usage::WRITE, Range{c->_rtv_texs[i].level, 1});
-            // }
-            // for (auto &&i : c->_scene) {
-            //     for (auto &&vb : i._vertex_buffers) {
-            //         mark_handle(const_cast<uint64_t &>(vb._handle), Usage::READ, Range{vb._offset, vb._size});
-            //     }
-            //     luisa::visit(
-            //         [&]<typename T>(T &t) {
-            //             if constexpr (std::is_same_v<T, BufferView<uint>>) {
-            //                 mark_handle(t._handle, Usage::READ, Range{t.offset_bytes(), t.size_bytes()});
-            //             }
-            //         },
-            //         i._index_buffer);
-            // }
+            auto c = static_cast<DrawRasterSceneCommand *>(cmd);
+            auto shader = RWResource::get<RasterShader>(c->handle(), "raster shader");
+            auto dynamic_arguments = c->arguments();
+            auto dynamic_index = 0u;
+            auto mark_argument = [&](ShaderDispatchCommandBase::Argument argument,
+                                     Usage usage) noexcept {
+                switch (argument.tag) {
+                    case ShaderDispatchCommandBase::Argument::Tag::BUFFER:
+                        check_align(argument.buffer.offset);
+                        mark_handle(argument.buffer.handle, usage,
+                                    Range{argument.buffer.offset, argument.buffer.size});
+                        break;
+                    case ShaderDispatchCommandBase::Argument::Tag::TEXTURE: {
+                        auto texture = RWResource::get<RWResource>(
+                            argument.texture.handle, "raster texture");
+                        if (texture->tag() == Resource::Tag::DEPTH_BUFFER &&
+                            (luisa::to_underlying(usage) &
+                             luisa::to_underlying(Usage::WRITE)) != 0u) {
+                            if (shader->conservative_aot()) {
+                                usage = Usage::READ;
+                            } else {
+                                LUISA_ERROR("{} can not be written by a raster shader.",
+                                            texture->get_name());
+                            }
+                        }
+                        mark_handle(argument.texture.handle, usage,
+                                    Range{argument.texture.level, 1});
+                        break;
+                    }
+                    case ShaderDispatchCommandBase::Argument::Tag::BINDLESS_ARRAY:
+                        mark_handle(argument.bindless_array.handle, usage, Range{});
+                        break;
+                    case ShaderDispatchCommandBase::Argument::Tag::ACCEL:
+                        mark_handle(argument.accel.handle, usage, Range{});
+                        break;
+                    case ShaderDispatchCommandBase::Argument::Tag::UNIFORM:
+                        break;
+                }
+            };
+            for (auto &&root : shader->root_arguments()) {
+                ShaderDispatchCommandBase::Argument argument{};
+                if (root.is_bound) {
+                    argument = luisa::visit(
+                        []<typename T>(const T &binding) noexcept -> ShaderDispatchCommandBase::Argument {
+                            using Binding = std::remove_cvref_t<T>;
+                            ShaderDispatchCommandBase::Argument result{};
+                            if constexpr (std::is_same_v<Binding, Function::BufferBinding>) {
+                                result.tag = ShaderDispatchCommandBase::Argument::Tag::BUFFER;
+                                result.buffer = binding;
+                            } else if constexpr (std::is_same_v<Binding, Function::TextureBinding>) {
+                                result.tag = ShaderDispatchCommandBase::Argument::Tag::TEXTURE;
+                                result.texture = binding;
+                            } else if constexpr (std::is_same_v<Binding, Function::BindlessArrayBinding>) {
+                                result.tag = ShaderDispatchCommandBase::Argument::Tag::BINDLESS_ARRAY;
+                                result.bindless_array = binding;
+                            } else if constexpr (std::is_same_v<Binding, Function::AccelBinding>) {
+                                result.tag = ShaderDispatchCommandBase::Argument::Tag::ACCEL;
+                                result.accel = binding;
+                            } else {
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "Invalid implicit raster argument binding.");
+                            }
+                            return result;
+                        },
+                        root.binding);
+                } else {
+                    LUISA_ASSERT(dynamic_index < dynamic_arguments.size(),
+                                 "Raster dispatch has too few dynamic arguments.");
+                    argument = dynamic_arguments[dynamic_index++];
+                }
+                mark_argument(argument, root.usage);
+            }
+            LUISA_ASSERT(dynamic_index == dynamic_arguments.size(),
+                         "Raster dispatch has {} unexpected dynamic argument(s).",
+                         dynamic_arguments.size() - dynamic_index);
+            if (c->_dsv_tex.handle != invalid_resource_handle) {
+                mark_handle(c->_dsv_tex.handle, Usage::READ_WRITE, Range{0, 1});
+            }
+            for (auto i = 0u; i < c->_rtv_count; i++) {
+                mark_handle(c->_rtv_texs[i].handle, Usage::READ_WRITE,
+                            Range{c->_rtv_texs[i].level, 1});
+            }
+            for (auto &&mesh : c->_scene) {
+                for (auto &&vertex : mesh._vertex_buffers) {
+                    mark_handle(vertex._handle, Usage::READ,
+                                Range{vertex._offset, vertex._size});
+                }
+                luisa::visit(
+                    [&]<typename T>(T &index) {
+                        if constexpr (std::is_same_v<T, BufferView<uint>>) {
+                            mark_handle(index._handle, Usage::READ,
+                                        Range{index.offset_bytes(), index.size_bytes()});
+                        }
+                    },
+                    mesh._index_buffer);
+            }
+            mark_handle(c->handle(), Usage::READ, Range{});
         } break;
         case to_underlying(CustomCommandUUID::DSTORAGE_READ): {
             auto c = static_cast<DStorageReadCommand *>(cmd);
@@ -463,6 +541,7 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 switch (custom_cmd->custom_cmd_uuid()) {
                     case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE):
                     case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH):
+                    case to_underlying(CustomCommandUUID::RASTER_CLEAR_RENDER_TARGET):
                         Device::check_stream(handle(), StreamFunc::Graphics, custom_cmd->custom_cmd_uuid());
                         break;
                     case to_underlying(CustomCommandUUID::DSTORAGE_READ):

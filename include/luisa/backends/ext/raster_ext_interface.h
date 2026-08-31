@@ -22,6 +22,7 @@ public:
     static constexpr luisa::string_view name = "RasterExt";
     // shader
     [[nodiscard]] virtual ResourceCreationInfo create_raster_shader(
+        const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
         const ShaderOption &shader_option) noexcept = 0;

@@ -7,7 +7,13 @@ set(LUISA_COMPUTE_OSL_SOURCES
         type.cpp
         oso_parser.cpp)
 
-add_library(luisa-compute-osl SHARED ${LUISA_COMPUTE_OSL_SOURCES})
+if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(_LUISA_OSL_LIBRARY_TYPE STATIC)
+else ()
+    set(_LUISA_OSL_LIBRARY_TYPE SHARED)
+endif ()
+add_library(luisa-compute-osl
+        ${_LUISA_OSL_LIBRARY_TYPE} ${LUISA_COMPUTE_OSL_SOURCES})
 target_link_libraries(luisa-compute-osl PUBLIC luisa-compute-ast)
 
 target_compile_definitions(luisa-compute-osl PRIVATE LUISA_OSL_EXPORT_DLL=1)

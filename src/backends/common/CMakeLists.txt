@@ -1,3 +1,14 @@
+# Apple metal-cpp is shared by the legacy Metal and Metal 4 backends. Keep the
+# wrapper symbols private to each backend module so loading both plugins cannot
+# interpose their Objective-C bridge globals.
+if (APPLE)
+    add_library(luisa-compute-metal-cpp INTERFACE)
+    target_include_directories(luisa-compute-metal-cpp INTERFACE
+            "${CMAKE_CURRENT_LIST_DIR}/metal-cpp")
+    target_compile_definitions(luisa-compute-metal-cpp INTERFACE
+            METALCPP_SYMBOL_VISIBILITY_HIDDEN=1)
+endif ()
+
 # OIDN Denoiser Extension
 if (LUISA_COMPUTE_DOWNLOAD_OIDN)
 
@@ -96,11 +107,15 @@ function(luisa_compute_link_wayland_if_enabled backend)
     endif ()
 endfunction()
 
-# luisa_compute_backend_link_llvm(backend REQUIRED COMPONENTS llvm_components...)
+# luisa_compute_link_llvm_into_backend(
+#     backend [TARGET target] [REQUIRED] COMPONENTS llvm_components...)
 function(luisa_compute_link_llvm_into_backend backend)
 
-    set(LUISA_LINK_LLVM_TARGET luisa-compute-backend-${backend})
-    cmake_parse_arguments(LUISA_LINK_LLVM "REQUIRED" "" "COMPONENTS;DEFINITIONS" ${ARGN})
+    cmake_parse_arguments(
+            LUISA_LINK_LLVM "REQUIRED" "TARGET" "COMPONENTS;DEFINITIONS" ${ARGN})
+    if (NOT LUISA_LINK_LLVM_TARGET)
+        set(LUISA_LINK_LLVM_TARGET luisa-compute-backend-${backend})
+    endif ()
 
     # find LLVM
     if (NOT LUISA_LINK_LLVM_REQUIRED)
@@ -144,6 +159,23 @@ function(luisa_compute_link_llvm_into_backend backend)
                         "Removed redundant Apple SDK include directory from "
                         "LLVM's ZLIB dependency")
             endif ()
+        endif ()
+    endif ()
+
+    # LLVM's generic Unix configuration appends librt to LLVMSupport. Apple
+    # platforms provide the corresponding APIs from libSystem, and iOS does
+    # not ship a standalone librt archive. Keep the imported target otherwise
+    # intact so the compiler stack remains linked exactly as exported by the
+    # selected LLVM package.
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS" AND TARGET LLVMSupport)
+        get_target_property(_luisa_llvm_support_link_libraries
+                LLVMSupport INTERFACE_LINK_LIBRARIES)
+        if (_luisa_llvm_support_link_libraries)
+            list(FILTER _luisa_llvm_support_link_libraries
+                    EXCLUDE REGEX "^rt$")
+            set_property(TARGET LLVMSupport PROPERTY
+                    INTERFACE_LINK_LIBRARIES
+                    "${_luisa_llvm_support_link_libraries}")
         endif ()
     endif ()
 

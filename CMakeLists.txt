@@ -63,6 +63,7 @@ else ()
     option(LUISA_COMPUTE_ENABLE_TENSOR "Enable C++ DSL tensor extension" OFF)
     option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
     option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
+    option(LUISA_COMPUTE_ENABLE_METAL4 "Enable experimental Metal 4 AIR backend" OFF)
     option(LUISA_COMPUTE_ENABLE_HIP "Enable HIP backend" OFF) # still WIP
     option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
     option(LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB "Enable CUDA extension: LCUB" OFF)
@@ -77,6 +78,62 @@ endif ()
 # The SIMD CPU backend is staged behind an explicit option until the Phase 2
 # runtime shell reaches parity with the selected fallback core suite.
 option(LUISA_COMPUTE_ENABLE_SIMD "Enable experimental SIMD CPU backend" OFF)
+
+# iOS device tests are signed application bundles rather than host executables.
+# Keep them separate from the ordinary test suite so cross-compiling the runtime
+# does not implicitly pull test applications, provisioning, or UIKit into a
+# production build.
+option(LUISA_COMPUTE_BUILD_IOS_TESTS
+        "Build the opt-in Metal4 iOS device conformance applications" OFF)
+option(LUISA_COMPUTE_BUILD_IOS_EXAMPLES
+        "Build the opt-in interactive Metal4 iOS example applications" OFF)
+option(LUISA_COMPUTE_BUILD_IOS_BENCHMARKS
+        "Build the opt-in iOS Metal backend comparison application" OFF)
+set(LUISA_COMPUTE_IOS_BENCHMARK_BACKEND "metal4" CACHE STRING
+        "Backend linked into the iOS comparison application (metal or metal4)")
+set_property(CACHE LUISA_COMPUTE_IOS_BENCHMARK_BACKEND PROPERTY STRINGS
+        metal metal4)
+set(LUISA_COMPUTE_IOS_BENCHMARK_BUNDLE_ID "" CACHE STRING
+        "Optional bundle identifier for signing the iOS comparison application")
+if ((LUISA_COMPUTE_BUILD_IOS_TESTS OR
+        LUISA_COMPUTE_BUILD_IOS_EXAMPLES OR
+        LUISA_COMPUTE_BUILD_IOS_BENCHMARKS) AND NOT APPLE)
+    message(FATAL_ERROR
+            "The iOS applications require an Apple host/toolchain.")
+endif ()
+if ((LUISA_COMPUTE_BUILD_IOS_TESTS OR
+        LUISA_COMPUTE_BUILD_IOS_EXAMPLES) AND
+        NOT LUISA_COMPUTE_ENABLE_METAL4)
+    message(FATAL_ERROR
+            "The iOS applications require LUISA_COMPUTE_ENABLE_METAL4=ON.")
+endif ()
+if (LUISA_COMPUTE_BUILD_IOS_EXAMPLES AND
+        NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    message(FATAL_ERROR
+            "LUISA_COMPUTE_BUILD_IOS_EXAMPLES requires an iOS toolchain.")
+endif ()
+if (LUISA_COMPUTE_BUILD_IOS_BENCHMARKS)
+    if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        message(FATAL_ERROR
+                "LUISA_COMPUTE_BUILD_IOS_BENCHMARKS requires an iOS toolchain.")
+    endif ()
+    string(TOLOWER "${LUISA_COMPUTE_IOS_BENCHMARK_BACKEND}"
+            _LUISA_COMPUTE_IOS_BENCHMARK_BACKEND)
+    if (_LUISA_COMPUTE_IOS_BENCHMARK_BACKEND STREQUAL "metal4")
+        if (NOT LUISA_COMPUTE_ENABLE_METAL4)
+            message(FATAL_ERROR
+                    "The Metal4 iOS benchmark requires LUISA_COMPUTE_ENABLE_METAL4=ON.")
+        endif ()
+    elseif (_LUISA_COMPUTE_IOS_BENCHMARK_BACKEND STREQUAL "metal")
+        if (NOT LUISA_COMPUTE_ENABLE_METAL)
+            message(FATAL_ERROR
+                    "The old Metal iOS benchmark requires LUISA_COMPUTE_ENABLE_METAL=ON.")
+        endif ()
+    else ()
+        message(FATAL_ERROR
+                "LUISA_COMPUTE_IOS_BENCHMARK_BACKEND must be 'metal' or 'metal4'.")
+    endif ()
+endif ()
 
 option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR to SPIR-V code generation for Vulkan backend" ON)
 option(LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV "Use AST LLVM codegen for Vulkan backend SPIR-V generation" OFF)
@@ -137,7 +194,7 @@ include(scripts/validate_options.cmake)
 
 # enable objc and objcxx for Apple platforms
 if (APPLE)
-    if (LUISA_COMPUTE_ENABLE_METAL OR LUISA_COMPUTE_ENABLE_GUI)
+    if (LUISA_COMPUTE_ENABLE_METAL OR LUISA_COMPUTE_ENABLE_METAL4 OR LUISA_COMPUTE_ENABLE_GUI)
         enable_language(OBJC)
         enable_language(OBJCXX)
     endif ()
@@ -215,6 +272,9 @@ elseif (UNIX)
     target_compile_definitions(luisa-compute-include INTERFACE LUISA_PLATFORM_UNIX=1)
     if (APPLE)
         target_compile_definitions(luisa-compute-include INTERFACE LUISA_PLATFORM_APPLE=1)
+        if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+            target_compile_definitions(luisa-compute-include INTERFACE LUISA_PLATFORM_IOS=1)
+        endif ()
     endif ()
 endif ()
 
@@ -251,6 +311,13 @@ endif ()
 
 add_subdirectory(utils)
 add_subdirectory(src)
+
+if (LUISA_COMPUTE_BUILD_IOS_EXAMPLES)
+    add_subdirectory(examples/ios)
+endif ()
+if (LUISA_COMPUTE_BUILD_IOS_BENCHMARKS)
+    add_subdirectory(examples/ios/benchmark)
+endif ()
 
 if (NOT SKBUILD)
     include(CMakePackageConfigHelpers)

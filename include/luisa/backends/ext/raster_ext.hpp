@@ -9,8 +9,9 @@ template<typename V, typename P>
     const RasterKernel<V, P> &kernel,
     const MeshFormat &mesh_format,
     const ShaderOption &option) noexcept {
-    static_cast<void>(mesh_format);
-    return _create<typename RasterKernel<V, P>::RasterShaderType>(extension<RasterExt>(), kernel.vert(), kernel.pixel(), option);
+    return _create<typename RasterKernel<V, P>::RasterShaderType>(
+        extension<RasterExt>(), mesh_format,
+        kernel.vert(), kernel.pixel(), option);
 }
 
 template<typename V, typename P>
@@ -21,7 +22,12 @@ void Device::compile_to(
     const ShaderOption &option) noexcept {
     _check_no_implicit_binding(kernel.vert(), serialization_path);
     _check_no_implicit_binding(kernel.pixel(), serialization_path);
-    extension<RasterExt>()->create_raster_shader(kernel.vert(), kernel.pixel(), serialization_path, option);
+    auto compile_option = option;
+    compile_option.enable_cache = false;
+    compile_option.compile_only = true;
+    compile_option.name = luisa::string{serialization_path};
+    static_cast<void>(extension<RasterExt>()->create_raster_shader(
+        mesh_format, kernel.vert(), kernel.pixel(), compile_option));
 }
 
 template<typename... Args>

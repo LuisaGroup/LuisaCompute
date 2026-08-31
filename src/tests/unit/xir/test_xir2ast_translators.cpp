@@ -656,6 +656,52 @@ void reg_xir2ast_direct() {
         expect(call_count == 1u);
     };
 
+    "xir_to_ast_roundtrips_fragment_depth_operations"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *depth = callable->create_value_argument(Type::of<float>());
+        auto *body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.call(nullptr, ThreadGroupOp::RASTER_SET_Z_DEPTH, {depth});
+        builder.call(
+            nullptr, ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL,
+            {depth});
+        builder.call(
+            nullptr, ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL,
+            {depth});
+        builder.return_void();
+
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+
+        std::array<size_t, 3u> counts{};
+        for (auto *function : roundtrip->function_list()) {
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions(
+                    [&](Instruction *instruction) noexcept {
+                        if (!instruction->isa<ThreadGroupInst>()) { return; }
+                        switch (static_cast<ThreadGroupInst *>(instruction)->op()) {
+                            case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+                                counts[0u]++;
+                                break;
+                            case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+                                counts[1u]++;
+                                break;
+                            case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
+                                counts[2u]++;
+                                break;
+                            default: break;
+                        }
+                    });
+            }
+        }
+        for (auto count : counts) { expect(count == 1u); }
+    };
+
     "xir_to_ast_direct_continue_executes_loop_update"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

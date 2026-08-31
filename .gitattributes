@@ -1,0 +1,2 @@
+src/ext/llvm-downgrade-llvm21-air.patch -whitespace
+src/backends/metal4/metal-tex-compress/** -whitespace

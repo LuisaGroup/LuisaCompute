@@ -4445,6 +4445,9 @@ private:
                 }
                 case xir::DerivedFunctionTag::CALLABLE:
                     return _translate_callable_function(static_cast<const xir::CallableFunction *>(f));
+                case xir::DerivedFunctionTag::RASTER_STAGE:
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Fallback code generation does not support raster-stage functions.");
                 case xir::DerivedFunctionTag::EXTERNAL: LUISA_NOT_IMPLEMENTED();
             }
             LUISA_ERROR_WITH_LOCATION("Invalid function type.");

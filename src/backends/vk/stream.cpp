@@ -4049,7 +4049,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                             t,
                                             mesh.instance_count(),
                                             mesh.vertex_offset(),
-                                            0);
+                                            mesh.base_instance());
                                     } else {
                                         auto buffer = reinterpret_cast<Buffer *>(t.handle());
                                         vkCmdBindIndexBuffer(_cmdbuffer, buffer->vk_buffer(), t.offset_bytes(), VK_INDEX_TYPE_UINT32);
@@ -4060,7 +4060,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                             mesh.instance_count(),
                                             0,
                                             mesh.vertex_offset(),
-                                            0);
+                                            mesh.base_instance());
                                     }
                                     // Draw indexed
                                 },

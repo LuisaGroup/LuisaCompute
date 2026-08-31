@@ -370,6 +370,9 @@ namespace detail {
         case ThreadGroupOp::SHADER_EXECUTION_REORDER: return CallOp::SHADER_EXECUTION_REORDER;
         case ThreadGroupOp::RASTER_QUAD_DDX: return CallOp::DDX;
         case ThreadGroupOp::RASTER_QUAD_DDY: return CallOp::DDY;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH: return CallOp::RASTER_SET_Z_DEPTH;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL: return CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL: return CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL;
         case ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE: return CallOp::WARP_IS_FIRST_ACTIVE_LANE;
         case ThreadGroupOp::WARP_FIRST_ACTIVE_LANE: return CallOp::WARP_FIRST_ACTIVE_LANE;
         case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL: return CallOp::WARP_ACTIVE_ALL_EQUAL;
@@ -554,6 +557,8 @@ private:
             case DerivedSpecialRegisterTag::KERNEL_ID: return b->kernel_id();
             case DerivedSpecialRegisterTag::RASTER_OBJECT_ID: return b->raster_object_id();
             case DerivedSpecialRegisterTag::RASTER_BARYCENTRICS: return b->raster_barycentrics();
+            case DerivedSpecialRegisterTag::RASTER_FRONT_FACING: return b->raster_is_front_face();
+            case DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE: return b->raster_base_instance();
             case DerivedSpecialRegisterTag::BLOCK_SIZE: LUISA_ERROR_WITH_LOCATION("XIR-to-AST does not support block_size special register.");
             case DerivedSpecialRegisterTag::WARP_SIZE: return b->warp_lane_count();
             case DerivedSpecialRegisterTag::DISPATCH_SIZE: return b->dispatch_size();
@@ -1575,7 +1580,11 @@ private:
         switch (f.derived_function_tag()) {
             case DerivedFunctionTag::KERNEL: return ASTFunctionBuilder::define_kernel(build);
             case DerivedFunctionTag::CALLABLE: return ASTFunctionBuilder::define_callable(build);
-            default: break;
+            case DerivedFunctionTag::RASTER_STAGE:
+                LUISA_ERROR_WITH_LOCATION(
+                    "XIR-to-AST raster-stage lowering does not yet preserve "
+                    "vertex/fragment stage identity.");
+            case DerivedFunctionTag::EXTERNAL: break;
         }
         LUISA_ERROR_WITH_LOCATION("Cannot translate external XIR function to AST.");
     }

@@ -1,5 +1,238 @@
 add_library(luisa-compute-ext INTERFACE)
 
+if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
+    find_package(LLVM CONFIG REQUIRED)
+    if (NOT LLVM_VERSION_MAJOR EQUAL 21)
+        message(FATAL_ERROR
+                "The in-tree llvm-downgrade sources currently require LLVM 21, "
+                "but LLVM ${LLVM_PACKAGE_VERSION} was found. Point LLVM_DIR at LLVM 21.")
+    endif ()
+    # LLVM may have been configured on a generic Unix host while targeting
+    # iOS, in which case its exported LLVMSupport target carries a standalone
+    # librt dependency. iOS provides those APIs from libSystem and has no
+    # librt archive, so remove the invalid dependency before this static
+    # target captures LLVM's transitive link interface.
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS" AND TARGET LLVMSupport)
+        get_target_property(_luisa_llvm_support_link_libraries
+                LLVMSupport INTERFACE_LINK_LIBRARIES)
+        if (_luisa_llvm_support_link_libraries)
+            list(FILTER _luisa_llvm_support_link_libraries
+                    EXCLUDE REGEX "^rt$")
+            set_property(TARGET LLVMSupport PROPERTY
+                    INTERFACE_LINK_LIBRARIES
+                    "${_luisa_llvm_support_link_libraries}")
+        endif ()
+    endif ()
+
+    set(LUISA_LLVM_DOWNGRADE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade")
+    set(LUISA_LLVM_DOWNGRADE_PATCH
+            "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade-llvm21-air.patch")
+    set(LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT
+            "1e04ee99aff7c059606502ee86d03eb7d1c5d781")
+    set(LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT
+            "7679006d0b2b529998de888e03a812ff311632f58f5d8e4a3c07fca3519c02b6")
+    if (NOT EXISTS "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/src/BitcodeWriter140.cpp")
+        message(FATAL_ERROR
+                "The llvm-downgrade submodule is missing. Run "
+                "'git submodule update --init src/ext/llvm-downgrade'.")
+    endif ()
+
+    file(GLOB_RECURSE LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS CONFIGURE_DEPENDS
+            LIST_DIRECTORIES false
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/CMakeLists.txt"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/LICENSE.TXT"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/README.md"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/common/*"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/include/*"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/src/*"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/test/*"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/tools/*")
+    list(SORT LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${LUISA_LLVM_DOWNGRADE_PATCH}"
+            ${LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS})
+
+    find_package(Git REQUIRED)
+    if (EXISTS "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/.git")
+        execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=GIT_DIR --unset=GIT_WORK_TREE
+                "${GIT_EXECUTABLE}" -C "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}"
+                rev-parse --verify HEAD
+                RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_HEAD_RESULT
+                OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_HEAD
+                ERROR_VARIABLE LUISA_LLVM_DOWNGRADE_HEAD_ERROR
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if (NOT LUISA_LLVM_DOWNGRADE_HEAD_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                    "Failed to inspect the llvm-downgrade submodule revision.\n"
+                    "${LUISA_LLVM_DOWNGRADE_HEAD_ERROR}")
+        endif ()
+        if (NOT LUISA_LLVM_DOWNGRADE_HEAD STREQUAL
+                LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT)
+            message(FATAL_ERROR
+                    "The llvm-downgrade submodule is at "
+                    "${LUISA_LLVM_DOWNGRADE_HEAD}, but LuisaCompute requires "
+                    "${LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT}.")
+        endif ()
+        execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=GIT_DIR --unset=GIT_WORK_TREE
+                "${GIT_EXECUTABLE}" -C "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}"
+                status --porcelain=v1 --untracked-files=all
+                RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_STATUS_RESULT
+                OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_STATUS
+                ERROR_VARIABLE LUISA_LLVM_DOWNGRADE_STATUS_ERROR
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if (NOT LUISA_LLVM_DOWNGRADE_STATUS_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                    "Failed to inspect the llvm-downgrade submodule status.\n"
+                    "${LUISA_LLVM_DOWNGRADE_STATUS_ERROR}")
+        endif ()
+        if (NOT LUISA_LLVM_DOWNGRADE_STATUS STREQUAL "")
+            message(FATAL_ERROR
+                    "The llvm-downgrade submodule must be pristine. Found:\n"
+                    "${LUISA_LLVM_DOWNGRADE_STATUS}")
+        endif ()
+    endif ()
+
+    set(LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT
+            "base:${LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT}\n")
+    foreach (LUISA_LLVM_DOWNGRADE_INPUT IN LISTS
+            LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS)
+        file(RELATIVE_PATH LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}"
+                "${LUISA_LLVM_DOWNGRADE_INPUT}")
+        file(SHA256 "${LUISA_LLVM_DOWNGRADE_INPUT}"
+                LUISA_LLVM_DOWNGRADE_INPUT_SHA256)
+        string(APPEND LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT
+                "${LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE}:"
+                "${LUISA_LLVM_DOWNGRADE_INPUT_SHA256}\n")
+    endforeach ()
+    string(SHA256 LUISA_LLVM_DOWNGRADE_SOURCE_FINGERPRINT
+            "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT}")
+    if (NOT LUISA_LLVM_DOWNGRADE_SOURCE_FINGERPRINT STREQUAL
+            LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT)
+        message(FATAL_ERROR
+                "The llvm-downgrade source contents do not match pinned commit "
+                "${LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT}. Expected source "
+                "fingerprint ${LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT}, "
+                "found ${LUISA_LLVM_DOWNGRADE_SOURCE_FINGERPRINT}.")
+    endif ()
+    file(SHA256 "${LUISA_LLVM_DOWNGRADE_PATCH}"
+            LUISA_LLVM_DOWNGRADE_PATCH_SHA256)
+    string(APPEND LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT
+            "overlay:${LUISA_LLVM_DOWNGRADE_PATCH_SHA256}\n")
+    string(SHA256 LUISA_LLVM_DOWNGRADE_FINGERPRINT
+            "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT}")
+
+    # Keep the pinned third-party checkout pristine. The LLVM 21 and AIR typed-
+    # pointer extensions live in the parent repository as a reviewable patch,
+    # which is applied to a disposable copy in the build tree. Reuse a matching
+    # mirror so ordinary reconfiguration does not invalidate its object files.
+    set(LUISA_LLVM_DOWNGRADE_DIR
+            "${CMAKE_CURRENT_BINARY_DIR}/llvm-downgrade-llvm21-air")
+    set(LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE
+            "${LUISA_LLVM_DOWNGRADE_DIR}/.luisa-source-fingerprint")
+    set(LUISA_LLVM_DOWNGRADE_REFRESH_MIRROR ON)
+    if (EXISTS "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE}")
+        file(READ "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE}"
+                LUISA_LLVM_DOWNGRADE_CACHED_FINGERPRINT)
+        string(STRIP "${LUISA_LLVM_DOWNGRADE_CACHED_FINGERPRINT}"
+                LUISA_LLVM_DOWNGRADE_CACHED_FINGERPRINT)
+        if (LUISA_LLVM_DOWNGRADE_CACHED_FINGERPRINT STREQUAL
+                LUISA_LLVM_DOWNGRADE_FINGERPRINT)
+            set(LUISA_LLVM_DOWNGRADE_REFRESH_MIRROR OFF)
+        endif ()
+    endif ()
+    if (LUISA_LLVM_DOWNGRADE_REFRESH_MIRROR)
+        file(REMOVE_RECURSE "${LUISA_LLVM_DOWNGRADE_DIR}")
+        file(MAKE_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}")
+        file(COPY
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/CMakeLists.txt"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/LICENSE.TXT"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/README.md"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/common"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/include"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/src"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/test"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/tools"
+                DESTINATION "${LUISA_LLVM_DOWNGRADE_DIR}")
+        set(LUISA_LLVM_DOWNGRADE_GIT_ENV
+                "GIT_CEILING_DIRECTORIES=${CMAKE_CURRENT_BINARY_DIR}")
+        execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=GIT_DIR --unset=GIT_WORK_TREE
+                "${LUISA_LLVM_DOWNGRADE_GIT_ENV}"
+                "${GIT_EXECUTABLE}" apply --check --whitespace=nowarn
+                "${LUISA_LLVM_DOWNGRADE_PATCH}"
+                WORKING_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}"
+                RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_CHECK_RESULT
+                OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_CHECK_OUTPUT
+                ERROR_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_CHECK_ERROR)
+        if (NOT LUISA_LLVM_DOWNGRADE_PATCH_CHECK_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                    "The LuisaCompute llvm-downgrade patch no longer applies to "
+                    "the pinned submodule.\n"
+                    "${LUISA_LLVM_DOWNGRADE_PATCH_CHECK_OUTPUT}"
+                    "${LUISA_LLVM_DOWNGRADE_PATCH_CHECK_ERROR}")
+        endif ()
+        execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=GIT_DIR --unset=GIT_WORK_TREE
+                "${LUISA_LLVM_DOWNGRADE_GIT_ENV}"
+                "${GIT_EXECUTABLE}" apply --whitespace=nowarn
+                "${LUISA_LLVM_DOWNGRADE_PATCH}"
+                WORKING_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}"
+                RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_RESULT
+                OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_OUTPUT
+                ERROR_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_ERROR)
+        if (NOT LUISA_LLVM_DOWNGRADE_PATCH_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                    "Failed to prepare the patched llvm-downgrade sources.\n"
+                    "${LUISA_LLVM_DOWNGRADE_PATCH_OUTPUT}"
+                    "${LUISA_LLVM_DOWNGRADE_PATCH_ERROR}")
+        endif ()
+        file(WRITE "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE}"
+                "${LUISA_LLVM_DOWNGRADE_FINGERPRINT}\n")
+    endif ()
+
+    add_library(luisa-compute-ext-llvm-downgrade STATIC
+            llvm_downgrade.cpp llvm_downgrade.h
+            ${LUISA_LLVM_DOWNGRADE_DIR}/common/legacy_opts.cpp
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src/BitcodeWriter140.cpp
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src/ModuleRewriter140.cpp
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src/PointerRewriter.cpp
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src/PointerRewriter.h
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator140.cpp
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator140.h)
+    target_include_directories(luisa-compute-ext-llvm-downgrade
+            BEFORE PRIVATE ${LUISA_LLVM_DOWNGRADE_DIR}/include)
+    target_include_directories(luisa-compute-ext-llvm-downgrade
+            PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src
+            ${LUISA_LLVM_DOWNGRADE_DIR}/common
+            ${LLVM_INCLUDE_DIRS})
+    separate_arguments(LUISA_LLVM_DOWNGRADE_DEFINITIONS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+    target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE
+            ${LUISA_LLVM_DOWNGRADE_DEFINITIONS}
+            -include ${LUISA_LLVM_DOWNGRADE_DIR}/common/LegacyOpts.h)
+    if (NOT LLVM_ENABLE_RTTI)
+        target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE -fno-rtti)
+    endif ()
+    target_compile_definitions(luisa-compute-ext-llvm-downgrade PRIVATE LLVMDG_HAS_140=1)
+    target_compile_features(luisa-compute-ext-llvm-downgrade PUBLIC cxx_std_20)
+    set_target_properties(luisa-compute-ext-llvm-downgrade PROPERTIES
+            POSITION_INDEPENDENT_CODE ON
+            FOLDER ext
+            OUTPUT_NAME luisa-ext-llvm-downgrade)
+    llvm_map_components_to_libnames(LUISA_LLVM_DOWNGRADE_LIBS
+            bitwriter core support transformutils)
+    target_link_libraries(luisa-compute-ext-llvm-downgrade
+            PRIVATE ${LUISA_LLVM_DOWNGRADE_LIBS})
+endif ()
+
 find_package(Threads REQUIRED)
 target_link_libraries(luisa-compute-ext INTERFACE Threads::Threads)
 
@@ -118,7 +351,7 @@ else ()
 endif ()
 
 # glfw
-if (LUISA_COMPUTE_ENABLE_GUI)
+if (LUISA_COMPUTE_ENABLE_GUI AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     if (LUISA_COMPUTE_USE_SYSTEM_GLFW)
         find_package(glfw3 REQUIRED)
         if (TARGET glfw)

@@ -554,6 +554,7 @@ void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_
             reinterpret_cast<TextureBase *>(image_handle), 0, native_device.max_allocator_count);
 }
 ResourceCreationInfo DxRasterExt::create_raster_shader(
+    [[maybe_unused]] const MeshFormat &mesh_format,
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {

@@ -226,6 +226,8 @@ void SpirvCodegenEntry::generate_binding(
             case Variable::Tag::WARP_LANE_ID:
             case Variable::Tag::RASTER_OBJECT_ID:
             case Variable::Tag::RASTER_BARYCENTRICS:
+            case Variable::Tag::RASTER_FRONT_FACING:
+            case Variable::Tag::RASTER_BASE_INSTANCE:
                 break;
             default:
                 cbuffer_non_empty = true;

@@ -117,7 +117,8 @@ void test_stream_wait_at_max_value(Device &device) {
 }
 
 void test_host_callbacks_precede_event_completion(Device &device) {
-    if (device.backend_name() != "metal") { return; }
+    if (device.backend_name() != "metal" &&
+        device.backend_name() != "metal4") { return; }
 
     auto event = device.create_timeline_event();
     auto stream = device.create_stream();
@@ -125,12 +126,12 @@ void test_host_callbacks_precede_event_completion(Device &device) {
     std::atomic_bool release_callback{false};
     std::atomic_bool callback_completed{false};
     stream << luisa::move_only_function<void()>{[&]() noexcept {
-                  callback_started.store(true, std::memory_order_release);
-                  while (!release_callback.load(std::memory_order_acquire)) {
-                      std::this_thread::yield();
-                  }
-                  callback_completed.store(true, std::memory_order_release);
-              }}
+        callback_started.store(true, std::memory_order_release);
+        while (!release_callback.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        callback_completed.store(true, std::memory_order_release);
+    }}
            << event.signal(1u);
     while (!callback_started.load(std::memory_order_acquire)) {
         std::this_thread::yield();

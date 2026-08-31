@@ -23,7 +23,10 @@ endfunction()
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     # rendering
-    luisa_compute_add_example(example_path_tracing rendering/path_tracing.cpp MIRROR_AS_TEST)
+    luisa_compute_add_example(example_path_tracing
+            rendering/path_tracing.cpp
+            rendering/path_tracing_test.h
+            MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_camera rendering/path_tracing_camera.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_cutout rendering/path_tracing_cutout.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_hdr rendering/path_tracing_hdr.cpp MIRROR_AS_TEST)
@@ -52,6 +55,33 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_example(example_procedural rendering/procedural.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_toy_spacex rendering/shader_toy_spacex.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_visuals_present rendering/shader_visuals_present.cpp MIRROR_AS_TEST)
+
+    # Finite, headless rendering coverage for the AIR-only Metal4 backend.
+    if (TARGET luisa-compute-backend-metal4)
+        function(luisa_metal4_add_render_test target)
+            add_test(NAME metal4_air_render_${target}
+                    COMMAND $<TARGET_FILE:${target}> metal4 --offline ${ARGN})
+            set_tests_properties(metal4_air_render_${target} PROPERTIES
+                    LABELS "integration;integration_metal4;rendering"
+                    TIMEOUT 300)
+        endfunction()
+
+        luisa_metal4_add_render_test(test_path_tracing --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_camera --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_cutout --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_hdr --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_nested_callable --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_ray_masks --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_spectrum --spp 1)
+        luisa_metal4_add_render_test(test_photon_mapping --spp 1)
+        luisa_metal4_add_render_test(test_sdf_renderer --spp 1)
+        luisa_metal4_add_render_test(test_blackhole)
+        luisa_metal4_add_render_test(test_voxel_raytracer)
+        luisa_metal4_add_render_test(test_procedural --spp 1)
+        luisa_metal4_add_render_test(test_shader_toy)
+        luisa_metal4_add_render_test(test_shader_toy_spacex)
+        luisa_metal4_add_render_test(test_shader_visuals_present)
+    endif ()
 
     if (TARGET luisa-compute-xir)
         luisa_compute_add_example(example_path_tracing_xir2ast rendering/path_tracing_xir2ast.cpp MIRROR_AS_TEST)

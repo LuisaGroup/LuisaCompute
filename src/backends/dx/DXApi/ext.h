@@ -150,6 +150,7 @@ class DxRasterExt final : public RasterExt, public vstd::IOperatorNewBase {
 public:
     DxRasterExt(Device &native_device) noexcept : _native_device{native_device} {}
     ResourceCreationInfo create_raster_shader(
+        const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
         const ShaderOption &cache_option) noexcept override;

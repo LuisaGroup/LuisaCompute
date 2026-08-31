@@ -1,6 +1,6 @@
 ---
-name: lc_runtime
-description: Runtime API: Context, Device, Stream, buffers, images, ray tracing, and rasterization.
+name: lc-runtime
+description: "Runtime API: Context, Device, Stream, buffers, images, ray tracing, and rasterization."
 ---
 
 # LuisaCompute Runtime API
@@ -24,7 +24,7 @@ Device device = ctx.create_default_device();
 
 ```cpp
 #include <luisa/runtime/device.h>
-Device device = ctx.create_device("cuda");  // or "dx", "metal", "vk", "hip", "fallback"
+Device device = ctx.create_device("cuda");  // or "dx", "metal", "metal4", "vk", "hip", "fallback"
 
 DeviceConfig cfg{.device_index = 0, .inqueue_buffer_limit = false};
 Device device = ctx.create_device("cuda", &cfg, true/*validation*/);
@@ -199,6 +199,15 @@ Swapchain swapchain = device.create_swapchain(stream, SwapchainOption{
 stream << swapchain.present(image);
 ```
 
+On iOS, UIKit owns the `UIView`/`CAMetalLayer`; rendering sources should still
+construct the ordinary `Window` and `Swapchain`. The app host installs a
+process-wide `Window::set_native_handle_provider(...)` before entering the
+example. The provider returns the native layer/display handles, and platform
+touch/keyboard/resize events are queued through the `post_native_*` functions
+and delivered by `Window::poll_events()` on the rendering thread. Clear the
+provider only after every provider-backed window has been destroyed. Do not
+teach each rendering example about UIKit or bypass `Window -> Swapchain`.
+
 ## Ray Tracing
 
 ```cpp
@@ -215,6 +224,39 @@ stream << accel.update_instance_buffer();
 
 Curve curve = device.create_curve(CurveBasis::CUBIC_BSPLINE, cp_buf, seg_buf);
 ```
+
+### Motion instances and Metal4 feature queries
+
+```cpp
+#include <luisa/runtime/rtx/motion_instance.h>
+
+AccelMotionOption motion_option{};
+motion_option.mode = AccelMotionMode::MATRIX;
+motion_option.keyframe_count = 2u;
+auto moving = device.create_motion_instance(mesh, motion_option);
+std::array keyframes{translation(-1.f, 0.f, 0.f),
+                     translation(1.f, 0.f, 0.f)};
+moving.set_keyframes(luisa::span{keyframes});
+
+AccelOption accel_option{};
+accel_option.allow_update = true;
+auto accel = device.create_accel(accel_option);
+accel.emplace_back(moving);
+stream << mesh.build() << moving.build() << accel.build();
+
+// After changing keyframes, rebuild the host motion resource and refit/rebuild
+// the containing TLAS.
+moving.set_keyframes(luisa::span{new_keyframes});
+stream << moving.build() << accel.build();
+```
+
+For the `metal4` backend, use `device.query("metal_motion_blur")` before
+choosing matrix motion and `device.query("metal4_component_motion")` before
+choosing SRT/component motion. The latter is Apple9-only. The independent
+`metal4_address_driven_acceleration_structures` query reports whether AS
+build/refit uses the MTL4 encoder; a false value can still support matrix
+motion through the synchronized compatibility build path. These queries
+return the strings `"true"` or `"false"`.
 
 ### Ray Tracing Kernel
 ```cpp
@@ -238,6 +280,64 @@ DepthBuffer depth = device.create_depth_buffer(DepthFormat::D32, size);
 auto raster_shader = device.compile(raster_kernel, mesh_format);
 RasterScene scene = device.create_raster_scene(vertex_buffer, index_buffer);
 ```
+
+`RasterMesh` carries both an instance count and an optional base instance. The
+base defaults to zero; pass it after `vertex_offset` when a vertex shader uses
+`raster_base_instance()`. The runtime forwards it to indexed and non-indexed
+Metal4, DX12, and Vulkan draws, and the ordinary instance ID starts at that
+base value.
+
+```cpp
+RasterMesh mesh{vertex_streams, index_buffer.view(),
+                instance_count, object_id,
+                vertex_offset, base_instance};
+```
+
+Depth-only raster draws use the existing zero-RTV form of `draw`. Return
+`void` from the fragment stage, call one of the `raster_set_z_depth*` builtins,
+and pass a non-null depth buffer without trailing color images. Metal4 AIR
+records a fragment color-output count of zero in both JIT and AOT shaders.
+
+```cpp
+std::move(shader(args...))
+    .draw(std::move(meshes), mesh_format, viewport, state, &depth);
+```
+
+For fixed-reference stencil testing, create a stencil-bearing depth buffer and
+fill the complete public state. The same reference/mask semantics are forwarded
+by Metal4, DX12, and Vulkan.
+
+```cpp
+auto depth_stencil =
+    device.create_depth_buffer(DepthFormat::D32S8A24, size);
+
+StencilFaceOp face{
+    .stencil_fail_op = StencilOp::Keep,
+    .depth_fail_op = StencilOp::Keep,
+    .pass_op = StencilOp::Replace,
+    .comparison = Comparison::Equal};
+RasterState state{};
+state.stencil_state = StencilState{
+    .enable_stencil = true,
+    .front_face_op = face,
+    .back_face_op = face,
+    .read_mask = 0xffu,
+    .write_mask = 0xffu,
+    .reference = 1u};
+
+stream << depth_stencil.clear(1.0f)
+       << std::move(shader(args...))
+              .draw(std::move(meshes), mesh_format,
+                    viewport, state, &depth_stencil);
+```
+
+`DepthBuffer::clear()` clears the stencil plane to zero when the format has
+stencil. `D32S8A24` maps directly to depth32-float/stencil8. A requested
+`D24S8` remains the logical runtime format, but Metal4 transparently uses
+D32S8A24 physical storage with a warning on devices that do not support
+depth24-unorm/stencil8. Stencil requires such a depth-stencil attachment;
+shader-written stencil reference and conservative rasterization are not part
+of the current Metal4 AIR contract.
 
 ## CommandList
 

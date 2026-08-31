@@ -21,8 +21,38 @@ LUISA_AST_API luisa::string make_array_description(luisa::string_view elem, size
 }
 
 LUISA_AST_API luisa::string make_struct_description(size_t alignment, std::initializer_list<luisa::string_view> members) noexcept {
+    return make_struct_description(alignment, members, {});
+}
+
+LUISA_AST_API luisa::string make_struct_description(
+    size_t alignment,
+    std::initializer_list<luisa::string_view> members,
+    luisa::span<const Attribute> attributes) noexcept {
+    LUISA_ASSERT(attributes.empty() || attributes.size() == members.size(),
+                 "Invalid structure member attribute count {} (expected {}).",
+                 attributes.size(), members.size());
     auto desc = luisa::format("struct<{}", alignment);
-    for (auto m : members) { desc.append(",").append(m); }
+    auto index = size_t{0u};
+    for (auto member : members) {
+        desc.push_back(',');
+        if (!attributes.empty()) {
+            auto &attribute = attributes[index];
+            LUISA_ASSERT(attribute.value.empty() || !attribute.key.empty(),
+                         "Structure member attribute value requires a key.");
+            if (!attribute.key.empty()) {
+                desc.push_back('[');
+                desc.append(attribute.key);
+                if (!attribute.value.empty()) {
+                    desc.push_back('(');
+                    desc.append(attribute.value);
+                    desc.push_back(')');
+                }
+                desc.push_back(']');
+            }
+        }
+        desc.append(member);
+        ++index;
+    }
     desc.append(">");
     return desc;
 }

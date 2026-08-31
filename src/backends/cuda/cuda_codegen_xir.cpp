@@ -516,7 +516,9 @@ void CUDACodegenXIR::_emit_value_name(const xir::Value *value, bool is_use) noex
                 case xir::DerivedSpecialRegisterTag::DISPATCH_ID: _scratch << "sreg_did"; break;
                 case xir::DerivedSpecialRegisterTag::KERNEL_ID: _scratch << "sreg_kid"; break;
                 case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS:
-                case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID: LUISA_NOT_IMPLEMENTED("Object ID is not supported in XIR-based CUDA codegen.");
+                case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID:
+                case xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING:
+                case xir::DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE: LUISA_NOT_IMPLEMENTED("Raster special registers are not supported in XIR-based CUDA codegen.");
                 case xir::DerivedSpecialRegisterTag::BLOCK_SIZE: _scratch << "sreg_bs"; break;
                 case xir::DerivedSpecialRegisterTag::WARP_SIZE: _scratch << "sreg_ws"; break;
                 case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: _scratch << "sreg_ls"; break;

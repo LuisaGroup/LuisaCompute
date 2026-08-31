@@ -1,0 +1,108 @@
+name: build-ios
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+  attestations: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LLVM_VERSION: 21.1.8
+  IOS_DEPLOYMENT_TARGET: '26.0'
+
+jobs:
+  build-ios-metal4:
+    name: iPhoneOS arm64 / Metal + Metal4 AIR / unsigned
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode 26 and install host build tools
+        id: toolchain
+        run: |
+          if [[ -d /Applications/Xcode_26.6.app ]]; then
+            sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+          fi
+          brew install llvm@21 ninja
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          echo "host_llvm_prefix=$(brew --prefix llvm@21)" >> "$GITHUB_OUTPUT"
+          echo "xcode_key=$(xcodebuild -version | shasum -a 256 | cut -c 1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache static iPhoneOS LLVM
+        id: cache-ios-llvm
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .ci/llvm-ios
+            .ci/llvm-source
+          key: ios-llvm-${{ runner.os }}-${{ runner.arch }}-${{ env.LLVM_VERSION }}-${{ env.IOS_DEPLOYMENT_TARGET }}-${{ steps.toolchain.outputs.xcode_key }}-${{ hashFiles('scripts/build_ios_llvm.sh') }}
+
+      - name: Build static arm64 iPhoneOS LLVM 21
+        if: steps.cache-ios-llvm.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/build_ios_llvm.sh \
+            --llvm-version "$LLVM_VERSION" \
+            --source-cache .ci/llvm-source \
+            --verify-attestation \
+            --build-dir .ci/llvm-ios \
+            --host-llvm-prefix "${{ steps.toolchain.outputs.host_llvm_prefix }}" \
+            --deployment-target "$IOS_DEPLOYMENT_TARGET" \
+            --jobs 4
+
+      - name: Verify cached iPhoneOS LLVM
+        run: |
+          test -f .ci/llvm-ios/lib/cmake/llvm/LLVMConfig.cmake
+          test "$(lipo -archs .ci/llvm-ios/lib/libLLVMCore.a)" = arm64
+          grep -Eq -- '-isysroot .*iPhoneOS.* -miphoneos-version-min=' .ci/llvm-ios/build.ninja
+          grep -q "LLVM_HOST_TRIPLE:STRING=arm64-apple-ios${IOS_DEPLOYMENT_TARGET}" .ci/llvm-ios/CMakeCache.txt
+          grep -q "LLVM_DEFAULT_TARGET_TRIPLE:STRING=arm64-apple-ios${IOS_DEPLOYMENT_TARGET}" .ci/llvm-ios/CMakeCache.txt
+
+      - name: Save static iPhoneOS LLVM
+        if: steps.cache-ios-llvm.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .ci/llvm-ios
+            .ci/llvm-source
+          key: ios-llvm-${{ runner.os }}-${{ runner.arch }}-${{ env.LLVM_VERSION }}-${{ env.IOS_DEPLOYMENT_TARGET }}-${{ steps.toolchain.outputs.xcode_key }}-${{ hashFiles('scripts/build_ios_llvm.sh') }}
+
+      - name: Build all Metal4 iOS examples, benchmark, and device tests without signing
+        run: |
+          scripts/build_ios_metal4.sh \
+            --llvm-dir .ci/llvm-ios/lib/cmake/llvm \
+            --build-dir build-ios \
+            --deployment-target "$IOS_DEPLOYMENT_TARGET" \
+            --mode all \
+            --unsigned \
+            --jobs 4
+
+      - name: Audit iPhoneOS bundles
+        run: |
+          scripts/audit_ios_bundles.sh \
+            --bin-dir build-ios/bin/Release \
+            --expected-count 21
+
+      - name: Build matched old-Metal iOS benchmark without signing
+        run: |
+          scripts/build_ios_backend_benchmark.sh \
+            --backend metal \
+            --build-dir build-ios-metal-benchmark \
+            --deployment-target "$IOS_DEPLOYMENT_TARGET" \
+            --unsigned \
+            --jobs 4
+
+      - name: Audit old-Metal iPhoneOS benchmark bundle
+        run: |
+          scripts/audit_ios_bundles.sh \
+            --bin-dir build-ios-metal-benchmark/bin/Release \
+            --expected-count 1

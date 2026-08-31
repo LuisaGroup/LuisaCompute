@@ -167,6 +167,30 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
                          "UNDEFINED requires a non-void result type and no arguments.");
             break;
         }
+        case CallOp::PACK: {
+            if (!(return_type == Type::of<void>() &&
+                  args.size() == 3u &&
+                  !args[0]->type()->is_resource() &&
+                  !args[0]->type()->is_custom() &&
+                  args[1]->type()->is_buffer() &&
+                  args[1]->type()->element() == Type::of<uint32_t>() &&
+                  args[2]->type() == Type::of<uint32_t>())) [[unlikely]] {
+                LUISA_ERROR("PACK expects (packable value, buffer<uint>, uint offset).");
+            }
+            break;
+        }
+        case CallOp::UNPACK: {
+            if (!(return_type != Type::of<void>() &&
+                  !return_type->is_resource() &&
+                  !return_type->is_custom() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_buffer() &&
+                  args[0]->type()->element() == Type::of<uint32_t>() &&
+                  args[1]->type() == Type::of<uint32_t>())) [[unlikely]] {
+                LUISA_ERROR("UNPACK expects (buffer<uint>, uint offset) and a packable return type.");
+            }
+            break;
+        }
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
         case CallOp::RAY_TRACING_TRACE_ANY:
         case CallOp::RAY_TRACING_QUERY_ALL:

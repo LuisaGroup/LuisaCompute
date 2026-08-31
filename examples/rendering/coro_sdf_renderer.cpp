@@ -22,6 +22,18 @@
 #include <luisa/core/logging.h>
 #include <luisa/dsl/sugar.h>
 
+#ifndef ENABLE_DISPLAY
+#ifdef LUISA_ENABLE_GUI
+#define ENABLE_DISPLAY 1
+#else
+#define ENABLE_DISPLAY 0
+#endif
+#endif
+
+#if ENABLE_DISPLAY
+#include <luisa/gui/window.h>
+#endif
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
@@ -51,7 +63,15 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     Device device = ctx.create_device(argv[1]);
-    Stream stream = device.create_stream(StreamTag::COMPUTE);
+#if ENABLE_DISPLAY
+    auto interactive = !opts.offline;
+#else
+    auto interactive = false;
+    if (!opts.offline) {
+        LUISA_WARNING("GUI support is disabled; rendering the finite offline workload instead.");
+    }
+#endif
+    Stream stream = device.create_stream(interactive ? StreamTag::GRAPHICS : StreamTag::COMPUTE);
 
     Callable intersect_light = [](Float3 pos, Float3 d) noexcept {
         Float cos_w = dot(-d, light_normal);
@@ -221,10 +241,29 @@ int main(int argc, char *argv[]) {
     }
     LUISA_INFO("CoroScheduler: {}", luisa::example::coro_scheduler_name(scheduler_kind));
 
-    uint total_spp = opts.spp == 0u ? 1024u : opts.spp;
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
-    Image<float> ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
+
+    std::optional<Swapchain> swap_chain;
+#if ENABLE_DISPLAY
+    std::unique_ptr<Window> window;
+    if (interactive) {
+        window = std::make_unique<Window>("Coroutine SDF Renderer", width, height);
+        swap_chain.emplace(device.create_swapchain(
+            stream,
+            SwapchainOption{
+                .display = window->native_display(),
+                .window = window->native_handle(),
+                .size = make_uint2(width, height),
+                .wants_hdr = false,
+                .wants_vsync = false,
+                .back_buffer_count = 3,
+            }));
+    }
+#endif
+    Image<float> ldr_image = device.create_image<float>(
+        swap_chain.has_value() ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        width, height);
 
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -243,12 +282,28 @@ int main(int argc, char *argv[]) {
     Clock clock;
     uint spp_count = 0u;
     uint spp = 0u;
-    while (spp < total_spp) {
-        for (uint frame = 0u; frame < interval && spp + frame < total_spp; frame++) {
-            stream << (*scheduler)(seed_image, accum_image, spp + frame).dispatch(width, height);
+    auto infinite_render = interactive && opts.spp == 0u;
+    auto total_spp = infinite_render ? 0u : (opts.spp == 0u ? 1024u : opts.spp);
+    auto spp_per_presentation = interactive ? 1u : interval;
+    while (infinite_render || spp < total_spp) {
+        auto batch_spp = 0u;
+        for (; batch_spp < spp_per_presentation &&
+               (infinite_render || spp + batch_spp < total_spp);
+             ++batch_spp) {
+            // Scheduler dispatches may expand to several stream submissions,
+            // so they intentionally cannot be nested in a CommandList.
+            stream << (*scheduler)(seed_image, accum_image, spp + batch_spp).dispatch(width, height);
             spp_count++;
         }
-        spp += interval;
+        spp += batch_spp;
+        if (swap_chain.has_value()) {
+            stream << hdr2ldr_shader(accum_image, ldr_image, 2.0f).dispatch(width, height)
+                   << swap_chain->present(ldr_image);
+#if ENABLE_DISPLAY
+            window->poll_events();
+            if (window->should_close()) { break; }
+#endif
+        }
     }
     stream << synchronize();
     double average_fps = spp_count / clock.toc() * 1000.0;

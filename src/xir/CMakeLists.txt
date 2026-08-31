@@ -151,7 +151,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/fuse_consecutive_buffer_reads.cpp
 )
 
-add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})
+add_library(luisa-compute-xir ${LUISA_COMPUTE_XIR_SOURCES})
 target_link_libraries(luisa-compute-xir PUBLIC luisa-compute-ast)
 
 if (NOT LUISA_COMPUTE_USE_SYSTEM_YYJSON)

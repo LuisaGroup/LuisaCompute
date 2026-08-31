@@ -338,7 +338,11 @@ struct hash<compute::ShaderOption> {
                                        (static_cast<uint>(option.enable_scalarizer) << enable_scalarizer_shift),
                                    seed);
         auto name_hash = hash_value(option.name, seed);
-        return hash_combine({opt_hash, name_hash}, seed);
+        auto native_include_hash = hash_value(option.native_include, seed);
+        auto max_registers_hash = hash_value(option.max_registers, seed);
+        return hash_combine(
+            {opt_hash, name_hash, native_include_hash, max_registers_hash},
+            seed);
     }
 };
 

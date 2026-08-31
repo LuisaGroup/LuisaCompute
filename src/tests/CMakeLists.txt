@@ -19,7 +19,10 @@ function(luisa_compute_add_test name source)
     target_include_directories(${name} PRIVATE ./ ./common)
     if (CT_LABELS)
         add_test(NAME ${name} COMMAND ${name} ${CT_ARGS})
-        set_tests_properties(${name} PROPERTIES LABELS "${CT_LABELS}")
+        # PARSE_ARGV preserves literal semicolons as \; inside a single
+        # argument. CTest expects an actual CMake list for multiple labels.
+        string(REPLACE "\\;" ";" _test_labels "${CT_LABELS}")
+        set_tests_properties(${name} PROPERTIES LABELS "${_test_labels}")
     endif ()
 endfunction()
 
@@ -372,6 +375,84 @@ if (TARGET luisa-compute-backend-vk)
 endif ()
 luisa_compute_add_test(test_argument_block_layout unit/ext/test_argument_block_layout.cpp LABELS "unit;unit_ext")
 target_include_directories(test_argument_block_layout PRIVATE ../backends/common)
+if (TARGET luisa-compute-backend-metal4)
+    luisa_compute_add_test(benchmark_metal4
+            benchmark/benchmark_metal4.cpp)
+
+    luisa_compute_add_test(test_metal4_metallib
+            unit/ext/test_metal_metallib.cpp
+            LABELS "unit;unit_ext;unit_metal4")
+    target_sources(test_metal4_metallib PRIVATE
+            ../backends/metal4/metal_metallib.cpp)
+    target_include_directories(test_metal4_metallib PRIVATE
+            ../backends/metal4)
+
+    luisa_compute_add_test(test_metal4_raster_archive
+            unit/ext/test_metal_raster_archive.cpp
+            LABELS "unit;unit_ext;unit_metal4")
+    target_sources(test_metal4_raster_archive PRIVATE
+            ../backends/metal4/metal_raster_archive.cpp)
+    target_include_directories(test_metal4_raster_archive PRIVATE
+            ../backends/metal4)
+
+    if (TARGET luisa-metal4-ios-path-tracer-aot)
+        add_test(NAME test_metal4_ios_air_aot_codegen
+                COMMAND luisa-metal4-ios-path-tracer-aot
+                "${CMAKE_CURRENT_BINARY_DIR}/metal4-ios-aot-test/luisa_ios_path_tracing.metallib"
+                26.0 26.4)
+        set_tests_properties(test_metal4_ios_air_aot_codegen PROPERTIES
+                LABELS "unit;unit_metal4;integration_codegen"
+                TIMEOUT 60)
+    endif ()
+
+    luisa_compute_add_test(test_metal4_device_conformance
+            integration/runtime/test_metal4_device_conformance.cpp
+            LABELS "integration;integration_metal4;integration_render"
+            ARGS metal4)
+    target_sources(test_metal4_device_conformance PRIVATE
+            ios/metal4_device_conformance.cpp)
+    target_include_directories(test_metal4_device_conformance PRIVATE
+            ios)
+    set_tests_properties(test_metal4_device_conformance PROPERTIES
+            TIMEOUT 300)
+
+    foreach (_metal4_test IN ITEMS
+            test_metal_xir_air
+            test_metal_xir_air_accel
+            test_metal4_air_extended_accel_limits
+            test_metal4_motion_instance_render
+            test_metal_xir_air_ray_query
+            test_metal_xir_air_typed_bindless
+            test_metal_xir_air_raster
+            test_metal4_raster_stencil)
+        luisa_compute_add_test(${_metal4_test}
+                integration/runtime/${_metal4_test}.cpp
+                LABELS "integration;integration_metal4"
+                ARGS metal4)
+        set_tests_properties(${_metal4_test} PROPERTIES
+                TIMEOUT 300)
+    endforeach ()
+    set_tests_properties(test_metal_xir_air_raster PROPERTIES
+            LABELS "integration;integration_metal4;integration_render"
+            ENVIRONMENT "LUISA_DUMP_LLVM_IR=1")
+    set_tests_properties(test_metal4_motion_instance_render PROPERTIES
+            LABELS "integration;integration_metal4;integration_render")
+    set_tests_properties(test_metal4_raster_stencil PROPERTIES
+            LABELS "integration;integration_metal4;integration_render")
+    add_test(NAME test_metal_xir_air_raster_validation
+            COMMAND test_metal_xir_air_raster metal4)
+    set_tests_properties(test_metal_xir_air_raster_validation PROPERTIES
+            LABELS "integration;integration_metal4;integration_render;integration_validation"
+            ENVIRONMENT "LUISA_DUMP_LLVM_IR=1;LUISA_ENABLE_VALIDATION=1"
+            TIMEOUT 300)
+    add_test(NAME test_metal4_raster_stencil_validation
+            COMMAND test_metal4_raster_stencil metal4)
+    set_tests_properties(test_metal4_raster_stencil_validation PROPERTIES
+            LABELS "integration;integration_metal4;integration_render;integration_validation"
+            ENVIRONMENT "LUISA_ENABLE_VALIDATION=1"
+            TIMEOUT 300)
+endif ()
+
 luisa_compute_add_test(test_pixel_storage unit/core/test_pixel_storage.cpp LABELS "unit;unit_core")
 if (NOT LUISA_COMPUTE_USE_SYSTEM_STL)
     luisa_compute_add_test(test_eastl_allocation unit/core/test_eastl_allocation.cpp LABELS "unit;unit_core")
@@ -435,6 +516,9 @@ if (TARGET luisa-compute-spirv-llvm)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_GUI)
+    luisa_compute_add_test(test_native_window_events
+            unit/runtime/test_native_window_events.cpp
+            LABELS "unit;unit_runtime;unit_gui")
 endif ()
 
 # --- unit/ast: standalone tests (backend-free tests are labeled for CTest) ---
@@ -514,7 +598,13 @@ endif ()
 luisa_compute_add_test(test_texture_compress    unit/runtime/test_texture_compress.cpp)
 luisa_compute_add_test(test_pbrt_curve_parser  unit/runtime/test_pbrt_curve_parser.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_texture_io          unit/runtime/test_texture_io.cpp)
-luisa_compute_add_test(test_timeline_event      unit/runtime/test_timeline_event.cpp)
+if (TARGET luisa-compute-backend-metal4)
+    luisa_compute_add_test(test_timeline_event unit/runtime/test_timeline_event.cpp
+            LABELS "unit;unit_runtime;integration;integration_metal4"
+            ARGS metal4)
+else ()
+    luisa_compute_add_test(test_timeline_event unit/runtime/test_timeline_event.cpp)
+endif ()
 luisa_compute_add_test(test_warp                unit/runtime/test_warp.cpp)
 luisa_compute_add_test(test_warp_prefix_scan    unit/runtime/test_warp_prefix_scan.cpp)
 luisa_compute_add_test(test_warp_sparse_collectives unit/runtime/test_warp_sparse_collectives.cpp)
@@ -572,6 +662,8 @@ luisa_compute_add_test(test_dsl_xir_optimize_vk unit/runtime/test_dsl_xir_optimi
 
 # --- unit/xir: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_ast_to_xir unit/xir/test_ast_to_xir.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_ast_pack_usage unit/xir/test_ast_pack_usage.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_ast_external_lowering unit/xir/test_ast_external_lowering.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_module      unit/xir/test_xir_module.cpp      LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_builder     unit/xir/test_xir_builder.cpp     LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_verifier    unit/xir/test_xir_verifier.cpp    LABELS "unit;unit_xir")
@@ -689,6 +781,44 @@ if (LUISA_COMPUTE_ENABLE_GUI)
             integration/runtime/transient_resource_device/transient_resource_device.cpp
             integration/runtime/transient_resource_device/transient_resource_device.h)
     target_include_directories(test_transient_resource PRIVATE ./ ./common)
+endif ()
+
+if (TARGET luisa-compute-backend-metal4)
+    function(luisa_metal4_add_air_runtime_test name target)
+        add_test(NAME ${name} COMMAND $<TARGET_FILE:${target}> metal4 ${ARGN})
+        set_tests_properties(${name} PROPERTIES
+                LABELS "integration;integration_metal4"
+                TIMEOUT 300)
+    endfunction()
+
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_autodiff test_dsl_autodiff)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_printer test_printer)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_printer_callback test_printer_custom_callback)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_world_and_object_ray test_ray_query_world_ray)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_buffer_io test_buffer_io)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_bindless_mip test_bindless_mip)
+    if (TARGET test_bindless_buffer)
+        luisa_metal4_add_air_runtime_test(
+                test_metal4_air_bindless_buffer test_bindless_buffer --offline)
+    endif ()
+    if (TARGET test_indirect)
+        luisa_metal4_add_air_runtime_test(
+                test_metal4_air_indirect test_indirect)
+    endif ()
+    if (TARGET test_native_include)
+        luisa_metal4_add_air_runtime_test(
+                test_metal4_air_native_include test_native_include --offline)
+    endif ()
+    if (TARGET test_cooperative_vector)
+        luisa_metal4_add_air_runtime_test(
+                test_metal4_air_cooperative_vector test_cooperative_vector)
+    endif ()
 endif ()
 
 # --- integration/runtime: DX-only tests ---

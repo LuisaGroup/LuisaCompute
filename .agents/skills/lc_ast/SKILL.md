@@ -1,6 +1,6 @@
 ---
-name: lc_ast
-description: Locate AST read/write usage markers and builtin CallOp usage rules in LuisaCompute. Use when investigating or modifying AST variable usage propagation, FunctionBuilder internals, or CallOp argument marking.
+name: lc-ast
+description: Trace and modify LuisaCompute AST usage propagation and AST-to-XIR lowering for calls, resources, raster stages, ray queries, PACK/UNPACK, opaque custom arguments, and external functions. Use when changing CallExpr marking, typed bindless aliases, raster builtins, direct ray-query operations, callable argument usage, TypeID/StringID handling, or XIR lvalue/resource conventions.
 ---
 
 # LuisaCompute AST Usage Markers
@@ -127,6 +127,11 @@ cur.mark_variable_usage(ref->variable().uid(), Usage::READ_WRITE);
 void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         switch (_op) {
+            case CallOp::PACK:
+                _arguments[0]->mark(Usage::READ);
+                _arguments[1]->mark(Usage::WRITE);
+                _arguments[2]->mark(Usage::READ);
+                break;
             case CallOp::BUFFER_VOLATILE_WRITE:
             case CallOp::BUFFER_WRITE:
             case CallOp::BINDLESS_BUFFER_WRITE:
@@ -181,7 +186,7 @@ void CallExpr::_mark() const noexcept {
         for (size_t i = 0; i < args.size(); i++) {
             auto arg = args[i];
             _arguments[i]->mark(
-                arg.is_reference() || arg.is_resource() ?
+                arg.is_reference() || arg.is_resource() || arg.type()->is_custom() ?
                     custom().variable_usage(arg.uid()) :
                     Usage::READ);
         }
@@ -193,7 +198,112 @@ void CallExpr::_mark() const noexcept {
 
 - **Default builtin**: every argument marked `READ`.
 - **Write-style builtins** (list above): argument 0 marked `WRITE`; remaining arguments marked `READ`.
+- **`PACK(value, words, offset)`**: value and offset are `READ`; the destination `buffer<uint>` is `WRITE`. Do not put `PACK` in the ordinary argument-0 write group.
+- **`UNPACK(words, offset)`**: follows the default rule, so both arguments are `READ`.
 - Atomic ops mark their target reference (argument 0) as `WRITE`; `AtomicRefNode::operate()` builds the `CallExpr` with the target as `_arguments[0]` (`src/ast/atomic_ref_node.cpp`).
+- External calls copy each `ExternalFunction::argument_usages()` entry to the matching argument.
+- Custom callable reference, resource, and opaque-custom arguments propagate the callee variable usage. Ordinary value arguments are always `READ`.
+
+## AST-to-XIR call and ID conventions
+
+Use `src/xir/translators/ast2xir.cpp` as the source of truth for argument form.
+
+- Cache external declarations by `ExternalFunction::hash()`, preserve their name and return type, and accept `void` returns.
+- Lower a non-resource external argument with `READ` or `NONE` usage as an XIR value.
+- Lower a non-resource external argument containing `WRITE`, and every opaque custom argument, as an XIR reference. Require the call operand to be an lvalue.
+- Keep resource arguments as XIR resources; do not additionally wrap them in ordinary references.
+- Represent opaque custom arguments to ordinary custom callables as references even when the AST surface presents the backend handle by value.
+- Lower `TypeIDExpr` to `uint64(0)` until the source Metal/CUDA paths define a stable cross-backend type-ID ABI.
+- Lower `StringIDExpr` to the 64-bit `luisa::hash_value` of the string contents.
+
+Metal4 AIR preserves these declarations as exact LLVM declarations. Every used
+symbol must be defined by `ShaderOption::native_include` as compatible textual
+LLVM IR or bitcode. CodeGen checks target/data layout, function ABI, address
+space, calling convention, ABI attributes, and reference alignment, then links
+needed definitions before O2 and LLVM-14 downgrade. Values use register ABI,
+references use generic pointers, and external calls receive no hidden Luisa
+state parameters. Missing or incompatible definitions fail shader creation;
+Metal4 has no MSL or legacy-IR fallback. Compute and raster AOT loaders consume
+their compiled archives without rerunning AST-to-XIR or preflight.
+
+This policy belongs to the separate `metal4` backend. The original `metal`
+backend remains source-MSL codegen and must not acquire a dependency on the
+Metal4 LLVM/AIR pipeline.
+
+## Preserve raster-stage identity and payloads
+
+- An AST `Function::Tag::RASTER_STAGE` does not encode vertex versus fragment.
+  Require the caller to set `AST2XIRConfig::raster_stage` and create a
+  `RasterStageFunction` with that explicit role. Do not guess from argument or
+  return types.
+- Keep argument zero as the stage payload: `AppData` for vertex and the vertex
+  return type for fragment. All later arguments form the shared host root ABI;
+  do not reorder them with kernel-style binding sorting.
+- Preserve reflected structure member attributes as part of the payload
+  `Type` description. `LUISA_RASTER_VARYING_INTERPOLATION(...)` marks member
+  zero as position and records one interpolation value for every remaining
+  member; AST-to-XIR must carry that exact `Type *` into both paired stages so
+  Metal4 AIR and the common HLSL raster path see the same semantics. Do not
+  rebuild an unannotated structural type or store qualifiers only in a frontend
+  side table.
+- Keep `Function::arguments()` zipped with the full raster
+  `bound_arguments()` array. Raster bindings may contain `monostate` entries
+  in-place, so `unbound_arguments()` and a bound-prefix assumption are not
+  valid for this path.
+- Expose `raster_object_id()`, `raster_barycentrics()`,
+  `raster_is_front_face()`, `raster_base_instance()`, and `raster_discard()`
+  through the normal DSL. Object ID and base instance are `uint`, barycentrics
+  are `float3`, front-facing is `bool`, and discard lowers to the XIR
+  raster-discard terminator. Translate front-facing
+  to `RASTER_FRONT_FACING`/`SPR_FrontFacing`; it is fragment-only even though
+  the shared raster implementation ABI carries a placeholder value in vertex
+  code. Translate base instance to
+  `RASTER_BASE_INSTANCE`/`SPR_BaseInstance`; it is vertex-only and receives
+  the nonzero draw-time value stored in `RasterMesh`.
+- Lower `DDX` and `DDY` to raster quad derivative XIR operations. Reject these
+  operations outside a fragment-stage backend configuration rather than
+  treating them as compute thread-group operations.
+- Preserve a void fragment return as a null stage type. It is valid for a
+  depth-only pass when the stage calls one consistent
+  `raster_set_z_depth*` operation; XIR inlining must move that operation into
+  the fragment entry before Metal4 AIR preflight. A void fragment with no
+  color or depth output remains invalid.
+
+## Normalize bindless aliases and ray-query state
+
+- Lower every supported `TYPED_BINDLESS_*` and
+  `TYPED_UNIFORM_BINDLESS_*` query, read, or write alias to the corresponding
+  ordinary XIR bindless `ResourceQueryOp`, `ResourceReadOp`, or
+  `ResourceWriteOp`. Keep the original operands and result type; backends
+  should not need duplicate typed or uniform opcode families.
+- Require the first operand of a direct ray-query object operation to be the
+  query lvalue. Pass that same lvalue to every XIR read or write emitted for
+  one AST call.
+- Lower direct `RAY_QUERY_PROCEED(query)` to a
+  `RAY_QUERY_OBJECT_PROCEED(query)` write immediately followed by a
+  `RAY_QUERY_OBJECT_IS_TERMINATED(query)` read, and return
+  `UNARY_BIT_NOT` of the read. The AST operation means “a candidate is
+  available,” which is the logical inverse of termination.
+- Treat the four top-level `RAY_TRACING_QUERY_{ALL,ANY}` constructors, including
+  their motion-blur variants, as fresh mutable state in downstream XIR passes.
+  They must not be commoned or hoisted even when their operands match.
+
+## PACK/UNPACK lowering contract
+
+Validate `PACK` as `(packable value, buffer<uint>, uint offset) -> void` and
+`UNPACK` as `(buffer<uint>, uint offset) -> packable value`. Reject resources
+and opaque custom types.
+
+AST-to-XIR wraps the packed value in a one-member Luisa structure whose
+alignment is at least four bytes, bitwise-casts the complete wrapper to
+`array<uint, sizeof(wrapper) / 4>`, and emits consecutive buffer writes or
+reads. This wrapper makes scalar bool/byte/short values one full word and
+retains Luisa padding for values such as `float3`. A four-field
+`{bool, bool, bool, bool}` value occupies four bytes and must not become the
+one-byte LLVM vector `<4 x i1>`; a Luisa byte4 becomes `<4 x i8>` and also
+occupies four bytes. A `float3` wrapper occupies 16 bytes. Backends must
+initialize padding before the bitwise cast; the Metal4 AIR path uses zero so
+`PACK` never observes LLVM poison.
 
 ## Files of Record
 
@@ -208,505 +318,29 @@ void CallExpr::_mark() const noexcept {
 | `check_builtin_call_valid` | `src/ast/op.cpp` |
 | `Function::variable_usage` exposure | `src/ast/function.cpp` |
 | Atomic op construction | `src/ast/atomic_ref_node.cpp` |
+| AST-to-XIR calls, IDs, bindless aliases, ray queries, PACK/UNPACK | `src/xir/translators/ast2xir.cpp` |
+| PACK/UNPACK usage regression | `src/tests/unit/xir/test_ast_pack_usage.cpp` |
+| Typed bindless lowering regression | `src/tests/unit/xir/test_ast_typed_bindless_lowering.cpp` |
+| Direct ray-query proceed regression | `src/tests/unit/xir/test_xir_pass_lower_ray_query_loop.cpp` |
+| External lowering regression | `src/tests/unit/xir/test_ast_external_lowering.cpp` |
 | Manual AST skill doc | `.agents/skills/ast/SKILL.md` |
 
 ## Common Modifications
 
 - **Add a new write-style builtin op**: extend the switch in `src/ast/expression.cpp` `CallExpr::_mark()` so argument 0 is `WRITE`.
+- **Add an op whose destination is not argument 0**: give it a dedicated case, as `PACK` does for argument 1.
 - **Query usage after building**: call `Function::variable_usage(uid)` or `FunctionBuilder::variable_usage(uid)`.
-- **Custom callable reference/resource args**: explicitly mark the reference variable `READ_WRITE` via `mark_variable_usage()` so callers propagate usage correctly.
-
----
-
-# Appendix: Full AST C++ Structure
-
-## File Inventory
-
-### Headers (`include/luisa/ast/`)
-
-| File | Main Class(es) | Description |
-|------|----------------|-------------|
-| `usage.h` | `Usage` (enum) | `NONE`, `READ`, `WRITE`, `READ_WRITE` flags |
-| `attribute.h` | `Attribute` | Key-value pair struct for type/variable metadata |
-| `variable.h` | `Variable` | Typed variable with `Tag` (LOCAL, SHARED, REFERENCE, BUFFER, TEXTURE, BINDLESS_ARRAY, ACCEL, and builtins like THREAD_ID, BLOCK_ID, DISPATCH_ID, etc.) |
-| `type.h` | `Type` | Central type system: scalar types (BOOL, INT8..FLOAT64, FLOAT8), VECTOR, MATRIX, ARRAY, STRUCTURE, BUFFER, TEXTURE, BINDLESS_ARRAY, ACCEL, COOPERATIVE_VECTOR, COOPERATIVE_VECTOR_REF, COOPERATIVE_MATRIX_REF, CUSTOM. Factory methods: `of<T>()`, `array()`, `vector()`, `matrix()`, `buffer()`, `texture()`, `structure()`, `custom()`, `from(description)` |
-| `type_registry.h` | `TypeDesc<T>`, macros `LUISA_STRUCT_REFLECT` | Compile-time type description generation; C++20 aggregate member counting via `member_reflect.inl.h` |
-| `member_reflect.inl.h` | `count_member<T>()`, `member_reflect<T>()` | Compile-time struct reflection: counts aggregate members (up to 126) and builds `struct<align,member1,member2,...>` description strings |
-| `constant_data.h` | `ConstantData`, `ConstantDecoder` | Constant data storage with type + raw bytes; `ConstantDecoder` virtual dispatch for decoding vectors, matrices, structs, arrays |
-| `expression.h` | `Expression` (base), `UnaryExpr`, `BinaryExpr`, `MemberExpr`, `AccessExpr`, `LiteralExpr`, `RefExpr`, `ConstantExpr`, `CallExpr`, `CastExpr`, `TypeIDExpr`, `StringIDExpr`, `FuncRefExpr`, `CpuCustomOpExpr`, `GpuCustomOpExpr` | Full expression tree with visitor pattern; `_usage` cache, `_mark()` virtual, `traverse_subexpressions()` helper |
-| `op.h` | `UnaryOp`, `BinaryOp`, `CallOp`, `CallOpSet`, `TypePromotion` | Operation enums (CallOp has 300+ entries) |
-| `statement.h` | `Statement` (base), `BreakStmt`, `ContinueStmt`, `ReturnStmt`, `ScopeStmt`, `IfStmt`, `LoopStmt`, `ExprStmt`, `SwitchStmt`, `SwitchCaseStmt`, `SwitchDefaultStmt`, `AssignStmt`, `ForStmt`, `CommentStmt`, `RayQueryStmt`, `SuspendStmt`, `AutoDiffStmt`, `PrintStmt`, `DebugBreakStmt` | Full statement tree with visitor pattern; `traverse_expressions()` template helper |
-| `function.h` | `Function` | Public function handle wrapping `FunctionBuilder*`. Provides access to variables, arguments, bindings, callables, block size, hash, usage queries |
-| `function_builder.h` | `FunctionBuilder` | Central AST construction API. RAII scope guards, thread-local function stack. Creates expressions/literals/variables/statements. `mark_variable_usage()`, `hash()`, `duplicate()`, `sort_bindings()`, `_internalize()` |
-| `external_function.h` | `ExternalFunction` | Named external function with typed argument list and per-argument `Usage` |
-| `atomic_ref_node.h` | `AtomicRefNode` | Helper for building atomic operations: chains access paths and emits `CallExpr` |
-| `callable_library.h` | `CallableLibrary` | Serialization/deserialization of callable function graphs to/from binary blobs |
-| `ast2json.h` | `to_json()` | Convert `Type` or `Function` to JSON string for debugging |
-| `interface.h` | — | Convenience include aggregating type/variable/expression/statement/function headers |
-
-### Sources (`src/ast/`)
-
-| File | Key Functions |
-|------|---------------|
-| `type.cpp` | `TypeRegistry` singleton, `TypeImpl`, `_decode()` recursive parser for type descriptions, `Type::from()`, `Type::array()`, `Type::vector()`, `Type::matrix()`, `Type::buffer()`, `Type::texture()`, `Type::structure()`, `Type::custom()`, type query predicates |
-| `variable.cpp` | `Variable::hash()` |
-| `expression.cpp` | `Expression::mark()`, `Expression::hash()`, all expression `_mark()`/`_compute_hash()` overrides, `CallExpr::_mark()` (builtin write-style vs read-style dispatch), `CallExpr::custom()/external()` |
-| `statement.cpp` | All `Statement::_compute_hash()` overrides, `PrintStmt`/`DebugBreakStmt` constructors, default `StmtVisitor` methods |
-| `function.cpp` | `Function` methods delegating to `FunctionBuilder`, binding hash functions |
-| `function_builder.cpp` | `FunctionBuilder::push/pop/current`, `break_/continue_/return_/suspend_/ray_query_/autodiff_/if_/loop_/switch_/case_/default_/for_/assign`, `mark_variable_usage`, `_internalize`, `_ref`, `_builtin`, `local/shared/argument/buffer/texture/bindless_array/accel`, `literal/unary/binary/member/swizzle/access/cast/string_id/type_id/func_ref/call`, `_compute_hash`, `sort_bindings`, `_duplicate_if_necessary`, `duplicate`, `set_block_size`, `set_name` |
-| `op.cpp` | `CallOpSet::Iterator`, `promote_types()`, `check_builtin_call_valid()` |
-| `constant_data.cpp` | `ConstantDecoder` vector/matrix/struct/array decoding, `ConstantData::create()` with deduplication |
-| `external_function.cpp` | `ExternalFunction` constructor, `_compute_hash()` |
-| `atomic_ref_node.cpp` | `AtomicRefNode` construction, `access()` chaining, `operate()` builds `CallExpr` |
-| `callable_library.cpp` | Full serialization/deserialization of `FunctionBuilder` graph |
-| `function_duplicator.cpp` | `FunctionDuplicator` deep-copies `FunctionBuilder` graph with variable remapping; `_duplicate_if_necessary()` for leaked variables; `deduplicate_custom_callables()` |
-| `ast2json.cpp` | `JSON` value type, `AST2JSON` visitor converts full AST to JSON |
-| `lc_ast_pch.h` | Precompiled header |
-
-## Class Hierarchy Overview
-
-```
-Expression (abstract)
-├── UnaryExpr
-├── BinaryExpr
-├── MemberExpr
-├── AccessExpr
-├── LiteralExpr
-├── RefExpr
-├── ConstantExpr
-├── CallExpr
-├── CastExpr
-├── TypeIDExpr
-├── StringIDExpr
-├── FuncRefExpr
-├── CpuCustomOpExpr
-└── GpuCustomOpExpr
-
-Statement (abstract)
-├── BreakStmt
-├── ContinueStmt
-├── ReturnStmt
-├── ScopeStmt
-├── IfStmt
-├── LoopStmt
-├── ExprStmt
-├── SwitchStmt
-├── SwitchCaseStmt
-├── SwitchDefaultStmt
-├── AssignStmt
-├── ForStmt
-├── CommentStmt
-├── RayQueryStmt
-├── SuspendStmt
-├── AutoDiffStmt
-├── PrintStmt
-└── DebugBreakStmt
-```
-
-## Key Design Patterns
-
-1. **Ownership**: `FunctionBuilder` owns all `Expression` and `Statement` objects via `unique_ptr` vectors. All raw pointers are non-owning views.
-
-2. **Builder stack**: Thread-local `_function_stack()` enables `Expression` constructors to automatically capture their owning builder. `FunctionStackGuard` pushes/pops on definition.
-
-3. **Expression internalization** (`_internalize()`): When a callable references a variable from an outer scope, the builder clones/captures the expression chain into the current function. Lvalue locals become reference arguments; resources become new resource arguments; builtins become new builtins; statically-evaluable expressions are recursively cloned.
-
-4. **Usage propagation**: Two-phase: (a) `Expression::_usage` bitfield caches the aggregate usage at each expression node; (b) `RefExpr::_mark()` writes through to `FunctionBuilder::_variable_usages[uid]` for final variable-level query.
-
-5. **CallOp semantics**: `CallOpSet` (bitset) tracks which builtins a function directly/propagatedly uses.
-
-6. **Serialization**: `CallableLibrary` provides a custom binary serialization format for distributing callable function graphs.
-
-7. **Duplication**: `FunctionDuplicator` creates a deep copy of a `FunctionBuilder` graph, remapping variable UIDs and hoisting leaked references.
-
-8. **AtomicRefNode**: Chains buffer/array/structure access paths into a flat argument list for atomic `CallExpr` construction.
-
-## Visitor Helpers
-
-- `traverse_subexpressions(expr, enter, exit)` — walks all expression nodes recursively.
-- `traverse_expressions<recurse_subexpr>(stmt, visit, enter_stmt, exit_stmt)` — walks all expressions nested in a statement tree.
-- `ExprVisitor` — abstract visitor with virtual methods for each expression type.
-- `StmtVisitor` — abstract visitor with virtual methods for each statement type.
-
-## Type System Details
-
-- `Type::from(description)` parses string descriptions like `"array<struct<16,int,float>,10>"` into interned `Type` objects.
-- `TypeRegistry` (singleton) manages type pool and deduplication via `unordered_set`.
-- `TypeImpl` extends `Type` with concrete storage for hash, tag, size, alignment, dimension, members, member_attributes.
-- `TypeDesc<T>` maps C++ types to their string descriptions at compile time.
-- `struct_member_tuple<T>` decomposes structs into `std::tuple` of member types with offset validation.
-
-## Variable Tags
-
-```
-LOCAL | SHARED | REFERENCE | BUFFER | TEXTURE |
-BINDLESS_ARRAY | ACCEL | THREAD_ID | BLOCK_ID |
-DISPATCH_ID | DISPATCH_SIZE | KERNEL_ID |
-WARP_LANE_COUNT | WARP_LANE_ID |
-RASTER_OBJECT_ID | RASTER_BARYCENTRICS
-```
-
----
-
-# How to Add a New CallOp
-
-## Overview
-
-Adding a new `CallOp` requires changes across the AST layer, validation, each backend codegen, and optionally the DSL. Below is the complete checklist.
-
-## Step 1: Add the enum value
-
-**File:** `include/luisa/ast/op.h`
-
-Append to the `CallOp` enum in the appropriate category section.
-
-```cpp
-enum struct CallOp : uint32_t {
-    // ... existing ops ...
-    MY_NEW_OP,
-    // ...
-};
-```
-
-> ⚠️ **DO NOT reorder existing values** — enum integer values are embedded in serialized function hashes and are assumed by `call_op_count`. Append your new op in the appropriate category section before `CLOCK` (the last enumerator). If you must add after `CLOCK`, update `call_op_count` and `LUISA_MAGIC_ENUM_RANGE` accordingly.
-
-### Also update:
-
-- **`call_op_count`** (line ~522): `static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;` — This defines the size of the `CallOpSet` bitset. If your new op is added BEFORE `CLOCK`, `call_op_count` already covers it. If added AFTER `CLOCK`, increment this value.
-
-- **`LUISA_MAGIC_ENUM_RANGE`** (line ~664): `LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, CLOCK)` — Enables `to_string`/`from_string` for the range `[CUSTOM, CLOCK]`. If your new op is after `CLOCK`, extend the range to include it.
-
-## Step 2: Update usage propagation
-
-**File:** `src/ast/expression.cpp` — `CallExpr::_mark()`
-
-### Read-only (default):
-No change needed — the `default` case marks all args `Usage::READ`.
-
-### Write-style (arg[0] = WRITE, rest = READ):
-Add to the existing switch:
-```cpp
-case CallOp::MY_NEW_OP:
-    _arguments[0]->mark(Usage::WRITE);
-    for (size_t i = 1; i < _arguments.size(); i++) {
-        _arguments[i]->mark(Usage::READ);
-    }
-    break;
-```
-
-### Custom usage:
-Implement arbitrary logic in the switch.
-
-## Step 3: Add validation (optional but recommended)
-
-**File:** `src/ast/op.cpp` — `check_builtin_call_valid()`
-
-Add a case to validate argument types and counts at AST construction time:
-
-```cpp
-case CallOp::MY_NEW_OP: {
-    LUISA_ASSERT(args.size() == 2 &&
-                 args[0]->type()->is_buffer() &&
-                 args[1]->type()->is_uint32(),
-                 "MY_NEW_OP: expected (buffer, uint32)");
-    break;
-}
-```
-
-## Step 4: Add helper functions for category detection (optional)
-
-**File:** `include/luisa/ast/op.h`
-
-If your op belongs to a new category, add a `constexpr` helper:
-```cpp
-[[nodiscard]] constexpr auto is_my_category_operation(CallOp op) noexcept {
-    auto v = to_underlying(op);
-    return v >= to_underlying(CallOp::MY_CATEGORY_START) &&
-           v <= to_underlying(CallOp::MY_CATEGORY_END);
-}
-```
-
-## Step 5: Update each backend codegen
-
-Each backend has a switch on `CallOp` that emits native code or IR. Add your case to all of them:
-
-| Backend | Codegen File(s) | Nature |
-|---------|-----------------|--------|
-| **CUDA** | `src/backends/cuda/cuda_codegen_ast.cpp` | Direct AST→CUDA C++ string emission |
-| **Metal** | `src/backends/metal/metal_codegen_ast.cpp` | Direct AST→Metal Shading Language string emission |
-| **HLSL/DX12** | `src/backends/common/hlsl/codegen_utils/function_codegen.cpp` (main CallOp dispatch), `src/backends/common/hlsl/hlsl_codegen.cpp` (AST visitor), `src/backends/dx/` (DXIL compilation) | AST→HLSL string, compiled to DXIL; no own CallOp switch in `dx/` |
-| **SPIR-V (LLVM)** | `src/backends/common/spirv_llvm/llvm_state_visitor.cpp` | AST→LLVM IR → SPIR-V binary via `spirv64` target machine |
-| **Vulkan** | `src/backends/vk/` + `src/backends/common/spirv/` (default) or `spirv_llvm/` (experimental) | Uses common SPIR-V codegen; no own CallOp switch |
-| **XIR** (intermediate) | `src/xir/translators/ast2xir.cpp` | AST→XIR; CUDA, HIP, Vulkan, and Fallback consume XIR directly, while DX/Metal use XIR for lowering before AST codegen |
-| **Fallback** | `src/backends/fallback/` + `src/xir/translators/ast2xir.cpp` | Uses XIR as input; no direct AST CallOp switch |
-| **Hip/AMD** | `src/backends/hip/` + `src/xir/translators/ast2xir.cpp` | Uses XIR as input; no direct AST CallOp switch |
-| **Validation** | `src/backends/validation/` | AST validation layer wrapping another backend; no own CallOp switch |
-
-Example CUDA addition:
-```cpp
-case CallOp::MY_NEW_OP: {
-    _scratch << "my_new_op(";
-    for (auto i = 0u; i < args.size(); i++) {
-        if (i) _scratch << ", ";
-        emit(args[i]); // use the backend's expression emitter
-    }
-    _scratch << ")";
-    break;
-}
-```
-
-## Step 6: (Optional) Add DSL helper
-
-If the op should be exposed via the high-level DSL, add a helper in `src/dsl/`:
-
-```cpp
-// src/dsl/something.cpp
-[[nodiscard]] auto my_new_op(Expr<float> x) noexcept {
-    return detail::FunctionBuilder::current()->call(...);
-}
-```
-
-## Step 7: (Optional) Update XIR passes
-
-If your op needs special handling in the XIR optimization pipeline, add it to `src/xir/passes/`.
-
-## Full Checklist
-
-| # | What | File(s) |
-|---|------|---------|
-| 1 | Add enum value | `include/luisa/ast/op.h` |
-| 2 | Update `call_op_count` / `LUISA_MAGIC_ENUM_RANGE` if needed | `include/luisa/ast/op.h` |
-| 3 | Add usage marking in `CallExpr::_mark()` | `src/ast/expression.cpp` |
-| 4 | Add argument validation in `check_builtin_call_valid()` | `src/ast/op.cpp` |
-| 5 | Add codegen for each backend | See table above |
-| 6 | (Optional) Add DSL helper | `src/dsl/` |
-| 7 | (Optional) Add category helper | `include/luisa/ast/op.h` |
-
----
-
-# How to Add a New Expression
-
-## Step 1: Add the expression class
-
-**File:** `include/luisa/ast/expression.h`
-
-1. Add a new `Tag` enum value to `Expression::Tag` (e.g., `MY_NEW_EXPR`).
-2. Forward-declare the class (e.g., `class MyNewExpr;`).
-3. Add a `virtual void visit(const MyNewExpr *) = 0;` to `ExprVisitor`.
-4. Implement the class inheriting `Expression`:
-
-```cpp
-class LUISA_AST_API MyNewExpr final : public Expression {
-    friend class CallableLibrary;
-
-private:
-    // your data members
-    MyNewExpr() noexcept = default;
-
-protected:
-    void _mark(Usage) const noexcept override { /* propagate usage if needed */ }
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
-
-public:
-    MyNewExpr(/* params */) noexcept
-        : Expression{Tag::MY_NEW_EXPR, type} /*, init members */ {}
-    // accessors
-    LUISA_EXPRESSION_COMMON()
-};
-```
-
-## Step 2: Add hash computation
-
-**File:** `src/ast/expression.cpp`
-
-Implement `_compute_hash()`:
-```cpp
-uint64_t MyNewExpr::_compute_hash() const noexcept {
-    return hash_combine({/* member hashes */});
-}
-```
-
-## Step 3: Add to `traverse_subexpressions`
-
-**File:** `include/luisa/ast/expression.h` (the free function at the bottom)
-
-Add a case for `Expression::Tag::MY_NEW_EXPR` so the traversal helper works correctly.
-
-## Step 4: Add creation method to FunctionBuilder
-
-**File:** `include/luisa/ast/function_builder.h` (declaration) and `src/ast/function_builder.cpp` (definition)
-
-```cpp
-// in function_builder.h:
-[[nodiscard]] const MyNewExpr *my_new_expr(/* params */) noexcept;
-
-// in function_builder.cpp:
-const MyNewExpr *FunctionBuilder::my_new_expr(/* params */) noexcept {
-    return _create_expression<MyNewExpr>(/* params */);
-}
-```
-
-## Step 5: Add serialization support (optional)
-
-**File:** `src/ast/callable_library.cpp`
-
-Add `ser_value` and `deser_ptr` specializations for the new expression type, plus integrate into the `Expression` base `ser_value`/`deser_value` dispatch.
-
-## Step 6: Add codegen in each backend
-
-Each backend that processes AST expressions directly (CUDA, Metal, HLSL, SPIR-V LLVM, LLVM/CPU) needs a `case Expression::Tag::MY_NEW_EXPR` in its visitor switch.
-
-## Step 7: Add JSON export (optional)
-
-**File:** `src/ast/ast2json.cpp`
-
-Add a conversion method in `AST2JSON` and wire it into `_convert_expr()`.
-
----
-
-# How to Add a New Statement
-
-## Step 1: Add the statement class
-
-**File:** `include/luisa/ast/statement.h`
-
-1. Add a new `Tag` enum value to `Statement::Tag`.
-2. Forward-declare (e.g., `class MyNewStmt;`).
-3. Add `virtual void visit(const MyNewStmt *) = 0;` to `StmtVisitor`.
-4. Implement the class inheriting `Statement`:
-
-```cpp
-class LUISA_AST_API MyNewStmt final : public Statement {
-    friend class CallableLibrary;
-
-private:
-    // data members
-    MyNewStmt() noexcept = default;
-
-private:
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
-
-public:
-    MyNewStmt(/* params */) noexcept
-        : Statement{Tag::MY_NEW_STMT} /*, init */ {
-        // mark expression usages here
-    }
-    // accessors
-    LUISA_STATEMENT_COMMON()
-};
-```
-
-## Step 2: Add hash computation
-
-**File:** `src/ast/statement.cpp`
-
-```cpp
-uint64_t MyNewStmt::_compute_hash() const noexcept {
-    return hash_combine({/* member hashes */});
-}
-```
-
-## Step 3: Add to `traverse_expressions`
-
-**File:** `include/luisa/ast/statement.h` — add a case in the `traverse_expressions` template function.
-
-## Step 4: Add creation method to FunctionBuilder
-
-**File:** `include/luisa/ast/function_builder.h` / `src/ast/function_builder.cpp`
-
-```cpp
-// declaration
-[[nodiscard]] MyNewStmt *my_new_stmt_(/* params */) noexcept;
-
-// definition — use _create_and_append_statement<MyNewStmt>(...)
-MyNewStmt *FunctionBuilder::my_new_stmt_(/* params */) noexcept {
-    return _create_and_append_statement<MyNewStmt>(/* params */);
-}
-```
-
-## Step 5: Add to AST->XIR translation (if applicable)
-
-**File:** `src/xir/translators/ast2xir.cpp` — add a case for the new statement tag.
-
-## Step 6: Add JSON export (optional)
-
-**File:** `src/ast/ast2json.cpp` — add a conversion method in `_convert_stmt()`.
-
----
-
-# Backend Codegen Locations Reference
-
-## Directory Structure
-
-```
-src/backends/
-├── CMakeLists.txt
-├── xmake.lua
-├── common/
-│   ├── hlsl/               # HLSL codegen (AST→HLSL string)
-│   │   ├── hlsl_codegen.cpp/h      — top-level HLSL codegen
-│   │   ├── codegen_stack_data.cpp/h— per-function state
-│   │   ├── codegen_utils/          — detailed sub-emitters
-│   │   │   ├── function_codegen.cpp— main CallOp dispatch (huge switch)
-│   │   │   ├── resource.cpp        — buffer/texture/bindless ops
-│   │   │   ├── type_system.cpp     — HLSL type mapping
-│   │   │   ├── cbuffer.cpp         — constant buffer layout
-│   │   │   ├── constant.cpp        — constant emission
-│   │   │   ├── entry_points.cpp    — kernel entry point generation
-│   │   │   ├── property.cpp        — shader properties
-│   │   │   └── variable.cpp        — variable declarations
-│   │   └── hlsl_codegen_util.txt
-│   └── spirv_llvm/         # SPIR-V via LLVM (AST→LLVM IR→SPIR-V)
-│       ├── llvm_state_visitor.cpp  — main AST visitor
-│       ├── llvm_codegen_result.h
-│       ├── llvm_codegen_stack_data.cpp/h
-│       └── llvm_codegen_utility.cpp/h
-├── cuda/                  # CUDA backend
-│   ├── cuda_codegen_ast.cpp/h      — AST→CUDA C++ string codegen
-│   ├── cuda_codegen_xir.cpp/h      — XIR→CUDA codegen (alternative path)
-│   └── llvm_codegen/               — LLVM-based CUDA codegen path
-├── metal/                 # Metal (Apple GPU) backend
-│   └── metal_codegen_ast.cpp/h     — AST→MSL string codegen
-├── dx/                    # DirectX 12 backend (uses common HLSL codegen; no own AST switch)
-├── vk/                    # Vulkan backend (uses common SPIR-V codegen; no own AST switch)
-├── hip/                   # AMD HIP backend
-│   └── llvm_codegen/           — own LLVM codegen (input: XIR, not direct AST)
-├── fallback/              # Fallback CPU reference implementation (uses XIR)
-│   └── fallback_codegen.cpp    — XIR-based LLVM codegen
-└── validation/            # AST validation layer (wraps another backend)
-```
-
-## Where to Add Codegen for Each Tag Type
-
-### For `CallOp` (the most common change):
-Look for the giant `switch` on `CallOp` in each of these files:
-
-| File | What it does |
-|------|-------------|
-| `src/backends/cuda/cuda_codegen_ast.cpp` | Emits CUDA C++ function call strings like `lc_buffer_read(...)` |
-| `src/backends/metal/metal_codegen_ast.cpp` | Emits Metal Shading Language strings |
-| `src/backends/common/hlsl/codegen_utils/function_codegen.cpp` | Emits HLSL strings (main HLSL dispatch; used by DX12) |
-| `src/backends/common/spirv_llvm/llvm_state_visitor.cpp` | Generates LLVM IR that gets translated to SPIR-V (used by Vulkan) |
-| `src/xir/translators/ast2xir.cpp` | Translates AST → XIR IR; backends using XIR (CUDA XIR path, Metal XIR path, HIP, Fallback) handle CallOp through their own XIR visitors |
-
-### For `Expression::Tag`:
-Each direct-AST codegen visitor has a switch on `Expression::Tag`:
-
-| File | Notes |
-|------|-------|
-| `src/backends/cuda/cuda_codegen_ast.cpp` | Full AST visitor with switch on `Expression::Tag` |
-| `src/backends/metal/metal_codegen_ast.cpp` | Full AST visitor with switch on `Expression::Tag` |
-| `src/backends/common/hlsl/hlsl_codegen.cpp` | Full AST visitor with switch on `Expression::Tag` (used by DX12) |
-| `src/backends/common/spirv_llvm/llvm_state_visitor.cpp` | Full AST visitor with switch on `Expression::Tag` (used by Vulkan) |
-| `src/xir/translators/ast2xir.cpp` | AST→XIR translator; has its own switch |
-
-### For `Statement::Tag`:
-Same files as `Expression::Tag` — each visitor also has a `switch` on `Statement::Tag`:
-
-| File | Notes |
-|------|-------|
-| `src/backends/cuda/cuda_codegen_ast.cpp` | Full AST visitor with switch on `Statement::Tag` |
-| `src/backends/metal/metal_codegen_ast.cpp` | Full AST visitor with switch on `Statement::Tag` |
-| `src/backends/common/hlsl/hlsl_codegen.cpp` | Full AST visitor with switch on `Statement::Tag` (used by DX12) |
-| `src/backends/common/spirv_llvm/llvm_state_visitor.cpp` | Full AST visitor with switch on `Statement::Tag` (used by Vulkan) |
-| `src/xir/translators/ast2xir.cpp` | AST→XIR translator; has its own switch |
+- **Custom callable reference/resource/custom args**: explicitly mark the callee variable with its real usage so callers propagate it correctly.
+- **Change external lowering**: update declaration form and call operand form together, then run `test_ast_external_lowering` and the `unit_xir` CTest label.
+- **Change bindless aliases or direct ray queries**: preserve ordinary XIR op
+  normalization and lvalue identity, then run
+  `test_ast_typed_bindless_lowering` and
+  `test_xir_pass_lower_ray_query_loop`.
+
+## Broader AST changes
+
+Use `.agents/skills/ast/SKILL.md` for manual `FunctionBuilder` construction.
+When adding an expression, statement, or `CallOp`, inspect the current enum,
+builder, usage marking, hashing, traversal/visitor, validation, serialization,
+and every affected AST or XIR backend. Search the implementation rather than
+copying a backend inventory or enum boundary into this skill.

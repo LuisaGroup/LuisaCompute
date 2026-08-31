@@ -590,7 +590,10 @@ void reg_vulkan_priority_instruction_round_trip() {
         auto int_type = Type::of<int32_t>();
         auto uint_type = Type::of<uint32_t>();
         auto ulong_type = Type::of<uint64_t>();
+        auto float_type = Type::of<float>();
         auto buffer_type = Type::buffer(int_type);
+        float depth_value = 0.5f;
+        auto depth = module.create_constant(float_type, &depth_value);
 
         auto resource_callable = module.create_callable(nullptr);
         auto buffer = resource_callable->create_resource_argument(buffer_type);
@@ -605,6 +608,7 @@ void reg_vulkan_priority_instruction_round_trip() {
         builder.atomic_fetch_add(int_type, buffer, luisa::span<Value *const>{atomic_indices}, value);
         auto warp_sum = builder.call(int_type, ThreadGroupOp::WARP_ACTIVE_SUM, {value});
         builder.call(ResourceWriteOp::BUFFER_WRITE, {buffer, index, warp_sum});
+        builder.call(nullptr, ThreadGroupOp::RASTER_SET_Z_DEPTH, {depth});
         builder.return_void();
 
         auto break_callable = module.create_callable(nullptr);
@@ -636,6 +640,7 @@ void reg_vulkan_priority_instruction_round_trip() {
         expect(encoded.text.find("resource_read \"int\" buffer_read") != luisa::string::npos);
         expect(encoded.text.find("atomic \"int\" fetch_add") != luisa::string::npos);
         expect(encoded.text.find("thread_group \"int\" warp_active_sum") != luisa::string::npos);
+        expect(encoded.text.find("thread_group \"void\" raster_set_z_depth") != luisa::string::npos);
         expect(encoded.text.find("resource_write \"void\" buffer_write") != luisa::string::npos);
         expect(encoded.text.find(" break \"void\" -1") != luisa::string::npos);
         expect(encoded.text.find(" continue \"void\" -1") != luisa::string::npos);
@@ -643,7 +648,7 @@ void reg_vulkan_priority_instruction_round_trip() {
         auto decoded = xir_from_interchange_text(encoded.text);
         expect(decoded.succeeded());
         if (!decoded.succeeded()) { return; }
-        std::array seen{false, false, false, false, false, false, false};
+        std::array seen{false, false, false, false, false, false, false, false};
         for (auto function : decoded.module->function_list()) {
             for (auto block : function->basic_blocks()) {
                 for (auto instruction : block->instructions()) {
@@ -658,7 +663,8 @@ void reg_vulkan_priority_instruction_round_trip() {
                             seen[2] = static_cast<AtomicInst *>(instruction)->op() == AtomicOp::FETCH_ADD;
                             break;
                         case DerivedInstructionTag::THREAD_GROUP:
-                            seen[3] = static_cast<ThreadGroupInst *>(instruction)->op() == ThreadGroupOp::WARP_ACTIVE_SUM;
+                            seen[3] |= static_cast<ThreadGroupInst *>(instruction)->op() == ThreadGroupOp::WARP_ACTIVE_SUM;
+                            seen[7] |= static_cast<ThreadGroupInst *>(instruction)->op() == ThreadGroupOp::RASTER_SET_Z_DEPTH;
                             break;
                         case DerivedInstructionTag::RESOURCE_WRITE:
                             seen[4] = static_cast<ResourceWriteInst *>(instruction)->op() == ResourceWriteOp::BUFFER_WRITE;
@@ -2144,6 +2150,38 @@ void reg_instruction_type_validation() {
 }
 
 void reg_metadata_round_trip() {
+    "xir_interchange_front_facing_round_trip"_test = [] {
+        Module module;
+        static_cast<void>(module.create_front_facing());
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded());
+        if (!encoded.succeeded()) { return; }
+        expect(encoded.text.find("front_facing") != luisa::string::npos);
+        auto decoded = xir_from_interchange_text(encoded.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        auto front_facing = decoded.module->special_register_list().front();
+        expect(front_facing->derived_special_register_tag() ==
+               DerivedSpecialRegisterTag::RASTER_FRONT_FACING);
+        expect(front_facing->type() == Type::of<bool>());
+    };
+
+    "xir_interchange_base_instance_round_trip"_test = [] {
+        Module module;
+        static_cast<void>(module.create_base_instance());
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded());
+        if (!encoded.succeeded()) { return; }
+        expect(encoded.text.find("base_instance") != luisa::string::npos);
+        auto decoded = xir_from_interchange_text(encoded.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        auto base_instance = decoded.module->special_register_list().front();
+        expect(base_instance->derived_special_register_tag() ==
+               DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE);
+        expect(base_instance->type() == Type::of<uint>());
+    };
+
     "xir_interchange_all_metadata_round_trip"_test = [] {
         Module module;
         auto int_type = luisa::compute::Type::of<int32_t>();

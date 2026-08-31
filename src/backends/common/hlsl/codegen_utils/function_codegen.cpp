@@ -2269,6 +2269,7 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
 void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty) {
     opt->isPixelShader = true;
     opt->pixelUseBarycentric = false;
+    opt->pixelUseFrontFacing = false;
     auto resetPixelShaderKey = vstd::scope_exit([&] { opt->isPixelShader = false; });
     CodegenFunction(pixel, result, cBufferNonEmpty, false);
     vstd::StringBuilder retName;
@@ -2277,7 +2278,7 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
     auto set_depth = pixel.propagated_builtin_callables().test(CallOp::RASTER_SET_Z_DEPTH);
     auto set_depth_lequal = pixel.propagated_builtin_callables().test(CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
     auto set_depth_gequal = pixel.propagated_builtin_callables().test(CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL);
-    result << retName << " pixel(v2p p,uint primId,float3 bary"sv;
+    result << retName << " pixel(v2p p,uint primId,float3 bary,bool front_facing"sv;
     if (set_depth) {
         result << ",out float _z_depth"sv;
     }
@@ -2310,6 +2311,9 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
     if (opt->pixelUseBarycentric) {
         result << ",float3 bary:SV_Barycentrics"sv;
     }
+    if (opt->pixelUseFrontFacing) {
+        result << ",bool front_facing:SV_IsFrontFace"sv;
+    }
     if (set_depth) {
         result << ",out float _z_depth:SV_Depth"sv;
     }
@@ -2324,6 +2328,11 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
             result << ",bary"sv;
         } else {
             result << ",float3(0,0,0)"sv;
+        }
+        if (opt->pixelUseFrontFacing) {
+            result << ",front_facing"sv;
+        } else {
+            result << ",false"sv;
         }
         if (set_depth) {
             result << ",_z_depth"sv;

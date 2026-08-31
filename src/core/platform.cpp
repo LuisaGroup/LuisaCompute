@@ -283,7 +283,11 @@ char env_separator() noexcept {
 #include <cxxabi.h>
 
 #ifdef LUISA_PLATFORM_APPLE
+#ifdef LUISA_PLATFORM_IOS
+#include <mach-o/dyld.h>
+#else
 #include <libproc.h>// to get current executable path
+#endif
 #include <sstream>
 #endif
 
@@ -423,7 +427,12 @@ luisa::string cpu_name() noexcept {
     constexpr auto buffer_size = static_cast<size_t>(256u);
     char brand[buffer_size];
     auto size = buffer_size;
-    if (sysctlbyname("machdep.cpu.brand_string", brand, &size, nullptr, 0) != 0) {
+#ifdef LUISA_PLATFORM_IOS
+    constexpr auto brand_name = "hw.machine";
+#else
+    constexpr auto brand_name = "machdep.cpu.brand_string";
+#endif
+    if (sysctlbyname(brand_name, brand, &size, nullptr, 0) != 0) {
         return "Unknown ARM64";
     }
     return brand;
@@ -444,6 +453,17 @@ luisa::string cpu_name() noexcept {
 
 #ifdef LUISA_PLATFORM_APPLE
 luisa::string current_executable_path() noexcept {
+#ifdef LUISA_PLATFORM_IOS
+    auto size = static_cast<uint32_t>(0u);
+    static_cast<void>(_NSGetExecutablePath(nullptr, &size));
+    luisa::vector<char> pathbuf(size);
+    if (_NSGetExecutablePath(pathbuf.data(), &size) == 0) {
+        return luisa::to_string(
+            std::filesystem::canonical(pathbuf.data()));
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Failed to get current executable path on iOS.");
+#else
     char pathbuf[PROC_PIDPATHINFO_MAXSIZE] = {};
     auto pid = getpid();
     if (auto size = proc_pidpath(pid, pathbuf, sizeof(pathbuf)); size > 0) {
@@ -453,6 +473,7 @@ luisa::string current_executable_path() noexcept {
     LUISA_ERROR_WITH_LOCATION(
         "Failed to get current executable path (PID = {}): {}.",
         pid, strerror(errno));
+#endif
 }
 #else
 luisa::string current_executable_path() noexcept {

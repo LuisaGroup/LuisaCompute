@@ -334,6 +334,8 @@ private:
                 case Variable::Tag::WARP_LANE_ID: return m->create_warp_lane_id();
                 case Variable::Tag::RASTER_BARYCENTRICS: return m->create_bary_centrics();
                 case Variable::Tag::RASTER_OBJECT_ID: return m->create_object_id();
+                case Variable::Tag::RASTER_FRONT_FACING: return m->create_front_facing();
+                case Variable::Tag::RASTER_BASE_INSTANCE: return m->create_base_instance();
                 default: break;
             }
             LUISA_ERROR_WITH_LOCATION("Unexpected variable type.");
@@ -373,17 +375,34 @@ private:
         if (expr->is_external()) {
             auto ast = expr->external();
             auto f = add_external_function(*ast);
-            LUISA_ASSERT(f->type() == expr->type(), "External function return type mismatch.");
+            LUISA_ASSERT(f->type() == expr->type() ||
+                             (f->type() == Type::of<void>() && expr->type() == nullptr),
+                         "External function '{}' return type mismatch.", ast->name());
             auto ast_args = expr->arguments();
-            LUISA_ASSERT(ast_args.size() == f->arguments().count_size(),
-                         "External function argument count mismatch.");
+            auto arg_types = ast->argument_types();
+            auto arg_usages = ast->argument_usages();
+            LUISA_ASSERT(ast_args.size() == arg_types.size() &&
+                             ast_args.size() == arg_usages.size(),
+                         "External function '{}' argument count mismatch.", ast->name());
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(ast_args.size());
-            auto formal = f->arguments().begin();
-            for (auto ast_arg : ast_args) {
-                auto arg = _translate_expression(b, ast_arg, !(*formal)->is_reference());
+            for (auto i = 0u; i < ast_args.size(); i++) {
+                auto arg_type = arg_types[i];
+                auto usage = arg_usages[i];
+                LUISA_ASSERT(ast_args[i]->type() == arg_type,
+                             "External function '{}' argument {} type mismatch: expected '{}', got '{}'.",
+                             ast->name(), i, arg_type->description(),
+                             ast_args[i]->type()->description());
+                auto writes = (to_underlying(usage) & to_underlying(Usage::WRITE)) != 0u;
+                // Resources already carry reference semantics in XIR. Ordinary
+                // write/inout parameters and opaque backend values use XIR references.
+                auto by_ref = !arg_type->is_resource() && (writes || arg_type->is_custom());
+                auto arg = _translate_expression(
+                    b, ast_args[i], !by_ref && !arg_type->is_resource());
+                LUISA_ASSERT(!by_ref || arg->is_lvalue(),
+                             "External function '{}' argument {} must be an lvalue.",
+                             ast->name(), i);
                 args.emplace_back(arg);
-                ++formal;
             }
             return b.call(f->type(), f, args);
         }
@@ -796,8 +815,76 @@ private:
                              "UNDEFINED requires a non-void result type and no arguments.");
                 return _module->create_undefined(expr->type());
             }
-            case CallOp::PACK: LUISA_NOT_IMPLEMENTED();
-            case CallOp::UNPACK: LUISA_NOT_IMPLEMENTED();
+            case CallOp::PACK: {
+                LUISA_ASSERT(expr->arguments().size() == 3u,
+                             "Pack requires a value, a uint buffer, and an offset.");
+                LUISA_ASSERT(!expr->arguments()[0]->type()->is_resource() &&
+                                 !expr->arguments()[0]->type()->is_custom() &&
+                                 expr->arguments()[1]->type()->is_buffer() &&
+                                 expr->arguments()[1]->type()->element() == Type::of<uint32_t>() &&
+                                 expr->arguments()[2]->type() == Type::of<uint32_t>(),
+                             "Pack requires (packable value, buffer<uint>, uint offset).");
+                auto value = _translate_expression(b, expr->arguments()[0], true);
+                auto buffer = _translate_expression(b, expr->arguments()[1], false);
+                auto offset = _translate_expression(b, expr->arguments()[2], true);
+                auto storage_type = Type::structure({value->type()});
+                auto word_count = storage_type->size() / sizeof(uint32_t);
+                LUISA_ASSERT(word_count != 0u && storage_type->size() % sizeof(uint32_t) == 0u,
+                             "Invalid packed storage size {} for type '{}'.",
+                             storage_type->size(), value->type()->description());
+                auto packed_type = Type::array(Type::of<uint32_t>(), word_count);
+                auto storage = b.call(storage_type, ArithmeticOp::AGGREGATE, {value});
+                auto packed = b.bit_cast_(packed_type, storage);
+                ResourceWriteInst *last_write = nullptr;
+                for (auto i = 0u; i < word_count; i++) {
+                    auto access_index = _translate_constant_access_index(i);
+                    auto word = b.call(Type::of<uint32_t>(), ArithmeticOp::EXTRACT,
+                                       {packed, access_index});
+                    auto word_offset = offset;
+                    if (i != 0u) {
+                        word_offset = b.call(Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+                                             {offset, access_index});
+                    }
+                    last_write = b.call(ResourceWriteOp::BUFFER_WRITE,
+                                        {buffer, word_offset, word});
+                }
+                return last_write;
+            }
+            case CallOp::UNPACK: {
+                LUISA_ASSERT(expr->arguments().size() == 2u,
+                             "Unpack requires a uint buffer and an offset.");
+                LUISA_ASSERT(expr->type() != nullptr &&
+                                 !expr->type()->is_resource() &&
+                                 !expr->type()->is_custom() &&
+                                 expr->arguments()[0]->type()->is_buffer() &&
+                                 expr->arguments()[0]->type()->element() == Type::of<uint32_t>() &&
+                                 expr->arguments()[1]->type() == Type::of<uint32_t>(),
+                             "Unpack requires (buffer<uint>, uint offset) and a packable result type.");
+                auto buffer = _translate_expression(b, expr->arguments()[0], false);
+                auto offset = _translate_expression(b, expr->arguments()[1], true);
+                auto storage_type = Type::structure({expr->type()});
+                auto word_count = storage_type->size() / sizeof(uint32_t);
+                LUISA_ASSERT(word_count != 0u && storage_type->size() % sizeof(uint32_t) == 0u,
+                             "Invalid packed storage size {} for type '{}'.",
+                             storage_type->size(), expr->type()->description());
+                auto packed_type = Type::array(Type::of<uint32_t>(), word_count);
+                luisa::vector<Value *> words;
+                words.reserve(word_count);
+                for (auto i = 0u; i < word_count; i++) {
+                    auto access_index = _translate_constant_access_index(i);
+                    auto word_offset = offset;
+                    if (i != 0u) {
+                        word_offset = b.call(Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+                                             {offset, access_index});
+                    }
+                    words.emplace_back(b.call(Type::of<uint32_t>(), ResourceReadOp::BUFFER_READ,
+                                              {buffer, word_offset}));
+                }
+                auto packed = b.call(packed_type, ArithmeticOp::AGGREGATE, words);
+                auto storage = b.bit_cast_(storage_type, packed);
+                return b.call(expr->type(), ArithmeticOp::EXTRACT,
+                              {storage, _translate_constant_access_index(0u)});
+            }
             case CallOp::REQUIRES_GRADIENT: {
                 LUISA_ASSERT(expr->arguments().size() == 1u, "Requires gradient call requires exactly one argument.");
                 auto value = _translate_expression(b, expr->arguments()[0], false);
@@ -884,6 +971,9 @@ private:
             case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE);
             case CallOp::DDX: return cta_call(ThreadGroupOp::RASTER_QUAD_DDX);
             case CallOp::DDY: return cta_call(ThreadGroupOp::RASTER_QUAD_DDY);
+            case CallOp::RASTER_SET_Z_DEPTH: return cta_call(ThreadGroupOp::RASTER_SET_Z_DEPTH);
+            case CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL: return cta_call(ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL);
+            case CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL: return cta_call(ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
             case CallOp::SHADER_EXECUTION_REORDER: return cta_call(ThreadGroupOp::SHADER_EXECUTION_REORDER);
             case CallOp::SYNCHRONIZE_BLOCK: return cta_call(ThreadGroupOp::SYNCHRONIZE_BLOCK);
             case CallOp::WARP_IS_FIRST_ACTIVE_LANE: return cta_call(ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE);
@@ -1307,8 +1397,18 @@ private:
             case Expression::Tag::CONSTANT: return _translate_constant_expr(static_cast<const ConstantExpr *>(expr));
             case Expression::Tag::CALL: return _translate_call_expr(b, static_cast<const CallExpr *>(expr));
             case Expression::Tag::CAST: return _translate_cast_expr(b, static_cast<const CastExpr *>(expr));
-            case Expression::Tag::TYPE_ID: LUISA_NOT_IMPLEMENTED();
-            case Expression::Tag::STRING_ID: LUISA_NOT_IMPLEMENTED();
+            case Expression::Tag::TYPE_ID: {
+                auto type_id = static_cast<const TypeIDExpr *>(expr);
+                // Keep parity with source codegen paths: type IDs remain
+                // reserved and lower to zero until a stable shared ABI exists.
+                auto value = uint64_t{0u};
+                return _module->create_constant(type_id->type(), &value);
+            }
+            case Expression::Tag::STRING_ID: {
+                auto string_id = static_cast<const StringIDExpr *>(expr);
+                auto value = luisa::hash_value(string_id->data());
+                return _module->create_constant(string_id->type(), &value);
+            }
             case Expression::Tag::FUNC_REF: LUISA_NOT_IMPLEMENTED();
             case Expression::Tag::CPUCUSTOM: LUISA_NOT_IMPLEMENTED();
             case Expression::Tag::GPUCUSTOM: LUISA_NOT_IMPLEMENTED();
@@ -1836,7 +1936,17 @@ public:
                 case ASTFunction::Tag::COROUTINE: {
                     return _module->create_callable(f.return_type());
                 }
-                case ASTFunction::Tag::RASTER_STAGE: LUISA_NOT_IMPLEMENTED();
+                case ASTFunction::Tag::RASTER_STAGE: {
+                    LUISA_ASSERT(
+                        _config.raster_stage.has_value(),
+                        "AST-to-XIR raster-stage lowering requires "
+                        "AST2XIRConfig::raster_stage.");
+                    LUISA_ASSERT(
+                        RasterStageFunction::is_valid_stage(*_config.raster_stage),
+                        "AST2XIRConfig contains an invalid raster stage identity.");
+                    return _module->create_raster_stage(
+                        f.return_type(), *_config.raster_stage);
+                }
             }
             LUISA_ERROR_WITH_LOCATION("Invalid function tag.");
         }();
@@ -1857,20 +1967,23 @@ public:
         return def;
     }
 
-    Function *add_external_function(const ASTExternalFunction &f) noexcept {
+    ExternalFunction *add_external_function(const ASTExternalFunction &f) noexcept {
         LUISA_ASSERT(_module != nullptr, "Module has been finalized.");
+        auto argument_types = f.argument_types();
+        auto argument_usages = f.argument_usages();
+        LUISA_ASSERT(argument_types.size() == argument_usages.size(),
+                     "External function '{}' argument metadata is inconsistent.",
+                     f.name());
         auto [iter, just_inserted] =
             _generated_external_functions.try_emplace(f.hash(), nullptr);
         if (!just_inserted) { return iter->second; }
         auto external = _module->create_external_function(f.return_type());
         external->set_name(luisa::string{f.name()});
-        auto argument_types = f.argument_types();
-        auto argument_usages = f.argument_usages();
-        LUISA_ASSERT(argument_types.size() == argument_usages.size(),
-                     "External function argument metadata is inconsistent.");
         for (auto i = 0u; i < argument_types.size(); i++) {
             auto usage = argument_usages[i];
-            auto by_ref = usage == Usage::WRITE || usage == Usage::READ_WRITE;
+            auto writes = (to_underlying(usage) & to_underlying(Usage::WRITE)) != 0u;
+            auto by_ref = !argument_types[i]->is_resource() &&
+                          (writes || argument_types[i]->is_custom());
             external->create_argument(argument_types[i], by_ref);
         }
         iter->second = external;

@@ -246,6 +246,7 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
                 opt.func = StreamFunc::All;
                 opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE));
                 opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH));
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_CLEAR_RENDER_TARGET));
                 break;
             case StreamTag::COPY:
                 opt.func = static_cast<StreamFunc>(

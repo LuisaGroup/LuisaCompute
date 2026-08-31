@@ -157,6 +157,15 @@ template<typename IndexAt>
     return type->size();
 }
 
+[[nodiscard]] bool storage_aggregate_bitcast_compatible(
+    const Type *source, const Type *target) noexcept {
+    auto is_storage_aggregate = [](const Type *type) noexcept {
+        return type->is_structure() || type->is_array();
+    };
+    return is_storage_aggregate(source) && is_storage_aggregate(target) &&
+           source->size() == target->size();
+}
+
 [[nodiscard]] bool cast_types_valid(const CastInst *cast) noexcept {
     if (cast->type() == nullptr || cast->type()->is_resource() ||
         cast->type()->is_custom() || !data_operand_valid(cast->value())) {
@@ -169,10 +178,11 @@ template<typename IndexAt>
             return source->is_scalar_or_vector() && target->is_scalar_or_vector() &&
                    source->dimension() == target->dimension();
         case CastOp::BITWISE_CAST:
-            return source->is_scalar_or_vector() && target->is_scalar_or_vector() &&
-                   !source->is_bool_or_bool_vector() &&
-                   !target->is_bool_or_bool_vector() &&
-                   logical_register_width(source) == logical_register_width(target);
+            return (source->is_scalar_or_vector() && target->is_scalar_or_vector() &&
+                    !source->is_bool_or_bool_vector() &&
+                    !target->is_bool_or_bool_vector() &&
+                    logical_register_width(source) == logical_register_width(target)) ||
+                   storage_aggregate_bitcast_compatible(source, target);
     }
     return false;
 }
@@ -484,6 +494,9 @@ template<typename IndexAt>
         case ThreadGroupOp::WARP_READ_LANE: return count == 2u;
         case ThreadGroupOp::RASTER_QUAD_DDX:
         case ThreadGroupOp::RASTER_QUAD_DDY:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_BIT_AND:
         case ThreadGroupOp::WARP_ACTIVE_BIT_OR:
@@ -556,7 +569,7 @@ template<typename Enum>
             return enum_value_between(
                 static_cast<const ThreadGroupInst *>(instruction)->op(),
                 ThreadGroupOp::SHADER_EXECUTION_REORDER,
-                ThreadGroupOp::SYNCHRONIZE_BLOCK);
+                ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
         case DerivedInstructionTag::RESOURCE_QUERY:
             return enum_value_between(
                 static_cast<const ResourceQueryInst *>(instruction)->op(),
@@ -1130,6 +1143,14 @@ public:
                 !KernelFunction::is_valid_block_size(block_size)) {
                 _error(function, nullptr, nullptr,
                        "Kernel return type or block size is invalid.");
+            }
+        }
+        if (function->isa<RasterStageFunction>()) {
+            auto stage =
+                static_cast<const RasterStageFunction *>(function)->stage();
+            if (!RasterStageFunction::is_valid_stage(stage)) {
+                _error(function, nullptr, nullptr,
+                       "Raster stage identity is invalid.");
             }
         }
         for (auto *argument : function->arguments()) {

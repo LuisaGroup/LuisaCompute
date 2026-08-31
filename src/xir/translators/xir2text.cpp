@@ -810,6 +810,12 @@ private:
         switch (f->derived_function_tag()) {
             case DerivedFunctionTag::KERNEL: _main << "kernel " << _value_ident(f); break;
             case DerivedFunctionTag::CALLABLE: _main << "callable " << _value_ident(f) << ": " << _type_ident(f->type()); break;
+            case DerivedFunctionTag::RASTER_STAGE: {
+                auto raster = static_cast<const RasterStageFunction *>(f);
+                _main << "raster_" << to_string(raster->stage()) << " "
+                      << _value_ident(f) << ": " << _type_ident(f->type());
+                break;
+            }
             case DerivedFunctionTag::EXTERNAL: _main << "external " << _value_ident(f) << ": " << _type_ident(f->type()); break;
         }
         _main << " (";

@@ -77,6 +77,10 @@ function(luisa_compute_add_executable name)
     target_link_libraries(${name} PRIVATE luisa::compute)
 endfunction()
 
+if (LUISA_COMPUTE_BUILD_IOS_TESTS)
+    add_subdirectory(tests/ios)
+endif ()
+
 if (LUISA_COMPUTE_BUILD_TESTS)
     enable_testing()
     message(STATUS "Building tests")
@@ -91,7 +95,7 @@ if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(py)
 endif ()
 
-if (NOT SKBUILD)
+if (NOT SKBUILD AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     install(EXPORT LuisaComputeTargets
             FILE LuisaComputeTargets.cmake
             NAMESPACE luisa::
