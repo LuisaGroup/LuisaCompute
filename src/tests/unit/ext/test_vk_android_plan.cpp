@@ -83,27 +83,28 @@ int main(int argc, char *argv[]) {
     };
 
     "vk_timeline_plan_treats_zero_max_value_difference_as_no_limit"_test = [] {
-        using Status = vk_detail::TimelineSemaphoreValueStatus;
+        // Use a local alias that avoids the 'Status' macro from <X11/Xlib.h>.
+        using TLSemStatus = vk_detail::TimelineSemaphoreValueStatus;
         constexpr auto unlimited = std::numeric_limits<uint64_t>::max();
         // signal: current == tracked, increment stays within the window.
         auto signal = vk_detail::plan_timeline_semaphore_signal(
             10u, 10u, 20u, 0u/*reported limit*/);
-        expect(signal.status == Status::SUCCESS);
+        expect(signal.status == TLSemStatus::SUCCESS);
         // A zero reported limit must behave like an unbounded window: a huge
         // jump is legal.
         auto big_signal = vk_detail::plan_timeline_semaphore_signal(
             0u, 0u, unlimited, 0u);
-        expect(big_signal.status == Status::SUCCESS);
+        expect(big_signal.status == TLSemStatus::SUCCESS);
         // wait: current (10) < wait (12) <= tracked (15); the zero reported
         // limit means the whole window is legal.
         auto wait = vk_detail::plan_timeline_semaphore_wait(
             10u, 15u, 12u, 0u);
-        expect(wait.status == Status::SUCCESS);
+        expect(wait.status == TLSemStatus::SUCCESS);
         expect(!wait.already_satisfied);
         // A zero limit must also allow an unbounded tracked interval.
         auto big_wait = vk_detail::plan_timeline_semaphore_wait(
             0u, unlimited, unlimited, 0u);
-        expect(big_wait.status == Status::SUCCESS);
+        expect(big_wait.status == TLSemStatus::SUCCESS);
     };
 
     "vk_legacy_mask_conversion_round_trips_common_bits"_test = [] {
