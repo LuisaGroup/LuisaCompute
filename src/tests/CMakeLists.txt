@@ -590,6 +590,13 @@ luisa_compute_add_test(test_pinned_mem          unit/runtime/test_pinned_mem.cpp
 luisa_compute_add_test(test_printer             unit/runtime/test_printer.cpp)
 luisa_compute_add_test(test_printer_custom_callback unit/runtime/test_printer_custom_callback.cpp)
 luisa_compute_add_test(test_sampler             unit/runtime/test_sampler.cpp)
+if (TARGET luisa-compute-backend-fallback)
+    add_dependencies(test_sampler luisa-compute-backend-fallback)
+    add_test(NAME fallback_test_sampler
+            COMMAND $<TARGET_FILE:test_sampler> fallback)
+    set_tests_properties(fallback_test_sampler PROPERTIES
+            LABELS "unit;unit_runtime;fallback")
+endif ()
 luisa_compute_add_test(test_shared_memory       unit/runtime/test_shared_memory.cpp)
 luisa_compute_add_test(test_softmax             unit/runtime/test_softmax.cpp)
 if (LUISA_COMPUTE_ENABLE_TENSOR AND FALSE) # disabled: link errors against missing Tensor symbols
