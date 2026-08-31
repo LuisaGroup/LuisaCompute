@@ -316,10 +316,13 @@ test_proj("test_coro_radix_sort", "unit/coro/test_coro_radix_sort.cpp")
 
 -- unit/xir
 if has_config("lc_enable_xir") then
-    local function coro_xir_test_proj(name, source)
+    local function coro_xir_test_proj(name, source, needs_bigobj)
         test_proj(name, source, false, function()
             add_defines("LUISA_ENABLE_XIR")
             add_deps("lc-coro")
+            if needs_bigobj then
+                add_cxxflags("/bigobj", {tools = "cl"})
+            end
         end)
     end
     test_proj("test_ast_to_xir", "unit/xir/test_ast_to_xir.cpp", false, function()
@@ -436,8 +439,8 @@ if has_config("lc_enable_xir") then
     coro_xir_test_proj("test_coro_persistent_opt", "unit/coro/test_coro_persistent_opt.cpp")
     coro_xir_test_proj("test_coro_persistent_integration", "unit/coro/test_coro_persistent_integration.cpp")
     coro_xir_test_proj("test_coro_soa_layout", "unit/coro/test_coro_soa_layout.cpp")
-    coro_xir_test_proj("test_coro_wavefront", "unit/coro/test_coro_wavefront.cpp")
-    coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp")
+    coro_xir_test_proj("test_coro_wavefront", "unit/coro/test_coro_wavefront.cpp", true)
+    coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp", true)
     coro_xir_test_proj("test_coro_wavefront_integration", "unit/coro/test_coro_wavefront_integration.cpp")
     coro_xir_test_proj("test_coro_pipeline_1suspend", "unit/coro/test_coro_pipeline_1suspend.cpp")
     coro_xir_test_proj("test_coro_pipeline_3suspend", "unit/coro/test_coro_pipeline_3suspend.cpp")
