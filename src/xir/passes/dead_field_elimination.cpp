@@ -26,8 +26,7 @@ static constexpr size_t FRAME_RESERVED_FIELD_COUNT = CoroFrameDesc::reserved_fie
     luisa::vector<const Type *> indexed_types(user_field_count, nullptr);
     luisa::vector<luisa::string> indexed_names(user_field_count);
     luisa::unordered_set<size_t> seen_indices;
-    if (info.name_to_field.size() != user_field_count ||
-        info.name_to_type.size() != user_field_count) {
+    if (info.name_to_field.size() != info.name_to_type.size()) {
         return false;
     }
     if (!info.frame_fields.empty()) {
@@ -48,7 +47,25 @@ static constexpr size_t FRAME_RESERVED_FIELD_COUNT = CoroFrameDesc::reserved_fie
                 return false;
             }
         }
+        // Logical frame names may alias an interference-colored physical
+        // field, but every alias must name that field's exact type.
+        for (auto &[name, index] : info.name_to_field) {
+            auto type_iter = info.name_to_type.find(name);
+            if (index < FRAME_RESERVED_FIELD_COUNT ||
+                index >= info.frame_field_count ||
+                type_iter == info.name_to_type.end() ||
+                type_iter->second !=
+                    indexed_types[index - FRAME_RESERVED_FIELD_COUNT]) {
+                return false;
+            }
+        }
     } else {
+        // Legacy metadata without an explicit physical-field table is
+        // necessarily one-name-per-field; aliases would make its layout
+        // ambiguous.
+        if (info.name_to_field.size() != user_field_count) {
+            return false;
+        }
         for (auto &[name, index] : info.name_to_field) {
             auto type_iter = info.name_to_type.find(name);
             if (index < FRAME_RESERVED_FIELD_COUNT || index >= info.frame_field_count ||

@@ -9,7 +9,8 @@ template<typename V, typename P>
     const RasterKernel<V, P> &kernel,
     const MeshFormat &mesh_format,
     const ShaderOption &option) noexcept {
-    return _create<typename RasterKernel<V, P>::RasterShaderType>(extension<RasterExt>(), mesh_format, kernel.vert(), kernel.pixel(), option);
+    static_cast<void>(mesh_format);
+    return _create<typename RasterKernel<V, P>::RasterShaderType>(extension<RasterExt>(), kernel.vert(), kernel.pixel(), option);
 }
 
 template<typename V, typename P>

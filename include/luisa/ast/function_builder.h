@@ -115,7 +115,10 @@ private:
     CallOpSet _direct_builtin_callables;
     CallOpSet _propagated_builtin_callables;
     uint64_t _hash;
-    uint3 _block_size;
+    // Launch dimensions belong exclusively to kernels. Keep the metadata
+    // defined for non-kernel functions so reflection and hashing never read
+    // indeterminate storage; DSL access is rejected at the API boundary.
+    uint3 _block_size{};
     CurveBasisSet _required_curve_bases;
     Tag _tag;
     uint8_t _allowed_warp_size{255u};
@@ -129,6 +132,7 @@ private:
     mutable luisa::vector<luisa::string> _variables_names;
 
 protected:
+    class SuspendExtensionRecorder;
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
     [[nodiscard]] uint32_t _next_suspend_token() noexcept;
@@ -427,6 +431,28 @@ public:
     void suspend_(luisa::string name) noexcept;
     /// Add suspend statement with token and name
     void suspend_(uint32_t token, luisa::string name) noexcept;
+    /// Add suspend statement with explicitly scheduler-visible frame values
+    void suspend_(luisa::string name,
+                  luisa::vector<CoroFrameExport> frame_exports) noexcept;
+    /// Add named/tokenized suspend statement with frame exports
+    void suspend_(uint32_t token, luisa::string name,
+                  luisa::vector<CoroFrameExport> frame_exports) noexcept;
+    /// Add a suspend statement with source extension objects. The objects are
+    /// frozen to data-backed AST-owned representations before recording.
+    void suspend_(
+        luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept;
+    void suspend_(
+        uint32_t token, luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept;
+    /// Internal normalized form used by AST duplication/deserialization paths.
+    void suspend_(
+        uint32_t token, luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions,
+        luisa::vector<const Expression *> extension_binding_values) noexcept;
     /// Add comment statement
     void comment_(luisa::string comment) noexcept;
     /// Add assign statement
@@ -436,6 +462,12 @@ public:
     [[nodiscard]] IfStmt *if_(const Expression *cond) noexcept;
     /// Add loop statement
     [[nodiscard]] LoopStmt *loop_() noexcept;
+    /// Record the original condition of a loop created by the DSL $while
+    /// spelling. This is optimization provenance only; the loop body must
+    /// still contain the ordinary explicit guard.
+    void mark_loop_as_while(LoopStmt *loop,
+                            const Expression *condition,
+                            size_t condition_statement_count) noexcept;
     /// Add switch statement
     [[nodiscard]] SwitchStmt *switch_(const Expression *expr) noexcept;
     /// Add case statement

@@ -23,8 +23,14 @@ public:
 private:
     MetalShaderHandle _handle;
     luisa::vector<Usage> _argument_usages{};
+    luisa::vector<uint8_t> _argument_sampled{};
     luisa::vector<Argument> _bound_arguments{};
     uint _block_size[3];
+    uint64_t _source_checksum{};
+    size_t _source_size_bytes{};
+    size_t _source_line_count{};
+    double _codegen_ms{};
+    double _compile_ms{};
     mutable spin_mutex _name_mutex;
     NS::String *_name{nullptr};
     NS::String *_indirect_name{nullptr};
@@ -35,9 +41,15 @@ public:
     MetalShader(MetalDevice *device,
                 MetalShaderHandle handle,
                 luisa::vector<Usage> argument_usages,
+                luisa::vector<uint8_t> argument_sampled,
                 luisa::vector<Argument> bound_arguments,
                 luisa::span<const std::pair<luisa::string, luisa::string>> print_formats,
-                uint3 block_size) noexcept;
+                uint3 block_size,
+                uint64_t source_checksum,
+                size_t source_size_bytes,
+                size_t source_line_count,
+                double codegen_ms,
+                double compile_ms) noexcept;
     ~MetalShader() noexcept;
     void launch(MetalCommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept;
     [[nodiscard]] Usage argument_usage(uint index) const noexcept;
@@ -46,4 +58,3 @@ public:
 };
 
 }// namespace luisa::compute::metal
-

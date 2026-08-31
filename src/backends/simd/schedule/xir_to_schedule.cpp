@@ -1,0 +1,1703 @@
+#include "xir_to_schedule.h"
+
+#include <algorithm>
+#include <cstring>
+#include <queue>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+
+#include <luisa/ast/type.h>
+#include <luisa/xir/argument.h>
+#include <luisa/xir/basic_block.h>
+#include <luisa/xir/constant.h>
+#include <luisa/xir/function.h>
+#include <luisa/xir/instruction.h>
+#include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/assert.h>
+#include <luisa/xir/instructions/atomic.h>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/cast.h>
+#include <luisa/xir/instructions/indexed_branch.h>
+#include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/print.h>
+#include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/resource.h>
+#include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/thread_group.h>
+#include <luisa/xir/passes/dom_tree.h>
+#include <luisa/xir/passes/post_dom_tree.h>
+#include <luisa/xir/special_register.h>
+
+#include "../../../xir/passes/natural_loop.h"
+#include "warp_uniformity.h"
+
+namespace luisa::compute::simd::schedule {
+
+const char *to_string(XIRToScheduleDiagnosticCode code) noexcept {
+    switch (code) {
+        case XIRToScheduleDiagnosticCode::invalid_source:
+            return "invalid_source";
+        case XIRToScheduleDiagnosticCode::invalid_warp_width:
+            return "invalid_warp_width";
+        case XIRToScheduleDiagnosticCode::malformed_cfg:
+            return "malformed_cfg";
+        case XIRToScheduleDiagnosticCode::structured_control_flow:
+            return "structured_control_flow";
+        case XIRToScheduleDiagnosticCode::irreducible_control_flow:
+            return "irreducible_control_flow";
+        case XIRToScheduleDiagnosticCode::non_uniform_block_barrier:
+            return "non_uniform_block_barrier";
+        case XIRToScheduleDiagnosticCode::unsupported_instruction:
+            return "unsupported_instruction";
+        case XIRToScheduleDiagnosticCode::unsupported_value:
+            return "unsupported_value";
+        case XIRToScheduleDiagnosticCode::invalid_phi:
+            return "invalid_phi";
+        case XIRToScheduleDiagnosticCode::schedule_verification:
+            return "schedule_verification";
+    }
+    return "unknown";
+}
+
+namespace {
+
+struct CFGEdge {
+    const xir::BasicBlock *source{nullptr};
+    const xir::BasicBlock *target{nullptr};
+    friend bool operator==(CFGEdge, CFGEdge) noexcept = default;
+};
+
+struct CFGEdgeHash {
+    [[nodiscard]] size_t operator()(CFGEdge edge) const noexcept {
+        auto source = std::hash<const void *>{}(edge.source);
+        auto target = std::hash<const void *>{}(edge.target);
+        return source ^ (target + 0x9e3779b97f4a7c15ull +
+                         (source << 6u) + (source >> 2u));
+    }
+};
+
+[[nodiscard]] std::string copy_string(luisa::string_view value) {
+    return {value.data(), value.size()};
+}
+
+[[nodiscard]] std::string value_name(
+    const xir::Value *value, std::string fallback = {}) {
+    if (value != nullptr) {
+        if (auto name = value->name(); name && !name->empty()) {
+            return copy_string(*name);
+        }
+    }
+    return fallback;
+}
+
+[[nodiscard]] bool is_structured_control(
+    xir::DerivedInstructionTag tag) noexcept {
+    using Tag = xir::DerivedInstructionTag;
+    switch (tag) {
+        case Tag::IF:
+        case Tag::SWITCH:
+        case Tag::LOOP:
+        case Tag::SIMPLE_LOOP:
+        case Tag::BREAK:
+        case Tag::CONTINUE: return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] bool is_supported_terminator(
+    xir::DerivedInstructionTag tag) noexcept {
+    using Tag = xir::DerivedInstructionTag;
+    switch (tag) {
+        case Tag::BRANCH:
+        case Tag::CONDITIONAL_BRANCH:
+        case Tag::INDEXED_BRANCH:
+        case Tag::RETURN:
+        case Tag::UNREACHABLE: return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] bool is_supported_non_terminator(
+    const xir::Instruction *instruction) noexcept {
+    using Tag = xir::DerivedInstructionTag;
+    switch (instruction->derived_instruction_tag()) {
+        case Tag::PHI:
+        case Tag::ALLOCA:
+        case Tag::LOAD:
+        case Tag::STORE:
+        case Tag::GEP:
+        case Tag::ATOMIC:
+        case Tag::ARITHMETIC:
+        case Tag::RESOURCE_QUERY:
+        case Tag::RESOURCE_READ:
+        case Tag::RESOURCE_WRITE:
+        case Tag::RAY_QUERY_OBJECT_READ:
+        case Tag::RAY_QUERY_OBJECT_WRITE:
+        case Tag::RAY_QUERY_PIPELINE:
+        case Tag::CAST:
+        case Tag::PRINT:
+        case Tag::CLOCK:
+        case Tag::DEBUG_BREAK:
+        case Tag::ASSERT:
+        case Tag::ASSUME:
+        case Tag::OUTLINE: return true;
+        case Tag::THREAD_GROUP: {
+            return true;
+        }
+        default: return false;
+    }
+}
+
+[[nodiscard]] bool is_collective(xir::ThreadGroupOp op) noexcept {
+    return op != xir::ThreadGroupOp::SHADER_EXECUTION_REORDER &&
+           op != xir::ThreadGroupOp::SYNCHRONIZE_BLOCK;
+}
+
+[[nodiscard]] bool is_block_barrier(
+    const xir::Instruction *instruction) noexcept {
+    return instruction != nullptr &&
+           instruction->isa<xir::ThreadGroupInst>() &&
+           static_cast<const xir::ThreadGroupInst *>(instruction)->op() ==
+               xir::ThreadGroupOp::SYNCHRONIZE_BLOCK;
+}
+
+class LoweringContext {
+
+private:
+    enum struct LaneIndexStep {
+        unknown,
+        equal,
+        consecutive,
+    };
+
+    struct LoopRecord {
+        const xir::NaturalLoop *source{nullptr};
+        const xir::PhiInst *cohort_uniform_induction{nullptr};
+        const xir::ArithmeticInst *cohort_uniform_header_condition{nullptr};
+        LoopId id{};
+        size_t size{0u};
+    };
+
+    struct ConvergenceRecord {
+        xir::BasicBlock *branch{nullptr};
+        xir::BasicBlock *target{nullptr};
+        ConvergenceId id{};
+    };
+
+    const xir::Function *_source{nullptr};
+    xir::FunctionDefinition *_definition{nullptr};
+    XIRToScheduleOptions _options{};
+    XIRToScheduleResult _result{};
+    std::optional<Function> _function{};
+    std::vector<xir::BasicBlock *> _blocks{};
+    std::unordered_map<const xir::BasicBlock *, size_t> _block_indices{};
+    std::unordered_map<const xir::BasicBlock *, BlockId> _block_ids{};
+    std::unordered_map<const xir::Value *, ValueId> _value_ids{};
+    std::unordered_set<CFGEdge, CFGEdgeHash> _cfg_edges{};
+    std::vector<std::vector<xir::BasicBlock *>> _predecessors{};
+    std::vector<std::vector<xir::BasicBlock *>> _successors{};
+    std::unordered_map<CFGEdge, LoopId, CFGEdgeHash> _loop_back_ids{};
+    std::unordered_map<const xir::BasicBlock *, ConvergenceId>
+        _convergence_by_branch{};
+    std::unordered_map<const xir::BasicBlock *, uint32_t>
+        _barrier_ids{};
+    std::vector<LoopRecord> _loops{};
+    std::vector<ConvergenceRecord> _convergences{};
+    std::unordered_set<const xir::Instruction *>
+        _cohort_uniform_header_conditions{};
+    WarpUniformityAnalysis _uniformity{};
+    const xir::DomTree *_dom_tree{nullptr};
+    uint32_t _next_collective_id{0u};
+    uint32_t _next_external_value_id{0u};
+    std::optional<ValueId> _active_mask{};
+
+private:
+    void _diagnose(
+        XIRToScheduleDiagnosticCode code, std::string message,
+        const xir::BasicBlock *block = nullptr,
+        const xir::Instruction *instruction = nullptr) {
+        _result.diagnostics.emplace_back(XIRToScheduleDiagnostic{
+            .code = code,
+            .message = std::move(message),
+            .block = block,
+            .instruction = instruction,
+        });
+    }
+
+    [[nodiscard]] bool _failed() const noexcept {
+        return !_result.diagnostics.empty();
+    }
+
+    [[nodiscard]] static std::string _instruction_name(
+        const xir::Instruction *instruction) {
+        return copy_string(
+            xir::to_string(instruction->derived_instruction_tag()));
+    }
+
+    void _collect_and_preflight_cfg() {
+        if (_source == nullptr || _source->definition() == nullptr ||
+            _source->definition()->body_block() == nullptr) {
+            _diagnose(
+                XIRToScheduleDiagnosticCode::invalid_source,
+                "XIR source must be a function definition with a body");
+            return;
+        }
+        if (_options.logical_warp_width > 128u) {
+            _diagnose(
+                XIRToScheduleDiagnosticCode::invalid_warp_width,
+                "logical warp width must be symbolic or at most 128");
+            return;
+        }
+        if (!_options.parameter_value_classes.empty()) {
+            auto argument_count = size_t{0u};
+            for (auto *argument : _source->arguments()) {
+                static_cast<void>(argument);
+                argument_count++;
+            }
+            if (_options.parameter_value_classes.size() != argument_count ||
+                std::any_of(
+                    _options.parameter_value_classes.begin(),
+                    _options.parameter_value_classes.end(),
+                    [](ValueClass value_class) noexcept {
+                        return value_class == ValueClass::mask ||
+                               value_class == ValueClass::token;
+                    })) {
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::invalid_source,
+                    "parameter value-class override must provide one data class per source argument");
+                return;
+            }
+        }
+        _definition = const_cast<xir::FunctionDefinition *>(
+            _source->definition());
+        _definition->traverse_basic_blocks(
+            [&](xir::BasicBlock *block) noexcept {
+                _blocks.emplace_back(block);
+            });
+        if (_blocks.empty()) {
+            _diagnose(XIRToScheduleDiagnosticCode::malformed_cfg,
+                      "XIR function has no reachable basic blocks");
+            return;
+        }
+
+        _block_indices.reserve(_blocks.size());
+        for (auto i = size_t{0u}; i < _blocks.size(); i++) {
+            _block_indices.emplace(_blocks[i], i);
+        }
+
+        _predecessors.resize(_blocks.size());
+        _successors.resize(_blocks.size());
+        auto edge_operand_count = size_t{0u};
+        for (auto *source : _blocks) {
+            if (source->is_terminated()) {
+                edge_operand_count += source->terminator()->operand_count();
+            }
+        }
+        _cfg_edges.reserve(edge_operand_count);
+        for (auto *source : _blocks) {
+            if (!source->is_terminated()) { continue; }
+            for (auto *operand_use : source->terminator()->operand_uses()) {
+                auto *operand = operand_use->value();
+                if (operand == nullptr || !operand->isa<xir::BasicBlock>()) {
+                    continue;
+                }
+                auto *target = static_cast<xir::BasicBlock *>(operand);
+                auto target_iter = _block_indices.find(target);
+                if (target_iter != _block_indices.end() &&
+                    _cfg_edges.emplace(CFGEdge{source, target}).second) {
+                    _predecessors[target_iter->second].emplace_back(source);
+                    _successors[_block_indices.at(source)]
+                        .emplace_back(target);
+                }
+            }
+        }
+
+        for (auto *block : _blocks) {
+            if (!block->is_terminated() || block->terminator() == nullptr) {
+                _diagnose(XIRToScheduleDiagnosticCode::malformed_cfg,
+                          "reachable XIR block is not terminated", block);
+                continue;
+            }
+            auto *terminator = block->terminator();
+            auto terminator_tag = terminator->derived_instruction_tag();
+            if (is_structured_control(terminator_tag)) {
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::structured_control_flow,
+                    "structured XIR terminator '" +
+                        _instruction_name(terminator) +
+                        "' must be lowered with destructure_cfg before SIMD scheduling",
+                    block, terminator);
+            } else if (!is_supported_terminator(terminator_tag)) {
+                auto message = "XIR terminator '" +
+                               _instruction_name(terminator) +
+                               "' is not supported by the Phase 1 SIMD lowering";
+                if (terminator_tag ==
+                    xir::DerivedInstructionTag::RASTER_DISCARD) {
+                    message += " (raster execution is not a CPU backend target)";
+                }
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::unsupported_instruction,
+                    std::move(message), block, terminator);
+            }
+
+            for (auto *instruction : block->instructions()) {
+                if (instruction == terminator) { continue; }
+                if (instruction->is_terminator()) {
+                    _diagnose(
+                        XIRToScheduleDiagnosticCode::malformed_cfg,
+                        "non-final terminator appears in an XIR basic block",
+                        block, instruction);
+                    continue;
+                }
+                if (is_block_barrier(instruction)) {
+                    if (terminator_tag !=
+                            xir::DerivedInstructionTag::BRANCH ||
+                        terminator->prev() != instruction ||
+                        _barrier_ids.contains(block)) {
+                        _diagnose(
+                            XIRToScheduleDiagnosticCode::
+                                non_uniform_block_barrier,
+                            "block barrier must be canonicalized as the "
+                            "single final non-terminator before an "
+                            "unconditional resume edge",
+                            block, instruction);
+                    } else {
+                        _barrier_ids.emplace(
+                            block,
+                            static_cast<uint32_t>(
+                                _barrier_ids.size()));
+                    }
+                    continue;
+                }
+                if (instruction->isa<xir::RayQueryPipelineInst>()) {
+                    continue;
+                }
+                if (is_supported_non_terminator(instruction)) { continue; }
+                auto tag = instruction->derived_instruction_tag();
+                auto message = "XIR instruction '" +
+                               _instruction_name(instruction) +
+                               "' is not supported by the Phase 1 SIMD lowering";
+                if (tag == xir::DerivedInstructionTag::CALL) {
+                    message += "; run the XIR inline pass first";
+                } else if (tag ==
+                           xir::DerivedInstructionTag::THREAD_GROUP) {
+                    message +=
+                        "; block barriers require cooperative-block scheduling";
+                } else if (is_structured_control(tag)) {
+                    message += "; run destructure_cfg first";
+                }
+                _diagnose(
+                    is_structured_control(tag) ?
+                        XIRToScheduleDiagnosticCode::structured_control_flow :
+                        XIRToScheduleDiagnosticCode::unsupported_instruction,
+                    std::move(message), block, instruction);
+            }
+        }
+    }
+
+    void _validate_barrier_phases(
+        const luisa::vector<xir::NaturalLoop> &natural_loops) {
+        if (_barrier_ids.empty()) { return; }
+        for (auto &&[barrier, id] : _barrier_ids) {
+            static_cast<void>(id);
+            for (auto &&loop : natural_loops) {
+                if (loop.contains(
+                        const_cast<xir::BasicBlock *>(barrier))) {
+                    // Acyclic barrier phases retain the stronger static
+                    // proof below. Repeated barriers instead carry the exact
+                    // enclosing natural-loop epochs through the packet
+                    // coroutine; the block wrapper compares that dynamic
+                    // tuple together with the static site and traps before
+                    // resuming any mismatched packet. This also covers every
+                    // acyclic site in a mixed cyclic function, where a purely
+                    // graph-based phase walk cannot represent loop epochs.
+                    return;
+                }
+            }
+        }
+        std::queue<const xir::BasicBlock *> pending;
+        std::unordered_set<const xir::BasicBlock *> visited_roots;
+        pending.emplace(_definition->body_block());
+        while (!pending.empty()) {
+            auto *root = pending.front();
+            pending.pop();
+            if (!visited_roots.emplace(root).second) { continue; }
+
+            std::vector<uint8_t> reached(_blocks.size(), uint8_t{0u});
+            std::unordered_set<const xir::BasicBlock *> barriers;
+            auto reaches_termination = false;
+            std::queue<const xir::BasicBlock *> work;
+            work.emplace(root);
+            while (!work.empty()) {
+                auto *block = work.front();
+                work.pop();
+                auto block_iter = _block_indices.find(block);
+                if (block_iter == _block_indices.end() ||
+                    reached[block_iter->second] != 0u) {
+                    continue;
+                }
+                reached[block_iter->second] = 1u;
+                if (_barrier_ids.contains(block)) {
+                    barriers.emplace(block);
+                    continue;
+                }
+                auto tag = block->terminator()
+                               ->derived_instruction_tag();
+                reaches_termination |=
+                    tag == xir::DerivedInstructionTag::RETURN ||
+                    tag == xir::DerivedInstructionTag::UNREACHABLE;
+                for (auto *successor :
+                     _successors[block_iter->second]) {
+                    work.emplace(successor);
+                }
+            }
+            if (barriers.empty()) {
+                // No later synchronization remains, so ordinary reducible
+                // control flow may finish or loop without a barrier proof.
+                continue;
+            }
+            if (barriers.size() != 1u || reaches_termination) {
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::
+                        non_uniform_block_barrier,
+                    "every terminating path in a cooperative block phase "
+                    "must reach the same static block barrier",
+                    root);
+                return;
+            }
+
+            auto *barrier = *barriers.begin();
+            auto &successors =
+                _successors[_block_indices.at(barrier)];
+            if (successors.size() != 1u) {
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::malformed_cfg,
+                    "canonical block barrier must have one resume edge",
+                    barrier);
+                return;
+            }
+            pending.emplace(successors.front());
+        }
+    }
+
+    [[nodiscard]] bool _cfg_is_reducible(
+        const luisa::vector<xir::NaturalLoop> &natural_loops) const {
+        std::unordered_set<CFGEdge, CFGEdgeHash> removable_back_edges;
+        auto back_edge_count = size_t{0u};
+        for (auto &&loop : natural_loops) {
+            back_edge_count += loop.back_edges.size();
+        }
+        removable_back_edges.reserve(back_edge_count);
+        for (auto &&loop : natural_loops) {
+            for (auto &&[source, target] : loop.back_edges) {
+                removable_back_edges.emplace(CFGEdge{source, target});
+            }
+        }
+
+        std::vector<uint32_t> indegree(_blocks.size(), 0u);
+        for (auto edge : _cfg_edges) {
+            if (!removable_back_edges.contains(edge)) {
+                ++indegree[_block_indices.at(edge.target)];
+            }
+        }
+        std::queue<size_t> ready;
+        for (auto i = size_t{0u}; i < indegree.size(); i++) {
+            if (indegree[i] == 0u) { ready.emplace(i); }
+        }
+        auto visited = size_t{0u};
+        while (!ready.empty()) {
+            auto index = ready.front();
+            ready.pop();
+            ++visited;
+            auto *source = _blocks[index];
+            for (auto *target : _successors[index]) {
+                if (removable_back_edges.contains(
+                        CFGEdge{source, target})) {
+                    continue;
+                }
+                auto target_index = _block_indices.at(target);
+                auto &degree = indegree[target_index];
+                if (--degree == 0u) {
+                    ready.emplace(target_index);
+                }
+            }
+        }
+        return visited == _blocks.size();
+    }
+
+    void _create_function_and_blocks() {
+        auto function_name = value_name(
+            _source,
+            _source->isa<xir::KernelFunction>() ? "kernel" : "callable");
+        _function.emplace(std::move(function_name),
+                          _options.logical_warp_width);
+        _block_ids.reserve(_blocks.size());
+        for (auto *source_block : _blocks) {
+            auto name = value_name(source_block);
+            auto id = _function->add_block(std::move(name));
+            _block_ids.emplace(source_block, id);
+        }
+        _function->set_entry(
+            _block_ids.at(_definition->body_block()));
+    }
+
+    void _create_loops(
+        const luisa::vector<xir::NaturalLoop> &natural_loops) {
+        _loops.reserve(natural_loops.size());
+        auto back_edge_count = size_t{0u};
+        for (auto &&loop : natural_loops) {
+            back_edge_count += loop.back_edges.size();
+        }
+        _loop_back_ids.reserve(back_edge_count);
+        for (auto &&source_loop : natural_loops) {
+            auto bounds = xir::analyze_loop_bounds(source_loop);
+            const xir::ArithmeticInst *early_exit_header_condition = nullptr;
+            auto max_trip_count = std::optional<uint64_t>{};
+            if (bounds.trip_count_is_constant) {
+                max_trip_count = bounds.constant_trip_count;
+            } else {
+                // A canonical counted header remains a finite upper bound
+                // when the loop has additional early exits. Keep the generic
+                // exact-trip analysis unchanged for transformation passes:
+                // analyze a local view containing only the header-owned exit
+                // and publish the result explicitly as a maximum.
+                auto bounded_loop = source_loop;
+                bounded_loop.exit_edges.erase(
+                    std::remove_if(
+                        bounded_loop.exit_edges.begin(),
+                        bounded_loop.exit_edges.end(),
+                        [&](const auto &edge) noexcept {
+                            return edge.first != source_loop.header;
+                        }),
+                    bounded_loop.exit_edges.end());
+                if (bounded_loop.exit_edges.size() == 1u) {
+                    auto upper_bound =
+                        xir::analyze_loop_bounds(bounded_loop);
+                    if (!bounds.is_valid() && upper_bound.is_valid() &&
+                        upper_bound.stride_is_constant &&
+                        _uniformity.is_uniform(
+                            upper_bound.start_value) &&
+                        _uniformity.is_uniform(
+                            upper_bound.bound_value)) {
+                        early_exit_header_condition =
+                            upper_bound.comparison_inst;
+                    }
+                    if (upper_bound.trip_count_is_constant) {
+                        max_trip_count =
+                            upper_bound.constant_trip_count;
+                    }
+                }
+            }
+            auto *cohort_uniform_induction =
+                bounds.is_valid() && bounds.stride_is_constant &&
+                        _uniformity.is_uniform(bounds.start_value) ?
+                    bounds.induction_phi :
+                    nullptr;
+            std::vector<BlockId> blocks;
+            blocks.reserve(source_loop.body_blocks.size() + 1u);
+            blocks.emplace_back(_block_ids.at(source_loop.header));
+            for (auto *block : source_loop.body_blocks) {
+                blocks.emplace_back(_block_ids.at(block));
+            }
+            std::sort(blocks.begin(), blocks.end(),
+                      [](BlockId lhs, BlockId rhs) noexcept {
+                          return lhs.value < rhs.value;
+                      });
+            blocks.erase(std::unique(blocks.begin(), blocks.end()),
+                         blocks.end());
+            std::vector<BlockId> exits;
+            exits.reserve(source_loop.exit_blocks.size());
+            for (auto *exit : source_loop.exit_blocks) {
+                if (auto iter = _block_ids.find(exit);
+                    iter != _block_ids.end()) {
+                    exits.emplace_back(iter->second);
+                }
+            }
+            std::sort(exits.begin(), exits.end(),
+                      [](BlockId lhs, BlockId rhs) noexcept {
+                          return lhs.value < rhs.value;
+                      });
+            exits.erase(std::unique(exits.begin(), exits.end()), exits.end());
+            auto id = _function->add_loop(
+                _block_ids.at(source_loop.header), std::move(blocks),
+                std::move(exits), std::nullopt, max_trip_count);
+            _loops.emplace_back(LoopRecord{
+                .source = &source_loop,
+                .cohort_uniform_induction = cohort_uniform_induction,
+                .cohort_uniform_header_condition =
+                    early_exit_header_condition,
+                .id = id,
+                .size = source_loop.body_blocks.size() + 1u,
+            });
+            for (auto &&[source, target] : source_loop.back_edges) {
+                _loop_back_ids.emplace(CFGEdge{source, target}, id);
+            }
+        }
+
+        // NaturalLoop already materializes loop membership. Index that output
+        // once instead of testing every loop pair (which is quadratic for
+        // deeply nested generated kernels).
+        std::vector<std::vector<size_t>> containing_loops(_blocks.size());
+        for (auto loop_index = size_t{0u};
+             loop_index < _loops.size(); loop_index++) {
+            auto add_membership = [&](const xir::BasicBlock *block) {
+                containing_loops[_block_indices.at(block)]
+                    .emplace_back(loop_index);
+            };
+            add_membership(_loops[loop_index].source->header);
+            for (auto *block : _loops[loop_index].source->body_blocks) {
+                add_membership(block);
+            }
+        }
+        for (auto i = size_t{0u}; i < _loops.size(); i++) {
+            std::optional<size_t> parent_index;
+            auto header_index =
+                _block_indices.at(_loops[i].source->header);
+            for (auto candidate : containing_loops[header_index]) {
+                if (_loops[candidate].size <= _loops[i].size) { continue; }
+                if (!parent_index ||
+                    _loops[candidate].size <
+                        _loops[*parent_index].size) {
+                    parent_index = candidate;
+                }
+            }
+            if (parent_index) {
+                _function->loop(_loops[i].id)->parent =
+                    _loops[*parent_index].id;
+            }
+        }
+    }
+
+    void _discover_cohort_uniform_header_conditions() {
+        // The coherent-mask path is already efficient for smaller loops.
+        // Real path tracing is neutral-to-negative below this boundary, while
+        // the larger analytic path loop benefits from the reduced header
+        // control. Eligible smaller loops may still use whole-loop
+        // predication later in LLVM lowering.
+        if (!_options.enable_cohort_uniform_induction) { return; }
+        for (auto &&loop : _loops) {
+            if (loop.size <
+                _options.cohort_uniform_induction_min_loop_block_count) {
+                continue;
+            }
+            auto *condition = loop.cohort_uniform_header_condition;
+            if (condition != nullptr &&
+                !_uniformity.is_uniform(condition)) {
+                // This is only a terminator use-site equality proof. The
+                // condition and its induction PHI retain lane-wise storage
+                // because different exit epochs may later reconverge.
+                _cohort_uniform_header_conditions.emplace(condition);
+            }
+        }
+    }
+
+    [[nodiscard]] const xir::Value *_branch_selector(
+        const xir::Instruction *terminator) const noexcept {
+        using Tag = xir::DerivedInstructionTag;
+        switch (terminator->derived_instruction_tag()) {
+            case Tag::CONDITIONAL_BRANCH:
+                return static_cast<const xir::ConditionalBranchInst *>(
+                           terminator)
+                    ->condition();
+            case Tag::INDEXED_BRANCH:
+                return static_cast<const xir::IndexedBranchInst *>(terminator)
+                    ->value();
+            default: return nullptr;
+        }
+    }
+
+    void _create_convergences(const xir::PostDomTree &post_dom_tree) {
+        _convergences.reserve(_blocks.size());
+        _convergence_by_branch.reserve(_blocks.size());
+        for (auto *block : _blocks) {
+            auto *terminator = block->terminator();
+            auto *selector = _branch_selector(terminator);
+            if (selector == nullptr || _uniformity.is_uniform(selector)) {
+                continue;
+            }
+            auto *target = post_dom_tree.immediate_post_dominator(block);
+            if (target == nullptr || target == block ||
+                !_block_ids.contains(target)) {
+                continue;
+            }
+            auto id = _function->add_convergence(_block_ids.at(target));
+            _convergences.emplace_back(ConvergenceRecord{
+                .branch = block,
+                .target = target,
+                .id = id,
+            });
+            _convergence_by_branch.emplace(block, id);
+        }
+
+        std::vector<std::vector<ConvergenceId>> closes_at(_blocks.size());
+        for (auto &&record : _convergences) {
+            // A target outside the split's dominator subtree cannot dominate
+            // any block in that subtree, so the branch-frame exit closes it.
+            if (_dom_tree->dominates(record.branch, record.target)) {
+                closes_at[_block_indices.at(record.target)]
+                    .emplace_back(record.id);
+            }
+        }
+
+        // Walk the dominator tree once. The active convergence stack is the
+        // static analogue of the runtime token stack. Closing at merge
+        // subtrees before opening a new split makes parent discovery O(B + C)
+        // and diagnoses non-nested convergence instead of hiding it behind an
+        // ancestor-chain scan.
+        struct Frame {
+            const xir::DomTreeNode *node{nullptr};
+            size_t next_child{0u};
+            size_t active_after_close{0u};
+            std::vector<ConvergenceId> closed{};
+            bool entered{false};
+        };
+        std::vector<ConvergenceId> active;
+        std::vector<uint8_t> closing(_convergences.size(), 0u);
+        std::vector<Frame> stack;
+        if (_dom_tree->root() != nullptr) {
+            stack.emplace_back(Frame{.node = _dom_tree->root()});
+        }
+        while (!stack.empty()) {
+            auto &frame = stack.back();
+            if (!frame.entered) {
+                frame.entered = true;
+                auto *block = frame.node->block();
+                auto block_index = _block_indices.at(block);
+                for (auto convergence : closes_at[block_index]) {
+                    closing[convergence.value] = 1u;
+                }
+                auto closed_count = size_t{0u};
+                while (!active.empty() &&
+                       closing[active.back().value] != 0u) {
+                    frame.closed.emplace_back(active.back());
+                    active.pop_back();
+                    ++closed_count;
+                }
+                if (closed_count != closes_at[block_index].size()) {
+                    _diagnose(
+                        XIRToScheduleDiagnosticCode::irreducible_control_flow,
+                        "convergence scopes are not properly nested; normalize the CFG before SIMD scheduling",
+                        block, block->terminator());
+                }
+                for (auto convergence : closes_at[block_index]) {
+                    closing[convergence.value] = 0u;
+                }
+                frame.active_after_close = active.size();
+                if (auto iter = _convergence_by_branch.find(block);
+                    iter != _convergence_by_branch.end()) {
+                    auto convergence = iter->second;
+                    if (!active.empty()) {
+                        auto parent = active.back();
+                        _function->convergence(convergence)->parent = parent;
+                    }
+                    active.emplace_back(convergence);
+                }
+            }
+            auto children = frame.node->children();
+            if (frame.next_child < children.size()) {
+                auto *child = children[frame.next_child++];
+                stack.emplace_back(Frame{.node = child});
+            } else {
+                active.resize(frame.active_after_close);
+                for (auto iter = frame.closed.rbegin();
+                     iter != frame.closed.rend(); ++iter) {
+                    active.emplace_back(*iter);
+                }
+                stack.pop_back();
+            }
+        }
+    }
+
+    void _create_values() {
+        auto value_count = size_t{0u};
+        for (auto *argument : _source->arguments()) {
+            static_cast<void>(argument);
+            ++value_count;
+        }
+        for (auto *block : _blocks) {
+            for (auto *instruction : block->instructions()) {
+                value_count += !instruction->is_terminator() &&
+                                       instruction->type() != nullptr ?
+                                   1u :
+                                   0u;
+            }
+        }
+        _value_ids.reserve(value_count);
+        auto argument_index = uint32_t{0u};
+        for (auto *argument : _source->arguments()) {
+            auto index = argument_index++;
+            auto id = _function->add_value(
+                _uniformity.classify(argument), argument->type(),
+                ValueOrigin::parameter, std::nullopt,
+                value_name(argument,
+                           "arg" + std::to_string(index)),
+                ParameterValueMetadata{
+                    .index = index,
+                    .argument_tag = static_cast<uint32_t>(
+                        argument->derived_argument_tag()),
+                });
+            _value_ids.emplace(argument, id);
+        }
+
+        for (auto *source_block : _blocks) {
+            auto block = _block_ids.at(source_block);
+            for (auto *instruction : source_block->instructions()) {
+                if (instruction->is_terminator() ||
+                    instruction->type() == nullptr) {
+                    continue;
+                }
+                auto is_phi = instruction->isa<xir::PhiInst>();
+                auto id = _function->add_value(
+                    _uniformity.classify(instruction), instruction->type(),
+                    is_phi ? ValueOrigin::state_slot :
+                             ValueOrigin::instruction,
+                    block, value_name(instruction));
+                _value_ids.emplace(instruction, id);
+            }
+        }
+    }
+
+    [[nodiscard]] std::optional<ValueId> _map_value(
+        const xir::Value *value, const xir::BasicBlock *block,
+        const xir::Instruction *instruction) {
+        if (value == nullptr) {
+            _diagnose(XIRToScheduleDiagnosticCode::unsupported_value,
+                      "XIR operand is null", block, instruction);
+            return std::nullopt;
+        }
+        if (auto iter = _value_ids.find(value); iter != _value_ids.end()) {
+            return iter->second;
+        }
+        using Tag = xir::DerivedValueTag;
+        switch (value->derived_value_tag()) {
+            case Tag::CONSTANT: {
+                auto *constant = static_cast<const xir::Constant *>(value);
+                if (value->type() == nullptr || constant->data() == nullptr ||
+                    value->type()->size() == 0u) {
+                    _diagnose(
+                        XIRToScheduleDiagnosticCode::unsupported_value,
+                        "XIR constant has no code-generatable payload", block,
+                        instruction);
+                    return std::nullopt;
+                }
+                std::vector<std::byte> bytes(value->type()->size());
+                std::memcpy(bytes.data(), constant->data(), bytes.size());
+                auto id = _function->add_value(
+                    ValueClass::warp_uniform, value->type(),
+                    ValueOrigin::constant,
+                    std::nullopt,
+                    value_name(value, "const" + std::to_string(
+                                                    _next_external_value_id++)),
+                    ConstantValueMetadata{.bytes = std::move(bytes)});
+                _value_ids.emplace(value, id);
+                return id;
+            }
+            case Tag::SPECIAL_REGISTER: {
+                auto *special =
+                    static_cast<const xir::SpecialRegister *>(value);
+                auto id = _function->add_value(
+                    _uniformity.classify(value), value->type(),
+                    ValueOrigin::special_register, std::nullopt,
+                    value_name(
+                        value,
+                        copy_string(xir::to_string(
+                            special->derived_special_register_tag()))),
+                    SpecialRegisterValueMetadata{
+                        .tag = static_cast<uint32_t>(
+                            special->derived_special_register_tag()),
+                    });
+                _value_ids.emplace(value, id);
+                return id;
+            }
+            case Tag::ARGUMENT:
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::unsupported_value,
+                    "operand references an argument from another function",
+                    block, instruction);
+                return std::nullopt;
+            case Tag::INSTRUCTION:
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::unsupported_value,
+                    "operand references an unavailable or void XIR instruction",
+                    block, instruction);
+                return std::nullopt;
+            case Tag::UNDEFINED:
+                // XIR undef denotes an unconstrained value, not a trap or a
+                // missing CFG edge. Materialize one deterministic zero value
+                // per undef/type for Schedule IR. Zero is a valid refinement
+                // of the source semantics and keeps coroutine lifetime-seed
+                // PHIs representable without inventing a backend-only poison
+                // state.
+                if (value->type() == nullptr ||
+                    value->type()->size() == 0u) {
+                    _diagnose(
+                        XIRToScheduleDiagnosticCode::unsupported_value,
+                        "undefined XIR value has no code-generatable type",
+                        block, instruction);
+                    return std::nullopt;
+                } else {
+                    std::vector<std::byte> bytes(
+                        value->type()->size(), std::byte{0});
+                    auto id = _function->add_value(
+                        ValueClass::warp_uniform, value->type(),
+                        ValueOrigin::constant, std::nullopt,
+                        value_name(
+                            value,
+                            "undef_zero" + std::to_string(
+                                               _next_external_value_id++)),
+                        ConstantValueMetadata{
+                            .bytes = std::move(bytes)});
+                    _value_ids.emplace(value, id);
+                    return id;
+                }
+            case Tag::FUNCTION:
+            case Tag::BASIC_BLOCK:
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::unsupported_value,
+                    "control or function value used as a Schedule IR data operand",
+                    block, instruction);
+                return std::nullopt;
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] Opcode _opcode(
+        const xir::Instruction *instruction) const noexcept {
+        using Tag = xir::DerivedInstructionTag;
+        switch (instruction->derived_instruction_tag()) {
+            case Tag::ALLOCA: return Opcode::alloca;
+            case Tag::LOAD: return Opcode::load;
+            case Tag::STORE: return Opcode::store;
+            case Tag::GEP: return Opcode::gep;
+            case Tag::ATOMIC: return Opcode::atomic;
+            case Tag::ARITHMETIC: return Opcode::arithmetic;
+            case Tag::RESOURCE_QUERY: return Opcode::resource_query;
+            case Tag::RESOURCE_READ: return Opcode::resource_read;
+            case Tag::RESOURCE_WRITE: return Opcode::resource_write;
+            case Tag::RAY_QUERY_OBJECT_READ: return Opcode::ray_query_read;
+            case Tag::RAY_QUERY_OBJECT_WRITE: return Opcode::ray_query_write;
+            case Tag::RAY_QUERY_PIPELINE: return Opcode::ray_query_pipeline;
+            case Tag::CAST: return Opcode::cast;
+            case Tag::PRINT: return Opcode::print;
+            case Tag::CLOCK: return Opcode::clock;
+            case Tag::ASSERT: return Opcode::assert_;
+            case Tag::THREAD_GROUP: {
+                auto op = static_cast<const xir::ThreadGroupInst *>(instruction)
+                              ->op();
+                // SER is an optional scheduling hint. The explicit SIMD
+                // scheduler already forms and reconverges dynamic cohorts,
+                // so preserving the hint as an executable instruction would
+                // add no semantics. Drop it below instead of turning it into
+                // an unsupported opaque operation.
+                return is_collective(op) ? Opcode::warp_collective :
+                                           Opcode::opaque;
+            }
+            case Tag::DEBUG_BREAK:
+            case Tag::ASSUME:
+            case Tag::OUTLINE: return Opcode::opaque;
+            default: return Opcode::opaque;
+        }
+    }
+
+    [[nodiscard]] bool _is_cohort_uniform_induction_use(
+        const xir::Value *value,
+        const xir::BasicBlock *use_block) const noexcept {
+        if (value == nullptr || use_block == nullptr) { return false; }
+        return std::any_of(
+            _loops.cbegin(), _loops.cend(),
+            [&](const LoopRecord &loop) noexcept {
+                return loop.cohort_uniform_induction == value &&
+                       loop.source->contains(
+                           const_cast<xir::BasicBlock *>(use_block));
+            });
+    }
+
+    [[nodiscard]] bool _packet_stays_in_x_row() const noexcept {
+        if (_source == nullptr ||
+            !_source->isa<xir::KernelFunction>() ||
+            _options.logical_warp_width <= 1u) {
+            return false;
+        }
+        auto block_size =
+            static_cast<const xir::KernelFunction *>(_source)
+                ->block_size();
+        return block_size.x >= _options.logical_warp_width &&
+               block_size.x % _options.logical_warp_width == 0u;
+    }
+
+    [[nodiscard]] LaneIndexStep _lane_index_step(
+        const xir::Value *value,
+        const xir::BasicBlock *use_block,
+        std::unordered_set<const xir::Value *> &visiting) const noexcept {
+        if (value == nullptr || value->type() == nullptr ||
+            !value->type()->is_scalar() ||
+            (!value->type()->is_int() &&
+             !value->type()->is_uint())) {
+            return LaneIndexStep::unknown;
+        }
+        if (_uniformity.is_uniform(value) ||
+            _is_cohort_uniform_induction_use(value, use_block)) {
+            return LaneIndexStep::equal;
+        }
+        if (value->isa<xir::SpecialRegister>()) {
+            auto tag = static_cast<const xir::SpecialRegister *>(value)
+                           ->derived_special_register_tag();
+            return tag == xir::DerivedSpecialRegisterTag::WARP_LANE_ID ?
+                       LaneIndexStep::consecutive :
+                       LaneIndexStep::unknown;
+        }
+        if (!value->isa<xir::Instruction>() ||
+            !visiting.emplace(value).second) {
+            return LaneIndexStep::unknown;
+        }
+        auto leave = [&]() noexcept { visiting.erase(value); };
+        auto *instruction = static_cast<const xir::Instruction *>(value);
+        auto result = LaneIndexStep::unknown;
+        if (instruction->isa<xir::CastInst>()) {
+            auto operand_step = instruction->operand_count() == 1u ?
+                                    _lane_index_step(
+                                        instruction->operand(0u), use_block,
+                                        visiting) :
+                                    LaneIndexStep::unknown;
+            // A cast of equal lane values stays equal. Consecutive casts need
+            // a separate no-wrap/range proof and deliberately remain unknown.
+            result = operand_step == LaneIndexStep::equal ?
+                         LaneIndexStep::equal :
+                         LaneIndexStep::unknown;
+            leave();
+            return result;
+        }
+        if (!instruction->isa<xir::ArithmeticInst>()) {
+            leave();
+            return result;
+        }
+        auto *arithmetic =
+            static_cast<const xir::ArithmeticInst *>(instruction);
+        auto op = arithmetic->op();
+        if (op == xir::ArithmeticOp::EXTRACT &&
+            arithmetic->operand_count() == 2u &&
+            _packet_stays_in_x_row()) {
+            uint64_t component = 0u;
+            auto *aggregate = arithmetic->operand(0u);
+            if (xir::try_decode_constant_nonnegative_integer(
+                    arithmetic->operand(1u), component) &&
+                component < 3u && aggregate != nullptr &&
+                aggregate->isa<xir::SpecialRegister>()) {
+                auto tag = static_cast<const xir::SpecialRegister *>(
+                               aggregate)
+                               ->derived_special_register_tag();
+                if (tag == xir::DerivedSpecialRegisterTag::DISPATCH_ID ||
+                    tag == xir::DerivedSpecialRegisterTag::THREAD_ID) {
+                    result = component == 0u ?
+                                 LaneIndexStep::consecutive :
+                                 LaneIndexStep::equal;
+                }
+            }
+            leave();
+            return result;
+        }
+
+        std::vector<LaneIndexStep> operand_steps;
+        operand_steps.reserve(arithmetic->operand_count());
+        for (auto i = size_t{0u}; i < arithmetic->operand_count(); i++) {
+            operand_steps.emplace_back(_lane_index_step(
+                arithmetic->operand(i), use_block, visiting));
+        }
+        auto all_equal = !operand_steps.empty() && std::all_of(
+                                                       operand_steps.begin(), operand_steps.end(),
+                                                       [](LaneIndexStep step) noexcept {
+                                                           return step == LaneIndexStep::equal;
+                                                       });
+        if (all_equal) {
+            result = LaneIndexStep::equal;
+        } else if (operand_steps.size() == 2u) {
+            auto lhs = operand_steps[0u];
+            auto rhs = operand_steps[1u];
+            if (op == xir::ArithmeticOp::BINARY_ADD) {
+                if ((lhs == LaneIndexStep::consecutive &&
+                     rhs == LaneIndexStep::equal) ||
+                    (lhs == LaneIndexStep::equal &&
+                     rhs == LaneIndexStep::consecutive)) {
+                    result = LaneIndexStep::consecutive;
+                }
+            } else if (op == xir::ArithmeticOp::BINARY_SUB) {
+                if (lhs == LaneIndexStep::consecutive &&
+                    rhs == LaneIndexStep::equal) {
+                    result = LaneIndexStep::consecutive;
+                } else if (lhs == LaneIndexStep::consecutive &&
+                           rhs == LaneIndexStep::consecutive) {
+                    result = LaneIndexStep::equal;
+                }
+            }
+        } else if (op == xir::ArithmeticOp::SELECT &&
+                   operand_steps.size() == 3u &&
+                   operand_steps[2u] == LaneIndexStep::equal &&
+                   operand_steps[0u] == operand_steps[1u] &&
+                   operand_steps[0u] != LaneIndexStep::unknown) {
+            result = operand_steps[0u];
+        }
+        leave();
+        return result;
+    }
+
+    [[nodiscard]] LaneIndexStep _lane_index_step(
+        const xir::Value *value,
+        const xir::BasicBlock *use_block) const noexcept {
+        std::unordered_set<const xir::Value *> visiting;
+        return _lane_index_step(value, use_block, visiting);
+    }
+
+    [[nodiscard]] std::optional<uint32_t> _source_op(
+        const xir::Instruction *instruction) const noexcept {
+        using Tag = xir::DerivedInstructionTag;
+        switch (instruction->derived_instruction_tag()) {
+            case Tag::ALLOCA:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::AllocaInst *>(instruction)->op());
+            case Tag::ATOMIC:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::AtomicInst *>(instruction)->op());
+            case Tag::ARITHMETIC:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::ArithmeticInst *>(instruction)
+                        ->op());
+            case Tag::RESOURCE_QUERY:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::ResourceQueryInst *>(instruction)
+                        ->op());
+            case Tag::RESOURCE_READ:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::ResourceReadInst *>(instruction)
+                        ->op());
+            case Tag::RESOURCE_WRITE:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::ResourceWriteInst *>(instruction)
+                        ->op());
+            case Tag::RAY_QUERY_OBJECT_READ:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::RayQueryObjectReadInst *>(
+                        instruction)
+                        ->op());
+            case Tag::RAY_QUERY_OBJECT_WRITE:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::RayQueryObjectWriteInst *>(
+                        instruction)
+                        ->op());
+            case Tag::CAST:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::CastInst *>(instruction)->op());
+            case Tag::THREAD_GROUP:
+                return static_cast<uint32_t>(
+                    static_cast<const xir::ThreadGroupInst *>(instruction)
+                        ->op());
+            case Tag::DEBUG_BREAK:
+            case Tag::ASSUME:
+            case Tag::OUTLINE:
+                return static_cast<uint32_t>(
+                    instruction->derived_instruction_tag());
+            default: return std::nullopt;
+        }
+    }
+
+    [[nodiscard]] ValueId _get_active_mask() {
+        if (!_active_mask) {
+            _active_mask = _function->add_value(
+                ValueClass::mask, nullptr,
+                ValueOrigin::scheduler_builtin, std::nullopt,
+                "active_mask",
+                SchedulerBuiltinValueMetadata{
+                    .builtin = SchedulerBuiltin::active_mask,
+                });
+        }
+        return *_active_mask;
+    }
+
+    void _emit_instruction(
+        const xir::Instruction *source_instruction,
+        BasicBlock &target_block) {
+        if (source_instruction->isa<xir::PhiInst>()) { return; }
+        if (source_instruction->isa<xir::ThreadGroupInst>() &&
+            static_cast<const xir::ThreadGroupInst *>(source_instruction)
+                    ->op() ==
+                xir::ThreadGroupOp::SHADER_EXECUTION_REORDER) {
+            return;
+        }
+        Instruction instruction{
+            .opcode = _opcode(source_instruction),
+            .source_op = _source_op(source_instruction),
+        };
+        auto *ray_query_pipeline =
+            source_instruction->isa<xir::RayQueryPipelineInst>() ?
+                static_cast<const xir::RayQueryPipelineInst *>(
+                    source_instruction) :
+                nullptr;
+        if (ray_query_pipeline != nullptr) {
+            instruction.source_op = static_cast<uint32_t>(
+                _result.ray_query_pipelines.size());
+            _result.ray_query_pipelines.emplace_back(ray_query_pipeline);
+        }
+        if (source_instruction->isa<xir::PrintInst>()) {
+            instruction.message = copy_string(
+                static_cast<const xir::PrintInst *>(source_instruction)
+                    ->format());
+        } else if (source_instruction->isa<xir::AssertInst>()) {
+            instruction.message = copy_string(
+                static_cast<const xir::AssertInst *>(source_instruction)
+                    ->message());
+        }
+        if (source_instruction->type() != nullptr) {
+            if (auto iter = _value_ids.find(source_instruction);
+                iter != _value_ids.end()) {
+                instruction.result = iter->second;
+            } else {
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::unsupported_value,
+                    "result-producing XIR instruction has no Schedule IR value",
+                    source_instruction->parent_block(), source_instruction);
+            }
+        }
+        if (ray_query_pipeline == nullptr) {
+            for (auto *operand_use : source_instruction->operand_uses()) {
+                if (auto operand = _map_value(
+                        operand_use->value(),
+                        source_instruction->parent_block(),
+                        source_instruction)) {
+                    instruction.operands.emplace_back(*operand);
+                }
+            }
+        } else {
+            // Function operands stay in the side table. The query object and
+            // every captured argument are ordinary Schedule dependencies so
+            // liveness/state placement and the private handler call ABI see
+            // their exact values at the pipeline site.
+            auto append_operand = [&](const xir::Value *value) noexcept {
+                if (auto operand = _map_value(
+                        value, source_instruction->parent_block(),
+                        source_instruction)) {
+                    instruction.operands.emplace_back(*operand);
+                }
+            };
+            append_operand(ray_query_pipeline->query_object());
+            for (auto *capture_use :
+                 ray_query_pipeline->captured_argument_uses()) {
+                append_operand(capture_use->value());
+            }
+        }
+        if (source_instruction->operand_count() >= 2u) {
+            auto direct_read =
+                instruction.opcode == Opcode::resource_read &&
+                instruction.source_op == static_cast<uint32_t>(
+                                             xir::ResourceReadOp::BUFFER_READ);
+            auto direct_write =
+                instruction.opcode == Opcode::resource_write &&
+                instruction.source_op == static_cast<uint32_t>(
+                                             xir::ResourceWriteOp::BUFFER_WRITE);
+            if (direct_read || direct_write) {
+                auto step = _lane_index_step(
+                    source_instruction->operand(1u),
+                    source_instruction->parent_block());
+                if (direct_read && step == LaneIndexStep::equal) {
+                    instruction.cohort_uniform_operand_index = 1u;
+                } else if (step == LaneIndexStep::consecutive) {
+                    instruction.lane_consecutive_operand_index = 1u;
+                }
+            }
+        }
+        if (instruction.opcode == Opcode::warp_collective) {
+            instruction.collective_id = _next_collective_id++;
+            instruction.participant_mask = _get_active_mask();
+        }
+        target_block.instructions.emplace_back(std::move(instruction));
+    }
+
+    [[nodiscard]] ControlEdge _edge(
+        const xir::BasicBlock *target, const xir::BasicBlock *source,
+        const xir::Instruction *terminator) {
+        if (target == nullptr) {
+            _diagnose(XIRToScheduleDiagnosticCode::malformed_cfg,
+                      "XIR control edge has a null target", source,
+                      terminator);
+            return {};
+        }
+        if (auto iter = _block_ids.find(target); iter != _block_ids.end()) {
+            return ControlEdge{iter->second};
+        }
+        _diagnose(
+            XIRToScheduleDiagnosticCode::malformed_cfg,
+            "XIR control edge targets a block outside the reachable function",
+            source, terminator);
+        return {};
+    }
+
+    void _emit_terminator(
+        const xir::BasicBlock *source_block, BasicBlock &target_block) {
+        auto *terminator = source_block->terminator();
+        if (auto barrier = _barrier_ids.find(source_block);
+            barrier != _barrier_ids.end()) {
+            auto *branch = static_cast<const xir::BranchInst *>(terminator);
+            target_block.terminator = BlockBarrierTerminator{
+                .barrier_id = barrier->second,
+                .resume_edge = _edge(
+                    branch->target_block(), source_block, terminator),
+            };
+            return;
+        }
+        using Tag = xir::DerivedInstructionTag;
+        switch (terminator->derived_instruction_tag()) {
+            case Tag::BRANCH: {
+                auto *branch = static_cast<const xir::BranchInst *>(terminator);
+                target_block.terminator = BranchTerminator{
+                    _edge(branch->target_block(), source_block, terminator)};
+                break;
+            }
+            case Tag::CONDITIONAL_BRANCH: {
+                auto *branch =
+                    static_cast<const xir::ConditionalBranchInst *>(terminator);
+                auto condition = _map_value(
+                    branch->condition(), source_block, terminator);
+                auto cohort_uniform_condition =
+                    branch->condition() != nullptr &&
+                    branch->condition()->isa<xir::Instruction>() &&
+                    _cohort_uniform_header_conditions.contains(
+                        static_cast<const xir::Instruction *>(
+                            branch->condition()));
+                target_block.strategy =
+                    condition && is_uniform(
+                                     _function->value(*condition)
+                                         ->value_class) ?
+                        RegionStrategy::uniform_control :
+                        RegionStrategy::cohort;
+                target_block.terminator = SplitTerminator{
+                    .condition = condition.value_or(ValueId{}),
+                    .true_edge = _edge(
+                        branch->true_block(), source_block, terminator),
+                    .false_edge = _edge(
+                        branch->false_block(), source_block, terminator),
+                    .convergence = _convergence_by_branch.contains(source_block) ?
+                                       std::optional{
+                                           _convergence_by_branch.at(source_block)} :
+                                       std::nullopt,
+                    .cohort_uniform_condition =
+                        cohort_uniform_condition,
+                };
+                break;
+            }
+            case Tag::INDEXED_BRANCH: {
+                auto *branch =
+                    static_cast<const xir::IndexedBranchInst *>(terminator);
+                auto selector =
+                    _map_value(branch->value(), source_block, terminator);
+                SwitchTerminator schedule_switch{
+                    .selector = selector.value_or(ValueId{}),
+                    .default_edge = _edge(
+                        branch->default_block(), source_block, terminator),
+                    .convergence = _convergence_by_branch.contains(source_block) ?
+                                       std::optional{
+                                           _convergence_by_branch.at(source_block)} :
+                                       std::nullopt,
+                };
+                schedule_switch.cases.reserve(branch->case_count());
+                for (auto i = size_t{0u}; i < branch->case_count(); i++) {
+                    schedule_switch.cases.emplace_back(SwitchCase{
+                        .value = branch->case_value(i),
+                        .edge = _edge(
+                            branch->case_block(i), source_block, terminator),
+                    });
+                }
+                target_block.strategy =
+                    selector && is_uniform(
+                                    _function->value(*selector)
+                                        ->value_class) ?
+                        RegionStrategy::uniform_control :
+                        RegionStrategy::cohort;
+                target_block.terminator = std::move(schedule_switch);
+                break;
+            }
+            case Tag::RETURN: {
+                auto *return_inst =
+                    static_cast<const xir::ReturnInst *>(terminator);
+                std::optional<ValueId> value;
+                if (return_inst->return_value() != nullptr) {
+                    value = _map_value(
+                        return_inst->return_value(), source_block, terminator);
+                }
+                target_block.terminator = ReturnTerminator{value};
+                break;
+            }
+            case Tag::UNREACHABLE:
+                target_block.terminator = UnreachableTerminator{};
+                break;
+            default:
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::unsupported_instruction,
+                    "unsupported terminator reached Schedule IR emission",
+                    source_block, terminator);
+                break;
+        }
+    }
+
+    void _emit_blocks() {
+        for (auto *source_block : _blocks) {
+            auto *target_block =
+                _function->block(_block_ids.at(source_block));
+            for (auto *instruction : source_block->instructions()) {
+                if (instruction->is_terminator()) { break; }
+                if (is_block_barrier(instruction)) { continue; }
+                _emit_instruction(instruction, *target_block);
+            }
+            _emit_terminator(source_block, *target_block);
+        }
+    }
+
+    template<typename Visit>
+    static void _traverse_edges(BasicBlock &block, Visit &&visit) {
+        std::visit(
+            [&](auto &terminator) {
+                using T = std::decay_t<decltype(terminator)>;
+                if constexpr (std::is_same_v<T, BranchTerminator>) {
+                    visit(terminator.edge);
+                } else if constexpr (std::is_same_v<T, SplitTerminator>) {
+                    visit(terminator.true_edge);
+                    visit(terminator.false_edge);
+                } else if constexpr (std::is_same_v<T, SwitchTerminator>) {
+                    for (auto &item : terminator.cases) {
+                        visit(item.edge);
+                    }
+                    visit(terminator.default_edge);
+                } else if constexpr (
+                    std::is_same_v<T, BlockBarrierTerminator>) {
+                    visit(terminator.resume_edge);
+                }
+            },
+            block.terminator);
+    }
+
+    void _annotate_loop_backs() {
+        std::unordered_set<CFGEdge, CFGEdgeHash> annotated;
+        annotated.reserve(_loop_back_ids.size());
+        for (auto *source : _blocks) {
+            _traverse_edges(
+                *_function->block(_block_ids.at(source)),
+                [&](ControlEdge &edge) {
+                    auto key = CFGEdge{source, _blocks[edge.target.value]};
+                    if (auto iter = _loop_back_ids.find(key);
+                        iter != _loop_back_ids.end()) {
+                        edge.loop_back = iter->second;
+                        annotated.emplace(key);
+                    }
+                });
+        }
+        for (auto &&[edge_key, loop] : _loop_back_ids) {
+            static_cast<void>(loop);
+            if (!annotated.contains(edge_key)) {
+                _diagnose(
+                    XIRToScheduleDiagnosticCode::malformed_cfg,
+                    "natural-loop back-edge was lost during Schedule IR projection",
+                    edge_key.source,
+                    edge_key.source->terminator());
+            }
+        }
+    }
+
+    void _annotate_convergence_joins() {
+        // A gate is active for exactly the part of its branch's dominator
+        // subtree before the gate target. Indexing active gates by target lets
+        // each CFG edge copy only the joins it actually emits. This avoids the
+        // convergence-count times predecessor-count product that arises from
+        // querying every gate independently.
+        struct Frame {
+            const xir::DomTreeNode *node{nullptr};
+            size_t next_child{0u};
+            std::vector<ConvergenceId> closed{};
+            std::optional<ConvergenceId> opened{};
+            bool entered{false};
+        };
+        std::vector<std::vector<ConvergenceId>> active_by_target(
+            _blocks.size());
+        std::vector<Frame> stack;
+        if (_dom_tree->root() != nullptr) {
+            stack.emplace_back(Frame{.node = _dom_tree->root()});
+        }
+        while (!stack.empty()) {
+            auto &frame = stack.back();
+            auto *source = frame.node->block();
+            auto source_index = _block_indices.at(source);
+            if (!frame.entered) {
+                frame.entered = true;
+
+                // Entering a gate target closes every active gate for the
+                // whole dominated subtree. Restore them when leaving so DOM
+                // sibling subtrees still observe their enclosing scopes.
+                frame.closed =
+                    std::move(active_by_target[source_index]);
+                if (auto iter = _convergence_by_branch.find(source);
+                    iter != _convergence_by_branch.end()) {
+                    frame.opened = iter->second;
+                    auto target =
+                        _function->convergence(*frame.opened)->target;
+                    active_by_target[target.value]
+                        .emplace_back(*frame.opened);
+                }
+
+                _traverse_edges(
+                    *_function->block(_block_ids.at(source)),
+                    [&](ControlEdge &edge) {
+                        auto &&active =
+                            active_by_target[edge.target.value];
+                        edge.joins.assign(
+                            active.rbegin(), active.rend());
+                    });
+            }
+            auto children = frame.node->children();
+            if (frame.next_child < children.size()) {
+                auto *child = children[frame.next_child++];
+                stack.emplace_back(Frame{.node = child});
+            } else {
+                if (frame.opened) {
+                    auto target =
+                        _function->convergence(*frame.opened)->target;
+                    auto &active = active_by_target[target.value];
+                    if (active.empty() || active.back() != *frame.opened) {
+                        _diagnose(
+                            XIRToScheduleDiagnosticCode::irreducible_control_flow,
+                            "convergence scopes are not properly nested; normalize the CFG before SIMD scheduling",
+                            source, source->terminator());
+                    } else {
+                        active.pop_back();
+                    }
+                }
+                active_by_target[source_index] =
+                    std::move(frame.closed);
+                stack.pop_back();
+            }
+        }
+    }
+
+    void _lower_phi_assignments() {
+        std::unordered_map<
+            CFGEdge, std::vector<EdgeAssignment>, CFGEdgeHash>
+            assignments_by_edge;
+        assignments_by_edge.reserve(_cfg_edges.size());
+        for (auto *target_block : _blocks) {
+            for (auto *instruction : target_block->instructions()) {
+                if (!instruction->isa<xir::PhiInst>()) { continue; }
+                auto *phi = static_cast<const xir::PhiInst *>(instruction);
+                auto destination_iter = _value_ids.find(phi);
+                if (destination_iter == _value_ids.end()) {
+                    _diagnose(
+                        XIRToScheduleDiagnosticCode::invalid_phi,
+                        "XIR PHI has no Schedule IR state slot", target_block,
+                        phi);
+                    continue;
+                }
+                for (auto incoming_index = size_t{0u};
+                     incoming_index < phi->incoming_count();
+                     incoming_index++) {
+                    auto incoming = phi->incoming(incoming_index);
+                    auto source = _map_value(
+                        incoming.value, target_block, phi);
+                    auto edge_key = CFGEdge{incoming.block, target_block};
+                    if (!source || !_block_ids.contains(incoming.block) ||
+                        !_cfg_edges.contains(edge_key)) {
+                        _diagnose(
+                            XIRToScheduleDiagnosticCode::invalid_phi,
+                            "XIR PHI incoming references an unavailable predecessor or value",
+                            target_block, phi);
+                        continue;
+                    }
+                    assignments_by_edge[edge_key].emplace_back(
+                        EdgeAssignment{
+                            .destination = destination_iter->second,
+                            .source = *source,
+                        });
+                }
+            }
+        }
+        for (auto *source : _blocks) {
+            _traverse_edges(
+                *_function->block(_block_ids.at(source)),
+                [&](ControlEdge &edge) {
+                    auto key = CFGEdge{source, _blocks[edge.target.value]};
+                    if (auto iter = assignments_by_edge.find(key);
+                        iter != assignments_by_edge.end()) {
+                        edge.assignments = iter->second;
+                    }
+                });
+        }
+    }
+
+    void _append_verification_diagnostics() {
+        auto verification = verify(*_function);
+        for (auto &&error : verification.errors) {
+            const xir::BasicBlock *source_block = nullptr;
+            if (error.block && error.block->value < _blocks.size()) {
+                source_block = _blocks[error.block->value];
+            }
+            _diagnose(
+                XIRToScheduleDiagnosticCode::schedule_verification,
+                "Schedule IR verification failed: " + error.message,
+                source_block);
+        }
+    }
+
+public:
+    LoweringContext(const xir::Function *source,
+                    XIRToScheduleOptions options) noexcept
+        : _source{source}, _options{options} {}
+
+    [[nodiscard]] XIRToScheduleResult run() {
+        _collect_and_preflight_cfg();
+        if (_failed()) { return std::move(_result); }
+
+        auto dom_tree = xir::compute_dom_tree(
+            const_cast<xir::Function *>(_source));
+        _dom_tree = &dom_tree;
+        auto natural_loops =
+            xir::discover_natural_loops(_definition, dom_tree);
+        if (!_cfg_is_reducible(natural_loops)) {
+            _diagnose(
+                XIRToScheduleDiagnosticCode::irreducible_control_flow,
+                "CFG remains cyclic after removing natural back-edges; run lower_irreducible_cfg before SIMD scheduling");
+            return std::move(_result);
+        }
+        _validate_barrier_phases(natural_loops);
+        if (_failed()) { return std::move(_result); }
+        // SIMD reconvergence is conditional on scalar-lane termination. Use
+        // post-dominance over terminating executions so a natural-loop
+        // back-edge does not hide the common exit where lanes with different
+        // trip counts must rendezvous. The default XIR analysis remains
+        // conservative about genuinely infinite executions.
+        auto post_dom_tree = xir::compute_post_dom_tree(
+            const_cast<xir::Function *>(_source),
+            {.account_for_infinite_paths = false});
+        _uniformity.analyze(
+            _source, _options.parameter_value_classes);
+
+        _create_function_and_blocks();
+        _create_loops(natural_loops);
+        _discover_cohort_uniform_header_conditions();
+        _create_convergences(post_dom_tree);
+        _create_values();
+        _emit_blocks();
+        if (_failed()) { return std::move(_result); }
+        _annotate_loop_backs();
+        if (_failed()) { return std::move(_result); }
+        _annotate_convergence_joins();
+        _lower_phi_assignments();
+        if (!_failed()) { _append_verification_diagnostics(); }
+        if (!_failed()) { _result.function = std::move(*_function); }
+        return std::move(_result);
+    }
+};
+
+}// namespace
+
+XIRToScheduleResult lower_xir_to_schedule(
+    const xir::Function *source, XIRToScheduleOptions options) {
+    return LoweringContext{source, options}.run();
+}
+
+}// namespace luisa::compute::simd::schedule

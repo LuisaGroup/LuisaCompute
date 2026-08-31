@@ -345,10 +345,6 @@ docs/*.log
 *.bc
 *.S
 
-# generated RUST bindings
-src/rust/luisa-compute-ir/target/**
-src/rust/luisa_compute_api_types/target/**
-src/rust/target/**
 
 # XMake
 .xmake/**
@@ -376,3 +372,6 @@ AGENTS.*
 /agent*.py
 build-check/
 build-verify/
+
+# torch2 canonical export archives (regenerable via examples/tensor/rnn_train.py)
+rnn_exported.pt2

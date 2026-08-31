@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef LUISA_AST_OP_H
+#define LUISA_AST_OP_H
+
 #include <bitset>
 
 #include <luisa/core/stl/iterator.h>
@@ -512,6 +515,54 @@ enum struct CallOp : uint32_t {
     COOPERATIVE_VECTOR_WORKGROUP_LOAD,  // coop_vec<T,N> (shared_buf: array<T>, index: uint)
     COOPERATIVE_VECTOR_WORKGROUP_STORE, // void (shared_buf: array<T>, index: uint, coop_vec<T,N>)
 
+    // Future cooperative-vector element-wise operations. These are native IR
+    // operators reserved for backend implementations; the DSL frontend must NOT
+    // decompose them into per-element scalar math (see plan.md §cooperative-vector
+    // operators). All backends currently reject them with placeholder assertions.
+    COOPERATIVE_VECTOR_DOT,             // scalar (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ABS,             // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SIGN,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_FLOOR,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_CEIL,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_FRACT,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_TRUNC,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ROUND,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_RINT,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SQRT,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_RSQRT,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_EXP2,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_EXP10,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LOG2,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LOG10,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SATURATE,        // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ISINF,           // coop_vec<bool,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ISNAN,           // coop_vec<bool,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SIN,             // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_COS,             // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_TAN,             // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ASIN,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ACOS,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SINH,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_COSH,            // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ASINH,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ACOSH,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_ATANH,           // coop_vec<T,N> (coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_MIX,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LERP,            // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_POW,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_STEP,            // coop_vec<T,N> (coop_vec<T,N> edge, coop_vec<T,N> x) — future
+    COOPERATIVE_VECTOR_SMOOTHSTEP,      // coop_vec<T,N> (coop_vec<T,N> e0, coop_vec<T,N> e1, coop_vec<T,N> x) — future
+    COOPERATIVE_VECTOR_ADD,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_SUB,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_MUL,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_DIV,             // coop_vec<T,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LESS,            // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_LESS_EQUAL,      // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_GREATER,         // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_GREATER_EQUAL,   // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_EQUAL,           // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+    COOPERATIVE_VECTOR_NOT_EQUAL,       // coop_vec<bool,N> (coop_vec<T,N>, coop_vec<T,N>) — future
+
     // Async group copy
     ASYNC_COPY,/// [(uint scope, ref dst, ref src, uint elem_bytes, uint num, uint stride, uint event) -> uint]: async group copy
 
@@ -532,6 +583,45 @@ enum struct CallOp : uint32_t {
     FENCE_PROXY_ASYNC_ACQUIRE,                    // (): void — fence.proxy.async with acquire
     FENCE_PROXY_ASYNC_RELEASE,                    // (): void — fence.proxy.async with release
 
+    // Tensor operators (runtime tensor API; side-effecting, see plan.md §1.5).
+    // All tensor ops return void: they read the input tensor storage and write
+    // the output tensor storage. Each tensor operand is passed as a host-side
+    // descriptor (encoded as scalar/vector constant arguments carrying the
+    // TensorElementType dtype tag, rank, extents, strides and storage offset)
+    // plus the 64-bit device address of the backing storage.
+
+    // data movement
+    TENSOR_COPY,   // (dst_desc, dst_addr, src_desc, src_addr, count) -> void
+    TENSOR_FILL,   // (dst_desc, dst_addr, value) -> void
+    TENSOR_CAST,   // (dst_desc, dst_addr, src_desc, src_addr, count) -> void
+    TENSOR_PERMUTE,// (dst_desc, dst_addr, src_desc, src_addr, perm) -> void
+    TENSOR_CONCAT, // (dst_desc, dst_addr, [src_desc, src_addr]...) -> void
+    TENSOR_PAD,    // (dst_desc, dst_addr, src_desc, src_addr, pad) -> void
+
+    // element-wise unary: (out_desc, out_addr, in_desc, in_addr, count) -> void
+    TENSOR_NEG, TENSOR_ABS, TENSOR_EXP, TENSOR_LOG, TENSOR_SQRT, TENSOR_RSQRT,
+    TENSOR_SIN, TENSOR_COS, TENSOR_TAN, TENSOR_TANH, TENSOR_SIGMOID, TENSOR_GELU,
+    TENSOR_RELU, TENSOR_LEAKY_RELU, TENSOR_ERF, TENSOR_CEIL, TENSOR_FLOOR,
+    TENSOR_ROUND, TENSOR_ISNAN, TENSOR_ISINF,
+
+    // element-wise binary: (out_desc, out_addr, a_desc, a_addr, b_desc, b_addr, count) -> void
+    // (CLAMP/FMA take extra scalar/vector args)
+    TENSOR_ADD, TENSOR_SUB, TENSOR_MUL, TENSOR_DIV, TENSOR_POW,
+    TENSOR_MIN, TENSOR_MAX, TENSOR_CLAMP, TENSOR_FMA,
+
+    // reductions / scans
+    TENSOR_REDUCE_SUM,   // (out_desc, out_addr, in_desc, in_addr, reduce_dims) -> void
+    TENSOR_REDUCE_MAX,   // (out_desc, out_addr, in_desc, in_addr, reduce_dims) -> void
+    TENSOR_REDUCE_MIN,   // (out_desc, out_addr, in_desc, in_addr, reduce_dims) -> void
+    TENSOR_CUMSUM,       // (out_desc, out_addr, in_desc, in_addr, dim) -> void
+
+    // contractions
+    TENSOR_MATMUL,       // (c_desc, c_addr, a_desc, a_addr, b_desc, b_addr,
+                         //  compute_dtype, trans_a, trans_b, alpha, beta, epilogue) -> void
+    TENSOR_CONTRACT,     // (c_desc, c_addr, a_desc, a_addr, b_desc, b_addr,
+                         //  mode_a, mode_b, mode_c, compute_dtype) -> void
+    TENSOR_BATCH_MATMUL, // like TENSOR_MATMUL + batch stride metadata
+
     // Clock
     CLOCK,// (): uint64
 
@@ -539,9 +629,21 @@ enum struct CallOp : uint32_t {
     // Unlike ROUND (half away from zero), RINT follows the target's
     // round-to-integral mode (round-to-nearest-even on supported GPU targets).
     RINT,// (floatN)
+
+    // Candidate instance-space ray. This operation is only valid inside a
+    // ray-query candidate handler. Its direction is not normalized, so the
+    // ray parameter and [t_min, t_max] remain invariant under instancing.
+    RAY_QUERY_OBJECT_SPACE_RAY,// (RayQuery): Ray
+
+    // An arbitrary value of the result type. This is a value-level lifetime
+    // seed, not a zero initializer: observing it before a dominating
+    // definition has unspecified results. Appended to preserve every existing
+    // public CallOp value.
+    UNDEFINED,// (): T
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::RINT) + 1u;
+static constexpr size_t call_op_count =
+    to_underlying(CallOp::UNDEFINED) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -594,11 +696,85 @@ static constexpr size_t call_op_count = to_underlying(CallOp::RINT) + 1u;
                          CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS));
 }
 
+/// Returns the ordinary (mixed-layout, potentially divergent) bindless
+/// opcode corresponding to any of the four typed/uniform variants. The four
+/// CallOp blocks are deliberately kept isomorphic; these assertions make a
+/// future enum edit fail at compile time instead of silently changing the
+/// lowering.
+[[nodiscard]] constexpr auto canonical_bindless_resource_call(CallOp op) noexcept {
+    constexpr auto base_begin = luisa::to_underlying(
+        CallOp::BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto base_end = luisa::to_underlying(
+        CallOp::BINDLESS_BUFFER_ADDRESS);
+    constexpr auto uniform_begin = luisa::to_underlying(
+        CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto uniform_end = luisa::to_underlying(
+        CallOp::UNIFORM_BINDLESS_BUFFER_ADDRESS);
+    constexpr auto typed_uniform_begin = luisa::to_underlying(
+        CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto typed_uniform_end = luisa::to_underlying(
+        CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS);
+    constexpr auto typed_begin = luisa::to_underlying(
+        CallOp::TYPED_BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto typed_end = luisa::to_underlying(
+        CallOp::TYPED_BINDLESS_BUFFER_ADDRESS);
+    static_assert(base_end - base_begin == uniform_end - uniform_begin);
+    static_assert(base_end - base_begin ==
+                  typed_uniform_end - typed_uniform_begin);
+    static_assert(base_end - base_begin == typed_end - typed_begin);
+
+    auto value = luisa::to_underlying(op);
+    if (value >= uniform_begin && value <= uniform_end) {
+        return static_cast<CallOp>(base_begin + value - uniform_begin);
+    }
+    if (value >= typed_uniform_begin && value <= typed_uniform_end) {
+        return static_cast<CallOp>(
+            base_begin + value - typed_uniform_begin);
+    }
+    if (value >= typed_begin && value <= typed_end) {
+        return static_cast<CallOp>(base_begin + value - typed_begin);
+    }
+    return op;
+}
+
+/// Applies typed/uniform bindless semantics to a canonical bindless opcode.
+/// Non-bindless operations are returned unchanged; XIR verification rejects
+/// non-default bindless attributes on the resulting non-bindless instruction.
+[[nodiscard]] constexpr auto specialize_bindless_resource_call(
+    CallOp op, bool typed, bool uniform) noexcept {
+    constexpr auto base_begin = luisa::to_underlying(
+        CallOp::BINDLESS_TEXTURE2D_SAMPLE);
+    constexpr auto base_end = luisa::to_underlying(
+        CallOp::BINDLESS_BUFFER_ADDRESS);
+    auto value = luisa::to_underlying(op);
+    if (value < base_begin || value > base_end) { return op; }
+    auto offset = value - base_begin;
+    auto begin = typed ?
+                     (uniform ?
+                          luisa::to_underlying(
+                              CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) :
+                          luisa::to_underlying(
+                              CallOp::TYPED_BINDLESS_TEXTURE2D_SAMPLE)) :
+                     (uniform ?
+                          luisa::to_underlying(
+                              CallOp::UNIFORM_BINDLESS_TEXTURE2D_SAMPLE) :
+                          base_begin);
+    return static_cast<CallOp>(begin + offset);
+}
+
 /// Returns whether the operation is a cluster launch control or mbarrier operation.
 [[nodiscard]] constexpr auto uses_cluster_launch_control(CallOp op) noexcept {
     auto v = to_underlying(op);
     return v >= to_underlying(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL) &&
            v <= to_underlying(CallOp::FENCE_PROXY_ASYNC_RELEASE);
+}
+
+/// Returns whether the operation is a runtime tensor operator. The tensor
+/// operators deliberately form one contiguous block in CallOp.
+[[nodiscard]] constexpr auto is_tensor_operation(CallOp op) noexcept {
+    auto v = to_underlying(op);
+    return v >= to_underlying(CallOp::TENSOR_COPY) &&
+           v <= to_underlying(CallOp::TENSOR_BATCH_MATMUL);
 }
 class Expression;
 LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept;
@@ -722,7 +898,50 @@ public:
                test(CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE) ||
                test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE) ||
                test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD) ||
-               test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE);
+               test(CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE) ||
+               test(CallOp::COOPERATIVE_VECTOR_DOT) ||
+               test(CallOp::COOPERATIVE_VECTOR_ABS) ||
+               test(CallOp::COOPERATIVE_VECTOR_SIGN) ||
+               test(CallOp::COOPERATIVE_VECTOR_FLOOR) ||
+               test(CallOp::COOPERATIVE_VECTOR_CEIL) ||
+               test(CallOp::COOPERATIVE_VECTOR_FRACT) ||
+               test(CallOp::COOPERATIVE_VECTOR_TRUNC) ||
+               test(CallOp::COOPERATIVE_VECTOR_ROUND) ||
+               test(CallOp::COOPERATIVE_VECTOR_RINT) ||
+               test(CallOp::COOPERATIVE_VECTOR_SQRT) ||
+               test(CallOp::COOPERATIVE_VECTOR_RSQRT) ||
+               test(CallOp::COOPERATIVE_VECTOR_EXP2) ||
+               test(CallOp::COOPERATIVE_VECTOR_EXP10) ||
+               test(CallOp::COOPERATIVE_VECTOR_LOG2) ||
+               test(CallOp::COOPERATIVE_VECTOR_LOG10) ||
+               test(CallOp::COOPERATIVE_VECTOR_SATURATE) ||
+               test(CallOp::COOPERATIVE_VECTOR_ISINF) ||
+               test(CallOp::COOPERATIVE_VECTOR_ISNAN) ||
+               test(CallOp::COOPERATIVE_VECTOR_SIN) ||
+               test(CallOp::COOPERATIVE_VECTOR_COS) ||
+               test(CallOp::COOPERATIVE_VECTOR_TAN) ||
+               test(CallOp::COOPERATIVE_VECTOR_ASIN) ||
+               test(CallOp::COOPERATIVE_VECTOR_ACOS) ||
+               test(CallOp::COOPERATIVE_VECTOR_SINH) ||
+               test(CallOp::COOPERATIVE_VECTOR_COSH) ||
+               test(CallOp::COOPERATIVE_VECTOR_ASINH) ||
+               test(CallOp::COOPERATIVE_VECTOR_ACOSH) ||
+               test(CallOp::COOPERATIVE_VECTOR_ATANH) ||
+               test(CallOp::COOPERATIVE_VECTOR_MIX) ||
+               test(CallOp::COOPERATIVE_VECTOR_LERP) ||
+               test(CallOp::COOPERATIVE_VECTOR_POW) ||
+               test(CallOp::COOPERATIVE_VECTOR_STEP) ||
+               test(CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP) ||
+               test(CallOp::COOPERATIVE_VECTOR_ADD) ||
+               test(CallOp::COOPERATIVE_VECTOR_SUB) ||
+               test(CallOp::COOPERATIVE_VECTOR_MUL) ||
+               test(CallOp::COOPERATIVE_VECTOR_DIV) ||
+               test(CallOp::COOPERATIVE_VECTOR_LESS) ||
+               test(CallOp::COOPERATIVE_VECTOR_LESS_EQUAL) ||
+               test(CallOp::COOPERATIVE_VECTOR_GREATER) ||
+               test(CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL) ||
+               test(CallOp::COOPERATIVE_VECTOR_EQUAL) ||
+               test(CallOp::COOPERATIVE_VECTOR_NOT_EQUAL);
     }
     [[nodiscard]] auto uses_cluster_launch_control() const noexcept {
         return test(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL) ||
@@ -737,8 +956,16 @@ public:
                test(CallOp::FENCE_PROXY_ASYNC_ACQUIRE) ||
                test(CallOp::FENCE_PROXY_ASYNC_RELEASE);
     }
+    [[nodiscard]] auto uses_tensor_ops() const noexcept {
+        for (auto op : *this) {
+            if (is_tensor_operation(op)) { return true; }
+        }
+        return false;
+    }
 };
 
-}// namespace luisa::compute
+  };// namespace luisa::compute
 
-LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, CLOCK)
+  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, UNDEFINED)
+
+#endif// LUISA_AST_OP_H

@@ -323,7 +323,13 @@ inline void device_assert(Expr<bool> pred, luisa::string_view msg) noexcept {
  * @see set_block_size() for configuring block dimensions at compile time
  */
 [[nodiscard]] inline const auto block_size() noexcept {
-    return detail::FunctionBuilder::current()->block_size();
+    auto builder = detail::FunctionBuilder::current();
+    LUISA_ASSERT(builder->tag() == detail::FunctionBuilder::Tag::KERNEL,
+                 "block_size() is a kernel launch property and cannot be "
+                 "queried while recording a Callable. Pass the enclosing "
+                 "kernel's block size explicitly when callable logic needs "
+                 "that invocation context.");
+    return builder->block_size();
 }
 
 /// Get block_size.x
@@ -1360,13 +1366,38 @@ template<typename X, typename Y>
     return x - y * floor(x / y);
 }
 
-/// Fmod. x - y * trunc(x/y)
+/// Floating-point remainder with the sign of x, equivalent to std::fmod.
+///
+/// This must remain a primitive remainder operation in the recorded AST.
+/// Expanding it to x - y * trunc(x / y) is only equivalent over the reals:
+/// forming a large floating-point quotient can discard every bit needed to
+/// recover the remainder.
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_floating_point_or_vector_expr_v<X> && is_floating_point_or_vector_expr_v<Y>
 [[nodiscard]] inline auto fmod(X &&x_in, Y &&y_in) noexcept {
-    auto x = def(std::forward<X>(x_in));
-    auto y = def(std::forward<Y>(y_in));
-    return x - y * trunc(x / y);
+    using Lhs = expr_value_t<X>;
+    using Rhs = expr_value_t<Y>;
+    auto [ret, lhs_cast, rhs_cast] =
+        detail::dsl_binary_op_return_type_helper<
+            BinaryOp::DIV, Lhs, Rhs>();
+    using Ret = decltype(ret);
+    using LhsCast = decltype(lhs_cast);
+    using RhsCast = decltype(rhs_cast);
+    auto lhs_expr = detail::extract_expression(
+        std::forward<X>(x_in));
+    auto rhs_expr = detail::extract_expression(
+        std::forward<Y>(y_in));
+    auto fb = detail::FunctionBuilder::current();
+    if constexpr (!std::is_same_v<LhsCast, Lhs>) {
+        lhs_expr = fb->cast(
+            Type::of<LhsCast>(), CastOp::STATIC, lhs_expr);
+    }
+    if constexpr (!std::is_same_v<RhsCast, Rhs>) {
+        rhs_expr = fb->cast(
+            Type::of<RhsCast>(), CastOp::STATIC, rhs_expr);
+    }
+    return def<Ret>(fb->binary(
+        Type::of<Ret>(), BinaryOp::MOD, lhs_expr, rhs_expr));
 }
 
 /// Min.
@@ -1879,6 +1910,16 @@ template<typename T>
         Type::of<X>(), CallOp::ZERO, {}));
 }
 
+/// Creates an arbitrary value of T. Every component must be overwritten on
+/// every path before it is observed. This is useful for marking the beginning
+/// of a fresh aggregate lifetime without materializing a zero initialization.
+template<typename T>
+[[nodiscard]] auto undefined() noexcept {
+    using X = expr_value_t<T>;
+    return def<X>(detail::FunctionBuilder::current()->call(
+        Type::of<X>(), CallOp::UNDEFINED, {}));
+}
+
 template<typename T>
 [[nodiscard]] auto one() noexcept {
     using X = expr_value_t<T>;
@@ -1974,19 +2015,26 @@ inline void sync_block() noexcept {
         CallOp::SYNCHRONIZE_BLOCK, {});
 }
 
-// async copy (CUDA LDGSTS, CC 8.0+)
+// async copy (CUDA cp.async, CC 8.0+)
 
-/// Initiate an async copy from global to shared memory (CUDA: LDGSTS via cp.async).
-/// Returns a dummy uint (event handle in SPIR-V, zero in CUDA).
-/// Signature: async_copy(scope, dst, src, elem_bytes, num, stride, event) -> uint
-inline void async_copy(Expr<uint> scope, Expr<uint> dst, Expr<uint> src,
+/// Initiate an async copy from global to shared memory (CUDA: cp.async).
+/// `dst` is an lvalue of the shared-memory destination (e.g. `shared_array[i]`)
+/// and `src` is the 64-bit device address of the global source (e.g.
+/// `buffer.device_address() + byte_offset`). `elem_bytes * num` must be 4, 8,
+/// or 16 on CUDA. `scope`, `stride`, and `event` are reserved for the SPIR-V
+/// OpGroupAsyncCopyKHR semantics and are ignored on CUDA.
+/// Signature: async_copy(scope, dst_lvalue, src_addr, elem_bytes, num, stride, event)
+template<typename Dst, typename Src>
+inline void async_copy(Expr<uint> scope, Dst &&dst, Src &&src,
                        Expr<uint> elem_bytes, Expr<uint> num,
                        Expr<uint> stride, Expr<uint> event) noexcept {
-    static_cast<void>(detail::FunctionBuilder::current()->call(
-        Type::of<uint>(), CallOp::ASYNC_COPY,
-        {scope.expression(), dst.expression(), src.expression(),
-         elem_bytes.expression(), num.expression(),
-         stride.expression(), event.expression()}));
+    auto f = detail::FunctionBuilder::current();
+    f->call(CallOp::ASYNC_COPY,
+            {scope.expression(),
+             detail::extract_expression(std::forward<Dst>(dst)),
+             detail::extract_expression(std::forward<Src>(src)),
+             elem_bytes.expression(), num.expression(),
+             stride.expression(), event.expression()});
 }
 
 /// Commit pending async copies in the pipeline (CUDA).

@@ -239,9 +239,10 @@ int main(int argc, char *argv[]) {
             luisa::compute::xir::CastOp::BITWISE_CAST, 0u);
         expect_complete_matrix(
             ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR, 6u);
-        expect_complete_matrix(ResourceReadOp::DEVICE_ADDRESS_READ, 1u);
         expect_complete_matrix(
-            ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT, 3u);
+            ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL, 44u);
+        expect_complete_matrix(
+            ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE, 3u);
         expect_complete_matrix(ThreadGroupOp::SYNCHRONIZE_BLOCK, 2u, 1u);
         expect_complete_matrix(
             RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, 0u);
@@ -2248,7 +2249,7 @@ int main(int argc, char *argv[]) {
                "representable by the module-level descriptor";
     };
 
-    "spirv_xir_writable_callable_accel_requires_specialization"_test = [] {
+    "spirv_xir_accepts_unique_writable_callable_accel_origin"_test = [] {
         Module module;
         auto callable = module.create_callable(Type::of<void>());
         callable->set_name("write_accel");
@@ -2277,15 +2278,13 @@ int main(int argc, char *argv[]) {
             "the writable callable-accel fixture must be valid generic XIR");
         auto validation =
             lc::spirv::validate_spirv_xir_codegen_dialect(&module);
-        expect_only_diagnostic(
-            validation, callable,
-            "Native XIR-to-SPIR-V callable 'write_accel' retains an "
-            "acceleration-structure resource argument that is writable or "
-            "requires instance-buffer state; such acceleration-structure "
-            "arguments must be specialized at call sites before codegen.");
+        expect(validation.succeeded())
+            << "a writable accel and its instance-buffer side channel are "
+               "module-level bindings when every call proves the same kernel "
+               "resource origin";
     };
 
-    "spirv_xir_callable_accel_instance_read_requires_specialization"_test = [] {
+    "spirv_xir_accepts_unique_callable_accel_instance_read_origin"_test = [] {
         Module module;
         auto callable = module.create_callable(Type::of<void>());
         callable->set_name("read_accel_instance");
@@ -2314,15 +2313,12 @@ int main(int argc, char *argv[]) {
             "the callable accel-instance read fixture must be valid generic XIR");
         auto validation =
             lc::spirv::validate_spirv_xir_codegen_dialect(&module);
-        expect_only_diagnostic(
-            validation, callable,
-            "Native XIR-to-SPIR-V callable 'read_accel_instance' retains an "
-            "acceleration-structure resource argument that is writable or "
-            "requires instance-buffer state; such acceleration-structure "
-            "arguments must be specialized at call sites before codegen.");
+        expect(validation.succeeded())
+            << "an accel instance-buffer read may resolve through the unique "
+               "kernel accel origin without inlining the callable";
     };
 
-    "spirv_xir_dual_role_callable_texture_requires_specialization"_test = [] {
+    "spirv_xir_accepts_unique_dual_role_callable_texture_origin"_test = [] {
         Module module;
         auto callable = module.create_callable(Type::of<void>());
         callable->set_name("update_texture");
@@ -2351,12 +2347,9 @@ int main(int argc, char *argv[]) {
             "the dual-role callable-texture fixture must be valid generic XIR");
         auto validation =
             lc::spirv::validate_spirv_xir_codegen_dialect(&module);
-        expect_only_diagnostic(
-            validation, callable,
-            "Native XIR-to-SPIR-V callable 'update_texture' retains a texture "
-            "resource argument used for both read and write; dual "
-            "sampled/storage-image bindings must be specialized at call sites "
-            "before codegen.");
+        expect(validation.succeeded())
+            << "sampled and storage image descriptors are two side channels "
+               "of the same uniquely rooted kernel texture";
     };
 
     "spirv_xir_cast_shape_is_rejected_before_emission"_test = [] {

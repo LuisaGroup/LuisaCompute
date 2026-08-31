@@ -55,6 +55,8 @@ constexpr size_t max_string_payload_size = 1u * 1024u * 1024u;
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             size = type->size();
             return size == 1u || size == 2u || size == 4u || size == 8u;
         case Type::Tag::VECTOR:
@@ -1225,6 +1227,7 @@ constexpr std::array cast_wire_ops{
 
 constexpr std::array ray_query_object_read_wire_ops{
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY, "ray_query_object_world_space_ray"sv),
+    wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY, "ray_query_object_candidate_object_space_ray"sv),
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT, "ray_query_object_procedural_candidate_hit"sv),
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT, "ray_query_object_triangle_candidate_hit"sv),
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT, "ray_query_object_committed_hit"sv),
@@ -1302,7 +1305,59 @@ constexpr std::array resource_read_wire_ops{
     wire_op(ResourceReadOp::BINDLESS_TEXTURE3D_READ, "bindless_texture3d_read"sv),
     wire_op(ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL, "bindless_texture2d_read_level"sv),
     wire_op(ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL, "bindless_texture3d_read_level"sv),
-    wire_op(ResourceReadOp::DEVICE_ADDRESS_READ, "device_address_read"sv)};
+    wire_op(ResourceReadOp::DEVICE_ADDRESS_READ, "device_address_read"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_MUL_ADD, "cooperative_mul_add"sv),
+ wire_op(ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD, "bindless_cooperative_mul_add"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_MUL, "cooperative_mul"sv),
+ wire_op(ResourceReadOp::BINDLESS_COOPERATIVE_MUL, "bindless_cooperative_mul"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LOAD, "cooperative_vector_load"sv),
+ wire_op(ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD, "bindless_cooperative_vector_load"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SPLAT, "cooperative_vector_splat"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_CAST, "cooperative_vector_cast"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD, "cooperative_vector_workgroup_load"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_DOT, "cooperative_vector_dot"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ABS, "cooperative_vector_abs"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SIGN, "cooperative_vector_sign"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_FLOOR, "cooperative_vector_floor"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_CEIL, "cooperative_vector_ceil"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_FRACT, "cooperative_vector_fract"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_TRUNC, "cooperative_vector_trunc"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ROUND, "cooperative_vector_round"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_RINT, "cooperative_vector_rint"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SQRT, "cooperative_vector_sqrt"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_RSQRT, "cooperative_vector_rsqrt"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_EXP2, "cooperative_vector_exp2"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_EXP10, "cooperative_vector_exp10"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LOG2, "cooperative_vector_log2"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LOG10, "cooperative_vector_log10"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SATURATE, "cooperative_vector_saturate"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ISINF, "cooperative_vector_isinf"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ISNAN, "cooperative_vector_isnan"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SIN, "cooperative_vector_sin"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_COS, "cooperative_vector_cos"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_TAN, "cooperative_vector_tan"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ASIN, "cooperative_vector_asin"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ACOS, "cooperative_vector_acos"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SINH, "cooperative_vector_sinh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_COSH, "cooperative_vector_cosh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ASINH, "cooperative_vector_asinh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ACOSH, "cooperative_vector_acosh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ATANH, "cooperative_vector_atanh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_MIX, "cooperative_vector_mix"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LERP, "cooperative_vector_lerp"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_POW, "cooperative_vector_pow"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_STEP, "cooperative_vector_step"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP, "cooperative_vector_smoothstep"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ADD, "cooperative_vector_add"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SUB, "cooperative_vector_sub"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_MUL, "cooperative_vector_mul"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_DIV, "cooperative_vector_div"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LESS, "cooperative_vector_less"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL, "cooperative_vector_less_equal"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_GREATER, "cooperative_vector_greater"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL, "cooperative_vector_greater_equal"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_EQUAL, "cooperative_vector_equal"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL, "cooperative_vector_not_equal"sv)};
 
 constexpr std::array resource_write_wire_ops{
     wire_op(ResourceWriteOp::BUFFER_WRITE, "buffer_write"sv),
@@ -1321,7 +1376,12 @@ constexpr std::array resource_write_wire_ops{
     wire_op(ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX, "ray_tracing_set_instance_motion_matrix"sv),
     wire_op(ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT, "ray_tracing_set_instance_motion_srt"sv),
     wire_op(ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL, "indirect_dispatch_set_kernel"sv),
-    wire_op(ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT, "indirect_dispatch_set_count"sv)};
+    wire_op(ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT, "indirect_dispatch_set_count"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE, "cooperative_outer_product_accumulate"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE, "cooperative_vector_accumulate"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_VECTOR_STORE, "cooperative_vector_store"sv),
+ wire_op(ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE, "bindless_cooperative_vector_store"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE, "cooperative_vector_workgroup_store"sv)};
 
 constexpr std::array thread_group_wire_ops{
     wire_op(ThreadGroupOp::SHADER_EXECUTION_REORDER, "shader_execution_reorder"sv),
@@ -1711,6 +1771,338 @@ struct InstructionRecord {
     luisa::vector<luisa::string> payloads;
     luisa::vector<MetadataRecord> metadata;
 };
+
+struct CoroSuspendInterchangeData {
+    luisa::vector<luisa::string> frame_export_names;
+    size_t extension_binding_value_count{0u};
+    luisa::vector<CoroSuspendExtensionPtr> extensions;
+};
+
+[[nodiscard]] luisa::optional<uint64_t>
+parse_unsigned_decimal(luisa::string_view text) noexcept {
+    if (text.empty()) { return luisa::nullopt; }
+    auto value = uint64_t{0u};
+    for (auto c : text) {
+        if (c < '0' || c > '9') { return luisa::nullopt; }
+        auto digit = static_cast<uint64_t>(c - '0');
+        if (value > (std::numeric_limits<uint64_t>::max() - digit) /
+                        10u) {
+            return luisa::nullopt;
+        }
+        value = value * 10u + digit;
+    }
+    return value;
+}
+
+[[nodiscard]] luisa::optional<uint64_t>
+parse_u64_hex(luisa::string_view text) noexcept {
+    if (text.size() != 16u) { return luisa::nullopt; }
+    auto value = uint64_t{0u};
+    for (auto c : text) {
+        uint64_t digit = 0u;
+        if (c >= '0' && c <= '9') {
+            digit = static_cast<uint64_t>(c - '0');
+        } else if (c >= 'a' && c <= 'f') {
+            digit = static_cast<uint64_t>(c - 'a' + 10);
+        } else {
+            return luisa::nullopt;
+        }
+        value = (value << 4u) | digit;
+    }
+    return value;
+}
+
+[[nodiscard]] luisa::string encode_u64_hex(uint64_t value) noexcept {
+    constexpr auto digits = "0123456789abcdef";
+    auto text = luisa::string(16u, '0');
+    for (auto i = 0u; i < 16u; ++i) {
+        text[15u - i] = digits[value & 0xfu];
+        value >>= 4u;
+    }
+    return text;
+}
+
+[[nodiscard]] bool decode_coro_suspend_record(
+    const InstructionRecord &record,
+    CoroSuspendInterchangeData *decoded,
+    luisa::string *error = nullptr) noexcept {
+    auto fail = [&](luisa::string_view message) noexcept {
+        if (error != nullptr) { *error = message; }
+        return false;
+    };
+    if (record.auxiliary.empty() || record.payloads.empty() ||
+        record.operands.empty()) {
+        return fail("Coroutine suspend interchange record is incomplete.");
+    }
+    auto token = record.auxiliary.front();
+    if (token < 0 || static_cast<uint64_t>(token) >
+                         std::numeric_limits<uint32_t>::max()) {
+        return fail("Coroutine suspend token is out of range.");
+    }
+    // Legacy v1 shape without exports or extensions remains readable.
+    if (record.auxiliary.size() == 1u &&
+        record.payloads.size() == 1u &&
+        record.operands.size() == 1u) {
+        if (decoded != nullptr) { *decoded = {}; }
+        return true;
+    }
+    if (record.auxiliary.size() < 4u) {
+        return fail("Coroutine suspend extension header is truncated.");
+    }
+    auto read_count = [&](int64_t value,
+                          size_t &count) noexcept {
+        if (value < 0 || static_cast<uint64_t>(value) >
+                             max_record_count) {
+            return false;
+        }
+        count = static_cast<size_t>(value);
+        return true;
+    };
+    size_t frame_export_count = 0u;
+    size_t binding_value_count = 0u;
+    size_t extension_count = 0u;
+    if (!read_count(record.auxiliary[1u], frame_export_count) ||
+        !read_count(record.auxiliary[2u], binding_value_count) ||
+        !read_count(record.auxiliary[3u], extension_count) ||
+        frame_export_count > max_record_count - 1u ||
+        binding_value_count >
+            max_record_count - 1u - frame_export_count ||
+        record.operands.size() !=
+            1u + frame_export_count + binding_value_count ||
+        record.payloads.size() < 1u + frame_export_count) {
+        return fail("Coroutine suspend extension counts are inconsistent.");
+    }
+    CoroSuspendInterchangeData data;
+    data.extension_binding_value_count = binding_value_count;
+    data.frame_export_names.reserve(frame_export_count);
+    auto payload_index = size_t{1u};
+    for (size_t i = 0u; i < frame_export_count; ++i) {
+        auto name = record.payloads[payload_index++];
+        if (name.empty() ||
+            std::find(data.frame_export_names.begin(),
+                      data.frame_export_names.end(), name) !=
+                data.frame_export_names.end()) {
+            return fail("Coroutine suspend frame export name is invalid or duplicated.");
+        }
+        data.frame_export_names.emplace_back(std::move(name));
+    }
+    auto auxiliary_index = size_t{4u};
+    luisa::vector<bool> bound(binding_value_count, false);
+    data.extensions.reserve(extension_count);
+    for (size_t extension_index = 0u;
+         extension_index < extension_count; ++extension_index) {
+        if (auxiliary_index + 5u > record.auxiliary.size() ||
+            payload_index >= record.payloads.size()) {
+            return fail("Coroutine suspend extension record is truncated.");
+        }
+        auto schema = record.payloads[payload_index++];
+        auto version_value = record.auxiliary[auxiliary_index++];
+        auto annotation_value = record.auxiliary[auxiliary_index++];
+        auto fallback_value = record.auxiliary[auxiliary_index++];
+        size_t binding_count = 0u;
+        size_t attribute_count = 0u;
+        if (schema.empty() || version_value <= 0 ||
+            static_cast<uint64_t>(version_value) >
+                std::numeric_limits<uint32_t>::max() ||
+            (annotation_value != 0 && annotation_value != 1) ||
+            fallback_value < 0 || fallback_value > 2 ||
+            !read_count(record.auxiliary[auxiliary_index++],
+                        binding_count) ||
+            !read_count(record.auxiliary[auxiliary_index++],
+                        attribute_count)) {
+            return fail("Coroutine suspend extension header is invalid.");
+        }
+        luisa::vector<CoroSuspendBinding> bindings;
+        bindings.reserve(binding_count);
+        for (size_t binding_index = 0u;
+             binding_index < binding_count; ++binding_index) {
+            if (auxiliary_index + 3u > record.auxiliary.size() ||
+                payload_index >= record.payloads.size()) {
+                return fail("Coroutine suspend binding record is truncated.");
+            }
+            auto name = record.payloads[payload_index++];
+            auto access = record.auxiliary[auxiliary_index++];
+            auto lifetime = record.auxiliary[auxiliary_index++];
+            auto owner_index = record.auxiliary[auxiliary_index++];
+            if (name.empty() || access < 0 || access > 2 ||
+                lifetime < 0 || lifetime > 2 || owner_index < 0 ||
+                static_cast<uint64_t>(owner_index) >=
+                    binding_value_count ||
+                bound[static_cast<size_t>(owner_index)] ||
+                std::find_if(
+                    bindings.begin(), bindings.end(),
+                    [&](auto &&binding) noexcept {
+                        return binding.name == name;
+                    }) != bindings.end()) {
+                return fail("Coroutine suspend binding is invalid or duplicated.");
+            }
+            bound[static_cast<size_t>(owner_index)] = true;
+            bindings.emplace_back(CoroSuspendBinding{
+                .name = std::move(name),
+                .access = static_cast<CoroSuspendBindingAccess>(access),
+                .lifetime =
+                    static_cast<CoroSuspendBindingLifetime>(lifetime),
+                .index = static_cast<uint32_t>(owner_index)});
+        }
+        luisa::vector<CoroSuspendAttribute> attributes;
+        attributes.reserve(attribute_count);
+        for (size_t attribute_index = 0u;
+             attribute_index < attribute_count; ++attribute_index) {
+            if (auxiliary_index >= record.auxiliary.size() ||
+                payload_index + 2u > record.payloads.size()) {
+                return fail("Coroutine suspend attribute record is truncated.");
+            }
+            auto type_tag = record.auxiliary[auxiliary_index++];
+            auto name = record.payloads[payload_index++];
+            auto encoded_value = record.payloads[payload_index++];
+            if (type_tag < 0 || type_tag > 4 || name.empty() ||
+                std::find_if(
+                    attributes.begin(), attributes.end(),
+                    [&](auto &&attribute) noexcept {
+                        return attribute.name == name;
+                    }) != attributes.end()) {
+                return fail("Coroutine suspend attribute is invalid or duplicated.");
+            }
+            CoroSuspendAttributeValue value;
+            switch (type_tag) {
+                case 0:
+                    if (encoded_value == "0") {
+                        value = false;
+                    } else if (encoded_value == "1") {
+                        value = true;
+                    } else {
+                        return fail("Coroutine suspend Boolean attribute is invalid.");
+                    }
+                    break;
+                case 1: {
+                    auto parsed = parse_integer_token(encoded_value);
+                    if (!parsed) {
+                        return fail("Coroutine suspend signed attribute is invalid.");
+                    }
+                    value = *parsed;
+                    break;
+                }
+                case 2: {
+                    auto parsed = parse_unsigned_decimal(encoded_value);
+                    if (!parsed) {
+                        return fail("Coroutine suspend unsigned attribute is invalid.");
+                    }
+                    value = *parsed;
+                    break;
+                }
+                case 3: {
+                    auto parsed = parse_u64_hex(encoded_value);
+                    if (!parsed) {
+                        return fail("Coroutine suspend floating attribute is invalid.");
+                    }
+                    value = luisa::bit_cast<double>(*parsed);
+                    break;
+                }
+                case 4: value = std::move(encoded_value); break;
+                default: return fail("Coroutine suspend attribute type is invalid.");
+            }
+            attributes.emplace_back(CoroSuspendAttribute{
+                .name = std::move(name), .value = std::move(value)});
+        }
+        auto fallback = static_cast<CoroSuspendFallback>(fallback_value);
+        auto extension = annotation_value != 0 ?
+                             make_coro_suspend_annotation_data(
+                                 std::move(schema),
+                                 static_cast<uint32_t>(version_value),
+                                 fallback, std::move(bindings),
+                                 std::move(attributes)) :
+                             make_coro_suspend_extension_data(
+                                 std::move(schema),
+                                 static_cast<uint32_t>(version_value),
+                                 fallback, std::move(bindings),
+                                 std::move(attributes));
+        data.extensions.emplace_back(std::move(extension));
+    }
+    if (auxiliary_index != record.auxiliary.size() ||
+        payload_index != record.payloads.size() ||
+        std::find(bound.begin(), bound.end(), false) != bound.end()) {
+        return fail("Coroutine suspend extension record has trailing or unbound data.");
+    }
+    if (decoded != nullptr) { *decoded = std::move(data); }
+    return true;
+}
+
+[[nodiscard]] luisa::string encode_coro_suspend_attribute_value(
+    const CoroSuspendAttributeValue &value) noexcept {
+    return luisa::visit(
+        []<typename T>(const T &v) noexcept -> luisa::string {
+            if constexpr (std::is_same_v<T, bool>) {
+                return v ? "1" : "0";
+            } else if constexpr (std::is_same_v<T, double>) {
+                return encode_u64_hex(luisa::bit_cast<uint64_t>(v));
+            } else if constexpr (std::is_same_v<T, luisa::string>) {
+                return v;
+            } else {
+                return luisa::format("{}", v);
+            }
+        },
+        value);
+}
+
+void encode_coro_suspend_record(
+    const CoroSuspendInst *suspend,
+    luisa::vector<int64_t> &auxiliary,
+    luisa::vector<luisa::string> &payloads) noexcept {
+    auxiliary.emplace_back(suspend->token());
+    payloads.emplace_back(suspend->name());
+    if (suspend->frame_export_count() == 0u &&
+        suspend->extensions().empty() &&
+        suspend->extension_binding_value_count() == 0u) {
+        return;
+    }
+    auxiliary.emplace_back(
+        static_cast<int64_t>(suspend->frame_export_count()));
+    auxiliary.emplace_back(static_cast<int64_t>(
+        suspend->extension_binding_value_count()));
+    auxiliary.emplace_back(
+        static_cast<int64_t>(suspend->extensions().size()));
+    for (auto &&name : suspend->frame_export_names()) {
+        payloads.emplace_back(name);
+    }
+    for (auto &&extension : suspend->extensions()) {
+        payloads.emplace_back(extension->schema());
+        auxiliary.emplace_back(extension->version());
+        auxiliary.emplace_back(extension->is_annotation() ? 1 : 0);
+        auxiliary.emplace_back(
+            static_cast<int64_t>(extension->fallback()));
+        auxiliary.emplace_back(
+            static_cast<int64_t>(extension->bindings().size()));
+        auxiliary.emplace_back(
+            static_cast<int64_t>(extension->attributes().size()));
+        for (auto &&binding : extension->bindings()) {
+            payloads.emplace_back(binding.name);
+            auxiliary.emplace_back(
+                static_cast<int64_t>(binding.access));
+            auxiliary.emplace_back(
+                static_cast<int64_t>(binding.lifetime));
+            auxiliary.emplace_back(binding.index);
+        }
+        for (auto &&attribute : extension->attributes()) {
+            auxiliary.emplace_back(
+                static_cast<int64_t>(attribute.value.index()));
+            payloads.emplace_back(attribute.name);
+            payloads.emplace_back(
+                encode_coro_suspend_attribute_value(attribute.value));
+        }
+    }
+}
+
+[[nodiscard]] BindlessResourceAccess instruction_bindless_access(
+    const InstructionRecord &record) noexcept {
+    if ((record.tag != DerivedInstructionTag::RESOURCE_QUERY &&
+         record.tag != DerivedInstructionTag::RESOURCE_READ &&
+         record.tag != DerivedInstructionTag::RESOURCE_WRITE) ||
+        record.auxiliary.empty()) {
+        return {};
+    }
+    return BindlessResourceAccess::decode(
+        static_cast<uint8_t>(record.auxiliary.front()));
+}
 
 struct FunctionRecord {
     uint64_t id{0u};
@@ -2493,7 +2885,12 @@ public:
         case DerivedInstructionTag::CONDITIONAL_BRANCH: return operand_count == 3u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::UNREACHABLE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 1u;
         case DerivedInstructionTag::RASTER_DISCARD: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
-        case DerivedInstructionTag::CORO_SUSPEND: return operand_count == 1u && auxiliary_count == 1u && payload_count == 1u;
+        // The first operand/auxiliary/payload remain frame/token/name. An
+        // extended self-describing suffix carries frame exports and complete
+        // suspend extension objects while preserving the legacy v1 shape.
+        case DerivedInstructionTag::CORO_SUSPEND:
+            return operand_count >= 1u && auxiliary_count >= 1u &&
+                   payload_count >= 1u;
         case DerivedInstructionTag::CORO_RESUME: return operand_count == 1u && auxiliary_count == 1u && payload_count == 0u;
         case DerivedInstructionTag::CORO_TERMINATE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::RETURN: return operand_count == 1u && auxiliary_count == 0u && payload_count == 0u;
@@ -2505,9 +2902,11 @@ public:
         case DerivedInstructionTag::ATOMIC:
         case DerivedInstructionTag::ARITHMETIC:
         case DerivedInstructionTag::THREAD_GROUP:
+            return auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::RESOURCE_QUERY:
         case DerivedInstructionTag::RESOURCE_READ:
         case DerivedInstructionTag::RESOURCE_WRITE:
+            return auxiliary_count <= 1u && payload_count == 0u;
         case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
         case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
         case DerivedInstructionTag::RAY_QUERY_PIPELINE:
@@ -2725,8 +3124,17 @@ public:
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ: return count == 3u;
         case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: return count == 4u;
-        case ResourceReadOp::DEVICE_ADDRESS_READ: return count == 1u;
-    }
+ case ResourceReadOp::DEVICE_ADDRESS_READ: return count == 1u;
+ case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+ case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return count == 1u;
+ case ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+ case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return count == 2u;
+ case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD: return count == 3u;
+ case ResourceReadOp::COOPERATIVE_MUL: return count == 4u;
+ case ResourceReadOp::BINDLESS_COOPERATIVE_MUL: return count == 5u;
+ case ResourceReadOp::COOPERATIVE_MUL_ADD: return count == 7u;
+ case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD: return count == 8u;
+ }
     return false;
 }
 
@@ -2748,8 +3156,13 @@ public:
         case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: return count == 4u;
         case ResourceWriteOp::DEVICE_ADDRESS_WRITE:
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: return count == 2u;
-        case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: return count == 5u;
-    }
+ case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: return count == 5u;
+ case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+ case ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+ case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: return count == 3u;
+ case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE: return count == 4u;
+ case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: return count == 5u;
+ }
     return false;
 }
 
@@ -2873,23 +3286,16 @@ template<typename IndexSpan>
         }
         switch (current->tag()) {
             case Type::Tag::ARRAY:
-            case Type::Tag::VECTOR: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
+            case Type::Tag::VECTOR:
+            case Type::Tag::COOPERATIVE_VECTOR: {
+                // Homogeneous aggregate bounds constrain execution, not the
+                // statically selected element type. Requiring constants to be
+                // in range while accepting an equivalent dynamic index would
+                // make verification non-monotone under value propagation.
                 current = current->element();
                 break;
             }
             case Type::Tag::MATRIX: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
             }
@@ -3200,12 +3606,6 @@ template<typename OperandSpan>
             }
             for (auto index : operands.subspan(1u)) {
                 if (!integer_scalar_type(index->type())) { return false; }
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= operands[0]->type()->dimension())) {
-                    return false;
-                }
             }
             return true;
         case ArithmeticOp::EXTRACT:
@@ -3314,22 +3714,10 @@ template<typename OperandSpan>
                 break;
             case Type::Tag::ARRAY:
             case Type::Tag::VECTOR: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = current->element();
                 break;
             }
             case Type::Tag::MATRIX: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
             }
@@ -3500,6 +3888,19 @@ template<typename OperandSpan>
             return resource_argument_valid(base_value) && base->is_bindless_array();
         case ResourceReadOp::DEVICE_ADDRESS_READ:
             return data_operand_valid(base_value) && base->is_uint64();
+        case ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case ResourceReadOp::COOPERATIVE_MUL:
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+            return resource_argument_valid(base_value) && base->is_buffer();
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            return resource_argument_valid(base_value) && base->is_bindless_array();
+        case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            return typed_value_operand_valid(base_value) && base_value->is_lvalue();
+        case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+            return data_operand_valid(base_value);
     }
     return false;
 }
@@ -3657,6 +4058,20 @@ template<typename OperandSpan>
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL:
             return index32_at(1u) && uint_vector_type(operands[2]->type(), 3u) && integer_at(3u);
         case ResourceReadOp::DEVICE_ADDRESS_READ: return true;
+        case ResourceReadOp::COOPERATIVE_MUL_ADD:
+            return integer_at(1u) && integer_at(3u) && integer_at(5u) && integer_at(6u);
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            return index32_at(1u) && integer_at(2u) && index32_at(3u) && integer_at(4u) &&
+                   integer_at(6u) && integer_at(7u);
+        case ResourceReadOp::COOPERATIVE_MUL: return integer_at(1u) && integer_at(3u);
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+            return index32_at(1u) && integer_at(2u) && integer_at(4u);
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOAD: return integer_at(1u);
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            return index32_at(1u) && integer_at(2u);
+        case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return true;
+        case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return integer_at(1u);
     }
     return false;
 }
@@ -3698,6 +4113,13 @@ template<typename OperandSpan>
             return uint_at(1u) && uint_vector_type(operands[2]->type(), 3u) &&
                    uint_vector_type(operands[3]->type(), 3u) && uint_at(4u);
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: return uint_at(1u);
+        case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+            return integer_at(1u) && integer_at(4u);
+        case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case ResourceWriteOp::COOPERATIVE_VECTOR_STORE: return integer_at(1u);
+        case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            return index32_at(1u) && integer_at(2u);
+        case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: return integer_at(1u);
     }
     return false;
 }
@@ -3705,7 +4127,8 @@ template<typename OperandSpan>
 template<typename OperandSpan>
 [[nodiscard]] bool instruction_semantics_valid(
     DerivedInstructionTag tag, int64_t op, const Type *type,
-    const OperandSpan &operands) noexcept {
+    const OperandSpan &operands,
+    BindlessResourceAccess bindless_access = {}) noexcept {
     auto data_operands_valid = [&](size_t begin = 0u) noexcept {
         for (auto i = begin; i < operands.size(); i++) {
             if (!data_operand_valid(operands[i])) { return false; }
@@ -3772,6 +4195,12 @@ template<typename OperandSpan>
             }
             return true;
         case DerivedInstructionTag::CORO_SUSPEND:
+            if (type != nullptr || operands.empty() ||
+                (operands[0] != nullptr &&
+                 !typed_value_operand_valid(operands[0]))) {
+                return false;
+            }
+            return data_operands_valid(1u);
         case DerivedInstructionTag::CORO_RESUME:
             return type == nullptr &&
                    (operands[0] == nullptr || typed_value_operand_valid(operands[0]));
@@ -3782,6 +4211,10 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RESOURCE_QUERY: {
             if (!data_operands_valid(1u)) { return false; }
             auto query = static_cast<ResourceQueryOp>(op);
+            if (!bindless_access.is_default() &&
+                !is_bindless_resource_op(query)) {
+                return false;
+            }
             return resource_query_base_type_valid(query, operands[0]) &&
                    resource_query_result_type_valid(query, type) &&
                    resource_query_operand_types_valid(query, operands);
@@ -3789,6 +4222,10 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RESOURCE_READ: {
             if (!data_operands_valid(1u)) { return false; }
             auto read = static_cast<ResourceReadOp>(op);
+            if (!bindless_access.is_default() &&
+                !is_bindless_resource_op(read)) {
+                return false;
+            }
             if (type == nullptr || !resource_read_base_type_valid(read, operands[0]) ||
                 !resource_read_operand_types_valid(read, operands)) {
                 return false;
@@ -3819,6 +4256,10 @@ template<typename OperandSpan>
             if (type != nullptr || !data_operands_valid(1u)) { return false; }
             if (operands[0] == nullptr || operands[0]->type() == nullptr) { return false; }
             auto write = static_cast<ResourceWriteOp>(op);
+            if (!bindless_access.is_default() &&
+                !is_bindless_resource_op(write)) {
+                return false;
+            }
             auto base = operands[0]->type();
             if (!resource_write_operand_types_valid(write, operands)) { return false; }
             switch (write) {
@@ -3853,6 +4294,14 @@ template<typename OperandSpan>
                     return (resource_argument_valid(operands[0]) && base->is_buffer()) ||
                            (typed_value_operand_valid(operands[0]) && operands[0]->is_lvalue() &&
                             base == indirect_dispatch_buffer_type());
+                case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+                case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+                case ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+                    return resource_argument_valid(operands[0]) && base->is_buffer();
+                case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+                    return resource_argument_valid(operands[0]) && base->is_bindless_array();
+                case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                    return typed_value_operand_valid(operands[0]) && operands[0]->is_lvalue();
             }
             return false;
         }
@@ -3929,6 +4378,7 @@ template<typename OperandSpan>
             if (!ray_query_object_valid(operands[0]) || type == nullptr) { return false; }
             switch (static_cast<RayQueryObjectReadOp>(op)) {
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: return type == ray_type();
+                case RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: return type == ray_type();
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: return type == procedural_hit_type();
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: return type == surface_hit_type();
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: return type == committed_hit_type();
@@ -4068,6 +4518,7 @@ template<typename OperandSpan>
         case DerivedInstructionTag::INDEXED_BRANCH:
             return all_nonnegative();
         case DerivedInstructionTag::CORO_SUSPEND:
+            return decode_coro_suspend_record(record, nullptr);
         case DerivedInstructionTag::CORO_RESUME:
             return record.auxiliary[0u] >= 0 &&
                    static_cast<uint64_t>(record.auxiliary[0u]) <= std::numeric_limits<uint32_t>::max();
@@ -4081,6 +4532,12 @@ template<typename OperandSpan>
             }
             return forward == 0 ? n_forward_grads == 0 : n_forward_grads > 0;
         }
+        case DerivedInstructionTag::RESOURCE_QUERY:
+        case DerivedInstructionTag::RESOURCE_READ:
+        case DerivedInstructionTag::RESOURCE_WRITE:
+            return record.auxiliary.empty() ||
+                   (record.auxiliary.front() >= 0 &&
+                    record.auxiliary.front() <= 3);
         default: return true;
     }
 }
@@ -4125,11 +4582,24 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RASTER_DISCARD:
             instruction = luisa::make_managed<RasterDiscardInst>(block);
             break;
-        case DerivedInstructionTag::CORO_SUSPEND:
+        case DerivedInstructionTag::CORO_SUSPEND: {
+            CoroSuspendInterchangeData data;
+            if (!decode_coro_suspend_record(record, &data)) {
+                return nullptr;
+            }
+            auto frame_export_values = luisa::vector<Value *>(
+                data.frame_export_names.size(), nullptr);
+            auto extension_binding_values = luisa::vector<Value *>(
+                data.extension_binding_value_count, nullptr);
             instruction = luisa::make_managed<CoroSuspendInst>(
                 block, static_cast<uint32_t>(record.auxiliary[0u]),
-                record.payloads[0u], nullptr);
+                record.payloads[0u], nullptr,
+                luisa::span{data.frame_export_names},
+                luisa::span{frame_export_values},
+                std::move(data.extensions),
+                luisa::span{extension_binding_values});
             break;
+        }
         case DerivedInstructionTag::CORO_RESUME:
             instruction = luisa::make_managed<CoroResumeInst>(
                 block, static_cast<uint32_t>(record.auxiliary[0u]), nullptr);
@@ -4173,13 +4643,19 @@ template<typename OperandSpan>
             instruction = luisa::make_managed<ThreadGroupInst>(block, type, static_cast<ThreadGroupOp>(record.op), null_operands);
             break;
         case DerivedInstructionTag::RESOURCE_QUERY:
-            instruction = luisa::make_managed<ResourceQueryInst>(block, type, static_cast<ResourceQueryOp>(record.op), null_operands);
+            instruction = luisa::make_managed<ResourceQueryInst>(
+                block, type, static_cast<ResourceQueryOp>(record.op),
+                null_operands, instruction_bindless_access(record));
             break;
         case DerivedInstructionTag::RESOURCE_READ:
-            instruction = luisa::make_managed<ResourceReadInst>(block, type, static_cast<ResourceReadOp>(record.op), null_operands);
+            instruction = luisa::make_managed<ResourceReadInst>(
+                block, type, static_cast<ResourceReadOp>(record.op),
+                null_operands, instruction_bindless_access(record));
             break;
         case DerivedInstructionTag::RESOURCE_WRITE:
-            instruction = luisa::make_managed<ResourceWriteInst>(block, static_cast<ResourceWriteOp>(record.op), null_operands);
+            instruction = luisa::make_managed<ResourceWriteInst>(
+                block, static_cast<ResourceWriteOp>(record.op),
+                null_operands, instruction_bindless_access(record));
             break;
         case DerivedInstructionTag::RAY_QUERY_LOOP:
             instruction = luisa::make_managed<RayQueryLoopInst>(block);
@@ -4482,8 +4958,12 @@ template<typename OperandSpan>
                     return result;
                 }
             }
-            if (!instruction_semantics_valid(instruction_record.tag, instruction_record.op,
-                                             instruction->type(), luisa::span{resolved_operands})) {
+            if (instruction_record.tag !=
+                    DerivedInstructionTag::CORO_SUSPEND &&
+                !instruction_semantics_valid(
+                    instruction_record.tag, instruction_record.op,
+                    instruction->type(), luisa::span{resolved_operands},
+                    instruction_bindless_access(instruction_record))) {
                 fail("XIR instruction operands or result type do not match its operation.");
                 return result;
             }
@@ -4642,8 +5122,10 @@ template<typename OperandSpan>
 
 bool detail::interchange_instruction_semantics_valid(
     DerivedInstructionTag tag, int64_t op, const Type *type,
-    luisa::span<const Value *const> operands) noexcept {
-    return instruction_semantics_valid(tag, op, type, operands);
+    luisa::span<const Value *const> operands,
+    BindlessResourceAccess bindless_access) noexcept {
+    return instruction_semantics_valid(
+        tag, op, type, operands, bindless_access);
 }
 
 XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noexcept {
@@ -4857,7 +5339,32 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     default: break;
                 }
                 luisa::vector<int64_t> auxiliary;
+                luisa::vector<luisa::string> payloads;
                 switch (instruction->derived_instruction_tag()) {
+                    case DerivedInstructionTag::RESOURCE_QUERY: {
+                        auto access = static_cast<const ResourceQueryInst *>(instruction)
+                                          ->bindless_access();
+                        if (!access.is_default()) {
+                            auxiliary.emplace_back(access.encoded());
+                        }
+                        break;
+                    }
+                    case DerivedInstructionTag::RESOURCE_READ: {
+                        auto access = static_cast<const ResourceReadInst *>(instruction)
+                                          ->bindless_access();
+                        if (!access.is_default()) {
+                            auxiliary.emplace_back(access.encoded());
+                        }
+                        break;
+                    }
+                    case DerivedInstructionTag::RESOURCE_WRITE: {
+                        auto access = static_cast<const ResourceWriteInst *>(instruction)
+                                          ->bindless_access();
+                        if (!access.is_default()) {
+                            auxiliary.emplace_back(access.encoded());
+                        }
+                        break;
+                    }
                     case DerivedInstructionTag::IF: {
                         auto merge = static_cast<const IfInst *>(instruction)->merge_block();
                         if (merge != nullptr && !id(merge)) {
@@ -4930,7 +5437,9 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                         break;
                     }
                     case DerivedInstructionTag::CORO_SUSPEND:
-                        auxiliary.emplace_back(static_cast<const CoroSuspendInst *>(instruction)->token());
+                        encode_coro_suspend_record(
+                            static_cast<const CoroSuspendInst *>(instruction),
+                            auxiliary, payloads);
                         break;
                     case DerivedInstructionTag::CORO_RESUME:
                         auxiliary.emplace_back(static_cast<const CoroResumeInst *>(instruction)->token());
@@ -4968,14 +5477,11 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     }
                     default: break;
                 }
-                luisa::vector<luisa::string_view> payloads;
                 switch (instruction->derived_instruction_tag()) {
                     case DerivedInstructionTag::UNREACHABLE:
                         payloads.emplace_back(static_cast<const UnreachableInst *>(instruction)->message());
                         break;
-                    case DerivedInstructionTag::CORO_SUSPEND:
-                        payloads.emplace_back(static_cast<const CoroSuspendInst *>(instruction)->name());
-                        break;
+                    case DerivedInstructionTag::CORO_SUSPEND: break;
                     case DerivedInstructionTag::PRINT:
                         payloads.emplace_back(static_cast<const PrintInst *>(instruction)->format());
                         break;
@@ -5014,8 +5520,26 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 for (auto operand_use : instruction->operand_uses()) {
                     semantic_operands.emplace_back(operand_use->value());
                 }
-                if (!instruction_semantics_valid(instruction->derived_instruction_tag(), op,
-                                                 instruction->type(), luisa::span{semantic_operands})) {
+                auto bindless_access = [&]() noexcept {
+                    switch (instruction->derived_instruction_tag()) {
+                        case DerivedInstructionTag::RESOURCE_QUERY:
+                            return static_cast<const ResourceQueryInst *>(instruction)
+                                ->bindless_access();
+                        case DerivedInstructionTag::RESOURCE_READ:
+                            return static_cast<const ResourceReadInst *>(instruction)
+                                ->bindless_access();
+                        case DerivedInstructionTag::RESOURCE_WRITE:
+                            return static_cast<const ResourceWriteInst *>(instruction)
+                                ->bindless_access();
+                        default: return BindlessResourceAccess{};
+                    }
+                }();
+                if (instruction->derived_instruction_tag() !=
+                        DerivedInstructionTag::CORO_SUSPEND &&
+                    !instruction_semantics_valid(
+                        instruction->derived_instruction_tag(), op,
+                        instruction->type(), luisa::span{semantic_operands},
+                        bindless_access)) {
                     fail("XIR instruction operands or result type do not match its operation.");
                     return result;
                 }

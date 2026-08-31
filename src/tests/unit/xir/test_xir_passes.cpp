@@ -26,6 +26,7 @@
 #include <luisa/xir/passes/early_cse.h>
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/fix_self_referential.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
 #include <luisa/xir/passes/fuse_consecutive_buffer_reads.h>
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/if_conversion.h>
@@ -37,10 +38,12 @@
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/loop_fusion.h>
 #include <luisa/xir/passes/loop_rotation.h>
+#include <luisa/xir/passes/loop_unswitch.h>
 #include <luisa/xir/passes/loop_vectorization.h>
 #include <luisa/xir/passes/lower_break_continue.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
-#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/outline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -54,6 +57,7 @@
 #include <luisa/xir/passes/scalarizer.h>
 #include <luisa/xir/passes/scalar_evolution.h>
 #include <luisa/xir/passes/sccp.h>
+#include <luisa/xir/passes/select_factor.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/simplify_libcalls.h>
 #include <luisa/xir/passes/slp_vectorization.h>
@@ -66,6 +70,7 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -198,7 +203,7 @@ void reg_pass_entry_totality() {
         check_zero_report(1u, [](PassReport *report) noexcept {
             (void)cvp_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(3u, [](PassReport *report) noexcept {
+        check_zero_report(5u, [](PassReport *report) noexcept {
             (void)dce_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {
@@ -208,7 +213,7 @@ void reg_pass_entry_totality() {
             (void)dead_store_elimination_pass_run_on_module(
                 nullptr, report);
         });
-        check_zero_report(9u, [](PassReport *report) noexcept {
+        check_zero_report(10u, [](PassReport *report) noexcept {
             (void)destructure_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {
@@ -229,7 +234,7 @@ void reg_pass_entry_totality() {
             (void)fuse_consecutive_buffer_reads_pass_run_on_module(
                 nullptr, report);
         });
-        check_zero_report(2u, [](PassReport *report) noexcept {
+        check_zero_report(3u, [](PassReport *report) noexcept {
             (void)gvn_pass_run_on_module(nullptr, report);
         });
         check_zero_report(4u, [](PassReport *report) noexcept {
@@ -238,17 +243,17 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)indvar_simplify_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(8u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(8u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(8u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(
                 nullptr, InlineOptions{}, report);
         });
-        check_zero_report(8u, [](PassReport *report) noexcept {
+        check_zero_report(32u, [](PassReport *report) noexcept {
             (void)inline_call_sites_pass_run_on_module(
                 nullptr, luisa::span<CallInst *const>{},
                 InlineOptions{}, report);
@@ -270,16 +275,27 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)loop_rotation_pass_run_on_module(nullptr, report);
         });
+        check_zero_report(7u, [](PassReport *report) noexcept {
+            (void)loop_unswitch_pass_run_on_module(
+                nullptr, {}, report);
+        });
         check_zero_report(3u, [](PassReport *report) noexcept {
             (void)loop_vectorization_pass_run_on_module(
                 nullptr, report);
         });
-        check_zero_report(2u, [](PassReport *report) noexcept {
-            (void)lower_ray_query_loop_pass_run_on_module(
+        // Four lowering/error counters plus the five handler-graph analysis
+        // counters. The null-module path must publish the same schema with
+        // zero values as a populated module.
+        check_zero_report(9u, [](PassReport *report) noexcept {
+            (void)lower_ray_query_to_pipeline_pass_run_on_module(
                 nullptr, report);
         });
         check_zero_report(2u, [](PassReport *report) noexcept {
-            (void)lower_ray_query_loop_to_loop_pass_run_on_module(
+            (void)lower_ray_query_to_loop_pass_run_on_module(
+                nullptr, report);
+        });
+        check_zero_report(3u, [](PassReport *report) noexcept {
+            (void)reconstruct_ray_query_loop_pass_run_on_module(
                 nullptr, report);
         });
         check_zero_report(4u, [](PassReport *report) noexcept {
@@ -300,7 +316,10 @@ void reg_pass_entry_totality() {
         check_zero_report(4u, [](PassReport *report) noexcept {
             (void)audit_reg2mem_spills_on_module(nullptr, report);
         });
-        check_zero_report(15u, [](PassReport *report) noexcept {
+        // A null module publishes the complete zero-valued operation schema,
+        // including sparse postdom, remaining-divergent indexing, and exact
+        // construct-region enumeration work.
+        check_zero_report(102u, [](PassReport *report) noexcept {
             (void)restructure_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {
@@ -309,7 +328,10 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)sccp_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(5u, [](PassReport *report) noexcept {
+        check_zero_report(2u, [](PassReport *report) noexcept {
+            (void)select_factor_pass_run_on_module(nullptr, report);
+        });
+        check_zero_report(7u, [](PassReport *report) noexcept {
             (void)simplify_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {
@@ -349,7 +371,7 @@ void reg_pass_entry_totality() {
                 pointer_usage_pass_run_on_module(nullptr, &report);
             expect(info.invalid_function_count == 1u);
             expect(!info.succeeded());
-            expect_null_analysis_report(report, 5u);
+            expect_null_analysis_report(report, 6u);
         }
         {
             PassReport report;
@@ -396,17 +418,20 @@ void reg_pass_entry_totality() {
         (void)if_conversion_pass_run_on_function(declaration);
         (void)licm_pass_run_on_function(declaration);
         (void)loop_rotation_pass_run_on_function(declaration);
+        (void)loop_unswitch_pass_run_on_function(declaration);
         (void)loop_fusion_pass_run_on_function(declaration);
         (void)loop_vectorization_pass_run_on_function(declaration);
         (void)lower_break_continue_pass_run_on_function(declaration);
-        (void)lower_ray_query_loop_pass_run_on_function(declaration);
-        (void)lower_ray_query_loop_to_loop_pass_run_on_function(
+        (void)lower_ray_query_to_pipeline_pass_run_on_function(
+            declaration);
+        (void)lower_ray_query_to_loop_pass_run_on_function(
             declaration);
         (void)mem2reg_pass_run_on_function(declaration);
         (void)phi_cleanup_pass_run_on_function(declaration);
         (void)reg2mem_pass_run_on_function(declaration);
         (void)scalarizer_pass_run_on_function(declaration);
         (void)sccp_pass_run_on_function(declaration);
+        (void)select_factor_pass_run_on_function(declaration);
         (void)simplify_cfg_pass_run_on_function(declaration);
         (void)simplify_libcalls_pass_run_on_function(declaration);
         (void)slp_vectorization_pass_run_on_function(declaration);
@@ -1387,6 +1412,436 @@ void reg_algebraic_simplify() {
     };
 }
 
+// ---- fast_math_simplify ----
+
+void reg_fast_math_simplify() {
+
+    "fast_math_simplify_is_disabled_by_default"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *exponent = f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        auto base_value = 2.0f;
+        auto *base = m.create_constant(Type::of<float>(), &base_value);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *power = b.call(
+            Type::of<float>(), ArithmeticOp::POW, {base, exponent});
+        auto *ret = b.return_(power);
+
+        auto info = fast_math_simplify_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == power);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_simplify_radix_pow_scalar_and_vector"_test = [] {
+        Module m;
+        auto *scalar = m.create_callable(Type::of<float>());
+        auto *scalar_exponent =
+            scalar->create_value_argument(Type::of<float>());
+        auto *scalar_body = scalar->create_body_block();
+        auto scalar_base_value = 2.0f;
+        auto *scalar_base = m.create_constant(
+            Type::of<float>(), &scalar_base_value);
+        XIRBuilder b;
+        b.set_insertion_point(scalar_body);
+        auto *scalar_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {scalar_base, scalar_exponent});
+        auto *scalar_ret = b.return_(scalar_power);
+
+        auto *vector = m.create_callable(Type::of<float3>());
+        auto *vector_exponent =
+            vector->create_value_argument(Type::of<float3>());
+        auto *vector_body = vector->create_body_block();
+        float3 vector_base_value{10.0f};
+        auto *vector_base = m.create_constant(
+            Type::of<float3>(), &vector_base_value);
+        b.set_insertion_point(vector_body);
+        auto *vector_power = b.call(
+            Type::of<float3>(), ArithmeticOp::POW,
+            {vector_base, vector_exponent});
+        auto *vector_ret = b.return_(vector_power);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = fast_math_simplify_pass_run_on_module(
+            &m, {.enable_fast_math = true});
+        expect(info.identity_count == 0u);
+        expect(info.radix_pow_count == 2u);
+        expect(scalar_ret->return_value()->isa<ArithmeticInst>());
+        expect(static_cast<ArithmeticInst *>(scalar_ret->return_value())
+                   ->op() == ArithmeticOp::EXP2);
+        expect(static_cast<ArithmeticInst *>(scalar_ret->return_value())
+                   ->operand(0u) == scalar_exponent);
+        expect(vector_ret->return_value()->isa<ArithmeticInst>());
+        expect(static_cast<ArithmeticInst *>(vector_ret->return_value())
+                   ->op() == ArithmeticOp::EXP10);
+        expect(static_cast<ArithmeticInst *>(vector_ret->return_value())
+                   ->operand(0u) == vector_exponent);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_simplify_full_domain_pow_identities"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *zero_exponent = m.create_callable(Type::of<float2>());
+        auto *dynamic_base =
+            zero_exponent->create_value_argument(Type::of<float2>());
+        auto *zero_body = zero_exponent->create_body_block();
+        float2 signed_zeros{0.0f, -0.0f};
+        auto *signed_zero_constant = m.create_constant(
+            Type::of<float2>(), &signed_zeros);
+        b.set_insertion_point(zero_body);
+        auto *zero_power = b.call(
+            Type::of<float2>(), ArithmeticOp::POW,
+            {dynamic_base, signed_zero_constant});
+        auto *zero_ret = b.return_(zero_power);
+
+        auto *one = m.create_constant_one(Type::of<float>());
+        auto *one_base = m.create_callable(Type::of<float>());
+        auto *dynamic_exponent =
+            one_base->create_value_argument(Type::of<float>());
+        auto *one_base_body = one_base->create_body_block();
+        b.set_insertion_point(one_base_body);
+        auto *one_base_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {one, dynamic_exponent});
+        auto *one_base_ret = b.return_(one_base_power);
+
+        auto info = fast_math_simplify_pass_run_on_module(
+            &m, {.enable_fast_math = true});
+        expect(info.identity_count == 2u);
+        expect(info.radix_pow_count == 0u);
+        expect(zero_ret->return_value()->isa<Constant>());
+        auto *zero_result = static_cast<const float *>(
+            static_cast<Constant *>(zero_ret->return_value())->data());
+        expect(zero_result[0u] == 1.0f);
+        expect(zero_result[1u] == 1.0f);
+        expect(one_base_ret->return_value()->isa<Constant>());
+        expect(static_cast<Constant *>(one_base_ret->return_value())
+                   ->as<float>() == 1.0f);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_simplify_rejects_domain_extensions_and_metadata"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *negative = m.create_callable(Type::of<float>());
+        auto *negative_exponent =
+            negative->create_value_argument(Type::of<float>());
+        auto *negative_body = negative->create_body_block();
+        auto negative_base_value = -2.0f;
+        auto *negative_base = m.create_constant(
+            Type::of<float>(), &negative_base_value);
+        b.set_insertion_point(negative_body);
+        auto *negative_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {negative_base, negative_exponent});
+        auto *negative_ret = b.return_(negative_power);
+
+        auto *mixed = m.create_callable(Type::of<float2>());
+        auto *mixed_exponent =
+            mixed->create_value_argument(Type::of<float2>());
+        auto *mixed_body = mixed->create_body_block();
+        float2 mixed_base_value{2.0f, 3.0f};
+        auto *mixed_base = m.create_constant(
+            Type::of<float2>(), &mixed_base_value);
+        b.set_insertion_point(mixed_body);
+        auto *mixed_power = b.call(
+            Type::of<float2>(), ArithmeticOp::POW,
+            {mixed_base, mixed_exponent});
+        auto *mixed_ret = b.return_(mixed_power);
+
+        auto *f64 = m.create_callable(Type::of<double>());
+        auto *f64_exponent =
+            f64->create_value_argument(Type::of<double>());
+        auto *f64_body = f64->create_body_block();
+        auto f64_base_value = 2.0;
+        auto *f64_base = m.create_constant(
+            Type::of<double>(), &f64_base_value);
+        b.set_insertion_point(f64_body);
+        auto *f64_power = b.call(
+            Type::of<double>(), ArithmeticOp::POW,
+            {f64_base, f64_exponent});
+        auto *f64_ret = b.return_(f64_power);
+
+        auto *annotated = m.create_callable(Type::of<float>());
+        auto *annotated_exponent =
+            annotated->create_value_argument(Type::of<float>());
+        auto *annotated_body = annotated->create_body_block();
+        auto positive_base_value = 2.0f;
+        auto *positive_base = m.create_constant(
+            Type::of<float>(), &positive_base_value);
+        b.set_insertion_point(annotated_body);
+        auto *annotated_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {positive_base, annotated_exponent});
+        annotated_power->set_location("fast_math.cpp", 17);
+        auto *annotated_ret = b.return_(annotated_power);
+
+        // pow(NaN, 1) must still pass through the provider's canonical-NaN
+        // repair, so a dynamic base cannot use the otherwise tempting x^1
+        // identity.
+        auto *one_exponent = m.create_callable(Type::of<float>());
+        auto *one_exponent_base =
+            one_exponent->create_value_argument(Type::of<float>());
+        auto *one_exponent_body = one_exponent->create_body_block();
+        auto *one = m.create_constant_one(Type::of<float>());
+        b.set_insertion_point(one_exponent_body);
+        auto *one_exponent_power = b.call(
+            Type::of<float>(), ArithmeticOp::POW,
+            {one_exponent_base, one});
+        auto *one_exponent_ret = b.return_(one_exponent_power);
+
+        PassReport report;
+        auto info = fast_math_simplify_pass_run_on_module(
+            &m, {.enable_fast_math = true}, &report);
+        expect(!info.changed());
+        expect(negative_ret->return_value() == negative_power);
+        expect(mixed_ret->return_value() == mixed_power);
+        expect(f64_ret->return_value() == f64_power);
+        expect(annotated_ret->return_value() == annotated_power);
+        expect(one_exponent_ret->return_value() == one_exponent_power);
+        expect(report.entries().size() == 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_simplify_null_entries_are_total"_test = [] {
+        expect(!fast_math_simplify_pass_run_on_function(
+                    nullptr, {.enable_fast_math = true})
+                    .changed());
+        PassReport report;
+        expect(!fast_math_simplify_pass_run_on_module(
+                    nullptr, {.enable_fast_math = true}, &report)
+                    .changed());
+        expect(report.entries().size() == 2u);
+    };
+}
+
+// ---- select_factor ----
+
+void reg_select_factor() {
+
+    "select_factor_unary_arithmetic"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *false_input =
+            f->create_value_argument(Type::of<float>());
+        auto *true_input =
+            f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {false_input});
+        auto *true_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {true_input});
+        auto *select = b.call(
+            Type::of<float>(), ArithmeticOp::SELECT,
+            {false_sin, true_sin, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(info.factored_select_count == 1u);
+        expect(info.removed_arithmetic_count == 2u);
+        expect(ret->return_value()->isa<ArithmeticInst>());
+        auto *sin = static_cast<ArithmeticInst *>(ret->return_value());
+        expect(sin->op() == ArithmeticOp::SIN);
+        expect(sin->operand(0u)->isa<ArithmeticInst>());
+        auto *input_select =
+            static_cast<ArithmeticInst *>(sin->operand(0u));
+        expect(input_select->op() == ArithmeticOp::SELECT);
+        expect(input_select->operand(0u) == false_input);
+        expect(input_select->operand(1u) == true_input);
+        expect(input_select->operand(2u) == condition);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_recurses_through_matching_chains"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<uint32_t>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *input =
+            f->create_value_argument(Type::of<uint32_t>());
+        auto *body = f->create_body_block();
+        uint32_t three_value = 3u;
+        uint32_t five_value = 5u;
+        auto *three = m.create_constant(
+            Type::of<uint32_t>(), &three_value);
+        auto *five = m.create_constant(
+            Type::of<uint32_t>(), &five_value);
+        auto *one = m.create_constant_one(Type::of<uint32_t>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_mul = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_MUL,
+            {input, five});
+        auto *true_mul = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_MUL,
+            {input, three});
+        auto *false_add = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {false_mul, one});
+        auto *true_add = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {true_mul, one});
+        auto *select = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::SELECT,
+            {false_add, true_add, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(info.factored_select_count == 2u);
+        expect(info.removed_arithmetic_count == 4u);
+        auto *add = static_cast<ArithmeticInst *>(ret->return_value());
+        expect(add->op() == ArithmeticOp::BINARY_ADD);
+        auto *mul = static_cast<ArithmeticInst *>(add->operand(0u));
+        expect(mul->op() == ArithmeticOp::BINARY_MUL);
+        expect(mul->operand(0u) == input);
+        auto *constant_select =
+            static_cast<ArithmeticInst *>(mul->operand(1u));
+        expect(constant_select->op() == ArithmeticOp::SELECT);
+        expect(constant_select->operand(0u) == five);
+        expect(constant_select->operand(1u) == three);
+        expect(constant_select->operand(2u) == condition);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_rejects_two_differing_operands"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<uint32_t>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *a = f->create_value_argument(Type::of<uint32_t>());
+        auto *b_value =
+            f->create_value_argument(Type::of<uint32_t>());
+        auto *body = f->create_body_block();
+        auto *one = m.create_constant_one(Type::of<uint32_t>());
+        uint32_t two_value = 2u;
+        auto *two = m.create_constant(
+            Type::of<uint32_t>(), &two_value);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_add = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {a, one});
+        auto *true_add = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {b_value, two});
+        auto *select = b.call(
+            Type::of<uint32_t>(), ArithmeticOp::SELECT,
+            {false_add, true_add, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == select);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_rejects_component_mixing_vector_op"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float3>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool3>());
+        auto *false_input =
+            f->create_value_argument(Type::of<float3>());
+        auto *true_input =
+            f->create_value_argument(Type::of<float3>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_normalized = b.call(
+            Type::of<float3>(), ArithmeticOp::NORMALIZE,
+            {false_input});
+        auto *true_normalized = b.call(
+            Type::of<float3>(), ArithmeticOp::NORMALIZE,
+            {true_input});
+        auto *select = b.call(
+            Type::of<float3>(), ArithmeticOp::SELECT,
+            {false_normalized, true_normalized, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == select);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_preserves_metadata"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *false_input =
+            f->create_value_argument(Type::of<float>());
+        auto *true_input =
+            f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {false_input});
+        false_sin->set_location("select_factor.cpp", 41);
+        auto *true_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {true_input});
+        auto *select = b.call(
+            Type::of<float>(), ArithmeticOp::SELECT,
+            {false_sin, true_sin, condition});
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == select);
+        expect(false_sin->find_metadata<LocationMD>() != nullptr);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_preserves_multi_use_producers"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float>());
+        auto *condition =
+            f->create_value_argument(Type::of<bool>());
+        auto *false_input =
+            f->create_value_argument(Type::of<float>());
+        auto *true_input =
+            f->create_value_argument(Type::of<float>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *false_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {false_input});
+        auto *true_sin = b.call(
+            Type::of<float>(), ArithmeticOp::SIN, {true_input});
+        auto *select = b.call(
+            Type::of<float>(), ArithmeticOp::SELECT,
+            {false_sin, true_sin, condition});
+        static_cast<void>(b.call(
+            Type::of<float>(), ArithmeticOp::ABS, {true_sin}));
+        auto *ret = b.return_(select);
+
+        auto info = select_factor_pass_run_on_function(f);
+        expect(!info.changed());
+        expect(ret->return_value() == select);
+        expect(true_sin->use_list().count_size() == 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "select_factor_null_entries_are_total"_test = [] {
+        expect(!select_factor_pass_run_on_function(nullptr).changed());
+        PassReport report;
+        expect(!select_factor_pass_run_on_module(nullptr, &report)
+                    .changed());
+        expect(report.entries().size() == 2u);
+    };
+}
+
 // ---- const_fold ----
 
 void reg_const_fold() {
@@ -2235,6 +2690,36 @@ void reg_dce() {
 
         auto info = dce_pass_run_on_function(f);
         expect(info.removed_inst_count == chain_length);
+        // The sparse solver seeds from one scan of the chain plus Return and
+        // then follows only newly empty use-lists. It must process every dead
+        // instruction exactly once, independent of the chain depth.
+        expect(info.dead_code_instruction_scan_count == chain_length + 1u);
+        expect(info.dead_code_worklist_pop_count == chain_length);
+        expect(xir_verify_module(&m).succeeded());
+        expect(body->instructions().front()->isa<ReturnInst>());
+    };
+
+    "dce_schedules_repeated_operand_once"_test = [] {
+        Module m;
+        auto *f = m.create_callable(nullptr);
+        auto *argument =
+            f->create_value_argument(Type::of<uint>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        auto *common = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {argument, one});
+        b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+               {common, common});
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = dce_pass_run_on_function(f);
+        expect(info.removed_inst_count == 2u);
+        expect(info.dead_code_instruction_scan_count == 3u);
+        expect(info.dead_code_worklist_pop_count == 2u);
         expect(xir_verify_module(&m).succeeded());
         expect(body->instructions().front()->isa<ReturnInst>());
     };
@@ -2258,6 +2743,68 @@ void reg_dce() {
         expect(info.removed_inst_count == 3u);
         expect(xir_verify_module(&m).succeeded());
         expect(body->instructions().front()->isa<ReturnInst>());
+    };
+
+    "dce_propagates_from_write_only_alloca_without_rescan"_test = [] {
+        Module m;
+        auto *f = m.create_callable(nullptr);
+        auto *argument =
+            f->create_value_argument(Type::of<uint>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *array =
+            b.alloca_local(Type::array(Type::of<uint>(), 8u));
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        auto *element = b.gep(Type::of<uint>(), array, {zero});
+        auto *stored = b.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {argument, one});
+        b.store(element, stored);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = dce_pass_run_on_function(f);
+        expect(info.removed_inst_count == 4u);
+        // alloca, GEP, add, store, Return are classified once. Removing the
+        // store exposes add through its real use-list transition.
+        expect(info.dead_code_instruction_scan_count == 5u);
+        expect(info.dead_code_worklist_pop_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
+        expect(body->instructions().front()->isa<ReturnInst>());
+    };
+
+    "dce_solves_cascading_write_only_allocas_to_fixed_point"_test = [] {
+        Module m;
+        auto *f = m.create_callable(nullptr);
+        auto *argument =
+            f->create_value_argument(Type::of<uint>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *source = b.alloca_local(Type::of<uint>());
+        b.store(source, argument);
+        auto *loaded = b.load(Type::of<uint>(), source);
+        auto *sink = b.alloca_local(Type::of<uint>());
+        b.store(sink, loaded);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto first = dce_pass_run_on_function(f);
+        // Removing sink exposes the load from source; removing that load is
+        // the exact event that makes source write-only. Both monotone rules
+        // must converge in one invocation without a whole-function rescan.
+        expect(first.removed_inst_count == 5u);
+        expect(first.dead_code_instruction_scan_count == 6u);
+        expect(first.dead_code_worklist_pop_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
+        expect(body->instructions().front()->isa<ReturnInst>());
+
+        auto second = dce_pass_run_on_function(f);
+        expect(!second.changed());
+        expect(second.dead_code_instruction_scan_count == 1u);
+        expect(second.dead_code_worklist_pop_count == 0u);
     };
 
     "dce_preserves_unused_volatile_resource_reads"_test = [] {
@@ -2296,6 +2843,59 @@ void reg_dce() {
         expect(info.removed_inst_count == 0u);
     };
 
+    "dce_preserves_live_coroutine_resume_and_removes_dead_token_pair"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *entry = callable->create_body_block();
+        auto *dead_suspend = callable->create_basic_block();
+        auto *dead_resume = callable->create_basic_block();
+        auto *live_suspend = callable->create_basic_block();
+        auto *live_resume = callable->create_basic_block();
+        constexpr uint32_t dead_token = 17u;
+        constexpr uint32_t live_token = 91u;
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.cond_br(
+            module.create_constant_zero(Type::of<bool>()),
+            dead_suspend, live_suspend);
+        builder.set_insertion_point(dead_suspend);
+        builder.coro_suspend(dead_token, "dead", nullptr);
+        builder.set_insertion_point(dead_resume);
+        builder.coro_resume(dead_token, nullptr);
+        builder.br(live_suspend);
+        builder.set_insertion_point(live_suspend);
+        builder.coro_suspend(live_token, "live", nullptr);
+        builder.set_insertion_point(live_resume);
+        builder.coro_resume(live_token, nullptr);
+        builder.coro_terminate();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = dce_pass_run_on_function(callable);
+        expect(info.removed_block_count == 2u)
+            << "DCE must remove the dead suspend/resume component only";
+        expect(xir_verify_module(&module).succeeded());
+        auto suspend_count = size_t{0u};
+        auto resume_count = size_t{0u};
+        // Resume blocks are semantic successors of suspend tokens, not
+        // ordinary CFG successors, so inspect the owned block set here.
+        for (auto *block : callable->basic_blocks()) {
+            for (auto *instruction : block->instructions()) {
+                if (instruction->isa<CoroSuspendInst>()) {
+                    ++suspend_count;
+                    expect(static_cast<CoroSuspendInst *>(instruction)->token() ==
+                           live_token);
+                } else if (instruction->isa<CoroResumeInst>()) {
+                    ++resume_count;
+                    expect(static_cast<CoroResumeInst *>(instruction)->token() ==
+                           live_token);
+                }
+            }
+        }
+        expect(suspend_count == 1u);
+        expect(resume_count == 1u);
+    };
+
     "dce_reports_inserted_terminator_and_is_idempotent"_test = [] {
         Module m;
         BasicBlock *body;
@@ -2324,7 +2924,7 @@ void reg_dce() {
         auto module_info =
             dce_pass_run_on_module(nullptr, &report);
         expect(!module_info.changed());
-        expect(report.entries().size() == 3u);
+        expect(report.entries().size() == 5u);
     };
 
     "dce_module_runs_all_functions"_test = [] {
@@ -2909,6 +3509,7 @@ void reg_gvn() {
         auto *sample1 = b.call(
             Type::of<float4>(), ResourceQueryOp::TEXTURE2D_SAMPLE_LEVEL,
             {texture, uv, lod, selector, selector});
+        [[maybe_unused]] auto sample1_lock = sample1->lock();
         auto *sink = b.alloca_local(Type::of<float4>());
         auto *sum = b.call(
             Type::of<float4>(), ArithmeticOp::BINARY_ADD,
@@ -2999,6 +3600,50 @@ void reg_gvn() {
         expect(pair->operand(1u) == plain);
         expect(annotated->find_metadata<LocationMD>() != nullptr);
         expect(plain->metadata_list().empty());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "gvn_optimizes_continuations_without_crossing_suspend"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *x = k->create_value_argument(Type::of<int>());
+        auto *entry = k->create_body_block();
+        auto *resume = k->create_basic_block();
+        auto *one = m.create_constant_one(Type::of<int>());
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        auto *entry_sink = b.alloca_local(Type::of<int>());
+        auto *before = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {x, one});
+        b.store(entry_sink, before);
+        b.coro_suspend(7u, "gvn-boundary", nullptr);
+
+        b.set_insertion_point(resume);
+        b.coro_resume(7u, nullptr);
+        auto *resume_sink = b.alloca_local(Type::of<int2>());
+        auto *after0 = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {x, one});
+        auto *after1 = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {x, one});
+        auto *pair = b.call(
+            Type::of<int2>(), ArithmeticOp::AGGREGATE,
+            {after0, after1});
+        auto *store = b.store(resume_sink, pair);
+        b.coro_terminate();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = gvn_pass_run_on_function(k);
+
+        // `after0` must remain continuation-local: replacing it with `before`
+        // would create a new frame use. The second expression is in the same
+        // continuation and is therefore safely coalesced with `after0`.
+        expect(info.rejected_cross_suspend_count >= 1u);
+        expect(info.replaced_inst_count == 1u);
+        expect(pair->operand(0u) == after0);
+        expect(pair->operand(1u) == after0);
+        expect(store->value() == pair);
+        expect(after0->is_linked());
         expect(xir_verify_module(&m).succeeded());
     };
 
@@ -4410,6 +5055,31 @@ void reg_local_store_forward() {
         expect(info.removed_load_count == 0u);
     };
 
+    "local_store_forward_preserves_homogeneous_index_well_formedness"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *array_type = Type::array(Type::of<int32_t>(), 4u);
+        auto *array = b.alloca_local(array_type);
+        auto *index_slot = b.alloca_local(Type::of<uint32_t>());
+        uint32_t out_of_range_value = 4u;
+        auto *out_of_range =
+            m.create_constant(Type::of<uint32_t>(), &out_of_range_value);
+        b.store(index_slot, out_of_range);
+        auto *dynamic_index = b.load(Type::of<uint32_t>(), index_slot);
+        auto *element = b.gep(Type::of<int32_t>(), array, {dynamic_index});
+        b.load(Type::of<int32_t>(), element);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = local_store_forward_pass_run_on_function(k);
+        expect(info.removed_load_count == 1u);
+        expect(element->index(0u) == out_of_range);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "local_store_forward_nested_partial_store_blocks_uniform_forward"_test = [] {
         Module m;
         BasicBlock *body;
@@ -4636,6 +5306,378 @@ void reg_dead_store_elimination() {
 }
 
 // ---- loop_rotation ----
+
+void reg_loop_unswitch() {
+    struct Fixture {
+        CallableFunction *function{nullptr};
+        Value *selector{nullptr};
+        ConditionalBranchInst *candidate{nullptr};
+        BasicBlock *preheader{nullptr};
+        BasicBlock *header{nullptr};
+        BasicBlock *exit{nullptr};
+        PhiInst *accumulator{nullptr};
+        ReturnInst *return_inst{nullptr};
+    };
+    auto make_fixture = [](Module &module, bool write_in_loop,
+                           bool condition_in_loop,
+                           bool annotate_candidate,
+                           bool dynamic_trip_count = false) noexcept {
+        Fixture fixture;
+        fixture.function =
+            module.create_callable(Type::of<uint32_t>());
+        fixture.selector = fixture.function->create_value_argument(
+            Type::of<bool>());
+        auto *input = fixture.function->create_value_argument(
+            Type::of<uint32_t>());
+        auto *preheader = fixture.function->create_body_block();
+        auto *header = fixture.function->create_basic_block();
+        auto *body = fixture.function->create_basic_block();
+        auto *true_block = fixture.function->create_basic_block();
+        auto *false_block = fixture.function->create_basic_block();
+        auto *latch = fixture.function->create_basic_block();
+        auto *exit = fixture.function->create_basic_block();
+        fixture.preheader = preheader;
+        fixture.header = header;
+        fixture.exit = exit;
+        auto *zero = module.create_constant_zero(
+            Type::of<uint32_t>());
+        auto *one = module.create_constant_one(
+            Type::of<uint32_t>());
+        auto two_value = uint32_t{2u};
+        auto four_value = uint32_t{4u};
+        auto *two = module.create_constant(
+            Type::of<uint32_t>(), &two_value);
+        auto *four = module.create_constant(
+            Type::of<uint32_t>(), &four_value);
+        XIRBuilder builder;
+        builder.set_insertion_point(preheader);
+        auto *local = write_in_loop ?
+                          builder.alloca_local(Type::of<uint32_t>()) :
+                          nullptr;
+        builder.br(header);
+        builder.set_insertion_point(header);
+        auto *index = builder.phi(Type::of<uint32_t>());
+        auto *accumulator = builder.phi(Type::of<uint32_t>());
+        fixture.accumulator = accumulator;
+        auto *continue_condition = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+            {index, dynamic_trip_count ?
+                        static_cast<Value *>(input) :
+                        static_cast<Value *>(four)});
+        builder.cond_br(continue_condition, body, exit);
+        builder.set_insertion_point(body);
+        auto *condition = fixture.selector;
+        if (condition_in_loop) {
+            condition = builder.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                {index, zero});
+        }
+        fixture.candidate = builder.cond_br(
+            condition, true_block, false_block);
+        if (annotate_candidate) {
+            fixture.candidate->add_comment(
+                "retain annotated loop branch");
+        }
+        builder.set_insertion_point(true_block);
+        auto *true_value = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {accumulator, input});
+        if (local != nullptr) { builder.store(local, true_value); }
+        builder.br(latch);
+        builder.set_insertion_point(false_block);
+        auto *false_value = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {accumulator, two});
+        builder.br(latch);
+        builder.set_insertion_point(latch);
+        auto *next_accumulator = builder.phi(
+            Type::of<uint32_t>(),
+            {{true_value, true_block},
+             {false_value, false_block}});
+        auto *next_index = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {index, one});
+        builder.br(header);
+        index->add_incoming(zero, preheader);
+        index->add_incoming(next_index, latch);
+        accumulator->add_incoming(zero, preheader);
+        accumulator->add_incoming(next_accumulator, latch);
+        builder.set_insertion_point(exit);
+        fixture.return_inst = builder.return_(accumulator);
+        return fixture;
+    };
+
+    "loop_unswitch_clones_invariant_diamond_and_merges_live_out"_test =
+        [&] {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            auto transformed_verification =
+                xir_verify_module(&module);
+            expect(transformed_verification.succeeded())
+                << (transformed_verification.errors.empty() ?
+                        "unexpected loop-unswitch verification failure" :
+                        transformed_verification.errors.front()
+                            .message.c_str());
+
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function);
+            expect(info.succeeded());
+            expect(info.unswitched_loop_count == 1u);
+            expect(info.cloned_block_count == 5u);
+            expect(info.cloned_instruction_count == 12u);
+            expect(info.created_preheader_count == 2u);
+            expect(info.merged_live_out_count == 1u);
+            auto cleaned_verification = xir_verify_module(&module);
+            expect(cleaned_verification.succeeded())
+                << (cleaned_verification.errors.empty() ?
+                        "unexpected cleaned loop verification failure" :
+                        cleaned_verification.errors.front()
+                            .message.c_str());
+            expect(fixture.preheader->terminator()
+                       ->isa<ConditionalBranchInst>());
+            auto *dispatch = static_cast<ConditionalBranchInst *>(
+                fixture.preheader->terminator());
+            expect(dispatch->condition() == fixture.selector);
+            expect(fixture.return_inst->return_value()->isa<PhiInst>());
+            auto *merged = static_cast<PhiInst *>(
+                fixture.return_inst->return_value());
+            expect(merged->parent_block() == fixture.exit);
+            expect(merged->incoming_count() == 2u);
+
+            auto cleanup = simplify_cfg_pass_run_on_function(
+                fixture.function);
+            expect(cleanup.changed());
+            auto selector_branch_count = size_t{0u};
+            fixture.function->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    if (instruction->isa<ConditionalBranchInst>() &&
+                        static_cast<ConditionalBranchInst *>(instruction)
+                                ->condition() == fixture.selector) {
+                        selector_branch_count++;
+                    }
+                });
+            expect(selector_branch_count == 1u);
+            expect(xir_verify_module(&module).succeeded());
+        };
+
+    "loop_unswitch_filter_and_cost_cap_are_fail_closed"_test = [&] {
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function,
+                {.candidate_filter =
+                     [](const ConditionalBranchInst *,
+                        const void *) noexcept { return false; }});
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function,
+                {.max_loop_instruction_count = 11u});
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+    };
+
+    "loop_unswitch_rejects_writes_and_variant_conditions"_test =
+        [&] {
+            for (auto mode = 0u; mode < 2u; mode++) {
+                Module module;
+                auto fixture = make_fixture(
+                    module, mode == 0u, mode == 1u, false);
+                auto info = loop_unswitch_pass_run_on_function(
+                    fixture.function);
+                expect(!info.changed());
+                expect(fixture.preheader->terminator()
+                           ->isa<BranchInst>());
+                expect(fixture.candidate->parent_block() != nullptr);
+                expect(xir_verify_module(&module).succeeded());
+            }
+        };
+
+    "loop_unswitch_rejects_unknown_trip_undef_and_clock"_test = [&] {
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false, true);
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function);
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            fixture.candidate->set_condition(
+                module.create_undefined(Type::of<bool>()));
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function);
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+        {
+            Module module;
+            auto fixture = make_fixture(
+                module, false, false, false);
+            XIRBuilder builder;
+            builder.set_insertion_point(fixture.candidate->prev());
+            builder.clock();
+            auto info = loop_unswitch_pass_run_on_function(
+                fixture.function);
+            expect(!info.changed());
+            expect(fixture.preheader->terminator()->isa<BranchInst>());
+            expect(xir_verify_module(&module).succeeded());
+        }
+    };
+
+    "loop_unswitch_guards_unknown_trip_before_selector"_test = [&] {
+        Module module;
+        auto fixture = make_fixture(
+            module, false, false, false, true);
+        auto info = loop_unswitch_pass_run_on_function(
+            fixture.function,
+            {.enable_guarded_dynamic_trip = true});
+        expect(info.succeeded());
+        expect(info.unswitched_loop_count == 1u);
+        expect(info.guarded_dynamic_loop_count == 1u);
+        expect(info.created_preheader_count == 2u);
+        expect(fixture.preheader->terminator()->isa<BranchInst>());
+        auto *guard = static_cast<BranchInst *>(
+                          fixture.preheader->terminator())
+                          ->target_block();
+        expect(guard != nullptr);
+        expect(guard != nullptr && guard->name().has_value());
+        expect(guard != nullptr && guard->name().value_or("") ==
+                                       "unswitch_entry_guard");
+        expect(guard != nullptr &&
+               guard->terminator()->isa<ConditionalBranchInst>());
+        auto selector_branch_count = size_t{0u};
+        fixture.function->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                if (instruction->isa<ConditionalBranchInst>() &&
+                    static_cast<ConditionalBranchInst *>(instruction)
+                            ->condition() == fixture.selector) {
+                    selector_branch_count++;
+                }
+            });
+        expect(selector_branch_count == 1u);
+        expect(fixture.return_inst->return_value()->isa<PhiInst>());
+        auto *merged = static_cast<PhiInst *>(
+            fixture.return_inst->return_value());
+        expect(merged->incoming_count() == 3u);
+        auto verification = xir_verify_module(&module);
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unexpected guarded-unswitch verification failure" :
+                    verification.errors.front().message.c_str());
+    };
+
+    "loop_unswitch_moves_candidate_metadata_to_dispatch"_test = [&] {
+        Module module;
+        auto fixture = make_fixture(
+            module, false, false, true);
+        auto info = loop_unswitch_pass_run_on_function(
+            fixture.function);
+        expect(info.unswitched_loop_count == 1u);
+        auto *dispatch = static_cast<ConditionalBranchInst *>(
+            fixture.preheader->terminator());
+        auto *comment = dispatch->find_metadata<CommentMD>();
+        expect(comment != nullptr);
+        expect(comment != nullptr &&
+               comment->comment() ==
+                   "retain annotated loop branch");
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "loop_unswitch_extends_existing_exit_phi"_test = [&] {
+        Module module;
+        auto fixture = make_fixture(
+            module, false, false, false);
+        XIRBuilder builder;
+        builder.set_insertion_point(fixture.return_inst->prev());
+        auto *exit_phi = builder.phi(
+            Type::of<uint32_t>(),
+            {{fixture.accumulator, fixture.header}});
+        fixture.return_inst->set_operand(0u, exit_phi);
+        expect(xir_verify_module(&module).succeeded());
+
+        auto info = loop_unswitch_pass_run_on_function(
+            fixture.function);
+        expect(info.unswitched_loop_count == 1u);
+        expect(info.merged_live_out_count == 0u);
+        expect(exit_phi->incoming_count() == 2u);
+        expect(fixture.return_inst->return_value() == exit_phi);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "loop_unswitch_module_rejection_is_atomic"_test = [&] {
+        Module module;
+        auto plain = make_fixture(
+            module, false, false, false);
+        auto *structured = module.create_callable(nullptr);
+        auto *structured_body = structured->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(structured_body);
+        auto *structured_if = builder.if_(
+            module.create_constant_one(Type::of<bool>()));
+        auto *true_block = structured_if->create_true_block();
+        auto *false_block = structured_if->create_false_block();
+        auto *merge = structured_if->create_merge_block();
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        auto info = loop_unswitch_pass_run_on_module(&module);
+        expect(!info.succeeded());
+        expect(!info.changed());
+        expect(info.structured_cfg_error_count == 1u);
+        expect(plain.preheader->terminator()->isa<BranchInst>());
+        expect(plain.candidate->parent_block() != nullptr);
+        expect(structured_body->terminator() == structured_if);
+    };
+
+    "loop_unswitch_module_limit_is_per_function"_test = [&] {
+        Module module;
+        auto first = make_fixture(
+            module, false, false, false);
+        auto second = make_fixture(
+            module, false, false, false);
+        auto info = loop_unswitch_pass_run_on_module(
+            &module, {.max_unswitched_loop_count = 1u});
+        expect(info.succeeded());
+        expect(info.unswitched_loop_count == 2u);
+        expect(first.preheader->terminator()
+                   ->isa<ConditionalBranchInst>());
+        expect(second.preheader->terminator()
+                   ->isa<ConditionalBranchInst>());
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "loop_unswitch_null_entries_are_total"_test = [] {
+        expect(!loop_unswitch_pass_run_on_function(nullptr).changed());
+        PassReport report;
+        auto info = loop_unswitch_pass_run_on_module(
+            nullptr, {}, &report);
+        expect(!info.changed());
+        expect(info.succeeded());
+        expect(report.entries().size() == 7u);
+    };
+}
 
 void reg_loop_rotation() {
 
@@ -5132,6 +6174,169 @@ void reg_if_conversion() {
             << (verification.errors.empty() ?
                     "unknown verifier failure" :
                     verification.errors.front().message.c_str());
+    };
+
+    "if_conversion_candidate_filter_can_retain_diamond"_test = [] {
+        Module m;
+        auto *function = m.create_callable(Type::of<int>());
+        auto *condition =
+            function->create_value_argument(Type::of<bool>());
+        auto *entry = function->create_body_block();
+        auto *true_block = function->create_basic_block();
+        auto *false_block = function->create_basic_block();
+        auto *merge = function->create_basic_block();
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *branch =
+            builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        auto *phi = builder.phi(
+            Type::of<int>(),
+            {{one, true_block}, {zero, false_block}});
+        builder.return_(phi);
+
+        auto info = if_conversion_pass_run_on_function(
+            function,
+            {.candidate_filter =
+                 [](const ConditionalBranchInst *,
+                    const void *) noexcept { return false; }});
+        expect(!info.changed());
+        expect(entry->terminator() == branch);
+        expect(phi->incoming_count() == 2u);
+        expect(count_reachable_blocks(function) == 4u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "if_conversion_cost_model_rejects_transcendental_arms"_test = [] {
+        Module m;
+        auto *function = m.create_callable(Type::of<float>());
+        auto *condition =
+            function->create_value_argument(Type::of<bool>());
+        auto *input =
+            function->create_value_argument(Type::of<float>());
+        auto *entry = function->create_body_block();
+        auto *true_block = function->create_basic_block();
+        auto *false_block = function->create_basic_block();
+        auto *merge = function->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *branch =
+            builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        auto *true_value = builder.call(
+            Type::of<float>(), ArithmeticOp::SIN, {input});
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        auto *false_value = builder.call(
+            Type::of<float>(), ArithmeticOp::COS, {input});
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        auto *phi = builder.phi(
+            Type::of<float>(),
+            {{true_value, true_block},
+             {false_value, false_block}});
+        builder.return_(phi);
+
+        auto info = if_conversion_pass_run_on_function(
+            function,
+            {.max_arm_instruction_count = 4u,
+             .max_total_instruction_count = 6u,
+             .max_live_out_register_units = 4u,
+             .max_speculation_cost = 12u});
+        expect(!info.changed());
+        expect(entry->terminator() == branch);
+        expect(phi->incoming_count() == 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "if_conversion_cost_model_limits_live_out_registers"_test = [] {
+        Module m;
+        auto *function = m.create_callable(Type::of<float4>());
+        auto *condition =
+            function->create_value_argument(Type::of<bool>());
+        auto *entry = function->create_body_block();
+        auto *true_block = function->create_basic_block();
+        auto *false_block = function->create_basic_block();
+        auto *merge = function->create_basic_block();
+        auto *one = m.create_constant_one(Type::of<float4>());
+        auto *zero = m.create_constant_zero(Type::of<float4>());
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *branch =
+            builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        auto *phi = builder.phi(
+            Type::of<float4>(),
+            {{one, true_block}, {zero, false_block}});
+        builder.return_(phi);
+
+        auto info = if_conversion_pass_run_on_function(
+            function,
+            {.max_live_out_register_units = 3u});
+        expect(!info.changed());
+        expect(entry->terminator() == branch);
+        expect(phi->incoming_count() == 2u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "if_conversion_speculates_only_opted_in_float_division"_test = [] {
+        auto run = [](const Type *type, ArithmeticOp op,
+                      bool expect_conversion) noexcept {
+            Module module;
+            auto *function = module.create_callable(type);
+            auto *condition =
+                function->create_value_argument(Type::of<bool>());
+            auto *lhs = function->create_value_argument(type);
+            auto *rhs = function->create_value_argument(type);
+            auto *entry = function->create_body_block();
+            auto *true_block = function->create_basic_block();
+            auto *false_block = function->create_basic_block();
+            auto *merge = function->create_basic_block();
+            auto *zero = module.create_constant_zero(type);
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *branch = builder.cond_br(
+                condition, true_block, false_block);
+            builder.set_insertion_point(true_block);
+            auto *quotient = builder.call(
+                type, op, {lhs, rhs});
+            builder.br(merge);
+            builder.set_insertion_point(false_block);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            auto *phi = builder.phi(
+                type,
+                {{quotient, true_block}, {zero, false_block}});
+            builder.return_(phi);
+
+            auto default_info =
+                if_conversion_pass_run_on_function(function);
+            expect(!default_info.changed());
+            auto info = if_conversion_pass_run_on_function(
+                function,
+                {.allow_speculative_float_division = true});
+            expect(info.changed() == expect_conversion);
+            expect(info.converted_diamond_count ==
+                   static_cast<size_t>(expect_conversion));
+            expect(entry->terminator()->isa<BranchInst>() ==
+                   expect_conversion);
+            expect((entry->terminator() == branch) !=
+                   expect_conversion);
+            expect(xir_verify_module(&module).succeeded());
+        };
+        run(Type::of<float>(), ArithmeticOp::BINARY_DIV, true);
+        run(Type::of<int32_t>(), ArithmeticOp::BINARY_DIV, false);
+        run(Type::of<float>(), ArithmeticOp::BINARY_MOD, false);
     };
 
     "if_conversion_annotated_side_block_is_retained_atomically"_test = [] {
@@ -5788,6 +6993,62 @@ void reg_sroa() {
         expect(ret->return_value()->type() == struct_ty);
     };
 
+    "sroa_single_block_vector_policy_is_fail_closed"_test = [] {
+        auto build = [](Module &m, bool cross_block) noexcept {
+            auto *f = m.create_callable(Type::of<float3>());
+            auto *body = f->create_body_block();
+            auto *continuation = cross_block ?
+                                     f->create_basic_block() :
+                                     body;
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *alloca = b.alloca_local(Type::of<float3>());
+            for (auto i = uint32_t{0u}; i < 3u; i++) {
+                auto value = static_cast<float>(i + 1u);
+                auto *index = m.create_constant(Type::of<uint32_t>(), &i);
+                auto *element = m.create_constant(Type::of<float>(), &value);
+                auto *gep = b.gep(Type::of<float>(), alloca, {index});
+                b.store(gep, element);
+            }
+            if (cross_block) {
+                b.br(continuation);
+                b.set_insertion_point(continuation);
+            }
+            auto *load = b.load(Type::of<float3>(), alloca);
+            b.return_(load);
+            return f;
+        };
+
+        Module local_module;
+        auto *local = build(local_module, false);
+        expect(xir_verify_module(&local_module).succeeded());
+        auto local_info = sroa_pass_run_on_function(
+            local,
+            {.decompose_vectors = true,
+             .single_block_vectors_only = true});
+        expect(local_info.decomposed_alloca_count == 1u);
+        expect(local_info.inserted_alloca_count == 3u);
+        expect(count_reachable_insts(
+                   local, DerivedInstructionTag::ALLOCA) == 3u);
+        expect(xir_verify_module(&local_module).succeeded());
+
+        Module cross_block_module;
+        auto *cross_block = build(cross_block_module, true);
+        expect(xir_verify_module(&cross_block_module).succeeded());
+        auto before = xir_to_text_translate(&cross_block_module, true);
+        auto cross_block_info = sroa_pass_run_on_function(
+            cross_block,
+            {.decompose_vectors = true,
+             .single_block_vectors_only = true});
+        expect(!cross_block_info.changed());
+        expect(count_reachable_insts(
+                   cross_block, DerivedInstructionTag::ALLOCA) == 1u);
+        expect(xir_to_text_translate(&cross_block_module, true) == before)
+            << "the single-block policy must reject before mutating a "
+               "cross-block vector temporary";
+        expect(xir_verify_module(&cross_block_module).succeeded());
+    };
+
     "sroa_no_struct_no_change"_test = [] {
         Module m;
         BasicBlock *body;
@@ -5967,6 +7228,335 @@ void reg_inline() {
         expect(count_reachable_insts(caller, DerivedInstructionTag::BRANCH) == 0u);
     };
 
+    "inline_single_use_large_callable_preserves_compiler_partition"_test = [] {
+        Module m;
+        XIRBuilder b;
+        auto *callee = m.create_callable(Type::of<uint>());
+        auto *argument =
+            callee->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(callee->create_body_block());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        Value *value = argument;
+        for (auto i = 0u;
+             i < default_inline_single_use_instruction_budget;
+             ++i) {
+            value = b.call(Type::of<uint>(),
+                           ArithmeticOp::BINARY_ADD,
+                           {value, one});
+        }
+        b.return_(value);
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_argument =
+            kernel->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), callee,
+                            {kernel_argument});
+        b.store(storage, call);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto ordinary = inline_pass_run_on_module(&m);
+        expect(!ordinary.changed());
+        expect(ordinary.skipped_costly_callable_count == 1u);
+        expect(call->is_linked());
+        expect(callee->parent_module() == &m);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 1u);
+
+        // A legality-driven caller can still explicitly select the same site.
+        std::array<CallInst *, 1u> selected_calls{call};
+        auto selected = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected_calls});
+        expect(selected.inlined_call_count == 1u);
+        expect(selected.skipped_costly_callable_count == 0u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_pass_reuses_one_dense_layout_per_callee_version"_test = [] {
+        Module m;
+        auto *callee = m.create_callable(Type::of<uint>());
+        auto *argument =
+            callee->create_value_argument(Type::of<uint>());
+        XIRBuilder b;
+        b.set_insertion_point(callee->create_body_block());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        Value *value = argument;
+        constexpr auto chain_length = 32u;
+        for (auto i = 0u; i < chain_length; ++i) {
+            value = b.call(Type::of<uint>(),
+                           ArithmeticOp::BINARY_ADD,
+                           {value, one});
+        }
+        b.return_(value);
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_argument =
+            kernel->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        constexpr auto call_count = 3u;
+        for (auto i = 0u; i < call_count; ++i) {
+            auto *call = b.call(Type::of<uint>(), callee,
+                                {kernel_argument});
+            b.store(storage, call);
+        }
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == call_count);
+        expect(info.removed_callable_count == 1u);
+        expect(info.inline_pass_summary_function_count == 1u);
+        expect(info.inline_pass_summary_instruction_scan_count ==
+               chain_length + 1u);
+        expect(info.inline_pass_clone_layout_function_count == 1u);
+        expect(info.inline_pass_clone_layout_value_count ==
+               chain_length + 3u);
+        expect(info.inline_pass_dense_resolver_apply_count == call_count);
+        expect(info.inline_pass_dense_resolver_fallback_count == 0u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_pass_rebuilds_layout_after_prior_caller_mutation"_test = [] {
+        Module m;
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<uint>());
+
+        auto *inner = m.create_callable(Type::of<uint>());
+        auto *inner_argument =
+            inner->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(inner->create_body_block());
+        b.return_(b.call(Type::of<uint>(),
+                         ArithmeticOp::BINARY_ADD,
+                         {inner_argument, one}));
+
+        auto *middle = m.create_callable(Type::of<uint>());
+        auto *middle_argument =
+            middle->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(middle->create_body_block());
+        b.return_(b.call(Type::of<uint>(), inner,
+                         {middle_argument}));
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_argument =
+            kernel->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), middle,
+                            {kernel_argument});
+        b.store(storage, call);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        // `inner` is processed first and mutates `middle`. The version for
+        // `middle` must be summarized and numbered only after that mutation;
+        // no layout may survive across the version boundary.
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == 2u);
+        expect(info.removed_callable_count == 2u);
+        expect(info.inline_pass_summary_function_count == 2u);
+        expect(info.inline_pass_summary_instruction_scan_count == 4u);
+        expect(info.inline_pass_clone_layout_function_count == 2u);
+        expect(info.inline_pass_clone_layout_value_count == 8u);
+        expect(info.inline_pass_dense_resolver_apply_count == 2u);
+        expect(info.inline_pass_dense_resolver_fallback_count == 0u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_cost_boundary_is_callable_creation_order_invariant"_test = [] {
+        struct Outcome {
+            size_t inlined_call_count;
+            size_t removed_callable_count;
+            size_t skipped_costly_callable_count;
+            size_t kernel_call_count;
+            size_t parent_call_count;
+            size_t parent_instruction_count;
+            [[nodiscard]] bool operator==(
+                const Outcome &) const noexcept = default;
+        };
+        constexpr auto leaf_count = 24u;
+        constexpr auto leaf_arithmetic_count = 48u;
+        static_assert(leaf_arithmetic_count + 1u <=
+                      default_inline_multi_use_instruction_budget);
+        static_assert(leaf_count * leaf_arithmetic_count + 1u >
+                      default_inline_single_use_instruction_budget);
+
+        auto run = [](bool create_parent_first) noexcept {
+            Module m;
+            XIRBuilder b;
+            auto *one = m.create_constant_one(Type::of<uint>());
+            CallableFunction *parent = nullptr;
+            Value *parent_argument = nullptr;
+            auto create_parent = [&]() noexcept {
+                parent = m.create_callable(Type::of<uint>());
+                parent_argument =
+                    parent->create_value_argument(Type::of<uint>());
+            };
+            if (create_parent_first) { create_parent(); }
+
+            luisa::vector<CallableFunction *> leaves;
+            leaves.reserve(leaf_count);
+            for (auto leaf_index = 0u; leaf_index < leaf_count;
+                 ++leaf_index) {
+                auto *leaf = m.create_callable(Type::of<uint>());
+                auto *argument =
+                    leaf->create_value_argument(Type::of<uint>());
+                b.set_insertion_point(leaf->create_body_block());
+                Value *value = argument;
+                for (auto instruction_index = 0u;
+                     instruction_index < leaf_arithmetic_count;
+                     ++instruction_index) {
+                    value = b.call(Type::of<uint>(),
+                                   ArithmeticOp::BINARY_ADD,
+                                   {value, one});
+                }
+                b.return_(value);
+                leaves.emplace_back(leaf);
+            }
+            if (!create_parent_first) { create_parent(); }
+
+            b.set_insertion_point(parent->create_body_block());
+            Value *parent_value = parent_argument;
+            for (auto *leaf : leaves) {
+                parent_value = b.call(Type::of<uint>(), leaf,
+                                      {parent_value});
+            }
+            b.return_(parent_value);
+
+            BasicBlock *kernel_body;
+            auto *kernel = make_kernel_with_body(m, kernel_body);
+            auto *kernel_argument =
+                kernel->create_value_argument(Type::of<uint>());
+            b.set_insertion_point(kernel_body);
+            auto *storage = b.alloca_local(Type::of<uint>());
+            auto *call = b.call(Type::of<uint>(), parent,
+                                {kernel_argument});
+            b.store(storage, call);
+            b.return_void();
+            expect(xir_verify_module(&m).succeeded());
+
+            // The caller -> callee graph is a DAG. Processing its DFS
+            // postorder first expands every small leaf into `parent`; only
+            // then is the finite single-use budget evaluated. Thus the
+            // transitive parent stays a compiler partition even when AST2XIR
+            // created it before its descendants. The construction order must
+            // not change that semantic boundary.
+            auto info = inline_pass_run_on_module(&m);
+            expect(info.inlined_call_count == leaf_count);
+            expect(info.removed_callable_count == leaf_count);
+            expect(info.skipped_costly_callable_count == 1u);
+            expect(parent->parent_module() == &m);
+            expect(call->is_linked());
+            expect(count_reachable_insts(
+                       kernel, DerivedInstructionTag::CALL) == 1u);
+            expect(count_reachable_insts(
+                       parent, DerivedInstructionTag::CALL) == 0u);
+            expect(xir_verify_module(&m).succeeded());
+
+            size_t parent_instruction_count = 0u;
+            for (auto *block : parent->basic_blocks()) {
+                for (auto *instruction : block->instructions()) {
+                    static_cast<void>(instruction);
+                    ++parent_instruction_count;
+                }
+            }
+            return Outcome{
+                .inlined_call_count = info.inlined_call_count,
+                .removed_callable_count = info.removed_callable_count,
+                .skipped_costly_callable_count =
+                    info.skipped_costly_callable_count,
+                .kernel_call_count = count_reachable_insts(
+                    kernel, DerivedInstructionTag::CALL),
+                .parent_call_count = count_reachable_insts(
+                    parent, DerivedInstructionTag::CALL),
+                .parent_instruction_count = parent_instruction_count};
+        };
+
+        auto parent_first = run(true);
+        auto children_first = run(false);
+        expect(parent_first == children_first);
+        expect(parent_first.parent_instruction_count ==
+               leaf_count * leaf_arithmetic_count + 1u);
+    };
+
+    "inline_pass_caches_caller_barriers_across_mutations"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *callee = m.create_callable(Type::of<int>());
+        auto *callee_condition =
+            callee->create_value_argument(Type::of<bool>());
+        auto *callee_entry = callee->create_body_block();
+        auto *callee_left = callee->create_basic_block();
+        auto *callee_right = callee->create_basic_block();
+        b.set_insertion_point(callee_entry);
+        b.cond_br(callee_condition, callee_left, callee_right);
+        b.set_insertion_point(callee_left);
+        b.return_(m.create_constant_one(Type::of<int>()));
+        b.set_insertion_point(callee_right);
+        b.return_(m.create_constant_zero(Type::of<int>()));
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *kernel_value =
+            kernel->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        Value *filler = kernel_value;
+        constexpr auto filler_instruction_count = 64u;
+        for (auto i = 0u; i < filler_instruction_count; ++i) {
+            filler = b.call(Type::of<uint>(),
+                            ArithmeticOp::BINARY_ADD,
+                            {filler, one});
+        }
+        constexpr auto call_count = 3u;
+        for (auto i = 0u; i < call_count; ++i) {
+            auto *call = b.call(Type::of<int>(), callee,
+                                {kernel_condition});
+            b.store(storage, call);
+        }
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        // The initial caller has one alloca, 64 arithmetic instructions,
+        // three calls, three stores, and one return. Successful inlining
+        // mutates it after the first query, but cannot introduce a barrier;
+        // the remaining two queries must therefore hit the same cache entry.
+        constexpr auto initial_caller_instruction_count =
+            1u + filler_instruction_count + call_count + call_count + 1u;
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == call_count);
+        expect(info.removed_callable_count == 1u);
+        expect(info.inline_pass_summary_function_count == 1u);
+        expect(info.inline_pass_summary_instruction_scan_count == 3u);
+        expect(info.inline_pass_clone_layout_function_count == 1u);
+        expect(info.inline_pass_clone_layout_value_count == 7u);
+        expect(info.inline_pass_dense_resolver_apply_count == call_count);
+        expect(info.inline_pass_dense_resolver_fallback_count == 0u);
+        expect(info.inline_pass_caller_barrier_function_count == 1u);
+        expect(info.inline_pass_caller_barrier_instruction_scan_count ==
+               initial_caller_instruction_count);
+        expect(info.inline_pass_caller_barrier_cache_hit_count ==
+               call_count - 1u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "inline_recursive_callable_is_skipped"_test = [] {
         Module m;
         auto *callee = m.create_callable(Type::of<int>());
@@ -6015,6 +7605,108 @@ void reg_inline() {
         expect(callee->is_linked());
         expect(call->callee() == callee);
         expect(self_call->callee() == callee);
+    };
+
+    "inline_mutually_recursive_scc_is_skipped"_test = [] {
+        Module m;
+        auto *left = m.create_callable(nullptr);
+        auto *right = m.create_callable(nullptr);
+        XIRBuilder b;
+        b.set_insertion_point(left->create_body_block());
+        auto *left_call = b.call(nullptr, right, {});
+        b.return_void();
+        b.set_insertion_point(right->create_body_block());
+        auto *right_call = b.call(nullptr, left, {});
+        b.return_void();
+
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_recursive_callable_count == 2u);
+        expect(info.recursion_analysis_function_count == 2u);
+        expect(info.recursion_analysis_call_use_visit_count == 2u);
+        expect(info.recursion_analysis_edge_count == 2u);
+        expect(info.recursion_analysis_vertex_visit_count == 4u);
+        expect(info.recursion_analysis_edge_visit_count == 4u);
+        expect(left_call->is_linked());
+        expect(right_call->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_recursion_graph_ignores_non_callee_function_use"_test = [] {
+        Module m;
+        auto *payload = m.create_callable(nullptr);
+        auto *consumer = m.create_callable(nullptr);
+        consumer->create_value_argument(Type::of<int>());
+        auto *caller = m.create_callable(nullptr);
+        XIRBuilder b;
+        b.set_insertion_point(payload->create_body_block());
+        b.return_void();
+        b.set_insertion_point(consumer->create_body_block());
+        b.return_void();
+        b.set_insertion_point(caller->create_body_block());
+        // Deliberately verifier-invalid: payload is an ordinary argument use,
+        // not another call-graph edge. The recursion analysis must inspect
+        // operand identity before assigning the use to caller -> payload.
+        auto *call = b.call(nullptr, consumer, {payload});
+        b.return_void();
+
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_recursive_callable_count == 0u);
+        expect(info.rejected_malformed_call_count == 1u);
+        expect(info.recursion_analysis_function_count == 3u);
+        expect(info.recursion_analysis_call_use_visit_count == 2u);
+        expect(info.recursion_analysis_edge_count == 1u);
+        expect(info.recursion_analysis_vertex_visit_count == 6u);
+        expect(info.recursion_analysis_edge_visit_count == 2u);
+        expect(call->is_linked());
+    };
+
+    "inline_recursion_analysis_is_linear_in_sparse_call_graph"_test = [] {
+        Module m;
+        constexpr auto callable_count = 128u;
+        luisa::vector<luisa::compute::xir::Function *> callables;
+        luisa::vector<BasicBlock *> bodies;
+        callables.reserve(callable_count);
+        bodies.reserve(callable_count);
+        for (auto i = 0u; i < callable_count; ++i) {
+            auto *callable = m.create_callable(nullptr);
+            callables.emplace_back(callable);
+            bodies.emplace_back(callable->create_body_block());
+        }
+        XIRBuilder b;
+        for (auto i = 0u; i < callable_count; ++i) {
+            b.set_insertion_point(bodies[i]);
+            if (i + 1u != callable_count) {
+                b.call(nullptr, callables[i + 1u], {});
+            }
+            b.return_void();
+        }
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        b.set_insertion_point(kernel_body);
+        auto *selected_call = b.call(nullptr, callables.front(), {});
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        std::array<CallInst *, 1u> selected{selected_call};
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected});
+        expect(info.inlined_call_count == 1u);
+        expect(info.removed_callable_count == 1u);
+        expect(info.skipped_recursive_callable_count == 0u);
+        expect(info.recursion_analysis_function_count == callable_count);
+        expect(info.recursion_analysis_call_use_visit_count ==
+               callable_count);
+        expect(info.recursion_analysis_edge_count == callable_count - 1u);
+        expect(info.recursion_analysis_vertex_visit_count ==
+               2u * callable_count);
+        expect(info.recursion_analysis_edge_visit_count ==
+               2u * (callable_count - 1u));
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 1u);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "inline_single_block_callee_preserves_structured_caller"_test = [] {
@@ -6152,15 +7844,15 @@ void reg_inline() {
     "inline_null_entry_points_are_total_and_report_zero"_test = [] {
         PassReport report;
         expect(!inline_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 8u);
+        expect(report.entries().size() == 32u);
         report.clear();
         expect(!inline_all_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 8u);
+        expect(report.entries().size() == 32u);
         report.clear();
         expect(!inline_call_sites_pass_run_on_module(
                     nullptr, luisa::span<CallInst *const>{}, {}, &report)
                     .changed());
-        expect(report.entries().size() == 8u);
+        expect(report.entries().size() == 32u);
     };
 
     "inline_bodyless_callable_declaration_is_never_inlined"_test = [] {
@@ -6264,6 +7956,84 @@ void reg_inline() {
         run(false);
     };
 
+    "inline_selected_consumes_only_diagnostic_call_metadata_atomically"_test = [] {
+        {
+            Module m;
+            auto *callee = m.create_callable(Type::of<int>());
+            auto *callee_body = callee->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(callee_body);
+            b.return_(m.create_constant_one(Type::of<int>()));
+
+            BasicBlock *body;
+            auto *caller = make_kernel_with_body(m, body);
+            b.set_insertion_point(body);
+            auto *storage = b.alloca_local(Type::of<int>());
+            auto *call = b.call(Type::of<int>(), callee, {});
+            call->set_name("mandatory_inline_call");
+            call->set_location("mandatory_inline.cpp", 41);
+            call->add_comment("source-only call annotation");
+            b.store(storage, call);
+            b.return_void();
+
+            std::array<CallInst *, 1u> selected_calls{call};
+            auto info = inline_call_sites_pass_run_on_module(
+                &m, luisa::span{selected_calls},
+                {.consume_call_site_diagnostic_metadata = true});
+            expect(eq(info.inlined_call_count, 1u));
+            expect(eq(
+                info.consumed_call_site_diagnostic_metadata_count, 3u));
+            expect(eq(info.skipped_metadata_call_count, 0u));
+            expect(eq(count_reachable_insts(
+                          caller, DerivedInstructionTag::CALL),
+                      0u));
+            expect(xir_verify_module(&m).succeeded());
+        }
+        {
+            Module m;
+            auto *callee = m.create_callable(Type::of<int>());
+            auto *callee_body = callee->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(callee_body);
+            b.return_(m.create_constant_one(Type::of<int>()));
+
+            BasicBlock *body;
+            auto *caller = make_kernel_with_body(m, body);
+            b.set_insertion_point(body);
+            auto *first_storage = b.alloca_local(Type::of<int>());
+            auto *second_storage = b.alloca_local(Type::of<int>());
+            auto *diagnostic_call =
+                b.call(Type::of<int>(), callee, {});
+            diagnostic_call->add_comment("admissible only as a group");
+            b.store(first_storage, diagnostic_call);
+            auto *semantic_call =
+                b.call(Type::of<int>(), callee, {});
+            semantic_call->metadata_list().push_front(
+                luisa::make_managed<Reg2MemSpillMD>(
+                    Reg2MemSpillKind::CROSS_BLOCK));
+            b.store(second_storage, semantic_call);
+            b.return_void();
+            auto before = xir_to_text_translate(&m, true);
+
+            std::array<CallInst *, 2u> selected_calls{
+                diagnostic_call, semantic_call};
+            auto info = inline_call_sites_pass_run_on_module(
+                &m, luisa::span{selected_calls},
+                {.consume_call_site_diagnostic_metadata = true});
+            auto after = xir_to_text_translate(&m, true);
+            expect(!info.changed());
+            expect(eq(info.inlined_call_count, 0u));
+            expect(eq(
+                info.consumed_call_site_diagnostic_metadata_count, 0u));
+            expect(eq(info.skipped_metadata_call_count, 1u));
+            expect(before == after);
+            expect(eq(count_reachable_insts(
+                          caller, DerivedInstructionTag::CALL),
+                      2u));
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
     "inline_single_block_with_block_metadata_is_rejected_without_mutation"_test = [] {
         Module m;
         auto *callee = m.create_callable(Type::of<int>());
@@ -6330,6 +8100,10 @@ void reg_inline() {
         auto info = inline_call_sites_pass_run_on_module(
             &m, luisa::span{selected});
         expect(info.inlined_call_count == 1u);
+        expect(info.call_site_clone_layout_function_count == 1u);
+        expect(info.call_site_clone_layout_value_count == 7u);
+        expect(info.call_site_dense_resolver_apply_count == 1u);
+        expect(info.call_site_dense_resolver_fallback_count == 0u);
         auto annotated_block_count = size_t{0u};
         for (auto *block : caller->basic_blocks()) {
             auto *comment = block->find_metadata<CommentMD>();
@@ -6340,6 +8114,158 @@ void reg_inline() {
             }
         }
         expect(annotated_block_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_selected_calls_share_immutable_function_summary"_test = [] {
+        Module m;
+        auto *callee = m.create_callable(Type::of<uint>());
+        auto *callee_argument =
+            callee->create_value_argument(Type::of<uint>());
+        auto *callee_body = callee->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        Value *value = callee_argument;
+        constexpr auto chain_length = 64u;
+        for (auto i = 0u; i < chain_length; ++i) {
+            value = b.call(Type::of<uint>(),
+                           ArithmeticOp::BINARY_ADD,
+                           {value, one});
+        }
+        b.return_(value);
+
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        auto *caller_argument =
+            caller->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(caller_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        constexpr auto call_count = 32u;
+        luisa::vector<CallInst *> selected;
+        selected.reserve(call_count);
+        for (auto i = 0u; i < call_count; ++i) {
+            auto *call = b.call(Type::of<uint>(), callee,
+                                {caller_argument});
+            selected.emplace_back(call);
+            b.store(storage, call);
+        }
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected});
+        expect(info.inlined_call_count == call_count);
+        expect(info.removed_callable_count == 1u);
+        expect(info.call_site_summary_function_count == 1u);
+        expect(info.call_site_summary_instruction_scan_count ==
+               chain_length + 1u);
+        expect(info.call_site_cached_apply_count == call_count);
+        expect(info.call_site_revalidated_apply_count == 0u);
+        expect(info.call_site_clone_layout_function_count == 1u);
+        expect(info.call_site_clone_layout_value_count ==
+               chain_length + 3u);
+        expect(info.call_site_dense_resolver_apply_count == call_count);
+        expect(info.call_site_dense_resolver_fallback_count == 0u);
+        expect(count_reachable_insts(
+                   caller, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_selected_call_revalidates_a_mutated_callee"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *inner = m.create_callable(Type::of<uint>());
+        auto *inner_argument =
+            inner->create_value_argument(Type::of<uint>());
+        auto *inner_body = inner->create_body_block();
+        b.set_insertion_point(inner_body);
+        auto *one = m.create_constant_one(Type::of<uint>());
+        b.return_(b.call(Type::of<uint>(),
+                         ArithmeticOp::BINARY_ADD,
+                         {inner_argument, one}));
+
+        auto *middle = m.create_callable(Type::of<uint>());
+        auto *middle_argument =
+            middle->create_value_argument(Type::of<uint>());
+        auto *middle_body = middle->create_body_block();
+        b.set_insertion_point(middle_body);
+        auto *inner_call =
+            b.call(Type::of<uint>(), inner, {middle_argument});
+        b.return_(inner_call);
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        auto *kernel_argument =
+            kernel->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *middle_call =
+            b.call(Type::of<uint>(), middle, {kernel_argument});
+        b.store(storage, middle_call);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+
+        // Preflight sees the original definitions. Applying the first entry
+        // mutates `middle`, so its cached summary must be invalidated before
+        // the second entry uses `middle` as a callee.
+        std::array<CallInst *, 2u> selected{
+            inner_call, middle_call};
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected});
+        expect(info.inlined_call_count == 2u);
+        expect(info.removed_callable_count == 2u);
+        expect(info.call_site_summary_function_count == 2u);
+        expect(info.call_site_cached_apply_count == 1u);
+        expect(info.call_site_revalidated_apply_count == 1u);
+        expect(info.call_site_clone_layout_function_count == 1u);
+        expect(info.call_site_clone_layout_value_count == 4u);
+        expect(info.call_site_dense_resolver_apply_count == 1u);
+        expect(info.call_site_dense_resolver_fallback_count == 0u);
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_dense_resolver_preserves_unowned_value_fallback"_test = [] {
+        Module m;
+        XIRBuilder b;
+
+        auto *foreign = m.create_callable(Type::of<uint>());
+        auto *foreign_argument =
+            foreign->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(foreign->create_body_block());
+        b.return_(foreign_argument);
+
+        auto *callee = m.create_callable(Type::of<uint>());
+        b.set_insertion_point(callee->create_body_block());
+        // Deliberately verifier-invalid input: the return references a local
+        // value owned by another function. The historical resolver repairs
+        // an unnumbered typed local to a module undefined value; dense
+        // numbering must retain that total fallback rather than indexing it.
+        b.return_(foreign_argument);
+
+        BasicBlock *kernel_body;
+        auto *kernel = make_kernel_with_body(m, kernel_body);
+        b.set_insertion_point(kernel_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), callee, {});
+        auto *store = b.store(storage, call);
+        b.return_void();
+
+        std::array<CallInst *, 1u> selected{call};
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span{selected});
+        expect(info.inlined_call_count == 1u);
+        expect(info.removed_callable_count == 1u);
+        expect(info.call_site_clone_layout_function_count == 1u);
+        expect(info.call_site_clone_layout_value_count == 2u);
+        expect(info.call_site_dense_resolver_apply_count == 1u);
+        expect(info.call_site_dense_resolver_fallback_count == 1u);
+        expect(store->value()->isa<Undefined>());
+        expect(count_reachable_insts(
+                   kernel, DerivedInstructionTag::CALL) == 0u);
         expect(xir_verify_module(&m).succeeded());
     };
 
@@ -10691,6 +12617,8 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_pass_entry_totality();
     reg_algebraic_simplify();
+    reg_fast_math_simplify();
+    reg_select_factor();
     reg_const_fold();
     reg_dce();
     reg_gvn();
@@ -10703,6 +12631,7 @@ int main(int argc, char *argv[]) {
     reg_local_load_elimination();
     reg_local_store_forward();
     reg_dead_store_elimination();
+    reg_loop_unswitch();
     reg_loop_rotation();
     reg_scalar_evolution();
     reg_scalarizer();

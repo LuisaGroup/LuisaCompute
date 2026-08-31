@@ -2,6 +2,7 @@ set(LUISA_COMPUTE_CORO_SOURCES
         coro_compile.cpp
         coro_graph.cpp
         coro_stub.cpp
+        schedulers/graph_wavefront_policy.cpp
         schedulers/state_machine.cpp
         schedulers/wavefront.cpp
         schedulers/persistent.cpp)

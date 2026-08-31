@@ -11,6 +11,9 @@
 #include <luisa/core/stl/hash.h>
 #include <luisa/core/stl/optional.h>
 
+#include <utility>
+
+#include "coro_semantic_graph.h"
 #include "helpers.h"
 
 namespace luisa::compute::xir {
@@ -97,6 +100,44 @@ struct SCCPSolver {
     luisa::unordered_set<std::pair<BasicBlock *, BasicBlock *>, EdgeHash, EdgeEqual> executable_edges;
     luisa::vector<Instruction *> ssa_worklist;
     luisa::vector<BasicBlock *> cfg_worklist;
+    const CoroSemanticGraph *coro_graph{nullptr};
+
+    template<typename Visit>
+    void traverse_domain_blocks(FunctionDefinition *def,
+                                Visit &&visit) noexcept {
+        if (coro_graph != nullptr) {
+            for (size_t i = 0u; i < coro_graph->block_count(); ++i) {
+                visit(coro_graph->block(i));
+            }
+        } else {
+            def->traverse_basic_blocks(
+                std::forward<Visit>(visit));
+        }
+    }
+
+    template<typename Visit>
+    void traverse_domain_instructions(FunctionDefinition *def,
+                                      Visit &&visit) noexcept {
+        traverse_domain_blocks(
+            def, [&](BasicBlock *block) noexcept {
+                block->traverse_instructions(visit);
+            });
+    }
+
+    void mark_all_successors_executable(BasicBlock *block) noexcept {
+        if (coro_graph != nullptr) {
+            auto id = coro_graph->block_id(block);
+            for (auto successor : coro_graph->successors(id)) {
+                mark_edge_executable(block,
+                                     coro_graph->block(successor));
+            }
+        } else {
+            block->traverse_successors(
+                true, [&](BasicBlock *successor) noexcept {
+                    mark_edge_executable(block, successor);
+                });
+        }
+    }
 
     [[nodiscard]] LatticeValue get_lattice(Value *v) noexcept {
         if (v == nullptr) return LatticeValue::make_bottom();
@@ -291,9 +332,7 @@ struct SCCPSolver {
                 break;
             }
             default: {
-                block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
-                    mark_edge_executable(block, succ);
-                });
+                mark_all_successors_executable(block);
                 break;
             }
         }
@@ -319,7 +358,9 @@ struct SCCPSolver {
         }
     }
 
-    void solve(FunctionDefinition *def) noexcept {
+    void solve(FunctionDefinition *def,
+               const CoroSemanticGraph *semantic_graph) noexcept {
+        coro_graph = semantic_graph;
         mark_block_executable(def->body_block());
 
         while (!cfg_worklist.empty() || !ssa_worklist.empty()) {
@@ -342,7 +383,7 @@ struct SCCPSolver {
         SCCPInfo info;
         luisa::vector<Instruction *> to_replace;
         luisa::unordered_map<BasicBlock *, LoopInst *> loop_prepares;
-        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        traverse_domain_blocks(def, [&](BasicBlock *block) noexcept {
             if (block != nullptr && block->is_terminated() &&
                 block->terminator()->isa<LoopInst>()) {
                 auto *loop = static_cast<LoopInst *>(
@@ -353,7 +394,7 @@ struct SCCPSolver {
             }
         });
 
-        def->traverse_instructions([&](Instruction *inst) noexcept {
+        traverse_domain_instructions(def, [&](Instruction *inst) noexcept {
             if (inst->is_terminator()) return;
             if (inst->isa<PhiInst>() || inst->isa<ArithmeticInst>()) {
                 auto lat = get_lattice(inst);
@@ -373,7 +414,7 @@ struct SCCPSolver {
             info.folded_inst_count++;
         }
 
-        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        traverse_domain_blocks(def, [&](BasicBlock *block) noexcept {
             if (!executable_blocks.contains(block)) return;
             auto term = block->terminator();
             // Only flatten plain conditional branches. Structured terminators (IF,
@@ -426,7 +467,7 @@ struct SCCPSolver {
             info.removed_branch_count++;
         });
 
-        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        traverse_domain_blocks(def, [&](BasicBlock *block) noexcept {
             if (!executable_blocks.contains(block)) { return; }
             auto *term = block->terminator();
             if (!term->isa<IndexedBranchInst>()) { return; }
@@ -553,7 +594,8 @@ static void run_sccp_on_function(Function *function, SCCPInfo &info) noexcept {
     if (def == nullptr || def->body_block() == nullptr) return;
     SCCPSolver solver;
     solver.module = function->parent_module();
-    solver.solve(def);
+    CoroSemanticGraph coro_graph{def};
+    solver.solve(def, coro_graph.valid() ? &coro_graph : nullptr);
     auto result = solver.rewrite(def);
     info.folded_inst_count += result.folded_inst_count;
     info.removed_branch_count += result.removed_branch_count;

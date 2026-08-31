@@ -1,8 +1,9 @@
 #include "ut/ut.hpp"
 
 #include "indirect_dispatch_layout.h"
-#include "indirect_prepare_shader.h"
+#include "vulkan_builtin_contract.h"
 
+#include <cstddef>
 #include <limits>
 #include <utility>
 
@@ -29,17 +30,78 @@ int main(int argc, char *argv[]) {
             std::numeric_limits<size_t>::max(), size));
     };
 
-    "vk_indirect_prepare_hlsl_layout_tokens_are_decimal"_test = [] {
-        auto definitions =
-            lc::vk::indirect_prepare_hlsl_layout_definitions();
-        constexpr auto expected =
-            "#define LC_INDIRECT_HEADER_WORDS 1u\n"
-            "#define LC_INDIRECT_RECORD_WORDS 7u\n"
-            "#define LC_INDIRECT_LOGICAL_WORD 0u\n"
-            "#define LC_INDIRECT_GROUP_WORD 4u\n"
-            "#define LC_INDIRECT_COMMAND_WORDS 3u\n"
-            "#define LC_INDIRECT_PREPARE_BLOCK_SIZE 64u\n";
-        expect(definitions.view() == expected);
+    "vk_builtin_pipeline_contract_is_explicit"_test = [] {
+        using lc::hlsl::ShaderVariableType;
+        using lc::vk::detail::VulkanBuiltinKernel;
+        using lc::vk::detail::vulkan_builtin_buffer_properties;
+        using lc::vk::detail::vulkan_builtin_kernel_contract;
+
+        expect(eq(vulkan_builtin_buffer_properties.size(), 3u));
+        expect(vulkan_builtin_buffer_properties[0].type ==
+               ShaderVariableType::StructuredBuffer);
+        expect(eq(vulkan_builtin_buffer_properties[0].space_index, 0u));
+        expect(eq(vulkan_builtin_buffer_properties[0].register_index, 0u));
+        expect(vulkan_builtin_buffer_properties[1].type ==
+               ShaderVariableType::RWStructuredBuffer);
+        expect(eq(vulkan_builtin_buffer_properties[1].space_index, 0u));
+        expect(eq(vulkan_builtin_buffer_properties[1].register_index, 1u));
+        expect(vulkan_builtin_buffer_properties[2].type ==
+               ShaderVariableType::SamplerHeap);
+        expect(eq(vulkan_builtin_buffer_properties[2].space_index, 1u));
+        expect(eq(vulkan_builtin_buffer_properties[2].register_index, 0u));
+        expect(eq(vulkan_builtin_buffer_properties[2].array_size, 16u));
+
+        constexpr auto indirect = vulkan_builtin_kernel_contract(
+            VulkanBuiltinKernel::INDIRECT_PREPARE);
+        constexpr auto accel = vulkan_builtin_kernel_contract(
+            VulkanBuiltinKernel::ACCEL_PROCESS);
+        constexpr auto bindless = vulkan_builtin_kernel_contract(
+            VulkanBuiltinKernel::BINDLESS_UPLOAD);
+        expect(eq(indirect.block_size_x, 64u));
+        expect(eq(indirect.push_constant_size, 48u));
+        expect(eq(accel.block_size_x, 256u));
+        expect(eq(accel.push_constant_size, 8u));
+        expect(eq(bindless.block_size_x, 256u));
+        expect(eq(bindless.push_constant_size, 4u));
+    };
+
+    "vk_accel_update_input_has_portable_packed_layout"_test = [] {
+        using lc::vk::detail::VulkanAccelUpdateLayout;
+        using lc::vk::detail::VulkanAccelUpdateInput;
+        expect(eq(sizeof(VulkanAccelUpdateInput), 64u));
+        expect(eq(alignof(VulkanAccelUpdateInput), 16u));
+        expect(eq(offsetof(VulkanAccelUpdateInput, mesh), 48u));
+        expect(eq(
+            offsetof(VulkanAccelUpdateInput, index_visibility), 56u));
+        expect(eq(offsetof(VulkanAccelUpdateInput, user_id_flags), 60u));
+        expect(eq(
+            VulkanAccelUpdateInput::pack_index_visibility(
+                0x89abcdefu, 0x123u),
+            0x23abcdefu));
+        expect(eq(
+            VulkanAccelUpdateInput::pack_user_id_flags(
+                0x76543210u, 0x1abu),
+            0xab543210u));
+        constexpr auto address =
+            VulkanAccelUpdateInput::device_address_words(
+                0x0123456789abcdefull);
+        expect(eq(address[0], 0x89abcdefu));
+        expect(eq(address[1], 0x01234567u));
+        expect(eq(
+            VulkanAccelUpdateLayout::updated_contribution_offset_flags(
+                0x5a123456u,
+                VulkanAccelUpdateLayout::flag_transform),
+            0x5a000000u));
+        expect(eq(
+            VulkanAccelUpdateLayout::updated_contribution_offset_flags(
+                0x5a123456u,
+                VulkanAccelUpdateLayout::flag_opaque_on),
+            0x04000000u));
+        expect(eq(
+            VulkanAccelUpdateLayout::updated_contribution_offset_flags(
+                0x5a123456u,
+                VulkanAccelUpdateLayout::flag_opaque_off),
+            0x08000000u));
     };
 
     "vk_indirect_host_plan_clamps_maximum_to_capacity"_test = [] {

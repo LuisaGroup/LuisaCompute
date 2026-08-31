@@ -9,9 +9,10 @@ namespace lc::vk::detail {
 
 // The local descriptor binding sequence is shared by shader codegen and the
 // command encoder. Persist the producer dialect explicitly instead of
-// inferring it from incidental property-table details: native XIR shaders use
-// per-buffer metadata descriptors that HLSL/LLVM artifacts do not, while the
-// backend's builtins have a small externally-bound interface of their own.
+// inferring it from incidental property-table details: native XIR shaders may
+// use per-buffer and per-bindless-array metadata descriptors that HLSL/LLVM
+// artifacts do not, while the backend's builtins have a small externally-bound
+// interface of their own.
 enum class ShaderCodegenDialect : uint8_t {
     HLSL_SPIRV = 0u,
     XIR_SPIRV = 1u,
@@ -324,11 +325,6 @@ struct TextureDescriptorRoles {
             default: break;
         }
     }
-    if (is_native && request.use_buffer_bindless &&
-        persisted_native_bindless_metadata_count == 0u) {
-        return fail(
-            ShaderInterfaceError::NATIVE_BINDLESS_METADATA_MISMATCH);
-    }
     plan.resource_binding_count = argument_descriptor_count;
     plan.indirect_binding_count =
         plan.descriptor_interface.indirect_dispatch_binding_count;
@@ -530,8 +526,9 @@ struct TextureDescriptorRoles {
             default: break;
         }
     }
-    if (is_native && request.use_buffer_bindless &&
-        native_bindless_metadata_role_count == 0u) {
+    if (is_native &&
+        native_bindless_metadata_role_count !=
+            persisted_native_bindless_metadata_count) {
         return fail(
             ShaderInterfaceError::NATIVE_BINDLESS_METADATA_MISMATCH);
     }

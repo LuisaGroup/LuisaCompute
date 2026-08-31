@@ -5,6 +5,8 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/ast/coro_suspend.h>
+#include <luisa/coro/coro_slot_access.h>
 
 namespace luisa::compute::xir {
 class Module;
@@ -23,31 +25,111 @@ class LUISA_CORO_API CoroGraph {
 public:
     /// A node in the coroutine graph — one per continuation scope.
     struct Node {
-        size_t index{0u};               // scope index (0 = entry)
-        luisa::string name;             // suspend name (empty for entry)
-        size_t token{0u};               // suspend token value (0 for entry)
-        bool is_terminal{false};        // terminal scope (no outgoing transitions)
+        size_t index{0u};                              // scope index (0 = entry)
+        luisa::string name;                            // suspend name (empty for entry)
+        size_t token{0u};                              // suspend token value (0 for entry)
+        bool is_terminal{false};                       // terminal scope (no outgoing transitions)
         const xir::CallableFunction *callable{nullptr};// pointer to the continuation callable
         luisa::vector<size_t> input_fields;
         luisa::vector<size_t> output_fields;
+        // Physical frame fields in live_begin(scope). Unlike input_fields,
+        // this includes dormant state that passes through this continuation
+        // and is first consumed by a later one. A compacting scheduler must
+        // preserve this complete token-indexed payload while relocating a
+        // queued frame.
+        luisa::vector<size_t> relocation_fields;
         luisa::vector<size_t> targets;
 
         [[nodiscard]] auto input_field_span() const noexcept { return luisa::span{input_fields}; }
         [[nodiscard]] auto output_field_span() const noexcept { return luisa::span{output_fields}; }
+        [[nodiscard]] auto relocation_field_span() const noexcept { return luisa::span{relocation_fields}; }
         [[nodiscard]] auto target_span() const noexcept { return luisa::span{targets}; }
     };
 
     /// A directed edge between two continuation scopes.
     struct Edge {
-        size_t from_index{0u};          // source node index
-        size_t to_index{0u};            // target node index
-        luisa::vector<size_t> load_fields;  // frame fields loaded at resume
-        luisa::vector<size_t> store_fields; // frame fields stored at suspend
+        size_t from_index{0u};             // source node index
+        size_t to_index{0u};               // target node index
+        luisa::vector<size_t> load_fields; // frame fields loaded at resume
+        luisa::vector<size_t> store_fields;// frame fields stored at suspend
+    };
+
+    /// One logical data-flow set and its deduplicated projection through frame
+    /// coloring. `slots` are physical CoroFrameDesc field indices, including
+    /// the reserved-field offset convention used by frame storage helpers.
+    struct SlotSet {
+        luisa::vector<size_t> frame_values;
+        luisa::vector<size_t> slots;
+
+        [[nodiscard]] auto frame_value_span() const noexcept {
+            return luisa::span{frame_values};
+        }
+        [[nodiscard]] auto slot_span() const noexcept {
+            return luisa::span{slots};
+        }
+    };
+
+    /// Partial-frame reconstruction contract for one Extension. Logical
+    /// liveness is computed before coloring; every SlotSet is its physical
+    /// projection. `reconstruct_slots` is use.slots union RMW carriers.
+    struct Stage {
+        size_t extension_index{0u};
+        SlotSet use;
+        SlotSet def;
+        SlotSet live_in;
+        SlotSet live_out;
+        SlotSet preserve;
+        SlotSet required_def;
+        luisa::vector<size_t> rmw_slots;
+        luisa::vector<size_t> reconstruct_slots;
+
+        [[nodiscard]] auto rmw_slot_span() const noexcept {
+            return luisa::span{rmw_slots};
+        }
+        [[nodiscard]] auto reconstruct_slot_span() const noexcept {
+            return luisa::span{reconstruct_slots};
+        }
+        [[nodiscard]] auto dirty_slot_span() const noexcept {
+            return def.slot_span();
+        }
+        [[nodiscard]] auto required_writeback_slot_span() const noexcept {
+            return required_def.slot_span();
+        }
+    };
+
+    /// One static suspend instruction. Unlike Edge, boundaries are never
+    /// coalesced merely because they have the same source and destination;
+    /// complete extension objects and their typed slot projections remain
+    /// one-to-one with the source suspension site.
+    struct Boundary {
+        size_t index{0u};
+        size_t from_index{0u};
+        size_t to_index{0u};
+        size_t token{0u};
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        // Owner binding index -> typed projection into existing frame slots.
+        luisa::vector<CoroSlotAccess> bindings;
+        // Exact source spill and target-resident certificates for this static
+        // edge, followed by one partial-frame plan per Extension.
+        SlotSet source_store;
+        SlotSet target_live;
+        luisa::vector<Stage> stages;
+
+        [[nodiscard]] auto extension_span() const noexcept {
+            return luisa::span{extensions};
+        }
+        [[nodiscard]] auto binding_span() const noexcept {
+            return luisa::span{bindings};
+        }
+        [[nodiscard]] auto stage_span() const noexcept {
+            return luisa::span{stages};
+        }
     };
 
 private:
     luisa::vector<Node> _nodes;
     luisa::vector<Edge> _edges;
+    luisa::vector<Boundary> _boundaries;
     luisa::unordered_map<size_t, size_t> _token_to_index;
     luisa::unordered_map<luisa::string, size_t> _name_to_index;
 
@@ -75,12 +157,21 @@ public:
 
     [[nodiscard]] size_t edge_count() const noexcept;
     [[nodiscard]] const Edge *edge(size_t from, size_t to) const noexcept;
+    [[nodiscard]] size_t boundary_count() const noexcept {
+        return _boundaries.size();
+    }
+    [[nodiscard]] const Boundary &boundary(size_t index) const noexcept {
+        return _boundaries[index];
+    }
     [[nodiscard]] luisa::string dump() const noexcept;
 
     // --- Iterators ---
 
     [[nodiscard]] auto nodes() const noexcept { return luisa::span{_nodes}; }
     [[nodiscard]] auto edges() const noexcept { return luisa::span{_edges}; }
+    [[nodiscard]] auto boundaries() const noexcept {
+        return luisa::span{_boundaries};
+    }
 
     // --- Construction ---
 

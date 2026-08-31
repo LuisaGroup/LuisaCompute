@@ -445,6 +445,136 @@ int main(int argc, char *argv[]) {
                     .succeeded());
     };
 
+    "spirv_raw_conditional_may_exit_directly_to_enclosing_selection_merge"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *output = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *zero =
+            module.create_constant_zero(Type::of<uint32_t>());
+        auto *one =
+            module.create_constant_one(Type::of<uint32_t>());
+        const uint32_t two_value = 2u;
+        const uint32_t three_value = 3u;
+        auto *two = module.create_constant(
+            Type::of<uint32_t>(), &two_value);
+        auto *three = module.create_constant(
+            Type::of<uint32_t>(), &three_value);
+        auto *entry = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *outer = builder.if_(condition);
+        auto *raw_header = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+        auto *nested_header = kernel->create_basic_block();
+
+        builder.set_insertion_point(raw_header);
+        auto *raw_guard = builder.cond_br(
+            condition, nested_header, outer_merge);
+        builder.set_insertion_point(nested_header);
+        auto *nested = builder.if_(condition);
+        auto *nested_true = nested->create_true_block();
+        auto *nested_false = nested->create_false_block();
+        auto *nested_merge = nested->create_merge_block();
+        builder.set_insertion_point(nested_true);
+        builder.call(ResourceWriteOp::BUFFER_WRITE,
+                     {output, zero, one});
+        builder.br(nested_merge);
+        builder.set_insertion_point(nested_false);
+        builder.call(ResourceWriteOp::BUFFER_WRITE,
+                     {output, zero, two});
+        builder.br(nested_merge);
+        builder.set_insertion_point(nested_merge);
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_false);
+        builder.call(ResourceWriteOp::BUFFER_WRITE,
+                     {output, zero, three});
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true})
+                   .succeeded());
+        expect(lc::spirv::validate_spirv_xir_codegen_dialect(
+                   &module)
+                   .succeeded());
+        auto validation = lc::spirv::ControlFlowPlan::
+            validate_function_physical_loop_boundaries(kernel);
+        expect(validation.succeeded());
+        auto plan = lc::spirv::ControlFlowPlan::create(kernel);
+        auto &&targets =
+            plan.conditional_branch_targets(raw_guard);
+        expect(targets[0u] ==
+               lc::spirv::ControlFlowPlan::Target::xir(
+                   nested_header));
+        expect(targets[1u] ==
+               lc::spirv::ControlFlowPlan::Target::xir(
+                   outer_merge));
+
+        Kernel1D ast_kernel = [](BufferUInt, Bool) noexcept {};
+        kernel->set_block_size(
+            ast_kernel.function()->function().block_size());
+        auto compiled = compile_exact_xir(
+            ast_kernel.function()->function(), &module);
+        auto words = luisa::span{compiled.spv_bin};
+        expect(validates(words));
+        auto selection_merge_count =
+            count_opcode(words, spv::Op::OpSelectionMerge);
+        auto conditional_branch_count =
+            count_opcode(words, spv::Op::OpBranchConditional);
+        expect(selection_merge_count >= 2u);
+        expect(conditional_branch_count ==
+               selection_merge_count + 1u)
+            << "the residual parent-boundary guard must emit only "
+               "OpBranchConditional, without fabricating a third selection; "
+            << "selection merges=" << selection_merge_count
+            << ", conditional branches=" << conditional_branch_count;
+    };
+
+    "spirv_raw_conditional_cannot_treat_post_merge_role_as_boundary"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *entry = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *selection = builder.if_(condition);
+        auto *true_block = selection->create_true_block();
+        auto *false_block = selection->create_false_block();
+        auto *merge = selection->create_merge_block();
+        auto *post_merge = kernel->create_basic_block();
+        auto *exit = kernel->create_basic_block();
+        builder.set_insertion_point(true_block);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.br(post_merge);
+        builder.set_insertion_point(post_merge);
+        builder.cond_br(condition, merge, exit);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true})
+                   .succeeded());
+        auto validation = lc::spirv::ControlFlowPlan::
+            validate_function_physical_loop_boundaries(kernel);
+        expect(!validation.planning_succeeded());
+        expect(validation.planning_diagnostic.find(
+                   "raw ConditionalBranch") !=
+               luisa::string::npos)
+            << "a merge role is a boundary only for sources inside its "
+               "owner construct, never globally";
+    };
+
     "spirv_plan_physical_loop_boundary_rejects_post_merge_backedge"_test = [] {
         using Facts =
             lc::spirv::ControlFlowPlan::PhysicalLoopPredecessorFacts;
@@ -571,6 +701,31 @@ int main(int argc, char *argv[]) {
             lc::spirv::validate_spirv_xir_codegen_dialect(&module);
         expect(!dialect.succeeded())
             << "the nonfatal codegen boundary must reject the missing physical backedge before ControlFlowPlan::create";
+    };
+
+    "spirv_plan_rejects_global_backedge_without_physical_loop_header"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *entry = kernel->create_body_block();
+        auto *header = kernel->create_basic_block();
+        auto *latch = kernel->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.br(header);
+        builder.set_insertion_point(header);
+        builder.br(latch);
+        builder.set_insertion_point(latch);
+        builder.br(header);
+
+        expect(xir_verify_module(&module).succeeded());
+        auto validation = lc::spirv::ControlFlowPlan::
+            validate_function_physical_loop_boundaries(kernel);
+        expect(!validation.planning_succeeded());
+        expect(validation.planning_diagnostic.find(
+                   "physical backedge") != luisa::string::npos)
+            << "the backend must audit every dominance backedge, including "
+               "cycles that are absent from all declared loop predecessor "
+               "sets";
     };
 
     "spirv_plan_simple_loop_boundary_rejects_external_body_entry"_test = [] {
@@ -1353,6 +1508,219 @@ int main(int argc, char *argv[]) {
                 lc::spirv::ControlFlowPlan::create(function);
             expect(plan.loop_region(loop).physical_boundary.succeeded());
         }
+    };
+
+    "spirv_post_restructure_boundary_lowers_one_shot_loop_with_dead_update"_test = [] {
+        Module module;
+        auto *function = module.create_callable(Type::of<int32_t>());
+        auto *condition =
+            function->create_value_argument(Type::of<bool>());
+        auto *result =
+            function->create_value_argument(Type::of<int32_t>());
+        auto *entry = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        builder.set_insertion_point(prepare);
+        builder.cond_br(condition, body, merge);
+        builder.set_insertion_point(body);
+        builder.break_(merge);
+        // This syntactic backedge belongs to the declared update role, but no
+        // executable path reaches update. The physical loop therefore has one
+        // entry and zero backedges and cannot be emitted as OpLoopMerge.
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(merge);
+        builder.return_(result);
+
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+        auto before = lc::spirv::ControlFlowPlan::
+            validate_function_physical_loop_boundaries(function);
+        expect(!before.succeeded());
+        expect(before.loops.size() == 1u);
+        if (before.loops.size() == 1u) {
+            expect(before.loops.front().entry_edge_count == 1u);
+            expect(before.loops.front().backedge_edge_count == 0u);
+        }
+
+        auto canonicalized =
+            spirv::canonicalize_spirv_codegen_one_shot_loops(
+                &module);
+        expect(canonicalized.lowered_loop_count == 1u);
+        expect(canonicalized.lowered_simple_loop_count == 0u);
+        expect(canonicalized.rewritten_break_count == 1u);
+        expect(canonicalized.rewritten_continue_count == 0u);
+        auto loop_count = size_t{0u};
+        function->definition()->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                loop_count += instruction->isa<LoopInst>() ? 1u : 0u;
+            });
+        expect(loop_count == 0u);
+        expect(entry->terminator()->isa<BranchInst>());
+        expect(body->terminator()->isa<BranchInst>());
+        if (body->terminator()->isa<BranchInst>()) {
+            auto *target = static_cast<BranchInst *>(
+                               body->terminator())
+                               ->target_block();
+            luisa::unordered_set<BasicBlock *> visited;
+            while (target != merge && target != nullptr &&
+                   visited.emplace(target).second &&
+                   target->instructions().count_size() == 1u &&
+                   target->terminator()->isa<BranchInst>()) {
+                target = static_cast<BranchInst *>(
+                             target->terminator())
+                             ->target_block();
+            }
+            expect(target == merge)
+                << "selection structurization may subdivide the edge but "
+                   "must preserve its loop-merge continuation";
+        }
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+        expect(lc::spirv::validate_spirv_xir_codegen_dialect(
+                   &module)
+                   .succeeded());
+
+        auto boundary =
+            spirv::create_spirv_codegen_post_restructure_pipeline();
+        [[maybe_unused]] auto stats = boundary.run(&module);
+        expect(update->instructions().count_size() == 1u);
+        expect(update->terminator()->isa<UnreachableInst>())
+            << "the disconnected former update role must become an ordinary "
+               "true orphan after loop ownership is removed";
+        auto plan = lc::spirv::ControlFlowPlan::create(function);
+        expect(plan.loop_regions().empty());
+        expect(plan.simple_loop_regions().empty());
+    };
+
+    "spirv_one_shot_simple_loop_lowers_without_fabricating_backedge"_test = [] {
+        Module module;
+        auto *function = module.create_callable(Type::of<void>());
+        auto *entry = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *loop = builder.simple_loop();
+        auto *body = loop->create_body_block();
+        auto *merge = loop->create_merge_block();
+        builder.set_insertion_point(body);
+        builder.break_(merge);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        auto canonicalized =
+            spirv::canonicalize_spirv_codegen_one_shot_loops(
+                &module);
+        expect(canonicalized.lowered_loop_count == 0u);
+        expect(canonicalized.lowered_simple_loop_count == 1u);
+        expect(canonicalized.rewritten_break_count == 1u);
+        expect(entry->terminator()->isa<BranchInst>());
+        expect(body->terminator()->isa<BranchInst>());
+        expect(lc::spirv::validate_spirv_xir_codegen_dialect(
+                   &module)
+                   .succeeded());
+        auto plan = lc::spirv::ControlFlowPlan::create(function);
+        expect(plan.loop_regions().empty());
+        expect(plan.simple_loop_regions().empty());
+    };
+
+    "spirv_one_shot_ignores_declarative_merge_cycle"_test = [] {
+        Module module;
+        auto *function = module.create_callable(Type::of<void>());
+        auto *condition =
+            function->create_value_argument(Type::of<bool>());
+        auto *entry = function->create_body_block();
+        auto *true_arm = function->create_basic_block();
+        auto *false_arm = function->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *loop = builder.simple_loop();
+        auto *body = loop->create_body_block();
+        auto *outer_merge = loop->create_merge_block();
+        auto *dead_inner_merge = function->create_basic_block();
+        builder.set_insertion_point(body);
+        auto *selection = builder.if_(condition);
+        selection->set_true_target(true_arm);
+        selection->set_false_target(false_arm);
+        selection->set_merge_block(dead_inner_merge);
+        builder.set_insertion_point(true_arm);
+        builder.break_(outer_merge);
+        builder.set_insertion_point(false_arm);
+        builder.break_(outer_merge);
+        // This merge is a declarative role of the inner selection, not an
+        // executable successor: both arms leave through the outer Break. Its
+        // orphan edge back to body therefore cannot witness a second loop
+        // iteration.
+        builder.set_insertion_point(dead_inner_merge);
+        builder.br(body);
+        builder.set_insertion_point(outer_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+        auto canonicalized =
+            spirv::canonicalize_spirv_codegen_one_shot_loops(
+                &module);
+        expect(canonicalized.lowered_simple_loop_count == 1u)
+            << "a declarative merge operand is not an executable backedge";
+        expect(canonicalized.rewritten_break_count == 2u);
+        expect(entry->terminator()->isa<BranchInst>());
+    };
+
+    "spirv_one_shot_rejects_external_entry_into_region_interior"_test = [] {
+        Module module;
+        auto *function = module.create_callable(Type::of<void>());
+        auto *condition =
+            function->create_value_argument(Type::of<bool>());
+        auto *entry = function->create_body_block();
+        auto *loop_owner = function->create_basic_block();
+        auto *external_entry = function->create_basic_block();
+        auto *body = function->create_basic_block();
+        auto *merge = function->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.cond_br(condition, loop_owner, external_entry);
+        builder.set_insertion_point(loop_owner);
+        auto *loop = builder.simple_loop();
+        loop->set_body_block(body);
+        loop->set_merge_block(merge);
+        builder.set_insertion_point(external_entry);
+        builder.br(body);
+        builder.set_insertion_point(body);
+        builder.break_(merge);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        auto *owner_terminator = loop_owner->terminator();
+        auto *body_terminator = body->terminator();
+        auto canonicalized =
+            spirv::canonicalize_spirv_codegen_one_shot_loops(
+                &module);
+        expect(!canonicalized.changed());
+        expect(loop_owner->terminator() == owner_terminator);
+        expect(body->terminator() == body_terminator);
+        expect(loop_owner->terminator()->isa<SimpleLoopInst>())
+            << "removing loop ownership would change Break semantics on the "
+               "second executable entry";
     };
 
     "spirv_inactive_payload_cleanup_preserves_live_loop_structure"_test = [] {

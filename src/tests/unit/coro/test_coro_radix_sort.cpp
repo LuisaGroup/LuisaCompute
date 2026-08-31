@@ -133,10 +133,150 @@ void run_sort_case(Device &device, const luisa::vector<uint> &keys, uint mode,
         << label;
 }
 
+void run_repeated_uniform_bucket_case(Device &device, uint n,
+                                      uint iteration_count) {
+    constexpr uint digit_count = 2u;
+    Stream stream = device.create_stream();
+
+    auto key_input = device.create_buffer<uint>(n);
+    auto temp_key = device.create_buffer<uint>(n);
+    auto key_output = device.create_buffer<uint>(n);
+    auto value_output = device.create_buffer<uint>(n);
+
+    Callable get_key = [&](UInt index) noexcept {
+        return key_input->read(index);
+    };
+    Callable get_value = [](UInt index) noexcept {
+        return index;
+    };
+
+    auto storage = radix_sort::temp_storage{device, n, digit_count};
+    auto sorter = radix_sort::instance<>{
+        device, n, storage, &get_key, &get_value, &get_key,
+        1u, digit_count};
+
+    luisa::vector<uint> input_keys(n, 1u);
+    luisa::vector<uint> output_keys(n);
+    luisa::vector<uint> output_values(n);
+    for (auto iteration = 0u; iteration < iteration_count; iteration++) {
+        // Model a coroutine self-loop followed by its terminal transition:
+        // every frame repeatedly has the same live token, then every frame
+        // changes to the empty token at once.
+        if (iteration + 1u == iteration_count) {
+            std::fill(input_keys.begin(), input_keys.end(), 0u);
+        }
+        stream << key_input.copy_from(luisa::span{input_keys}) << synchronize();
+        // Wavefront token gathering aliases the unused bucket-mode temporary
+        // value argument with its output index queue.
+        sorter.sort(stream, temp_key.view(), value_output.view(),
+                    key_output.view(), value_output.view(), n);
+        stream << key_output.copy_to(luisa::span{output_keys})
+               << value_output.copy_to(luisa::span{output_values})
+               << synchronize();
+        auto label = luisa::format(
+            "repeated uniform bucket iteration {}", iteration);
+        expect(validate_sorted_key_values(
+                   label, input_keys, output_keys, output_values))
+            << label;
+    }
+}
+
+void run_bucket_indirect_self_loop_case(Device &device, uint n,
+                                        uint round_count) {
+    constexpr uint digit_count = 2u;
+    Stream stream = device.create_stream();
+
+    auto token = device.create_buffer<uint>(n);
+    auto counter = device.create_buffer<uint>(n);
+    auto temp_key = device.create_buffer<uint>(n);
+    auto key_output = device.create_buffer<uint>(n);
+    auto index_queue = device.create_buffer<uint>(n);
+
+    Callable get_key = [&](UInt index) noexcept {
+        return token->read(index);
+    };
+    Callable get_value = [](UInt index) noexcept {
+        return index;
+    };
+    auto storage = radix_sort::temp_storage{device, n, digit_count};
+    auto sorter = radix_sort::instance<>{
+        device, n, storage, &get_key, &get_value, &get_key,
+        1u, digit_count};
+
+    Kernel1D resume = [](BufferUInt indices, BufferUInt counters,
+                         BufferUInt tokens, UInt offset, UInt count,
+                         UInt terminal_round) noexcept {
+        auto lane = dispatch_x();
+        $if (lane >= count) { $return(); };
+        auto frame = indices.read(offset + lane);
+        auto next_counter = counters.read(frame) + 1u;
+        counters.write(frame, next_counter);
+        tokens.write(frame, ite(next_counter < terminal_round, 1u, 0u));
+    };
+    auto resume_shader = device.compile(resume);
+
+    luisa::vector<uint> initial_token(n, 1u);
+    luisa::vector<uint> initial_counter(n, 0u);
+    stream << token.copy_from(luisa::span{initial_token})
+           << counter.copy_from(luisa::span{initial_counter})
+           << synchronize();
+
+    uint offsets[digit_count]{};
+    for (auto round = 0u; round < round_count; round++) {
+        sorter.sort(stream, temp_key.view(), index_queue.view(),
+                    key_output.view(), index_queue.view(), n);
+        stream << storage.hist_buffer.view().subview(0u, digit_count)
+                      .copy_to(luisa::span{offsets, digit_count})
+               << synchronize();
+        auto live_count = n - offsets[1u];
+        expect(live_count == n)
+            << "all self-loop frames must remain live before the terminal round";
+        stream << resume_shader(index_queue, counter, token, offsets[1u],
+                                live_count, round_count)
+                      .dispatch(live_count);
+    }
+
+    sorter.sort(stream, temp_key.view(), index_queue.view(),
+                key_output.view(), index_queue.view(), n);
+    luisa::vector<uint> final_token(n);
+    luisa::vector<uint> final_counter(n);
+    stream << storage.hist_buffer.view().subview(0u, digit_count)
+                  .copy_to(luisa::span{offsets, digit_count})
+           << token.copy_to(luisa::span{final_token})
+           << counter.copy_to(luisa::span{final_counter})
+           << synchronize();
+    auto correct = true;
+    for (auto i = 0u; i < n; i++) {
+        if (final_token[i] != 0u || final_counter[i] != round_count) {
+            LUISA_WARNING(
+                "indirect self-loop mismatch at {}: token={}, counter={}, expected counter={}",
+                i, final_token[i], final_counter[i], round_count);
+            correct = false;
+            break;
+        }
+    }
+    if (offsets[1u] != n) {
+        LUISA_WARNING(
+            "indirect self-loop retained {} live frames after {} rounds",
+            n - offsets[1u], round_count);
+    }
+    expect(offsets[1u] == n)
+        << "the terminal transition must drain the indirect queue";
+    expect(correct)
+        << "sorted indirect updates must visit each frame exactly once per round";
+}
+
 void reg_coro_radix_sort(luisa::test::coro_test::Options options) {
 
     "coro_radix_sort_repeated_compilation_preserves_required_subgroup_size"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
+        if (dc.device.compute_warp_size() != radix_sort::warp_size) {
+            // This test intentionally exercises the one-sweep subgroup
+            // contract. The bucket regressions below must still run on such
+            // devices because bucket sorting has no subgroup dependency.
+            expect(true);
+            return;
+        }
         auto output = dc.device.create_buffer<uint>(1u);
         Kernel1D kernel = [](BufferUInt result) noexcept {
             set_block_size(radix_sort::warp_size);
@@ -171,8 +311,22 @@ void reg_coro_radix_sort(luisa::test::coro_test::Options options) {
                       "bucket sort_switch non-power-of-two");
     };
 
+    "coro_radix_sort_bucket_repeated_full_contention_is_permutation"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        run_repeated_uniform_bucket_case(dc.device, 12288u, 12u);
+    };
+
+    "coro_radix_sort_bucket_indirect_self_loop_drains"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        run_bucket_indirect_self_loop_case(dc.device, 12288u, 11u);
+    };
+
     "coro_radix_sort_radix_direct_multiblock"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
+        if (dc.device.compute_warp_size() != radix_sort::warp_size) {
+            expect(true);
+            return;
+        }
         auto keys = make_radix_keys(5003u);
         run_sort_case(dc.device, keys, 0u, radix_sort::hist_block_size, 0u, 10u,
                       SortDispatch::direct, "radix direct multiblock");
@@ -180,9 +334,29 @@ void reg_coro_radix_sort(luisa::test::coro_test::Options options) {
 
     "coro_radix_sort_radix_switch_multiblock"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
+        if (dc.device.compute_warp_size() != radix_sort::warp_size) {
+            expect(true);
+            return;
+        }
         auto keys = make_radix_keys(5003u);
         run_sort_case(dc.device, keys, 0u, radix_sort::hist_block_size, 0u, 10u,
                       SortDispatch::switch_buffers, "radix sort_switch multiblock");
+    };
+
+    "coro_radix_sort_radix_switch_scheduler_scale"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        if (dc.device.compute_warp_size() != radix_sort::warp_size) {
+            expect(true);
+            return;
+        }
+        // Psycles submits at most 130560 path states in one Metal-safe
+        // dispatch. This creates enough one-sweep blocks to exceed normal GPU
+        // residency and exercises the inter-block publication protocol that
+        // a two-block smoke test cannot cover.
+        auto keys = make_radix_keys(130560u);
+        run_sort_case(dc.device, keys, 0u, radix_sort::hist_block_size, 0u, 9u,
+                      SortDispatch::switch_buffers,
+                      "radix sort_switch scheduler scale");
     };
 }
 

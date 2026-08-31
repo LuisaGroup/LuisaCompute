@@ -878,6 +878,11 @@ Var<CommittedHit> hit = accel
     .trace();  // Execute traversal, returns CommittedHit
 ```
 
+This form deliberately keeps the complete candidate-handler scopes attached
+to one structured ray-query statement. A backend may therefore outline or
+fuse those handlers with its native traversal pipeline without changing DSL
+semantics. Native packet width and callback ABI remain backend details.
+
 ### SurfaceCandidate
 
 A `SurfaceCandidate` represents a potential triangle or curve intersection:
@@ -923,6 +928,53 @@ Callable shadow_test = [&](Var<Accel> accel, Var<Ray> ray,
 ### Handler Ordering
 
 You can register handlers in any order — either `.on_surface_candidate()` first or `.on_procedural_candidate()` first. You may also omit a handler entirely if your scene only contains triangles or only procedural geometry.
+
+### Explicit Query Loops
+
+The lower-level `query()` and `query_any()` APIs expose the traversal state
+when an algorithm needs to spell out `proceed()` explicitly. Motion variants
+are available as `query_motion()` and `query_any_motion()`.
+
+```cpp
+auto query = accel.query(ray, AccelTraceOptions{});
+$while (query.proceed()) {
+    $if (query.is_surface_candidate()) {
+        auto candidate = query.surface_candidate();
+        $if (accept_surface(candidate.hit())) {
+            candidate.commit();
+        };
+    }
+    $else {
+        auto candidate = query.procedural_candidate();
+        Float distance = intersect_procedural(candidate.ray(), candidate.hit());
+        $if (distance >= 0.0f) {
+            candidate.commit(distance);
+        };
+    };
+};
+auto hit = query.committed_hit();
+```
+
+Explicit query objects are affine and cannot be copied. For portable backend
+lowering, the loop must use the exact `$while (query.proceed())` guard and
+immediately split the published candidate with an if/else on
+`is_surface_candidate()` or `is_procedural_candidate()` for that same query.
+Candidate work belongs in those two arms. A shared payload before or after the
+split, a cross-boundary `break`/`continue`/`return`, or a nested `proceed()` is
+rejected instead of being assigned backend-dependent semantics. Prefer the
+builder-pattern `traverse()` API when explicit traversal state is unnecessary;
+unlike that structured form, every successful `proceed()` is observable and
+must not be silently fused across user code.
+
+The `$while` DSL records its original condition as optimization provenance
+while retaining the same explicit guard in the AST. AST-to-XIR preflights all
+marked query loops in a function before changing representation. If every
+candidate has the exact shape above, it emits `RayQueryLoopInst` directly; a
+malformed or unsupported candidate leaves the complete function on the
+ordinary-loop route. Serialized ASTs and other producers may omit the hint:
+the explicit guard remains authoritative and the fail-closed XIR
+reconstruction pass provides the compatibility path. This frontend boundary
+does not encode SIMD width, Embree ABI, or backend profitability policy.
 
 ## Runtime Polymorphism
 

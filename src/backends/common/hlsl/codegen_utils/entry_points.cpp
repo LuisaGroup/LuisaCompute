@@ -20,29 +20,6 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) { return {};
 }// namespace lc_hlsl
 #endif
 namespace lc::hlsl {
-#ifdef LUISA_ENABLE_IR
-void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
-    if (f.requires_autodiff())
-        traverse_expressions<true>(
-            f.body(),
-            [&](auto expr) noexcept {
-                if (expr->tag() == Expression::Tag::CALL) {
-                    if (auto call = static_cast<const CallExpr *>(expr);
-                        call->op() == CallOp::GRADIENT ||
-                        call->op() == CallOp::GRADIENT_MARKER ||
-                        call->op() == CallOp::REQUIRES_GRADIENT) {
-                        LUISA_ASSERT(!call->arguments().empty() &&
-                                         call->arguments().front()->tag() == Expression::Tag::REF,
-                                     "Invalid gradient function call.");
-                        auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
-                        gradient_variables.emplace(v);
-                    }
-                }
-            },
-            [](auto) noexcept {},
-            [](auto) noexcept {});
-}
-#endif
 vstd::string_view CodegenUtility::ReadInternalHLSLFile(vstd::string_view name) {
     auto data = lc_hlsl::get_hlsl_builtin(name);
     return {static_cast<char const *>(data.ptr), data.size};
@@ -101,6 +78,8 @@ size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRast
         // Vulkan versions typed bindless descriptors per slot. DXIL keeps its
         // established contiguous base+slot ABI.
         builder << "#define LUISA_SPIRV_TYPED_BINDLESS_INDIRECT 1\n";
+        // DX root UAVs do not carry a view size for capacity queries.
+        builder << "#define LUISA_INDIRECT_DISPATCH_BOUNDS_CHECK 1\n";
         builder << CodegenUtility::ReadInternalHLSLFile("spv_alias");
     }
     if (is_spirv && ops.test(CallOp::ASYNC_COPY)) {
@@ -186,11 +165,12 @@ bool IsCBuffer(Variable::Tag t);
 }// namespace detail
 
 // Main compute kernel codegen
-CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info) {
+CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
+    opt->enable_fast_math = enable_fast_math;
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
@@ -300,12 +280,13 @@ uint4 v;
 
 // Ray tracing pipeline codegen for motion blur
 // Generates a lib_6_5 HLSL with raygen/miss/closesthit entry points
-CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info) {
+CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->noRegister = noRegister;
     opt->isRayTracing = true;
     opt->enable_debug_info = enable_debug_info;
+    opt->enable_fast_math = enable_fast_math;
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
@@ -396,10 +377,12 @@ CodegenResult CodegenUtility::RasterCodegen(
     uint custom_mask,
     bool isSpirV,
     bool noRegister,
-    bool enable_debug_info) {
+    bool enable_debug_info,
+    bool enable_fast_math) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->enable_debug_info = enable_debug_info;
+    opt->enable_fast_math = enable_fast_math;
     // CodegenStackData::ThreadLocalSpirv() = false;
     opt->kernel = vertFunc;
     opt->noRegister = noRegister;
@@ -428,13 +411,17 @@ CodegenResult CodegenUtility::RasterCodegen(
     auto v2pType = vertFunc.return_type();
     if (v2pType->is_structure()) {
         opt->internalStruct.emplace(v2pType, "v2p");
-        if (v2pType->members().size() != v2pType->member_attributes().size()) [[unlikely]] {
-            LUISA_ERROR("Vertex-to-pixel structure's attribute size is illegal.");
-        }
+        auto const &v2pMembers = v2pType->members();
+        auto const &v2pAttrs = v2pType->member_attributes();
+        // If member_attributes are not set (e.g. from DSL LUISA_STRUCT without
+        // Clang annotations), default: member 0 = position, rest = TEXCOORDs.
+        bool hasAttrs = (v2pMembers.size() == v2pAttrs.size());
         size_t memberIdx = 0;
         bool pos = false;
-        for (auto &&i : v2pType->members()) {
-            bool is_sv_pos = v2pType->member_attributes()[memberIdx].key == "position"sv;
+        for (auto &&i : v2pMembers) {
+            bool is_sv_pos = hasAttrs
+                ? (v2pAttrs[memberIdx].key == "position"sv)
+                : (memberIdx == 0); // default: first member is SV_POSITION
             if (!is_sv_pos && opt->isSpirv) {
                 codegenData << luisa::format("[[vk::location({})]] ", memberIdx - 1);
             }
@@ -490,43 +477,83 @@ uint obj_id:register(b0);
     if (appdataType->is_structure()) {
         auto appdataAttris = appdataType->member_attributes();
         auto appdataMems = appdataType->members();
-        if (appdataAttris.size() != appdataMems.size()) [[unlikely]] {
-            LUISA_ERROR("Mesh-to-vertex structure must have attributes.");
-        }
+        bool hasAppAttrs = (appdataAttris.size() == appdataMems.size());
+        // Default attribute keys when DSL LUISA_STRUCT doesn't provide member_attributes.
+        // Matches the standard AppData layout used in raster_kernel.h.
+        static constexpr vstd::string_view defaultAppKeys[] = {
+            "position"sv, "normal"sv, "tangent"sv, "color"sv,
+            "uv0"sv, "vertex_id"sv, "instance_id"sv, "is_front_face"sv};
+        static constexpr vstd::string_view uintSVKeys[] = {
+            "instance_id"sv, "vertex_id"sv, "is_front_face"sv};
+        size_t uintSVIdx = 0; // tracks which SV_* key to assign for uint members
         opt->internalStruct.try_emplace(appdataType, "_mesh");
         codegenData << "struct _mesh{\n"sv;
-        for (auto i : vstd::range(appdataAttris.size())) {
+        for (auto i : vstd::range(appdataMems.size())) {
             auto member = appdataMems[static_cast<size_t>(i)];
-            auto &attr = appdataAttris[static_cast<size_t>(i)];
-            if (attr.key.empty()) [[unlikely]] {
-                LUISA_ERROR("Mesh-to-vertex structure member {} miss attributes.", static_cast<int64_t>(i));
+            vstd::string_view attrKey;
+            if (hasAppAttrs) {
+                attrKey = appdataAttris[static_cast<size_t>(i)].key;
+                if (attrKey.empty()) [[unlikely]] {
+                    LUISA_ERROR("Mesh-to-vertex structure member {} miss attributes.", static_cast<int64_t>(i));
+                }
+            } else {
+                // Default: use index into standard AppData layout
+                attrKey = (i < std::size(defaultAppKeys)) ? defaultAppKeys[i] : "uv0"sv;
+                // Type-based correction for custom minimal AppData structs:
+                // If a uint member would be mapped to a non-SV semantic (POSITION, NORMAL, etc.)
+                // redirect it to the next available SV_* semantic (instance_id, vertex_id, etc.)
+                // since uint members in mesh input are typically system-generated values.
+                if (member == Type::of<uint>()) {
+                    auto testIter = attributes.find(attrKey);
+                    if (testIter != attributes.end()) {
+                        auto sem = testIter->second.first; // e.g. "NORMAL", "SV_InstanceID"
+                        if (sem.size() < 3 || !(sem[0] == 'S' && sem[1] == 'V' && sem[2] == '_')) {
+                            // uint mapped to non-SV semantic — redirect to SV_* key
+                            if (uintSVIdx < std::size(uintSVKeys)) {
+                                attrKey = uintSVKeys[uintSVIdx++];
+                            }
+                        }
+                    }
+                }
             }
-            if (!(member->is_scalar() || member->is_vector())) [[unlikely]] {
+            if (!member->is_scalar() && !member->is_vector() && !member->is_array()) [[unlikely]] {
                 LUISA_ERROR("Mesh-to-vertex structure do not support type {}", member->description());
             }
 
-            auto iter = attributes.find(attr.key);
+            auto iter = attributes.find(attrKey);
             if (iter == attributes.end()) [[unlikely]] {
-                LUISA_ERROR("Invalid attribute: {}", attr.key);
+                LUISA_ERROR("Invalid attribute: {}", attrKey);
             }
 
-            if (iter->second.second && iter->second.second != member) [[unlikely]] {
-                LUISA_ERROR("Attribute {} type {} mismatch with {}", attr.key, iter->second.second->description(), member->description());
+            // For array members, check element type instead of the array itself
+            auto typeForCheck = member->is_array() ? member->element() : member;
+            if (iter->second.second && iter->second.second != typeForCheck) [[unlikely]] {
+                LUISA_ERROR("Attribute {} type {} mismatch with {}", attrKey, iter->second.second->description(), member->description());
             }
             if (opt->isSpirv) {
                 codegenData << luisa::format("[[vk::location({})]] ", i);
             }
-            GetTypeName(*member, codegenData, Usage::READ);
-            codegenData
-                << " v"sv << vstd::to_string(i) << ':'
-                << iter->second.first
-                << ";\n"sv;
+            if (member->is_array()) {
+                // Emit as: elemType vN[arraySize] : SEMANTIC;
+                auto elemType = member->element();
+                GetTypeName(*elemType, codegenData, Usage::READ);
+                codegenData
+                    << " v"sv << vstd::to_string(i)
+                    << '[' << vstd::to_string(member->dimension()) << "]:"
+                    << iter->second.first
+                    << ";\n"sv;
+            } else {
+                GetTypeName(*member, codegenData, Usage::READ);
+                codegenData
+                    << " v"sv << vstd::to_string(i) << ':'
+                    << iter->second.first
+                    << ";\n"sv;
+            }
         }
         codegenData << "};\n";
     } else {
         LUISA_ERROR("Mesh-to-vertex must be a structure");
     }
-
     auto vertRange = vstd::make_ite_range(vert_args.subspan(1)).i_range();
     auto pixelRange = vstd::make_ite_range(pixelFunc.arguments().subspan(1)).i_range();
     std::initializer_list<vstd::IRange<Variable> *> funcs = {&vertRange, &pixelRange};
@@ -539,7 +566,10 @@ uint obj_id:register(b0);
         uint64_t vert_hash = vertFunc.hash();
         uint64_t pixel_hash = pixelFunc.hash();
         uint64_t hashes[] = {vert_hash, pixel_hash};
-        GenerateCBuffer(funcs, varData, enable_debug_info, validation_count, hashes);
+        auto cbufferVertRange = vstd::make_ite_range(vert_args.subspan(1)).i_range();
+        auto cbufferPixelRange = vstd::make_ite_range(pixelFunc.arguments().subspan(1)).i_range();
+        std::initializer_list<vstd::IRange<Variable> *> cbufferFuncs = {&cbufferVertRange, &cbufferPixelRange};
+        GenerateCBuffer(cbufferFuncs, varData, enable_debug_info, validation_count, hashes);
     }
 
     opt->appdataId = vert_args[0].uid();
@@ -548,12 +578,10 @@ uint obj_id:register(b0);
     codegenData << "#elif defined(PS)\n"sv;
     size_t vert_arg_offset = 0;
     for (auto &i : vert_args.subspan(1)) {
-        if (detail::IsCBuffer(i.tag())) {
-            vert_arg_offset += 1;
-        }
+        vert_arg_offset = std::max(vert_arg_offset, static_cast<size_t>(i.uid() + 1));
     }
     opt->argOffset = vert_arg_offset;
-    CodegenPixel(pixelFunc, codegenData, nonEmptyCbuffer);
+    CodegenPixel(pixelFunc, codegenData, nonEmptyCbuffer || enable_debug_info);
     codegenData << "#endif\n"sv;
 
     opt->funcType = CodegenStackData::FuncType::Callable;
@@ -562,7 +590,13 @@ uint obj_id:register(b0);
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
     PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer || enable_debug_info, true, isSpirV, bind_count);
+    // Reset argOffset for vertex function properties so buffer/texture names
+    // use raw UIDs. Pixel function properties get offset UIDs to avoid
+    // name collisions when both stages have resource variables with the same UID.
+    auto savedArgOffset = opt->argOffset;
+    opt->argOffset = 0;
     CodegenProperties(properties, varData, vertFunc, 1, indexer, bind_count);
+    opt->argOffset = savedArgOffset;
     CodegenProperties(properties, varData, pixelFunc, 1, indexer, bind_count);
     PostprocessCodegenProperties(finalResult, false);
     finalResult << varData << incrementalFunc << codegenData;
@@ -570,6 +604,10 @@ uint obj_id:register(b0);
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
     }
+    // Fresh ranges for GetTypeMD5 (also consumes the iterator)
+    auto vr3 = vstd::make_ite_range(vert_args.subspan(1)).i_range();
+    auto pr3 = vstd::make_ite_range(pixelFunc.arguments().subspan(1)).i_range();
+    std::initializer_list<vstd::IRange<Variable> *> funcs3 = {&vr3, &pr3};
     return {
         std::move(finalResult),
         std::move(opt->printer),
@@ -580,7 +618,7 @@ uint obj_id:register(b0);
         opt->use_8bit,
         validation_count,
         immutableHeaderSize,
-        GetTypeMD5(funcs)};
+        GetTypeMD5(funcs3)};
 }
 
 void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty, bool codegen_self) {
@@ -596,10 +634,6 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
             i.decode(printer);
             result << ";\n"sv;
         }
-#ifdef LUISA_ENABLE_IR
-        vstd::unordered_set<Variable> grad_vars;
-        glob_variables_with_grad(func, grad_vars);
-#endif
         if (func.tag() == Function::Tag::KERNEL) {
             opt->funcType = CodegenStackData::FuncType::Kernel;
             if (opt->isRayTracing) {
@@ -669,11 +703,7 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
 
             StringStateVisitor vis(func, result, this);
             vis.sharedVariables = &opt->sharedVariable;
-            vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-                grad_vars,
-#endif
-                func);
+            vis.VisitFunction(func);
         }
         result << "}\n"sv;
     };

@@ -7,8 +7,8 @@ namespace luisa::compute {
 namespace detail {
 
 [[nodiscard]] inline auto &callable_library_function_builder_deserialize_stack() noexcept {
-    static thread_local luisa::vector<FunctionBuilder *> stack;
-    return stack;
+    static thread_local luisa::vector<FunctionBuilder *> callable_library_stack;
+    return callable_library_stack;
 }
 
 [[nodiscard]] inline auto callable_library_function_builder_deserialize_stack_top() noexcept {
@@ -554,12 +554,121 @@ template<>
 void CallableLibrary::ser_value(SuspendStmt const &t, luisa::vector<std::byte> &vec) noexcept {
     ser_value(t._token, vec);
     ser_value(t._name, vec);
+    ser_value(t._frame_exports.size(), vec);
+    for (auto &&frame_export : t._frame_exports) {
+        ser_value(frame_export.name, vec);
+        ser_value(*frame_export.value, vec);
+    }
+    ser_value(t._extensions.size(), vec);
+    for (auto &&extension : t._extensions) {
+        ser_value(luisa::string{extension->schema()}, vec);
+        ser_value(extension->version(), vec);
+        ser_value(extension->is_annotation(), vec);
+        ser_value(extension->fallback(), vec);
+        ser_value(extension->bindings().size(), vec);
+        for (auto &&binding : extension->bindings()) {
+            ser_value(binding.name, vec);
+            ser_value(binding.access, vec);
+            ser_value(binding.lifetime, vec);
+            ser_value(binding.index, vec);
+        }
+        ser_value(extension->attributes().size(), vec);
+        for (auto &&attribute : extension->attributes()) {
+            ser_value(attribute.name, vec);
+            ser_value(static_cast<uint8_t>(attribute.value.index()), vec);
+            luisa::visit(
+                [&](auto &&value) noexcept { ser_value(value, vec); },
+                attribute.value);
+        }
+    }
+    ser_value(t._extension_binding_values.size(), vec);
+    for (auto *value : t._extension_binding_values) {
+        ser_value(*value, vec);
+    }
 }
 template<>
 void CallableLibrary::deser_ptr(SuspendStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
-    (void)pack;
     obj->_token = deser_value<uint32_t>(ptr, pack);
     obj->_name = deser_value<luisa::string>(ptr, pack);
+    auto count = deser_value<size_t>(ptr, pack);
+    obj->_frame_exports.reserve(count);
+    for (size_t i = 0u; i < count; ++i) {
+        auto name = deser_value<luisa::string>(ptr, pack);
+        auto *value = deser_value<Expression const *>(ptr, pack);
+        obj->_frame_exports.emplace_back(CoroFrameExport{
+            .value = value, .name = std::move(name)});
+        if (value != nullptr) { value->mark(Usage::READ); }
+    }
+    auto extension_count = deser_value<size_t>(ptr, pack);
+    obj->_extensions.reserve(extension_count);
+    for (size_t i = 0u; i < extension_count; ++i) {
+        auto schema = deser_value<luisa::string>(ptr, pack);
+        auto version = deser_value<uint32_t>(ptr, pack);
+        auto is_annotation = deser_value<bool>(ptr, pack);
+        auto fallback = deser_value<CoroSuspendFallback>(ptr, pack);
+        auto binding_count = deser_value<size_t>(ptr, pack);
+        luisa::vector<CoroSuspendBinding> bindings;
+        bindings.reserve(binding_count);
+        for (size_t j = 0u; j < binding_count; ++j) {
+            auto name = deser_value<luisa::string>(ptr, pack);
+            auto access =
+                deser_value<CoroSuspendBindingAccess>(ptr, pack);
+            auto lifetime =
+                deser_value<CoroSuspendBindingLifetime>(ptr, pack);
+            auto index = deser_value<uint32_t>(ptr, pack);
+            bindings.emplace_back(CoroSuspendBinding{
+                .name = std::move(name),
+                .access = access,
+                .lifetime = lifetime,
+                .index = index});
+        }
+        auto attribute_count = deser_value<size_t>(ptr, pack);
+        luisa::vector<CoroSuspendAttribute> attributes;
+        attributes.reserve(attribute_count);
+        for (size_t j = 0u; j < attribute_count; ++j) {
+            auto name = deser_value<luisa::string>(ptr, pack);
+            auto tag = deser_value<uint8_t>(ptr, pack);
+            CoroSuspendAttributeValue value;
+            switch (tag) {
+                case 0u: value = deser_value<bool>(ptr, pack); break;
+                case 1u: value = deser_value<int64_t>(ptr, pack); break;
+                case 2u: value = deser_value<uint64_t>(ptr, pack); break;
+                case 3u: value = deser_value<double>(ptr, pack); break;
+                case 4u:
+                    value = deser_value<luisa::string>(ptr, pack);
+                    break;
+                default:
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Invalid coroutine suspend attribute tag {}.",
+                        tag);
+            }
+            attributes.emplace_back(CoroSuspendAttribute{
+                .name = std::move(name), .value = std::move(value)});
+        }
+        auto extension = is_annotation ?
+                             make_coro_suspend_annotation_data(
+                                 std::move(schema), version, fallback,
+                                 std::move(bindings),
+                                 std::move(attributes)) :
+                             make_coro_suspend_extension_data(
+                                 std::move(schema), version, fallback,
+                                 std::move(bindings),
+                                 std::move(attributes));
+        obj->_extensions.emplace_back(std::move(extension));
+    }
+    auto binding_value_count = deser_value<size_t>(ptr, pack);
+    obj->_extension_binding_values.reserve(binding_value_count);
+    for (size_t i = 0u; i < binding_value_count; ++i) {
+        obj->_extension_binding_values.emplace_back(
+            deser_value<Expression const *>(ptr, pack));
+    }
+    // Function-level variable usages are serialized separately and were
+    // restored before the statement tree. Validate the extension payload here
+    // without calling Expression::mark: the ordinary FunctionBuilder stack is
+    // intentionally not active during CallableLibrary deserialization, and a
+    // temporary FunctionStackGuard would finalize/hash a partially populated
+    // builder when it leaves this nested statement routine.
+    obj->_validate_extension_bindings();
 }
 template<>
 void CallableLibrary::ser_value(AutoDiffStmt const &t, luisa::vector<std::byte> &vec) noexcept {

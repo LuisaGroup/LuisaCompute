@@ -1,6 +1,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/ast/external_function.h>
 #include <luisa/ast/statement.h>
 #include <luisa/ast/function.h>
@@ -9,6 +10,8 @@
 #include <luisa/xir/metadata/comment.h>
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/translators/ast2xir.h>
+
+#include "ast2xir_inline_ray_query.h"
 
 namespace luisa::compute::xir {
 
@@ -20,13 +23,50 @@ public:
         BasicBlock *continue_target{nullptr};
     };
 
+    class VariableBindings {
+
+    private:
+        // Variable equality is exactly UID equality, and FunctionBuilder
+        // assigns UIDs monotonically within one function. Current instances
+        // are function-local, so a direct UID index is the complete key; null
+        // slots represent builtin-variable gaps that are resolved separately.
+        luisa::vector<Value *> _values;
+
+    public:
+        [[nodiscard]] Value *lookup(Variable variable) const noexcept {
+            auto uid = static_cast<size_t>(variable.uid());
+            return uid < _values.size() ? _values[uid] : nullptr;
+        }
+
+        [[nodiscard]] bool contains(Variable variable) const noexcept {
+            return lookup(variable) != nullptr;
+        }
+
+        [[nodiscard]] Value *bind(Variable variable,
+                                  Value *value) noexcept {
+            LUISA_ASSERT(value != nullptr,
+                         "Cannot bind an AST variable to a null XIR value.");
+            auto uid = static_cast<size_t>(variable.uid());
+            if (uid >= _values.size()) {
+                _values.resize(uid + 1u, nullptr);
+            }
+            LUISA_ASSERT(
+                _values[uid] == nullptr,
+                "AST variable UID {} was bound more than once in one function.",
+                variable.uid());
+            _values[uid] = value;
+            return value;
+        }
+    };
+
     struct Current {
         FunctionDefinition *f{nullptr};
         const ASTFunction *ast{nullptr};
-        const RayQueryStmt *rq{nullptr};
+        const Statement *rq{nullptr};
         BreakContinueTarget break_continue_target;
-        luisa::unordered_map<Variable, Value *> variables;
+        VariableBindings variables;
         luisa::vector<const CommentStmt *> comments;
+        detail::InlineRayQueryASTLoopMap inline_ray_query_loops;
     };
 
     struct TypedLiteral {
@@ -68,6 +108,7 @@ private:
     [[maybe_unused]] AST2XIRConfig _config;
     luisa::unique_ptr<Module> _module;
     luisa::unordered_map<const compute::detail::FunctionBuilder *, Function *> _generated_functions;
+    luisa::unordered_map<uint64_t, Function *> _generated_callable_definitions;
     luisa::unordered_map<uint64_t, ExternalFunction *> _generated_external_functions;
     luisa::unordered_map<ConstantData, Constant *> _generated_constants;
     luisa::unordered_map<TypedLiteral, Constant *> _generated_literals;
@@ -76,6 +117,17 @@ private:
     Current _current;
 
 private:
+    void _prepare_inline_ray_query_loops() noexcept {
+        _current.inline_ray_query_loops.clear();
+        if (_config.preserve_inline_ray_query_loops &&
+            _current.ast->direct_builtin_callables().test(
+                CallOp::RAY_QUERY_PROCEED)) {
+            static_cast<void>(detail::analyze_inline_ray_query_ast(
+                _current.ast->body(),
+                _current.inline_ray_query_loops));
+        }
+    }
+
     [[nodiscard]] Value *_translate_unary_expr(XIRBuilder &b, const UnaryExpr *expr) noexcept {
         auto operand = _translate_expression(b, expr->operand(), true);
         if (expr->op() == UnaryOp::PLUS) { return operand; }// +x is just x in SSA
@@ -295,9 +347,15 @@ private:
     [[nodiscard]] Value *_translate_ref_expr(XIRBuilder &b, const RefExpr *expr, bool load_lval) noexcept {
         auto ast_var = expr->variable();
         LUISA_ASSERT(ast_var.type() == expr->type(), "Variable type mismatch.");
-        if (auto iter = _current.variables.find(ast_var); iter != _current.variables.end()) {
-            auto var = iter->second;
-            return load_lval && var->is_lvalue() ? b.load(expr->type(), var) : var;
+        if (auto var = _current.variables.lookup(ast_var)) {
+            // Cooperative vector/matrix references are represented as plain
+            // uint32 byte offsets in XIR; the static reference metadata is
+            // attached to the cooperative operation call sites instead.
+            auto load_type = ast_var.type()->is_cooperative_vector_ref() ||
+                                     ast_var.type()->is_cooperative_matrix_ref() ?
+                                 Type::of<uint32_t>() :
+                                 expr->type();
+            return load_lval && var->is_lvalue() ? b.load(load_type, var) : var;
         }
         return _translate_builtin_variable(ast_var);
     }
@@ -352,6 +410,11 @@ private:
             }
             return b.call(f->type(), f, args);
         }
+        auto ast_op = expr->op();
+        auto bindless_access = BindlessResourceAccess{
+            .typed = is_typed_bindless_resource_call(ast_op),
+            .uniform = is_uniform_bindless_resource_call(ast_op)};
+        auto canonical_op = canonical_bindless_resource_call(ast_op);
         auto alu_call = [&](ArithmeticOp target_op) noexcept {
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
@@ -392,9 +455,10 @@ private:
                 args.emplace_back(arg);
             }
             if constexpr (std::is_same_v<ResourceOp, ResourceWriteOp>) {
-                return b.call(target_op, args);
+                return b.call(target_op, args, bindless_access);
             } else {
-                return b.call(expr->type(), target_op, args);
+                return b.call(
+                    expr->type(), target_op, args, bindless_access);
             }
         };
         auto rq_call = [&]<typename T>(T target_op) noexcept {
@@ -487,7 +551,7 @@ private:
             return inst;
         };
         // builtin function
-        switch (expr->op()) {
+        switch (canonical_op) {
             case CallOp::CUSTOM: LUISA_ERROR_WITH_LOCATION("Unexpected custom call operation.");
             case CallOp::EXTERNAL: LUISA_ERROR_WITH_LOCATION("Unexpected external call operation.");
             case CallOp::ALL: return alu_call(ArithmeticOp::ALL);
@@ -725,6 +789,13 @@ private:
             case CallOp::RASTER_DISCARD: return b.raster_discard();
             case CallOp::ZERO: return _module->create_constant_zero(expr->type());
             case CallOp::ONE: return _module->create_constant_one(expr->type());
+            case CallOp::UNDEFINED: {
+                LUISA_ASSERT(expr->type() != nullptr &&
+                                 expr->type() != Type::of<void>() &&
+                                 expr->arguments().empty(),
+                             "UNDEFINED requires a non-void result type and no arguments.");
+                return _module->create_undefined(expr->type());
+            }
             case CallOp::PACK: LUISA_NOT_IMPLEMENTED();
             case CallOp::UNPACK: LUISA_NOT_IMPLEMENTED();
             case CallOp::REQUIRES_GRADIENT: {
@@ -782,6 +853,7 @@ private:
             case CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR: return curve_bases_marked(resource_call(ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR));
             case CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR: return curve_bases_marked(resource_call(ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR));
             case CallOp::RAY_QUERY_WORLD_SPACE_RAY: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY);
+            case CallOp::RAY_QUERY_OBJECT_SPACE_RAY: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY);
             case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT);
             case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT);
             case CallOp::RAY_QUERY_COMMITTED_HIT: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT);
@@ -799,9 +871,14 @@ private:
                     b, expr->arguments().front(), false);
                 b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
                        {query});
-                return b.call(expr->type(),
-                              RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
-                              {query});
+                auto terminated = b.call(
+                    expr->type(),
+                    RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
+                    {query});
+                // AST proceed() returns whether traversal is still active;
+                // normalized XIR stores the complementary termination state.
+                return b.call(expr->type(), ArithmeticOp::UNARY_BIT_NOT,
+                              {terminated});
             }
             case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE);
             case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE);
@@ -839,15 +916,374 @@ private:
             case CallOp::TEXTURE3D_SAMPLE_GRAD: return resource_call(ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD);
             case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: return resource_call(ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL);
             case CallOp::CLOCK: return b.clock();
+            // Cooperative vector operations. Reference arguments are lowered to
+            // their uint32 byte offset, and the static buffer-data component
+            // interpretation of each reference is appended as a constant
+            // uint32 operand carrying the raw CoopRefVecType value.
+            case CallOp::COOPERATIVE_MUL_ADD:
+            case CallOp::COOPERATIVE_MUL:
+            case CallOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD:
+            case CallOp::BINDLESS_COOPERATIVE_MUL:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL:
+            case CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+            case CallOp::COOPERATIVE_VECTOR_ACCUMULATE:
+            case CallOp::COOPERATIVE_VECTOR_LOAD:
+            case CallOp::COOPERATIVE_VECTOR_STORE:
+            case CallOp::COOPERATIVE_VECTOR_SPLAT:
+            case CallOp::COOPERATIVE_VECTOR_CAST:
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+            case CallOp::COOPERATIVE_VECTOR_DOT:
+            case CallOp::COOPERATIVE_VECTOR_ABS:
+            case CallOp::COOPERATIVE_VECTOR_SIGN:
+            case CallOp::COOPERATIVE_VECTOR_FLOOR:
+            case CallOp::COOPERATIVE_VECTOR_CEIL:
+            case CallOp::COOPERATIVE_VECTOR_FRACT:
+            case CallOp::COOPERATIVE_VECTOR_TRUNC:
+            case CallOp::COOPERATIVE_VECTOR_ROUND:
+            case CallOp::COOPERATIVE_VECTOR_RINT:
+            case CallOp::COOPERATIVE_VECTOR_SQRT:
+            case CallOp::COOPERATIVE_VECTOR_RSQRT:
+            case CallOp::COOPERATIVE_VECTOR_EXP2:
+            case CallOp::COOPERATIVE_VECTOR_EXP10:
+            case CallOp::COOPERATIVE_VECTOR_LOG2:
+            case CallOp::COOPERATIVE_VECTOR_LOG10:
+            case CallOp::COOPERATIVE_VECTOR_SATURATE:
+            case CallOp::COOPERATIVE_VECTOR_ISINF:
+            case CallOp::COOPERATIVE_VECTOR_ISNAN:
+            case CallOp::COOPERATIVE_VECTOR_SIN:
+            case CallOp::COOPERATIVE_VECTOR_COS:
+            case CallOp::COOPERATIVE_VECTOR_TAN:
+            case CallOp::COOPERATIVE_VECTOR_ASIN:
+            case CallOp::COOPERATIVE_VECTOR_ACOS:
+            case CallOp::COOPERATIVE_VECTOR_SINH:
+            case CallOp::COOPERATIVE_VECTOR_COSH:
+            case CallOp::COOPERATIVE_VECTOR_ASINH:
+            case CallOp::COOPERATIVE_VECTOR_ACOSH:
+            case CallOp::COOPERATIVE_VECTOR_ATANH:
+            case CallOp::COOPERATIVE_VECTOR_MIX:
+            case CallOp::COOPERATIVE_VECTOR_LERP:
+            case CallOp::COOPERATIVE_VECTOR_POW:
+            case CallOp::COOPERATIVE_VECTOR_STEP:
+            case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+            case CallOp::COOPERATIVE_VECTOR_ADD:
+            case CallOp::COOPERATIVE_VECTOR_SUB:
+            case CallOp::COOPERATIVE_VECTOR_MUL:
+            case CallOp::COOPERATIVE_VECTOR_DIV:
+            case CallOp::COOPERATIVE_VECTOR_LESS:
+            case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+            case CallOp::COOPERATIVE_VECTOR_GREATER:
+            case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+            case CallOp::COOPERATIVE_VECTOR_EQUAL:
+            case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+                return _translate_cooperative_call(b, expr);
+            // Runtime tensor operators (plan.md §1.4): these ops carry raw
+            // device addresses plus host-side descriptor constants and are
+            // implemented directly by each backend's AST codegen (CUDA first).
+            // They have no XIR representation yet, so the experimental XIR
+            // pipeline rejects them loudly here instead of silently miscompiling.
+            case CallOp::TENSOR_COPY:
+            case CallOp::TENSOR_FILL:
+            case CallOp::TENSOR_CAST:
+            case CallOp::TENSOR_PERMUTE:
+            case CallOp::TENSOR_CONCAT:
+            case CallOp::TENSOR_PAD:
+            case CallOp::TENSOR_NEG:
+            case CallOp::TENSOR_ABS:
+            case CallOp::TENSOR_EXP:
+            case CallOp::TENSOR_LOG:
+            case CallOp::TENSOR_SQRT:
+            case CallOp::TENSOR_RSQRT:
+            case CallOp::TENSOR_SIN:
+            case CallOp::TENSOR_COS:
+            case CallOp::TENSOR_TAN:
+            case CallOp::TENSOR_TANH:
+            case CallOp::TENSOR_SIGMOID:
+            case CallOp::TENSOR_GELU:
+            case CallOp::TENSOR_RELU:
+            case CallOp::TENSOR_LEAKY_RELU:
+            case CallOp::TENSOR_ERF:
+            case CallOp::TENSOR_CEIL:
+            case CallOp::TENSOR_FLOOR:
+            case CallOp::TENSOR_ROUND:
+            case CallOp::TENSOR_ISNAN:
+            case CallOp::TENSOR_ISINF:
+            case CallOp::TENSOR_ADD:
+            case CallOp::TENSOR_SUB:
+            case CallOp::TENSOR_MUL:
+            case CallOp::TENSOR_DIV:
+            case CallOp::TENSOR_POW:
+            case CallOp::TENSOR_MIN:
+            case CallOp::TENSOR_MAX:
+            case CallOp::TENSOR_CLAMP:
+            case CallOp::TENSOR_FMA:
+            case CallOp::TENSOR_REDUCE_SUM:
+            case CallOp::TENSOR_REDUCE_MAX:
+            case CallOp::TENSOR_REDUCE_MIN:
+            case CallOp::TENSOR_CUMSUM:
+            case CallOp::TENSOR_MATMUL:
+            case CallOp::TENSOR_CONTRACT:
+            case CallOp::TENSOR_BATCH_MATMUL:
+                LUISA_NOT_IMPLEMENTED(
+                    "AST tensor operator {} is not representable in XIR yet; "
+                    "use the AST codegen path (disable the experimental XIR codegen).",
+                    luisa::to_string(ast_op));
             case CallOp::ASYNC_COPY:
                 LUISA_NOT_IMPLEMENTED(
                     "AST ASYNC_COPY cannot be represented faithfully in XIR: the AST API models "
                     "SPIR-V events as uint32 values and exposes only ordinary lvalue references, "
                     "but OpUntypedGroupAsyncCopyKHR requires OpTypeEvent values and opposite "
                     "Workgroup/CrossWorkgroup untyped pointers.");
-            default: LUISA_NOT_IMPLEMENTED("AST Op {} is not implemented.", luisa::to_string(expr->op()));
+            default: LUISA_NOT_IMPLEMENTED(
+                "AST Op {} is not implemented.",
+                luisa::to_string(ast_op));
         }
         LUISA_NOT_IMPLEMENTED();
+    }
+
+    // Cooperative vector/matrix references carry only a uint32 byte offset at
+    // runtime; their static component interpretation is appended to the call
+    // as a constant uint32 operand with the raw CoopRefVecType value.
+    [[nodiscard]] Value *_cooperative_interpretation(const Expression *ast_ref) noexcept {
+        auto type = ast_ref->type();
+        LUISA_ASSERT(type != nullptr &&
+                         (type->is_cooperative_vector_ref() ||
+                          type->is_cooperative_matrix_ref()),
+                     "Cooperative reference operand must have a cooperative reference type.");
+        auto interp = static_cast<uint32_t>(type->coop_vec_ref_type());
+        return _module->create_constant(Type::of<uint32_t>(), &interp);
+    }
+
+    [[nodiscard]] Value *_translate_cooperative_call(XIRBuilder &b, const CallExpr *expr) noexcept {
+        auto ast_op = expr->op();
+        auto typed = ast_op == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD ||
+                     ast_op == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL ||
+                     ast_op == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD ||
+                     ast_op == CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE;
+        auto bindless_access = BindlessResourceAccess{
+            .typed = typed, .uniform = false};
+        auto &&ast_args = expr->arguments();
+        auto base = [&](size_t i) noexcept {
+            return _translate_expression(b, ast_args[i], false);
+        };
+        auto value = [&](size_t i) noexcept {
+            return _translate_expression(b, ast_args[i], true);
+        };
+        switch (ast_op) {
+            case CallOp::COOPERATIVE_MUL_ADD:
+                // (matrix_buffer, matrix_ref, bias_buffer, bias_ref, input)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_MUL_ADD,
+                              {base(0), value(1), base(2), value(3), value(4),
+                               _cooperative_interpretation(ast_args[1]),
+                               _cooperative_interpretation(ast_args[3])},
+                              bindless_access);
+            case CallOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD:
+                // (bindless_array, matrix_index, matrix_ref, bias_index, bias_ref, input)
+                return b.call(expr->type(), ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD,
+                              {base(0), value(1), value(2), value(3), value(4), value(5),
+                               _cooperative_interpretation(ast_args[2]),
+                               _cooperative_interpretation(ast_args[4])},
+                              bindless_access);
+            case CallOp::COOPERATIVE_MUL:
+                // (matrix_buffer, matrix_ref, input)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_MUL,
+                              {base(0), value(1), value(2),
+                               _cooperative_interpretation(ast_args[1])},
+                              bindless_access);
+            case CallOp::BINDLESS_COOPERATIVE_MUL:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL:
+                // (bindless_array, matrix_index, matrix_ref, input)
+                return b.call(expr->type(), ResourceReadOp::BINDLESS_COOPERATIVE_MUL,
+                              {base(0), value(1), value(2), value(3),
+                               _cooperative_interpretation(ast_args[2])},
+                              bindless_access);
+            case CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+                // (matrix_buffer, matrix_ref, input1, input2)
+                return b.call(ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE,
+                              {base(0), value(1), value(2), value(3),
+                               _cooperative_interpretation(ast_args[1])},
+                              bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ACCUMULATE:
+                // (vector_buffer, vector_ref, input)
+                return b.call(ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE,
+                              {base(0), value(1), value(2)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LOAD:
+                // (buffer, vector_ref)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LOAD,
+                              {base(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_STORE:
+                // (buffer, vector_ref, value)
+                return b.call(ResourceWriteOp::COOPERATIVE_VECTOR_STORE,
+                              {base(0), value(1), value(2)}, bindless_access);
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_LOAD:
+                // (bindless_array, buffer_index, vector_ref)
+                return b.call(expr->type(), ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD,
+                              {base(0), value(1), value(2)}, bindless_access);
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE:
+                // (bindless_array, buffer_index, vector_ref, value)
+                return b.call(ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE,
+                              {base(0), value(1), value(2), value(3)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SPLAT:
+                // (scalar)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SPLAT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_CAST:
+                // (coopvec)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_CAST,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+                // (shared_array, index)
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD,
+                              {base(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                // (shared_array, index, value)
+                return b.call(ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE,
+                              {base(0), value(1), value(2)}, bindless_access);
+            // Future cooperative-vector element-wise operations. These lower to
+            // pure-value ResourceReadOps (no resource operands); every backend
+            // currently rejects them with a placeholder assertion.
+            case CallOp::COOPERATIVE_VECTOR_DOT:
+                // (a, b) -> scalar
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_DOT,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ABS:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ABS,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SIGN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SIGN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_FLOOR:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_FLOOR,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_CEIL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_CEIL,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_FRACT:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_FRACT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_TRUNC:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_TRUNC,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ROUND:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ROUND,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_RINT:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_RINT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SQRT:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SQRT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_RSQRT:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_RSQRT,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_EXP2:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_EXP2,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_EXP10:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_EXP10,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LOG2:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LOG2,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LOG10:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LOG10,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SATURATE:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SATURATE,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ISINF:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ISINF,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ISNAN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ISNAN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SIN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SIN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_COS:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_COS,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_TAN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_TAN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ASIN:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ASIN,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ACOS:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ACOS,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SINH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SINH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_COSH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_COSH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ASINH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ASINH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ACOSH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ACOSH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ATANH:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ATANH,
+                              {value(0)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_MIX:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_MIX,
+                              {value(0), value(1), value(2)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LERP:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LERP,
+                              {value(0), value(1), value(2)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_POW:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_POW,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_STEP:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_STEP,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP,
+                              {value(0), value(1), value(2)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_ADD:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_ADD,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_SUB:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_SUB,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_MUL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_MUL,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_DIV:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_DIV,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LESS:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LESS,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_GREATER:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_GREATER,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_EQUAL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_EQUAL,
+                              {value(0), value(1)}, bindless_access);
+            case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+                return b.call(expr->type(), ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL,
+                              {value(0), value(1)}, bindless_access);
+            default: break;
+        }
+        LUISA_ERROR_WITH_LOCATION("Unexpected cooperative operation {}.",
+                                  luisa::to_string(ast_op));
     }
 
     [[nodiscard]] Value *_translate_cast_expr(XIRBuilder &b, const CastExpr *expr) noexcept {
@@ -989,7 +1425,68 @@ private:
         _translate_statements(b, cdr);
     }
 
+    void _translate_ray_query_regions(
+        XIRBuilder &b, const Statement *owner,
+        const Expression *query,
+        const ScopeStmt *surface_handler,
+        const ScopeStmt *procedural_handler,
+        luisa::span<const CommentStmt *const> dispatch_comments,
+        luisa::span<const Statement *const> cdr) noexcept {
+        // Structured ray queries do not expose break/continue targets from an
+        // enclosing statement, and nesting is not supported by the AST/XIR
+        // contract. The frontend preflight applies the same restriction to a
+        // canonical inline query before selecting this path.
+        auto old_break_continue_target =
+            std::exchange(_current.break_continue_target, {});
+        LUISA_ASSERT(_current.rq == nullptr,
+                     "Nested ray query statements are not supported.");
+        _current.rq = owner;
+
+        auto loop_inst = _commented(b.ray_query_loop());
+        auto dispatch_block = loop_inst->create_dispatch_block();
+        auto merge_block = loop_inst->create_merge_block();
+
+        b.set_insertion_point(dispatch_block);
+        auto query_object = _translate_expression(b, query, false);
+        auto dispatch_inst = _commented(
+            b.ray_query_dispatch(query_object));
+        for (auto comment : dispatch_comments) {
+            dispatch_inst->add_comment(comment->comment());
+        }
+        dispatch_inst->set_exit_block(merge_block);
+
+        {
+            b.set_insertion_point(
+                dispatch_inst->create_on_surface_candidate_block());
+            _translate_statements(b, surface_handler->statements());
+            if (!b.is_insertion_point_terminator()) {
+                b.br(dispatch_block);
+            }
+        }
+        {
+            b.set_insertion_point(
+                dispatch_inst->create_on_procedural_candidate_block());
+            _translate_statements(b, procedural_handler->statements());
+            if (!b.is_insertion_point_terminator()) {
+                b.br(dispatch_block);
+            }
+        }
+
+        _current.break_continue_target = old_break_continue_target;
+        _current.rq = nullptr;
+        b.set_insertion_point(merge_block);
+        _translate_statements(b, cdr);
+    }
+
     void _translate_loop_stmt(XIRBuilder &b, const LoopStmt *ast_loop, luisa::span<const Statement *const> cdr) noexcept {
+        if (auto iter = _current.inline_ray_query_loops.find(ast_loop);
+            iter != _current.inline_ray_query_loops.end()) {
+            auto &&match = iter->second;
+            return _translate_ray_query_regions(
+                b, ast_loop, match.query,
+                match.surface_handler, match.procedural_handler,
+                match.dispatch_comments, cdr);
+        }
         auto inst = _commented(b.simple_loop());
         auto merge_block = inst->create_merge_block();
         auto body_block = inst->create_body_block();
@@ -1070,36 +1567,10 @@ private:
     }
 
     void _translate_ray_query_stmt(XIRBuilder &b, const RayQueryStmt *ast_ray_query, luisa::span<const Statement *const> cdr) noexcept {
-        // we do not support break/continue in ray query statement
-        auto old_break_continue_target = std::exchange(_current.break_continue_target, {});
-        LUISA_ASSERT(_current.rq == nullptr, "Nested ray query statements are not supported.");
-        _current.rq = ast_ray_query;
-        // create the ray query loop
-        auto loop_inst = _commented(b.ray_query_loop());
-        auto dispatch_block = loop_inst->create_dispatch_block();
-        auto merge_block = loop_inst->create_merge_block();
-        // create the ray query dispatch block
-        b.set_insertion_point(dispatch_block);
-        auto query_object = _translate_expression(b, ast_ray_query->query(), false);
-        auto dispatch_inst = _commented(b.ray_query_dispatch(query_object));
-        dispatch_inst->set_exit_block(merge_block);
-        // on surface candidate block
-        {
-            b.set_insertion_point(dispatch_inst->create_on_surface_candidate_block());
-            _translate_statements(b, ast_ray_query->on_triangle_candidate()->statements());
-            if (!b.is_insertion_point_terminator()) { b.br(dispatch_block); }
-        }
-        // on procedural candidate block
-        {
-            b.set_insertion_point(dispatch_inst->create_on_procedural_candidate_block());
-            _translate_statements(b, ast_ray_query->on_procedural_candidate()->statements());
-            if (!b.is_insertion_point_terminator()) { b.br(dispatch_block); }
-        }
-        // merge block
-        _current.break_continue_target = old_break_continue_target;
-        _current.rq = nullptr;
-        b.set_insertion_point(merge_block);
-        _translate_statements(b, cdr);
+        return _translate_ray_query_regions(
+            b, ast_ray_query, ast_ray_query->query(),
+            ast_ray_query->on_triangle_candidate(),
+            ast_ray_query->on_procedural_candidate(), {}, cdr);
     }
 
     void _translate_statements(XIRBuilder &b, luisa::span<const Statement *const> stmts) noexcept {
@@ -1201,7 +1672,61 @@ private:
                     auto *parent_bb = b.insertion_point()->parent_block();
 
                     b.set_insertion_point(suspend_bb);
-                    _commented(b.coro_suspend(ast_suspend->token(), luisa::string{ast_suspend->name()}, nullptr));
+                    luisa::vector<luisa::string> frame_export_names;
+                    luisa::vector<Value *> frame_export_values;
+                    frame_export_names.reserve(
+                        ast_suspend->frame_exports().size());
+                    frame_export_values.reserve(
+                        ast_suspend->frame_exports().size());
+                    for (auto &&frame_export :
+                         ast_suspend->frame_exports()) {
+                        frame_export_names.emplace_back(
+                            frame_export.name);
+                        frame_export_values.emplace_back(
+                            _translate_expression(
+                                b, frame_export.value, true));
+                    }
+                    luisa::vector<CoroSuspendExtensionPtr> extensions;
+                    extensions.reserve(ast_suspend->extensions().size());
+                    for (auto &&extension : ast_suspend->extensions()) {
+                        extensions.emplace_back(extension->clone());
+                    }
+                    luisa::vector<CoroSuspendBindingAccess>
+                        binding_accesses(
+                            ast_suspend->extension_binding_values().size(),
+                            CoroSuspendBindingAccess::read);
+                    for (auto &&extension : ast_suspend->extensions()) {
+                        for (auto &&binding : extension->bindings()) {
+                            LUISA_ASSERT(
+                                binding.index < binding_accesses.size(),
+                                "Coroutine suspend extension '{}' binding "
+                                "'{}' has invalid AST owner index {}.",
+                                extension->schema(), binding.name,
+                                binding.index);
+                            binding_accesses[binding.index] =
+                                binding.access;
+                        }
+                    }
+                    luisa::vector<Value *> extension_binding_values;
+                    extension_binding_values.reserve(
+                        ast_suspend->extension_binding_values().size());
+                    for (size_t i = 0u;
+                         i < ast_suspend->extension_binding_values().size();
+                         ++i) {
+                        auto access = binding_accesses[i];
+                        extension_binding_values.emplace_back(
+                            _translate_expression(
+                                b,
+                                ast_suspend->extension_binding_values()[i],
+                                access == CoroSuspendBindingAccess::read));
+                    }
+                    _commented(b.coro_suspend(
+                        ast_suspend->token(),
+                        luisa::string{ast_suspend->name()}, nullptr,
+                        luisa::span{frame_export_names},
+                        luisa::span{frame_export_values},
+                        std::move(extensions),
+                        luisa::span{extension_binding_values}));
 
                     auto *always_true = _module->create_constant_one(compute::Type::of<bool>());
                     b.set_insertion_point(parent_bb);
@@ -1218,6 +1743,7 @@ private:
     }
 
     void _translate_current_function() noexcept {
+        _prepare_inline_ray_query_loops();
         // create the body block
         XIRBuilder b;
         b.set_insertion_point(_current.f->create_body_block());
@@ -1229,15 +1755,25 @@ private:
                 auto local = b.alloca_local(arg->type());
                 local->add_comment("Local copy of argument");
                 b.store(local, arg);
-                _current.variables.emplace(ast_arg, local);
+                static_cast<void>(
+                    _current.variables.bind(ast_arg, local));
             } else {// otherwise, we can directly use the argument
-                _current.variables.emplace(ast_arg, arg);
+                static_cast<void>(
+                    _current.variables.bind(ast_arg, arg));
             }
         }
-        for (auto ast_local : _current.ast->local_variables()) {
-            LUISA_DEBUG_ASSERT(_current.variables.find(ast_local) == _current.variables.end(),
-                               "Local variable already exists.");
-            auto v = _current.variables.emplace(ast_local, b.alloca_local(ast_local.type())).first->second;
+          for (auto ast_local : _current.ast->local_variables()) {
+              LUISA_DEBUG_ASSERT(!_current.variables.contains(ast_local),
+                                 "Local variable already exists.");
+              auto local_type = ast_local.type();
+              // Cooperative vector/matrix reference locals only ever carry a
+              // uint32 byte offset, so XIR stores them as plain uint32 values.
+              if (local_type->is_cooperative_vector_ref() ||
+                  local_type->is_cooperative_matrix_ref()) {
+                  local_type = Type::of<uint32_t>();
+              }
+              auto v = _current.variables.bind(
+                  ast_local, b.alloca_local(local_type));
             if (auto name = _current.ast->get_variable_name(ast_local.uid()); !name.empty()) {
                 v->set_name(name);
             } else {
@@ -1250,9 +1786,10 @@ private:
             }
         }
         for (auto ast_shared : _current.ast->shared_variables()) {
-            LUISA_DEBUG_ASSERT(_current.variables.find(ast_shared) == _current.variables.end(),
+            LUISA_DEBUG_ASSERT(!_current.variables.contains(ast_shared),
                                "Shared variable already exists.");
-            _current.variables.emplace(ast_shared, b.alloca_shared(ast_shared.type()));
+            static_cast<void>(_current.variables.bind(
+                ast_shared, b.alloca_shared(ast_shared.type())));
         }
         _translate_statements(b, _current.ast->body()->statements());
         if (!b.is_insertion_point_terminator()) {
@@ -1268,10 +1805,23 @@ public:
 
     Function *add_function(const ASTFunction &f) noexcept {
         LUISA_ASSERT(_module != nullptr, "Module has been finalized.");
-        // try emplace the function
-        auto [iter, just_inserted] = _generated_functions.try_emplace(f.builder(), nullptr);
-        // return the function if it has been translated
-        if (!just_inserted) { return iter->second; }
+        // Builder identity breaks recursive translation cycles. Equivalent
+        // CALLABLE builders additionally share one definition by structural
+        // hash; kernels and coroutines remain distinct entry points.
+        if (auto iter = _generated_functions.find(f.builder());
+            iter != _generated_functions.end()) {
+            return iter->second;
+        }
+        if (f.tag() == ASTFunction::Tag::CALLABLE) {
+            if (auto iter = _generated_callable_definitions.find(f.hash());
+                iter != _generated_callable_definitions.end()) {
+                _generated_functions.emplace(f.builder(), iter->second);
+                return iter->second;
+            }
+        }
+        auto [iter, just_inserted] =
+            _generated_functions.try_emplace(f.builder(), nullptr);
+        LUISA_ASSERT(just_inserted, "Function builder was inserted concurrently.");
         // create a new function
         auto def = [&]() noexcept -> FunctionDefinition * {
             switch (f.tag()) {
@@ -1294,6 +1844,12 @@ public:
             def->set_name(name);
         }
         iter->second = def;
+        if (f.tag() == ASTFunction::Tag::CALLABLE) {
+            auto [hash_iter, hash_inserted] =
+                _generated_callable_definitions.try_emplace(f.hash(), def);
+            LUISA_ASSERT(hash_inserted || hash_iter->second == def,
+                         "Callable hash canonicalization is inconsistent.");
+        }
         // translate the function
         auto old = std::exchange(_current, {.f = def, .ast = &f});
         _translate_current_function();
@@ -1330,8 +1886,9 @@ AST2XIRContext *ast_to_xir_translate_begin(const AST2XIRConfig &config) noexcept
     return luisa::new_with_allocator<AST2XIRContext>(config);
 }
 
-void ast_to_xir_translate_add_function(AST2XIRContext *ctx, const ASTFunction &f) noexcept {
-    ctx->add_function(f);
+Function *ast_to_xir_translate_add_function(
+    AST2XIRContext *ctx, const ASTFunction &f) noexcept {
+    return ctx->add_function(f);
 }
 
 void ast_to_xir_translate_add_external_function(AST2XIRContext *ctx, const ASTExternalFunction &f) noexcept {

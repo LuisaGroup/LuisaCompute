@@ -49,10 +49,16 @@ static void dispatch_with_scheduler(Device &device, const Coroutine<void(Args...
                                     TestSchedulerKind kind, Stream &stream,
                                     uint dispatch_size,
                                     compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
+    // Scheduler-owned shaders and frame/queue buffers are referenced by
+    // asynchronous commands. Keep the concrete scheduler alive until those
+    // commands finish; destroying it after submission is a resource-lifetime
+    // violation on every backend, even if a synchronous allocator happens to
+    // hide it on some devices.
     switch (kind) {
         case TestSchedulerKind::state_machine: {
             StateMachineCoroScheduler<Args...> scheduler{device, coro};
             scheduler(args...).dispatch(dispatch_size)(stream);
+            stream << synchronize();
             break;
         }
         case TestSchedulerKind::wavefront: {
@@ -62,6 +68,7 @@ static void dispatch_with_scheduler(Device &device, const Coroutine<void(Args...
             };
             WavefrontCoroScheduler<Args...> scheduler{device, coro, cfg};
             scheduler(args...).dispatch(dispatch_size)(stream);
+            stream << synchronize();
             break;
         }
         case TestSchedulerKind::persistent: {
@@ -72,6 +79,7 @@ static void dispatch_with_scheduler(Device &device, const Coroutine<void(Args...
             };
             PersistentThreadsCoroScheduler<Args...> scheduler{device, coro, cfg};
             scheduler(args...).dispatch(dispatch_size)(stream);
+            stream << synchronize();
             break;
         }
     }

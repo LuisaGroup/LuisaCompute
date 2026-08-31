@@ -83,10 +83,6 @@ if (LUISA_COMPUTE_DOWNLOAD_OIDN)
                 "${oidn_RUNTIME_LIB}"
                 "$<TARGET_FILE_DIR:luisa-compute-core>")
     endforeach ()
-    install(TARGETS luisa-compute-oidn-ext EXPORT LuisaComputeTargets
-            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES ${oidn_RUNTIME_LIBS} DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 endif ()
@@ -118,6 +114,39 @@ function(luisa_compute_link_llvm_into_backend backend)
         return()
     endif ()
 
+    # FindZLIB can resolve Apple's SDK copy and publish
+    # <SDK>/usr/include through ZLIB::ZLIB. Propagating that directory as an
+    # ordinary -isystem argument breaks non-Apple Clang toolchains on macOS:
+    # it is searched before Clang's libc++ overlay headers and mixes two SDK
+    # header stacks (for example, <cstddef> then reports a missing size_t).
+    # SDK headers are already part of the compiler's implicit/sysroot search,
+    # so keep the link dependency but remove only this redundant include.
+    if (APPLE AND TARGET ZLIB::ZLIB)
+        get_target_property(_luisa_zlib_include_dirs
+                ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)
+        if (_luisa_zlib_include_dirs)
+            set(_luisa_zlib_filtered_include_dirs "")
+            set(_luisa_zlib_removed_sdk_include FALSE)
+            foreach (_luisa_zlib_include_dir IN LISTS _luisa_zlib_include_dirs)
+                if (_luisa_zlib_include_dir MATCHES
+                        "\\.sdk[/\\\\]usr[/\\\\]include[/\\\\]?$")
+                    set(_luisa_zlib_removed_sdk_include TRUE)
+                else ()
+                    list(APPEND _luisa_zlib_filtered_include_dirs
+                            "${_luisa_zlib_include_dir}")
+                endif ()
+            endforeach ()
+            if (_luisa_zlib_removed_sdk_include)
+                set_property(TARGET ZLIB::ZLIB PROPERTY
+                        INTERFACE_INCLUDE_DIRECTORIES
+                        "${_luisa_zlib_filtered_include_dirs}")
+                message(STATUS
+                        "Removed redundant Apple SDK include directory from "
+                        "LLVM's ZLIB dependency")
+            endif ()
+        endif ()
+    endif ()
+
     include(HandleLLVMOptions)
 
     message(STATUS "Linking LLVM to target ${LUISA_LINK_LLVM_TARGET} with components: ${LUISA_LINK_LLVM_COMPONENTS}")
@@ -125,6 +154,53 @@ function(luisa_compute_link_llvm_into_backend backend)
     # LLVM
     target_include_directories(${LUISA_LINK_LLVM_TARGET} AFTER PRIVATE ${LLVM_INCLUDE_DIRS})
     llvm_map_components_to_libnames(LLVM_LIBS ${LUISA_LINK_LLVM_COMPONENTS})
+
+    # LLVM's C++ ABI includes its RTTI mode. In particular, polymorphic helper
+    # classes implemented partly in headers (for example CallbackVH, used by
+    # MergeFunctions) make a consumer compiled with RTTI emit references to
+    # typeinfo that an RTTI-disabled static LLVM deliberately does not define.
+    # Match the selected LLVM package instead of relying on which inline
+    # templates a backend happens to instantiate today. LLVM with RTTI enabled
+    # needs no override: LuisaCompute's normal compiler policy remains valid.
+    if (DEFINED LLVM_ENABLE_RTTI AND NOT LLVM_ENABLE_RTTI)
+        target_compile_options(${LUISA_LINK_LLVM_TARGET} PRIVATE
+                "$<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang,GNU>:-fno-rtti>"
+                "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/GR->")
+    endif ()
+
+    # llvm_map_components_to_libnames() deliberately turns unknown component
+    # names into LLVM<name> and leaves the error to a later link step. Validate
+    # the result here so a typo cannot make us silently select a monolithic
+    # library from an unrelated LLVM installation. A backend must be compiled
+    # and linked against one LLVM package: its C++ enums and ABI are not stable
+    # across downstream branches that advertise the same major version.
+    set(_luisa_llvm_available_libs ${LLVM_AVAILABLE_LIBS})
+    if (NOT _luisa_llvm_available_libs)
+        get_property(_luisa_llvm_available_libs
+                GLOBAL PROPERTY LLVM_LIBS)
+    endif ()
+    string(TOUPPER "${_luisa_llvm_available_libs}"
+            _luisa_llvm_available_libs_upper)
+    set(_luisa_llvm_unknown_libs "")
+    foreach (_luisa_llvm_lib IN LISTS LLVM_LIBS)
+        string(TOUPPER "${_luisa_llvm_lib}"
+                _luisa_llvm_lib_upper)
+        list(FIND _luisa_llvm_available_libs_upper
+                "${_luisa_llvm_lib_upper}"
+                _luisa_llvm_available_index)
+        if (NOT TARGET "${_luisa_llvm_lib}" AND
+                _luisa_llvm_available_index LESS 0)
+            list(APPEND _luisa_llvm_unknown_libs
+                    "${_luisa_llvm_lib}")
+        endif ()
+    endforeach ()
+    if (_luisa_llvm_unknown_libs)
+        message(FATAL_ERROR
+                "Unknown LLVM components for backend '${backend}' mapped to: "
+                "${_luisa_llvm_unknown_libs}. Requested components: "
+                "${LUISA_LINK_LLVM_COMPONENTS}.")
+    endif ()
+
     if (UNIX AND NOT APPLE)
         if (LLVM_LINK_LLVM_DYLIB AND TARGET LLVM)
             # Respect LLVM's exported shared-library policy. Recent official
@@ -141,11 +217,16 @@ function(luisa_compute_link_llvm_into_backend backend)
             foreach (dir ${LLVM_LIBRARY_DIRS})
                 list(APPEND LLVM_LINK_DIR_OPTIONS "-L${dir}")
             endforeach ()
-            try_compile(LLVM_LIBS_EXIST
+            string(TOUPPER "${backend}" _luisa_llvm_backend_upper)
+            set(_luisa_llvm_probe_var
+                    "LUISA_COMPUTE_${_luisa_llvm_backend_upper}_LLVM_LIBS_EXIST")
+            unset(${_luisa_llvm_probe_var} CACHE)
+            unset(${_luisa_llvm_probe_var})
+            try_compile(${_luisa_llvm_probe_var}
                     SOURCE_FROM_CONTENT "try_link_llvm.cpp" "int main() {}"
                     LINK_OPTIONS ${LLVM_LINK_DIR_OPTIONS}
                     LINK_LIBRARIES ${LLVM_LIBS})
-            if (LLVM_LIBS_EXIST)
+            if (${_luisa_llvm_probe_var})
                 # libzstd_shared might cause problem on Ubuntu
                 if (NOT TARGET zstd::libzstd_shared)
                     get_target_property(LLVM_SUPPORT_LINK_LIBS LLVMSupport INTERFACE_LINK_LIBRARIES)
@@ -153,18 +234,28 @@ function(luisa_compute_link_llvm_into_backend backend)
                     set_target_properties(LLVMSupport PROPERTIES INTERFACE_LINK_LIBRARIES "${LLVM_SUPPORT_LINK_LIBS}")
                 endif ()
             else ()
-                message(WARNING "LLVM libraries not found. Trying to link with LLVM shared libraries.")
-                try_compile(LLVM_DYLIB_EXISTS
-                        SOURCE_FROM_CONTENT "try_link_llvm_dylib.cpp" "int main() {}"
-                        LINK_LIBRARIES "LLVM")
-                if (LLVM_DYLIB_EXISTS)
-                    message(STATUS "Linking with LLVM shared library.")
-                    set(LLVM_LIBS "LLVM")
-                else ()
-                    find_library(LLVM_DYLIB LLVM REQUIRED)
-                    message(STATUS "LLVM libraries found at ${LLVM_DYLIB}")
-                    set(LLVM_LIBS ${LLVM_DYLIB})
+                # Some distributions export incomplete static targets but do
+                # ship a monolithic LLVM library. It is a valid fallback only
+                # when it comes from the very same package directories as the
+                # headers selected by find_package(LLVM).
+                unset(_luisa_llvm_dylib CACHE)
+                unset(_luisa_llvm_dylib)
+                find_library(_luisa_llvm_dylib
+                        NAMES LLVM "LLVM-${LLVM_VERSION_MAJOR}"
+                        HINTS ${LLVM_LIBRARY_DIRS}
+                        NO_DEFAULT_PATH)
+                if (NOT _luisa_llvm_dylib)
+                    message(FATAL_ERROR
+                            "LLVM component libraries for backend '${backend}' "
+                            "failed to link, and no monolithic LLVM library "
+                            "exists in LLVM_LIBRARY_DIRS='${LLVM_LIBRARY_DIRS}'. "
+                            "Refusing an unscoped system-library fallback that "
+                            "could mix incompatible LLVM headers and binaries.")
                 endif ()
+                message(STATUS
+                        "Linking with LLVM shared library from the selected "
+                        "package: ${_luisa_llvm_dylib}")
+                set(LLVM_LIBS "${_luisa_llvm_dylib}")
             endif ()
         endif ()
     endif ()
@@ -185,9 +276,7 @@ function(luisa_compute_link_llvm_into_backend backend)
 
 endfunction()
 
-if (LUISA_COMPUTE_ENABLE_CPU OR
-        LUISA_COMPUTE_ENABLE_CUDA OR
-        LUISA_COMPUTE_ENABLE_REMOTE OR
+if (LUISA_COMPUTE_ENABLE_CUDA OR
         LUISA_COMPUTE_ENABLE_FALLBACK OR
         LUISA_COMPUTE_ENABLE_HIP)
 
@@ -228,16 +317,11 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
     luisa_compute_link_wayland_if_enabled(luisa-compute-vulkan-swapchain)
     set_target_properties(luisa-compute-vulkan-swapchain PROPERTIES
             OUTPUT_NAME luisa-vulkan-swapchain)
-    install(TARGETS luisa-compute-vulkan-swapchain EXPORT LuisaComputeTargets
-            LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR}
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-
 endif ()
 
 add_subdirectory(hlsl)
 
-if (LUISA_COMPUTE_ENABLE_VULKAN AND
-        (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV OR LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV))
+if (LUISA_COMPUTE_ENABLE_VULKAN)
     add_subdirectory(spirv)
 endif ()
 if (LUISA_COMPUTE_ENABLE_VULKAN AND

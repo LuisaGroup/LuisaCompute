@@ -16,12 +16,6 @@
 #include <luisa/backends/ext/cuda/cuda_config_ext.h>
 #endif
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#include <luisa/ir/ast2ir.h>
-#include <luisa/ir/transform.h>
-#endif
-
 #ifdef LUISA_ENABLE_XIR
 
 #include <luisa/xir/translators/ast2xir.h>
@@ -33,11 +27,14 @@
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 
@@ -105,6 +102,28 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
     verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
 
+    auto inline_ray_query_info =
+        xir::reconstruct_ray_query_loop_pass_run_on_module(
+            xir_module.get());
+    if (!inline_ray_query_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "CUDA XIR rejected {} malformed explicit ray-query loop(s).",
+            inline_ray_query_info.error_count);
+    }
+    verify_xir_or_error(xir_module.get(), "explicit ray-query reconstruction");
+
+    if (kernel.requires_autodiff()) {
+        auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
+        auto autodiff_info = xir::autodiff_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE(
+            "CUDA XIR AutoDiff lowering: inlined {} call(s), transformed {} "
+            "scope(s), removed {} instruction(s).",
+            inline_info.inlined_call_count,
+            autodiff_info.transformed_scope_count,
+            autodiff_info.removed_instruction_count);
+        verify_xir_or_error(xir_module.get(), "AutoDiff lowering");
+    }
+
     // dump for debugging
     if (LUISA_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.xir", kernel.hash());
@@ -157,8 +176,10 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
     }
     xir::PassPipeline cfg;
     if (lower_rq) {
-        cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
+        cfg.add("lower-ray-query-to-pipeline", [](xir::Module *m, xir::PassReport &r) {
+            auto i =
+                xir::lower_ray_query_to_pipeline_pass_run_on_module(
+                    m, &r);
             if (!i.succeeded()) {
                 LUISA_ERROR_WITH_LOCATION(
                     "CUDA XIR ray-query lowering rejected {} loop(s).",
@@ -498,17 +519,6 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element,
         info.native_handle = reinterpret_cast<void *>(buffer->device_address());
     }
     return info;
-}
-
-BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element,
-                                             size_t elem_count,
-                                             void *external_memory) noexcept {
-#ifdef LUISA_ENABLE_IR
-    auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count, external_memory);
-#else
-    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
-#endif
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
@@ -874,17 +884,6 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     if (kernel.allowed_warp_size().value_or(32) != 32) [[unlikely]] {
         LUISA_ERROR("CUDA backend only support warp size 32.");
     }
-    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
-#ifdef LUISA_ENABLE_IR
-        auto ir = AST2IR::build_kernel(kernel);
-        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
-        transform_ir_kernel_module_auto(ir->get());
-        return create_shader(option, ir->get());
-#else
-        LUISA_ERROR_WITH_LOCATION("Please enable IR for autodiff support");
-#endif
-    }
-
     // codegen
     StringScratch scratch;
     luisa::function<luisa::string()> generate_ptx;
@@ -914,7 +913,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             // options define the existing CUDA shader cache identity.
         }
 #endif
-        if (LUISA_USE_EXPERIMENTAL_XIR_CODEGEN) {
+        if (LUISA_USE_EXPERIMENTAL_XIR_CODEGEN || kernel.requires_autodiff()) {
             auto xir_module = luisa_cuda_backend_translate_ast_to_xir(kernel, option);
             Clock clk;
             CUDACodegenXIR codegen{scratch, !_cudadevrt_library.empty()};
@@ -1079,18 +1078,6 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
                                    option, nvrtc_options,
                                    metadata, std::move(bound_arguments),
                                    std::move(generate_ptx));
-}
-
-ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-#ifdef LUISA_ENABLE_IR
-    Clock clk;
-    auto function = IR2AST::build(kernel);
-    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
-    return create_shader(option, function->function());
-#else
-    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
-    return {};
-#endif
 }
 
 ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,

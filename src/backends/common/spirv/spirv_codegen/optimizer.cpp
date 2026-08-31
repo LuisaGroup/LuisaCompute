@@ -1,5 +1,7 @@
 #include "optimizer.h"
 
+#include "../../env_flag.h"
+
 #include <cerrno>
 #include <cstdlib>
 #include <limits>
@@ -9,6 +11,7 @@
 #include <spirv-tools/libspirv.hpp>
 #include <spirv/unified1/spirv.hpp11>
 
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 
@@ -25,20 +28,213 @@ namespace {
     return "full";
 }
 
-void register_compute_passes(spvtools::Optimizer &optimizer) {
-    optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
-    optimizer.RegisterPass(spvtools::CreateBlockMergePass());
-    optimizer.RegisterPass(spvtools::CreateSimplificationPass());
-    optimizer.RegisterPass(spvtools::CreateDeadBranchElimPass());
-    optimizer.RegisterPass(spvtools::CreateLocalSingleStoreElimPass());
-    optimizer.RegisterPass(spvtools::CreateLocalMultiStoreElimPass());
-    optimizer.RegisterPass(spvtools::CreateRedundancyEliminationPass());
-    optimizer.RegisterPass(spvtools::CreateLoopUnrollPass(true));
-    optimizer.RegisterPass(spvtools::CreateCCPPass());
-    optimizer.RegisterPass(spvtools::CreateScalarReplacementPass(100));
-    optimizer.RegisterPass(spvtools::CreateIfConversionPass());
-    optimizer.RegisterPass(spvtools::CreatePrivateToLocalPass());
-    optimizer.RegisterPass(spvtools::CreateCopyPropagateArraysPass());
+[[nodiscard]] bool has_unroll_loop_control(
+    const uint32_t *words, size_t word_count) noexcept {
+    constexpr auto header_word_count = 5u;
+    constexpr auto loop_merge_min_word_count = 4u;
+    constexpr auto loop_control_word_index = 3u;
+    constexpr auto unroll_mask =
+        static_cast<uint32_t>(spv::LoopControlMask::Unroll);
+    if (words == nullptr || word_count < header_word_count) { return false; }
+    for (auto offset = header_word_count; offset < word_count;) {
+        auto instruction = words[offset];
+        auto instruction_word_count =
+            static_cast<size_t>(instruction >> 16u);
+        auto opcode = static_cast<spv::Op>(instruction & 0xffffu);
+        if (instruction_word_count == 0u ||
+            instruction_word_count > word_count - offset) {
+            return false;
+        }
+        if (opcode == spv::Op::OpLoopMerge &&
+            instruction_word_count >= loop_merge_min_word_count &&
+            (words[offset + loop_control_word_index] & unroll_mask) != 0u) {
+            return true;
+        }
+        offset += instruction_word_count;
+    }
+    return false;
+}
+
+// Records the pass name for report observability and consumes the token.
+void register_pass(spvtools::Optimizer &optimizer,
+                   SpirvOptimizerReport &report,
+                   luisa::string name,
+                   spvtools::Optimizer::PassToken pass) {
+    report.registered_passes.emplace_back(std::move(name));
+    optimizer.RegisterPass(std::move(pass));
+}
+
+// LUISA_SPIRV_OPT_MAX_ITERATIONS: fixed-point cap, bounded 1..10, default 5
+// (DXC's kSpirvOptMaxIterations). Invalid or out-of-range values keep the
+// default, mirroring the strict LUISA_SPIRV_OPT_LEVEL parsing.
+[[nodiscard]] size_t
+spirv_opt_max_iterations_from_environment() noexcept {
+    if (auto *env = std::getenv("LUISA_SPIRV_OPT_MAX_ITERATIONS")) {
+        char *end = nullptr;
+        errno = 0;
+        auto value = std::strtol(env, &end, 10);
+        if (errno == 0 && end != env && *end == '\0' &&
+            value >= 1 && value <= 10) {
+            return static_cast<size_t>(value);
+        }
+    }
+    return 5u;
+}
+
+// LUISA_SPIRV_OPT_SROA_LIMIT: ScalarReplacement composite-size limit. Default
+// 100 preserves the historical compute behavior; 0 means unlimited (DXC
+// parity). Values must fit the uint32_t factory argument.
+[[nodiscard]] uint32_t
+spirv_opt_sroa_limit_from_environment() noexcept {
+    if (auto *env = std::getenv("LUISA_SPIRV_OPT_SROA_LIMIT")) {
+        char *end = nullptr;
+        errno = 0;
+        auto value = std::strtol(env, &end, 10);
+        if (errno == 0 && end != env && *end == '\0' &&
+            value >= 0 && value <= std::numeric_limits<int>::max()) {
+            return static_cast<uint32_t>(value);
+        }
+    }
+    return 100u;
+}
+
+// LUISA_SPIRV_OPT_PASS_FLAGS: optional comma/space separated --pass flags
+// appended after the preset (policy #5, -Oconfig-style). Returns false when
+// the flag list is present but contains an invalid entry; the caller then
+// fails closed and retains the input binary.
+[[nodiscard]] bool register_custom_pass_flags(
+    spvtools::Optimizer &optimizer, SpirvOptimizerReport &report,
+    luisa::string_view flags) noexcept {
+    std::vector<std::string> parsed;
+    auto text = flags;
+    while (true) {
+        while (!text.empty() &&
+               (text.front() == ' ' || text.front() == '\t' ||
+                text.front() == ',')) {
+            text.remove_prefix(1u);
+        }
+        if (text.empty()) { break; }
+        auto split = text.find_first_of(" \t,");
+        if (split == luisa::string_view::npos) {
+            parsed.emplace_back(text);
+            break;
+        }
+        parsed.emplace_back(text.substr(0u, split));
+        text.remove_prefix(split);
+    }
+    if (parsed.empty()) { return true; }
+    report.registered_passes.emplace_back(
+        luisa::format("custom-pass-flags[{}]", flags));
+    return optimizer.RegisterPassesFromFlags(parsed);
+}
+
+// Mirrors DXC's RegisterPerformancePasses ordering (vendored
+// src/ext/SPIRV-Tools/source/opt/optimizer.cpp L185-230) minus the four passes
+// architecturally covered at XIR level (WrapOpKill, MergeReturn,
+// InlineExhaustive, EliminateDeadFunctions), keeping the Luisa-side
+// conditional loop-unroll gate (policy #2) and appending DXC's fork tail
+// (SpirvEmitter.cpp L17209-17214). sroa_limit threads the
+// LUISA_SPIRV_OPT_SROA_LIMIT override into both ScalarReplacement passes.
+void register_compute_passes(spvtools::Optimizer &optimizer,
+                             SpirvOptimizerReport &report,
+                             bool register_loop_unroll,
+                             uint32_t sroa_limit) {
+    register_pass(optimizer, report, "dead-branch-elim",
+                  spvtools::CreateDeadBranchElimPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "private-to-local",
+                  spvtools::CreatePrivateToLocalPass());
+    register_pass(optimizer, report, "local-single-block-load-store-elim",
+                  spvtools::CreateLocalSingleBlockLoadStoreElimPass());
+    register_pass(optimizer, report, "local-single-store-elim",
+                  spvtools::CreateLocalSingleStoreElimPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "scalar-replacement",
+                  spvtools::CreateScalarReplacementPass(sroa_limit));
+    register_pass(optimizer, report, "local-access-chain-convert",
+                  spvtools::CreateLocalAccessChainConvertPass());
+    register_pass(optimizer, report, "local-single-block-load-store-elim",
+                  spvtools::CreateLocalSingleBlockLoadStoreElimPass());
+    register_pass(optimizer, report, "local-single-store-elim",
+                  spvtools::CreateLocalSingleStoreElimPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "local-multi-store-elim",
+                  spvtools::CreateLocalMultiStoreElimPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "ccp",
+                  spvtools::CreateCCPPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    // SPIRV-Tools only considers loops carrying the explicit Unroll control
+    // bit. No preceding pass in this pipeline introduces that bit, so proving
+    // its absence in the input makes registering the whole-module loop
+    // analysis a pure cost. In particular, ordinary runtime/depth loops use
+    // LoopControl None and must remain compact. (Deliberate divergence from
+    // DXC, which unrolls unconditionally.)
+    if (register_loop_unroll) {
+        register_pass(optimizer, report, "loop-unroll",
+                      spvtools::CreateLoopUnrollPass(true));
+    }
+    register_pass(optimizer, report, "dead-branch-elim",
+                  spvtools::CreateDeadBranchElimPass());
+    register_pass(optimizer, report, "redundancy-elimination",
+                  spvtools::CreateRedundancyEliminationPass());
+    register_pass(optimizer, report, "combine-access-chains",
+                  spvtools::CreateCombineAccessChainsPass());
+    register_pass(optimizer, report, "simplification",
+                  spvtools::CreateSimplificationPass());
+    register_pass(optimizer, report, "scalar-replacement",
+                  spvtools::CreateScalarReplacementPass(sroa_limit));
+    register_pass(optimizer, report, "local-access-chain-convert",
+                  spvtools::CreateLocalAccessChainConvertPass());
+    register_pass(optimizer, report, "local-single-block-load-store-elim",
+                  spvtools::CreateLocalSingleBlockLoadStoreElimPass());
+    register_pass(optimizer, report, "local-single-store-elim",
+                  spvtools::CreateLocalSingleStoreElimPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "ssa-rewrite",
+                  spvtools::CreateSSARewritePass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "vector-dce",
+                  spvtools::CreateVectorDCEPass());
+    register_pass(optimizer, report, "dead-insert-elim",
+                  spvtools::CreateDeadInsertElimPass());
+    register_pass(optimizer, report, "dead-branch-elim",
+                  spvtools::CreateDeadBranchElimPass());
+    register_pass(optimizer, report, "simplification",
+                  spvtools::CreateSimplificationPass());
+    register_pass(optimizer, report, "if-conversion",
+                  spvtools::CreateIfConversionPass());
+    register_pass(optimizer, report, "copy-propagate-arrays",
+                  spvtools::CreateCopyPropagateArraysPass());
+    register_pass(optimizer, report, "reduce-load-size",
+                  spvtools::CreateReduceLoadSizePass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "block-merge",
+                  spvtools::CreateBlockMergePass());
+    register_pass(optimizer, report, "redundancy-elimination",
+                  spvtools::CreateRedundancyEliminationPass());
+    register_pass(optimizer, report, "dead-branch-elim",
+                  spvtools::CreateDeadBranchElimPass());
+    register_pass(optimizer, report, "block-merge",
+                  spvtools::CreateBlockMergePass());
+    register_pass(optimizer, report, "simplification",
+                  spvtools::CreateSimplificationPass());
+    // DXC fork tail: these run after the performance pipeline in every -O
+    // pipeline and are the final three passes of the compute preset.
+    register_pass(optimizer, report, "loop-unswitch",
+                  spvtools::CreateLoopUnswitchPass());
+    register_pass(optimizer, report, "spread-volatile-semantics",
+                  spvtools::CreateSpreadVolatileSemanticsPass());
+    register_pass(optimizer, report, "compact-ids",
+                  spvtools::CreateCompactIdsPass());
 }
 
 // SPIRV-Tools' trim-capabilities pass is intentionally incomplete: its own
@@ -132,7 +328,8 @@ constexpr auto capability_owned_target_features =
     target_feature::uniform_storage_buffer_16bit_access |
     target_feature::storage_buffer_array_non_uniform_indexing |
     target_feature::storage_buffer_array_dynamic_indexing |
-    target_feature::shader_device_clock;
+    target_feature::shader_device_clock |
+    target_feature::cooperative_vector;
 
 [[nodiscard]] constexpr SpirvTargetFeatureMask
 target_feature_from_capability(spv::Capability capability) noexcept {
@@ -195,6 +392,9 @@ target_feature_from_capability(spv::Capability capability) noexcept {
             return target_feature::ray_query;
         case spv::Capability::ShaderClockKHR:
             return target_feature::shader_device_clock;
+        case spv::Capability::CooperativeVectorNV:
+        case spv::Capability::CooperativeVectorTrainingNV:
+            return target_feature::cooperative_vector;
         default: return 0u;
     }
 }
@@ -281,22 +481,48 @@ SpirvOptimizerReport optimize_spirv(
         });
 
     if (report.effective_preset == "lightweight") {
-        optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
-        optimizer.RegisterPass(spvtools::CreateBlockMergePass());
-        optimizer.RegisterPass(spvtools::CreateSimplificationPass());
-        optimizer.RegisterPass(spvtools::CreateDeadBranchElimPass());
+        register_pass(optimizer, report, "adce",
+                      spvtools::CreateAggressiveDCEPass());
+        register_pass(optimizer, report, "block-merge",
+                      spvtools::CreateBlockMergePass());
+        register_pass(optimizer, report, "simplification",
+                      spvtools::CreateSimplificationPass());
+        register_pass(optimizer, report, "dead-branch-elim",
+                      spvtools::CreateDeadBranchElimPass());
     } else if (report.effective_preset == "compute") {
-        register_compute_passes(optimizer);
+        report.loop_unroll_registered =
+            has_unroll_loop_control(words.data(), words.size());
+        register_compute_passes(
+            optimizer, report, report.loop_unroll_registered,
+            spirv_opt_sroa_limit_from_environment());
     } else if (report.effective_preset == "full") {
         optimizer.RegisterPerformancePasses();
-        optimizer.RegisterPass(spvtools::CreatePrivateToLocalPass());
-        optimizer.RegisterPass(spvtools::CreateCopyPropagateArraysPass());
+        report.registered_passes.emplace_back("RegisterPerformancePasses");
+        // RegisterPerformancePasses owns a fixed upstream pipeline that
+        // includes the loop-unroll pass.
+        report.loop_unroll_registered = true;
+        register_pass(optimizer, report, "private-to-local",
+                      spvtools::CreatePrivateToLocalPass());
+        register_pass(optimizer, report, "copy-propagate-arrays",
+                      spvtools::CreateCopyPropagateArraysPass());
+        // DXC fork parity: the tail passes are appended after the stock
+        // performance pipeline exactly as SpirvEmitter.cpp does.
+        register_pass(optimizer, report, "loop-unswitch",
+                      spvtools::CreateLoopUnswitchPass());
+        register_pass(optimizer, report, "spread-volatile-semantics",
+                      spvtools::CreateSpreadVolatileSemanticsPass());
+        register_pass(optimizer, report, "compact-ids",
+                      spvtools::CreateCompactIdsPass());
     } else {
         report.diagnostics.append(luisa::format(
             "Unknown SPIR-V optimization preset '{}'; using compute.\n",
             report.effective_preset));
         report.effective_preset = "compute";
-        register_compute_passes(optimizer);
+        report.loop_unroll_registered =
+            has_unroll_loop_control(words.data(), words.size());
+        register_compute_passes(
+            optimizer, report, report.loop_unroll_registered,
+            spirv_opt_sroa_limit_from_environment());
     }
 
     // DCE can remove the last use of an optional capability, but ordinary
@@ -306,28 +532,115 @@ SpirvOptimizerReport optimize_spirv(
     // to trusting an incomplete trim. Never strip capabilities with an ad-hoc
     // binary rewrite.
     if (can_safely_trim_capabilities(words.data(), words.size())) {
-        optimizer.RegisterPass(spvtools::CreateTrimCapabilitiesPass());
+        register_pass(optimizer, report, "trim-capabilities",
+                      spvtools::CreateTrimCapabilitiesPass());
         report.capability_trim_registered = true;
     }
 
+    // Optional -Oconfig-style custom pass list appended after the preset
+    // (policy #5). Invalid flags fail closed and retain the input binary,
+    // matching DXC's behavior of aborting on an invalid -Oconfig list.
+    if (auto *env = std::getenv("LUISA_SPIRV_OPT_PASS_FLAGS")) {
+        if (*env != '\0' &&
+            !register_custom_pass_flags(optimizer, report, env)) {
+            report.diagnostics.append(
+                "LUISA_SPIRV_OPT_PASS_FLAGS contains an invalid pass flag; "
+                "aborting optimization and retaining the input binary.\n");
+            return report;
+        }
+    }
+
     report.attempted = true;
+    report.max_iterations = spirv_opt_max_iterations_from_environment();
+    spvtools::OptimizerOptions optimizer_options;
+    // The module is already validated before optimization (entry.cpp
+    // "pre-optimization" stage) and the final candidate is re-validated by
+    // validate_and_commit_spirv_transform below; per-iteration validation is
+    // redundant and expensive (DXC L17194 does the same).
+    optimizer_options.set_run_validator(false);
+    if (auto *env = std::getenv("LUISA_SPIRV_OPT_MAX_ID_BOUND")) {
+        char *end = nullptr;
+        errno = 0;
+        auto value = std::strtol(env, &end, 10);
+        if (errno == 0 && end != env && *end == '\0' &&
+            value > 0 && value <= std::numeric_limits<int>::max()) {
+            optimizer_options.set_max_id_bound(static_cast<uint32_t>(value));
+        }
+    }
+    if (auto *env = std::getenv("LUISA_SPIRV_OPT_PRESERVE_BINDINGS")) {
+        luisa::string_view text{env};
+        if (text == "1" || text == "true" || text == "TRUE") {
+            optimizer_options.set_preserve_bindings(true);
+        } else if (text == "0" || text == "false" || text == "FALSE") {
+            optimizer_options.set_preserve_bindings(false);
+        }
+    }
+
+    // ---- Fixed-point iteration loop (DXC mirror) ----
+    // Run the optimizer repeatedly until the binary content stabilizes or the
+    // maximum number of iterations is reached. The final iteration's candidate
+    // is kept in `optimized` so the transactional commit below validates the
+    // exact bytes that would replace the artifact. Intermediate iterations are
+    // not validated, matching DXC.
+    auto original = words;
+    const auto profile =
+        luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
+    luisa::Clock optimizer_clock;
     std::vector<uint32_t> optimized;
-    report.succeeded =
-        optimizer.Run(words.data(), words.size(), &optimized);
-    if (!report.succeeded) { return report; }
+    for (report.iterations = 1u;
+         report.iterations <= report.max_iterations; ++report.iterations) {
+        optimizer_clock.tic();
+        report.succeeded = optimizer.Run(
+            words.data(), words.size(), &optimized, optimizer_options);
+        if (profile) {
+            LUISA_INFO(
+                "Vulkan native SPIR-V optimizer iteration {}: {:.3f} ms",
+                report.iterations, optimizer_clock.toc());
+        }
+        if (!report.succeeded) { return report; }
+        report.converged = (optimized == words);
+        if (profile) {
+            LUISA_INFO(
+                "Vulkan native SPIR-V optimizer iteration {} result: {} words{}",
+                report.iterations, optimized.size(),
+                report.converged ? " (converged)" : "");
+        }
+        if (report.converged) { break; }
+        if (report.iterations == report.max_iterations) { break; }
+        words.swap(optimized);
+        optimized.clear();
+    }
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan native SPIR-V optimizer fixed point: {} iteration(s), "
+            "converged={}, {} words",
+            report.iterations, report.converged, words.size());
+    }
+
+    optimizer_clock.tic();
     auto commit = validate_and_commit_spirv_transform(
         words, std::move(optimized));
-    report.succeeded = commit.succeeded;
-    report.output_validated = commit.output_validated;
-    report.changed = commit.changed;
-    report.output_word_count = commit.output_word_count;
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan native SPIR-V optimizer commit validation: {:.3f} ms",
+            optimizer_clock.toc());
+    }
     if (!commit.succeeded) {
+        report.succeeded = false;
+        report.output_validated = false;
+        report.changed = false;
+        words = std::move(original);
+        report.output_word_count = words.size();
         report.diagnostics.append(
             "SPIR-V optimizer output failed Vulkan 1.2 validation; "
             "retaining the input binary.\n");
         report.diagnostics.append(commit.diagnostics);
         return report;
     }
+    report.succeeded = commit.succeeded;
+    report.output_validated = commit.output_validated;
+    report.changed = words != original;
+    report.output_word_count = commit.output_word_count;
     if (!commit.diagnostics.empty()) {
         report.diagnostics.append(
             "SPIR-V optimizer output validation diagnostics:\n");

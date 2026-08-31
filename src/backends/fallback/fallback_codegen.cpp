@@ -26,12 +26,12 @@
 #include <luisa/xir/metadata/name.h>
 #include <luisa/xir/metadata/location.h>
 
-#include "fallback_accel.h"
 #include "fallback_bindless_array.h"
 #include "fallback_buffer.h"
 #include "fallback_texture.h"
 #include "fallback_device_api.h"
 #include "fallback_codegen.h"
+#include "../common/llvm_native_math.h"
 
 namespace luisa::compute::fallback {
 
@@ -129,6 +129,7 @@ private:
 
 private:
     llvm::LLVMContext &_llvm_context;
+    bool _enable_fast_math;
     llvm::Module *_llvm_module = nullptr;
     luisa::unordered_map<const Type *, luisa::unique_ptr<LLVMStruct>> _llvm_struct_types{};
     luisa::unordered_map<const xir::Constant *, llvm::Constant *> _llvm_constants{};
@@ -161,7 +162,7 @@ private:
             case Type::Tag::BUFFER: return sizeof(FallbackBufferView);
             case Type::Tag::TEXTURE: return sizeof(FallbackTextureView);
             case Type::Tag::BINDLESS_ARRAY: return sizeof(FallbackBindlessArrayView);
-            case Type::Tag::ACCEL: return sizeof(FallbackAccelView);
+            case Type::Tag::ACCEL: return sizeof(api::AccelView);
             case Type::Tag::CUSTOM: {
                 if (t == Type::of<RayQueryAll>() || t == Type::of<RayQueryAny>()) {
                     return api::luisa_fallback_ray_query_object_size();
@@ -182,7 +183,7 @@ private:
             case Type::Tag::BUFFER: return alignof(FallbackBufferView);
             case Type::Tag::TEXTURE: return alignof(FallbackTextureView);
             case Type::Tag::BINDLESS_ARRAY: return alignof(FallbackBindlessArrayView);
-            case Type::Tag::ACCEL: return alignof(FallbackAccelView);
+            case Type::Tag::ACCEL: return alignof(api::AccelView);
             case Type::Tag::CUSTOM: {
                 if (t == Type::of<RayQueryAll>() || t == Type::of<RayQueryAny>()) {
                     return api::luisa_fallback_ray_query_object_alignment();
@@ -768,6 +769,9 @@ private:
             case Type::Tag::UINT16: [[fallthrough]];
             case Type::Tag::UINT32: [[fallthrough]];
             case Type::Tag::UINT64: return b.CreateURem(llvm_lhs, llvm_rhs);// Unsigned integer remainder
+            case Type::Tag::FLOAT16: [[fallthrough]];
+            case Type::Tag::FLOAT32: [[fallthrough]];
+            case Type::Tag::FLOAT64: return b.CreateFRem(llvm_lhs, llvm_rhs);// IEEE floating-point remainder (fmod)
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Invalid binary mod operand type: {}.", elem_type->description());
@@ -1019,6 +1023,7 @@ private:
 
         llvm::Value *result = nullptr;
         switch (elem_type->tag()) {
+            case Type::Tag::BOOL: [[fallthrough]];
             case Type::Tag::INT8: [[fallthrough]];
             case Type::Tag::INT16: [[fallthrough]];
             case Type::Tag::INT32: [[fallthrough]];
@@ -1048,6 +1053,7 @@ private:
 
         llvm::Value *result = nullptr;
         switch (elem_type->tag()) {
+            case Type::Tag::BOOL: [[fallthrough]];
             case Type::Tag::INT8: [[fallthrough]];
             case Type::Tag::INT16: [[fallthrough]];
             case Type::Tag::INT32: [[fallthrough]];
@@ -1064,6 +1070,34 @@ private:
         return _zext_i1_to_i8(b, result);
     }
 
+    [[nodiscard]] llvm::Value *_translate_native_inverse_hyperbolic(
+        CurrentFunction &current, IRBuilder &b,
+        const xir::Value *operand,
+        xir::ArithmeticOp operation) noexcept {
+        auto *value = _lookup_value(current, b, operand);
+        auto *type = operand->type();
+        auto *element = type->is_vector() ? type->element() : type;
+        if (!element->is_float32() || !value->getType()->isVectorTy()) {
+            return nullptr;
+        }
+        auto mode = _enable_fast_math ?
+                        cpu::LLVMNativeMathMode::fast :
+                        cpu::LLVMNativeMathMode::precise;
+        switch (operation) {
+            case xir::ArithmeticOp::ASINH:
+                return cpu::LLVMNativeMath::emit_asinh_f32(
+                    *_llvm_module, b, value, mode);
+            case xir::ArithmeticOp::ACOSH:
+                return cpu::LLVMNativeMath::emit_acosh_f32(
+                    *_llvm_module, b, value, mode);
+            case xir::ArithmeticOp::ATANH:
+                return cpu::LLVMNativeMath::emit_atanh_f32(
+                    *_llvm_module, b, value, mode);
+            default: break;
+        }
+        return nullptr;
+    }
+
     [[nodiscard]] llvm::Value *_translate_unary_fp_math_operation(CurrentFunction &current, IRBuilder &b, const xir::Value *operand, llvm::Intrinsic::ID intrinsic_id) noexcept {
         // Lookup LLVM value for operand
         auto llvm_operand = _lookup_value(current, b, operand);
@@ -1077,7 +1111,83 @@ private:
         auto elem_type = operand_type->is_vector() ? operand_type->element() : operand_type;
         switch (elem_type->tag()) {
             case Type::Tag::FLOAT16: [[fallthrough]];
-            case Type::Tag::FLOAT32: [[fallthrough]];
+            case Type::Tag::FLOAT32:
+                if (elem_type->is_float32() &&
+                    llvm_operand->getType()->isVectorTy()) {
+                    auto mode = _enable_fast_math ?
+                        cpu::LLVMNativeMathMode::fast :
+                        cpu::LLVMNativeMathMode::precise;
+                    llvm::Value *native = nullptr;
+                    switch (intrinsic_id) {
+#if LLVM_VERSION_MAJOR >= 19
+                        case llvm::Intrinsic::acos:
+                            native = cpu::LLVMNativeMath::emit_acos_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::asin:
+                            native = cpu::LLVMNativeMath::emit_asin_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::atan:
+                            native = cpu::LLVMNativeMath::emit_atan_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::cosh:
+                            native = cpu::LLVMNativeMath::emit_cosh_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::sinh:
+                            native = cpu::LLVMNativeMath::emit_sinh_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::tanh:
+                            native = cpu::LLVMNativeMath::emit_tanh_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+#endif
+                        case llvm::Intrinsic::sin:
+                            native = cpu::LLVMNativeMath::emit_sin_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::cos:
+                            native = cpu::LLVMNativeMath::emit_cos_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+#if LLVM_VERSION_MAJOR >= 19
+                        case llvm::Intrinsic::tan:
+                            native = cpu::LLVMNativeMath::emit_tan_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+#endif
+                        case llvm::Intrinsic::exp:
+                            native = cpu::LLVMNativeMath::emit_exp_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::exp2:
+                            native = cpu::LLVMNativeMath::emit_exp2_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::exp10:
+                            native = cpu::LLVMNativeMath::emit_exp10_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::log:
+                            native = cpu::LLVMNativeMath::emit_log_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::log2:
+                            native = cpu::LLVMNativeMath::emit_log2_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        case llvm::Intrinsic::log10:
+                            native = cpu::LLVMNativeMath::emit_log10_f32(
+                                *_llvm_module, b, llvm_operand, mode);
+                            break;
+                        default: break;
+                    }
+                    if (native != nullptr) { return native; }
+                }
+                [[fallthrough]];
             case Type::Tag::FLOAT64:
                 // Use LLVM's intrinsic function based on the provided intrinsic ID
                 return b.CreateUnaryIntrinsic(intrinsic_id, llvm_operand);
@@ -1217,6 +1327,57 @@ private:
             llvm_result = b.CreateInsertElement(llvm_result, result_elem, i);
         }
         return llvm_result;
+    }
+
+    [[nodiscard]] llvm::Value *_translate_atan2(
+        CurrentFunction &current, IRBuilder &b,
+        const xir::Value *y, const xir::Value *x) noexcept {
+        auto llvm_y = _lookup_value(current, b, y);
+        auto llvm_x = _lookup_value(current, b, x);
+        auto type = y->type();
+        LUISA_ASSERT(type == x->type(), "Type mismatch.");
+        auto element = type->is_vector() ? type->element() : type;
+        if (element->is_float32() && llvm_y->getType()->isVectorTy()) {
+            auto mode = _enable_fast_math ?
+                            cpu::LLVMNativeMathMode::fast :
+                            cpu::LLVMNativeMathMode::precise;
+            auto native = cpu::LLVMNativeMath::emit_atan2_f32(
+                *_llvm_module, b, llvm_y, llvm_x, mode);
+            LUISA_ASSERT(
+                native != nullptr,
+                "Native fallback atan2 requires fixed f32 vectors.");
+            return native;
+        }
+#if LLVM_VERSION_MAJOR >= 20
+        return _translate_binary_fp_math_operation(
+            current, b, y, x, llvm::Intrinsic::atan2);
+#else
+        return _translate_binary_fp_math_operation(
+            current, b, y, x, "atan2");
+#endif
+    }
+
+    [[nodiscard]] llvm::Value *_translate_pow(
+        CurrentFunction &current, IRBuilder &b,
+        const xir::Value *base, const xir::Value *exponent) noexcept {
+        auto llvm_base = _lookup_value(current, b, base);
+        auto llvm_exponent = _lookup_value(current, b, exponent);
+        auto type = base->type();
+        LUISA_ASSERT(type == exponent->type(), "Type mismatch.");
+        auto element = type->is_vector() ? type->element() : type;
+        if (element->is_float32() && llvm_base->getType()->isVectorTy()) {
+            auto mode = _enable_fast_math ?
+                            cpu::LLVMNativeMathMode::fast :
+                            cpu::LLVMNativeMathMode::precise;
+            auto native = cpu::LLVMNativeMath::emit_pow_f32(
+                *_llvm_module, b, llvm_base, llvm_exponent, mode);
+            LUISA_ASSERT(
+                native != nullptr,
+                "Native fallback pow requires fixed f32 vectors.");
+            return native;
+        }
+        return _translate_binary_fp_math_operation(
+            current, b, base, exponent, llvm::Intrinsic::pow);
     }
 
     [[nodiscard]] llvm::Value *_translate_vector_reduce(CurrentFunction &current, IRBuilder &b,
@@ -1919,6 +2080,8 @@ private:
     [[nodiscard]] llvm::Value *_translate_accel_access(CurrentFunction &current, IRBuilder &b,
                                                        llvm::StringRef llvm_func_name,
                                                        const xir::Instruction *inst) noexcept {
+        auto llvm_func = _llvm_module->getFunction(llvm_func_name);
+        LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         auto llvm_accel = _lookup_value(current, b, inst->operand(0u));
         auto llvm_accel_alloca = b.CreateAlloca(llvm_accel->getType());
         b.CreateStore(llvm_accel, llvm_accel_alloca);
@@ -1926,11 +2089,19 @@ private:
         for (auto arg_use : inst->operand_uses().subspan(1)) {
             auto arg = arg_use->value();
             auto llvm_arg = _lookup_value(current, b, arg);
-            if (llvm_arg->getType()->isIntegerTy() && !arg->type()->is_bool()) {
-                // cast non-bool integer to i32
-                llvm_arg = b.CreateZExtOrTrunc(llvm_arg, b.getInt32Ty());
-            }
             if (arg->type()->is_scalar()) {
+                // Scalar ABI types in the embedded device library are
+                // target-dependent (notably C++ bool may be i1 while XIR
+                // bool is represented as i8). Match the declared callee
+                // parameter instead of assuming an i32 integer ABI.
+                auto llvm_parameter_type =
+                    llvm_func->getFunctionType()->getParamType(
+                        llvm_args.size());
+                if (llvm_arg->getType()->isIntegerTy() &&
+                    llvm_parameter_type->isIntegerTy()) {
+                    llvm_arg = b.CreateZExtOrTrunc(
+                        llvm_arg, llvm_parameter_type);
+                }
                 llvm_args.emplace_back(llvm_arg);
             } else {
                 auto llvm_arg_alloca = b.CreateAlloca(llvm_arg->getType());
@@ -1940,8 +2111,6 @@ private:
                 llvm_args.emplace_back(llvm_arg_alloca);
             }
         }
-        auto llvm_func = _llvm_module->getFunction(llvm_func_name);
-        LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         if (auto result_type = inst->type()) {
             auto llvm_result_type = _translate_type(result_type, true);
             auto llvm_result_alloca = b.CreateAlloca(llvm_result_type);
@@ -1959,6 +2128,7 @@ private:
             using namespace std::string_view_literals;
             switch (op) {
                 case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: return "luisa.ray.query.object.world.space.ray"sv;
+                case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: return "luisa.ray.query.object.candidate.object.space.ray"sv;
                 case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: return "luisa.ray.query.object.procedural.candidate.hit"sv;
                 case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: return "luisa.ray.query.object.surface.candidate.hit"sv;
                 case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: return "luisa.ray.query.object.committed.hit"sv;
@@ -2449,6 +2619,10 @@ private:
 #endif
             }
             case xir::ArithmeticOp::ACOSH: {
+                if (auto *native = _translate_native_inverse_hyperbolic(
+                        current, b, inst->operand(0u), inst->op())) {
+                    return native;
+                }
                 // acosh(x) = log(x + sqrt(x^2 - 1))
                 auto llvm_x = _lookup_value(current, b, inst->operand(0u));
                 auto llvm_x2 = b.CreateFMul(llvm_x, llvm_x);
@@ -2466,6 +2640,10 @@ private:
 #endif
             }
             case xir::ArithmeticOp::ASINH: {
+                if (auto *native = _translate_native_inverse_hyperbolic(
+                        current, b, inst->operand(0u), inst->op())) {
+                    return native;
+                }
                 // asinh(x) = log(x + sqrt(x^2 + 1))
                 auto llvm_x = _lookup_value(current, b, inst->operand(0u));
                 auto llvm_x2 = b.CreateFMul(llvm_x, llvm_x);
@@ -2482,14 +2660,14 @@ private:
                 return _translate_unary_fp_math_operation(current, b, inst->operand(0u), "atan");
 #endif
             }
-            case xir::ArithmeticOp::ATAN2: {
-#if LLVM_VERSION_MAJOR >= 20
-                return _translate_binary_fp_math_operation(current, b, inst->operand(0), inst->operand(1), llvm::Intrinsic::atan2);
-#else
-                return _translate_binary_fp_math_operation(current, b, inst->operand(0), inst->operand(1), "atan2");
-#endif
-            }
+            case xir::ArithmeticOp::ATAN2:
+                return _translate_atan2(
+                    current, b, inst->operand(0), inst->operand(1));
             case xir::ArithmeticOp::ATANH: {
+                if (auto *native = _translate_native_inverse_hyperbolic(
+                        current, b, inst->operand(0u), inst->op())) {
+                    return native;
+                }
                 // atanh(x) = 0.5 * log((1 + x) / (1 - x))
                 auto llvm_x = _lookup_value(current, b, inst->operand(0u));
                 auto llvm_one = llvm::ConstantFP::get(llvm_x->getType(), 1.f);
@@ -2558,7 +2736,7 @@ private:
             case xir::ArithmeticOp::LOG: return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::log);
             case xir::ArithmeticOp::LOG2: return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::log2);
             case xir::ArithmeticOp::LOG10: return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::log10);
-            case xir::ArithmeticOp::POW: return _translate_binary_fp_math_operation(current, b, inst->operand(0u), inst->operand(1u), llvm::Intrinsic::pow);
+            case xir::ArithmeticOp::POW: return _translate_pow(current, b, inst->operand(0u), inst->operand(1u));
             case xir::ArithmeticOp::POW_INT: {
                 auto base = inst->operand(0u);
                 auto exponent = inst->operand(1u);
@@ -2940,6 +3118,61 @@ private:
             case xir::ResourceReadOp::BINDLESS_BUFFER_READ: return _translate_bindless_buffer_read(current, b, inst);
             case xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ: return _translate_bindless_buffer_read(current, b, inst, true);
             case xir::ResourceReadOp::DEVICE_ADDRESS_READ: return _translate_device_address_read(current, b, inst);
+            case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            case xir::ResourceReadOp::COOPERATIVE_MUL:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            // Future cooperative-vector element-wise operations — TODO: implement
+            // in the fallback backend.
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_COS:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ATANH:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_POW:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+            case xir::ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+                LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the fallback backend yet.");
         }
         LUISA_ERROR_WITH_LOCATION("Unexpected resource read operation: {}.", xir::to_string(inst->op()));
     }
@@ -2964,6 +3197,12 @@ private:
             case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: return _translate_accel_access(current, b, "luisa.accel.set.instance.motion.srt", inst);
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: break;
             case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: break;
+            case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+            case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                LUISA_NOT_IMPLEMENTED();
         }
         LUISA_ERROR_WITH_LOCATION("Unexpected resource write operation: {}.", xir::to_string(inst->op()));
     }
@@ -4181,7 +4420,15 @@ private:
     }
 
     [[nodiscard]] llvm::Function *_translate_callable_function(const xir::CallableFunction *f) noexcept {
-        return _translate_function_definition(f, llvm::Function::PrivateLinkage, "callable", false);
+        auto llvm_func = _translate_function_definition(
+            f, llvm::Function::PrivateLinkage, "callable", false);
+        // Device callables frequently carry large aggregate values by value.
+        // Keeping such a private callable as a machine-level function can
+        // exceed target ABI legalization limits (notably for three-lane
+        // vectors on AArch64). XIR callables are non-recursive, so eliminate
+        // that internal ABI boundary before machine lowering.
+        llvm_func->addFnAttr(llvm::Attribute::AlwaysInline);
+        return llvm_func;
     }
 
     [[nodiscard]] llvm::Function *_translate_function(const xir::Function *f) noexcept {
@@ -4207,8 +4454,10 @@ private:
     }
 
 public:
-    explicit FallbackCodegen(llvm::LLVMContext &ctx) noexcept
-        : _llvm_context{ctx} {}
+    explicit FallbackCodegen(
+        llvm::LLVMContext &ctx, bool enable_fast_math) noexcept
+        : _llvm_context{ctx},
+          _enable_fast_math{enable_fast_math} {}
 
     FallbackCodeGenFeedback emit(llvm::Module *llvm_module, const xir::Module *module) noexcept {
         auto location_md = module->find_metadata<xir::LocationMD>();
@@ -4227,9 +4476,10 @@ public:
     }
 };
 
-FallbackCodeGenFeedback
-luisa_fallback_backend_codegen(llvm::LLVMContext &llvm_ctx, llvm::Module *llvm_module, const xir::Module *module) noexcept {
-    FallbackCodegen codegen{llvm_ctx};
+FallbackCodeGenFeedback luisa_fallback_backend_codegen(
+    llvm::LLVMContext &llvm_ctx, llvm::Module *llvm_module,
+    const xir::Module *module, bool enable_fast_math) noexcept {
+    FallbackCodegen codegen{llvm_ctx, enable_fast_math};
     return codegen.emit(llvm_module, module);
 }
 

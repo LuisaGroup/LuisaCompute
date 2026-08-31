@@ -51,9 +51,9 @@ public:
     void destroy_mesh(uint64_t handle) noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
     uint compute_warp_size() const noexcept override;
+    size_t compute_max_shared_memory_size() const noexcept override;
     uint64_t memory_granularity() const noexcept override;
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     ResourceCreationInfo create_texture(PixelFormat format, uint dimension,
                                         uint width, uint height, uint depth,
                                         uint mipmap_levels, void *external_native_handle,
@@ -63,8 +63,6 @@ public:
     void set_stream_log_callback(uint64_t stream_handle, const StreamLogCallback &callback) noexcept override;
     SwapchainCreationInfo create_swapchain(const SwapchainOption &option, uint64_t stream_handle) noexcept override;
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
-    ShaderCreationInfo create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept override;
     ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept override;

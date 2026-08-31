@@ -479,6 +479,7 @@ struct alignas(16) LC_RayQueryObject {
     RayQueryCandidate candidate;
     EmbreeRayHit ray_hit;
     Ray world_ray;
+    Ray object_ray;
 };
 
 LUISA_FALLBACK_INTERNAL void luisa_fallback_create_embree_ray(EmbreeRay *embree_ray, const Ray *ray, float time, uint mask) noexcept {
@@ -502,19 +503,20 @@ LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_surface_hit(SurfaceHit *surfa
                     .committed_ray_t = ray_hit->ray.extra.tfar};
 }
 
-LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_committed_hit(CommittedHit *committed_hit, const EmbreeHit *hit) noexcept {
+LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_committed_hit(CommittedHit *committed_hit, const LC_RayQueryObject *q) noexcept {
+    auto hit = &q->ray_hit.hit;
     *committed_hit = {.inst = hit->instID[0],
                       .prim = hit->primID,
                       .bary = {hit->u, hit->v},
-                      .hit_type = hit->instID[0] == ~0u ? HitType::Miss :
-                                  hit->u < 0.f          ? HitType::Procedural :
-                                                          HitType::Surface,
+                      .hit_type = q->candidate.committed_hit_type,
                       .committed_ray_t = hit->Ng_z};
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_traverse_motion(const AccelView *handle, const Ray *ray, float time, uint mask, LC_RayQueryObject *out) noexcept {
     out->accel = *handle;
     out->world_ray = *ray;
+    out->object_ray = *ray;
+    out->candidate.committed_hit_type = HitType::Miss;
     luisa_fallback_create_embree_ray(&out->ray_hit.ray, ray, time, mask);
     luisa_fallback_create_embree_hit(&out->ray_hit.hit);
 }
@@ -525,6 +527,10 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_traverse(const AccelVie
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_world_space_ray(const LC_RayQueryObject *q, Ray *out) noexcept {
     *out = q->world_ray;
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_candidate_object_space_ray(const LC_RayQueryObject *q, Ray *out) noexcept {
+    *out = q->object_ray;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_procedural_candidate_hit(const LC_RayQueryObject *q, AABBHit *out) noexcept {
@@ -540,12 +546,13 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_surface_cand
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_committed_hit(const LC_RayQueryObject *q, CommittedHit *out) noexcept {
-    luisa_fallback_decode_committed_hit(out, &q->ray_hit.hit);
+    luisa_fallback_decode_committed_hit(out, q);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_surface_hit(LC_RayQueryObject *q) noexcept {
     q->candidate.committed = true;
     q->world_ray.t_max = q->candidate.t;
+    q->object_ray.t_max = q->candidate.t;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_procedural_hit(LC_RayQueryObject *q, float t) noexcept {
@@ -554,6 +561,7 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_proce
         t <= q->world_ray.t_max) {
         q->candidate.committed = true;
         q->world_ray.t_max = t;
+        q->object_ray.t_max = t;
     }
 }
 
@@ -593,7 +601,8 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_trace_any(const AccelVi
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_instance_transform(const AccelView *handle, uint instance_id, float4x4 *out) noexcept {
-    auto rows = reinterpret_cast<const llvm_float4 *>(handle->instances[instance_id].affine);
+    auto instances = *handle->instances;
+    auto rows = reinterpret_cast<const llvm_float4 *>(instances[instance_id].affine);
     auto r0 = rows[0];
     auto r1 = rows[1];
     auto r2 = rows[2];
@@ -605,15 +614,15 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_instance_transform(cons
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_instance_user_id(const AccelView *handle, uint instance_id, uint *out) noexcept {
-    *out = handle->instances[instance_id].user_id;
+    *out = (*handle->instances)[instance_id].user_id;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_instance_visibility_mask(const AccelView *handle, uint instance_id, uint *out) noexcept {
-    *out = handle->instances[instance_id].mask;
+    *out = (*handle->instances)[instance_id].mask;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_transform(AccelView *handle, uint instance_id, const float4x4 *transform) noexcept {
-    auto &instance = handle->instances[instance_id];
+    auto &instance = (*handle->instances)[instance_id];
     auto rows = reinterpret_cast<llvm_float4 *>(instance.affine);
     auto m = *reinterpret_cast<const llvm_float4x4 *>(transform);
     rows[0] = {m.cols[0].x, m.cols[1].x, m.cols[2].x, m.cols[3].x};
@@ -623,19 +632,19 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_transform(
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_visibility_mask(AccelView *handle, uint instance_id, uint mask) noexcept {
-    auto &instance = handle->instances[instance_id];
+    auto &instance = (*handle->instances)[instance_id];
     instance.mask = mask;
     instance.dirty = true;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_user_id(AccelView *handle, uint instance_id, uint user_id) noexcept {
-    auto &instance = handle->instances[instance_id];
+    auto &instance = (*handle->instances)[instance_id];
     instance.user_id = user_id;
     instance.dirty = true;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_set_instance_opacity(AccelView *handle, uint instance_id, bool opacity) noexcept {
-    auto &instance = handle->instances[instance_id];
+    auto &instance = (*handle->instances)[instance_id];
     instance.opaque = opacity;
     instance.dirty = true;
 }

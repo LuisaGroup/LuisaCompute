@@ -13,11 +13,15 @@
 
 #include <luisa/luisa-compute.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
+
+#include "../../../backends/common/xir_autodiff.h"
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -34,6 +38,7 @@ struct StatementCounter final : StmtVisitor {
     uint continues = 0u;
     uint ifs = 0u;
     uint loops = 0u;
+    uint fors = 0u;
     uint switches = 0u;
     uint exprs = 0u;
     uint prints = 0u;
@@ -61,7 +66,10 @@ struct StatementCounter final : StmtVisitor {
     void visit(const SwitchCaseStmt *stmt) override { stmt->body()->accept(*this); }
     void visit(const SwitchDefaultStmt *stmt) override { stmt->body()->accept(*this); }
     void visit(const AssignStmt *) override { stores++; }
-    void visit(const ForStmt *stmt) override { stmt->body()->accept(*this); }
+    void visit(const ForStmt *stmt) override {
+        fors++;
+        stmt->body()->accept(*this);
+    }
     void visit(const CommentStmt *) override {}
     void visit(const RayQueryStmt *stmt) override {
         stmt->on_triangle_candidate()->accept(*this);
@@ -107,6 +115,175 @@ template<typename F>
 }// namespace
 
 void reg_xir2ast_direct() {
+
+    "xir_to_ast_roundtrip_preserves_undefined_aggregate"_test = [] {
+        using Bank = std::array<float4, 3u>;
+        Module module;
+        auto *callable = module.create_callable(Type::of<Bank>());
+        XIRBuilder builder;
+        builder.set_insertion_point(callable->create_body_block());
+        builder.return_(module.create_undefined(Type::of<Bank>()));
+        expect(xir_verify_module(&module).succeeded());
+
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(rebuilt != nullptr);
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+
+        auto undefined_operand_count = 0u;
+        for (auto *function : rebuilt->function_list()) {
+            auto *definition = function->definition();
+            if (definition == nullptr) { continue; }
+            definition->traverse_instructions(
+                [&](const Instruction *instruction) noexcept {
+                    for (auto i = 0u;
+                         i < instruction->operand_count(); ++i) {
+                        auto *operand = instruction->operand(i);
+                        if (operand != nullptr &&
+                            operand->derived_value_tag() ==
+                            DerivedValueTag::UNDEFINED) {
+                            expect(operand->type() == Type::of<Bank>());
+                            undefined_operand_count++;
+                        }
+                    }
+                });
+        }
+        expect(undefined_operand_count == 1u)
+            << "XIR-to-AST must not refine undefined to zero";
+    };
+
+    "xir_to_ast_roundtrips_canonical_low_level_ray_query_state"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *query = callable->create_reference_argument(
+            Type::of<RayQueryAll>());
+        auto *distance = callable->create_value_argument(Type::of<float>());
+        auto *body = callable->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+
+        static_cast<void>(b.call(
+            Type::of<Ray>(),
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<Ray>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<ProceduralHit>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<TriangleHit>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<CommittedHit>(),
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<bool>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE,
+            {query}));
+        static_cast<void>(b.call(
+            Type::of<bool>(),
+            RayQueryObjectReadOp::
+                RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE,
+            {query}));
+        b.call(
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE,
+            {query});
+        b.call(
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL,
+            {query, distance});
+        b.call(
+            RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE,
+            {query});
+
+        // XIR splits AST proceed() into an adjacent state transition and a
+        // read of the complementary termination bit. This exact pair is the
+        // representable inverse boundary for XIR-to-AST.
+        b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED,
+               {query});
+        auto *terminated = b.call(
+            Type::of<bool>(),
+            RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
+            {query});
+        auto *active = b.call(
+            Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT,
+            {terminated});
+        b.assume_(active, "canonical proceed pair remains active");
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(rebuilt != nullptr);
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+        // XIR-to-AST materializes stateful calls into AST locals. Promote those
+        // transport-only temporaries so the semantic polarity can be inspected
+        // on the rebuilt SSA value rather than through incidental loads/stores.
+        static_cast<void>(mem2reg_pass_run_on_module(rebuilt.get()));
+
+        std::array<
+            size_t,
+            luisa::to_underlying(
+                RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED) +
+                1u>
+            read_counts{};
+        std::array<size_t, 4u> write_counts{};
+        const AssumeInst *rebuilt_assume = nullptr;
+        for (auto *function : rebuilt->function_list()) {
+            auto *definition = function->definition();
+            if (definition == nullptr) { continue; }
+            definition->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    if (instruction->isa<RayQueryObjectReadInst>()) {
+                        auto op = static_cast<RayQueryObjectReadInst *>(
+                                      instruction)
+                                      ->op();
+                        read_counts[luisa::to_underlying(op)]++;
+                    } else if (instruction
+                                   ->isa<RayQueryObjectWriteInst>()) {
+                        auto op = static_cast<RayQueryObjectWriteInst *>(
+                                      instruction)
+                                      ->op();
+                        write_counts[luisa::to_underlying(op)]++;
+                    } else if (instruction->isa<AssumeInst>()) {
+                        rebuilt_assume = static_cast<const AssumeInst *>(
+                            instruction);
+                    }
+                });
+        }
+        for (auto count : read_counts) { expect(count == 1u); }
+        for (auto count : write_counts) { expect(count == 1u); }
+        // The assumed value was `active = !terminated`. Follow the rebuilt
+        // unary chain back to the termination read and verify odd parity. This
+        // catches the tempting but incorrect mapping of AST proceed() directly
+        // to XIR is_terminated, even though both shapes contain the same number
+        // of ray-query reads and writes.
+        expect(rebuilt_assume != nullptr);
+        auto *value = rebuilt_assume->condition();
+        auto negation_count = 0u;
+        while (value->isa<ArithmeticInst>()) {
+            auto *arithmetic = static_cast<const ArithmeticInst *>(value);
+            if (arithmetic->op() != ArithmeticOp::UNARY_BIT_NOT) { break; }
+            negation_count++;
+            value = arithmetic->operand(0u);
+        }
+        expect((negation_count & 1u) == 1u);
+        expect(value->isa<RayQueryObjectReadInst>());
+        if (value->isa<RayQueryObjectReadInst>()) {
+            expect(static_cast<const RayQueryObjectReadInst *>(value)->op() ==
+                   RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED);
+        }
+    };
 
     "xir_to_ast_direct_memory_and_resource_kernel"_test = [] {
         Module module;
@@ -241,6 +418,61 @@ void reg_xir2ast_direct() {
             }
         }
         expect(size_query_count == 1u);
+    };
+
+    "xir_to_ast_preserves_bindless_access_axes"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *bindless =
+            kernel->create_resource_argument(Type::of<BindlessArray>());
+        auto *output = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *body = kernel->create_body_block();
+        auto *slot = module.create_constant_zero(Type::of<uint32_t>());
+        auto *stride = module.create_constant_one(Type::of<uint32_t>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        std::array accesses{
+            BindlessResourceAccess{.typed = true, .uniform = true},
+            BindlessResourceAccess{.typed = true, .uniform = false},
+            BindlessResourceAccess{.typed = false, .uniform = true}};
+        for (auto i = 0u; i < accesses.size(); ++i) {
+            auto *size = b.call(
+                Type::of<uint32_t>(),
+                ResourceQueryOp::BINDLESS_BUFFER_SIZE,
+                {bindless, slot, stride}, accesses[i]);
+            auto *index = module.create_constant(
+                Type::of<uint32_t>(), &i);
+            b.call(ResourceWriteOp::BUFFER_WRITE,
+                   {output, index, size});
+        }
+        b.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+
+        std::array found{false, false, false};
+        auto *roundtrip_kernel = first_kernel_definition(roundtrip.get());
+        expect(roundtrip_kernel != nullptr);
+        roundtrip_kernel->traverse_instructions(
+            [&](const Instruction *instruction) noexcept {
+                if (!instruction->isa<ResourceQueryInst>()) { return; }
+                auto *query = static_cast<const ResourceQueryInst *>(
+                    instruction);
+                if (query->op() !=
+                    ResourceQueryOp::BINDLESS_BUFFER_SIZE) {
+                    return;
+                }
+                for (auto i = 0u; i < accesses.size(); ++i) {
+                    found[i] = found[i] ||
+                               query->bindless_access() == accesses[i];
+                }
+            });
+        expect(found[0] && found[1] && found[2]);
     };
 
 #if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
@@ -643,6 +875,318 @@ void reg_xir2ast_direct() {
         expect(round_count == 0u);
     };
 
+    "xir_to_ast_roundtrip_preserves_matrix_arithmetic_partition"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *matrix = callable->create_value_argument(
+            Type::of<float4x4>());
+        auto *other_matrix = callable->create_value_argument(
+            Type::of<float4x4>());
+        auto *vector = callable->create_value_argument(
+            Type::of<float4>());
+        // Pure, unused AST expressions are intentionally not statements. Make
+        // every operation externally observable so the round trip checks the
+        // opcode partition rather than dead-expression retention.
+        auto *neg_output = callable->create_reference_argument(
+            Type::of<float4x4>());
+        auto *add_output = callable->create_reference_argument(
+            Type::of<float4x4>());
+        auto *sub_output = callable->create_reference_argument(
+            Type::of<float4x4>());
+        auto *component_mul_output = callable->create_reference_argument(
+            Type::of<float4x4>());
+        auto *div_output = callable->create_reference_argument(
+            Type::of<float4x4>());
+        auto *matrix_vector_output = callable->create_reference_argument(
+            Type::of<float4>());
+        auto *vector_matrix_output = callable->create_reference_argument(
+            Type::of<float4>());
+        auto *matrix_matrix_output = callable->create_reference_argument(
+            Type::of<float4x4>());
+        auto *body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.store(neg_output, builder.call(
+                                      Type::of<float4x4>(),
+                                      ArithmeticOp::MATRIX_COMP_NEG, {matrix}));
+        builder.store(add_output, builder.call(
+                                      Type::of<float4x4>(),
+                                      ArithmeticOp::MATRIX_COMP_ADD,
+                                      {matrix, other_matrix}));
+        builder.store(sub_output, builder.call(
+                                      Type::of<float4x4>(),
+                                      ArithmeticOp::MATRIX_COMP_SUB,
+                                      {matrix, other_matrix}));
+        builder.store(component_mul_output, builder.call(
+                                                Type::of<float4x4>(),
+                                                ArithmeticOp::MATRIX_COMP_MUL,
+                                                {matrix, other_matrix}));
+        builder.store(div_output, builder.call(
+                                      Type::of<float4x4>(),
+                                      ArithmeticOp::MATRIX_COMP_DIV,
+                                      {matrix, other_matrix}));
+        builder.store(matrix_vector_output, builder.call(
+                                                Type::of<float4>(),
+                                                ArithmeticOp::MATRIX_LINALG_MUL,
+                                                {matrix, vector}));
+        builder.store(vector_matrix_output, builder.call(
+                                                Type::of<float4>(),
+                                                ArithmeticOp::MATRIX_LINALG_MUL,
+                                                {vector, matrix}));
+        builder.store(matrix_matrix_output, builder.call(
+                                                Type::of<float4x4>(),
+                                                ArithmeticOp::MATRIX_LINALG_MUL,
+                                                {matrix, other_matrix}));
+        builder.return_void();
+
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        if (ast == nullptr) { return; }
+        auto rebuilt = ast_to_xir_translate(
+            ast->function(), {});
+        expect(rebuilt != nullptr);
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+
+        std::array<size_t, 6u> counts{};
+        for (auto *function : rebuilt->function_list()) {
+            auto *definition = function->definition();
+            if (definition == nullptr) { continue; }
+            definition->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    if (!instruction->isa<ArithmeticInst>()) {
+                        return;
+                    }
+                    switch (static_cast<ArithmeticInst *>(
+                                instruction)
+                                ->op()) {
+                        case ArithmeticOp::MATRIX_COMP_NEG:
+                            ++counts[0u];
+                            break;
+                        case ArithmeticOp::MATRIX_COMP_ADD:
+                            ++counts[1u];
+                            break;
+                        case ArithmeticOp::MATRIX_COMP_SUB:
+                            ++counts[2u];
+                            break;
+                        case ArithmeticOp::MATRIX_COMP_MUL:
+                            ++counts[3u];
+                            break;
+                        case ArithmeticOp::MATRIX_COMP_DIV:
+                            ++counts[4u];
+                            break;
+                        case ArithmeticOp::MATRIX_LINALG_MUL:
+                            ++counts[5u];
+                            break;
+                        default: break;
+                    }
+                });
+        }
+        expect(counts[0u] == 1u);
+        expect(counts[1u] == 1u);
+        expect(counts[2u] == 1u);
+        expect(counts[3u] == 1u);
+        expect(counts[4u] == 1u);
+        expect(counts[5u] == 3u);
+    };
+
+    "xir_to_ast_emits_loop_update_for_boundary_selection_arm"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *loop_condition = callable->create_value_argument(
+            Type::of<bool>());
+        auto *take_body = callable->create_value_argument(
+            Type::of<bool>());
+        auto *entry = callable->create_body_block();
+        auto *prepare = callable->create_basic_block();
+        auto *body = callable->create_basic_block();
+        auto *work = callable->create_basic_block();
+        auto *update = callable->create_basic_block();
+        auto *merge = callable->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *state = builder.alloca_local(Type::of<uint32_t>());
+        builder.store(
+            state,
+            module.create_constant_zero(Type::of<uint32_t>()));
+        auto *loop = builder.loop();
+        loop->set_prepare_block(prepare);
+        loop->set_body_block(body);
+        loop->set_update_block(update);
+        loop->set_merge_block(merge);
+
+        builder.set_insertion_point(prepare);
+        builder.cond_br(loop_condition, body, merge);
+
+        // Canonical physical loop-boundary selection:
+        //   true  -> normal fallthrough/selection merge
+        //   false -> loop update
+        // The update arm is not an ordinary recursive CFG region.
+        builder.set_insertion_point(body);
+        auto *guard = builder.if_(take_body);
+        guard->set_true_target(work);
+        guard->set_false_target(update);
+        guard->set_merge_block(work);
+
+        builder.set_insertion_point(work);
+        builder.store(
+            state,
+            module.create_constant_one(Type::of<uint32_t>()));
+        builder.continue_(update);
+
+        builder.set_insertion_point(update);
+        auto *value = builder.load(Type::of<uint32_t>(), state);
+        auto *next = builder.call(
+            // Keep this as a generic LoopInst rather than allowing the
+            // translator's canonical induction-variable matcher to turn it
+            // into a ForStmt. The regression specifically exercises a
+            // selection arm that targets the physical update boundary of an
+            // enclosing generic loop.
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_SUB,
+            {value,
+             module.create_constant_one(Type::of<uint32_t>())});
+        builder.store(state, next);
+        builder.br(prepare);
+
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        auto verification = xir_verify_function(
+            callable,
+            {.require_no_phi = true,
+             .require_canonical_break_continue_targets = true});
+        expect(verification.succeeded());
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        if (ast == nullptr) { return; }
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.loops == 1u)
+            << "expected one generic loop, got " << counter.loops;
+        // The canonical ContinueInst targeting the loop update is represented
+        // by normal loop-tail fallthrough. Only the boundary-selection arm
+        // needs an explicit AST ContinueStmt.
+        expect(counter.continues == 1u)
+            << "the direct update arm must terminate with one synthesized "
+               "continue; got "
+            << counter.continues;
+        auto rebuilt = ast_to_xir_translate(
+            ast->function(), {});
+        expect(rebuilt != nullptr);
+        if (rebuilt == nullptr) { return; }
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+        auto update_count = size_t{0u};
+        for (auto *function : rebuilt->function_list()) {
+            auto *definition = function->definition();
+            if (definition == nullptr) { continue; }
+            definition->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    if (instruction->isa<ArithmeticInst>() &&
+                        static_cast<ArithmeticInst *>(instruction)->op() ==
+                            ArithmeticOp::BINARY_SUB) {
+                        ++update_count;
+                    }
+                });
+        }
+        expect(update_count == 2u)
+            << "both the normal loop tail and the boundary-selection arm "
+               "must execute the update slice exactly once; got "
+            << update_count << " copies";
+    };
+
+    "xir_to_ast_for_boundary_continue_uses_header_step_once"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *loop_condition = callable->create_value_argument(
+            Type::of<bool>());
+        auto *take_body = callable->create_value_argument(
+            Type::of<bool>());
+        auto *entry = callable->create_body_block();
+        auto *prepare = callable->create_basic_block();
+        auto *body = callable->create_basic_block();
+        auto *work = callable->create_basic_block();
+        auto *update = callable->create_basic_block();
+        auto *merge = callable->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *induction = builder.alloca_local(
+            Type::of<uint32_t>());
+        auto *work_state = builder.alloca_local(
+            Type::of<uint32_t>());
+        builder.store(
+            induction,
+            module.create_constant_zero(Type::of<uint32_t>()));
+        builder.store(
+            work_state,
+            module.create_constant_zero(Type::of<uint32_t>()));
+        auto *loop = builder.loop();
+        loop->set_prepare_block(prepare);
+        loop->set_body_block(body);
+        loop->set_update_block(update);
+        loop->set_merge_block(merge);
+
+        builder.set_insertion_point(prepare);
+        builder.cond_br(loop_condition, body, merge);
+        builder.set_insertion_point(body);
+        auto *guard = builder.if_(take_body);
+        guard->set_true_target(work);
+        guard->set_false_target(update);
+        guard->set_merge_block(work);
+        builder.set_insertion_point(work);
+        builder.store(
+            work_state,
+            module.create_constant_one(Type::of<uint32_t>()));
+        builder.continue_(update);
+        builder.set_insertion_point(update);
+        auto *value = builder.load(
+            Type::of<uint32_t>(), induction);
+        auto *next = builder.call(
+            Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD,
+            {value,
+             module.create_constant_one(Type::of<uint32_t>())});
+        builder.store(induction, next);
+        builder.br(prepare);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        expect(xir_verify_function(
+                   callable,
+                   {.require_no_phi = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        if (ast == nullptr) { return; }
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.fors == 1u);
+        expect(counter.continues == 1u)
+            << "the direct update arm must become a for-loop continue";
+
+        auto rebuilt = ast_to_xir_translate(
+            ast->function(), {});
+        expect(rebuilt != nullptr);
+        if (rebuilt == nullptr) { return; }
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+        auto step_count = size_t{0u};
+        for (auto *function : rebuilt->function_list()) {
+            auto *definition = function->definition();
+            if (definition == nullptr) { continue; }
+            definition->traverse_instructions(
+                [&](Instruction *instruction) noexcept {
+                    if (instruction->isa<ArithmeticInst>() &&
+                        static_cast<ArithmeticInst *>(instruction)->op() ==
+                            ArithmeticOp::BINARY_ADD) {
+                        ++step_count;
+                    }
+                });
+        }
+        expect(step_count == 1u)
+            << "ForStmt continue executes its header step implicitly; the "
+               "physical update slice must not be duplicated";
+    };
+
 #if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
     "xir_to_ast_direct_rejects_break_without_structured_scope"_test = [] {
         Module module;
@@ -707,6 +1251,58 @@ void reg_xir2ast_direct() {
         expect(counter.ifs == 1u);
         expect(counter.exprs == 2u);
         expect(counter.returns == 1u);
+    };
+
+    "xir_to_ast_value_checkpoint_work_is_branch_local"_test = [] {
+        auto translate = [](size_t dominating_binding_count) noexcept {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *condition = kernel->create_value_argument(
+                Type::of<bool>());
+            luisa::vector<Value *> dominating_values;
+            dominating_values.reserve(dominating_binding_count);
+            for (auto i = 0u; i < dominating_binding_count; ++i) {
+                dominating_values.emplace_back(
+                    kernel->create_value_argument(Type::of<uint>()));
+            }
+            auto *body = kernel->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *if_inst = b.if_(condition);
+            auto *merge = if_inst->create_merge_block();
+            auto *one = module.create_constant_one(Type::of<uint>());
+            b.set_insertion_point(if_inst->create_true_block());
+            static_cast<void>(b.call(
+                Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                {dominating_values.front(), one}));
+            b.br(merge);
+            b.set_insertion_point(if_inst->create_false_block());
+            static_cast<void>(b.call(
+                Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                {dominating_values.back(), one}));
+            b.br(merge);
+            b.set_insertion_point(merge);
+            b.return_void();
+
+            XIR2ASTTranslationStatistics statistics;
+            auto ast = xir_to_ast_translate(
+                *kernel,
+                {.statistics = &statistics,
+                 .verify_value_map_checkpoints = true});
+            expect(ast != nullptr);
+            return statistics;
+        };
+
+        auto small = translate(4u);
+        auto large = translate(256u);
+        expect(large.peak_value_map_size >
+               small.peak_value_map_size);
+        expect(small.value_map_checkpoint_count == 2u);
+        expect(large.value_map_checkpoint_count == 2u);
+        expect(small.value_map_rollback_work > 0u);
+        expect(large.value_map_rollback_work ==
+               small.value_map_rollback_work)
+            << "checkpoint work must depend on branch-local insertions, not the retained map prefix";
     };
 
     "xir_to_ast_direct_terminal_null_merge_selections"_test = [] {
@@ -875,6 +1471,27 @@ void reg_xir2ast_ast_roundtrip() {
         expect(ast->bound_arguments().size() == 1u);
         expect(ast->unbound_arguments().size() == 1u);
         expect(luisa::holds_alternative<compute::Function::BufferBinding>(ast->bound_arguments().front()));
+    };
+
+    "xir_to_ast_roundtrips_lowered_autodiff"_test = [] {
+        Kernel1D kernel = [](BufferFloat output) {
+            auto index = dispatch_id().x;
+            auto x = def(2.0f);
+            $autodiff {
+                requires_grad(x);
+                auto y = x * x;
+                backward(y);
+                output->write(index, grad(x));
+            };
+        };
+        auto ast = backend_detail::lower_autodiff_to_ast(
+            kernel.function()->function());
+        expect(ast != nullptr);
+        expect(!ast->function().requires_autodiff());
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        auto text = xir_to_text_translate(rebuilt.get(), false);
+        expect(text.find("autodiff") == string::npos);
+        expect(text.find("resource_write buffer_write") != string::npos);
     };
 }
 

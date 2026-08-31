@@ -89,6 +89,12 @@ llvm::Type *LLVMCodegenUtility::ToLLVMType(Type const &type) {
         case Type::Tag::FLOAT8_E5M2:
             // No native LLVM type for 8-bit float; use i8
             return _builder->getInt8Ty();
+        case Type::Tag::INT4:
+            // 4-bit sub-byte quantized; stored as i8 (lower nibble)
+            return _builder->getInt8Ty();
+        case Type::Tag::FP4_E2M1:
+            // 4-bit sub-byte quantized; stored as i8 (lower nibble)
+            return _builder->getInt8Ty();
 
         // --- Vector types ---
         case Type::Tag::VECTOR: {

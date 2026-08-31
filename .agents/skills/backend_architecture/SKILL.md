@@ -16,12 +16,12 @@ All backends inherit from `DeviceInterface`:
 ### Resource Lifecycle (Handle-based)
 | Resource | Create | Destroy | Notes |
 |---|---|---|---|
-| Buffer | `create_buffer(const Type*, size_t elem_count, void* external_memory)` | `destroy_buffer(uint64_t)` | Overload also takes `const ir::CArc<ir::Type>*`; returns `BufferCreationInfo` |
+| Buffer | `create_buffer(const Type*, size_t elem_count, void* external_memory)` | `destroy_buffer(uint64_t)` | Returns `BufferCreationInfo` |
 | Texture | `create_texture(PixelFormat, uint dimension, w, h, d, mips, external_native_handle, simultaneous_access, allow_raster_target)` | `destroy_texture(uint64_t)` | Returns `ResourceCreationInfo` |
 | Bindless Array | `create_bindless_array(size_t, BindlessSlotType)` | `destroy_bindless_array(uint64_t)` | `BindlessSlotType` selects buffer/2D/3D-only or mixed slots |
 | Stream | `create_stream(StreamTag)` | `destroy_stream(uint64_t)` | Graphics/compute/copy queues |
 | Event | `create_event()` | `destroy_event(uint64_t)` | Timeline events |
-| Shader | `create_shader(ShaderOption, Function / ir::KernelModule* / ir_v2::KernelModule&)` | `destroy_shader(uint64_t)` | Also `load_shader(name, arg_types)` and `shader_argument_usage(handle, index)` |
+| Shader | `create_shader(ShaderOption, Function)` | `destroy_shader(uint64_t)` | Also `load_shader(name, arg_types)` and `shader_argument_usage(handle, index)` |
 | Mesh | `create_mesh(AccelOption)` | `destroy_mesh(uint64_t)` | |
 | Curve | `create_curve(AccelOption)` | `destroy_curve(uint64_t)` | Optional; default impl returns invalid |
 | Procedural Primitive | `create_procedural_primitive(AccelOption)` | `destroy_procedural_primitive(uint64_t)` | |
@@ -107,7 +107,7 @@ LUISA_EXPORT_API void destroy(DeviceInterface *device) noexcept {
 }
 LUISA_EXPORT_API void backend_device_names(vector<string> &names) noexcept {
     names.clear();
-    names.emplace_back("<name>"); // e.g., "cuda", "cpu", "dx", "vk", "metal", "hip", ...
+    names.emplace_back("<name>"); // e.g., "cuda", "dx", "vk", "metal", "hip", "fallback", ...
 }
 ```
 
@@ -416,7 +416,6 @@ void destroy_buffer(uint64_t handle) noexcept {
 - `export_version.inl.h` — Version export
 - `hlsl/builtin/` — HLSL builtin headers/bytecode
 - `vulkan_swapchain.h/cpp` — Shared Vulkan swapchain
-- `rust_device_common.h/cpp` — Shared Rust/CPU backend helpers
 
 ## CMake Patterns
 
@@ -444,17 +443,6 @@ function(luisa_compute_add_backend name)
         add_custom_target(luisa-compute-backend-${name}-copy-support ALL ...)
     endif ()
 endfunction()
-```
-
-**Minimal (CPU)**:
-```cmake
-luisa_compute_add_backend(cpu SOURCES
-    ../common/rust_device_common.cpp ../common/rust_device_common.h
-    cpu_device.h cpu_device.cpp)
-target_link_libraries(luisa-compute-backend-cpu PRIVATE
-    luisa-compute-vulkan-swapchain
-    luisa-compute-rust-meta
-    luisa_compute_backend_impl)
 ```
 
 **Fallback** (LLVM + Embree):

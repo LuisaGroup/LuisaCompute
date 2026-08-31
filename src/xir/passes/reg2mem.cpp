@@ -63,7 +63,11 @@ static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemI
     // We only need to lower values to allocas when the defining block
     // does NOT dominate a cross-block use — otherwise SSA dominance
     // guarantees the value is already available at the use site.
-    auto dom_tree = compute_dom_tree(static_cast<Function *>(def));
+    // Cross-block repair queries ancestry only. Dominance frontiers are a
+    // separate derived relation and have no observer in this operation.
+    auto dom_tree = compute_dom_tree(
+        static_cast<Function *>(def),
+        {.compute_dominance_frontiers = false});
 
     luisa::vector<Instruction *> candidates;
     def->traverse_instructions([&](Instruction *inst) noexcept {

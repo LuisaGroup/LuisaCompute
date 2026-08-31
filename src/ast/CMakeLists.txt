@@ -3,6 +3,7 @@ set(LUISA_COMPUTE_AST_SOURCES
         atomic_ref_node.cpp
         callable_library.cpp
         constant_data.cpp
+        coro_suspend.cpp
         expression.cpp
         external_function.cpp
         function.cpp
@@ -10,15 +11,14 @@ set(LUISA_COMPUTE_AST_SOURCES
         function_duplicator.cpp
         op.cpp
         statement.cpp
+        tensor.cpp
+        tile_function_builder.cpp
+        tile_to_kernel.cpp
         type.cpp
         variable.cpp)
 
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
 target_compile_definitions(luisa-compute-ast PRIVATE LUISA_AST_EXPORT_DLL=1)
-
-if (LUISA_COMPUTE_ENABLE_RUST)
-    target_compile_definitions(luisa-compute-ast PRIVATE LC_AST_ENABLE_IR=1)
-endif()
 
 target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core luisa-compute-ext)
 

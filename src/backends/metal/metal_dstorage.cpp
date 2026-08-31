@@ -515,7 +515,9 @@ void MetalIOStream::signal(MetalEvent *event, uint64_t value) noexcept {
     auto command_buffer = MetalStream::queue()->commandBufferWithUnretainedReferences();
     barrier(command_buffer);
     event->signal(command_buffer, value);
-    command_buffer->commit();
+    CallbackContainer callbacks;
+    callbacks.emplace_back(event->host_signal_callback(value));
+    submit(command_buffer, std::move(callbacks));
 }
 
 void MetalIOStream::wait(MetalEvent *event, uint64_t value) noexcept {
@@ -533,6 +535,7 @@ void MetalIOStream::synchronize() noexcept {
     barrier(command_buffer);
     command_buffer->commit();
     command_buffer->waitUntilCompleted();
+    MetalStream::synchronize();
 }
 
 MetalDStorageExt::MetalDStorageExt(MetalDevice *device) noexcept

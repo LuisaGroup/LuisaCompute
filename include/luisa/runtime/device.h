@@ -1,8 +1,5 @@
 #pragma once
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#endif
 #include <luisa/ast/type_registry.h>
 #include <luisa/runtime/rhi/device_interface.h>
 
@@ -46,6 +43,9 @@ class Volume;
 
 template<size_t dimension, concepts::non_cvref... Args>
 class Shader;
+
+template<typename... Args>
+class TileShader;
 
 template<size_t dim, typename... Args>
 class AOTShader;
@@ -93,6 +93,14 @@ struct is_dsl_kernel<Kernel2D<Args...>> : std::true_type {};
 template<typename... Args>
 struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 
+template<typename T>
+struct tile_shader_from_kernel;
+
+template<typename... Args>
+struct tile_shader_from_kernel<Kernel<3, Args...>> {
+    using type = TileShader<Args...>;
+};
+
 }// namespace detail
 
 template<typename T>
@@ -129,6 +137,9 @@ public:
     [[nodiscard]] auto const &impl_shared() const & noexcept { return _impl; }
     [[nodiscard]] auto &&impl_shared() && noexcept { return std::move(_impl); }
     [[nodiscard]] auto compute_warp_size() const noexcept { return _impl->compute_warp_size(); }
+    [[nodiscard]] auto compute_max_shared_memory_size() const noexcept {
+        return _impl->compute_max_shared_memory_size();
+    }
     [[nodiscard]] auto memory_granularity() const noexcept { return _impl->memory_granularity(); }
     // Is device initialized
     [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(_impl); }
@@ -304,13 +315,32 @@ public:
         static_cast<void>(this->compile<N>(std::forward<Kernel>(kernel), option));
     }
 
-#ifdef LUISA_ENABLE_IR
-    template<size_t N, typename... Args>
-    [[nodiscard]] auto compile(const ir::KernelModule *const module,
-                               const ShaderOption &option = {}) noexcept {
-        return _create<Shader<N, Args...>>(module, option);
+    // Tile shader (see <luisa/runtime/tile_shader.h>). The tile kernel must be a
+    // type-carrying compiled tile kernel (e.g. tile::jit(fn).compile()) exposing
+    // function() and to_kernel<3>(). The TileShader constructor picks the
+    // backend path: native tile shader when support_tile_compiling() is true,
+    // otherwise tile_to_kernel + create_shader fallback.
+    template<typename TileKernel>
+    [[nodiscard]] auto compile_tile(const TileKernel &kernel,
+                                    const TileShaderOption &option = {}) noexcept {
+        using kernel_type = decltype(kernel.template to_kernel<3>());
+        using shader_type = typename detail::tile_shader_from_kernel<kernel_type>::type;
+        return _create<shader_type>(kernel.function(), option);
     }
-#endif
+
+    template<typename TileKernel>
+    void compile_tile_to(TileKernel &&kernel,
+                         luisa::string_view name,
+                         bool enable_fast_math = true,
+                         bool enable_debug_info = false) noexcept {
+        TileShaderOption option;
+        option.enable_cache = false;
+        option.enable_fast_math = enable_fast_math;
+        option.enable_debug_info = enable_debug_info;
+        option.compile_only = true;
+        option.name = luisa::string{name};
+        static_cast<void>(this->compile_tile(std::forward<TileKernel>(kernel), option));
+    }
 
     template<typename V, typename P>
     [[nodiscard]] typename RasterKernel<V, P>::RasterShaderType compile(

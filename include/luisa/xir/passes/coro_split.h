@@ -10,7 +10,7 @@
 
 namespace luisa::compute {
 class Type;
-}
+}// namespace luisa::compute
 
 namespace luisa::compute::xir {
 
@@ -26,6 +26,12 @@ struct CoroSplitInfo {
         luisa::optional<luisa::string> trigger_name;
         CallableFunction *callable{nullptr};
         Value *frame_argument{nullptr};
+        // The callable signature is [frame, projected source arguments...].
+        // Splitting initially records the identity projection. Coroutine
+        // compilation may subsequently remove continuation-local dead
+        // arguments while preserving this ordered map back to the source
+        // coroutine ABI.
+        luisa::vector<size_t> source_argument_indices;
     };
     luisa::vector<Subroutine> subroutines;
     // Coro splitting is an unstructured-CFG-only transform. A non-zero value

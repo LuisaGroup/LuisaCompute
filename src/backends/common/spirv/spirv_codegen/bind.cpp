@@ -82,6 +82,8 @@ struct ConstantUBOElementLayout {
         case Type::Tag::UINT8:
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             return features.uniform_storage_buffer_8bit_access;
         case Type::Tag::INT16:
         case Type::Tag::UINT16:
@@ -238,9 +240,10 @@ void SpirvCodegenEntry::generate_binding(
         _runtime_target_plan.bindless_resources.buffer_heap;
     _use_buffer_bindless_metadata =
         _runtime_target_plan.bindless_resources.buffer_metadata;
-    LUISA_ASSERT(
-        !_use_buffer_bindless || _use_buffer_bindless_metadata,
-        "SPIR-V bindless buffer heap access has no per-slot metadata plan.");
+    // These are independent descriptor domains. Mixed-layout buffer reads
+    // take their bias/size/address from the metadata buffer, while typed
+    // buffer reads carry bias and size in the four-word slot record and need
+    // only the global heap. Device-address queries still request metadata.
     _use_tex2d_bindless =
         _runtime_target_plan.bindless_resources.texture_2d;
     _use_tex3d_bindless =

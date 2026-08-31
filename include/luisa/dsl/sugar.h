@@ -1,5 +1,10 @@
 #pragma once
 
+#include <concepts>
+#include <limits>
+#include <type_traits>
+#include <utility>
+
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/string.h>
 
@@ -28,6 +33,393 @@ inline void suspend_impl(const char *name) {
 
 inline void suspend_impl(uint32_t token, const char *name) {
     detail::FunctionBuilder::current()->suspend_(token, luisa::string{name});
+}
+
+template<typename T>
+[[nodiscard]] inline CoroFrameExport coro_frame_export(
+    luisa::string name, T &&value) noexcept {
+    return CoroFrameExport{
+        .value = detail::extract_expression(std::forward<T>(value)),
+        .name = std::move(name)};
+}
+
+namespace coro_suspend_detail {
+
+template<bool IsAnnotation>
+using RecordedCoroSuspendExtensionBase =
+    std::conditional_t<IsAnnotation, CoroSuspendAnnotation,
+                       CoroSuspendExtension>;
+
+// Keeps the complete source-side extension alive until FunctionBuilder owns
+// the suspend statement. `freeze` is the only place where expression pointers
+// become owner indices, so bindings remain part of the ordinary AST/XIR
+// dataflow instead of acquiring a parallel storage model.
+template<bool IsAnnotation>
+class RecordedCoroSuspendExtension final
+    : public RecordedCoroSuspendExtensionBase<IsAnnotation> {
+private:
+    luisa::string _schema;
+    uint32_t _version;
+    CoroSuspendFallback _fallback;
+    luisa::vector<CoroSuspendBinding> _bindings;
+    luisa::vector<const Expression *> _values;
+    luisa::vector<CoroSuspendAttribute> _attributes;
+
+public:
+    RecordedCoroSuspendExtension(
+        luisa::string schema, uint32_t version,
+        CoroSuspendFallback fallback,
+        luisa::vector<CoroSuspendBinding> bindings,
+        luisa::vector<const Expression *> values,
+        luisa::vector<CoroSuspendAttribute> attributes) noexcept
+        : _schema{std::move(schema)}, _version{version},
+          _fallback{fallback}, _bindings{std::move(bindings)},
+          _values{std::move(values)},
+          _attributes{std::move(attributes)} {
+        LUISA_ASSERT(!_schema.empty(),
+                     "Coroutine suspend extension schema must be non-empty.");
+        LUISA_ASSERT(_version != 0u,
+                     "Coroutine suspend extension '{}' has reserved version 0.",
+                     _schema);
+        LUISA_ASSERT(_bindings.size() == _values.size(),
+                     "Coroutine suspend extension '{}' has {} bindings but "
+                     "{} values.",
+                     _schema, _bindings.size(), _values.size());
+    }
+
+    [[nodiscard]] luisa::string_view schema() const noexcept override {
+        return _schema;
+    }
+    [[nodiscard]] uint32_t version() const noexcept override {
+        return _version;
+    }
+    [[nodiscard]] CoroSuspendFallback fallback() const noexcept override {
+        return _fallback;
+    }
+    [[nodiscard]] luisa::span<const CoroSuspendBinding>
+    bindings() const noexcept override {
+        return _bindings;
+    }
+    [[nodiscard]] luisa::span<const CoroSuspendAttribute>
+    attributes() const noexcept override {
+        return _attributes;
+    }
+    [[nodiscard]] CoroSuspendExtensionPtr clone() const noexcept override {
+        return luisa::make_unique<RecordedCoroSuspendExtension>(
+            _schema, _version, _fallback, _bindings, _values, _attributes);
+    }
+    [[nodiscard]] CoroSuspendExtensionPtr freeze(
+        CoroSuspendExtensionRecorder &recorder) && noexcept override {
+        for (size_t i = 0u; i < _bindings.size(); ++i) {
+            _bindings[i].index = recorder.bind(_bindings[i], _values[i]);
+        }
+        if constexpr (IsAnnotation) {
+            return make_coro_suspend_annotation_data(
+                std::move(_schema), _version, _fallback,
+                std::move(_bindings), std::move(_attributes));
+        } else {
+            return make_coro_suspend_extension_data(
+                std::move(_schema), _version, _fallback,
+                std::move(_bindings), std::move(_attributes));
+        }
+    }
+};
+
+}// namespace coro_suspend_detail
+
+/// Fluent source-side declaration for a semantic coroutine stage or an
+/// ignorable annotation. The resulting extension still owns its complete
+/// schema, fallback policy, bindings, and attributes after AST/XIR lowering.
+template<bool IsAnnotation>
+class CoroSuspendExtensionBuilder {
+private:
+    luisa::string _schema;
+    uint32_t _version;
+    CoroSuspendFallback _fallback;
+    luisa::vector<CoroSuspendBinding> _bindings;
+    luisa::vector<const Expression *> _values;
+    luisa::vector<CoroSuspendAttribute> _attributes;
+
+private:
+    template<typename T>
+    void _bind(luisa::string name, T &&value,
+               CoroSuspendBindingAccess access,
+               CoroSuspendBindingLifetime lifetime) noexcept {
+        auto *expression =
+            detail::extract_expression(std::forward<T>(value));
+        LUISA_ASSERT(expression != nullptr && expression->type() != nullptr,
+                     "Coroutine suspend binding '{}' must be a typed value.",
+                     name);
+        LUISA_ASSERT(_values.size() <
+                         static_cast<size_t>(
+                             std::numeric_limits<uint32_t>::max()),
+                     "Coroutine suspend extension '{}' exceeds the uint32 "
+                     "binding ABI.",
+                     _schema);
+        _bindings.emplace_back(CoroSuspendBinding{
+            .name = std::move(name),
+            .access = access,
+            .lifetime = lifetime,
+            .index = static_cast<uint32_t>(_values.size())});
+        _values.emplace_back(expression);
+    }
+
+public:
+    CoroSuspendExtensionBuilder(
+        luisa::string schema, uint32_t version,
+        CoroSuspendFallback fallback) noexcept
+        : _schema{std::move(schema)}, _version{version},
+          _fallback{fallback} {}
+
+    CoroSuspendExtensionBuilder(
+        const CoroSuspendExtensionBuilder &) = delete;
+    CoroSuspendExtensionBuilder(
+        CoroSuspendExtensionBuilder &&) noexcept = default;
+    CoroSuspendExtensionBuilder &operator=(
+        const CoroSuspendExtensionBuilder &) = delete;
+    CoroSuspendExtensionBuilder &operator=(
+        CoroSuspendExtensionBuilder &&) noexcept = default;
+
+    CoroSuspendExtensionBuilder &fallback(
+        CoroSuspendFallback value) noexcept {
+        _fallback = value;
+        return *this;
+    }
+
+    template<typename T>
+    CoroSuspendExtensionBuilder &read(
+        luisa::string name, T &&value,
+        CoroSuspendBindingLifetime lifetime =
+            CoroSuspendBindingLifetime::queued) noexcept {
+        _bind(std::move(name), std::forward<T>(value),
+              CoroSuspendBindingAccess::read, lifetime);
+        return *this;
+    }
+
+    template<typename T>
+    CoroSuspendExtensionBuilder &write(
+        luisa::string name, T &&value,
+        CoroSuspendBindingLifetime lifetime =
+            CoroSuspendBindingLifetime::resumed) noexcept {
+        _bind(std::move(name), std::forward<T>(value),
+              CoroSuspendBindingAccess::write, lifetime);
+        return *this;
+    }
+
+    template<typename T>
+    CoroSuspendExtensionBuilder &read_write(
+        luisa::string name, T &&value,
+        CoroSuspendBindingLifetime lifetime =
+            CoroSuspendBindingLifetime::resumed) noexcept {
+        _bind(std::move(name), std::forward<T>(value),
+              CoroSuspendBindingAccess::read_write, lifetime);
+        return *this;
+    }
+
+    CoroSuspendExtensionBuilder &attribute(
+        luisa::string name, CoroSuspendAttributeValue value) noexcept {
+        _attributes.emplace_back(CoroSuspendAttribute{
+            .name = std::move(name), .value = std::move(value)});
+        return *this;
+    }
+
+    CoroSuspendExtensionBuilder &attribute(
+        luisa::string name, const char *value) noexcept {
+        return attribute(std::move(name), CoroSuspendAttributeValue{
+                                              luisa::string{value}});
+    }
+
+    CoroSuspendExtensionBuilder &attribute(
+        luisa::string name, luisa::string value) noexcept {
+        return attribute(std::move(name), CoroSuspendAttributeValue{
+                                              std::move(value)});
+    }
+
+    CoroSuspendExtensionBuilder &attribute(
+        luisa::string name, luisa::string_view value) noexcept {
+        return attribute(std::move(name), CoroSuspendAttributeValue{
+                                              luisa::string{value}});
+    }
+
+    CoroSuspendExtensionBuilder &attribute(
+        luisa::string name, bool value) noexcept {
+        return attribute(std::move(name),
+                         CoroSuspendAttributeValue{value});
+    }
+
+    template<std::signed_integral T>
+        requires(!std::same_as<T, bool>)
+    CoroSuspendExtensionBuilder &attribute(
+        luisa::string name, T value) noexcept {
+        return attribute(std::move(name), CoroSuspendAttributeValue{
+                                              static_cast<int64_t>(value)});
+    }
+
+    template<std::unsigned_integral T>
+        requires(!std::same_as<T, bool>)
+    CoroSuspendExtensionBuilder &attribute(
+        luisa::string name, T value) noexcept {
+        return attribute(std::move(name), CoroSuspendAttributeValue{
+                                              static_cast<uint64_t>(value)});
+    }
+
+    template<std::floating_point T>
+    CoroSuspendExtensionBuilder &attribute(
+        luisa::string name, T value) noexcept {
+        return attribute(std::move(name), CoroSuspendAttributeValue{
+                                              static_cast<double>(value)});
+    }
+
+    [[nodiscard]] CoroSuspendExtensionPtr build() && noexcept {
+        return luisa::make_unique<
+            coro_suspend_detail::RecordedCoroSuspendExtension<IsAnnotation>>(
+            std::move(_schema), _version, _fallback,
+            std::move(_bindings), std::move(_values),
+            std::move(_attributes));
+    }
+};
+
+[[nodiscard]] inline auto coro_stage(
+    luisa::string schema, uint32_t version = 1u) noexcept {
+    return CoroSuspendExtensionBuilder<false>{
+        std::move(schema), version, CoroSuspendFallback::reject};
+}
+
+[[nodiscard]] inline auto coro_annotation(
+    luisa::string schema, uint32_t version = 1u) noexcept {
+    return CoroSuspendExtensionBuilder<true>{
+        std::move(schema), version, CoroSuspendFallback::ignore};
+}
+
+class SortCoroSuspendAnnotation final : public CoroSuspendAnnotation {
+private:
+    const Expression *_key;
+    luisa::vector<CoroSuspendBinding> _bindings;
+    luisa::vector<CoroSuspendAttribute> _attributes;
+
+public:
+    SortCoroSuspendAnnotation(
+        const Expression *key, uint32_t range) noexcept
+        : _key{key},
+          _bindings{{.name = "key",
+                     .access = CoroSuspendBindingAccess::read,
+                     .lifetime = CoroSuspendBindingLifetime::queued,
+                     .index = 0u}},
+          _attributes{{.name = "range",
+                       .value = static_cast<uint64_t>(range)}} {}
+
+    [[nodiscard]] luisa::string_view schema() const noexcept override {
+        return "luisa.coro.schedule.sort";
+    }
+    [[nodiscard]] uint32_t version() const noexcept override { return 1u; }
+    [[nodiscard]] CoroSuspendFallback fallback() const noexcept override {
+        return CoroSuspendFallback::ignore;
+    }
+    [[nodiscard]] luisa::span<const CoroSuspendBinding>
+    bindings() const noexcept override {
+        return _bindings;
+    }
+    [[nodiscard]] luisa::span<const CoroSuspendAttribute>
+    attributes() const noexcept override {
+        return _attributes;
+    }
+    [[nodiscard]] CoroSuspendExtensionPtr clone() const noexcept override {
+        return luisa::make_unique<SortCoroSuspendAnnotation>(
+            _key,
+            static_cast<uint32_t>(
+                luisa::get<uint64_t>(_attributes.front().value)));
+    }
+    [[nodiscard]] CoroSuspendExtensionPtr freeze(
+        CoroSuspendExtensionRecorder &recorder) && noexcept override {
+        auto bindings = _bindings;
+        bindings.front().index = recorder.bind(
+            bindings.front(), _key);
+        return make_coro_suspend_annotation_data(
+            luisa::string{schema()}, version(), fallback(),
+            std::move(bindings), std::move(_attributes));
+    }
+};
+
+template<typename T>
+[[nodiscard]] inline CoroSuspendExtensionPtr coro_sort_by(
+    T &&key, uint32_t range) noexcept {
+    auto *expression =
+        detail::extract_expression(std::forward<T>(key));
+    LUISA_ASSERT(expression != nullptr &&
+                     expression->type() == Type::of<uint>(),
+                 "Coroutine sort key must be uint.");
+    LUISA_ASSERT(range != 0u,
+                 "Coroutine sort key range must be positive.");
+    return luisa::make_unique<SortCoroSuspendAnnotation>(
+        expression, range);
+}
+
+template<typename T>
+inline constexpr bool is_coro_suspend_argument_v =
+    std::same_as<std::remove_cvref_t<T>, CoroFrameExport> ||
+    std::same_as<std::remove_cvref_t<T>, CoroSuspendExtensionPtr> ||
+    std::same_as<std::remove_cvref_t<T>,
+                 CoroSuspendExtensionBuilder<false>> ||
+    std::same_as<std::remove_cvref_t<T>,
+                 CoroSuspendExtensionBuilder<true>>;
+
+template<typename... Args>
+    requires(sizeof...(Args) != 0u &&
+             (is_coro_suspend_argument_v<Args> && ...))
+inline void suspend_impl(const char *name, Args &&...args) {
+    constexpr auto frame_export_count =
+        (static_cast<size_t>(
+             std::same_as<std::remove_cvref_t<Args>, CoroFrameExport>) +
+         ... + 0u);
+    luisa::vector<CoroFrameExport> frame_exports;
+    luisa::vector<CoroSuspendExtensionPtr> extensions;
+    frame_exports.reserve(frame_export_count);
+    extensions.reserve(sizeof...(Args) - frame_export_count);
+    auto add = [&]<typename A>(A &&arg) noexcept {
+        if constexpr (std::same_as<std::remove_cvref_t<A>,
+                                   CoroFrameExport>) {
+            frame_exports.emplace_back(std::forward<A>(arg));
+        } else if constexpr (std::same_as<std::remove_cvref_t<A>,
+                                          CoroSuspendExtensionPtr>) {
+            extensions.emplace_back(std::forward<A>(arg));
+        } else {
+            extensions.emplace_back(std::move(arg).build());
+        }
+    };
+    (add(std::forward<Args>(args)), ...);
+    detail::FunctionBuilder::current()->suspend_(
+        luisa::string{name}, std::move(frame_exports),
+        std::move(extensions));
+}
+
+template<typename... Args>
+    requires(sizeof...(Args) != 0u &&
+             (is_coro_suspend_argument_v<Args> && ...))
+inline void suspend_impl(uint32_t token, const char *name,
+                         Args &&...args) {
+    constexpr auto frame_export_count =
+        (static_cast<size_t>(
+             std::same_as<std::remove_cvref_t<Args>, CoroFrameExport>) +
+         ... + 0u);
+    luisa::vector<CoroFrameExport> frame_exports;
+    luisa::vector<CoroSuspendExtensionPtr> extensions;
+    frame_exports.reserve(frame_export_count);
+    extensions.reserve(sizeof...(Args) - frame_export_count);
+    auto add = [&]<typename A>(A &&arg) noexcept {
+        if constexpr (std::same_as<std::remove_cvref_t<A>,
+                                   CoroFrameExport>) {
+            frame_exports.emplace_back(std::forward<A>(arg));
+        } else if constexpr (std::same_as<std::remove_cvref_t<A>,
+                                          CoroSuspendExtensionPtr>) {
+            extensions.emplace_back(std::forward<A>(arg));
+        } else {
+            extensions.emplace_back(std::move(arg).build());
+        }
+    };
+    (add(std::forward<Args>(args)), ...);
+    detail::FunctionBuilder::current()->suspend_(
+        token, luisa::string{name}, std::move(frame_exports),
+        std::move(extensions));
 }
 
 }
@@ -146,11 +538,10 @@ inline void suspend_impl(uint32_t token, const char *name) {
         [&]() noexcept -> void
 
 #define $while(...)                                                                 \
-    ::luisa::compute::detail::LoopStmtBuilder::create_with_comment(                 \
+    ::luisa::compute::detail::WhileStmtBuilder::create_with_comment(                \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) / \
-        [&]() noexcept -> void {                                                    \
-        $if (!(__VA_ARGS__)) { $break; };                                           \
-    } % [&]() noexcept -> void
+        [&]() noexcept { return (__VA_ARGS__); } %                                  \
+        [&]() noexcept -> void
 
 #define $autodiff                                                                   \
     ::luisa::compute::detail::AutoDiffStmtBuilder::create_with_comment(             \

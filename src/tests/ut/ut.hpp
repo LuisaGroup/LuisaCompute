@@ -860,8 +860,8 @@ struct cfg {
     auto first_ut_arg = 1U;
     if (n_args > 1U && argv != nullptr) {
       const std::string_view first{argv[1]};
-      if (first == "cuda" || first == "dx" || first == "cpu" ||
-          first == "fallback" || first == "hip" || first == "metal" ||
+      if (first == "cuda" || first == "dx" || first == "fallback" ||
+          first == "hip" || first == "metal" || first == "simd" ||
           first == "vk") {
         first_ut_arg = 2U;
       }
@@ -876,7 +876,10 @@ struct cfg {
           std::cerr << "for additional help" << std::endl;
           std::exit(-1);
         } else {
-          if (i > 1U) {
+          // The first positional argument may be reserved for the runtime
+          // backend, so the first actual test-name pattern is not
+          // necessarily argv[1]. Separate only patterns already collected.
+          if (!query_pattern.empty()) {
             query_pattern.append(" ");
           }
           query_pattern.append(cmd);

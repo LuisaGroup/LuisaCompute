@@ -3,19 +3,38 @@
 #include "buffer.h"
 #include "compute_shader.h"
 #include "device.h"
+#include "command_buffer_sync.h"
 #include "log.h"
 #include "blas.h"
 #include "motion_instance.h"
+#include "vulkan_builtin_contract.h"
 namespace lc::vk {
 namespace tlas_detail {
-struct TlasInputInst {
-    float affine[12];
-    std::array<uint, 2> mesh;
-    uint index : 24;
-    uint vis_mask : 8;
-    uint user_id : 24;
-    uint flags : 8;
-};
+using TlasInputInst = detail::VulkanAccelUpdateInput;
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_mesh ==
+    AccelBuildCommand::Modification::flag_primitive);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_transform ==
+    AccelBuildCommand::Modification::flag_transform);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_opaque_on ==
+    AccelBuildCommand::Modification::flag_opaque_on);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_opaque_off ==
+    AccelBuildCommand::Modification::flag_opaque_off);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_visibility ==
+    AccelBuildCommand::Modification::flag_visibility);
+static_assert(
+    detail::VulkanAccelUpdateLayout::flag_user_id ==
+    AccelBuildCommand::Modification::flag_user_id);
+static_assert(
+    detail::VulkanAccelUpdateLayout::instance_force_opaque ==
+    VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR);
+static_assert(
+    detail::VulkanAccelUpdateLayout::instance_force_no_opaque ==
+    VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR);
 // Resolve a primitive handle to a Blas pointer.
 // If the handle is a MotionInstance, returns its child Blas.
 static Blas *resolve_to_blas(uint64_t primitive_handle) {
@@ -107,9 +126,7 @@ void Tlas::pre_build(
             new_inst_buffer->vk_buffer(),
             1,
             &buffer_copy};
-        vkCmdCopyBuffer2(
-            cmdbuffer.cmdbuffer(),
-            &copy_info2);
+        detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
         cmdbuffer.states()->dispose_after_flush(std::move(_instance_buffer));
         _instance_buffer = std::move(new_inst_buffer);
     } else if (!_instance_buffer) {
@@ -152,12 +169,20 @@ void Tlas::pre_build(
                 update = false;
                 // Check if any child BLAS has motion enabled
                 if (resolved_meshes[idx] && resolved_meshes[idx]->has_motion()) {
+                    if (!device()->enable_motion_blur()) [[unlikely]] {
+                        LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                                    "which is not enabled on this device.");
+                    }
                     _has_motion = true;
                 }
                 // Check if the primitive is a MotionInstance
                 if (i.flags & AccelBuildCommand::Modification::flag_primitive) {
                     auto prim = reinterpret_cast<PrimitiveBase *>(i.primitive);
                     if (prim && prim->is_motion_instance()) {
+                        if (!device()->enable_motion_blur()) [[unlikely]] {
+                            LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                                        "which is not enabled on this device.");
+                        }
                         _has_motion = true;
                     }
                 }
@@ -281,9 +306,11 @@ void Tlas::pre_build(
                     // Instance fields after the two SRT transforms
                     auto *srt_inst_fields = inst_base + 8 + 64 + 64; // offset 136
                     *reinterpret_cast<uint32_t *>(srt_inst_fields + 0) =
-                        (custom_index & 0x00FFFFFFu) | (static_cast<uint32_t>(mask) << 24u);
+                        detail::VulkanAccelUpdateInput::pack_index_visibility(
+                            custom_index, mask);
                     *reinterpret_cast<uint32_t *>(srt_inst_fields + 4) =
-                        (0u & 0x00FFFFFFu) | (static_cast<uint32_t>(geom_flags) << 24u);
+                        detail::VulkanAccelUpdateInput::pack_user_id_flags(
+                            0u, static_cast<uint32_t>(geom_flags));
                     *reinterpret_cast<uint64_t *>(srt_inst_fields + 8) = accel_ref;
 
                     if (mi->keyframe_count() > 2) {
@@ -331,7 +358,7 @@ void Tlas::pre_build(
                     _motion_instance_buffer->vk_buffer(),
                     1,
                     &buffer_copy};
-                vkCmdCopyBuffer2(cmdbuffer.cmdbuffer(), &copy_info2);
+                detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
             }
             // Copy standard buffer
             {
@@ -347,7 +374,7 @@ void Tlas::pre_build(
                     _instance_buffer->vk_buffer(),
                     1,
                     &buffer_copy};
-                vkCmdCopyBuffer2(cmdbuffer.cmdbuffer(), &copy_info2);
+                detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
             }
             _set_map.clear();
         } else {
@@ -389,15 +416,20 @@ void Tlas::pre_build(
 
         for (size_t idx = 0; idx < modifications.size(); idx++) {
             auto &&i = modifications[idx];
-            std::memcpy(inst_ptr->affine, i.affine, sizeof(float) * 12);
-            inst_ptr->index = i.index;
-            inst_ptr->vis_mask = i.vis_mask;
-            inst_ptr->user_id = i.user_id;
-            inst_ptr->flags = i.flags;
+            std::memcpy(
+                inst_ptr->affine.data(), i.affine,
+                sizeof(float) * inst_ptr->affine.size());
+            inst_ptr->index_visibility =
+                TlasInputInst::pack_index_visibility(
+                    i.index, i.vis_mask);
+            inst_ptr->user_id_flags =
+                TlasInputInst::pack_user_id_flags(
+                    i.user_id, i.flags);
             if ((i.flags & AccelBuildCommand::Modification::flag_primitive) && resolved_meshes[idx]) {
                 auto mesh = resolved_meshes[idx];
                 auto addr = mesh->get_accel_device_address();
-                inst_ptr->mesh = reinterpret_cast<std::array<uint, 2> const &>(addr);
+                inst_ptr->mesh =
+                    TlasInputInst::device_address_words(addr);
                 resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
                                          ResourceBarrier::Usage::kAccelInstanceBuffer);
             }
@@ -405,12 +437,18 @@ void Tlas::pre_build(
         }
         for (auto &i : _set_map) {
             if (i.first >= _all_instance.size()) continue;
-            inst_ptr->index = i.first;
-            inst_ptr->flags = AccelBuildCommand::Modification::flag_primitive;
+            inst_ptr->index_visibility =
+                TlasInputInst::pack_index_visibility(
+                    static_cast<uint32_t>(i.first), 0u);
+            inst_ptr->user_id_flags =
+                TlasInputInst::pack_user_id_flags(
+                    0u,
+                    AccelBuildCommand::Modification::flag_primitive);
             resource_barrier->record(BufferView{i.second->mesh->_accel_buffer.get()},
                                      ResourceBarrier::Usage::kAccelInstanceBuffer);
             auto addr = i.second->mesh->get_accel_device_address();
-            inst_ptr->mesh = reinterpret_cast<std::array<uint, 2> &>(addr);
+            inst_ptr->mesh =
+                TlasInputInst::device_address_words(addr);
             ++inst_ptr;
         }
         static_cast<UploadBuffer const *>(dsc_buffer.buffer)->copy_from(cache.data(), dsc_buffer.offset, dsc_buffer.size_bytes);
@@ -497,6 +535,10 @@ void Tlas::pre_build(
     }
     // Add motion bit if any child BLAS has motion or any MotionInstance is present
     if (_has_motion) {
+        if (!device()->enable_motion_blur()) [[unlikely]] {
+            LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                        "which is not enabled on this device.");
+        }
         _acceleration_build_geometry_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_MOTION_BIT_NV;
     }
     _acceleration_build_geometry_info->mode = update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
@@ -535,6 +577,10 @@ void Tlas::pre_build(
     motion_info.maxInstances = instance_count;
     motion_info.flags = 0;
     if (_has_motion) {
+        if (!device()->enable_motion_blur()) [[unlikely]] {
+            LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                        "which is not enabled on this device.");
+        }
         acceleration_structure_create_info.createFlags = VK_ACCELERATION_STRUCTURE_CREATE_MOTION_BIT_NV;
         acceleration_structure_create_info.pNext = &motion_info;
     }

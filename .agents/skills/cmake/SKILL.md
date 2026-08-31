@@ -40,7 +40,7 @@ bootstrap.prepare_msvc_environment()
 
 ### `scripts/agent_windows_cmake.py`
 
-One-shot configure + build + verify on Windows. CI-matching flags (`LUISA_COMPUTE_ENABLE_RUST=OFF`, `LUISA_COMPUTE_ENABLE_REMOTE=OFF`, `LUISA_COMPUTE_ENABLE_CPU=OFF`).
+One-shot configure + build + verify on Windows using the repository defaults.
 
 ```bash
 # Full pipeline: configure → build → verify
@@ -71,14 +71,11 @@ Auto-finds `cmake` and `ninja` (PATH → `.deps/` → pip). Auto-prepares MSVC e
 | `LUISA_COMPUTE_ENABLE_DX` | ON | DirectX backend (Windows only) |
 | `LUISA_COMPUTE_ENABLE_VULKAN` | ON | Vulkan backend |
 | `LUISA_COMPUTE_ENABLE_HIP` | OFF | HIP backend (work in progress) |
-| `LUISA_COMPUTE_ENABLE_CPU` | ON | CPU backend (requires Rust) |
-| `LUISA_COMPUTE_ENABLE_REMOTE` | ON | Remote backend (requires Rust) |
-| `LUISA_COMPUTE_ENABLE_FALLBACK` | ON | Fallback backend (requires LLVM + Embree) |
+| `LUISA_COMPUTE_ENABLE_FALLBACK` | Developer builds | Native C++ fallback backend (requires LLVM + Embree) |
 | `LUISA_COMPUTE_ENABLE_GUI` | ON | GUI support (GLFW/ImGui) |
 | `LUISA_COMPUTE_ENABLE_TENSOR` | OFF | C++ DSL tensor extension |
 | `LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB` | OFF | CUDA extension: LCUB |
 | `LUISA_COMPUTE_ENABLE_CLANG_CXX` | OFF | ClangTooling-based C++ shading language |
-| `LUISA_COMPUTE_ENABLE_RUST` | ON if cargo found, else OFF | Rust/IR support; required for CPU/Remote |
 | `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` | ON | Native XIR-to-SPIR-V codegen path for Vulkan |
 | `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV` | OFF | Experimental AST→LLVM SPIR-V path; requires LLVM's native `SPIRV` target |
 | `LUISA_COMPUTE_BUILD_TESTS` | ON in master project | Build tests, examples and tutorials |
@@ -103,8 +100,9 @@ utilities.
 **CI minimal build**:
 ```bash
 cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release \
-  -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF \
-  -D LUISA_COMPUTE_ENABLE_CPU=OFF
+  -D LUISA_COMPUTE_ENABLE_CUDA=OFF \
+  -D LUISA_COMPUTE_ENABLE_VULKAN=OFF \
+  -D LUISA_COMPUTE_ENABLE_FALLBACK=OFF
 cmake --build build
 ```
 
@@ -125,13 +123,12 @@ luisa-compute-include (INTERFACE, header-only)
     → luisa-compute-core (SHARED)
       → luisa-compute-ast (SHARED)
         → luisa-compute-xir (SHARED)
-        → luisa-compute-ir (SHARED when Rust enabled)
       → luisa-compute-runtime (SHARED)
-        → luisa-compute-dsl, luisa-compute-gui, luisa-compute-ir
+        → luisa-compute-dsl, luisa-compute-gui
           → luisa-compute-backends (INTERFACE aggregator)
 ```
 
-Additional modules linked by the umbrella target `luisa::compute` include `luisa-compute-vstl` (object helper), `luisa-compute-osl`, `luisa-compute-api`, and `luisa-compute-clangcxx`.
+Additional modules linked by the umbrella target `luisa::compute` include `luisa-compute-vstl` (object helper), `luisa-compute-osl`, `luisa-compute-coro`, and `luisa-compute-clangcxx`.
 
 ## Custom CMake Functions
 
@@ -182,14 +179,6 @@ luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 ```
 
 Key: output renamed to `luisa-backend-<name>`, installed to `bin/`, supports `luisa_embed_device_lib` for builtin device libs.
-
-## Rust Integration
-
-**File**: `src/rust/CMakeLists.txt`
-
-Rust support is auto-enabled when a Rust toolchain is found (unless `LUISA_COMPUTE_ENABLE_RUST=OFF` is passed); the CPU and Remote backends require it. The custom command invokes `cargo build` (profile: `dev` for Debug, `release` for Release). CMake targets:
-- `luisa-compute-rust-meta` (INTERFACE): static Rust libs
-- `luisa_compute_backend_impl` (INTERFACE): shared Rust backend
 
 ## Third-Party Extension Pattern
 

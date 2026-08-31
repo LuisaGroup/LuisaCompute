@@ -16,6 +16,7 @@
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/indexed_branch.h>
@@ -35,12 +36,14 @@
 #include <luisa/xir/verifier.h>
 
 #include "instruction_semantics.h"
+#include "verifier_dom_tree.h"
 
 namespace luisa::compute::xir {
 
 namespace detail {
 
-using BlockSet = luisa::unordered_set<const BasicBlock *>;
+using BlockSet = VerifierBlockSet;
+using BlockAdjacency = VerifierBlockAdjacency;
 
 [[nodiscard]] bool typed_value_operand_valid(const Value *value) noexcept {
     return value != nullptr && value->type() != nullptr &&
@@ -108,22 +111,15 @@ template<typename IndexAt>
         switch (current->tag()) {
             case Type::Tag::ARRAY:
             case Type::Tag::VECTOR: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
+                // Bounds are an execution-domain constraint for homogeneous
+                // aggregates, not part of the result type. Keeping constant
+                // indices subject to a stronger verifier rule than dynamic
+                // indices would make valid IR become malformed under constant
+                // propagation (for example inside a proven-dead branch).
                 current = current->element();
                 break;
             }
             case Type::Tag::MATRIX: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
             }
@@ -134,6 +130,10 @@ template<typename IndexAt>
                     return nullptr;
                 }
                 current = current->members()[member_index];
+                break;
+            }
+            case Type::Tag::COOPERATIVE_VECTOR: {
+                current = current->element();
                 break;
             }
             default: return nullptr;
@@ -386,7 +386,60 @@ template<typename IndexAt>
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ: return count == 3u;
         case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: return count == 4u;
-        case ResourceReadOp::DEVICE_ADDRESS_READ: return count == 1u;
+        case ResourceReadOp::DEVICE_ADDRESS_READ:
+        case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return count == 1u;
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+        case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return count == 2u;
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD: return count == 3u;
+        case ResourceReadOp::COOPERATIVE_MUL: return count == 4u;
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL: return count == 5u;
+        case ResourceReadOp::COOPERATIVE_MUL_ADD: return count == 7u;
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD: return count == 8u;
+        // future cooperative-vector element-wise operations
+        case ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_POW:
+        case ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+        case ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+        case ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+        case ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+        case ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+        case ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+        case ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+        case ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+        case ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL: return count == 2u;
+        case ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+        case ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+        case ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP: return count == 3u;
+        case ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+        case ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+        case ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+        case ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+        case ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+        case ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+        case ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+        case ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+        case ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+        case ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+        case ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+        case ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+        case ResourceReadOp::COOPERATIVE_VECTOR_COS:
+        case ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+        case ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+        case ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+        case ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+        case ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+        case ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+        case ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+        case ResourceReadOp::COOPERATIVE_VECTOR_ATANH: return count == 1u;
     }
     return false;
 }
@@ -411,6 +464,11 @@ template<typename IndexAt>
         case ResourceWriteOp::DEVICE_ADDRESS_WRITE:
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: return count == 2u;
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: return count == 5u;
+        case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+        case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: return count == 3u;
+        case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE: return count == 4u;
+        case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: return count == 5u;
     }
     return false;
 }
@@ -479,8 +537,9 @@ template<typename Enum>
 }
 
 [[nodiscard]] bool instruction_opcode_valid(
-    const Instruction *instruction) noexcept {
-    switch (instruction->derived_instruction_tag()) {
+    const Instruction *instruction,
+    DerivedInstructionTag tag) noexcept {
+    switch (tag) {
         case DerivedInstructionTag::ALLOCA:
             return enum_value_between(
                 static_cast<const AllocaInst *>(instruction)->op(),
@@ -503,16 +562,16 @@ template<typename Enum>
                 static_cast<const ResourceQueryInst *>(instruction)->op(),
                 ResourceQueryOp::BUFFER_SIZE,
                 ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR);
-        case DerivedInstructionTag::RESOURCE_READ:
-            return enum_value_between(
-                static_cast<const ResourceReadInst *>(instruction)->op(),
-                ResourceReadOp::BUFFER_READ,
-                ResourceReadOp::DEVICE_ADDRESS_READ);
+ case DerivedInstructionTag::RESOURCE_READ:
+ return enum_value_between(
+ static_cast<const ResourceReadInst *>(instruction)->op(),
+ ResourceReadOp::BUFFER_READ,
+ ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL);
         case DerivedInstructionTag::RESOURCE_WRITE:
             return enum_value_between(
                 static_cast<const ResourceWriteInst *>(instruction)->op(),
                 ResourceWriteOp::BUFFER_WRITE,
-                ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT);
+                ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE);
         case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
             return enum_value_between(
                 static_cast<const RayQueryObjectReadInst *>(instruction)->op(),
@@ -537,10 +596,10 @@ template<typename Enum>
 }
 
 [[nodiscard]] bool instruction_operand_shape_valid(
-    const Instruction *instruction) noexcept {
-    if (!instruction_opcode_valid(instruction)) { return false; }
+    const Instruction *instruction,
+    DerivedInstructionTag tag) noexcept {
     auto count = instruction->operand_count();
-    switch (instruction->derived_instruction_tag()) {
+    switch (tag) {
         case DerivedInstructionTag::IF:
         case DerivedInstructionTag::CONDITIONAL_BRANCH: return count == 3u;
         case DerivedInstructionTag::SWITCH:
@@ -556,7 +615,6 @@ template<typename Enum>
         case DerivedInstructionTag::LOOP:
         case DerivedInstructionTag::SIMPLE_LOOP:
         case DerivedInstructionTag::BRANCH:
-        case DerivedInstructionTag::CORO_SUSPEND:
         case DerivedInstructionTag::CORO_RESUME:
         case DerivedInstructionTag::RETURN:
         case DerivedInstructionTag::LOAD:
@@ -568,6 +626,13 @@ template<typename Enum>
         case DerivedInstructionTag::ASSERT:
         case DerivedInstructionTag::ASSUME:
         case DerivedInstructionTag::OUTLINE: return count == 1u;
+        case DerivedInstructionTag::CORO_SUSPEND: {
+            auto *suspend =
+                static_cast<const CoroSuspendInst *>(instruction);
+            return count ==
+                   suspend->operand_index_extension_binding_offset() +
+                       suspend->extension_binding_value_count();
+        }
         case DerivedInstructionTag::UNREACHABLE:
         case DerivedInstructionTag::RASTER_DISCARD:
         case DerivedInstructionTag::CORO_TERMINATE:
@@ -620,8 +685,9 @@ template<typename Enum>
 }
 
 [[nodiscard]] int64_t instruction_opcode(
-    const Instruction *instruction) noexcept {
-    switch (instruction->derived_instruction_tag()) {
+    const Instruction *instruction,
+    DerivedInstructionTag tag) noexcept {
+    switch (tag) {
         case DerivedInstructionTag::ALLOCA:
             return static_cast<int64_t>(
                 static_cast<const AllocaInst *>(instruction)->op());
@@ -660,15 +726,109 @@ template<typename Enum>
 }
 
 [[nodiscard]] bool instruction_semantics_valid(
-    const Instruction *instruction) noexcept {
-    luisa::vector<const Value *> operands;
+    const Instruction *instruction,
+    DerivedInstructionTag tag,
+    luisa::vector<const Value *> &operands) noexcept {
+    operands.clear();
     operands.reserve(instruction->operand_count());
     for (auto *operand_use : instruction->operand_uses()) {
         operands.emplace_back(operand_use->value());
     }
+    if (tag == DerivedInstructionTag::CORO_SUSPEND) {
+        auto *suspend =
+            static_cast<const CoroSuspendInst *>(instruction);
+        if (suspend->operand_index_extension_binding_offset() +
+                suspend->extension_binding_value_count() !=
+            operands.size()) {
+            return false;
+        }
+        auto *frame = suspend->frame();
+        if (frame != nullptr && !typed_value_operand_valid(frame)) {
+            return false;
+        }
+        luisa::unordered_set<luisa::string_view> names;
+        for (size_t i = 0u;
+             i < suspend->frame_export_count(); ++i) {
+            auto &name = suspend->frame_export_name(i);
+            auto *value = suspend->frame_export_value(i);
+            if (name.empty() || !names.emplace(name).second ||
+                !data_operand_valid(value) ||
+                !value->type()->is_basic()) {
+                return false;
+            }
+        }
+        luisa::vector<bool> bound(
+            suspend->extension_binding_value_count(), false);
+        for (auto &&extension : suspend->extensions()) {
+            if (extension == nullptr || extension->schema().empty() ||
+                extension->version() == 0u ||
+                static_cast<uint8_t>(extension->fallback()) >
+                    static_cast<uint8_t>(CoroSuspendFallback::reject)) {
+                return false;
+            }
+            luisa::unordered_set<luisa::string_view> binding_names;
+            for (auto &&binding : extension->bindings()) {
+                if (binding.name.empty() ||
+                    !binding_names.emplace(binding.name).second ||
+                    binding.index >= bound.size() ||
+                    bound[binding.index]) {
+                    return false;
+                }
+                bound[binding.index] = true;
+                auto *value = suspend->extension_binding_value(
+                    binding.index);
+                switch (binding.access) {
+                    case CoroSuspendBindingAccess::read:
+                        if (!data_operand_valid(value)) { return false; }
+                        break;
+                    case CoroSuspendBindingAccess::write:
+                    case CoroSuspendBindingAccess::read_write:
+                        if (!typed_value_operand_valid(value) ||
+                            !value->is_lvalue()) {
+                            return false;
+                        }
+                        break;
+                    default: return false;
+                }
+                if (static_cast<uint8_t>(binding.lifetime) >
+                    static_cast<uint8_t>(
+                        CoroSuspendBindingLifetime::resumed)) {
+                    return false;
+                }
+            }
+            luisa::unordered_set<luisa::string_view> attribute_names;
+            for (auto &&attribute : extension->attributes()) {
+                if (attribute.name.empty() ||
+                    !attribute_names.emplace(attribute.name).second) {
+                    return false;
+                }
+            }
+        }
+        if (std::find(bound.begin(), bound.end(), false) != bound.end()) {
+            return false;
+        }
+        // Extension bindings have access-qualified operands and therefore
+        // cannot be checked by the legacy generic coroutine rule, which
+        // assumes that every trailing operand is an rvalue.
+        return true;
+    }
+    auto bindless_access = [&]() noexcept {
+        switch (tag) {
+            case DerivedInstructionTag::RESOURCE_QUERY:
+                return static_cast<const ResourceQueryInst *>(instruction)
+                    ->bindless_access();
+            case DerivedInstructionTag::RESOURCE_READ:
+                return static_cast<const ResourceReadInst *>(instruction)
+                    ->bindless_access();
+            case DerivedInstructionTag::RESOURCE_WRITE:
+                return static_cast<const ResourceWriteInst *>(instruction)
+                    ->bindless_access();
+            default: return BindlessResourceAccess{};
+        }
+    }();
     return interchange_instruction_semantics_valid(
-        instruction->derived_instruction_tag(), instruction_opcode(instruction),
-        instruction->type(), operands);
+        tag, instruction_opcode(instruction, tag),
+        instruction->type(), operands, bindless_access);
 }
 
 template<typename OperandSpan>
@@ -900,12 +1060,6 @@ template<typename OperandSpan>
                     (!index->type()->is_int() && !index->type()->is_uint())) {
                     return false;
                 }
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= operands[0]->type()->dimension())) {
-                    return false;
-                }
             }
             return true;
         case ArithmeticOp::EXTRACT:
@@ -937,9 +1091,6 @@ class XIRVerifier {
 private:
     const XIRVerificationOptions &_options;
     XIRVerificationResult &_result;
-    luisa::unordered_set<const Value *> _scanned_use_lists;
-    luisa::unordered_map<const Use *, const Value *>
-        _use_list_owners;
 
 private:
     void _error(const Function *function, const BasicBlock *block,
@@ -952,41 +1103,13 @@ private:
         });
     }
 
-    [[nodiscard]] static bool _same_set(const BlockSet &lhs,
-                                        const BlockSet &rhs) noexcept {
-        if (lhs.size() != rhs.size()) { return false; }
-        for (auto *block : lhs) {
-            if (!rhs.contains(block)) { return false; }
-        }
-        return true;
-    }
-
     [[nodiscard]] bool _use_list_contains(const Value *value,
                                           const Use *use) noexcept {
-        // A Use is an intrusive node and therefore has at most one use-list
-        // owner. Materialize the exact relation
-        //
-        //   owner(use) = value iff use is linked in value->use_list()
-        //
-        // lazily, once per referenced Value. Verification does not mutate
-        // use-lists, so subsequent membership predicates are equivalent exact
-        // lookups. This changes high-fanout validation from the sum of squared
-        // use-list degrees to a linear scan plus one lookup per operand.
-        ++_result.statistics.use_list_membership_queries;
-        auto inserted =
-            _scanned_use_lists.emplace(value).second;
-        if (inserted) {
-            ++_result.statistics.distinct_use_lists_scanned;
-            for (auto *candidate : value->use_list()) {
-                _use_list_owners.try_emplace(candidate, value);
-                ++_result.statistics.use_list_entries_scanned;
-            }
-        }
-        if (auto iter = _use_list_owners.find(use);
-            iter != _use_list_owners.end()) {
-            return iter->second == value;
-        }
-        return false;
+        // UseList maintains the physical intrusive-list owner independently
+        // from Use::value(). Exact linkage is therefore one identity check,
+        // with no scan and no probabilistic hash relation.
+        ++_result.statistics.use_list_owner_checks;
+        return value->use_list().contains(use);
     }
 
 public:
@@ -1037,11 +1160,22 @@ public:
                    "Function body block is not owned by the function.");
             return;
         }
-        luisa::unordered_map<const Instruction *, size_t> instruction_order;
-        luisa::unordered_map<const Instruction *, const BasicBlock *> instruction_blocks;
-        luisa::unordered_map<const BasicBlock *, BlockSet> successors;
-        luisa::unordered_map<const BasicBlock *, BlockSet> predecessors;
-        luisa::unordered_map<const BasicBlock *, const Instruction *> merge_owners;
+        struct InstructionFacts {
+            const BasicBlock *block;
+            size_t order;
+            DerivedInstructionTag tag;
+            bool operand_shape_valid;
+        };
+        // Verification is read-only. Classify every instruction exactly once
+        // and share the immutable facts between structural discovery and the
+        // detailed validation pass instead of repeating virtual tag dispatch
+        // and opcode/shape checks.
+        DensePointerMap<const Instruction *, InstructionFacts>
+            instruction_facts;
+        BlockAdjacency successors;
+        BlockAdjacency predecessors;
+        DensePointerMap<const BasicBlock *, const Instruction *> merge_owners;
+        luisa::vector<const Value *> semantics_operands;
 
         for (auto *block : blocks) {
             auto terminated = block->is_terminated();
@@ -1052,26 +1186,40 @@ public:
             auto saw_non_phi = false;
             size_t order = 0u;
             for (auto *instruction : block->instructions()) {
-                instruction_order.emplace(instruction, order++);
-                instruction_blocks.emplace(instruction, block);
-                if (!instruction_opcode_valid(instruction)) {
+                ++_result.statistics.instruction_tag_queries;
+                auto tag = instruction->derived_instruction_tag();
+                auto opcode_valid =
+                    instruction_opcode_valid(instruction, tag);
+                auto operand_shape_valid =
+                    opcode_valid &&
+                    instruction_operand_shape_valid(instruction, tag);
+                instruction_facts.emplace(
+                    instruction,
+                    InstructionFacts{
+                        .block = block,
+                        .order = order++,
+                        .tag = tag,
+                        .operand_shape_valid = operand_shape_valid});
+                if (!opcode_valid) {
                     _error(
                         function, block, instruction,
                         luisa::format(
                             "Instruction opcode is invalid. Operation: '{}'.",
-                            to_string(instruction->derived_instruction_tag())));
-                } else if (!instruction_operand_shape_valid(instruction)) {
+                            to_string(tag)));
+                } else if (!operand_shape_valid) {
                     _error(
                         function, block, instruction,
                         luisa::format(
                             "Instruction operand count is invalid. Operation: '{}'.",
-                            to_string(instruction->derived_instruction_tag())));
-                } else if (!instruction_semantics_valid(instruction)) {
+                            to_string(tag)));
+                } else if (!instruction_semantics_valid(
+                               instruction, tag,
+                               semantics_operands)) {
                     _error(
                         function, block, instruction,
                         luisa::format(
                             "Instruction operands or result type are invalid. Operation: '{}'.",
-                            to_string(instruction->derived_instruction_tag())));
+                            to_string(tag)));
                 }
                 if (instruction->parent_block() != block) {
                     _error(function, block, instruction,
@@ -1081,7 +1229,7 @@ public:
                     _error(function, block, instruction,
                            "Instruction appears after a terminator.");
                 }
-                if (instruction->isa<PhiInst>()) {
+                if (tag == DerivedInstructionTag::PHI) {
                     if (saw_non_phi) {
                         _error(function, block, instruction,
                                "PHI instruction does not precede non-PHI instructions.");
@@ -1093,7 +1241,15 @@ public:
             }
             if (!terminated) { continue; }
             auto *terminator = block->terminator();
-            if (!instruction_operand_shape_valid(terminator)) { continue; }
+            auto terminator_facts = instruction_facts.find(terminator);
+            if (terminator_facts == instruction_facts.end()) {
+                _error(function, block, terminator,
+                       "Terminator was not classified by the verifier.");
+                continue;
+            }
+            if (!terminator_facts->second.operand_shape_valid) {
+                continue;
+            }
             auto add_successor = [&](size_t operand_index) noexcept {
                 auto *operand = terminator->operand(operand_index);
                 if (operand != nullptr && operand->isa<BasicBlock>()) {
@@ -1102,7 +1258,7 @@ public:
                     predecessors[target].emplace(block);
                 }
             };
-            switch (terminator->derived_instruction_tag()) {
+            switch (terminator_facts->second.tag) {
                 case DerivedInstructionTag::IF:
                 case DerivedInstructionTag::CONDITIONAL_BRANCH:
                     add_successor(ConditionalBranchTerminatorInstruction::operand_index_true_target);
@@ -1111,7 +1267,7 @@ public:
                 case DerivedInstructionTag::SWITCH:
                 case DerivedInstructionTag::INDEXED_BRANCH:
                     for (auto i = IndexedBranchTerminatorInstruction::
-                                      operand_index_default_block;
+                             operand_index_default_block;
                          i < terminator->operand_count(); i++) {
                         add_successor(i);
                     }
@@ -1153,52 +1309,27 @@ public:
             }
         }
 
-        luisa::unordered_map<const BasicBlock *, BlockSet> dominators;
-        for (auto *block : reachable) {
-            if (block == definition->body_block()) {
-                dominators[block].emplace(block);
-            } else {
-                dominators[block] = reachable;
-            }
-        }
-        for (;;) {
-            auto changed = false;
-            for (auto *block : reachable) {
-                if (block == definition->body_block()) { continue; }
-                BlockSet next;
-                auto first = true;
-                if (auto pred_iter = predecessors.find(block);
-                    pred_iter != predecessors.end()) {
-                    for (auto *predecessor : pred_iter->second) {
-                        if (!reachable.contains(predecessor)) { continue; }
-                        if (first) {
-                            next = dominators[predecessor];
-                            first = false;
-                        } else {
-                            BlockSet intersection;
-                            for (auto *candidate : next) {
-                                if (dominators[predecessor].contains(candidate)) {
-                                    intersection.emplace(candidate);
-                                }
-                            }
-                            next = std::move(intersection);
-                        }
-                    }
-                }
-                next.emplace(block);
-                if (!_same_set(next, dominators[block])) {
-                    dominators[block] = std::move(next);
-                    changed = true;
-                }
-            }
-            if (!changed) { break; }
-        }
+        VerifierSparseDomTree dominators{
+            definition->body_block(),
+            successors,
+            predecessors,
+            reachable};
+        _result.statistics.dominance_tree_nodes +=
+            dominators.size();
+        _result.statistics.dominance_tree_edges +=
+            dominators.tree_edge_count();
+        _result.statistics.dominance_cfg_edges +=
+            dominators.cfg_edge_count();
+        _result.statistics.dominance_fixed_point_iterations +=
+            dominators.fixed_point_iteration_count();
 
         auto block_dominates = [&](const BasicBlock *definition_block,
                                    const BasicBlock *use_block) noexcept {
+            ++_result.statistics.dominance_queries;
             if (!reachable.contains(use_block)) { return true; }
             if (!reachable.contains(definition_block)) { return false; }
-            return dominators[use_block].contains(definition_block);
+            return dominators.dominates(
+                definition_block, use_block);
         };
         auto is_owned_block = [&](const Value *value) noexcept {
             if (value == nullptr || !value->isa<BasicBlock>()) { return false; }
@@ -1216,21 +1347,28 @@ public:
             for (auto *block : blocks) {
                 if (!block->is_terminated()) { continue; }
                 auto *terminator = block->terminator();
-                if (terminator->isa<LoopInst>()) {
+                auto facts = instruction_facts.find(terminator);
+                if (facts == instruction_facts.end()) {
+                    _error(function, block, terminator,
+                           "Terminator was not classified by the verifier.");
+                    continue;
+                }
+                auto tag = facts->second.tag;
+                if (tag == DerivedInstructionTag::LOOP) {
                     auto *loop = static_cast<const LoopInst *>(terminator);
                     break_continue_scopes.emplace_back(BreakContinueScope{
                         .parent = block,
                         .merge = loop->merge_block(),
                         .continue_target = loop->update_block(),
                     });
-                } else if (terminator->isa<SimpleLoopInst>()) {
+                } else if (tag == DerivedInstructionTag::SIMPLE_LOOP) {
                     auto *loop = static_cast<const SimpleLoopInst *>(terminator);
                     break_continue_scopes.emplace_back(BreakContinueScope{
                         .parent = block,
                         .merge = loop->merge_block(),
                         .continue_target = loop->body_block(),
                     });
-                } else if (terminator->isa<SwitchInst>()) {
+                } else if (tag == DerivedInstructionTag::SWITCH) {
                     auto *switch_inst = static_cast<const SwitchInst *>(terminator);
                     break_continue_scopes.emplace_back(BreakContinueScope{
                         .parent = block,
@@ -1260,7 +1398,7 @@ public:
                          block_dominates(scope.merge, block))) {
                         continue;
                     }
-                    auto depth = dominators[scope.parent].size();
+                    auto depth = dominators.depth(scope.parent);
                     auto *target = is_continue ? scope.continue_target : scope.merge;
                     if (!result.found || depth > best_depth) {
                         result = {.target = target, .found = true, .ambiguous = false};
@@ -1274,22 +1412,29 @@ public:
 
         for (auto *block : blocks) {
             for (auto *instruction : block->instructions()) {
-                if (_options.require_no_phi && instruction->isa<PhiInst>()) {
+                auto facts = instruction_facts.find(instruction);
+                if (facts == instruction_facts.end()) {
+                    _error(function, block, instruction,
+                           "Instruction was not classified by the verifier.");
+                    continue;
+                }
+                auto tag = facts->second.tag;
+                if (_options.require_no_phi &&
+                    tag == DerivedInstructionTag::PHI) {
                     _error(function, block, instruction, "PHI instruction is not allowed.");
                 }
                 if (_options.require_no_unstructured_control_flow &&
-                    (instruction->derived_instruction_tag() ==
-                         DerivedInstructionTag::CONDITIONAL_BRANCH ||
-                     instruction->derived_instruction_tag() ==
-                         DerivedInstructionTag::INDEXED_BRANCH)) {
+                    (tag == DerivedInstructionTag::CONDITIONAL_BRANCH ||
+                     tag == DerivedInstructionTag::INDEXED_BRANCH)) {
                     _error(function, block, instruction,
                            "Unstructured control flow is not allowed.");
                 }
-                if (!instruction_operand_shape_valid(instruction)) { continue; }
+                if (!facts->second.operand_shape_valid) { continue; }
 
                 if (auto *merge = instruction->control_flow_merge()) {
                     auto *merge_block = merge->merge_block();
-                    auto allows_null_merge = instruction->isa<IfInst>();
+                    auto allows_null_merge =
+                        tag == DerivedInstructionTag::IF;
                     if ((merge_block == nullptr && !allows_null_merge) ||
                         (merge_block != nullptr &&
                          (!block_set.contains(merge_block) ||
@@ -1308,7 +1453,7 @@ public:
                     }
                 }
 
-                if (instruction->isa<LoopInst>()) {
+                if (tag == DerivedInstructionTag::LOOP) {
                     auto *loop = static_cast<const LoopInst *>(instruction);
                     if (!is_owned_block(loop->operand(LoopInst::operand_index_prepare_block))) {
                         _error(function, block, instruction,
@@ -1321,35 +1466,35 @@ public:
                                    "Loop has an invalid owned block.");
                         }
                     }
-                } else if (instruction->isa<SimpleLoopInst>()) {
+                } else if (tag == DerivedInstructionTag::SIMPLE_LOOP) {
                     auto *loop = static_cast<const SimpleLoopInst *>(instruction);
                     if (!is_owned_block(loop->operand(
                             SimpleLoopInst::operand_index_body_block))) {
                         _error(function, block, instruction,
                                "Simple loop has an invalid body block.");
                     }
-                } else if (instruction->isa<AutodiffScopeInst>()) {
+                } else if (tag == DerivedInstructionTag::AUTODIFF_SCOPE) {
                     auto *scope = static_cast<const AutodiffScopeInst *>(instruction);
                     if (!is_owned_block(scope->operand(
                             AutodiffScopeInst::operand_index_entry_block))) {
                         _error(function, block, instruction,
                                "Autodiff scope has an invalid entry block.");
                     }
-                } else if (instruction->isa<OutlineInst>()) {
+                } else if (tag == DerivedInstructionTag::OUTLINE) {
                     auto *outline = static_cast<const OutlineInst *>(instruction);
                     if (!is_owned_block(outline->operand(
                             BranchTerminatorInstruction::operand_index_target))) {
                         _error(function, block, instruction,
                                "Outline instruction has an invalid target block.");
                     }
-                } else if (instruction->isa<RayQueryLoopInst>()) {
+                } else if (tag == DerivedInstructionTag::RAY_QUERY_LOOP) {
                     auto *loop = static_cast<const RayQueryLoopInst *>(instruction);
                     if (!is_owned_block(loop->operand(
                             RayQueryLoopInst::operand_index_dispatch_block))) {
                         _error(function, block, instruction,
                                "Ray-query loop has an invalid dispatch block.");
                     }
-                } else if (instruction->isa<RayQueryDispatchInst>()) {
+                } else if (tag == DerivedInstructionTag::RAY_QUERY_DISPATCH) {
                     auto *dispatch = static_cast<const RayQueryDispatchInst *>(instruction);
                     auto operand_count = dispatch->operand_count();
                     auto operand_at = [dispatch, operand_count](size_t index) noexcept {
@@ -1368,12 +1513,13 @@ public:
                                "Ray-query dispatch operands are invalid.");
                     }
                 } else if (
-                    instruction->isa<SwitchInst>() ||
-                    instruction->isa<IndexedBranchInst>()) {
+                    tag == DerivedInstructionTag::SWITCH ||
+                    tag == DerivedInstructionTag::INDEXED_BRANCH) {
                     auto *indexed_branch = static_cast<
                         const IndexedBranchTerminatorInstruction *>(
                         instruction);
-                    auto is_switch = instruction->isa<SwitchInst>();
+                    auto is_switch =
+                        tag == DerivedInstructionTag::SWITCH;
                     auto operand_count = indexed_branch->operand_count();
                     auto expected_operand_count =
                         indexed_branch->case_count() +
@@ -1478,17 +1624,20 @@ public:
                             }
                             case DerivedValueTag::INSTRUCTION: {
                                 auto *definition_instruction = static_cast<const Instruction *>(operand);
-                                auto definition_iter = instruction_blocks.find(definition_instruction);
-                                if (definition_iter == instruction_blocks.end()) {
+                                auto definition_iter =
+                                    instruction_facts.find(
+                                        definition_instruction);
+                                if (definition_iter == instruction_facts.end()) {
                                     _error(function, block, instruction,
                                            "Instruction references a definition from another function.");
                                     break;
                                 }
-                                if (instruction->isa<PhiInst>()) { break; }
-                                auto *definition_block = definition_iter->second;
+                                if (tag == DerivedInstructionTag::PHI) { break; }
+                                auto *definition_block =
+                                    definition_iter->second.block;
                                 if (definition_block == block) {
-                                    if (instruction_order[definition_instruction] >=
-                                        instruction_order[instruction]) {
+                                    if (definition_iter->second.order >=
+                                        facts->second.order) {
                                         _error(function, block, instruction,
                                                "Instruction operand does not precede its use.");
                                     }
@@ -1534,7 +1683,6 @@ public:
                     }
                 }
 
-                auto tag = instruction->derived_instruction_tag();
                 if (tag == DerivedInstructionTag::IF ||
                     tag == DerivedInstructionTag::CONDITIONAL_BRANCH) {
                     auto *condition = instruction->operand_count() >
@@ -1588,7 +1736,7 @@ public:
                     }
                 }
 
-                if (instruction->isa<LoadInst>()) {
+                if (tag == DerivedInstructionTag::LOAD) {
                     auto *load = static_cast<const LoadInst *>(instruction);
                     if (!typed_value_operand_valid(load->variable()) ||
                         !load->variable()->is_lvalue() ||
@@ -1596,7 +1744,7 @@ public:
                         _error(function, block, instruction,
                                "Load variable or result type is invalid.");
                     }
-                } else if (instruction->isa<StoreInst>()) {
+                } else if (tag == DerivedInstructionTag::STORE) {
                     auto *store = static_cast<const StoreInst *>(instruction);
                     if (!typed_value_operand_valid(store->variable()) ||
                         !store->variable()->is_lvalue() ||
@@ -1605,7 +1753,7 @@ public:
                         _error(function, block, instruction,
                                "Store variable or value type is invalid.");
                     }
-                } else if (instruction->isa<GEPInst>()) {
+                } else if (tag == DerivedInstructionTag::GEP) {
                     auto *gep = static_cast<const GEPInst *>(instruction);
                     if (!typed_value_operand_valid(gep->base()) ||
                         !gep->base()->is_lvalue() ||
@@ -1613,13 +1761,13 @@ public:
                         gep_indexed_type(gep) != gep->type()) {
                         _error(function, block, instruction, "GEP is invalid.");
                     }
-                } else if (instruction->isa<CastInst>()) {
+                } else if (tag == DerivedInstructionTag::CAST) {
                     auto *cast = static_cast<const CastInst *>(instruction);
                     if (!cast_types_valid(cast)) {
                         _error(function, block, instruction,
                                "Cast operands or result type are invalid.");
                     }
-                } else if (instruction->isa<ArithmeticInst>()) {
+                } else if (tag == DerivedInstructionTag::ARITHMETIC) {
                     auto *arithmetic = static_cast<const ArithmeticInst *>(instruction);
                     if (!arithmetic_types_valid(arithmetic)) {
                         _error(
@@ -1628,7 +1776,7 @@ public:
                                 "Arithmetic operands or result type are invalid. Operation: '{}'.",
                                 to_string(arithmetic->op())));
                     }
-                } else if (instruction->isa<CallInst>()) {
+                } else if (tag == DerivedInstructionTag::CALL) {
                     auto *call = static_cast<const CallInst *>(instruction);
                     auto *callee_value = call->operand_count() > CallInst::operand_index_callee ?
                                              call->operand(CallInst::operand_index_callee) :
@@ -1650,7 +1798,7 @@ public:
                             }
                         }
                     }
-                } else if (instruction->isa<ReturnInst>()) {
+                } else if (tag == DerivedInstructionTag::RETURN) {
                     auto *return_inst = static_cast<const ReturnInst *>(instruction);
                     auto *return_value = return_inst->return_value();
                     if ((function->type() == nullptr) != (return_value == nullptr) ||
@@ -1662,7 +1810,7 @@ public:
                     }
                 }
 
-                if (instruction->isa<PhiInst>()) {
+                if (tag == DerivedInstructionTag::PHI) {
                     auto *phi = static_cast<const PhiInst *>(instruction);
                     BlockSet incoming_blocks;
                     for (size_t i = 0u; i < phi->incoming_count(); ++i) {
@@ -1678,18 +1826,25 @@ public:
                         }
                         if (incoming.value->isa<Instruction>()) {
                             auto *incoming_instruction = static_cast<const Instruction *>(incoming.value);
-                            auto definition_iter = instruction_blocks.find(incoming_instruction);
-                            if (definition_iter == instruction_blocks.end()) {
+                            auto definition_iter =
+                                instruction_facts.find(
+                                    incoming_instruction);
+                            if (definition_iter == instruction_facts.end()) {
                                 _error(function, block, instruction,
                                        "PHI references a definition from another function.");
-                            } else if (definition_iter->second == incoming.block &&
+                            } else if (definition_iter->second.block == incoming.block &&
                                        incoming.block->is_terminated()) {
-                                if (instruction_order[incoming_instruction] >=
-                                    instruction_order[incoming.block->terminator()]) {
+                                auto terminator_iter = instruction_facts.find(
+                                    incoming.block->terminator());
+                                if (terminator_iter == instruction_facts.end()) {
+                                    _error(function, block, instruction,
+                                           "PHI predecessor terminator was not classified.");
+                                } else if (definition_iter->second.order >=
+                                           terminator_iter->second.order) {
                                     _error(function, block, instruction,
                                            "PHI incoming value does not precede the incoming edge.");
                                 }
-                            } else if (!block_dominates(definition_iter->second,
+                            } else if (!block_dominates(definition_iter->second.block,
                                                         incoming.block)) {
                                 _error(function, block, instruction,
                                        "PHI incoming value does not dominate the incoming edge.");

@@ -70,6 +70,16 @@ struct ShaderCreationInfo : public ResourceCreationInfo {
     }
 };
 
+struct TileShaderCreationInfo : public ShaderCreationInfo {
+    uint2 dispatch_size_xy;
+
+    [[nodiscard]] static TileShaderCreationInfo make_invalid() noexcept {
+        TileShaderCreationInfo info{};
+        info.invalidate();
+        return info;
+    }
+};
+
 struct SparseTextureCreationInfo : public ResourceCreationInfo {
     size_t tile_size_bytes;
     uint3 tile_size;
@@ -170,6 +180,13 @@ struct ShaderOption {
     ///   The `LUISA_XIR_ENABLE_SCALARIZER` environment variable, when set,
     ///   overrides this field.
     bool enable_scalarizer{false};
+    /// \brief Whether the native driver may run its full optimization
+    ///   pipeline while creating the shader.
+    /// \details Disabling this option provides a bounded-compilation escape
+    ///   hatch for unusually large shaders whose driver optimizer would
+    ///   otherwise consume excessive time or memory. It can reduce execution
+    ///   performance and currently only affects Vulkan compute pipelines.
+    bool enable_driver_optimization{true};
     /// \brief A user-defined name for the shader.
     /// \details If provided, the shader will be read from or written to disk
     ///   via the `BinaryIO` object (passed to backends on device creation)
@@ -185,6 +202,26 @@ struct ShaderOption {
     ///   LLVM HIP backend). This field is useful for interoperation with external callables.
     /// \sa ExternalCallable
     luisa::string native_include;
+};
+
+struct TileShaderOption : ShaderOption {
+    bool use_cooperative : 1 {false};
+    // Tensor-op fast path (see TileToKernelConfig::use_tensor): forwarded to
+    // tile_to_kernel on the non-native-tile fallback.  Default false — only
+    // the CUDA backend implements the TENSOR_* ops.
+    bool use_tensor : 1 {false};
+    // Dynamic batching: when enabled (min != 1 || max != 1), each thread
+    // group computes `block_size().z` batch items at once — one per z-thread —
+    // and the z axis of the dispatch carries the runtime batch count
+    // (batch_count must lie in [min_batching_size, max_batching_size]).
+    //   * min_batching_size / max_batching_size are >= 1 with min <= max;
+    //   * (1, 1) disables batching and adds zero lowering overhead;
+    //   * when enabled the z block size is chosen by the lowering heuristic as
+    //     clamp(ceil(target_threads / threads), 1,
+    //           min(min_batching_size, 64, max(1, 1024 / threads))), so
+    //     B_z <= min_batching_size and B_z <= 64 always hold.
+    uint32_t min_batching_size{1};
+    uint32_t max_batching_size{1};
 };
 
 class LUISA_RUNTIME_API Resource {
@@ -290,11 +327,15 @@ struct hash<compute::ShaderOption> {
         constexpr auto enable_debug_info_shift = 2u;
         constexpr auto compile_only_shift = 3u;
         constexpr auto enable_extended_accel_limits_shift = 4u;
+        constexpr auto enable_driver_optimization_shift = 5u;
+        constexpr auto enable_scalarizer_shift = 6u;
         auto opt_hash = hash_value((static_cast<uint>(option.enable_cache) << enable_cache_shift) |
                                        (static_cast<uint>(option.enable_fast_math) << enable_fast_math_shift) |
                                        (static_cast<uint>(option.enable_debug_info) << enable_debug_info_shift) |
                                        (static_cast<uint>(option.compile_only) << compile_only_shift) |
-                                       (static_cast<uint>(option.enable_extended_accel_limits) << enable_extended_accel_limits_shift),
+                                       (static_cast<uint>(option.enable_extended_accel_limits) << enable_extended_accel_limits_shift) |
+                                       (static_cast<uint>(option.enable_driver_optimization) << enable_driver_optimization_shift) |
+                                       (static_cast<uint>(option.enable_scalarizer) << enable_scalarizer_shift),
                                    seed);
         auto name_hash = hash_value(option.name, seed);
         return hash_combine({opt_hash, name_hash}, seed);

@@ -35,6 +35,7 @@ struct FallbackCodeGenFeedback {
 [[nodiscard]] FallbackCodeGenFeedback
 luisa_fallback_backend_codegen(llvm::LLVMContext &llvm_ctx,
                                llvm::Module *llvm_module,
-                               const xir::Module *module) noexcept;
+                               const xir::Module *module,
+                               bool enable_fast_math) noexcept;
 
 }// namespace luisa::compute::fallback

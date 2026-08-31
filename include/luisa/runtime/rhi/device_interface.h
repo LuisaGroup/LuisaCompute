@@ -20,18 +20,8 @@ class Context;
 
 namespace detail {
 class ContextImpl;
+class TileFunctionBuilder;
 }// namespace detail
-
-namespace ir {
-struct KernelModule;
-struct Type;
-template<class T>
-struct CArc;
-}// namespace ir
-
-namespace ir_v2 {
-struct KernelModule;
-}// namespace ir_v2
 
 class Type;
 struct AccelOption;
@@ -119,13 +109,14 @@ public:
     // native handle
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
     [[nodiscard]] virtual uint compute_warp_size() const noexcept = 0;
+    // Zero means that the backend cannot report a portable static
+    // workgroup-memory limit. Callers must not guess a backend limit in that
+    // case.
+    [[nodiscard]] virtual size_t compute_max_shared_memory_size() const noexcept { return 0u; }
     [[nodiscard]] virtual uint64_t memory_granularity() const noexcept = 0;
 
 public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element,
-                                                           size_t elem_count,
-                                                           void *external_memory /* nullptr if not imported from external memory */) noexcept = 0;
-    [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element,
                                                            size_t elem_count,
                                                            void *external_memory /* nullptr if not imported from external memory */) noexcept = 0;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
@@ -159,11 +150,15 @@ public:
 
     // kernel
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept = 0;
-    [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept = 0;
-    [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept;
     [[nodiscard]] virtual ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept = 0;
     virtual Usage shader_argument_usage(uint64_t handle, size_t index) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
+
+    // tile kernel
+    [[nodiscard]] virtual bool support_tile_compiling() { return false; }
+    [[nodiscard]] virtual TileShaderCreationInfo create_tile_shader(const TileShaderOption &option, const detail::TileFunctionBuilder *tile_kernel) noexcept;
+    virtual Usage tile_shader_argument_usage(uint64_t handle, size_t index) noexcept;
+    virtual void destroy_tile_shader(uint64_t handle) noexcept;
 
     // event
     [[nodiscard]] virtual ResourceCreationInfo create_event() noexcept = 0;

@@ -7,10 +7,42 @@
 #ifndef LUISA_XIR_OP_H
 #define LUISA_XIR_OP_H
 
+#include <cstdint>
+
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/string.h>
 
 namespace luisa::compute::xir {
+
+// Bindless descriptor layout and index-uniformity are independent semantic
+// axes. Keeping them as instruction attributes avoids multiplying every
+// resource opcode into four variants while still making the distinction
+// visible to verification, optimization, interchange, and code generation.
+struct BindlessResourceAccess {
+    uint8_t typed : 1 {false};
+    uint8_t uniform : 1 {false};
+
+    [[nodiscard]] constexpr uint8_t encoded() const noexcept {
+        return static_cast<uint8_t>((typed ? 1u : 0u) |
+                                    (uniform ? 2u : 0u));
+    }
+
+    [[nodiscard]] static constexpr BindlessResourceAccess
+    decode(uint8_t value) noexcept {
+        return {
+            .typed = (value & 1u) != 0u,
+            .uniform = (value & 2u) != 0u};
+    }
+
+    [[nodiscard]] constexpr bool is_default() const noexcept {
+        return !typed && !uniform;
+    }
+
+    [[nodiscard]] constexpr bool operator==(
+        const BindlessResourceAccess &) const noexcept = default;
+};
+
+static_assert(sizeof(BindlessResourceAccess) == 1u);
 
 enum class AllocaOp {
     LOCAL,
@@ -172,10 +204,11 @@ enum class CastOp {
 };
 
 enum class RayQueryObjectReadOp {
-    RAY_QUERY_OBJECT_WORLD_SPACE_RAY,         // (RayQuery): Ray
-    RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): ProceduralHit
-    RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): TriangleHit
-    RAY_QUERY_OBJECT_COMMITTED_HIT,           // (RayQuery): CommittedHit
+    RAY_QUERY_OBJECT_WORLD_SPACE_RAY,           // (RayQuery): Ray
+    RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY,// (RayQuery): Ray
+    RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT,  // (RayQuery): ProceduralHit
+    RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT,    // (RayQuery): TriangleHit
+    RAY_QUERY_OBJECT_COMMITTED_HIT,             // (RayQuery): CommittedHit
 
     // Maxwell's extensions
     RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE,  // (RayQuery): bool
@@ -283,6 +316,68 @@ enum class ResourceReadOp {
     BINDLESS_TEXTURE3D_READ_LEVEL,// (bindless_array, index: uint, coord: uint3, level: uint): float4
 
     DEVICE_ADDRESS_READ,// (address: uint64) -> value: T
+
+    // cooperative vector operations. Cooperative vector/matrix references are
+    // lowered to plain uint32 byte offsets in XIR; the buffer-data component
+    // interpretation is carried by trailing constant uint32 operands.
+    COOPERATIVE_MUL_ADD,        // (matrix_buffer, matrix_offset: uint, bias_buffer, bias_offset: uint, input: coopvec<K>, matrix_interp: const uint, bias_interp: const uint) -> coopvec<M>
+    BINDLESS_COOPERATIVE_MUL_ADD,// (bindless_array, matrix_index: uint, matrix_offset: uint, bias_index: uint, bias_offset: uint, input: coopvec<K>, matrix_interp: const uint, bias_interp: const uint) -> coopvec<M>
+    COOPERATIVE_MUL,            // (matrix_buffer, matrix_offset: uint, input: coopvec<K>, matrix_interp: const uint) -> coopvec<M>
+    BINDLESS_COOPERATIVE_MUL,   // (bindless_array, matrix_index: uint, matrix_offset: uint, input: coopvec<K>, matrix_interp: const uint) -> coopvec<M>
+    COOPERATIVE_VECTOR_LOAD,    // (byte_buffer, offset: uint) -> coopvec<T, N>
+    BINDLESS_COOPERATIVE_VECTOR_LOAD,// (bindless_array, index: uint, offset: uint) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_SPLAT,   // (scalar: T) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_CAST,    // (coopvec<S, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_WORKGROUP_LOAD,// (shared_array, index: uint) -> coopvec<T, N>
+
+    // Future cooperative-vector element-wise operations. These are pure value
+    // operations (they carry no resource operands) reserved for native backend
+    // implementations; the DSL frontend must NOT decompose them into per-element
+    // scalar math. Every backend currently rejects them with a placeholder
+    // assertion (TODO: implement as future features).
+    COOPERATIVE_VECTOR_DOT,            // (coopvec<T, N>, coopvec<T, N>) -> scalar
+    COOPERATIVE_VECTOR_ABS,            // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_SIGN,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_FLOOR,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_CEIL,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_FRACT,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_TRUNC,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_ROUND,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_RINT,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_SQRT,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_RSQRT,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_EXP2,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_EXP10,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_LOG2,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_LOG10,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_SATURATE,       // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_ISINF,          // (coopvec<T, N>) -> coopvec<bool, N>
+    COOPERATIVE_VECTOR_ISNAN,          // (coopvec<T, N>) -> coopvec<bool, N>
+    COOPERATIVE_VECTOR_SIN,            // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_COS,            // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_TAN,            // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_ASIN,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_ACOS,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_SINH,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_COSH,           // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_ASINH,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_ACOSH,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_ATANH,          // (coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_MIX,            // (coopvec<T, N>, coopvec<T, N>, coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_LERP,           // (coopvec<T, N>, coopvec<T, N>, coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_POW,            // (coopvec<T, N>, coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_STEP,           // (coopvec<T, N> edge, coopvec<T, N> x) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_SMOOTHSTEP,     // (coopvec<T, N> e0, coopvec<T, N> e1, coopvec<T, N> x) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_ADD,            // (coopvec<T, N>, coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_SUB,            // (coopvec<T, N>, coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_MUL,            // (coopvec<T, N>, coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_DIV,            // (coopvec<T, N>, coopvec<T, N>) -> coopvec<T, N>
+    COOPERATIVE_VECTOR_LESS,           // (coopvec<T, N>, coopvec<T, N>) -> coopvec<bool, N>
+    COOPERATIVE_VECTOR_LESS_EQUAL,     // (coopvec<T, N>, coopvec<T, N>) -> coopvec<bool, N>
+    COOPERATIVE_VECTOR_GREATER,        // (coopvec<T, N>, coopvec<T, N>) -> coopvec<bool, N>
+    COOPERATIVE_VECTOR_GREATER_EQUAL,  // (coopvec<T, N>, coopvec<T, N>) -> coopvec<bool, N>
+    COOPERATIVE_VECTOR_EQUAL,          // (coopvec<T, N>, coopvec<T, N>) -> coopvec<bool, N>
+    COOPERATIVE_VECTOR_NOT_EQUAL,      // (coopvec<T, N>, coopvec<T, N>) -> coopvec<bool, N>
 };
 
 enum class ResourceWriteOp {
@@ -315,7 +410,74 @@ enum class ResourceWriteOp {
     // indirect dispatch
     INDIRECT_DISPATCH_SET_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
     INDIRECT_DISPATCH_SET_COUNT, // (Buffer, uint count)
+
+    // cooperative vector operations (see ResourceReadOp for the XIR encoding
+    // of references and interpretations)
+    COOPERATIVE_OUTER_PRODUCT_ACCUMULATE,// (matrix_buffer, matrix_offset: uint, a: coopvec<M>, b: coopvec<N>, matrix_interp: const uint) -> void
+    COOPERATIVE_VECTOR_ACCUMULATE,       // (byte_buffer, offset: uint, coopvec<T, N>) -> void
+    COOPERATIVE_VECTOR_STORE,            // (byte_buffer, offset: uint, coopvec<T, N>) -> void
+    BINDLESS_COOPERATIVE_VECTOR_STORE,   // (bindless_array, index: uint, offset: uint, coopvec<T, N>) -> void
+    COOPERATIVE_VECTOR_WORKGROUP_STORE,  // (shared_array, index: uint, coopvec<T, N>) -> void
 };
+
+[[nodiscard]] constexpr bool is_bindless_resource_op(
+    ResourceQueryOp op) noexcept {
+    switch (op) {
+        case ResourceQueryOp::BINDLESS_BUFFER_SIZE:
+        case ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER:
+        case ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER:
+        case ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS:
+            return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] constexpr bool is_bindless_resource_op(
+    ResourceReadOp op) noexcept {
+    switch (op) {
+        case ResourceReadOp::BINDLESS_BUFFER_READ:
+        case ResourceReadOp::BINDLESS_BYTE_BUFFER_READ:
+        case ResourceReadOp::BINDLESS_TEXTURE2D_READ:
+        case ResourceReadOp::BINDLESS_TEXTURE3D_READ:
+        case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
+        case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] constexpr bool is_bindless_resource_op(
+    ResourceWriteOp op) noexcept {
+    switch (op) {
+        case ResourceWriteOp::BINDLESS_BUFFER_WRITE:
+        case ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE:
+        case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            return true;
+        default: return false;
+    }
+}
 
 enum class ThreadGroupOp {
 

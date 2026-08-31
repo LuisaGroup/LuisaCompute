@@ -34,3 +34,11 @@ if (NOT WIN32)
             $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fms-extensions>)
 endif ()
 target_precompile_headers(luisa-compute-spirv PRIVATE spirv_codegen/lc_spirv_pch.h)
+
+# Keep build-time SPIR-V validation available even though the upstream
+# SPIRV-Tools command-line executables are disabled in the bundled build.
+add_executable(luisa_validate_spirv validate_spirv.cpp)
+set_target_properties(luisa_validate_spirv PROPERTIES
+        EXCLUDE_FROM_ALL TRUE
+        EXCLUDE_FROM_DEFAULT_BUILD TRUE)
+target_link_libraries(luisa_validate_spirv PRIVATE SPIRV-Tools-static)

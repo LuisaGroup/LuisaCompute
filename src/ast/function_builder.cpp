@@ -1,11 +1,13 @@
+#include <limits>
+
 #include <luisa/core/logging.h>
 #include <luisa/ast/function_builder.h>
 
 namespace luisa::compute::detail {
 
 luisa::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
-    static thread_local luisa::vector<FunctionBuilder *> stack;
-    return stack;
+    static thread_local luisa::vector<FunctionBuilder *> function_builder_stack;
+    return function_builder_stack;
 }
 
 void FunctionBuilder::push(FunctionBuilder *func) noexcept {
@@ -108,22 +110,136 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
     }
 }
 
+class FunctionBuilder::SuspendExtensionRecorder final
+    : public CoroSuspendExtensionRecorder {
+private:
+    FunctionBuilder *_builder;
+    luisa::vector<const Expression *> *_values;
+
+public:
+    SuspendExtensionRecorder(
+        FunctionBuilder *builder,
+        luisa::vector<const Expression *> *values) noexcept
+        : _builder{builder}, _values{values} {}
+
+    [[nodiscard]] uint32_t bind(
+        CoroSuspendBinding,
+        const Expression *value) noexcept override {
+        value = _builder->_internalize(value);
+        LUISA_ASSERT(value != nullptr && value->type() != nullptr,
+                     "Coroutine suspend extension binding must be a typed "
+                     "AST value.");
+        LUISA_ASSERT(
+            _values->size() <
+                static_cast<size_t>(
+                    std::numeric_limits<uint32_t>::max()),
+            "Coroutine suspend extension binding count exceeds uint32 ABI.");
+        auto index = static_cast<uint32_t>(_values->size());
+        _values->emplace_back(value);
+        return index;
+    }
+};
+
 void FunctionBuilder::suspend_() noexcept {
-    _create_and_append_statement<SuspendStmt>(_next_suspend_token(), luisa::string{});
+    suspend_(_next_suspend_token(), luisa::string{}, {});
 }
 
 void FunctionBuilder::suspend_(uint32_t token) noexcept {
-    LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
-    _create_and_append_statement<SuspendStmt>(token);
+    suspend_(token, luisa::string{}, {});
 }
 
 void FunctionBuilder::suspend_(luisa::string name) noexcept {
-    _create_and_append_statement<SuspendStmt>(_next_suspend_token(), std::move(name));
+    suspend_(_next_suspend_token(), std::move(name), {});
 }
 
 void FunctionBuilder::suspend_(uint32_t token, luisa::string name) noexcept {
+    suspend_(token, std::move(name), {});
+}
+
+void FunctionBuilder::suspend_(
+    luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports) noexcept {
+    suspend_(_next_suspend_token(), std::move(name),
+             std::move(frame_exports));
+}
+
+void FunctionBuilder::suspend_(
+    uint32_t token, luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports) noexcept {
+    suspend_(token, std::move(name), std::move(frame_exports), {});
+}
+
+void FunctionBuilder::suspend_(
+    luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports,
+    luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept {
+    suspend_(_next_suspend_token(), std::move(name),
+             std::move(frame_exports), std::move(extensions));
+}
+
+void FunctionBuilder::suspend_(
+    uint32_t token, luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports,
+    luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept {
+    luisa::vector<const Expression *> extension_binding_values;
+    luisa::vector<CoroSuspendExtensionPtr> normalized_extensions;
+    normalized_extensions.reserve(extensions.size());
+    SuspendExtensionRecorder recorder{this,
+                                       &extension_binding_values};
+    for (auto &&extension : extensions) {
+        LUISA_ASSERT(extension != nullptr,
+                     "Coroutine suspend extension must be non-null.");
+        auto source_schema = luisa::string{extension->schema()};
+        auto normalized =
+            std::move(*extension).freeze(recorder);
+        LUISA_ASSERT(normalized != nullptr,
+                     "Coroutine suspend extension '{}' returned a null "
+                     "normalized representation.",
+                     source_schema);
+        normalized_extensions.emplace_back(std::move(normalized));
+    }
+    suspend_(token, std::move(name), std::move(frame_exports),
+             std::move(normalized_extensions),
+             std::move(extension_binding_values));
+}
+
+void FunctionBuilder::suspend_(
+    uint32_t token, luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports,
+    luisa::vector<CoroSuspendExtensionPtr> extensions,
+    luisa::vector<const Expression *>
+        extension_binding_values) noexcept {
+    LUISA_ASSERT(_tag == Tag::COROUTINE,
+                 "Coroutine suspension is only valid in a coroutine.");
     LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
-    _create_and_append_statement<SuspendStmt>(token, std::move(name));
+    luisa::unordered_set<luisa::string> names;
+    for (auto &&frame_export : frame_exports) {
+        frame_export.value = _internalize(frame_export.value);
+        LUISA_ASSERT(
+            frame_export.value != nullptr &&
+                frame_export.value->type() != nullptr &&
+                frame_export.value->type()->is_basic(),
+            "Coroutine frame export '{}' at suspend '{}' must be a "
+            "non-null basic value.",
+            frame_export.name, name);
+        LUISA_ASSERT(!frame_export.name.empty(),
+                     "Coroutine frame export names must be non-empty.");
+        LUISA_ASSERT(
+            names.emplace(frame_export.name).second,
+            "Duplicate coroutine frame export '{}' at suspend '{}'.",
+            frame_export.name, name);
+    }
+    for (auto *&value : extension_binding_values) {
+        value = _internalize(value);
+        LUISA_ASSERT(value != nullptr && value->type() != nullptr,
+                     "Coroutine suspend extension binding at suspend '{}' "
+                     "must be a typed AST value.",
+                     name);
+    }
+    _create_and_append_statement<SuspendStmt>(
+        token, std::move(name), std::move(frame_exports),
+        std::move(extensions),
+        std::move(extension_binding_values));
 }
 
 RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
@@ -143,6 +259,22 @@ IfStmt *FunctionBuilder::if_(const Expression *cond) noexcept {
 
 LoopStmt *FunctionBuilder::loop_() noexcept {
     return _create_and_append_statement<LoopStmt>();
+}
+
+void FunctionBuilder::mark_loop_as_while(
+    LoopStmt *loop, const Expression *condition,
+    size_t condition_statement_count) noexcept {
+    LUISA_ASSERT(loop != nullptr && condition != nullptr,
+                 "A DSL while loop and its condition must not be null.");
+    condition = _internalize(condition);
+    LUISA_ASSERT(loop->_while_condition == nullptr,
+                 "A DSL loop was marked as while more than once.");
+    LUISA_ASSERT(condition_statement_count <=
+                     loop->body()->statements().size(),
+                 "DSL while condition statement count is out of range.");
+    loop->_while_condition = condition;
+    loop->_while_condition_statement_count =
+        condition_statement_count;
 }
 
 void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
@@ -269,9 +401,10 @@ const CallExpr *FunctionBuilder::make_vector(const Type *type, luisa::span<const
                     return CallOp::MAKE_INT2;
                 case Type::Tag::INT64:
                     return CallOp::MAKE_LONG2;
-                case Type::Tag::FLOAT16: [[fallthrough]];
-                case Type::Tag::FLOAT32:
+                case Type::Tag::FLOAT16:
                     return CallOp::MAKE_HALF2;
+                case Type::Tag::FLOAT32:
+                    return CallOp::MAKE_FLOAT2;
                 case Type::Tag::FLOAT64:
                     return CallOp::MAKE_DOUBLE2;
                 default:
@@ -587,46 +720,13 @@ void FunctionBuilder::call(CallOp call_op, std::initializer_list<const Expressio
 void FunctionBuilder::call(Function custom, std::initializer_list<const Expression *> args) noexcept {
     static_cast<void>(call(nullptr, custom, args));
 }
-bool FunctionBuilder::operator==(const FunctionBuilder &rhs) const noexcept {
-    // FIXME hash is broken!
-    return std::addressof(rhs) == this;
 
-    /*
-    if (std::addressof(rhs) == this) [[unlikely]] {
-        return true;
-    }
-    // Compare tag
-    if (_tag != rhs._tag) { return false; }
-    if (hash() != rhs.hash()) { return false; }
-    // Compare body (using hash)
-    if (_body.hash() != rhs._body.hash()) { return false; }
-    if (_all_expressions.size() != rhs._all_expressions.size()) { return false; }
-    if (_all_statements.size() != rhs._all_statements.size()) { return false; }
-    // Compare return type
-    if (_return_type.has_value() != rhs._return_type.has_value()) { return false; }
-    if (_return_type.has_value() && *_return_type.value() != *rhs._return_type.value()) { return false; }
-    // Compare arguments
-    if (_arguments.size() != rhs._arguments.size()) { return false; }
-    for (size_t i = 0; i < _arguments.size(); ++i) {
-        auto &&a = _arguments[i];
-        auto &&b = rhs._arguments[i];
-        if (a.hash() != b.hash()) { return false; }
-    }
-    // Compare captured constants
-    if (_captured_constants.size() != rhs._captured_constants.size()) { return false; }
-    for (size_t i = 0; i < _captured_constants.size(); ++i) {
-        if (_captured_constants[i] != rhs._captured_constants[i]) { return false; }
-    }
-    // Compare block size
-    if (_tag == Function::Tag::KERNEL) [[unlikely]] {
-        if (_block_size[0] != rhs._block_size[0] ||
-            _block_size[1] != rhs._block_size[1] ||
-            _block_size[2] != rhs._block_size[2]) { return false; }
-    }
-    // Compare required curve bases
-    if (_required_curve_bases != rhs._required_curve_bases) { return false; }
-    return true;
- */
+bool FunctionBuilder::operator==(const FunctionBuilder &rhs) const noexcept {
+    // Preserve builder identity while calls are being constructed. Two
+    // structurally equivalent builders may carry different resource bindings;
+    // FunctionBuilder::call() must materialize each builder's bindings before
+    // the completed call graph can be canonicalized safely by hash.
+    return std::addressof(rhs) == this;
 }
 
 void FunctionBuilder::_compute_hash() noexcept {
@@ -634,30 +734,103 @@ void FunctionBuilder::_compute_hash() noexcept {
         LUISA_WARNING_WITH_LOCATION("Hash already computed.");
     }
     using namespace std::string_view_literals;
-    static auto seed = hash_value("__hash_function"sv);
+    // This is a structural hash of everything that can affect generated code
+    // or its ABI. Keep field groups explicitly delimited: concatenating the
+    // vectors alone makes different field partitions indistinguishable.
+    // Resource binding payloads are intentionally absent. They are runtime
+    // call-site data; only the binding kind participates in the function ABI.
+    // Names and function attributes are debug/user metadata and are not read
+    // by code generation.
+    static auto function_builder_seed = hash_value("__hash_function_v2"sv);
+    enum struct Field : uint64_t {
+        tag,
+        body,
+        return_type,
+        arguments,
+        argument_binding_kinds,
+        builtin_variables,
+        local_variables,
+        shared_variables,
+        variable_usages,
+        captured_constants,
+        required_curve_bases,
+        direct_builtin_callables,
+        propagated_builtin_callables,
+        launch_config,
+        semantic_flags,
+    };
     luisa::vector<uint64_t> hashes;
-    bool is_callable = _tag == Function::Tag::CALLABLE;
-    hashes.reserve(2u /* body and tag */ +
-                   1u /* return type */ +
-                   1 +
+    hashes.reserve(32u +
                    _arguments.size() +
+                   _bound_arguments.size() +
+                   _builtin_variables.size() +
+                   _local_variables.size() +
+                   _shared_variables.size() +
                    _captured_constants.size() +
-                   _variable_usages.size() +
-                   (is_callable ? 0 : 1) /* block size */);
+                   _variable_usages.size());
+    auto begin_group = [&hashes](Field field, size_t count) noexcept {
+        hashes.emplace_back(static_cast<uint64_t>(field));
+        hashes.emplace_back(static_cast<uint64_t>(count));
+    };
+
+    begin_group(Field::tag, 1u);
     hashes.emplace_back(hash_value(_tag));
+
+    begin_group(Field::body, 2u);
     hashes.emplace_back(_body.hash());
+    hashes.emplace_back(_body.statements().size());
+
+    begin_group(Field::return_type, 1u);
     hashes.emplace_back(_return_type ? hash_value(*_return_type.value()) : hash_value("void"sv));
+
+    begin_group(Field::arguments, _arguments.size());
     for (auto &&arg : _arguments) { hashes.emplace_back(arg.hash()); }
-    for (auto &&arg : _variable_usages) { hashes.emplace_back(hash_value(arg)); }
-    for (auto &&c : _captured_constants) { hashes.emplace_back(hash_value(c)); }
-    hashes.emplace_back(_required_curve_bases.hash());
-    if (!is_callable) {
-        hashes.emplace_back(hash_value(_block_size));
-        hashes.emplace_back(_body.statements().size() | (static_cast<uint64_t>(_allowed_warp_size) << 48ull));
-    } else {
-        hashes.emplace_back(_body.statements().size());
+
+    begin_group(Field::argument_binding_kinds, _bound_arguments.size());
+    for (auto &&binding : _bound_arguments) {
+        hashes.emplace_back(static_cast<uint64_t>(binding.index()));
     }
-    _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), seed);
+
+    begin_group(Field::builtin_variables, _builtin_variables.size());
+    for (auto &&variable : _builtin_variables) { hashes.emplace_back(variable.hash()); }
+
+    begin_group(Field::local_variables, _local_variables.size());
+    for (auto &&variable : _local_variables) { hashes.emplace_back(variable.hash()); }
+
+    begin_group(Field::shared_variables, _shared_variables.size());
+    for (auto &&variable : _shared_variables) { hashes.emplace_back(variable.hash()); }
+
+    begin_group(Field::variable_usages, _variable_usages.size());
+    for (auto &&arg : _variable_usages) { hashes.emplace_back(hash_value(arg)); }
+
+    begin_group(Field::captured_constants, _captured_constants.size());
+    for (auto &&constant : _captured_constants) {
+        hashes.emplace_back(hash_combine({constant.type()->hash(), constant.hash()}));
+    }
+
+    begin_group(Field::required_curve_bases, 1u);
+    hashes.emplace_back(_required_curve_bases.hash());
+
+    auto append_call_ops = [&begin_group, &hashes](Field field,
+                                                   const CallOpSet &ops) noexcept {
+        auto count = 0u;
+        for ([[maybe_unused]] auto op : ops) { count++; }
+        begin_group(field, count);
+        for (auto op : ops) { hashes.emplace_back(hash_value(op)); }
+    };
+    append_call_ops(Field::direct_builtin_callables, _direct_builtin_callables);
+    append_call_ops(Field::propagated_builtin_callables, _propagated_builtin_callables);
+
+    begin_group(Field::launch_config, 2u);
+    hashes.emplace_back(hash_value(_block_size));
+    hashes.emplace_back(_allowed_warp_size);
+
+    begin_group(Field::semantic_flags, 1u);
+    hashes.emplace_back(static_cast<uint64_t>(_requires_atomic_float) |
+                        static_cast<uint64_t>(_requires_printing) << 1u |
+                        static_cast<uint64_t>(_use_cooperative_operations) << 2u);
+
+    _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), function_builder_seed);
     _hash_computed = true;
 }
 
@@ -1303,6 +1476,8 @@ luisa::optional<uint8_t> FunctionBuilder::allowed_warp_size() const noexcept {
 
 void FunctionBuilder::set_allowed_warp_size(uint8_t value) noexcept {
     switch (value) {
+        case 1:
+        case 2:
         case 4:
         case 8:
         case 16:
@@ -1312,7 +1487,7 @@ void FunctionBuilder::set_allowed_warp_size(uint8_t value) noexcept {
             _allowed_warp_size = value;
             break;
         default:
-            LUISA_ERROR("Illegal warp size, must be 4, 8, 165, 32, 64, or 128");
+            LUISA_ERROR("Illegal warp size, must be 1, 2, 4, 8, 16, 32, 64, or 128");
             break;
     }
 }
@@ -1320,7 +1495,7 @@ void FunctionBuilder::clear_allowed_warp_size() noexcept {
     _allowed_warp_size = 255;
 }
 bool FuncBuilderEqual::operator()(const FunctionBuilder *a,
-                                   const FunctionBuilder *b) const noexcept {
+                                  const FunctionBuilder *b) const noexcept {
     if (a != nullptr && b != nullptr) {
         return *a == *b;
     }

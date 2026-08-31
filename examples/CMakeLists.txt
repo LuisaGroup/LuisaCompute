@@ -50,14 +50,9 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_example(example_blackhole rendering/blackhole.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_voxel_raytracer rendering/voxel_raytracer.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_procedural rendering/procedural.cpp MIRROR_AS_TEST)
-    luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_toy_spacex rendering/shader_toy_spacex.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_visuals_present rendering/shader_visuals_present.cpp MIRROR_AS_TEST)
 
-    if (LUISA_COMPUTE_ENABLE_RUST)
-        luisa_compute_add_example(example_path_tracing_ir rendering/path_tracing_ir.cpp MIRROR_AS_TEST)
-        luisa_compute_add_example(example_sdf_renderer_ir rendering/sdf_renderer_ir.cpp MIRROR_AS_TEST)
-    endif ()
     if (TARGET luisa-compute-xir)
         luisa_compute_add_example(example_path_tracing_xir2ast rendering/path_tracing_xir2ast.cpp MIRROR_AS_TEST)
         luisa_compute_add_example(example_sdf_renderer_xir2ast rendering/sdf_renderer_xir2ast.cpp MIRROR_AS_TEST)
@@ -65,7 +60,6 @@ if (LUISA_COMPUTE_ENABLE_GUI)
 
     # simulation
     luisa_compute_add_example(example_fire_simulation simulation/fire_simulation.cpp MIRROR_AS_TEST)
-    luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_mpm3d simulation/mpm3d.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_mpm88 simulation/mpm88.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_nbody_simulation simulation/nbody_simulation.cpp MIRROR_AS_TEST)
@@ -86,14 +80,34 @@ if (LUISA_COMPUTE_ENABLE_GUI)
         luisa_compute_add_example(example_win_hdr gui/win_hdr.cpp)
     endif ()
 
-    # compute (GUI-dependent)
-    luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)
 endif ()
 
 # compute (headless)
 luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
 luisa_compute_add_example(example_coro_sdf_renderer rendering/coro_sdf_renderer.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_gdeflate compute/compact/main.cpp compute/compact/gdeflate.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_tensor_stub tensor/main.cpp)
+# collect all tensor kernel source files
+file(GLOB _tensor_kernels CONFIGURE_DEPENDS tensor/kernel_*.cpp)
+# tile-language split runners: TinyCNN inference (--cnn) and polynomial-fit
+# training (--poly-fit); keep in sync with examples/xmake.lua.
+target_sources(example_tensor_stub PRIVATE
+ ${_tensor_kernels}
+ tensor/cnn_kernels.cpp
+ tensor/cnn_inference.cpp
+ tensor/poly_fit_kernels.cpp
+ tensor/poly_fit.cpp
+ tensor/linear_regression_kernels.cpp
+ tensor/linear_regression.cpp
+ tensor/mlp.cpp
+ tensor/mnist.cpp
+ tensor/rnn.cpp
+ tensor/torch2_import.cpp
+ tensor/tensor_basics.cpp)
+luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_cluster_launch_control compute/cluster_launch_control.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_async_copy_prefetch compute/async_copy_prefetch.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_multi_head_attention
@@ -105,6 +119,39 @@ luisa_compute_add_example(example_multi_head_attention
         MIRROR_AS_TEST)
 
 # coroutine (headless)
+luisa_compute_add_example(example_coro_external_stage_debug
+        coro/external_stage_debug.cpp)
+luisa_compute_add_example(example_coro_external_stage_neural_sdf
+        coro/external_stage_neural_sdf.cpp)
+luisa_compute_add_example(example_coro_on_demand_texture
+        coro/on_demand_texture.cpp)
+if (LUISA_COMPUTE_BUILD_TESTS AND TARGET luisa-compute-backend-metal)
+    add_test(NAME metal_example_coro_external_stage_debug
+            COMMAND $<TARGET_FILE:example_coro_external_stage_debug> metal)
+    set_tests_properties(metal_example_coro_external_stage_debug PROPERTIES
+            LABELS "integration_metal;coro_external_stage"
+            TIMEOUT 120
+            WORKING_DIRECTORY
+            $<TARGET_FILE_DIR:example_coro_external_stage_debug>)
+    add_test(NAME metal_example_coro_external_stage_neural_sdf
+            COMMAND $<TARGET_FILE:example_coro_external_stage_neural_sdf>
+            metal --test)
+    set_tests_properties(
+            metal_example_coro_external_stage_neural_sdf PROPERTIES
+            LABELS "integration_metal;coro_external_stage;graphics_metal"
+            TIMEOUT 180
+            WORKING_DIRECTORY
+            $<TARGET_FILE_DIR:example_coro_external_stage_neural_sdf>)
+    add_test(NAME metal_example_coro_on_demand_texture
+            COMMAND $<TARGET_FILE:example_coro_on_demand_texture>
+            metal --test)
+    set_tests_properties(
+            metal_example_coro_on_demand_texture PROPERTIES
+            LABELS "integration_metal;coro_external_stage;graphics_metal"
+            TIMEOUT 120
+            WORKING_DIRECTORY
+            $<TARGET_FILE_DIR:example_coro_on_demand_texture>)
+endif ()
 luisa_compute_add_example(example_coro_path_tracing rendering/coro_path_tracing.cpp)
 luisa_compute_add_example(example_coro_path_tracing_wavefront rendering/coro_path_tracing.cpp)
 target_compile_definitions(example_coro_path_tracing_wavefront
@@ -216,4 +263,37 @@ if (LUISA_COMPUTE_ENABLE_GUI AND LUISA_COMPUTE_EXAMPLE_QT_INTEROP)
             luisa_example_pair_link(example_swapchain_qt PRIVATE Qt::Widgets Qt::Core Qt::Gui Qt::GuiPrivate)
         endif ()
     endif ()
+endif ()
+
+if (TARGET luisa-compute-backend-simd)
+    add_dependencies(example_helloworld luisa-compute-backend-simd)
+    add_test(NAME simd_example_helloworld
+            COMMAND $<TARGET_FILE:example_helloworld> simd)
+    set_tests_properties(simd_example_helloworld PROPERTIES
+            LABELS "integration_simd"
+            TIMEOUT 30
+            WORKING_DIRECTORY $<TARGET_FILE_DIR:example_helloworld>)
+
+    foreach (_simd_graphics_example IN ITEMS
+            image_processing
+            shader_toy
+            game_of_life
+            fire_simulation)
+        set(_simd_graphics_target
+                example_${_simd_graphics_example})
+        if (TARGET ${_simd_graphics_target})
+            add_dependencies(${_simd_graphics_target}
+                    luisa-compute-backend-simd)
+            add_test(NAME simd_graphics_${_simd_graphics_example}
+                    COMMAND $<TARGET_FILE:${_simd_graphics_target}>
+                    simd --offline -c
+                    ${CMAKE_SOURCE_DIR}/docs/gallery/test_${_simd_graphics_example}.png)
+            set_tests_properties(
+                    simd_graphics_${_simd_graphics_example} PROPERTIES
+                    LABELS "integration_simd;graphics_simd"
+                    TIMEOUT 120
+                    WORKING_DIRECTORY
+                    $<TARGET_FILE_DIR:${_simd_graphics_target}>)
+        endif ()
+    endforeach ()
 endif ()

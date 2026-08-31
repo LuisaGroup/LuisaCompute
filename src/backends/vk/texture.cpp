@@ -6,6 +6,60 @@
 #include <luisa/core/stl/vector.h>
 namespace lc::vk {
 using namespace luisa::compute;
+namespace {
+// Validate that the physical device supports the requested image format for
+// the requested image usages. On failure, fills `reason` with the missing
+// format-feature bits so callers can emit a diagnosable LUISA_ERROR.
+[[nodiscard]] bool is_vk_format_supported(
+    VkPhysicalDevice physical_device, VkFormat format,
+    VkImageUsageFlags usage, luisa::string *reason = nullptr) noexcept {
+    VkFormatProperties props{};
+    vkGetPhysicalDeviceFormatProperties(physical_device, format, &props);
+    auto features = props.optimalTilingFeatures;
+    auto required_features = VkFormatFeatureFlags{0u};
+    if (usage & VK_IMAGE_USAGE_SAMPLED_BIT) {
+        required_features |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    }
+    if (usage & VK_IMAGE_USAGE_STORAGE_BIT) {
+        required_features |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
+    }
+    if (usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {
+        required_features |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+    }
+    if (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+        required_features |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    }
+    if (usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
+        required_features |= VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+    }
+    if (usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT) {
+        required_features |= VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+    }
+    auto missing = required_features & ~features;
+    if (missing != 0u && reason != nullptr) {
+        luisa::vector<const char *> names;
+        if (missing & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) { names.emplace_back("SAMPLED_IMAGE"); }
+        if (missing & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) { names.emplace_back("STORAGE_IMAGE"); }
+        if (missing & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) { names.emplace_back("COLOR_ATTACHMENT"); }
+        if (missing & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) { names.emplace_back("DEPTH_STENCIL_ATTACHMENT"); }
+        if (missing & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT) { names.emplace_back("TRANSFER_SRC"); }
+        if (missing & VK_FORMAT_FEATURE_TRANSFER_DST_BIT) { names.emplace_back("TRANSFER_DST"); }
+        if (missing & VK_FORMAT_FEATURE_BLIT_SRC_BIT) { names.emplace_back("BLIT_SRC"); }
+        if (missing & VK_FORMAT_FEATURE_BLIT_DST_BIT) { names.emplace_back("BLIT_DST"); }
+        luisa::string joined;
+        for (auto i = 0u; i < names.size(); i++) {
+            if (i != 0u) { joined.append(", "); }
+            joined.append(names[i]);
+        }
+        *reason = luisa::format(
+            "format {} is not supported for the requested usage {:#x}; "
+            "missing VkFormatFeatureFlagBits: {} (available {:#x})",
+            static_cast<int>(format), static_cast<uint32_t>(usage), joined,
+            static_cast<uint32_t>(features));
+    }
+    return missing == 0u;
+}
+}// namespace
 
 NativeImageState::NativeImageState(
     VkImage image, VkFormat format, uint dimension, uint3 size,
@@ -129,6 +183,24 @@ Texture::Texture(
       _mip(mip),
       _dimension(dimension),
       _simultaneous_access(simultaneous_access) {
+    auto vk_format = to_vk_format(format);
+    if (vk_format == VK_FORMAT_UNDEFINED) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Unsupported pixel format {} cannot be mapped to a Vulkan format.",
+            static_cast<uint32_t>(format));
+    }
+    auto image_usage =
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+        VK_IMAGE_USAGE_SAMPLED_BIT |
+        (allow_raster_target ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
+        ((is_srgb(format) || is_block_compressed(format)) ? 0 : VK_IMAGE_USAGE_STORAGE_BIT);
+    luisa::string unsupported_reason;
+    if (!is_vk_format_supported(
+            device->physical_device(), vk_format, image_usage,
+            &unsupported_reason)) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("{}", unsupported_reason);
+    }
     auto allocation = device->allocator().allocate_image(
         [&]() {
             switch (dimension) {
@@ -143,17 +215,13 @@ Texture::Texture(
             }
             LUISA_ERROR_WITH_LOCATION("Invalid texture dimension.");
         }(),
-        to_vk_format(format),
+        vk_format,
         size,
         mip,
-        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-            VK_IMAGE_USAGE_SAMPLED_BIT |
-            (allow_raster_target ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
-            ((is_srgb(format) || is_block_compressed(format)) ? 0 : VK_IMAGE_USAGE_STORAGE_BIT));
+        image_usage);
     _vk_img = allocation.image;
     _allocation = allocation.allocation;
-    _acquire_native_state(to_vk_format(format));
+    _acquire_native_state(vk_format);
 }
 
 VkImageAspectFlags Texture::get_aspect_from_format(VkFormat format) {
@@ -326,6 +394,7 @@ void Texture::init_as_sparse(
     _simultaneous_access = simultaneous_access;
     _acquire_native_state(to_vk_format(format));
 }
+
 VkFormat Texture::to_vk_format(PixelFormat format) {
     // native format
     if ((luisa::to_underlying(format) & (1u << 31u)) != 0) {
@@ -435,6 +504,32 @@ VkFormat Texture::to_vk_format(PixelFormat format) {
             return VK_FORMAT_BC7_SRGB_BLOCK;
         case PixelFormat::BC7UNorm:
             return VK_FORMAT_BC7_UNORM_BLOCK;
+        // ASTC block formats (mandatory on Android; BC formats are typically
+        // unsupported there). Both UNORM and SRGB variants are mapped.
+        case PixelFormat::ASTC_4x4:
+            return VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
+        case PixelFormat::ASTC_4x4_SRGB:
+            return VK_FORMAT_ASTC_4x4_SRGB_BLOCK;
+        case PixelFormat::ASTC_5x5:
+            return VK_FORMAT_ASTC_5x5_UNORM_BLOCK;
+        case PixelFormat::ASTC_5x5_SRGB:
+            return VK_FORMAT_ASTC_5x5_SRGB_BLOCK;
+        case PixelFormat::ASTC_6x6:
+            return VK_FORMAT_ASTC_6x6_UNORM_BLOCK;
+        case PixelFormat::ASTC_6x6_SRGB:
+            return VK_FORMAT_ASTC_6x6_SRGB_BLOCK;
+        case PixelFormat::ASTC_8x8:
+            return VK_FORMAT_ASTC_8x8_UNORM_BLOCK;
+        case PixelFormat::ASTC_8x8_SRGB:
+            return VK_FORMAT_ASTC_8x8_SRGB_BLOCK;
+        case PixelFormat::ASTC_10x10:
+            return VK_FORMAT_ASTC_10x10_UNORM_BLOCK;
+        case PixelFormat::ASTC_10x10_SRGB:
+            return VK_FORMAT_ASTC_10x10_SRGB_BLOCK;
+        case PixelFormat::ASTC_12x12:
+            return VK_FORMAT_ASTC_12x12_UNORM_BLOCK;
+        case PixelFormat::ASTC_12x12_SRGB:
+            return VK_FORMAT_ASTC_12x12_SRGB_BLOCK;
         default:
             return VK_FORMAT_UNDEFINED;
     }

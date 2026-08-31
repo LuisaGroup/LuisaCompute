@@ -25,19 +25,20 @@
 #include "hip_pinned_memory.h"
 #include "hip_device.h"
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#endif
-
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/inline.h>
+#include <luisa/xir/passes/local_load_elimination.h>
+#include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 #include <llvm/Config/llvm-config.h>
@@ -51,12 +52,12 @@ namespace luisa::compute::hip {
 namespace {
 
 static constexpr char hip_shader_package_magic[] = "LCHIPAOT";
-static constexpr auto hip_shader_package_version = 2u;
+static constexpr auto hip_shader_package_version = 3u;
 static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
 static constexpr auto hip_shader_cache_artifact_version = 2u;
-// Increment whenever the HIP AST/XIR/LLVM lowering contract changes in a way
-// that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 2u;
+// Increment whenever the HIP lowering or final-compilation contract changes in
+// a way that can alter generated code without changing the kernel AST hash.
+static constexpr auto hip_shader_cache_codegen_revision = 83u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -185,7 +186,8 @@ enum struct HIPShaderCacheCodeKind : uint8_t {
                  static_cast<uint32_t>(metadata.requires_ray_query) << 3u |
                  static_cast<uint32_t>(metadata.requires_printing) << 4u |
                  static_cast<uint32_t>(metadata.requires_motion_blur) << 5u |
-                 static_cast<uint32_t>(metadata.requires_global_rt_stack) << 6u;
+                 static_cast<uint32_t>(metadata.requires_global_rt_stack) << 6u |
+                 static_cast<uint32_t>(metadata.uses_static_global_rt_stack) << 7u;
     writer.write_u32(flags);
     writer.write_u32(metadata.max_register_count);
     writer.write_u32(metadata.block_size.x);
@@ -216,7 +218,7 @@ enum struct HIPShaderCacheCodeKind : uint8_t {
     if (!reader.read_bytes(magic, sizeof(magic)) ||
         std::memcmp(magic, hip_shader_package_magic, sizeof(magic)) != 0 ||
         !reader.read_u32(version) ||
-        (version != 1u && version != hip_shader_package_version)) {
+        version < 1u || version > hip_shader_package_version) {
         return luisa::nullopt;
     }
     HIPShaderPackage package{};
@@ -247,7 +249,13 @@ enum struct HIPShaderCacheCodeKind : uint8_t {
     package.metadata.requires_motion_blur = (flags & (1u << 5u)) != 0u;
     package.metadata.requires_global_rt_stack =
         version >= 2u && (flags & (1u << 6u)) != 0u;
-    if ((flags & ~(version >= 2u ? 0x7fu : 0x3fu)) != 0u) {
+    package.metadata.uses_static_global_rt_stack =
+        version >= 3u && (flags & (1u << 7u)) != 0u;
+    const auto valid_flags =
+        version >= 3u ? 0xffu :
+        version >= 2u ? 0x7fu :
+                         0x3fu;
+    if ((flags & ~valid_flags) != 0u) {
         return luisa::nullopt;
     }
     auto read_count = [&reader](uint32_t &count) noexcept {
@@ -469,9 +477,14 @@ namespace {
     auto uses_codegen_hardware_rt_stack =
         uses_hardware_rt_stack &&
         !builtin_callables.uses_ray_query_motion_blur();
+    // XIR may prove a Query::trace() pipeline synchronous and lower it to the
+    // HIPRT dynamic-stack path even on gfx12. Reserve that kernel argument ABI
+    // for every ray-query shader; the legacy resumable hardware-stack path can
+    // simply leave the buffer unused. This is deliberately derived from the
+    // AST capability set so cache lookup and post-XIR codegen cannot disagree.
     auto requires_global_rt_stack =
-        !uses_codegen_hardware_rt_stack &&
-        (requires_static_trace || builtin_callables.uses_ray_query());
+        builtin_callables.uses_ray_query() ||
+        (!uses_codegen_hardware_rt_stack && requires_static_trace);
 
     luisa::vector<Usage> argument_usages;
     argument_usages.reserve(kernel.arguments().size());
@@ -507,6 +520,7 @@ namespace {
             kernel.requires_motion_blur(),
         .requires_global_rt_stack =
             requires_global_rt_stack,
+        .uses_static_global_rt_stack = false,
         .max_register_count = option.max_registers,
         .block_size = kernel.block_size(),
         .argument_types = std::move(argument_types),
@@ -529,6 +543,11 @@ namespace {
     // metadata is independently derived from the current kernel and options.
     auto expected = expected_metadata;
     expected.format_types = package.metadata.format_types;
+    // Stack assignment is selected only after XIR proves whether candidate
+    // history is observable. It does not change the AST cache identity, but
+    // is authenticated as part of the serialized package payload.
+    expected.uses_static_global_rt_stack =
+        package.metadata.uses_static_global_rt_stack;
     return package.metadata == expected;
 }
 
@@ -700,16 +719,11 @@ HIPDevice::HIPDevice(Context &&ctx, const DeviceConfig *config) noexcept
                version_major(runtime_version), version_minor(runtime_version), version_patch(runtime_version),
                HIP_VERSION_MAJOR, HIP_VERSION_MINOR, HIP_VERSION_PATCH);
 
-    // hipLimitStackSize controls per-thread scratch allocation for uses_dynamic_stack=true kernels.
-    // HIPRT traversal uses its hardware stack or a dedicated dynamic stack buffer, not this.
-    // With full LTO inlining of HIPRT functions, no dynamic call stack is needed.
-    with_device([&] {
-        auto ret = hipDeviceSetLimit(hipLimitStackSize, 0u);
-        if (ret != hipSuccess) {
-            LUISA_WARNING("hipDeviceSetLimit(hipLimitStackSize) failed: {}",
-                          hipGetErrorString(ret));
-        }
-    });
+    // Keep HIP's non-zero per-thread stack limit. The backend permits LLVM to
+    // retain ordinary device calls, so a generated code object may legitimately
+    // declare `uses_dynamic_stack` even when HIPRT traversal itself uses the
+    // hardware or dedicated traversal stack. Setting hipLimitStackSize to zero
+    // here would make every such code object invalid at runtime.
 }
 
 HIPDevice::~HIPDevice() noexcept {
@@ -813,10 +827,6 @@ void HIPDevice::set_stream_log_callback(uint64_t stream_handle, const StreamLogC
     reinterpret_cast<HIPStream *>(stream_handle)->set_log_callback(callback);
 }
 
-ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
-    LUISA_NOT_IMPLEMENTED();
-}
-
 ResourceCreationInfo HIPDevice::create_curve(const AccelOption &option) noexcept {
     auto context = hiprt_context();
     auto curve = with_device([&] {
@@ -854,6 +864,14 @@ luisa::string HIPDevice::query(luisa::string_view property) noexcept {
         return _amdgpu_arch;
     }
     return DeviceInterface::query(property);
+}
+
+size_t HIPDevice::compute_max_shared_memory_size() const noexcept {
+    return with_device([this] {
+        hipDeviceProp_t properties{};
+        LUISA_CHECK_HIP(hipGetDeviceProperties(&properties, _device_id));
+        return properties.sharedMemPerBlock;
+    });
 }
 
 DeviceExtension *HIPDevice::extension(luisa::string_view name) noexcept {
@@ -978,16 +996,6 @@ BufferCreationInfo HIPDevice::create_buffer(const Type *element, size_t elem_cou
     info.element_stride = elem_stride;
     info.total_size_bytes = size_bytes;
     return info;
-}
-
-BufferCreationInfo HIPDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept {
-#ifdef LUISA_ENABLE_IR
-    auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count, external_memory);
-#else
-    LUISA_ERROR_WITH_LOCATION("HIP backend was compiled without legacy IR support.");
-    return BufferCreationInfo::make_invalid();
-#endif
 }
 
 void HIPDevice::destroy_buffer(uint64_t handle) noexcept {
@@ -1118,6 +1126,13 @@ void HIPDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapc
 
 ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
+    // Anonymous JIT modules are independent ELF images, so their external
+    // entry may encode the complete AST structural hash without affecting
+    // dispatch ABI. Explicitly named packages are persistent AOT artifacts;
+    // keep their historical entry stable for load_shader().
+    auto kernel_entry = option.name.empty() ?
+                            luisa::format("kernel_{:016x}", kernel.hash()) :
+                            luisa::string{"kernel_main"};
     auto builtin_callables = kernel.propagated_builtin_callables();
     auto requires_hiprt = kernel.requires_raytracing() ||
                           builtin_callables.uses_ray_query();
@@ -1189,6 +1204,17 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
             "AST to XIR translation done in {} ms.",
             translate_clk.toc());
 
+        auto inline_ray_query_info =
+            xir::reconstruct_ray_query_loop_pass_run_on_module(
+                xir_module.get());
+        if (!inline_ray_query_info.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "HIP XIR rejected {} malformed explicit ray-query loop(s).",
+                inline_ray_query_info.error_count);
+        }
+        verify_xir_or_error(
+            xir_module.get(), "explicit ray-query reconstruction");
+
         if (kernel.requires_autodiff()) {
             auto inline_info =
                 xir::inline_all_pass_run_on_module(
@@ -1215,10 +1241,53 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                 "early return(s).",
                 early_return_info.removed_return_count);
         }
+        // Normalize AST-local memory before classifying ray-query handler
+        // effects. This is the same semantics-preserving pre-CFG sequence
+        // used by the CUDA and fallback backends: forwarding and mem2reg
+        // remove value-copy scaffolding so the handler proof observes the
+        // program's actual state dependencies rather than translator-created
+        // alloca/load/store chains.
+        {
+            xir::PassPipeline pre_cfg;
+            pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::dce_pass_run_on_module(m, &r);
+                return i.changed();
+            });
+            pre_cfg.add(
+                "local-store-forward",
+                [](xir::Module *m, xir::PassReport &r) {
+                    auto i =
+                        xir::local_store_forward_pass_run_on_module(m, &r);
+                    return i.removed_load_count > 0u;
+                });
+            pre_cfg.add(
+                "local-load-elimination",
+                [](xir::Module *m, xir::PassReport &r) {
+                    auto i =
+                        xir::local_load_elimination_pass_run_on_module(m, &r);
+                    return i.removed_load_count > 0u;
+                });
+            pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::dce_pass_run_on_module(m, &r);
+                return i.changed();
+            });
+            pre_cfg.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::mem2reg_pass_run_on_module(m, &r);
+                return i.changed();
+            });
+            pre_cfg.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::dce_pass_run_on_module(m, &r);
+                return i.changed();
+            });
+            auto stats = pre_cfg.run(xir_module.get());
+            stats.log("HIP backend pre-CFG optimization");
+            verify_xir_or_error(
+                xir_module.get(), "pre-CFG optimization");
+        }
         {
             xir::PassReport report;
             auto ray_query_info =
-                xir::lower_ray_query_loop_pass_run_on_module(
+                xir::lower_ray_query_to_pipeline_pass_run_on_module(
                     xir_module.get(), &report);
             if (!ray_query_info.succeeded()) {
                 LUISA_ERROR_WITH_LOCATION(
@@ -1286,6 +1355,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
 
         HIPCodegenLLVMConfig config{
             .source_file = option.name,
+            .entry_point = kernel_entry,
             .native_include = option.native_include,
             .bindings = kernel.bound_arguments(),
             .block_size = {
@@ -1323,11 +1393,17 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
             "codegen (expected={}, generated={}).",
             metadata.requires_global_rt_stack,
             codegen_result.requires_global_rt_stack);
+        metadata.uses_static_global_rt_stack =
+            codegen_result.uses_static_global_rt_stack;
+        LUISA_ASSERT(
+            !metadata.uses_static_global_rt_stack ||
+                metadata.requires_global_rt_stack,
+            "Static HIPRT stack assignment requires the RT-stack kernarg.");
         luisa::string packaged_code;
         if (uses_shader_cache) {
             auto code_object = with_device([&] {
                 return hip_link_llvm_bitcode(
-                    codegen_result.code, "kernel_main");
+                    codegen_result.code, kernel_entry.c_str());
             });
             packaged_code.assign(
                 reinterpret_cast<const char *>(
@@ -1399,7 +1475,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                         shader_package->code.size()};
                 return luisa::new_with_allocator<
                     HIPShaderNative>(
-                    this, code_object, "kernel_main",
+                    this, code_object, kernel_entry.c_str(),
                     shader_package->metadata, rt_context,
                     std::move(bound_arguments));
             });
@@ -1409,7 +1485,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                     HIPShaderNative>(
                     this,
                     std::move(shader_package->code),
-                    "kernel_main",
+                    kernel_entry.c_str(),
                     shader_package->metadata,
                     rt_context,
                     std::move(bound_arguments));
@@ -1426,7 +1502,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                         shader_package->code.size()};
                 return luisa::new_with_allocator<
                     HIPShaderNative>(
-                    this, code_object, "kernel_main",
+                    this, code_object, kernel_entry.c_str(),
                     shader_package->metadata,
                     std::move(bound_arguments));
             });
@@ -1436,7 +1512,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                     HIPShaderNative>(
                     this,
                     std::move(shader_package->code),
-                    "kernel_main",
+                    kernel_entry.c_str(),
                     shader_package->metadata,
                     std::move(bound_arguments));
             });
@@ -1450,18 +1526,6 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     return info;
 #else
     LUISA_ERROR_WITH_LOCATION("HIP backend requires LLVM to be enabled.");
-    return ShaderCreationInfo::make_invalid();
-#endif
-}
-
-ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-#ifdef LUISA_ENABLE_IR
-    Clock clk;
-    auto function = IR2AST::build(kernel);
-    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
-    return create_shader(option, function->function());
-#else
-    LUISA_ERROR_WITH_LOCATION("HIP backend was compiled without legacy IR support.");
     return ShaderCreationInfo::make_invalid();
 #endif
 }

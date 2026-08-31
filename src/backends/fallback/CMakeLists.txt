@@ -50,10 +50,155 @@ if (LLVM_FOUND AND embree_FOUND)
             fallback_buffer.cpp
             fallback_swapchain.cpp
             fallback_tex_compress.cpp
+            ../common/llvm_native_math.cpp
+            ../common/llvm_native_math_atan2.cpp
+            ../common/llvm_native_math_fast_exp_log.cpp
+            ../common/llvm_native_math_fast_inverse_trig.cpp
+            ../common/llvm_native_math_fast_trig.cpp
+            ../common/llvm_native_math_hyperbolic.cpp
+            ../common/llvm_native_math_pow.cpp
+            ../common/llvm_native_math_precise_exp_log.cpp
+            ../common/llvm_native_math_precise_inverse_trig.cpp
+            ../common/llvm_native_math_precise_trig.cpp
+            ../common/llvm_native_math_range_reduction.cpp
             ../common/default_binary_io.cpp
     )
 
     luisa_compute_add_backend(fallback SOURCES ${LUISA_FALLBACK_BACKEND_SOURCES})
+
+    # The fallback JIT consumes this module through LLVM's C++ API. LLVM
+    # bitcode is not stable across downstream distributions, even when their
+    # major versions match, so generate it with the clang/llvm-as pair from the
+    # exact LLVM package linked below instead of embedding a checked-in blob.
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    find_program(_luisa_fallback_clang
+            NAMES clang++
+            HINTS "${LLVM_TOOLS_BINARY_DIR}"
+            NO_DEFAULT_PATH REQUIRED NO_CACHE)
+    find_program(_luisa_fallback_llvm_as
+            NAMES llvm-as
+            HINTS "${LLVM_TOOLS_BINARY_DIR}"
+            NO_DEFAULT_PATH REQUIRED NO_CACHE)
+
+    if (CMAKE_CXX_COMPILER_TARGET)
+        set(_luisa_fallback_target_triple
+                "${CMAKE_CXX_COMPILER_TARGET}")
+    else ()
+        string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}"
+                _luisa_fallback_system_processor)
+        if (_luisa_fallback_system_processor MATCHES
+                "^(x86_64|amd64|x64)$")
+            set(_luisa_fallback_target_arch x86_64)
+        elseif (_luisa_fallback_system_processor MATCHES
+                "^(aarch64|arm64)$")
+            set(_luisa_fallback_target_arch aarch64)
+        else ()
+            message(FATAL_ERROR
+                    "Unsupported fallback target architecture: "
+                    "${CMAKE_SYSTEM_PROCESSOR}")
+        endif ()
+        if (WIN32)
+            set(_luisa_fallback_target_triple
+                    "${_luisa_fallback_target_arch}-pc-windows-msvc")
+        elseif (APPLE)
+            set(_luisa_fallback_target_triple
+                    "${_luisa_fallback_target_arch}-apple-darwin")
+        elseif (UNIX)
+            set(_luisa_fallback_target_triple
+                    "${_luisa_fallback_target_arch}-unknown-linux-gnu")
+        else ()
+            message(FATAL_ERROR
+                    "Unsupported fallback target system: "
+                    "${CMAKE_SYSTEM_NAME}")
+        endif ()
+    endif ()
+    if (APPLE)
+        # CMake's deployment target is part of the host ABI contract. Without
+        # it, clang chooses an implementation-defined minimum OS in the
+        # embedded module that can disagree with the enclosing binary.
+        if (CMAKE_OSX_DEPLOYMENT_TARGET)
+            set(_luisa_fallback_deployment_target
+                    "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        else ()
+            set(_luisa_fallback_deployment_target 11.0)
+        endif ()
+    else ()
+        set(_luisa_fallback_deployment_target "")
+    endif ()
+
+    set(_luisa_fallback_builtin_source
+            "${CMAKE_CURRENT_LIST_DIR}/fallback_builtin/fallback_device_api_wrappers.cpp")
+    set(_luisa_fallback_builtin_generator
+            "${CMAKE_CURRENT_LIST_DIR}/fallback_builtin/generate_and_embed_fallback_device_lib.py")
+    set(_luisa_fallback_builtin_dir
+            "${CMAKE_CURRENT_BINARY_DIR}/fallback_builtin")
+    set(_luisa_fallback_builtin_ll
+            "${_luisa_fallback_builtin_dir}/fallback_device_api_wrappers.ll")
+    set(_luisa_fallback_builtin_bc
+            "${_luisa_fallback_builtin_dir}/fallback_device_api_wrappers.bc")
+    set(_luisa_fallback_symbol_map
+            "${_luisa_fallback_builtin_dir}/fallback_device_api_map_symbols.generated.inl.h")
+    set(_luisa_fallback_builtin_embedded_cpp
+            "${_luisa_fallback_builtin_dir}/fallback_device_api_wrappers_embedded.cpp")
+    set(_luisa_fallback_builtin_embedded_h
+            "${_luisa_fallback_builtin_dir}/fallback_device_api_wrappers_embedded.h")
+
+    add_custom_command(
+            OUTPUT
+            "${_luisa_fallback_builtin_ll}"
+            "${_luisa_fallback_builtin_bc}"
+            "${_luisa_fallback_symbol_map}"
+            COMMAND "${Python3_EXECUTABLE}"
+            "${_luisa_fallback_builtin_generator}"
+            --clang "${_luisa_fallback_clang}"
+            --llvm-as "${_luisa_fallback_llvm_as}"
+            --source "${_luisa_fallback_builtin_source}"
+            --target "${_luisa_fallback_target_triple}"
+            --deployment-target "${_luisa_fallback_deployment_target}"
+            --output-ll "${_luisa_fallback_builtin_ll}"
+            --output-bc "${_luisa_fallback_builtin_bc}"
+            --output-symbol-map "${_luisa_fallback_symbol_map}"
+            DEPENDS
+            "${_luisa_fallback_builtin_generator}"
+            "${_luisa_fallback_builtin_source}"
+            "${CMAKE_CURRENT_LIST_DIR}/fallback_device_api.h"
+            COMMENT
+            "[Fallback] Compiling device API with ${_luisa_fallback_clang}"
+            VERBATIM)
+    add_custom_command(
+            OUTPUT
+            "${_luisa_fallback_builtin_embedded_cpp}"
+            "${_luisa_fallback_builtin_embedded_h}"
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib>
+            "${_luisa_fallback_builtin_bc}"
+            --unsigned --prefix luisa_compute_
+            -o "${_luisa_fallback_builtin_embedded_cpp}"
+            -h "${_luisa_fallback_builtin_embedded_h}"
+            DEPENDS
+            luisa_embed_device_lib
+            "${_luisa_fallback_builtin_bc}"
+            COMMENT "[Fallback] Embedding device API bitcode"
+            VERBATIM)
+    add_custom_target(luisa-compute-backend-fallback-embed-builtins
+            DEPENDS
+            "${_luisa_fallback_builtin_ll}"
+            "${_luisa_fallback_builtin_bc}"
+            "${_luisa_fallback_symbol_map}"
+            "${_luisa_fallback_builtin_embedded_cpp}"
+            "${_luisa_fallback_builtin_embedded_h}")
+    add_dependencies(luisa-compute-backend-fallback
+            luisa-compute-backend-fallback-embed-builtins)
+    set_source_files_properties(
+            "${_luisa_fallback_builtin_embedded_cpp}"
+            "${_luisa_fallback_builtin_embedded_h}"
+            "${_luisa_fallback_symbol_map}"
+            PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION TRUE)
+    target_sources(luisa-compute-backend-fallback PRIVATE
+            "${_luisa_fallback_builtin_embedded_cpp}"
+            "${_luisa_fallback_builtin_embedded_h}"
+            "${_luisa_fallback_symbol_map}")
+    target_include_directories(luisa-compute-backend-fallback BEFORE PRIVATE
+            "${_luisa_fallback_builtin_dir}")
 
     # exclude codegen from unity build since it's too big
     set_source_files_properties(fallback_codegen.cpp PROPERTIES UNITY_BUILD OFF)

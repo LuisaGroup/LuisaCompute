@@ -18,12 +18,12 @@ void Expression::mark(Usage usage) const noexcept {
 uint64_t Expression::hash() const noexcept {
     if (!_hash_computed) {
         using namespace std::string_view_literals;
-        static auto seed = hash_value("__hash_expression"sv);
+        static auto expression_seed = hash_value("__hash_expression"sv);
         _hash = hash_combine(
             {static_cast<uint64_t>(_tag),
              _compute_hash(),
              _type ? _type->hash() : 0ull},
-            seed);
+            expression_seed);
         _hash_computed = true;
     }
     return _hash;
@@ -100,6 +100,16 @@ void CallExpr::_mark() const noexcept {
             case CallOp::MBARRIER_TRY_WAIT_PARITY:
                 _arguments[0]->mark(Usage::READ_WRITE);
                 for (size_t i = 1; i < _arguments.size(); i++) {
+                    _arguments[i]->mark(Usage::READ);
+                }
+                break;
+            case CallOp::ASYNC_COPY:
+                // args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]
+                // The async copy writes the shared-memory destination and reads
+                // the global-memory source.
+                _arguments[0]->mark(Usage::READ);
+                _arguments[1]->mark(Usage::WRITE);
+                for (size_t i = 2; i < _arguments.size(); i++) {
                     _arguments[i]->mark(Usage::READ);
                 }
                 break;

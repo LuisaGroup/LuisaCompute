@@ -10,60 +10,184 @@
 #include <luisa/xir/instructions/continue.h>
 
 #include "helpers.h"
+#include "coro_semantic_cfg.h"
 
 namespace luisa::compute::xir {
 
 namespace detail {
 
-static void eliminate_dead_code_in_function(Function *function, DCEInfo &info) noexcept {
-    if (auto definition = function->definition()) {
-        luisa::unordered_set<Instruction *> dead;
-        auto all_users_dead = [&](Instruction *inst) noexcept {
-            for (auto &&use : inst->use_list()) {
-                auto user = use->user();
-                if (user != nullptr && user->isa<Instruction>() &&
-                    !dead.contains(static_cast<Instruction *>(user))) {
-                    return false;
-                }
-            }
-            return true;
-        };
-        auto collect_if_dead = [&](Instruction *inst) noexcept {
-            if (all_users_dead(inst)) {
-                dead.emplace(inst);
-            }
-        };
-        for (;;) {
-            auto prev_size = dead.size();
-            definition->traverse_instructions([&](Instruction *inst) noexcept {
-                if (!dead.contains(inst)) {
-                    auto mem = get_memory_info(inst);
-                    if (mem.is_removable_if_unused()) {
-                        collect_if_dead(inst);
-                    } else if (inst->derived_instruction_tag() == DerivedInstructionTag::AUTODIFF_INTRINSIC) {
-                        auto intrinsic = static_cast<AutodiffIntrinsicInst *>(inst);
-                        if (intrinsic->op() == AutodiffIntrinsicOp::AUTODIFF_GRADIENT) {
-                            collect_if_dead(inst);
-                        }
-                    }
-                }
-            });
-            if (dead.size() == prev_size) { break; }
-        }
-        // Keep every unlinked instruction alive until the whole dead
-        // subgraph is detached. The hash-set iteration order is arbitrary:
-        // destroying a definition before a still-linked dead user would
-        // leave that user's operand Use pointing into freed storage.
-        luisa::vector<ManagedPtr<Instruction>> removed;
-        removed.reserve(dead.size());
-        for (auto *inst : dead) {
-            removed.emplace_back(inst->remove_self());
-            info.removed_inst_count++;
-        }
+[[nodiscard]] static bool is_removable_dead_value_candidate(
+    Instruction *inst) noexcept {
+    if (get_memory_info(inst).is_removable_if_unused()) {
+        return true;
     }
+    if (inst->derived_instruction_tag() ==
+        DerivedInstructionTag::AUTODIFF_INTRINSIC) {
+        auto *intrinsic =
+            static_cast<AutodiffIntrinsicInst *>(inst);
+        return intrinsic->op() ==
+               AutodiffIntrinsicOp::AUTODIFF_GRADIENT;
+    }
+    return false;
 }
 
-[[nodiscard]] static bool is_pointer_write_only(luisa::unordered_set<Instruction *> &known, Instruction *inst) noexcept {
+[[nodiscard]] static bool is_pointer_write_only(
+    luisa::unordered_set<Instruction *> &known,
+    Instruction *inst) noexcept;
+static void collect_inst_and_users_recursive(
+    Instruction *inst,
+    luisa::unordered_set<Instruction *> &collected) noexcept;
+
+class DeadCodeWorklists {
+
+private:
+    DCEInfo &_info;
+    luisa::vector<ManagedPtr<Instruction>> _removed;
+    luisa::vector<Instruction *> _dead_value_work;
+    luisa::vector<AllocaInst *> _alloca_work;
+    luisa::unordered_set<AllocaInst *> _queued_allocas;
+    luisa::unordered_set<Instruction *> _known_write_only;
+    luisa::unordered_set<Instruction *> _write_only_graph;
+    luisa::vector<Instruction *> _operand_definitions;
+
+private:
+    void _schedule_alloca(AllocaInst *alloca) noexcept {
+        if (alloca->is_linked() &&
+            _queued_allocas.emplace(alloca).second) {
+            _alloca_work.emplace_back(alloca);
+        }
+    }
+
+    void _schedule_affected_alloca(Instruction *pointer) noexcept {
+        // The write-only rule admits only Alloca -> GEP* pointer chains.
+        // Walk that exact grammar back to its root. A removed disallowed user
+        // is the only event that can make a previously rejected root eligible.
+        while (pointer->isa<GEPInst>()) {
+            auto *base =
+                static_cast<GEPInst *>(pointer)->base();
+            if (base == nullptr ||
+                !base->isa<Instruction>()) {
+                return;
+            }
+            pointer = static_cast<Instruction *>(base);
+        }
+        if (pointer->isa<AllocaInst>()) {
+            _schedule_alloca(
+                static_cast<AllocaInst *>(pointer));
+        }
+    }
+
+    void _schedule_if_newly_unused(Instruction *inst) noexcept {
+        // Instruction is the only XIR subclass of User, so an empty use-list
+        // is exactly the zero-live-user predicate. A linked instruction can
+        // make an operand transition to zero users only once.
+        if (inst->is_linked() && inst->use_list().empty() &&
+            is_removable_dead_value_candidate(inst)) {
+            _dead_value_work.emplace_back(inst);
+        }
+    }
+
+    void _detach(Instruction *inst) noexcept {
+        _operand_definitions.clear();
+        for (auto *operand_use : inst->operand_uses()) {
+            auto *operand = operand_use->value();
+            if (operand == nullptr ||
+                !operand->isa<Instruction>()) {
+                continue;
+            }
+            auto *operand_inst =
+                static_cast<Instruction *>(operand);
+            // A single instruction may use the same definition more than
+            // once. Test the zero-user transition once after all of those
+            // Uses have been detached.
+            if (std::find(_operand_definitions.begin(),
+                          _operand_definitions.end(),
+                          operand_inst) ==
+                _operand_definitions.end()) {
+                _operand_definitions.emplace_back(operand_inst);
+            }
+        }
+        auto removed = inst->remove_self();
+        LUISA_DEBUG_ASSERT(
+            removed != nullptr,
+            "DCE attempted to detach an unlinked instruction.");
+        _removed.emplace_back(std::move(removed));
+        ++_info.removed_inst_count;
+        for (auto *operand : _operand_definitions) {
+            _schedule_if_newly_unused(operand);
+            _schedule_affected_alloca(operand);
+        }
+    }
+
+    void _try_remove_write_only_graph(
+        AllocaInst *alloca) noexcept {
+        _known_write_only.clear();
+        if (!is_pointer_write_only(
+                _known_write_only, alloca)) {
+            return;
+        }
+        _write_only_graph.clear();
+        collect_inst_and_users_recursive(
+            alloca, _write_only_graph);
+        for (auto *inst : _write_only_graph) {
+            if (inst->is_linked()) { _detach(inst); }
+        }
+    }
+
+public:
+    explicit DeadCodeWorklists(DCEInfo &info) noexcept
+        : _info{info} {}
+
+    void seed(FunctionDefinition *definition) noexcept {
+        // Let R be the removable instructions and U(i) the linked users of i.
+        // Starting from the unused members of R, detaching a proven-dead user
+        // exposes precisely the next zero-user definitions. This computes the
+        // least fixed point D = {i in R | U(i) is a subset of D} without a
+        // candidate hash table or pre-counting every Use.
+        definition->traverse_instructions(
+            [&](Instruction *inst) noexcept {
+                ++_info.dead_code_instruction_scan_count;
+                _schedule_if_newly_unused(inst);
+                if (inst->isa<AllocaInst>()) {
+                    _schedule_alloca(
+                        static_cast<AllocaInst *>(inst));
+                }
+            });
+    }
+
+    void drain() noexcept {
+        // Ordinary dead values and write-only pointer graphs define one
+        // monotone product fixed point. Always exhaust newly unused values
+        // first; a failed alloca is reconsidered only when detaching one of
+        // its disallowed users schedules its root again.
+        while (!_dead_value_work.empty() ||
+               !_alloca_work.empty()) {
+            if (!_dead_value_work.empty()) {
+                auto *inst = _dead_value_work.back();
+                _dead_value_work.pop_back();
+                // Removing a write-only graph may already have detached an
+                // internal node exposed earlier in the same batch.
+                if (!inst->is_linked()) { continue; }
+                LUISA_DEBUG_ASSERT(
+                    inst->use_list().empty(),
+                    "DCE worklist candidate acquired a live user.");
+                ++_info.dead_code_worklist_pop_count;
+                _detach(inst);
+                continue;
+            }
+            auto *alloca = _alloca_work.back();
+            _alloca_work.pop_back();
+            _queued_allocas.erase(alloca);
+            if (alloca->is_linked()) {
+                _try_remove_write_only_graph(alloca);
+            }
+        }
+    }
+};
+
+[[nodiscard]] static bool is_pointer_write_only(
+    luisa::unordered_set<Instruction *> &known,
+    Instruction *inst) noexcept {
     if (known.contains(inst)) { return true; }
     for (auto &&use : inst->use_list()) {
         if (auto user = use->user()) {
@@ -87,33 +211,15 @@ static void eliminate_dead_code_in_function(Function *function, DCEInfo &info) n
     return true;
 }
 
-static void collect_inst_and_users_recursive(Instruction *inst, luisa::unordered_set<Instruction *> &collected) noexcept {
+static void collect_inst_and_users_recursive(
+    Instruction *inst,
+    luisa::unordered_set<Instruction *> &collected) noexcept {
     if (collected.emplace(inst).second) {
         for (auto &&use : inst->use_list()) {
             if (auto user = use->user()) {
                 LUISA_ASSERT(user->isa<Instruction>(), "Only instruction can be user.");
                 collect_inst_and_users_recursive(static_cast<Instruction *>(user), collected);
             }
-        }
-    }
-}
-
-static void eliminate_dead_alloca_in_function(Function *function, DCEInfo &info) noexcept {
-    if (auto definition = function->definition()) {
-        luisa::unordered_set<Instruction *> dead;
-        luisa::unordered_set<Instruction *> known_write_only;
-        definition->traverse_instructions([&](Instruction *inst) noexcept {
-            if (inst->isa<AllocaInst>() && !dead.contains(inst) && is_pointer_write_only(known_write_only, inst)) {
-                collect_inst_and_users_recursive(inst, dead);
-            }
-        });
-        // See eliminate_dead_code_in_function: write-only pointer subgraphs
-        // have the same user-before-definition lifetime requirement.
-        luisa::vector<ManagedPtr<Instruction>> removed;
-        removed.reserve(dead.size());
-        for (auto *inst : dead) {
-            removed.emplace_back(inst->remove_self());
-            info.removed_inst_count++;
         }
     }
 }
@@ -287,6 +393,7 @@ void traverse_executable_successors(BasicBlock *block, Visit &&visit) noexcept {
 
 [[nodiscard]] luisa::unordered_set<BasicBlock *> collect_exec_reachable_blocks(
     FunctionDefinition *definition) noexcept {
+    CoroTransferGraph coro_transfers{definition};
     luisa::unordered_set<BasicBlock *> reachable;
     luisa::unordered_set<BasicBlock *> owned;
     for (auto block : definition->basic_blocks()) { owned.emplace(block); }
@@ -304,6 +411,8 @@ void traverse_executable_successors(BasicBlock *block, Visit &&visit) noexcept {
             traverse_executable_successors(block, [&](BasicBlock *successor) noexcept {
                 add_to_work_list(successor);
             });
+            coro_transfers.traverse_successors(
+                block, add_to_work_list);
         }
     }
     return reachable;
@@ -407,6 +516,10 @@ void run_dce_pass_on_function(Function *function, DCEInfo &info) noexcept {
         }
     }
     luisa::vector<ManagedPtr<BasicBlock>> removed_blocks;
+    // CFG cleanup can expose another static branch through Phi replacement,
+    // so solve that structural fixed point first. Removing an unused value or
+    // a write-only alloca graph cannot change a terminator, a CFG edge, or a
+    // live Phi; therefore value DCE does not need to restart the CFG loop.
     for (;;) {
         auto prev_count = info.removed_inst_count + info.removed_block_count;
         if (auto definition = function->definition()) {
@@ -419,9 +532,14 @@ void run_dce_pass_on_function(Function *function, DCEInfo &info) noexcept {
                 eliminate_redundant_phi_nodes(phi_nodes, info);
             }
         }
-        eliminate_dead_code_in_function(function, info);
-        eliminate_dead_alloca_in_function(function, info);
-        if (info.removed_inst_count + info.removed_block_count == prev_count) { return; }
+        if (info.removed_inst_count + info.removed_block_count == prev_count) {
+            break;
+        }
+    }
+    if (auto *definition = function->definition()) {
+        DeadCodeWorklists worklists{info};
+        worklists.seed(definition);
+        worklists.drain();
     }
 }
 
@@ -440,6 +558,8 @@ DCEInfo dce_pass_run_on_module(Module *module, PassReport *report) noexcept {
             report->set("removed_inst", 0u);
             report->set("removed_block", 0u);
             report->set("inserted_terminator", 0u);
+            report->set("dead_code_instruction_scan", 0u);
+            report->set("dead_code_worklist_pop", 0u);
         }
         return info;
     }
@@ -452,6 +572,12 @@ DCEInfo dce_pass_run_on_module(Module *module, PassReport *report) noexcept {
         report->set(
             "inserted_terminator",
             info.inserted_terminator_count);
+        report->set(
+            "dead_code_instruction_scan",
+            info.dead_code_instruction_scan_count);
+        report->set(
+            "dead_code_worklist_pop",
+            info.dead_code_worklist_pop_count);
     }
     return info;
 }

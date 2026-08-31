@@ -13,6 +13,8 @@
 #include "sparse_binding_plan.h"
 #include "sparse_heap.h"
 #include "timeline_semaphore_plan.h"
+#include "device_feature_plan.h"
+#include "command_buffer_sync.h"
 #include "indirect_buffer.h"
 #include "descriptor_interface_plan.h"
 #include "queue_family_contract.h"
@@ -1299,20 +1301,38 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
     upload_alloc.visitor.device = &device;
     readback_alloc.visitor.device = &device;
     {
+        // Size the per-stream descriptor pool from the physical-device limits.
+        // Desktop defaults (maxSets=262144, 65536 per type) are preserved when
+        // the device allows them; mobile/low-end devices get clamped pools to
+        // avoid large host-side reservations.
+        auto const &limits = device.properties().limits;
+        auto pool_plan = detail::plan_descriptor_pool_sizes(
+            limits.maxPerStageDescriptorStorageBuffers,
+            limits.maxPerStageDescriptorStorageImages,
+            limits.maxPerStageDescriptorSampledImages,
+            limits.maxPerStageDescriptorSamplers,
+            limits.maxPerStageDescriptorUniformBuffers,
+            limits.maxDescriptorSetStorageBuffers,
+            limits.maxDescriptorSetStorageImages,
+            limits.maxDescriptorSetSampledImages,
+            limits.maxDescriptorSetSamplers,
+            limits.maxDescriptorSetUniformBuffers,
+                          device.enable_raytracing());
         VkDescriptorPoolSize pool_sizes[6];
-        pool_sizes[0].descriptorCount = 65536;
+        pool_sizes[0].descriptorCount = pool_plan.storage_buffers;
         pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        pool_sizes[1].descriptorCount = 65536;
+        pool_sizes[1].descriptorCount = pool_plan.storage_images;
         pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        pool_sizes[2].descriptorCount = 65536;
+        pool_sizes[2].descriptorCount = pool_plan.sampled_images;
         pool_sizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        pool_sizes[3].descriptorCount = 65536;
+        pool_sizes[3].descriptorCount = pool_plan.samplers;
         pool_sizes[3].type = VK_DESCRIPTOR_TYPE_SAMPLER;
-        pool_sizes[4].descriptorCount = 65536;
+        pool_sizes[4].descriptorCount = pool_plan.uniform_buffers;
         pool_sizes[4].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         auto pool_size_count = 5u;
         if (device.enable_raytracing()) {
-            pool_sizes[pool_size_count].descriptorCount = 65536;
+            pool_sizes[pool_size_count].descriptorCount =
+                pool_plan.acceleration_structures;
             pool_sizes[pool_size_count].type =
                 VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
             ++pool_size_count;
@@ -1320,11 +1340,11 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
         VkDescriptorPoolCreateInfo createInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
             .flags = 0,
-            .maxSets = 262144,
+            .maxSets = pool_plan.max_sets,
             .poolSizeCount = pool_size_count,
             .pPoolSizes = pool_sizes};
-        VK_CHECK_RESULT(vkCreateDescriptorPool(device.logic_device(), &createInfo, Device::alloc_callbacks(), &desc_pool));
-    }
+          VK_CHECK_RESULT(vkCreateDescriptorPool(device.logic_device(), &createInfo, Device::alloc_callbacks(), &desc_pool));
+      }
     if (!pool) {
         VkCommandPoolCreateInfo pool_ci{
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -1342,9 +1362,9 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
             default:
                 LUISA_ERROR("Illegal stream tag.");
         }
-        VK_CHECK_RESULT(vkCreateCommandPool(device.logic_device(), &pool_ci, Device::alloc_callbacks(), &pool));
-    }
-}
+          VK_CHECK_RESULT(vkCreateCommandPool(device.logic_device(), &pool_ci, Device::alloc_callbacks(), &pool));
+      }
+  }
 CommandBufferState::~CommandBufferState() {
     vkDestroyCommandPool(device->logic_device(), pool, Device::alloc_callbacks());
     vkDestroyDescriptorPool(device->logic_device(), desc_pool, Device::alloc_callbacks());
@@ -1424,15 +1444,18 @@ Stream::Stream(Device *device, StreamTag tag)
         case StreamTag::GRAPHICS:
             _queue = device->graphics_queue();
             _resource_barrier.queue_type = ResourceBarrier::QueueType::GRAPHICS;
+            _resource_barrier.device = device;
             _queue_mtx = &device->graphics_queue_mtx();
             break;
         case StreamTag::COPY:
             _resource_barrier.queue_type = ResourceBarrier::QueueType::COPY;
+            _resource_barrier.device = device;
             _queue = device->copy_queue();
             _queue_mtx = &device->copy_queue_mtx();
             break;
         case StreamTag::COMPUTE:
             _resource_barrier.queue_type = ResourceBarrier::QueueType::COMPUTE;
+            _resource_barrier.device = device;
             _queue = device->compute_queue();
             _queue_mtx = &device->compute_queue_mtx();
             break;
@@ -2593,15 +2616,15 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         dispatch_offsets->emplace_back(
             block_offset, emitted_layout.size());
     };
-    for (auto &&lst : cmd_lists) {
-        dispatch_offsets->clear();
+  for (auto &&lst : cmd_lists) {
+      dispatch_offsets->clear();
         auto delay_clear = vstd::scope_exit([&]() {
             scratch_buffer_alloc->clear();
         });
-        // Preprocess: record resources' states
-        for (auto i = lst; i != nullptr; i = i->p_next) {
-            auto cmd = i->cmd;
-            switch (cmd->tag()) {
+  // Preprocess: record resources' states
+  for (auto i = lst; i != nullptr; i = i->p_next) {
+      auto cmd = i->cmd;
+      switch (cmd->tag()) {
                 case Command::Tag::EBufferUploadCommand: {
                     auto c = static_cast<BufferUploadCommand const *>(cmd);
                     resource_barrier->record(
@@ -3174,45 +3197,45 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         PendingCopy pending_upload;
         PendingCopy pending_download;
         auto flush_pending_upload = [&]() {
-            for (auto &[buffer_pair, regions] : pending_upload.copies) {
-                if (regions.empty()) continue;
-                VkCopyBufferInfo2 copy_info2{
-                    VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
-                    nullptr,
-                    buffer_pair.src,
-                    buffer_pair.dst,
-                    static_cast<uint32_t>(regions.size()),
-                    regions.data()};
-                vkCmdCopyBuffer2(_cmdbuffer, &copy_info2);
-            }
-            pending_upload.copies.clear();
-        };
-        auto flush_pending_download = [&]() {
-            for (auto &[buffer_pair, regions] : pending_download.copies) {
-                if (regions.empty()) continue;
-                VkCopyBufferInfo2 copy_info2{
-                    VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
-                    nullptr,
-                    buffer_pair.src,
-                    buffer_pair.dst,
-                    static_cast<uint32_t>(regions.size()),
-                    regions.data()};
-                vkCmdCopyBuffer2(_cmdbuffer, &copy_info2);
-            }
-            pending_download.copies.clear();
-        };
+              for (auto &[buffer_pair, regions] : pending_upload.copies) {
+                  if (regions.empty()) continue;
+                  VkCopyBufferInfo2 copy_info2{
+                      VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+                      nullptr,
+                      buffer_pair.src,
+                      buffer_pair.dst,
+                      static_cast<uint32_t>(regions.size()),
+                      regions.data()};
+                  detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
+              }
+              pending_upload.copies.clear();
+          };
+          auto flush_pending_download = [&]() {
+              for (auto &[buffer_pair, regions] : pending_download.copies) {
+                  if (regions.empty()) continue;
+                  VkCopyBufferInfo2 copy_info2{
+                      VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+                      nullptr,
+                      buffer_pair.src,
+                      buffer_pair.dst,
+                      static_cast<uint32_t>(regions.size()),
+                      regions.data()};
+                  detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
+              }
+              pending_download.copies.clear();
+          };
         auto flush_all_pending = [&]() {
             flush_pending_upload();
             flush_pending_download();
         };
 
         // Post process: actual start record command to commandbuffer
-        for (auto i = lst; i != nullptr; i = i->p_next) {
-            auto cmd = i->cmd;
-            switch (cmd->tag()) {
-                case Command::Tag::EBufferUploadCommand: {
-                    auto c = static_cast<BufferUploadCommand const *>(cmd);
-                    auto chunk = _state->upload_alloc.allocate(c->size(), 16);
+  for (auto i = lst; i != nullptr; i = i->p_next) {
+      auto cmd = i->cmd;
+      switch (cmd->tag()) {
+          case Command::Tag::EBufferUploadCommand: {
+              auto c = static_cast<BufferUploadCommand const *>(cmd);
+              auto chunk = _state->upload_alloc.allocate(c->size(), 16);
                     static_cast<UploadBuffer const *>(chunk.buffer)->copy_from(c->data(), chunk.offset, c->size());
                     VkBuffer src = chunk.buffer->vk_buffer();
                     VkBuffer dst = reinterpret_cast<Buffer const *>(c->handle())->vk_buffer();
@@ -3254,9 +3277,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         reinterpret_cast<Buffer const *>(c->dst_handle())->vk_buffer(),
                         1,
                         &buffer_copy};
-                    vkCmdCopyBuffer2(
-                        _cmdbuffer,
-                        &copy_info2);
+                    detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
                 } break;
                 case Command::Tag::EBufferToTextureCopyCommand: {
                     flush_all_pending();
@@ -3282,7 +3303,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         resource_barrier->get_layout(tex, c->level()),
                         1,
                         &region};
-                    vkCmdCopyBufferToImage2(_cmdbuffer, &copy_info);
+                    detail::cmd_copy_buffer_to_image(_cmdbuffer, device(), &copy_info);
                 } break;
                 case Command::Tag::EShaderDispatchCommand: {
                     flush_all_pending();
@@ -3345,9 +3366,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             count_buffer.buffer->vk_buffer(),
                             1,
                             &buffer_copy};
-                        vkCmdCopyBuffer2(
-                            _cmdbuffer,
-                            &copy_info2);
+                        detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
 
                         data_buffer = BufferView{
                             reinterpret_cast<Buffer const *>(data_chunk.handle),
@@ -3576,9 +3595,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 1,
                                 &buffer_copy};
 
-                            vkCmdCopyBuffer2(
-                                _cmdbuffer,
-                                &copy_info2);
+                            detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
                         }
                         // Copy data
                         {
@@ -3595,9 +3612,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 reinterpret_cast<Buffer const *>(data_readback.buffer)->vk_buffer(),
                                 1,
                                 &buffer_copy};
-                            vkCmdCopyBuffer2(
-                                _cmdbuffer,
-                                &copy_info2);
+                            detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
                         }
                         states()->callbacks.emplace_back(
                             [printers = shader->printers(),
@@ -3654,7 +3669,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         resource_barrier->get_layout(tex, c->level()),
                         1,
                         &region};
-                    vkCmdCopyBufferToImage2(_cmdbuffer, &copy_info);
+                    detail::cmd_copy_buffer_to_image(_cmdbuffer, device(), &copy_info);
                 } break;
                 case Command::Tag::ETextureDownloadCommand: {
                     flush_all_pending();
@@ -3687,9 +3702,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         buffer.buffer->vk_buffer(),
                         1,
                         &region};
-                    vkCmdCopyImageToBuffer2(
-                        _cmdbuffer,
-                        &info);
+                    detail::cmd_copy_image_to_buffer(_cmdbuffer, device(), &info);
                 } break;
                 case Command::Tag::ETextureCopyCommand: {
                     flush_all_pending();
@@ -3716,9 +3729,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         resource_barrier->get_layout(dst_tex, c->dst_level()),
                         1,
                         &copy};
-                    vkCmdCopyImage2(
-                        _cmdbuffer,
-                        &info);
+                    detail::cmd_copy_image(_cmdbuffer, device(), &info);
                 } break;
                 case Command::Tag::ETextureToBufferCopyCommand: {
                     flush_all_pending();
@@ -3743,9 +3754,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         reinterpret_cast<Buffer const *>(c->buffer())->vk_buffer(),
                         1,
                         &region};
-                    vkCmdCopyImageToBuffer2(
-                        _cmdbuffer,
-                        &info);
+                    detail::cmd_copy_image_to_buffer(_cmdbuffer, device(), &info);
                 } break;
                 case Command::Tag::EAccelBuildCommand: {
                     flush_all_pending();

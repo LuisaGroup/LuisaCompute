@@ -120,6 +120,20 @@ size_t MetalCodegenAST::type_size_bytes(const Type *type) noexcept {
     LUISA_ERROR_WITH_LOCATION("Cannot get size of custom type.");
 }
 
+[[nodiscard]] static auto sorted_custom_callables(Function function) noexcept {
+    luisa::vector<Function> callables;
+    callables.reserve(function.custom_callables().size());
+    for (auto &&callable : function.custom_callables()) {
+        callables.emplace_back(callable->function());
+    }
+    std::sort(
+        callables.begin(), callables.end(),
+        [](Function lhs, Function rhs) noexcept {
+            return lhs.hash() < rhs.hash();
+        });
+    return callables;
+}
+
 static void collect_types_in_function(Function f,
                                       luisa::unordered_set<const Type *> &types,
                                       luisa::unordered_set<Function> &visited) noexcept {
@@ -153,9 +167,8 @@ static void collect_types_in_function(Function f,
     add(add, f.return_type());
 
     // types from called callables
-    for (auto &&c : f.custom_callables()) {
-        collect_types_in_function(
-            Function{c.get()}, types, visited);
+    for (auto callable : sorted_custom_callables(f)) {
+        collect_types_in_function(callable, types, visited);
     }
 }
 
@@ -247,7 +260,7 @@ void MetalCodegenAST::_emit_type_decls(Function kernel) noexcept {
     _scratch << "/* user-defined structures end */\n\n";
 }
 
-void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
+void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage, bool sampled) noexcept {
 
     if (type == nullptr) {
         _scratch << "void";
@@ -259,8 +272,17 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
         case Type::Tag::FLOAT16: _scratch << "half"; break;
         case Type::Tag::FLOAT32: _scratch << "float"; break;
         case Type::Tag::FLOAT64: _scratch << "double"; break;
-        case Type::Tag::INT8: _scratch << "char"; break;
-        case Type::Tag::UINT8: _scratch << "uchar"; break;
+case Type::Tag::INT8: _scratch << "char"; break;
+case Type::Tag::UINT8: _scratch << "uchar"; break;
+// FP8 / I4 / FP4 have no Metal scalar type.  They are represented as
+// byte storage (char / uchar) on the host-device boundary; the tile
+// lowering handles pack/unpack.  These placeholders keep the type
+// switch exhaustive so the Metal backend compiles cleanly even though
+// standalone sub-byte typed buffers are not yet exercised on Metal.
+case Type::Tag::FLOAT8_E4M3:
+case Type::Tag::FLOAT8_E5M2:
+case Type::Tag::FP4_E2M1: _scratch << "uchar"; break;
+case Type::Tag::INT4: _scratch << "char"; break;
         case Type::Tag::INT16: _scratch << "short"; break;
         case Type::Tag::UINT16: _scratch << "ushort"; break;
         case Type::Tag::INT32: _scratch << "int"; break;
@@ -315,9 +337,12 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
                          "Invalid texture element: {}.", elem->description());
             _emit_type_name(elem);
             _scratch << ", access::";
-            if (usage == Usage::READ_WRITE) {
+            if (sampled) {
+                _scratch << "sample>";
+            } else if ((to_underlying(usage) & to_underlying(Usage::READ_WRITE)) ==
+                       to_underlying(Usage::READ_WRITE)) {
                 _scratch << "read_write>";
-            } else if (usage == Usage::WRITE) {
+            } else if ((to_underlying(usage) & to_underlying(Usage::WRITE)) != 0u) {
                 _scratch << "write>";
             } else {
                 _scratch << "read>";
@@ -351,13 +376,16 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage) noexcept {
     }
 }
 
-void MetalCodegenAST::_emit_variable_name(Variable v) noexcept {
+void MetalCodegenAST::_emit_variable_name(Variable v, bool sampled) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
         case Variable::Tag::REFERENCE: _scratch << "r" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
-        case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
+        case Variable::Tag::TEXTURE:
+            _scratch << "i" << v.uid();
+            if (sampled) { _scratch << "_sampled"; }
+            break;
         case Variable::Tag::BINDLESS_ARRAY: _scratch << "h" << v.uid(); break;
         case Variable::Tag::ACCEL: _scratch << "a" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
@@ -376,6 +404,338 @@ void MetalCodegenAST::_emit_indention() noexcept {
     for (auto i = 0u; i < _indention; i++) { _scratch << "  "; }
 }
 
+bool MetalCodegenAST::_is_texture_sampled(Function function, Variable variable) const noexcept {
+    if (auto iter = _sampled_texture_variables.find(function.hash());
+        iter != _sampled_texture_variables.end()) {
+        return iter->second.contains(variable.uid());
+    }
+    return false;
+}
+
+bool MetalCodegenAST::_is_texture_sampled(Variable variable) const noexcept {
+    return _is_texture_sampled(_function, variable);
+}
+
+bool MetalCodegenAST::_is_texture_written(Function function, Variable variable) const noexcept {
+    return (to_underlying(function.variable_usage(variable.uid())) &
+            to_underlying(Usage::WRITE)) != 0u;
+}
+
+void MetalCodegenAST::_analyze_sampled_textures(Function function) noexcept {
+    auto [iter, inserted] = _sampled_texture_variables.try_emplace(function.hash());
+    if (!inserted) { return; }
+    for (auto callable : sorted_custom_callables(function)) {
+        _analyze_sampled_textures(callable);
+    }
+    auto &&sampled = iter->second;
+    auto mark_argument = [&sampled](const Expression *expression) noexcept {
+        if (expression->tag() == Expression::Tag::REF) {
+            auto variable = static_cast<const RefExpr *>(expression)->variable();
+            if (variable.type()->is_texture()) { sampled.emplace(variable.uid()); }
+        }
+    };
+    traverse_expressions<true>(
+        function.body(),
+        [&](const Expression *expression) noexcept {
+            if (expression->tag() != Expression::Tag::CALL) { return; }
+            auto call = static_cast<const CallExpr *>(expression);
+            switch (call->op()) {
+                case CallOp::TEXTURE2D_SAMPLE:
+                case CallOp::TEXTURE2D_SAMPLE_LEVEL:
+                case CallOp::TEXTURE2D_SAMPLE_GRAD:
+                case CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL:
+                case CallOp::TEXTURE3D_SAMPLE:
+                case CallOp::TEXTURE3D_SAMPLE_LEVEL:
+                case CallOp::TEXTURE3D_SAMPLE_GRAD:
+                case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL:
+                    mark_argument(call->arguments().front());
+                    break;
+                case CallOp::CUSTOM: {
+                    auto callable = call->custom();
+                    for (auto i = 0u; i < callable.arguments().size(); i++) {
+                        if (_is_texture_sampled(callable, callable.arguments()[i])) {
+                            mark_argument(call->arguments()[i]);
+                        }
+                    }
+                    break;
+                }
+                default: break;
+            }
+        },
+        [](auto) noexcept {},
+        [](auto) noexcept {});
+}
+
+void MetalCodegenAST::_emit_call_argument(const Expression *argument, bool sampled) noexcept {
+    if (sampled && argument->tag() == Expression::Tag::REF) {
+        auto variable = static_cast<const RefExpr *>(argument)->variable();
+        if (variable.type()->is_texture() &&
+            _is_texture_sampled(variable) &&
+            _is_texture_written(_function, variable)) {
+            _emit_variable_name(variable, true);
+            return;
+        }
+    }
+    argument->accept(*this);
+}
+
+void MetalCodegenAST::_analyze_local_variables() noexcept {
+    _local_variable_emissions.clear();
+    _scope_local_variables.clear();
+    _local_variable_initializers.clear();
+    _gradient_variables.clear();
+
+    auto root = _function.body();
+    struct ScopeInfo {
+        const ScopeStmt *parent{nullptr};
+        uint depth{0u};
+    };
+    luisa::unordered_map<const ScopeStmt *, ScopeInfo> scope_info;
+    luisa::unordered_set<const ScopeStmt *> switch_bodies;
+    luisa::vector<const ScopeStmt *> scope_stack;
+
+    const auto common_scope = [&scope_info](const ScopeStmt *lhs,
+                                           const ScopeStmt *rhs) noexcept {
+        auto lhs_depth = scope_info.at(lhs).depth;
+        auto rhs_depth = scope_info.at(rhs).depth;
+        while (lhs_depth > rhs_depth) {
+            lhs = scope_info.at(lhs).parent;
+            lhs_depth--;
+        }
+        while (rhs_depth > lhs_depth) {
+            rhs = scope_info.at(rhs).parent;
+            rhs_depth--;
+        }
+        while (lhs != rhs) {
+            lhs = scope_info.at(lhs).parent;
+            rhs = scope_info.at(rhs).parent;
+        }
+        return lhs;
+    };
+
+    traverse_expressions<true>(
+        root,
+        [&](const Expression *expression) noexcept {
+            if (expression->tag() == Expression::Tag::REF) {
+                auto variable = static_cast<const RefExpr *>(expression)->variable();
+                if (variable.tag() == Variable::Tag::LOCAL) {
+                    LUISA_ASSERT(!scope_stack.empty(),
+                                 "A Metal local variable reference has no lexical scope.");
+                    auto &&emission = _local_variable_emissions[variable.uid()];
+                    emission.scope = emission.scope == nullptr ?
+                                         scope_stack.back() :
+                                         common_scope(emission.scope, scope_stack.back());
+                }
+            } else if (expression->tag() == Expression::Tag::CALL) {
+                auto call = static_cast<const CallExpr *>(expression);
+                if (call->op() == CallOp::GRADIENT ||
+                    call->op() == CallOp::GRADIENT_MARKER ||
+                    call->op() == CallOp::REQUIRES_GRADIENT) {
+                    LUISA_ASSERT(!call->arguments().empty() &&
+                                     call->arguments().front()->tag() == Expression::Tag::REF,
+                                 "Invalid gradient function call.");
+                    _gradient_variables.emplace(
+                        static_cast<const RefExpr *>(
+                            call->arguments().front())->variable());
+                }
+            }
+        },
+        [&](const Statement *statement) noexcept {
+            if (statement->tag() == Statement::Tag::SWITCH) {
+                switch_bodies.emplace(
+                    static_cast<const SwitchStmt *>(statement)->body());
+            }
+            if (statement->tag() == Statement::Tag::SCOPE) {
+                auto scope = static_cast<const ScopeStmt *>(statement);
+                auto parent = scope_stack.empty() ? nullptr : scope_stack.back();
+                scope_info.try_emplace(
+                    scope, ScopeInfo{.parent = parent,
+                                     .depth = parent == nullptr ?
+                                                  0u :
+                                                  scope_info.at(parent).depth + 1u});
+                scope_stack.emplace_back(scope);
+            }
+        },
+        [&](const Statement *statement) noexcept {
+            if (statement->tag() == Statement::Tag::SCOPE) {
+                LUISA_ASSERT(!scope_stack.empty() &&
+                                 scope_stack.back() == statement,
+                             "Metal local-scope traversal is unbalanced.");
+                scope_stack.pop_back();
+            }
+        });
+
+    for (auto variable : _gradient_variables) {
+        if (auto iter = _local_variable_emissions.find(variable.uid());
+            iter != _local_variable_emissions.end()) {
+            iter->second.scope = root;
+        }
+    }
+
+    for (auto local : _function.local_variables()) {
+        auto iter = _local_variable_emissions.find(local.uid());
+        if (iter == _local_variable_emissions.end()) {
+            // FunctionBuilder may retain an unused local after an earlier
+            // optimization. No emitted expression can name it, so Metal does
+            // not need a declaration either.
+            continue;
+        }
+        auto scope = iter->second.scope;
+        // A declaration directly inside a switch body can be bypassed by a
+        // case label. Lift it until ordinary structured scope rules apply.
+        while (switch_bodies.contains(scope)) {
+            scope = scope_info.at(scope).parent;
+            LUISA_ASSERT(scope != nullptr,
+                         "A Metal switch body has no enclosing declaration scope.");
+        }
+        iter->second.scope = scope;
+    }
+
+    struct ScopeTraversal {
+        const ScopeStmt *scope;
+        const Statement *direct_child{nullptr};
+    };
+    luisa::vector<ScopeTraversal> traversal_scopes;
+    luisa::vector<const Statement *> statement_stack;
+    luisa::unordered_map<uint, const Statement *> first_direct_statement;
+    traverse_expressions<true>(
+        root,
+        [&](const Expression *expression) noexcept {
+            if (expression->tag() != Expression::Tag::REF) { return; }
+            auto variable = static_cast<const RefExpr *>(expression)->variable();
+            if (variable.tag() != Variable::Tag::LOCAL ||
+                first_direct_statement.contains(variable.uid())) {
+                return;
+            }
+            auto emission = _local_variable_emissions.find(variable.uid());
+            if (emission == _local_variable_emissions.end()) { return; }
+            for (auto iter = traversal_scopes.rbegin();
+                 iter != traversal_scopes.rend(); ++iter) {
+                if (iter->scope == emission->second.scope) {
+                    first_direct_statement.try_emplace(
+                        variable.uid(), iter->direct_child);
+                    return;
+                }
+            }
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to locate a Metal local variable declaration scope.");
+        },
+        [&](const Statement *statement) noexcept {
+            if (!statement_stack.empty() &&
+                statement_stack.back()->tag() == Statement::Tag::SCOPE) {
+                LUISA_ASSERT(!traversal_scopes.empty() &&
+                                 traversal_scopes.back().scope ==
+                                     statement_stack.back(),
+                             "Metal direct-child traversal is unbalanced.");
+                traversal_scopes.back().direct_child = statement;
+            }
+            statement_stack.emplace_back(statement);
+            if (statement->tag() == Statement::Tag::SCOPE) {
+                traversal_scopes.emplace_back(ScopeTraversal{
+                    .scope = static_cast<const ScopeStmt *>(statement)});
+            }
+        },
+        [&](const Statement *statement) noexcept {
+            if (statement->tag() == Statement::Tag::SCOPE) {
+                LUISA_ASSERT(!traversal_scopes.empty() &&
+                                 traversal_scopes.back().scope == statement,
+                             "Metal direct-child scope traversal is unbalanced.");
+                traversal_scopes.pop_back();
+            }
+            LUISA_ASSERT(!statement_stack.empty() &&
+                             statement_stack.back() == statement,
+                         "Metal direct-child statement traversal is unbalanced.");
+            statement_stack.pop_back();
+        });
+
+    const auto expression_references = [](const Expression *expression,
+                                          uint uid) noexcept {
+        auto found = false;
+        traverse_subexpressions(
+            expression,
+            [&](const Expression *candidate) noexcept {
+                if (candidate->tag() == Expression::Tag::REF &&
+                    static_cast<const RefExpr *>(candidate)->variable().uid() == uid) {
+                    found = true;
+                }
+            },
+            [](const Expression *) noexcept {});
+        return found;
+    };
+    for (auto local : _function.local_variables()) {
+        auto emission = _local_variable_emissions.find(local.uid());
+        auto first = first_direct_statement.find(local.uid());
+        if (emission == _local_variable_emissions.end() ||
+            first == first_direct_statement.end() ||
+            first->second == nullptr ||
+            first->second->tag() != Statement::Tag::ASSIGN ||
+            _gradient_variables.contains(local) ||
+            local.type() == _ray_query_any_type ||
+            local.type() == _ray_query_all_type) {
+            continue;
+        }
+        auto assign = static_cast<const AssignStmt *>(first->second);
+        if (assign->lhs()->tag() != Expression::Tag::REF ||
+            static_cast<const RefExpr *>(assign->lhs())->variable() != local ||
+            expression_references(assign->rhs(), local.uid())) {
+            continue;
+        }
+        emission->second.initializer = assign;
+        _local_variable_initializers.try_emplace(assign, local);
+    }
+
+    for (auto local : _function.local_variables()) {
+        auto emission = _local_variable_emissions.find(local.uid());
+        if (emission == _local_variable_emissions.end()) { continue; }
+        // A declaration may move into a repeatedly entered branch/loop only
+        // when its first direct statement initializes it before every read.
+        // Otherwise retain the historical function-lifetime zero value: a
+        // narrower `{}` declaration would reset state on every re-entry.
+        if (emission->second.initializer == nullptr) {
+            emission->second.scope = root;
+        }
+        _scope_local_variables[emission->second.scope].emplace_back(local);
+    }
+}
+
+void MetalCodegenAST::_emit_scope_local_variables(
+    const ScopeStmt *scope) noexcept {
+    auto iter = _scope_local_variables.find(scope);
+    if (iter == _scope_local_variables.end()) { return; }
+    for (auto local : iter->second) {
+        if (auto emission = _local_variable_emissions.find(local.uid());
+            emission != _local_variable_emissions.end() &&
+            emission->second.initializer != nullptr) {
+            continue;
+        }
+        _emit_indention();
+        _emit_type_name(local.type(), _function.variable_usage(local.uid()));
+        _scratch << " ";
+        _emit_variable_name(local);
+        _scratch << "{};\n";
+        if (local.type() == _ray_query_any_type ||
+            local.type() == _ray_query_all_type) {
+            _emit_indention();
+            _scratch << "LC_RAY_QUERY_SHADOW_VARIABLE(";
+            _emit_variable_name(local);
+            _scratch << ");\n";
+        }
+    }
+}
+
+void MetalCodegenAST::_emit_assignment_lhs(
+    const AssignStmt *stmt) noexcept {
+    if (auto iter = _local_variable_initializers.find(stmt);
+        iter != _local_variable_initializers.end()) {
+        auto local = iter->second;
+        _emit_type_name(local.type(), _function.variable_usage(local.uid()));
+        _scratch << " ";
+        _emit_variable_name(local);
+    } else {
+        stmt->lhs()->accept(*this);
+    }
+}
+
 void MetalCodegenAST::_emit_function() noexcept {
 
     LUISA_ASSERT(_function.tag() == Function::Tag::KERNEL ||
@@ -388,11 +748,21 @@ void MetalCodegenAST::_emit_function() noexcept {
         // emit argument buffer struct
         _scratch << "struct alignas(16) Arguments {\n";
         for (auto arg : _function.arguments()) {
+            auto usage = _function.variable_usage(arg.uid());
+            auto sampled = arg.type()->is_texture() && _is_texture_sampled(arg);
+            auto split = sampled && _is_texture_written(_function, arg);
             _scratch << "  alignas(16) ";
-            _emit_type_name(arg.type(), _function.variable_usage(arg.uid()));
+            _emit_type_name(arg.type(), usage, sampled && !split);
             _scratch << " ";
             _emit_variable_name(arg);
             _scratch << ";\n";
+            if (split) {
+                _scratch << "  alignas(16) ";
+                _emit_type_name(arg.type(), Usage::READ, true);
+                _scratch << " ";
+                _emit_variable_name(arg, true);
+                _scratch << ";\n";
+            }
         }
         if (_uses_printing) {
             _scratch << "  alignas(16) LCPrinterBuffer print_buffer;\n";
@@ -424,15 +794,29 @@ void MetalCodegenAST::_emit_function() noexcept {
             _scratch << " = args.";
             _emit_variable_name(arg);
             _scratch << ";\n";
+            if (arg.type()->is_texture() && _is_texture_sampled(arg) &&
+                _is_texture_written(_function, arg)) {
+                _scratch << "  auto ";
+                _emit_variable_name(arg, true);
+                _scratch << " = args.";
+                _emit_variable_name(arg, true);
+                _scratch << ";\n";
+            }
         }
         if (_uses_printing) {
             _scratch << "  auto print_buffer = args.print_buffer;\n";
         }
     } else {
         LUISA_ASSERT(_function.shared_variables().empty(), "Shared memory declaration not allowed in callable.");
-        auto texture_count = std::count_if(
-            _function.arguments().begin(), _function.arguments().end(),
-            [](auto arg) { return arg.type()->is_texture(); });
+        auto texture_count = 0u;
+        for (auto arg : _function.arguments()) {
+            if (arg.type()->is_texture()) {
+                texture_count++;
+                if (_is_texture_sampled(arg) && _is_texture_written(_function, arg)) {
+                    texture_count++;
+                }
+            }
+        }
         if (texture_count > 0) {
             _scratch << "template<";
             for (auto i = 0u; i < texture_count; i++) {
@@ -460,6 +844,12 @@ void MetalCodegenAST::_emit_function() noexcept {
                 if (is_mut_ref) { _scratch << "&"; }
                 _emit_variable_name(arg);
                 _scratch << ", ";
+                if (arg.type()->is_texture() && _is_texture_sampled(arg) &&
+                    _is_texture_written(_function, arg)) {
+                    _scratch << "T" << emitted_texture_count++ << " ";
+                    _emit_variable_name(arg, true);
+                    _scratch << ", ";
+                }
             }
             if (_uses_printing) {
                 _scratch << "LCPrinterBuffer print_buffer";
@@ -471,48 +861,20 @@ void MetalCodegenAST::_emit_function() noexcept {
         _scratch << ") {\n";
     }
 
-    // emit local variables
-    _scratch << "\n  /* local variables */\n";
-    for (auto local : _function.local_variables()) {
-        _scratch << "  ";
-        _emit_type_name(local.type(), _function.variable_usage(local.uid()));
-        _scratch << " ";
-        _emit_variable_name(local);
-        _scratch << "{};\n";
+    _analyze_local_variables();
 
-        // create a shadow variable for ray query
-        if (local.type() == _ray_query_any_type ||
-            local.type() == _ray_query_all_type) {
-            _scratch << "  LC_RAY_QUERY_SHADOW_VARIABLE(";
-            _emit_variable_name(local);
-            _scratch << ");\n";
-        }
-    }
+    // Emit only locals whose smallest safe scope is the function body here.
+    // Nested scopes declare their own locals when the body is emitted below.
+    _scratch << "\n  /* local variables */\n";
+    _indention = 1u;
+    _emit_scope_local_variables(_function.body());
 
     // emit gradient variables for autodiff
-    luisa::unordered_set<Variable> gradient_variables;
-    traverse_expressions<true>(
-        _function.body(),
-        [&](auto expr) noexcept {
-            if (expr->tag() == Expression::Tag::CALL) {
-                if (auto call = static_cast<const CallExpr *>(expr);
-                    call->op() == CallOp::GRADIENT ||
-                    call->op() == CallOp::GRADIENT_MARKER ||
-                    call->op() == CallOp::REQUIRES_GRADIENT) {
-                    LUISA_ASSERT(!call->arguments().empty() &&
-                                     call->arguments().front()->tag() == Expression::Tag::REF,
-                                 "Invalid gradient function call.");
-                    auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
-                    if (gradient_variables.emplace(v).second) {
-                        _scratch << "  LC_GRAD_SHADOW_VARIABLE(";
-                        _emit_variable_name(v);
-                        _scratch << ");\n";
-                    }
-                }
-            }
-        },
-        [](auto) noexcept {},
-        [](auto) noexcept {});
+    for (auto variable : _gradient_variables) {
+        _scratch << "  LC_GRAD_SHADOW_VARIABLE(";
+        _emit_variable_name(variable);
+        _scratch << ");\n";
+    }
 
     // emit function body
     _scratch << "\n  /* function body begin */\n";
@@ -673,6 +1035,13 @@ void MetalCodegenAST::_emit_constant(const Function::Constant &c) noexcept {
 void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) noexcept {
 
     _uses_printing = kernel.requires_printing();
+    _analyze_sampled_textures(kernel);
+    _argument_sampled.clear();
+    _argument_sampled.reserve(kernel.arguments().size());
+    for (auto argument : kernel.arguments()) {
+        _argument_sampled.emplace_back(
+            argument.type()->is_texture() && _is_texture_sampled(kernel, argument));
+    }
 
     // ray query
     if (kernel.propagated_builtin_callables().uses_ray_query()) {
@@ -718,7 +1087,9 @@ void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) n
         auto collect_functions = [&functions, collected = luisa::unordered_set<uint64_t>{}](
                                      auto &&self, Function function) mutable noexcept -> void {
             if (collected.emplace(function.hash()).second) {
-                for (auto &&c : function.custom_callables()) { self(self, c->function()); }
+                for (auto callable : sorted_custom_callables(function)) {
+                    self(self, callable);
+                }
                 functions.emplace_back(function);
             }
         };
@@ -757,6 +1128,15 @@ void MetalCodegenAST::visit(const UnaryExpr *expr) noexcept {
 }
 
 void MetalCodegenAST::visit(const BinaryExpr *expr) noexcept {
+    if (expr->op() == BinaryOp::MOD &&
+        expr->type()->is_float_or_float_vector()) {
+        _scratch << "lc_fmod(";
+        expr->lhs()->accept(*this);
+        _scratch << ", ";
+        expr->rhs()->accept(*this);
+        _scratch << ")";
+        return;
+    }
     _scratch << "(";
     expr->lhs()->accept(*this);
     _scratch << ")";
@@ -789,7 +1169,17 @@ void MetalCodegenAST::visit(const MemberExpr *expr) noexcept {
     if (expr->is_swizzle()) {
         if (expr->swizzle_size() == 1u) {
             _scratch << "vector_element_ref(";
-            expr->self()->accept(*this);
+            if (expr->self()->tag() == Expression::Tag::MEMBER &&
+                static_cast<const MemberExpr *>(expr->self())->is_swizzle() &&
+                static_cast<const MemberExpr *>(expr->self())->swizzle_size() > 1u) {
+                _scratch << "static_cast<const ";
+                _emit_type_name(expr->self()->type());
+                _scratch << ">(";
+                expr->self()->accept(*this);
+                _scratch << ")";
+            } else {
+                expr->self()->accept(*this);
+            }
             _scratch << ", " << expr->swizzle_index(0u) << ")";
         } else {
             static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
@@ -810,7 +1200,21 @@ void MetalCodegenAST::visit(const MemberExpr *expr) noexcept {
 void MetalCodegenAST::visit(const AccessExpr *expr) noexcept {
     if (expr->range()->type()->is_vector()) {
         _scratch << "vector_element_ref(";
-        expr->range()->accept(*this);
+        if (expr->range()->tag() == Expression::Tag::MEMBER &&
+            static_cast<const MemberExpr *>(expr->range())->is_swizzle() &&
+            static_cast<const MemberExpr *>(expr->range())->swizzle_size() > 1u) {
+            // Metal treats a multi-component swizzle as a vector element
+            // expression. Force the const overload of vector_element_ref for
+            // read-only indexing; mutable references are handled at call
+            // sites by _emit_swizzle_reference_temporaries.
+            _scratch << "static_cast<const ";
+            _emit_type_name(expr->range()->type());
+            _scratch << ">(";
+            expr->range()->accept(*this);
+            _scratch << ")";
+        } else {
+            expr->range()->accept(*this);
+        }
         _scratch << ", ";
         expr->index()->accept(*this);
         _scratch << ")";
@@ -986,42 +1390,48 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_SIZE: _scratch << "texture_size"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "bindless_texture_sample2d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "bindless_texture_sample2d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: _scratch << "bindless_texture_sample2d_grad_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "bindless_texture_sample3d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample3d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "bindless_texture_sample3d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: _scratch << "bindless_texture_sample3d_grad_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "bindless_texture_read2d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "bindless_texture_read3d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "bindless_texture_read2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: _scratch << "bindless_texture_read3d_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE: _scratch << "bindless_texture_size2d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "bindless_texture_size3d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "bindless_texture_size2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "bindless_texture_size3d_level"; break;
-        case CallOp::BINDLESS_BUFFER_READ: {
+#define LUISA_METAL_BINDLESS_VARIANTS(op)              \
+    case CallOp::BINDLESS_##op:                        \
+    case CallOp::UNIFORM_BINDLESS_##op:                \
+    case CallOp::TYPED_UNIFORM_BINDLESS_##op:          \
+    case CallOp::TYPED_BINDLESS_##op
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE): _scratch << "bindless_texture_sample2d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_LEVEL): _scratch << "bindless_texture_sample2d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_GRAD): _scratch << "bindless_texture_sample2d_grad"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_GRAD_LEVEL): _scratch << "bindless_texture_sample2d_grad_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE): _scratch << "bindless_texture_sample3d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_LEVEL): _scratch << "bindless_texture_sample3d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_GRAD): _scratch << "bindless_texture_sample3d_grad"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_GRAD_LEVEL): _scratch << "bindless_texture_sample3d_grad_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_READ): _scratch << "bindless_texture_read2d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_READ): _scratch << "bindless_texture_read3d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_READ_LEVEL): _scratch << "bindless_texture_read2d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_READ_LEVEL): _scratch << "bindless_texture_read3d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SIZE): _scratch << "bindless_texture_size2d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SIZE): _scratch << "bindless_texture_size3d"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SIZE_LEVEL): _scratch << "bindless_texture_size2d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SIZE_LEVEL): _scratch << "bindless_texture_size3d_level"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_READ): {
             _scratch << "bindless_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BUFFER_WRITE: {
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_WRITE): {
             _scratch << "bindless_buffer_write<";
-            _emit_type_name(expr->type());
+            _emit_type_name(expr->arguments().back()->type());
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BYTE_BUFFER_READ: {
+            LUISA_METAL_BINDLESS_VARIANTS(BYTE_BUFFER_READ): {
             _scratch << "bindless_byte_address_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
         }
-        case CallOp::BINDLESS_BUFFER_SIZE: _scratch << "bindless_buffer_size"; break;
-        case CallOp::BINDLESS_BUFFER_TYPE: _scratch << "bindless_buffer_type"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_SIZE): _scratch << "bindless_buffer_size"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_TYPE): _scratch << "bindless_buffer_type"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(BUFFER_ADDRESS): _scratch << "bindless_buffer_address"; break;
 #define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)        \
     case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
@@ -1063,6 +1473,13 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             _scratch << ">";
             break;
         }
+        case CallOp::UNDEFINED: {
+            // Zero is a legal concrete refinement for direct AST codegen.
+            _scratch << "lc_zero<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::ONE: {
             _scratch << "lc_one<";
             _emit_type_name(expr->type());
@@ -1088,6 +1505,7 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "accel_query_any"; break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "ray_query_world_ray"; break;
+        case CallOp::RAY_QUERY_OBJECT_SPACE_RAY: _scratch << "ray_query_object_ray"; break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "ray_query_procedural_candidate"; break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "ray_query_triangle_candidate"; break;
         case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "ray_query_committed_hit"; break;
@@ -1144,7 +1562,6 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
         case CallOp::ADDRESS_OF: _scratch << "lc_address_of"; break;
         case CallOp::BUFFER_ADDRESS: _scratch << "buffer_address"; break;
-        case CallOp::BINDLESS_BUFFER_ADDRESS: _scratch << "bindless_buffer_address"; break;
 
         case CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX: break;
         case CallOp::RAY_TRACING_INSTANCE_MOTION_SRT: break;
@@ -1172,15 +1589,19 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL:
             _scratch << "texture_sample_grad_level";
             break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER: _scratch << "bindless_texture_sample2d_sample"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER: _scratch << "bindless_texture_sample2d_level_sample"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER: _scratch << "bindless_texture_sample2d_grad_sample"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER: _scratch << "bindless_texture_sample2d_grad_level_sample"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: _scratch << "bindless_texture_sample3d_sample"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: _scratch << "bindless_texture_sample3d_level_sample"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: _scratch << "bindless_texture_sample3d_grad_sample"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: _scratch << "bindless_texture_sample3d_grad_level_sample"; break;
-        default: LUISA_NOT_IMPLEMENTED();
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_SAMPLER): _scratch << "bindless_texture_sample2d_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_LEVEL_SAMPLER): _scratch << "bindless_texture_sample2d_level_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_GRAD_SAMPLER): _scratch << "bindless_texture_sample2d_grad_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER): _scratch << "bindless_texture_sample2d_grad_level_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_SAMPLER): _scratch << "bindless_texture_sample3d_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_LEVEL_SAMPLER): _scratch << "bindless_texture_sample3d_level_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_GRAD_SAMPLER): _scratch << "bindless_texture_sample3d_grad_sample"; break;
+            LUISA_METAL_BINDLESS_VARIANTS(TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER): _scratch << "bindless_texture_sample3d_grad_level_sample"; break;
+#undef LUISA_METAL_BINDLESS_VARIANTS
+        default:
+            LUISA_ERROR_WITH_LOCATION(
+                "Unsupported call operation '{}' in Metal AST codegen.",
+                luisa::to_string(expr->op()));
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {
@@ -1199,23 +1620,91 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             extra->accept(*this);
         }
     } else {
-        auto trailing_comma = false;
+        auto emitted_argument = false;
+        auto emit_argument = [&](const Expression *argument, bool sampled) noexcept {
+            if (emitted_argument) { _scratch << ", "; }
+            emitted_argument = true;
+            _emit_call_argument(argument, sampled);
+        };
         for (auto i = 0u; i < expr->arguments().size(); i++) {
             auto arg = expr->arguments()[i];
-            trailing_comma = true;
-            arg->accept(*this);
-            _scratch << ", ";
+            auto replacement = std::find_if(
+                _reference_temporaries.begin(), _reference_temporaries.end(),
+                [arg](auto &&binding) noexcept { return binding.expression == arg; });
+            if (replacement != _reference_temporaries.end()) {
+                if (emitted_argument) { _scratch << ", "; }
+                emitted_argument = true;
+                _scratch << replacement->name;
+            } else {
+                auto sampled = false;
+                auto split = false;
+                switch (expr->op()) {
+                    case CallOp::TEXTURE2D_SAMPLE:
+                    case CallOp::TEXTURE2D_SAMPLE_LEVEL:
+                    case CallOp::TEXTURE2D_SAMPLE_GRAD:
+                    case CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL:
+                    case CallOp::TEXTURE3D_SAMPLE:
+                    case CallOp::TEXTURE3D_SAMPLE_LEVEL:
+                    case CallOp::TEXTURE3D_SAMPLE_GRAD:
+                    case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL:
+                        sampled = i == 0u;
+                        break;
+                    case CallOp::CUSTOM: {
+                        auto callable = expr->custom();
+                        auto parameter = callable.arguments()[i];
+                        sampled = parameter.type()->is_texture() &&
+                                  _is_texture_sampled(callable, parameter);
+                        split = sampled && _is_texture_written(callable, parameter);
+                        break;
+                    }
+                    default: break;
+                }
+                emit_argument(arg, sampled && !split);
+                if (split) { emit_argument(arg, true); }
+            }
         }
         if (expr->is_custom() && _uses_printing) {
+            if (emitted_argument) { _scratch << ", "; }
             _scratch << "print_buffer";
-            trailing_comma = false;
-        }
-        if (trailing_comma) {
-            _scratch.pop_back();
-            _scratch.pop_back();
         }
     }
     _scratch << ")";
+}
+
+void MetalCodegenAST::_emit_swizzle_reference_temporaries(const Expression *expression) noexcept {
+    traverse_subexpressions(
+        expression,
+        [&](const Expression *subexpression) noexcept {
+            if (subexpression->tag() != Expression::Tag::CALL) { return; }
+            auto call = static_cast<const CallExpr *>(subexpression);
+            if (!call->is_custom()) { return; }
+            auto parameters = call->custom().arguments();
+            for (auto i = 0u; i < call->arguments().size() && i < parameters.size(); i++) {
+                auto argument = call->arguments()[i];
+                auto parameter = parameters[i];
+                auto is_mutable_reference = parameter.is_reference() &&
+                                            (to_underlying(call->custom().variable_usage(parameter.uid())) &
+                                             to_underlying(Usage::WRITE)) != 0u;
+                if (!is_mutable_reference || argument->tag() != Expression::Tag::MEMBER) { continue; }
+                auto member = static_cast<const MemberExpr *>(argument);
+                if (!member->is_swizzle() || member->swizzle_size() <= 1u) { continue; }
+                auto name = luisa::format("__lc_swizzle_tmp_{}", _next_reference_temporary++);
+                _emit_indention();
+                _scratch << "auto " << name << " = ";
+                argument->accept(*this);
+                _scratch << ";\n";
+                _reference_temporaries.emplace_back(ReferenceTemporary{argument, std::move(name)});
+            }
+        },
+        [](auto) noexcept {});
+}
+
+void MetalCodegenAST::_emit_swizzle_reference_writebacks(size_t first) noexcept {
+    for (auto i = first; i < _reference_temporaries.size(); i++) {
+        _emit_indention();
+        _reference_temporaries[i].expression->accept(*this);
+        _scratch << " = " << _reference_temporaries[i].name << ";\n";
+    }
 }
 
 void MetalCodegenAST::visit(const TypeIDExpr *expr) noexcept {
@@ -1265,6 +1754,22 @@ void MetalCodegenAST::visit(const ContinueStmt *stmt) noexcept {
 }
 
 void MetalCodegenAST::visit(const ReturnStmt *stmt) noexcept {
+    auto previous_temporary_count = _reference_temporaries.size();
+    if (auto expression = stmt->expression()) {
+        _emit_swizzle_reference_temporaries(expression);
+        if (_reference_temporaries.size() != previous_temporary_count) {
+            auto result = luisa::format("__lc_call_result_{}", _next_reference_temporary++);
+            _emit_indention();
+            _scratch << "auto " << result << " = ";
+            expression->accept(*this);
+            _scratch << ";\n";
+            _emit_swizzle_reference_writebacks(previous_temporary_count);
+            _emit_indention();
+            _scratch << "return " << result << ";\n";
+            _reference_temporaries.resize(previous_temporary_count);
+            return;
+        }
+    }
     _emit_indention();
     _scratch << "return";
     if (auto expr = stmt->expression()) {
@@ -1272,12 +1777,14 @@ void MetalCodegenAST::visit(const ReturnStmt *stmt) noexcept {
         expr->accept(*this);
     }
     _scratch << ";\n";
+    _reference_temporaries.resize(previous_temporary_count);
 }
 
 void MetalCodegenAST::visit(const ScopeStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "{\n";
     _indention++;
+    _emit_scope_local_variables(stmt);
     for (auto s : stmt->statements()) { s->accept(*this); }
     _indention--;
     _emit_indention();
@@ -1290,6 +1797,7 @@ void MetalCodegenAST::visit(const IfStmt *stmt) noexcept {
     stmt->condition()->accept(*this);
     _scratch << ") {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->true_branch());
     for (auto s : stmt->true_branch()->statements()) {
         s->accept(*this);
     }
@@ -1299,6 +1807,7 @@ void MetalCodegenAST::visit(const IfStmt *stmt) noexcept {
     if (auto &&fb = stmt->false_branch()->statements(); !fb.empty()) {
         _scratch << " else {\n";
         _indention++;
+        _emit_scope_local_variables(stmt->false_branch());
         for (auto s : fb) { s->accept(*this); }
         _indention--;
         _emit_indention();
@@ -1311,6 +1820,7 @@ void MetalCodegenAST::visit(const LoopStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "for (;;) {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
     }
@@ -1320,6 +1830,8 @@ void MetalCodegenAST::visit(const LoopStmt *stmt) noexcept {
 }
 
 void MetalCodegenAST::visit(const ExprStmt *stmt) noexcept {
+    auto previous_temporary_count = _reference_temporaries.size();
+    _emit_swizzle_reference_temporaries(stmt->expression());
     _emit_indention();
     if (stmt->expression()->type() != nullptr) {
         _scratch << "static_cast<void>(";
@@ -1329,6 +1841,8 @@ void MetalCodegenAST::visit(const ExprStmt *stmt) noexcept {
         _scratch << ")";
     }
     _scratch << ";\n";
+    _emit_swizzle_reference_writebacks(previous_temporary_count);
+    _reference_temporaries.resize(previous_temporary_count);
 }
 
 void MetalCodegenAST::visit(const SwitchStmt *stmt) noexcept {
@@ -1337,6 +1851,7 @@ void MetalCodegenAST::visit(const SwitchStmt *stmt) noexcept {
     stmt->expression()->accept(*this);
     _scratch << ") {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
     }
@@ -1351,6 +1866,7 @@ void MetalCodegenAST::visit(const SwitchCaseStmt *stmt) noexcept {
     stmt->expression()->accept(*this);
     _scratch << ": {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     auto has_break = false;
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
@@ -1372,6 +1888,7 @@ void MetalCodegenAST::visit(const SwitchDefaultStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "default: {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     auto has_break = false;
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
@@ -1390,11 +1907,27 @@ void MetalCodegenAST::visit(const SwitchDefaultStmt *stmt) noexcept {
 }
 
 void MetalCodegenAST::visit(const AssignStmt *stmt) noexcept {
+    auto previous_temporary_count = _reference_temporaries.size();
+    _emit_swizzle_reference_temporaries(stmt->rhs());
+    if (_reference_temporaries.size() != previous_temporary_count) {
+        auto result = luisa::format("__lc_call_result_{}", _next_reference_temporary++);
+        _emit_indention();
+        _scratch << "auto " << result << " = ";
+        stmt->rhs()->accept(*this);
+        _scratch << ";\n";
+        _emit_swizzle_reference_writebacks(previous_temporary_count);
+        _emit_indention();
+        _emit_assignment_lhs(stmt);
+        _scratch << " = " << result << ";\n";
+        _reference_temporaries.resize(previous_temporary_count);
+        return;
+    }
     _emit_indention();
-    stmt->lhs()->accept(*this);
+    _emit_assignment_lhs(stmt);
     _scratch << " = ";
     stmt->rhs()->accept(*this);
     _scratch << ";\n";
+    _reference_temporaries.resize(previous_temporary_count);
 }
 
 void MetalCodegenAST::visit(const ForStmt *stmt) noexcept {
@@ -1407,6 +1940,7 @@ void MetalCodegenAST::visit(const ForStmt *stmt) noexcept {
     stmt->step()->accept(*this);
     _scratch << ") {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
     }
@@ -1508,6 +2042,7 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     stmt->query()->accept(*this);
     _scratch << ")) {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->on_triangle_candidate());
     _emit_indention();
     _scratch << "/* ray query triangle branch */\n";
     for (auto s : stmt->on_triangle_candidate()->statements()) {
@@ -1517,6 +2052,7 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "} else {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->on_procedural_candidate());
     _emit_indention();
     _scratch << "/* ray query procedural branch */\n";
     for (auto s : stmt->on_procedural_candidate()->statements()) {

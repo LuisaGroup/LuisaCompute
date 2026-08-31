@@ -148,24 +148,28 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
             auto custom_name = f.get_variable_name(id);
             str << custom_name;
             str << "_b"sv;
+            id += opt->argOffset;
             vstd::to_string(id, str);
         } break;
         case Variable::Tag::TEXTURE: {
             auto custom_name = f.get_variable_name(id);
             str << custom_name;
             str << "_t"sv;
+            id += opt->argOffset;
             vstd::to_string(id, str);
         } break;
         case Variable::Tag::BINDLESS_ARRAY: {
             auto custom_name = f.get_variable_name(id);
             str << custom_name;
             str << "_ba"sv;
+            id += opt->argOffset;
             vstd::to_string(id, str);
         } break;
         case Variable::Tag::ACCEL: {
             auto custom_name = f.get_variable_name(id);
             str << custom_name;
             str << "_ac"sv;
+            id += opt->argOffset;
             vstd::to_string(id, str);
         } break;
         default: {

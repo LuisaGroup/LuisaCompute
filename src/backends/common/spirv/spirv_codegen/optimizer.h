@@ -6,6 +6,7 @@
 
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
 
 #include "target_feature_mask.h"
 
@@ -26,8 +27,15 @@ struct SpirvOptimizerReport {
     bool attempted{false};
     bool succeeded{true};
     bool changed{false};
+    bool loop_unroll_registered{false};
     bool capability_trim_registered{false};
     bool output_validated{false};
+    // Fixed-point iteration state (DXC mirrors this loop, <= 5 iterations).
+    size_t iterations{0u};
+    bool converged{false};
+    size_t max_iterations{5u};
+    // Every registered pass name in registration order (observability).
+    luisa::vector<luisa::string> registered_passes;
 };
 
 struct SpirvValidationReport {

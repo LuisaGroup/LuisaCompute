@@ -4,7 +4,10 @@
 namespace luisa::compute::xir {
 
 inline DomTreeNode::DomTreeNode(BasicBlock *block) noexcept
-    : _block{block}, _parent{nullptr} {}
+    : _block{block},
+      _parent{nullptr},
+      _preorder_index{SIZE_MAX},
+      _subtree_end_index{SIZE_MAX} {}
 
 inline void DomTreeNode::add_child(DomTreeNode *child) noexcept {
     LUISA_DEBUG_ASSERT(child != nullptr && child->_parent == nullptr && child != this, "Invalid child.");
@@ -17,6 +20,21 @@ inline void DomTreeNode::add_frontier(DomTreeNode *frontier) noexcept {
     LUISA_DEBUG_ASSERT(frontier != nullptr, "Invalid frontier.");
     LUISA_DEBUG_ASSERT(std::find(_frontiers.begin(), _frontiers.end(), frontier) == _frontiers.end(), "Frontier already exists.");
     _frontiers.emplace_back(frontier);
+}
+
+bool DomTreeNode::dominates(const DomTreeNode *other) const noexcept {
+    if (other == nullptr) { return false; }
+    LUISA_DEBUG_ASSERT(
+        _preorder_index != SIZE_MAX &&
+            _subtree_end_index != SIZE_MAX &&
+            other->_preorder_index != SIZE_MAX &&
+            other->_subtree_end_index != SIZE_MAX,
+        "Dominator tree ancestry intervals have not been computed.");
+    // Dominance is ancestry in the dominator tree. The DFS subtree interval
+    // makes the relation a constant-time comparison once callers have
+    // resolved their block handles to tree nodes.
+    return _preorder_index <= other->_preorder_index &&
+           other->_preorder_index < _subtree_end_index;
 }
 
 DomTree::DomTree() noexcept : _root{nullptr} {}
@@ -35,7 +53,46 @@ inline void DomTree::set_root(DomTreeNode *root) noexcept {
     _root = root;
 }
 
+inline void DomTree::compute_ancestry_intervals() noexcept {
+    LUISA_DEBUG_ASSERT(_root != nullptr, "Root not found.");
+    struct StackFrame {
+        DomTreeNode *node;
+        size_t next_child_index;
+    };
+    auto next_preorder_index = size_t{0u};
+    auto root = const_cast<DomTreeNode *>(_root);
+    root->_preorder_index = next_preorder_index++;
+    luisa::vector<StackFrame> stack;
+    stack.emplace_back(root, 0u);
+    while (!stack.empty()) {
+        auto &frame = stack.back();
+        if (frame.next_child_index < frame.node->_children.size()) {
+            auto child = const_cast<DomTreeNode *>(
+                frame.node->_children[frame.next_child_index++]);
+            LUISA_DEBUG_ASSERT(
+                child->_preorder_index == SIZE_MAX &&
+                    child->_subtree_end_index == SIZE_MAX,
+                "Dominator tree node visited more than once.");
+            child->_preorder_index = next_preorder_index++;
+            stack.emplace_back(child, 0u);
+        } else {
+            frame.node->_subtree_end_index = next_preorder_index;
+            stack.pop_back();
+        }
+    }
+    LUISA_DEBUG_ASSERT(
+        next_preorder_index == _nodes.size(),
+        "Dominator tree contains nodes unreachable from its root.");
+}
+
 inline void DomTree::compute_dominance_frontiers() noexcept {
+    // Frontier construction is a pure derivative of the current tree. Clear
+    // the node-local vectors so explicit late materialization is idempotent
+    // without adding ABI-visible state to DomTree.
+    for (auto &&[block, node] : _nodes) {
+        static_cast<void>(block);
+        node->_frontiers.clear();
+    }
     luisa::fixed_vector<BasicBlock *, 16u> preds;
     luisa::unordered_map<DomTreeNode *, luisa::unordered_set<DomTreeNode *>> frontiers;
     for (auto &&[b, node] : _nodes) {
@@ -76,16 +133,13 @@ bool DomTree::contains(BasicBlock *block) const noexcept {
 }
 
 bool DomTree::dominates(BasicBlock *src, BasicBlock *dst) const noexcept {
-    if (!contains(src) || !contains(dst)) { return false; }
+    auto src_node = node_or_null(src);
+    if (src_node == nullptr) { return false; }
+    // Reflexivity needs only one lookup, while a general query resolves each
+    // block once. The former contains()+node() sequence resolved each block
+    // twice and made a constant-time tree query perform four hash probes.
     if (src == dst) { return true; }
-    auto src_node = node(src);
-    auto dst_node = node(dst);
-    if (src_node == _root) { return true; }
-    while (dst_node != _root) {
-        if (dst_node == src_node) { return true; }
-        dst_node = dst_node->parent();
-    }
-    return false;
+    return src_node->dominates(node_or_null(dst));
 }
 
 bool DomTree::strictly_dominates(BasicBlock *src, BasicBlock *dst) const noexcept {
@@ -100,12 +154,32 @@ auto DomTree::immediate_dominator(BasicBlock *block) const noexcept -> BasicBloc
 
 // Reference: A Simple, Fast Dominance Algorithm [Cooper et al. 2001]
 DomTree compute_dom_tree(Function *function) noexcept {
+    return compute_dom_tree(function, {});
+}
+
+DomTree compute_dom_tree(
+    Function *function,
+    DomTreeBuildOptions options) noexcept {
+    return compute_dom_tree(function, options, nullptr);
+}
+
+DomTree compute_dom_tree(
+    Function *function,
+    DomTreeBuildOptions options,
+    DomTreeBuildStats *stats) noexcept {
+    DomTreeBuildStats local_stats;
     auto definition =
         function == nullptr ? nullptr : function->definition();
     if (definition == nullptr || definition->body_block() == nullptr) {
+        if (stats != nullptr) {
+            *stats = local_stats;
+        }
         return {};
     }
-    // compute reverse postorder
+
+    // Preserve the historical reachable domain and traversal order, then
+    // value-number it once in reverse postorder. Pointer hashing is confined
+    // to this graph-construction boundary.
     luisa::vector<BasicBlock *> reverse_postorder;
     definition->traverse_basic_blocks(
         BasicBlockTraversalOrder::POST_ORDER,
@@ -115,101 +189,120 @@ DomTree compute_dom_tree(Function *function) noexcept {
     auto root_block = definition->body_block();
     LUISA_ASSERT(!reverse_postorder.empty() && reverse_postorder.back() == root_block,
                  "Invalid reverse postorder.");
-    reverse_postorder.pop_back();// remove the root since we don't want to visit it during the traversal
     std::reverse(reverse_postorder.begin(), reverse_postorder.end());
-
-    // Assign dense block IDs and compute postorder indices.
-    size_t n = reverse_postorder.size() + 1;// +1 for root_block
-    luisa::unordered_map<BasicBlock *, size_t> block_id;
-    luisa::vector<size_t> postorder_index_vec(n, SIZE_MAX);
-    // The postorder index is the position in the original postorder (before reversal).
-    // Root was last in postorder (index = original_size - 1).
-    // Other blocks have indices 0..original_size-2.
-    size_t postorder_size = reverse_postorder.size() + 1;// original postorder size including root
-    for (size_t i = 0; i < reverse_postorder.size(); i++) {
-        auto *bb = reverse_postorder[i];
-        block_id[bb] = i;
-        // After reversal, reverse_postorder[i] was at postorder index (postorder_size - 2 - i).
-        // Let's just recompute: reverse_postorder is in reverse postorder now,
-        // so block at position i has postorder index = postorder_size - 1 - i - 1 (since root was last).
-        // Simpler: the block at reverse_postorder[i] was originally at index (original_size - 2 - i) in postorder.
-        postorder_index_vec[i] = postorder_size - 2 - i;
+    LUISA_ASSERT(reverse_postorder.front() == root_block,
+                 "Dominator reverse postorder does not begin at the root.");
+    const auto block_count = reverse_postorder.size();
+    local_stats.numbered_block_count = block_count;
+    luisa::unordered_map<BasicBlock *, size_t> block_ids;
+    block_ids.reserve(block_count);
+    for (auto id = size_t{0u}; id < block_count; ++id) {
+        block_ids.emplace(reverse_postorder[id], id);
     }
-    block_id[root_block] = reverse_postorder.size();// root gets the last slot
-    postorder_index_vec[reverse_postorder.size()] = postorder_size - 1;// root was last in postorder
 
-    // Dense dominator array.
-    luisa::vector<BasicBlock *> doms_vec(n, nullptr);
-    doms_vec[block_id[root_block]] = root_block;
-
-    // Helper to get postorder index.
-    auto get_postorder_idx = [&](BasicBlock *b) noexcept -> size_t {
-        if (b == nullptr) { return SIZE_MAX; }
-        auto it = block_id.find(b);
-        if (it == block_id.end()) { return SIZE_MAX; }
-        return postorder_index_vec[it->second];
-    };
-    // Helper to get dom.
-    auto get_dom = [&](BasicBlock *b) noexcept -> BasicBlock * {
-        if (b == nullptr) { return nullptr; }
-        auto it = block_id.find(b);
-        if (it == block_id.end()) { return nullptr; }
-        return doms_vec[it->second];
-    };
-
-    auto intersect = [&](BasicBlock *b1, BasicBlock *b2) noexcept {
-        LUISA_DEBUG_ASSERT(b1 != nullptr && b2 != nullptr, "Invalid block.");
-        auto finger1 = b1;
-        auto finger2 = b2;
-        while (finger1 != finger2) {
-            auto i1 = get_postorder_idx(finger1);
-            auto i2 = get_postorder_idx(finger2);
-            while (i1 < i2) {
-                finger1 = get_dom(finger1);
-                LUISA_DEBUG_ASSERT(finger1 != nullptr, "Invalid dom tree.");
-                i1 = get_postorder_idx(finger1);
-            }
-            while (i2 < i1) {
-                finger2 = get_dom(finger2);
-                LUISA_DEBUG_ASSERT(finger2 != nullptr, "Invalid dom tree.");
-                i2 = get_postorder_idx(finger2);
-            }
-        }
-        return finger1;
-    };
-
-    // fixed-point iteration
-    for (;;) {
-        auto changed = false;
-        for (auto block : reverse_postorder) {
-            auto new_idom = static_cast<BasicBlock *>(nullptr);
-            block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                auto dom_of_pred = get_dom(pred);
-                if (dom_of_pred != nullptr) {
-                    if (new_idom == nullptr) {
-                        new_idom = pred;
-                    } else {
-                        new_idom = intersect(pred, new_idom);
-                    }
+    // Store only real predecessor edges between reachable blocks. The CSR
+    // retains predecessor traversal order, so tie behavior remains identical
+    // while the fixed point performs no pointer lookup or allocation.
+    luisa::vector<size_t> predecessor_offsets(
+        block_count + 1u, 0u);
+    luisa::vector<size_t> predecessor_ids;
+    for (auto block_id = size_t{0u};
+         block_id < block_count; ++block_id) {
+        reverse_postorder[block_id]->traverse_predecessors(
+            false, [&](BasicBlock *predecessor) noexcept {
+                if (auto iter = block_ids.find(predecessor);
+                    iter != block_ids.end()) {
+                    predecessor_ids.emplace_back(iter->second);
                 }
             });
-            auto &dom = doms_vec[block_id[block]];
-            if (dom != new_idom) {
-                dom = new_idom;
+        predecessor_offsets[block_id + 1u] =
+            predecessor_ids.size();
+    }
+    local_stats.numbered_edge_count = predecessor_ids.size();
+
+    // Cooper-Harvey-Kennedy on dense RPO IDs. Every resolved immediate
+    // dominator moves toward a smaller ID, so intersection is parent climbing
+    // over one sparse relation rather than repeated hash-map queries.
+    constexpr auto invalid_id = SIZE_MAX;
+    luisa::vector<size_t> immediate_dominators(
+        block_count, invalid_id);
+    immediate_dominators.front() = 0u;
+    const auto intersect = [&](size_t lhs,
+                               size_t rhs) noexcept {
+        while (lhs != rhs) {
+            while (lhs > rhs) {
+                lhs = immediate_dominators[lhs];
+                LUISA_DEBUG_ASSERT(
+                    lhs != invalid_id,
+                    "Invalid dominator parent chain.");
+                ++local_stats.intersect_step_count;
+            }
+            while (rhs > lhs) {
+                rhs = immediate_dominators[rhs];
+                LUISA_DEBUG_ASSERT(
+                    rhs != invalid_id,
+                    "Invalid dominator parent chain.");
+                ++local_stats.intersect_step_count;
+            }
+        }
+        return lhs;
+    };
+    for (;;) {
+        ++local_stats.fixed_point_iteration_count;
+        auto changed = false;
+        for (auto block_id = size_t{1u};
+             block_id < block_count; ++block_id) {
+            ++local_stats.fixed_point_block_visit_count;
+            auto new_immediate_dominator = invalid_id;
+            for (auto edge_index = predecessor_offsets[block_id];
+                 edge_index < predecessor_offsets[block_id + 1u];
+                 ++edge_index) {
+                ++local_stats.fixed_point_edge_visit_count;
+                auto predecessor_id = predecessor_ids[edge_index];
+                if (immediate_dominators[predecessor_id] ==
+                    invalid_id) {
+                    continue;
+                }
+                new_immediate_dominator =
+                    new_immediate_dominator == invalid_id ?
+                        predecessor_id :
+                        intersect(predecessor_id,
+                                  new_immediate_dominator);
+            }
+            if (new_immediate_dominator != invalid_id &&
+                immediate_dominators[block_id] !=
+                    new_immediate_dominator) {
+                immediate_dominators[block_id] =
+                    new_immediate_dominator;
                 changed = true;
             }
         }
         if (!changed) { break; }
     }
-    // create the dom tree
+    for (auto id : immediate_dominators) {
+        LUISA_ASSERT(id != invalid_id,
+                     "Reachable block has no immediate dominator.");
+    }
+
+    // Convert dense parents to the historical pointer-based public tree only
+    // after the solve has converged.
     DomTree tree;
-    for (auto block : reverse_postorder) {
-        auto parent_node = tree.add_or_get_node(doms_vec[block_id[block]]);
-        auto block_node = tree.add_or_get_node(block);
+    for (auto block_id = size_t{1u};
+         block_id < block_count; ++block_id) {
+        auto parent_node = tree.add_or_get_node(
+            reverse_postorder[immediate_dominators[block_id]]);
+        auto block_node = tree.add_or_get_node(
+            reverse_postorder[block_id]);
         parent_node->add_child(block_node);
     }
     tree.set_root(tree.add_or_get_node(root_block));
-    tree.compute_dominance_frontiers();
+    tree.compute_ancestry_intervals();
+    if (options.compute_dominance_frontiers) {
+        tree.compute_dominance_frontiers();
+    }
+    if (stats != nullptr) {
+        *stats = local_stats;
+    }
     return tree;
 }
 

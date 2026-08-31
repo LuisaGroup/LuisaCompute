@@ -95,13 +95,25 @@ public:
     ArithmeticInst *call(const Type *type, ArithmeticOp op, std::initializer_list<Value *> operands) noexcept;
 
     ResourceQueryInst *call(const Type *type, ResourceQueryOp op, luisa::span<Value *const> operands) noexcept;
+    ResourceQueryInst *call(const Type *type, ResourceQueryOp op, luisa::span<Value *const> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
     ResourceQueryInst *call(const Type *type, ResourceQueryOp op, std::initializer_list<Value *> operands) noexcept;
+    ResourceQueryInst *call(const Type *type, ResourceQueryOp op, std::initializer_list<Value *> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
 
     ResourceReadInst *call(const Type *type, ResourceReadOp op, luisa::span<Value *const> operands) noexcept;
+    ResourceReadInst *call(const Type *type, ResourceReadOp op, luisa::span<Value *const> operands,
+                           BindlessResourceAccess bindless_access) noexcept;
     ResourceReadInst *call(const Type *type, ResourceReadOp op, std::initializer_list<Value *> operands) noexcept;
+    ResourceReadInst *call(const Type *type, ResourceReadOp op, std::initializer_list<Value *> operands,
+                           BindlessResourceAccess bindless_access) noexcept;
 
     ResourceWriteInst *call(ResourceWriteOp op, luisa::span<Value *const> operands) noexcept;
+    ResourceWriteInst *call(ResourceWriteOp op, luisa::span<Value *const> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
     ResourceWriteInst *call(ResourceWriteOp op, std::initializer_list<Value *> operands) noexcept;
+    ResourceWriteInst *call(ResourceWriteOp op, std::initializer_list<Value *> operands,
+                            BindlessResourceAccess bindless_access) noexcept;
 
     CastInst *cast_(const Type *type, CastOp op, Value *value) noexcept;
 
@@ -137,6 +149,16 @@ public:
     AutodiffScopeInst *forward_autodiff_scope(size_t n_forward_grads) noexcept;
 
     CoroSuspendInst *coro_suspend(uint32_t token, luisa::string name, Value *frame) noexcept;
+    CoroSuspendInst *coro_suspend(
+        uint32_t token, luisa::string name, Value *frame,
+        luisa::span<const luisa::string> frame_export_names,
+        luisa::span<Value *const> frame_export_values) noexcept;
+    CoroSuspendInst *coro_suspend(
+        uint32_t token, luisa::string name, Value *frame,
+        luisa::span<const luisa::string> frame_export_names,
+        luisa::span<Value *const> frame_export_values,
+        luisa::vector<CoroSuspendExtensionPtr> extensions,
+        luisa::span<Value *const> extension_binding_values) noexcept;
     CoroResumeInst *coro_resume(uint32_t token, Value *frame) noexcept;
     CoroTerminateInst *coro_terminate() noexcept;
 

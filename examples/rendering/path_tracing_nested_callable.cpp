@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
     if (argc <= 1) {
         LUISA_INFO(
             "Usage: {} <backend> [--offline] [--spp N]. "
-            "<backend>: cuda, dx, vk, metal, cpu, fallback",
+            "<backend>: cuda, dx, metal, vk, hip, fallback",
             argv[0]);
         exit(1);
     }
@@ -167,7 +167,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
+    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "fallback" ? 1u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt dispatch_spp) noexcept {
         set_block_size(16u, 16u, 1u);

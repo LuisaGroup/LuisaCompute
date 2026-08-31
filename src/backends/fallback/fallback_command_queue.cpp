@@ -24,7 +24,11 @@ struct Thread {
 #endif
     luisa::move_only_function<void()> f;
 
-    static constexpr auto STACK_SIZE = 4_M;
+    // Large generated kernels can require more than 4 MiB of stack when the
+    // fallback compiler deliberately uses its bounded compile-time O0 path.
+    // Stack pages are committed on demand, so reserving 16 MiB keeps ordinary
+    // kernels cheap while allowing those oversized kernels to execute safely.
+    static constexpr auto STACK_SIZE = 16_M;
 
     template<class F>
     explicit Thread(uint tid [[maybe_unused]], F &&f) noexcept : f{std::forward<F>(f)} {

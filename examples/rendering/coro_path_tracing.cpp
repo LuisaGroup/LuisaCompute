@@ -5,7 +5,7 @@
 // Usage: coro_path_tracing <backend> [--offline] [--spp N]
 //                          [--resolution N] [--sample-dispatch|--batch-dispatch]
 //                          [--scheduler state_machine|wavefront|persistent]
-//   backend: cuda, dx, cpu, metal, fallback
+//   backend: cuda, dx, metal, vk, hip, fallback
 
 #include <array>
 #include <cstdlib>
@@ -251,7 +251,6 @@ int main(int argc, char *argv[]) {
     uint total_cells = resolution.x * resolution.y;
     uint total_spp = opts.spp == 0u ? 1024u : opts.spp;
     auto default_spp_per_dispatch = (backend_name == "metal" ||
-                                     backend_name == "cpu" ||
                                      backend_name == "fallback") ?
                                         1u :
                                         64u;

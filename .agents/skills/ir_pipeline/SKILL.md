@@ -1,52 +1,28 @@
 ---
 name: ir_pipeline
-description: Legacy IR and XIR compiler pipeline, AST lowering, SSA IR, and optimization passes.
+description: XIR compiler pipeline, AST lowering, SSA representation, and optimization passes.
 ---
 
-# IR and XIR Pipeline
+# XIR Pipeline
 
-Two IRs, both starting from AST (`src/ast/`), feeding into backend codegen:
-
-| | IR (Legacy) | XIR (Preferred) |
-|---|---|---|
-| **Location** | `src/ir/`, `include/luisa/ir/` | `src/xir/`, `include/luisa/xir/` |
-| **Impl** | Rust (`src/rust/`) | Pure C++ |
-| **Serialization** | `ast2json` → Rust IR | `xir2json`/`json2xir` (yyjson) |
-| **SSA** | Yes | Yes (mem2reg) |
-| **Status** | Maintained (compat) | Active development |
-| **Basic Blocks** | Yes | Yes |
+XIR is the native C++ intermediate representation between the AST and backend
+code generation. Its implementation lives in `src/xir/`, with public headers
+under `include/luisa/xir/`.
 
 ## Pipeline Flow
 
 ```
-DSL Tracing (src/dsl/) → AST (src/ast/)
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-              XIR (ast2xir)       IR (ast2ir → JSON → Rust FFI)
-                    │                   │
-                    └─────────┬─────────┘
-                              ▼
-                    Backend Codegen (src/backends/<name>/)
-                              │
-                              ▼
-                    GPU Execution (src/runtime/)
+DSL Tracing (src/dsl/) → AST (src/ast/) → XIR (ast2xir)
+                                              │
+                                              ▼
+                              Optimization / lowering passes
+                                              │
+                                              ▼
+                              Backend codegen or xir2ast
+                                              │
+                                              ▼
+                                      Runtime execution
 ```
-
-**Rust IR path**: `src/rust/luisa_compute_ir/` does autodiff, DCE, SSA, vectorize.
-**XIR path**: Pure C++ with `ast2xir` translator, `xir2ast` round-trip, and optimization passes.
-
-## AST → IR Translation (Legacy)
-
-**File**: `src/ir/ast2ir.cpp`
-
-```
-AST Function → to_json() → JSON string → Rust FFI → CArc<KernelModule/CallableModule>
-```
-
-FFI: `luisa_compute_ir_ast_json_to_ir_kernel()`, `..._callable()`, `..._type()`.
-
-Key IR classes (Rust, via C FFI): `KernelModule`, `CallableModule`, `Node`, `Instruction` (Local, Call, Phi, Loop, If, Switch, RayQuery, AdScope), `Type`, `BasicBlock`.
 
 ## AST → XIR Translation
 
@@ -260,10 +236,11 @@ mechanisms with separate contracts.
 
 **Headers**: `include/luisa/xir/metadata.h` plus `include/luisa/xir/metadata/{name,location,comment,curve_basis}.h`. Types: `NAME`, `LOCATION`, `COMMENT`, `CURVE_BASIS`. Applied via `MetadataListMixin`.
 
-## JSON Serialization / Translators
+## Serialization / Translators
 
-- **IR (legacy)**: `ast2json` → Rust IR, C API `luisa_compute_ir_ast_json_to_ir_*`
-- **XIR**: `src/xir/translators/xir2json.cpp`, `json2xir.cpp`, `xir2ast.cpp`, `xir2text.cpp` — yyjson-based module serialization and AST round-tripping, useful for cross-process transport and debugging
+`src/xir/translators/xir2json.cpp`, `json2xir.cpp`, `xir2ast.cpp`, and
+`xir2text.cpp` provide yyjson-based module serialization, text dumps, and AST
+round-tripping for transport, backend handoff, and debugging.
 
 ## Key Design Patterns
 

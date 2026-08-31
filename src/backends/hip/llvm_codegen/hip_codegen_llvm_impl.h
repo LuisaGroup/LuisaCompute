@@ -26,6 +26,7 @@
 #include <luisa/xir/instructions/ray_query.h>
 
 #include "hip_codegen_llvm.h"
+#include "hip_callable_abi.h"
 
 namespace luisa::compute::hip {
 
@@ -37,7 +38,6 @@ public:
     static constexpr auto amdgpu_address_space_shared = 3u;
     static constexpr auto amdgpu_address_space_constant = 4u;
     static constexpr auto amdgpu_address_space_local = 5u;
-
     struct LLVMTypeInfo {
         llvm::Type *mem_type;
         llvm::Type *reg_type;
@@ -71,7 +71,17 @@ public:
         llvm::Value *llvm_rt_stack_count{nullptr};
         llvm::Value *llvm_rt_stack_data{nullptr};
         llvm::Value *llvm_rq_state{nullptr};// Ray query per-thread state pointer (alloca)
+        // All function-local query objects share llvm_rq_state. This bit is
+        // therefore a property of the complete FunctionContext, never of an
+        // individual RayQueryPipelineInst lowered within it.
+        bool llvm_rq_state_uses_resumable_abi{false};
         llvm::DenseMap<const xir::Value *, llvm::Value *> local_values;
+        // A logical XIR block may lower to a single-entry/single-exit LLVM
+        // region (for example, a floating-point atomic RMW expands to a CAS
+        // loop). Branch targets use the region entry stored in local_values;
+        // PHI incoming edges must use the region exit stored here.
+        llvm::DenseMap<const xir::BasicBlock *, llvm::BasicBlock *>
+            llvm_exit_blocks;
         std::vector<const xir::PhiInst *> pending_phi_nodes;
 
         explicit FunctionContext(llvm::Function *f) noexcept;
@@ -92,11 +102,80 @@ public:
         bool uses_motion_blur = false;
         bool uses_static_trace = false;
         bool uses_motion_ray_query = false;
+        // A RayQueryPipelineInst is the semantic boundary produced by
+        // lower_ray_query_loop for Query::trace(): candidate handlers execute
+        // synchronously and the traversal state cannot escape between them.
+        // Explicit loop/dispatch/proceed instructions retain resumable query
+        // semantics and therefore disqualify the module-wide compact ABI.
+        bool uses_ray_query_pipeline = false;
+        bool uses_resumable_ray_query_control = false;
+        // A kernel-reachable device opacity write makes the packed HIPRT
+        // instance-node copy stale until the next scene build. Such kernels
+        // must retain exact per-candidate reads from CodegenInstance.
+        bool writes_instance_opacity = false;
+        // Hardware LDS traversal stacks are lane-local but not reentrant. A
+        // trace issued by a candidate handler would overwrite the suspended
+        // outer frontier, so such pipelines must retain the software path.
+        bool ray_query_pipeline_handler_uses_ray_tracing = false;
     };
 
     struct PrintInfo {
         const Type *type;
         uint32_t index;
+    };
+
+    // A synchronous RayQuery callback ABI is initially emitted as the product
+    // QueryIdentity x UserEnvironment. QueryIdentity is intrinsic traversal
+    // state and is transported separately by the native wrapper. Once every
+    // Callable body has been translated, unused fields can be projected from
+    // UserEnvironment exactly. Keep the construction sites here until that
+    // proof is available; the finalizer rewrites both producer stores and
+    // consumer loads to the same compact product type.
+    struct RayQueryPipelineContext {
+        uint32_t pipeline_index;
+        const xir::Function *parent_function;
+        llvm::AllocaInst *storage;
+        llvm::Value *generic_storage;
+        llvm::CallInst *trace_call;
+        llvm::Function *on_surface;
+        llvm::Function *on_procedural;
+        // True exactly when the parent function can observe query state after
+        // the synchronous pipeline.
+        bool post_state_observed;
+        // True when either handler observes committed state or the immutable
+        // world ray. An object-ray-only handler uses a second compact quotient;
+        // these observations require the full public query transaction.
+        bool full_candidate_state_observed;
+        // True when the XIR handler pair and the query's only observable
+        // post-state form a closest-hit reduction. This permits HIPRT to run
+        // the handlers as native intersection/filter callbacks and return one
+        // final hit, instead of exposing a resumable candidate frontier.
+        bool native_closest_reduction;
+        // True when one handler domain observes both the immutable world ray
+        // and the candidate-dependent object ray. The compact synchronous ABI
+        // has one ray field, so this observation product requires the exact
+        // resumable representation with two simultaneously live rays.
+        bool distinct_ray_states_required;
+        luisa::vector<llvm::StoreInst *> stores;
+        luisa::vector<llvm::LoadInst *> loads;
+        // The compact candidate transaction decodes the same projected user
+        // environment but constructs query identity locally. Index zero is
+        // therefore null; every other entry mirrors `loads`.
+        luisa::vector<llvm::LoadInst *> compact_loads;
+        // The object-ray quotient has an independent dispatcher but decodes
+        // the same projected environment. Track both consumer sets so the
+        // projection rewrites every load to the identical product type.
+        luisa::vector<llvm::LoadInst *> compact_object_ray_loads;
+    };
+
+    struct RayQueryPipelineProjectionInfo {
+        size_t maximum_context_bytes{0u};
+        size_t maximum_budget_constrained_context_bytes{0u};
+        size_t oversized_compact_handler_only_pipeline_count{0u};
+        luisa::vector<const xir::Function *>
+            exact_state_required_functions;
+        luisa::vector<const xir::Function *>
+            oversized_budget_constrained_state_functions;
     };
 
     static constexpr auto llvm_buffer_type_ptr_index = 0;
@@ -129,6 +208,13 @@ public:
     static constexpr auto llvm_accel_instance_type_flags_index = 4;
     static constexpr auto llvm_accel_instance_type_handle_index = 5;
     static constexpr auto llvm_accel_instance_type_motion_data_index = 6;
+    static constexpr auto llvm_accel_instance_visibility_mask_bits = 0xffu;
+    static constexpr auto llvm_accel_instance_packed_opacity_bit = 1u << 31u;
+    // HIPAccel::CodegenMetadata is a 16-byte prefix immediately before the
+    // bound CodegenInstance array. Keep this backend-private layout constant
+    // explicit on both sides of the generated-code ABI.
+    static constexpr auto llvm_accel_metadata_size = 16u;
+    static constexpr auto llvm_accel_metadata_opacity_may_be_present_offset = 0u;
 
     static constexpr auto llvm_ray_type_origin_index = 0;
     static constexpr auto llvm_ray_type_t_min_index = 1;
@@ -149,20 +235,31 @@ public:
     static constexpr auto llvm_committed_hit_type_hit_kind_index = 3;
     static constexpr auto llvm_committed_hit_type_t_index = 4;
 
-    // The first opaque word carries the private-address-space traversal-state
-    // pointer. Keeping the state with the query object is required when a
-    // lowered ray-query pipeline invokes outlined candidate handlers: those
-    // handlers otherwise have a different FunctionContext::llvm_rq_state.
-    static constexpr auto llvm_ray_query_type_state_index = 0;
-    static constexpr auto llvm_ray_query_type_ray_index = 1;
-    static constexpr auto llvm_ray_query_type_time_index = 2;
-    static constexpr auto llvm_ray_query_type_mask_index = 3;
-    static constexpr auto llvm_ray_query_type_flags_index = 4;
+    // A HIP RayQuery value is an opaque token whose complete semantics are the
+    // identity of its per-invocation traversal state. AMDGPU private pointers
+    // are 32-bit in the target data layout, so no wider source-layout surrogate
+    // is required inside generated LLVM.
+    static constexpr auto llvm_ray_query_state_address_bits = 32u;
 
     static constexpr auto llvm_ray_query_state_surface_terminated = 0;
     static constexpr auto llvm_ray_query_state_surface_candidate = 1;
     static constexpr auto llvm_ray_query_state_procedural_candidate = 2;
     static constexpr auto llvm_ray_query_state_custom_candidate = 3;
+
+    // Sound over-approximate observations made by synchronous candidate
+    // handler call graphs. These bits match the native wrapper ABI.
+    static constexpr auto llvm_ray_query_observes_committed_hit = 1u << 0u;
+    static constexpr auto llvm_ray_query_observes_world_ray = 1u << 1u;
+    static constexpr auto llvm_ray_query_observes_object_ray = 1u << 2u;
+    static constexpr auto llvm_ray_query_handler_observation_mask =
+        llvm_ray_query_observes_committed_hit |
+        llvm_ray_query_observes_world_ray |
+        llvm_ray_query_observes_object_ray;
+    // One trace argument carries two independent handler observations. The
+    // separation is semantic, not merely an optimization: a procedural object
+    // ray must not make an unrelated surface callback project that ray into
+    // the public query state.
+    static constexpr auto llvm_ray_query_procedural_observation_shift = 8u;
 
     static constexpr std::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa_ray_query_world_space_ray";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa_ray_query_procedural_candidate_hit";
@@ -201,6 +298,14 @@ public:
     static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_direction_y = "luisa_ray_query_ray_direction_y";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_direction_z = "luisa_ray_query_ray_direction_z";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_tmax = "luisa_ray_query_ray_tmax";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_origin_x = "luisa_ray_query_object_ray_origin_x";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_origin_y = "luisa_ray_query_object_ray_origin_y";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_origin_z = "luisa_ray_query_object_ray_origin_z";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_tmin = "luisa_ray_query_object_ray_tmin";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_direction_x = "luisa_ray_query_object_ray_direction_x";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_direction_y = "luisa_ray_query_object_ray_direction_y";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_direction_z = "luisa_ray_query_object_ray_direction_z";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_tmax = "luisa_ray_query_object_ray_tmax";
 
 private:
     HIPCodegenLLVMConfig _config;
@@ -210,7 +315,18 @@ private:
     std::unique_ptr<llvm::Module> _llvm_module;
     bool _supports_hardware_rt_stack{false};
     bool _uses_hardware_rt_stack{false};
+    bool _uses_synchronous_ray_query_pipeline{false};
+    bool _uses_mixed_ray_query_pipeline{false};
+    bool _uses_iterative_synchronous_ray_query_pipeline{false};
+    bool _uses_resumable_hardware_ray_query_pipeline{false};
+    bool _uses_native_closest_ray_query_pipeline{false};
+    bool _uses_native_effect_only_ray_query_pipeline{false};
+    bool _uses_static_global_rt_stack{false};
     bool _requires_global_rt_stack{false};
+    llvm::DenseSet<const xir::RayQueryPipelineInst *>
+        _native_closest_reduction_pipelines;
+    luisa::vector<const xir::Function *>
+        _retry_with_resumable_ray_query_state_functions;
 
     RayTracingAnalysis _rt_analysis;
 
@@ -232,6 +348,21 @@ private:
     luisa::unordered_map<const xir::PrintInst *, PrintInfo> _print_info;
     luisa::vector<std::pair<luisa::string, const Type *>> _print_formats;
     size_t _ray_query_pipeline_count{0u};
+    llvm::Function *_llvm_ray_query_pipeline_dispatch{nullptr};
+    llvm::SwitchInst *_llvm_ray_query_pipeline_switch{nullptr};
+    llvm::Function *_llvm_ray_query_pipeline_compact_dispatch{nullptr};
+    llvm::SwitchInst *_llvm_ray_query_pipeline_compact_switch{nullptr};
+    llvm::Value *_llvm_ray_query_pipeline_compact_query{nullptr};
+    llvm::BasicBlock *_llvm_ray_query_pipeline_compact_finish{nullptr};
+    llvm::Function *_llvm_ray_query_pipeline_compact_object_ray_dispatch{
+        nullptr};
+    llvm::SwitchInst *_llvm_ray_query_pipeline_compact_object_ray_switch{
+        nullptr};
+    llvm::Value *_llvm_ray_query_pipeline_compact_object_ray_query{nullptr};
+    llvm::BasicBlock *_llvm_ray_query_pipeline_compact_object_ray_finish{
+        nullptr};
+    luisa::vector<RayQueryPipelineContext>
+        _llvm_ray_query_pipeline_contexts;
 
     template<typename T = llvm::Value>
         requires std::derived_from<T, llvm::Value>
@@ -272,10 +403,17 @@ private:
     void _analyze_ray_tracing_in_function(
         const xir::Function *function,
         llvm::DenseSet<const xir::Function *> &visited) noexcept;
+    [[nodiscard]] static bool
+    _ray_query_pipeline_admits_native_closest_reduction(
+        const xir::RayQueryPipelineInst *pipeline) noexcept;
+    [[nodiscard]] bool _function_uses_resumable_ray_query_state(
+        const xir::Function *function) const noexcept;
     void _link_native_include() noexcept;
     void _specialize_oclc_options() noexcept;
     void _link_ockl_if_needed() noexcept;
     void _postprocess_rt_kernel() noexcept;
+    [[nodiscard]] RayQueryPipelineProjectionInfo
+    _finalize_ray_query_pipeline_contexts() noexcept;
     void _run_optimization_passes() noexcept;
     void _dump_module(const std::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_code() const noexcept;
@@ -432,6 +570,7 @@ private:
     void _translate_ray_query_pipeline_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryPipelineInst *inst) noexcept;
     [[nodiscard]] llvm::Value *_get_ray_query_state_pointer(IB &b, const FunctionContext &func_ctx, const xir::Value *query_object) noexcept;
     [[nodiscard]] llvm::Value *_advance_ray_query(IB &b, llvm::Value *llvm_state_ptr) noexcept;
+    [[nodiscard]] llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::Value *llvm_state_ptr, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args, bool use_pipeline_abi) noexcept;
     [[nodiscard]] llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::Value *llvm_state_ptr, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
     [[nodiscard]] llvm::Value *_call_ray_query_intrinsic(IB &b, FunctionContext &func_ctx, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
     [[nodiscard]] static llvm::Value *_create_opaque_float_barrier(IB &b, llvm::Value *val, const llvm::Twine &name) noexcept;
@@ -453,6 +592,13 @@ public:
     [[nodiscard]] luisa::string generate(const xir::Module &xir_module) noexcept;
     [[nodiscard]] bool requires_global_rt_stack() const noexcept {
         return _requires_global_rt_stack;
+    }
+    [[nodiscard]] bool uses_static_global_rt_stack() const noexcept {
+        return _uses_static_global_rt_stack;
+    }
+    [[nodiscard]] const luisa::vector<const xir::Function *> &
+    retry_with_resumable_ray_query_state_functions() const noexcept {
+        return _retry_with_resumable_ray_query_state_functions;
     }
     [[nodiscard]] luisa::vector<std::pair<luisa::string, luisa::string>>
     take_print_formats() && noexcept;

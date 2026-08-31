@@ -353,6 +353,9 @@ static auto test_type_numeric_boundaries_registration = [] {
             "texture<65538,float>",
             "coopvec_ref<4,65536>",
             "struct<0,uint>",
+            // Two-byte aggregate alignment is intentionally outside the
+            // cross-backend/DXC-compatible structure ABI.
+            "struct<2,half,ushort>",
             "struct<65536,uint>",
             "array<void,1>",
             "vector<void,2>",
@@ -385,7 +388,94 @@ static auto test_type_numeric_boundaries_registration = [] {
     return 0;
 }();
 
+static auto test_type_inline_tag_registration = [] {
+    "interned_type_tag_and_tag_only_predicates_agree"_test = [] {
+        struct Case {
+            const Type *type;
+            Type::Tag tag;
+            bool scalar;
+            bool arithmetic;
+            bool basic;
+            bool resource;
+        };
+        const std::array cases{
+            Case{Type::from("bool"), Type::Tag::BOOL, true, false, true, false},
+            Case{Type::from("byte"), Type::Tag::INT8, true, true, true, false},
+            Case{Type::from("ubyte"), Type::Tag::UINT8, true, true, true, false},
+            Case{Type::from("short"), Type::Tag::INT16, true, true, true, false},
+            Case{Type::from("ushort"), Type::Tag::UINT16, true, true, true, false},
+            Case{Type::from("int"), Type::Tag::INT32, true, true, true, false},
+            Case{Type::from("uint"), Type::Tag::UINT32, true, true, true, false},
+            Case{Type::from("long"), Type::Tag::INT64, true, true, true, false},
+            Case{Type::from("ulong"), Type::Tag::UINT64, true, true, true, false},
+            Case{Type::from("half"), Type::Tag::FLOAT16, true, true, true, false},
+            Case{Type::from("float"), Type::Tag::FLOAT32, true, true, true, false},
+            Case{Type::from("double"), Type::Tag::FLOAT64, true, true, true, false},
+            Case{Type::from("float8e4m3"), Type::Tag::FLOAT8_E4M3, true, true, true, false},
+            Case{Type::from("float8e5m2"), Type::Tag::FLOAT8_E5M2, true, true, true, false},
+            Case{Type::from("vector<float,3>"), Type::Tag::VECTOR, false, false, true, false},
+            Case{Type::from("matrix<3>"), Type::Tag::MATRIX, false, false, true, false},
+            Case{Type::from("array<float,2>"), Type::Tag::ARRAY, false, false, false, false},
+            Case{Type::from("struct<4,float,int>"), Type::Tag::STRUCTURE, false, false, false, false},
+            Case{Type::from("buffer<float>"), Type::Tag::BUFFER, false, false, false, true},
+            Case{Type::from("texture<2,float>"), Type::Tag::TEXTURE, false, false, false, true},
+            Case{Type::from("bindless_array"), Type::Tag::BINDLESS_ARRAY, false, false, false, true},
+            Case{Type::from("accel"), Type::Tag::ACCEL, false, false, false, true},
+            Case{Type::from("coopvec<float,4>"), Type::Tag::COOPERATIVE_VECTOR, false, false, false, false},
+            Case{Type::cooperative_vector_ref(CoopRefVecType::FLOAT32, 4u), Type::Tag::COOPERATIVE_VECTOR_REF, false, false, false, false},
+            Case{Type::cooperative_matrix_ref(CoopRefVecType::FLOAT32, 4u, 4u), Type::Tag::COOPERATIVE_MATRIX_REF, false, false, false, false},
+            Case{Type::custom("TestInlineTypeTag"), Type::Tag::CUSTOM, false, false, false, false},
+        };
+
+        for (auto &&c : cases) {
+            expect(c.type != nullptr);
+            expect(c.type->tag() == c.tag);
+            expect(c.type->is_scalar() == c.scalar);
+            expect(c.type->is_arithmetic() == c.arithmetic);
+            expect(c.type->is_basic() == c.basic);
+            expect(c.type->is_resource() == c.resource);
+
+            size_t exact_match_count = 0u;
+            auto exact_tag = Type::Tag::BOOL;
+            auto match = [&](bool predicate, Type::Tag tag) noexcept {
+                if (predicate) {
+                    exact_match_count++;
+                    exact_tag = tag;
+                }
+            };
+            match(c.type->is_bool(), Type::Tag::BOOL);
+            match(c.type->is_int8(), Type::Tag::INT8);
+            match(c.type->is_uint8(), Type::Tag::UINT8);
+            match(c.type->is_int16(), Type::Tag::INT16);
+            match(c.type->is_uint16(), Type::Tag::UINT16);
+            match(c.type->is_int32(), Type::Tag::INT32);
+            match(c.type->is_uint32(), Type::Tag::UINT32);
+            match(c.type->is_int64(), Type::Tag::INT64);
+            match(c.type->is_uint64(), Type::Tag::UINT64);
+            match(c.type->is_float16(), Type::Tag::FLOAT16);
+            match(c.type->is_float32(), Type::Tag::FLOAT32);
+            match(c.type->is_float64(), Type::Tag::FLOAT64);
+            match(c.type->is_float8_e4m3(), Type::Tag::FLOAT8_E4M3);
+            match(c.type->is_float8_e5m2(), Type::Tag::FLOAT8_E5M2);
+            match(c.type->is_vector(), Type::Tag::VECTOR);
+            match(c.type->is_matrix(), Type::Tag::MATRIX);
+            match(c.type->is_array(), Type::Tag::ARRAY);
+            match(c.type->is_structure(), Type::Tag::STRUCTURE);
+            match(c.type->is_buffer(), Type::Tag::BUFFER);
+            match(c.type->is_texture(), Type::Tag::TEXTURE);
+            match(c.type->is_bindless_array(), Type::Tag::BINDLESS_ARRAY);
+            match(c.type->is_accel(), Type::Tag::ACCEL);
+            match(c.type->is_cooperative_vector(), Type::Tag::COOPERATIVE_VECTOR);
+            match(c.type->is_cooperative_vector_ref(), Type::Tag::COOPERATIVE_VECTOR_REF);
+            match(c.type->is_cooperative_matrix_ref(), Type::Tag::COOPERATIVE_MATRIX_REF);
+            match(c.type->is_custom(), Type::Tag::CUSTOM);
+            expect(exact_match_count == 1u);
+            expect(exact_tag == c.tag);
+        }
+    };
+    return 0;
+}();
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
-
 }

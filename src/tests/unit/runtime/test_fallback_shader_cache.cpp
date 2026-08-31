@@ -1,5 +1,7 @@
 #include "ut/ut.hpp"
 
+#include <array>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -130,7 +132,88 @@ public:
     auto stream = device.create_stream();
     auto result = 0;
     stream << shader(output, value).dispatch(1u)
-           << output.copy_to(&result)
+           << output.copy_to(luisa::span{&result, 1})
+           << synchronize();
+    return result;
+}
+
+[[nodiscard]] std::array<uint4, 4u>
+run_boolean_comparison_kernel(const char *program_path) noexcept {
+    Context context{program_path};
+    auto device = context.create_device("fallback");
+    auto output = device.create_buffer<uint4>(4u);
+    Kernel1D kernel = [](BufferUInt4 result) noexcept {
+        const auto index = dispatch_x();
+        const auto lhs = (index & 1u) != 0u;
+        const auto rhs = index >= 2u;
+        const auto scalar_equal = lhs == rhs;
+        const auto scalar_not_equal = lhs != rhs;
+        const auto vector_equal =
+            make_bool2(lhs, !lhs) == make_bool2(rhs, !rhs);
+        const auto vector_not_equal =
+            make_bool2(lhs, !lhs) != make_bool2(rhs, !rhs);
+        const auto pack = [](Bool2 value) noexcept {
+            return select(0u, 1u, value.x) |
+                   (select(0u, 1u, value.y) << 1u);
+        };
+        result->write(index,
+                      make_uint4(select(0u, 1u, scalar_equal),
+                                 select(0u, 1u, scalar_not_equal),
+                                 pack(vector_equal),
+                                 pack(vector_not_equal)));
+    };
+    auto shader = device.compile(
+        kernel, ShaderOption{.enable_cache = false});
+    auto stream = device.create_stream();
+    std::array<uint4, 4u> result{};
+    stream << shader(output).dispatch(4u)
+           << output.copy_to(result.data())
+           << synchronize();
+    return result;
+}
+
+[[nodiscard]] std::array<float4, 4u>
+run_minimal_codegen_vector_kernel(const char *program_path) noexcept {
+    constexpr auto lane_count = 1024u;
+    Context context{program_path};
+    auto device = context.create_device("fallback");
+    auto input = device.create_buffer<float>(4u * lane_count);
+    auto output = device.create_buffer<float4>(4u);
+    Kernel1D kernel = [](BufferFloat values, BufferFloat4 result) noexcept {
+        // Keep scalar SSA values live until they are assembled into vectors.
+        // This is the reduced form of the large material-dispatch kernel that
+        // exposed FastISel folding four-byte-aligned spills into aligned
+        // vector loads. The forced optimization limit below exercises the
+        // same O0-IR/O1-machine policy without a production-sized shader.
+        constexpr auto kernel_lane_count = 1024u;
+        const auto index = dispatch_x();
+        luisa::vector<Float> lanes;
+        lanes.reserve(kernel_lane_count);
+        for (auto lane = 0u; lane < kernel_lane_count; ++lane) {
+            lanes.emplace_back(values.read(index * kernel_lane_count + lane));
+        }
+        Float4 sum = make_float4(0.0f);
+        for (auto group = 0u; group < kernel_lane_count / 4u; ++group) {
+            const auto lane = group * 4u;
+            sum += make_float4(lanes[lane], lanes[lane + 1u],
+                               lanes[lane + 2u], lanes[lane + 3u]);
+        }
+        result->write(index, sum);
+    };
+    auto shader = device.compile(
+        kernel, ShaderOption{.enable_cache = false});
+    auto stream = device.create_stream();
+    std::array<float, 4u * lane_count> values{};
+    for (auto index = 0u; index < 4u; ++index) {
+        for (auto lane = 0u; lane < lane_count; ++lane) {
+            values[index * lane_count + lane] =
+                static_cast<float>(index * 1000u + lane);
+        }
+    }
+    std::array<float4, 4u> result{};
+    stream << input.copy_from(values.data())
+           << shader(input, output).dispatch(4u)
+           << output.copy_to(result.data())
            << synchronize();
     return result;
 }
@@ -140,6 +223,12 @@ public:
 int main(int argc, char *argv[]) {
     auto program_path =
         argc > 0 && argv != nullptr ? argv[0] : "";
+    // This must be set before the first fallback backend module is loaded.
+#if defined(_WIN32)
+    _putenv_s("LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT", "1");
+#else
+    setenv("LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT", "1", 1);
+#endif
     MemoryBinaryIO binary_io;
 
     "fallback object cache reuses code across devices and keeps uniforms dynamic"_test =
@@ -175,4 +264,24 @@ int main(int argc, char *argv[]) {
                 binary_io.cache_write_count ==
                 writes_before_disabled);
         };
+
+    "fallback lowers scalar and vector boolean equality"_test = [&] {
+        const auto actual = run_boolean_comparison_kernel(program_path);
+        constexpr std::array expected{
+            make_uint4(1u, 0u, 3u, 0u),
+            make_uint4(0u, 1u, 0u, 3u),
+            make_uint4(0u, 1u, 0u, 3u),
+            make_uint4(1u, 0u, 3u, 0u)};
+        expect(std::memcmp(actual.data(), expected.data(), sizeof(expected)) == 0);
+    };
+
+    "fallback minimal codegen preserves vector spill alignment"_test = [&] {
+        const auto actual = run_minimal_codegen_vector_kernel(program_path);
+        constexpr std::array expected{
+            make_float4(130560.0f, 130816.0f, 131072.0f, 131328.0f),
+            make_float4(386560.0f, 386816.0f, 387072.0f, 387328.0f),
+            make_float4(642560.0f, 642816.0f, 643072.0f, 643328.0f),
+            make_float4(898560.0f, 898816.0f, 899072.0f, 899328.0f)};
+        expect(std::memcmp(actual.data(), expected.data(), sizeof(expected)) == 0);
+    };
 }

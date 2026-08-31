@@ -20,14 +20,14 @@ All test source files live in `src/tests/` under one of the directories below. N
 | `unit/runtime/` | buffers, textures, streams, copy, atomics, warp operations, printer, sampler, pinned memory, mipmap, bindless, matrix multiply, softmax, buffer/byte IO, external buffers, FP4/FP8 quantization, etc. | Yes |
 | `unit/xir/` | XIR builder, module, translators, and pass tests (early-cse, licm, simplify-cfg, restructure-cfg, etc.) | No (CTest-registered) |
 | `integration/runtime/` | bindless, curves, RTX, motion blur, AOT, indirect, denoiser, dstorage, present/swapchain, select device, runtime, texture3d, native include, procedural callable, device debugger, mesh tests, transient resource, plus backend-specific tests (CUDA graph, raster, memory compact, HIPRT) | Yes |
-| `integration/ir/` | autodiff, AST↔IR roundtrip, kernel-IR, XIR↔AST roundtrip (gated by `LUISA_COMPUTE_ENABLE_RUST`/XIR options) | Yes |
+| `integration/xir/` | XIR↔AST roundtrip integration coverage | Yes |
 | `common/` | shared headers: `test_device.h`, `ut/` (Boost.UT), `cornell_box.h`, `tinyexr.h`, `tiny_obj_loader.h`, `projection.hpp`, `spectrum_data.h`, `reference_image.h` | — |
 | `python/` | Python frontend tests (run directly with `python src/tests/python/test_xxx.py [backend]`) | — |
 | `cxx_shaders/` | `clangcxx` source shaders consumed by tests/extension examples | — |
 
 Include path setup (in both CMakeLists.txt and xmake.lua) exposes `src/tests/` and `src/tests/common/`, so test sources just write `#include "test_device.h"`, `#include "ut/ut.hpp"`, `#include "reference_image.h"`, `#include "cornell_box.h"`, etc. Do **not** use `../../` relative paths and do **not** wrap includes in `__has_include` guards — `ut/ut.hpp` and the `common/` headers are vendored and always present.
 
-Some integration and XIR/IR tests are only built when the corresponding option is enabled (e.g. `LUISA_COMPUTE_ENABLE_GUI`, `LUISA_COMPUTE_ENABLE_RUST`, `LUISA_COMPUTE_ENABLE_XIR`, `lc_enable_xir`, `lc_enable_ir`).
+Some integration and XIR tests are only built when the corresponding option is enabled (e.g. `LUISA_COMPUTE_ENABLE_GUI`, `LUISA_COMPUTE_ENABLE_XIR`, and `lc_enable_xir`).
 
 ## Adding a Test
 
@@ -78,7 +78,7 @@ luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver
 
 **Do NOT mirror**: GUI toolkit demos (`swapchain*`, `imgui`, `mnist`, Qt, wxWidgets, `win_hdr`) and extension/interop demos. Correctness can't be auto-checked for interactive windows.
 
-**Mirrored set** (rendering + simulation + headless compute): all `example_path_tracing*` (including `example_path_tracing_ir` when Rust IR is enabled, and `example_path_tracing_xir2ast` when XIR is enabled), `example_sdf_renderer[_ir]` (IR variant gated by Rust), `example_sdf_renderer_xir2ast` (gated by XIR), `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_procedural`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, all simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`, `example_multi_head_attention`.
+**Mirrored set** (rendering + simulation + headless compute): all `example_path_tracing*` (including `example_path_tracing_xir2ast` when XIR is enabled), `example_sdf_renderer` and `example_sdf_renderer_xir2ast` (the latter gated by XIR), `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_procedural`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, all simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`, `example_multi_head_attention`.
 
 GUI toolkit demos (`imgui`, `swapchain*`, `win_hdr`, Qt, wxWidgets), extension/interop demos, and `example_bindless_mip` are **not** mirrored because they are interactive or lack deterministic offline validation.
 

@@ -18,7 +18,6 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/functional.h>
 #include <luisa/core/magic_enum.h>
-#include <luisa/rust/api_types.h>
 
 namespace luisa {
 
@@ -97,15 +96,6 @@ LUISA_CORE_API void default_logger_add_sink(spdlog::sink_ptr sink) noexcept {
     if (sink) {
         LOGGER.sinks().emplace_back(std::move(sink));
     }
-}
-
-LUISA_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLoggerMessage)) noexcept {
-    return std::make_shared<luisa::detail::SinkWithCallback<std::mutex>>([=](const char *level, const char *msg) {
-        LCLoggerMessage m{};
-        m.level = level;
-        m.message = msg;
-        callback(m);
-    });
 }
 
 LUISA_CORE_API spdlog::sink_ptr create_sink_with_callback(luisa::function<void(const char *level, const char *message)> callback) noexcept {

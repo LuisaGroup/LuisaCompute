@@ -8,7 +8,12 @@
 #include <fstream>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/break.h>
+#include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/unreachable.h>
@@ -30,9 +35,10 @@
 #include <luisa/xir/passes/licm.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
-#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/reassociate.h>
@@ -50,6 +56,268 @@
 #include <luisa/xir/verifier.h>
 
 namespace luisa::compute::spirv {
+
+SpirvOneShotLoopCanonicalizationInfo
+canonicalize_spirv_codegen_one_shot_loops(
+    xir::Module *module) noexcept {
+    LUISA_ASSERT(module != nullptr,
+                 "SPIR-V one-shot loop canonicalization requires a module.");
+    SpirvOneShotLoopCanonicalizationInfo info;
+
+    struct Candidate {
+        xir::BasicBlock *owner{nullptr};
+        xir::Instruction *loop{nullptr};
+        xir::BasicBlock *header{nullptr};
+        xir::BasicBlock *body{nullptr};
+        xir::BasicBlock *continue_target{nullptr};
+        xir::BasicBlock *merge{nullptr};
+        luisa::unordered_set<xir::BasicBlock *> region;
+        bool simple{false};
+    };
+    luisa::vector<Candidate> candidates;
+
+    for (auto *function : module->function_list()) {
+        auto *definition = function->definition();
+        if (definition == nullptr ||
+            definition->body_block() == nullptr) {
+            continue;
+        }
+        luisa::unordered_set<xir::BasicBlock *> owned;
+        for (auto *block : definition->basic_blocks()) {
+            owned.emplace(block);
+        }
+
+        // Reachability is the least fixed point of encoded terminator edges.
+        // Structured body/update identities that have no executable incoming
+        // edge are deliberately absent; that distinction is exactly what the
+        // physical SPIR-V boundary validator observes.
+        luisa::unordered_set<xir::BasicBlock *> reachable;
+        luisa::vector<xir::BasicBlock *> reachable_work;
+        reachable.emplace(definition->body_block());
+        reachable_work.emplace_back(definition->body_block());
+        while (!reachable_work.empty()) {
+            auto *block = reachable_work.back();
+            reachable_work.pop_back();
+            LUISA_ASSERT(block->is_terminated(),
+                         "SPIR-V one-shot analysis found an unterminated "
+                         "reachable block.");
+            block->traverse_successors(
+                false, [&](xir::BasicBlock *successor) noexcept {
+                    LUISA_ASSERT(
+                        owned.contains(successor),
+                        "SPIR-V one-shot analysis escaped its function.");
+                    if (reachable.emplace(successor).second) {
+                        reachable_work.emplace_back(successor);
+                    }
+                });
+        }
+
+        for (auto *owner : definition->basic_blocks()) {
+            if (!reachable.contains(owner) ||
+                !owner->is_terminated()) {
+                continue;
+            }
+            auto *terminator = owner->terminator();
+            Candidate candidate;
+            candidate.owner = owner;
+            candidate.loop = terminator;
+            if (terminator->isa<xir::LoopInst>()) {
+                auto *loop = static_cast<xir::LoopInst *>(terminator);
+                candidate.header = loop->prepare_block();
+                candidate.body = loop->body_block();
+                candidate.continue_target = loop->update_block();
+                candidate.merge = loop->merge_block();
+            } else if (terminator->isa<xir::SimpleLoopInst>()) {
+                auto *loop =
+                    static_cast<xir::SimpleLoopInst *>(terminator);
+                candidate.header = loop->body_block();
+                candidate.body = candidate.header;
+                candidate.continue_target = candidate.header;
+                candidate.merge = loop->merge_block();
+                candidate.simple = true;
+            } else {
+                continue;
+            }
+            if (!owned.contains(candidate.header) ||
+                !owned.contains(candidate.continue_target) ||
+                !owned.contains(candidate.merge) ||
+                candidate.header == candidate.merge) {
+                continue;
+            }
+
+            // Let G=(V,E) be the executable all-edge CFG reachable from the
+            // loop header before crossing its merge. A second iteration exists
+            // iff E contains an edge from V back to the header. This is an
+            // exact finite graph property: the visited set proves termination,
+            // and no condition folding or path guess enters the decision.
+            auto has_backedge = false;
+            auto malformed = false;
+            luisa::vector<xir::BasicBlock *> work;
+            candidate.region.emplace(candidate.header);
+            work.emplace_back(candidate.header);
+            while (!work.empty() && !has_backedge && !malformed) {
+                auto *block = work.back();
+                work.pop_back();
+                if (!block->is_terminated()) {
+                    malformed = true;
+                    break;
+                }
+                block->traverse_successors(
+                    false, [&](xir::BasicBlock *successor) noexcept {
+                        if (has_backedge || malformed ||
+                            successor == candidate.merge) {
+                            return;
+                        }
+                        if (!owned.contains(successor)) {
+                            malformed = true;
+                            return;
+                        }
+                        if (successor == candidate.header) {
+                            has_backedge = true;
+                            return;
+                        }
+                        if (candidate.region.emplace(successor).second) {
+                            work.emplace_back(successor);
+                        }
+                    });
+            }
+            if (has_backedge || malformed) { continue; }
+
+            // Every executable entry into the region must be either the loop
+            // owner's edge to the header or an edge whose source is already in
+            // the region. This is the exact single-entry predicate for the
+            // subgraph being rewritten. Checking only the header is
+            // insufficient: an external edge into an interior Break/Continue
+            // block would make removing loop ownership observable on that
+            // second path.
+            auto has_external_entry = false;
+            for (auto *region_block : candidate.region) {
+                region_block->traverse_predecessors(
+                    false, [&](xir::BasicBlock *predecessor) noexcept {
+                        if (has_external_entry ||
+                            !reachable.contains(predecessor)) {
+                            return;
+                        }
+                        auto owner_entry =
+                            region_block == candidate.header &&
+                            predecessor == candidate.owner;
+                        if (!owner_entry &&
+                            !candidate.region.contains(predecessor)) {
+                            has_external_entry = true;
+                        }
+                    });
+                if (has_external_entry) { break; }
+            }
+            if (has_external_entry) { continue; }
+            candidates.emplace_back(std::move(candidate));
+        }
+    }
+
+    if (candidates.empty()) { return info; }
+
+    if (auto trace = std::getenv("LUISA_XIR_TRACE_PASSES");
+        trace != nullptr && luisa::string_view{trace} == "1") {
+        for (auto &&candidate : candidates) {
+            auto *definition = candidate.owner->parent_function();
+            auto ordinal = [&](xir::BasicBlock *candidate_block) noexcept {
+                auto index = size_t{0u};
+                for (auto *owned : definition->basic_blocks()) {
+                    if (owned == candidate_block) { return index; }
+                    ++index;
+                }
+                return SIZE_MAX;
+            };
+            auto function_index = size_t{0u};
+            for (auto *function : module->function_list()) {
+                if (function->definition() == definition) { break; }
+                ++function_index;
+            }
+            LUISA_VERBOSE_WITH_LOCATION(
+                "[spirv-one-shot-loop] function={}, kind={}, owner={}, "
+                "header={}, body={}, continue={}, merge={}, region_blocks={}.",
+                function_index, candidate.simple ? "simple" : "loop",
+                ordinal(candidate.owner), ordinal(candidate.header),
+                ordinal(candidate.body),
+                ordinal(candidate.continue_target), ordinal(candidate.merge),
+                candidate.region.size());
+            for (auto *block : candidate.region) {
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "[spirv-one-shot-loop] region block={}, term={}.",
+                    ordinal(block),
+                    xir::to_string(
+                        block->terminator()->derived_instruction_tag()));
+                block->traverse_successors(
+                    false, [&](xir::BasicBlock *successor) noexcept {
+                        LUISA_VERBOSE_WITH_LOCATION(
+                            "[spirv-one-shot-loop] edge {} -> {}.",
+                            ordinal(block), ordinal(successor));
+                    });
+            }
+        }
+    }
+
+    auto replace_with_branch = [](
+                                   xir::BasicBlock *block,
+                                   xir::BasicBlock *target) noexcept {
+        auto removed = block->terminator()->remove_self();
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(block);
+        auto *replacement = builder.br(target);
+        for (auto *metadata : removed->metadata_list()) {
+            replacement->metadata_list().push_front(
+                metadata->clone());
+        }
+    };
+    for (auto &candidate : candidates) {
+        for (auto *block : candidate.region) {
+            if (!block->is_terminated()) { continue; }
+            auto *terminator = block->terminator();
+            if (terminator->isa<xir::BreakInst>() &&
+                static_cast<xir::BreakInst *>(terminator)
+                        ->target_block() == candidate.merge) {
+                replace_with_branch(block, candidate.merge);
+                ++info.rewritten_break_count;
+                continue;
+            }
+            if (terminator->isa<xir::ContinueInst>()) {
+                auto *target =
+                    static_cast<xir::ContinueInst *>(terminator)
+                        ->target_block();
+                if (target == candidate.continue_target ||
+                    target == candidate.header) {
+                    replace_with_branch(block, target);
+                    ++info.rewritten_continue_count;
+                }
+            }
+        }
+        LUISA_ASSERT(candidate.owner->terminator() == candidate.loop,
+                     "Overlapping one-shot loop rewrites changed an owner "
+                     "before its canonicalization.");
+        replace_with_branch(candidate.owner, candidate.header);
+        if (candidate.simple) {
+            ++info.lowered_simple_loop_count;
+        } else {
+            ++info.lowered_loop_count;
+        }
+    }
+
+    // Removing Loop ownership exposes any prepare conditional as ordinary
+    // CFG. Restructure exactly once for the whole changed module. The pass is
+    // atomic and verifies only its complete input/output boundaries by
+    // default; a failed proof never reaches SPIR-V emission.
+    auto restructure =
+        xir::restructure_cfg_pass_run_on_module(module);
+    if (!restructure.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "SPIR-V one-shot loop canonicalization could not restore "
+            "structured control flow ({} raw branch(es), {} invalid "
+            "construct(s), {} irreducible region(s)).",
+            restructure.unstructured_branch_count,
+            restructure.invalid_construct_count,
+            restructure.irreducible_region_count);
+    }
+    return info;
+}
 
 SpirvInactivePayloadCleanupInfo
 clear_spirv_codegen_inactive_block_payloads(xir::Module *module) noexcept {
@@ -171,6 +439,16 @@ clear_spirv_codegen_inactive_block_payloads(xir::Module *module) noexcept {
 xir::PassPipeline
 create_spirv_codegen_post_restructure_pipeline() noexcept {
     xir::PassPipeline pipeline;
+    pipeline.add("canonicalize-spirv-one-shot-loops", [](
+                                                            xir::Module *m,
+                                                            xir::PassReport &r) {
+        auto i = canonicalize_spirv_codegen_one_shot_loops(m);
+        r.set("lowered_loop", i.lowered_loop_count);
+        r.set("lowered_simple_loop", i.lowered_simple_loop_count);
+        r.set("rewritten_break", i.rewritten_break_count);
+        r.set("rewritten_continue", i.rewritten_continue_count);
+        return i.changed();
+    });
     pipeline.add("clear-spirv-inactive-payloads", [](xir::Module *m,
                                                      xir::PassReport &r) {
         auto i = clear_spirv_codegen_inactive_block_payloads(m);
@@ -363,10 +641,21 @@ void verify_xir_or_error(
     return pipeline;
 }
 
-void add_lower_ray_query_loop_to_loop(xir::PassPipeline &pipeline) noexcept {
-    pipeline.add("lower-ray-query-loop-to-loop", [](xir::Module *m,
-                                                    xir::PassReport &r) {
-        auto i = xir::lower_ray_query_loop_to_loop_pass_run_on_module(m, &r);
+void add_lower_ray_query_to_loop(xir::PassPipeline &pipeline) noexcept {
+    pipeline.add("reconstruct-ray-query-loop", [](xir::Module *m,
+                                                  xir::PassReport &r) {
+        auto i = xir::reconstruct_ray_query_loop_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "SPIR-V XIR legalization rejected {} malformed explicit "
+                "ray-query loop(s).",
+                i.error_count);
+        }
+        return i.changed();
+    });
+    pipeline.add("lower-ray-query-to-loop", [](xir::Module *m,
+                                               xir::PassReport &r) {
+        auto i = xir::lower_ray_query_to_loop_pass_run_on_module(m, &r);
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "SPIR-V XIR legalization rejected {} ray-query loop(s).",
@@ -408,10 +697,126 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                            i.destructured_blocking_function_count);
                      r.set("destructured_blocking_switch",
                            i.destructured_switch_count);
+                     r.set("pruned_unreachable_callable",
+                           i.pruned_unreachable_callable_count);
                      r.set("inlined_call",
                            i.inline_info.inlined_call_count);
+                     r.set(
+                         "consumed_call_site_diagnostic_metadata",
+                         i.inline_info
+                             .consumed_call_site_diagnostic_metadata_count);
+                     r.set("skipped_structured_call",
+                           i.inline_info.skipped_structured_call_count);
+                     r.set("skipped_constrained_call",
+                           i.inline_info.skipped_constrained_call_count);
+                     r.set("skipped_metadata_call",
+                           i.inline_info.skipped_metadata_call_count);
+                     r.set("skipped_declaration_call",
+                           i.inline_info.skipped_declaration_call_count);
+                     r.set("rejected_malformed_call",
+                           i.inline_info.rejected_malformed_call_count);
+                     r.set("skipped_recursive_callable",
+                           i.inline_info
+                               .skipped_recursive_callable_count);
                      r.set("remaining_pointer_call",
                            i.remaining_pointer_call_count);
+                     r.set("argument_usage_analysis",
+                           i.argument_usage_analysis_count);
+                     r.set("indexed_call_site",
+                           i.indexed_call_site_count);
+                     r.set("argument_usage_structural_closure",
+                           i.argument_usage_structural_closure_count);
+                     r.set("argument_usage_instruction_scan",
+                           i.argument_usage_instruction_scan_count);
+                     r.set("argument_usage_call_dependency",
+                           i.argument_usage_call_dependency_count);
+                     r.set("argument_usage_worklist_pop",
+                           i.argument_usage_worklist_pop_count);
+                     r.set("argument_usage_dependency_visit",
+                           i.argument_usage_dependency_visit_count);
+                     r.set("inline_summary_function",
+                           i.inline_info.call_site_summary_function_count);
+                     r.set(
+                         "inline_summary_instruction_scan",
+                         i.inline_info
+                             .call_site_summary_instruction_scan_count);
+                     r.set("inline_cached_apply",
+                           i.inline_info.call_site_cached_apply_count);
+                     r.set(
+                         "inline_revalidated_apply",
+                         i.inline_info
+                             .call_site_revalidated_apply_count);
+                     r.set(
+                         "inline_clone_layout_function",
+                         i.inline_info
+                             .call_site_clone_layout_function_count);
+                     r.set(
+                         "inline_clone_layout_value",
+                         i.inline_info
+                             .call_site_clone_layout_value_count);
+                     r.set(
+                         "inline_dense_resolver_apply",
+                         i.inline_info
+                             .call_site_dense_resolver_apply_count);
+                     r.set(
+                         "inline_dense_resolver_fallback",
+                         i.inline_info
+                             .call_site_dense_resolver_fallback_count);
+                     r.set(
+                         "ordinary_inline_summary_function",
+                         i.inline_info
+                             .inline_pass_summary_function_count);
+                     r.set(
+                         "ordinary_inline_summary_instruction_scan",
+                         i.inline_info
+                             .inline_pass_summary_instruction_scan_count);
+                     r.set(
+                         "ordinary_inline_clone_layout_function",
+                         i.inline_info
+                             .inline_pass_clone_layout_function_count);
+                     r.set(
+                         "ordinary_inline_clone_layout_value",
+                         i.inline_info
+                             .inline_pass_clone_layout_value_count);
+                     r.set(
+                         "ordinary_inline_dense_resolver_apply",
+                         i.inline_info
+                             .inline_pass_dense_resolver_apply_count);
+                     r.set(
+                         "ordinary_inline_dense_resolver_fallback",
+                         i.inline_info
+                             .inline_pass_dense_resolver_fallback_count);
+                     r.set(
+                         "ordinary_inline_caller_barrier_function",
+                         i.inline_info
+                             .inline_pass_caller_barrier_function_count);
+                     r.set(
+                         "ordinary_inline_caller_barrier_instruction_scan",
+                         i.inline_info
+                             .inline_pass_caller_barrier_instruction_scan_count);
+                     r.set(
+                         "ordinary_inline_caller_barrier_cache_hit",
+                         i.inline_info
+                             .inline_pass_caller_barrier_cache_hit_count);
+                     r.set(
+                         "inline_recursion_function",
+                         i.inline_info
+                             .recursion_analysis_function_count);
+                     r.set(
+                         "inline_recursion_call_use_visit",
+                         i.inline_info
+                             .recursion_analysis_call_use_visit_count);
+                     r.set("inline_recursion_edge",
+                           i.inline_info
+                               .recursion_analysis_edge_count);
+                     r.set(
+                         "inline_recursion_vertex_visit",
+                         i.inline_info
+                             .recursion_analysis_vertex_visit_count);
+                     r.set(
+                         "inline_recursion_edge_visit",
+                         i.inline_info
+                             .recursion_analysis_edge_visit_count);
                      if (!i.succeeded()) {
                          LUISA_ERROR_WITH_LOCATION(
                              "SPIR-V reference-argument legalization failed: {}",
@@ -431,7 +836,15 @@ void add_reg2mem(xir::PassPipeline &pipeline, luisa::string name) noexcept {
 
 void add_restructure_cfg(xir::PassPipeline &pipeline) noexcept {
     pipeline.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+        // AST-to-XIR produces a fresh, exclusively owned legalization module.
+        // A failed pass terminates code generation below, so the module is
+        // discarded and does not need transactional shadow/replay. Successful
+        // inputs still receive the same complete pre/post boundary checks.
+        auto i = xir::restructure_cfg_pass_run_on_module(
+            m, &r,
+            {.mutation_mode =
+                 xir::RestructureCFGMutationMode::
+                     IN_PLACE_DISCARDABLE});
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "SPIR-V XIR restructuring failed (irreducible={}, "
@@ -461,7 +874,7 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
     auto optimization_options = xir::OptimizationPipelineOptions{
         .enable_fast_math = option.enable_fast_math};
     xir::PassPipeline pipeline;
-    add_lower_ray_query_loop_to_loop(pipeline);
+    add_lower_ray_query_to_loop(pipeline);
     add_destructure_cfg(pipeline);
 
     // Autodiff requires a whole-program body. Multi-block callables are only
@@ -532,7 +945,7 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
 
     // Everything outside the `optimize` blocks is part of the SPIR-V input
     // language contract and therefore cannot be disabled for debugging.
-    add_lower_ray_query_loop_to_loop(pipeline);
+    add_lower_ray_query_to_loop(pipeline);
     add_promote_readonly_ref_args(pipeline);
     if (optimize) {
         pipeline.add("licm", [](xir::Module *m, xir::PassReport &r) {
@@ -709,6 +1122,37 @@ void run_pipeline(xir::Module *module, const xir::PassPipeline &pipeline,
         {.release_assertions_are_no_op =
              !option.enable_debug_info});
     if (!dialect.succeeded()) {
+        for (auto &&diagnostic : dialect.diagnostics) {
+            auto function_index = size_t{0u};
+            auto block_index = size_t{0u};
+            auto found_function = false;
+            auto found_block = false;
+            for (auto *function : xir_module->function_list()) {
+                if (function == diagnostic.function) {
+                    found_function = true;
+                    if (auto *definition = function->definition()) {
+                        for (auto *block : definition->basic_blocks()) {
+                            if (block == diagnostic.block) {
+                                found_block = true;
+                                break;
+                            }
+                            ++block_index;
+                        }
+                    }
+                    break;
+                }
+                ++function_index;
+            }
+            LUISA_WARNING_WITH_LOCATION(
+                "[native-spirv-dialect] function={}@{}, block={}@{}: {}",
+                found_function ? luisa::format("{}", function_index) :
+                                 luisa::string{"<module>"},
+                static_cast<const void *>(diagnostic.function),
+                found_block ? luisa::format("{}", block_index) :
+                              luisa::string{"<none>"},
+                static_cast<const void *>(diagnostic.block),
+                diagnostic.message);
+        }
         LUISA_ERROR_WITH_LOCATION(
             "Invalid XIR at SPIR-V codegen handoff: {} "
             "({} diagnostic(s) total).",

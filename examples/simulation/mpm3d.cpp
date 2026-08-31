@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
     // Initialize compute context
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>] [--frames N]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>] [--frames N]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         exit(1);
     }
 

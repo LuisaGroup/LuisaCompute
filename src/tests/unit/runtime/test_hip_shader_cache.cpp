@@ -4,10 +4,12 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 #include <luisa/core/binary_io.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/context.h>
@@ -251,12 +253,23 @@ public:
     return wrapper_hash;
 }
 
+[[nodiscard]] bool artifact_contains_text(
+    luisa::span<const std::byte> artifact,
+    std::string_view text) noexcept {
+    if (artifact.empty() || text.empty()) { return false; }
+    const auto bytes = std::string_view{
+        reinterpret_cast<const char *>(artifact.data()),
+        artifact.size_bytes()};
+    return bytes.find(text) != std::string_view::npos;
+}
+
 [[nodiscard]] int run_cached_kernel(
     const char *program_path,
     const BinaryIO *binary_io,
     int value,
     bool enable_cache,
-    bool enable_fast_math) noexcept {
+    bool enable_fast_math,
+    uint64_t *structure_hash = nullptr) noexcept {
     Context context{program_path};
     DeviceConfig config{.binary_io = binary_io};
     auto device = context.create_device("hip", &config);
@@ -266,6 +279,9 @@ public:
                           Int parameter) noexcept {
         result->write(0u, parameter * 3 + 1);
     };
+    if (structure_hash != nullptr) {
+        *structure_hash = kernel.function()->function().hash();
+    }
     auto shader = device.compile(
         kernel,
         ShaderOption{
@@ -274,7 +290,7 @@ public:
     auto stream = device.create_stream();
     auto result = 0;
     stream << shader(output, value).dispatch(1u)
-           << output.copy_to(&result)
+           << output.copy_to(luisa::span{&result, 1})
            << synchronize();
     return result;
 }
@@ -297,16 +313,17 @@ public:
         ShaderOption{.enable_cache = true});
     auto stream = device.create_stream();
     auto result = 0;
-    stream << input.copy_from(&value)
+    stream << input.copy_from(luisa::span{&value, 1})
            << shader(output).dispatch(1u)
-           << output.copy_to(&result)
+           << output.copy_to(luisa::span{&result, 1})
            << synchronize();
     return result;
 }
 
 void compile_cached_rt_kernel(
     const char *program_path,
-    const BinaryIO *binary_io) noexcept {
+    const BinaryIO *binary_io,
+    uint64_t *structure_hash = nullptr) noexcept {
     Context context{program_path};
     DeviceConfig config{.binary_io = binary_io};
     auto device = context.create_device("hip", &config);
@@ -319,6 +336,9 @@ void compile_cached_rt_kernel(
         const auto hit = accel.intersect(ray, {});
         result.write(0u, hit->inst);
     };
+    if (structure_hash != nullptr) {
+        *structure_hash = kernel.function()->function().hash();
+    }
     static_cast<void>(device.compile(
         kernel, ShaderOption{.enable_cache = true}));
 }
@@ -332,8 +352,10 @@ int main(int argc, char *argv[]) {
 
     "HIP shader cache is reusable, option-safe, and corruption-tolerant"_test =
         [&] {
+            uint64_t compute_structure_hash{};
             auto cold_result = run_cached_kernel(
-                program_path, &binary_io, 7, true, true);
+                program_path, &binary_io, 7, true, true,
+                &compute_structure_hash);
             expect(cold_result == 22);
             expect(binary_io.cache_read_count == 1u);
             expect(binary_io.cache_write_count == 1u);
@@ -343,6 +365,12 @@ int main(int argc, char *argv[]) {
                     binary_io.last_written_entry()) == 0u)
                 << "compute shader cache identity unexpectedly "
                    "contains an RT-wrapper fingerprint";
+            const auto compute_entry = luisa::format(
+                "kernel_{:016x}", compute_structure_hash);
+            expect(artifact_contains_text(
+                binary_io.last_written_entry(), compute_entry))
+                << "anonymous cached compute shader omitted its "
+                   "structural profiler symbol";
 
             auto hot_result = run_cached_kernel(
                 program_path, &binary_io, 11, true, true);
@@ -415,8 +443,9 @@ int main(int argc, char *argv[]) {
                 writes_before_disabled + 3u);
             expect(binary_io.cache_entry_count() == 3u);
 
+            uint64_t rt_structure_hash{};
             compile_cached_rt_kernel(
-                program_path, &binary_io);
+                program_path, &binary_io, &rt_structure_hash);
             expect(
                 binary_io.cache_read_count ==
                 reads_before_disabled + 5u);
@@ -429,6 +458,12 @@ int main(int argc, char *argv[]) {
                     binary_io.last_written_entry()) != 0u)
                 << "ray-tracing shader cache identity omitted the "
                    "embedded HIPRT-wrapper fingerprint";
+            const auto rt_entry = luisa::format(
+                "kernel_{:016x}", rt_structure_hash);
+            expect(artifact_contains_text(
+                binary_io.last_written_entry(), rt_entry))
+                << "anonymous cached ray-tracing shader omitted its "
+                   "structural profiler symbol";
 
             compile_cached_rt_kernel(
                 program_path, &binary_io);
