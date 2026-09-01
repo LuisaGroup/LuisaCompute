@@ -1010,7 +1010,15 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         for (auto &f : *_llvm_module) {
             for (auto &bb : f) {
                 for (auto &inst : bb) {
-                    if (llvm::isa<llvm::FPMathOperator>(inst)) {
+                    // `frem` is a range-reduction primitive, not an
+                    // approximable arithmetic operation. Marking it `fast`
+                    // permits quotient-based lowering, which is not
+                    // equivalent to IEEE remainder once the quotient has too
+                    // few mantissa bits to recover the residue. The DSL fmod
+                    // contract therefore requires precise `frem` even when
+                    // surrounding continuous arithmetic uses fast math.
+                    if (llvm::isa<llvm::FPMathOperator>(inst) &&
+                        inst.getOpcode() != llvm::Instruction::FRem) {
                         inst.setFast(true);
                     }
                 }

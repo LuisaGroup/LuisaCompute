@@ -3,6 +3,7 @@
 // the same XIR arithmetic contract can be checked on HIP, CUDA, and Vulkan.
 // This test covers:
 // - Scalar operands broadcast into vector lerp, step, and smoothstep
+// - Primitive floating-point remainder under precise and fast math
 // - Signed, unsigned-wide, scalar-broadcast, and per-lane integer powers
 // - Matrix-vector, vector-matrix, and matrix-determinant lowering
 
@@ -111,6 +112,54 @@ void test_scalar_vector_broadcast(Device &device) {
     expect(approx(nan_step_result[0].y, 0.0f));
     expect(approx(smoothstep_result[0].x, 0.0f));
     expect(approx(smoothstep_result[0].y, 0.5f));
+}
+
+void test_float_remainder(Device &device) {
+    auto stream = device.create_stream();
+    auto dividend = device.create_buffer<float>(4u);
+    auto divisor = device.create_buffer<float>(4u);
+    auto output = device.create_buffer<float>(4u);
+
+    Kernel1D kernel = [](BufferFloat dividend_buffer,
+                         BufferFloat divisor_buffer,
+                         BufferFloat output_buffer) noexcept {
+        auto i = dispatch_x();
+        output_buffer.write(
+            i, luisa::compute::fmod(
+                   dividend_buffer.read(i), divisor_buffer.read(i)));
+    };
+
+    // A quotient-based approximation loses all remainder bits for the first
+    // two inputs. Keep both operands dynamic so this exercises the backend's
+    // primitive remainder lowering instead of host constant folding.
+    constexpr std::array dividend_source{
+        1.0e17f, -1.0e17f, 5.75f, -5.75f};
+    constexpr std::array divisor_source{
+        6.28318530717958647692f, 6.28318530717958647692f, 2.0f, 2.0f};
+    std::array<float, 4u> expected{};
+    for (auto i = 0u; i < expected.size(); i++) {
+        expected[i] = std::fmod(dividend_source[i], divisor_source[i]);
+    }
+
+    stream << dividend.copy_from(luisa::span{dividend_source})
+           << divisor.copy_from(luisa::span{divisor_source});
+    for (auto fast_math : {false, true}) {
+        auto shader = device.compile(
+            kernel, ShaderOption{
+                        .enable_cache = false,
+                        .enable_fast_math = fast_math});
+        std::array<float, 4u> actual{};
+        stream << shader(dividend, divisor, output).dispatch(4u)
+               << output.copy_to(luisa::span{actual})
+               << synchronize();
+        for (auto i = 0u; i < actual.size(); i++) {
+            expect(approx(actual[i], expected[i], 2.0e-6f))
+                << "floating remainder mismatch in "
+                << (fast_math ? "fast" : "precise")
+                << " mode at lane " << i << ": expected "
+                << expected[i] << ", got " << actual[i];
+        }
+    }
 }
 
 void test_integer_power(Device &device) {
@@ -242,6 +291,7 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     test_scalar_vector_broadcast(dc->device);
+    test_float_remainder(dc->device);
     test_integer_power(dc->device);
     test_matrix_operations(dc->device);
 }
