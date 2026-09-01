@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <spirv-tools/libspirv.hpp>
+#include <spirv-tools/optimizer.hpp>
 
 #include "spirv_codegen/optimizer.h"
 
@@ -139,6 +140,66 @@ OpBranch %continue
 %next = OpIAdd %uint %index %one
 OpBranch %header
 %merge = OpLabel
+OpReturn
+OpFunctionEnd
+)";
+
+// A loop-local floating-point definition may be referenced by a module-scope
+// annotation while an independent loop-local definition escapes through the
+// merge. The annotation is present in def-use, but is not an executable CFG
+// use and therefore must neither invalidate LCSSA nor be rewritten by LCSSA
+// construction.
+constexpr auto annotated_loop_lcssa_module = R"(
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main" %condition_buffer
+OpExecutionMode %main LocalSize 1 1 1
+OpDecorate %condition_block Block
+OpMemberDecorate %condition_block 0 Offset 0
+OpDecorate %condition_buffer DescriptorSet 0
+OpDecorate %condition_buffer Binding 0
+OpDecorate %sum NoContraction
+%void = OpTypeVoid
+%bool = OpTypeBool
+%float = OpTypeFloat 32
+%uint = OpTypeInt 32 0
+%function = OpTypeFunction %void
+%condition_block = OpTypeStruct %uint
+%condition_block_ptr = OpTypePointer Uniform %condition_block
+%condition_uint_ptr = OpTypePointer Uniform %uint
+%condition_buffer = OpVariable %condition_block_ptr Uniform
+%zero = OpConstant %uint 0
+%one = OpConstant %uint 1
+%limit = OpConstant %uint 4
+%float_zero = OpConstant %float 0
+%float_one = OpConstant %float 1
+%main = OpFunction %void None %function
+%entry = OpLabel
+%condition_address = OpAccessChain %condition_uint_ptr %condition_buffer %zero
+%condition_value = OpLoad %uint %condition_address
+%condition = OpINotEqual %bool %condition_value %zero
+OpBranch %header
+%header = OpLabel
+%index = OpPhi %uint %zero %entry %next %continue
+%accumulator = OpPhi %float %float_zero %entry %sum %continue
+OpLoopMerge %merge %continue None
+OpBranch %body
+%body = OpLabel
+%sum = OpFAdd %float %accumulator %float_one
+OpSelectionMerge %selection_merge None
+OpBranchConditional %condition %selection_true %selection_false
+%selection_true = OpLabel
+OpBranch %selection_merge
+%selection_false = OpLabel
+OpBranch %selection_merge
+%selection_merge = OpLabel
+OpBranch %continue
+%continue = OpLabel
+%next = OpIAdd %uint %index %one
+%more = OpULessThan %bool %next %limit
+OpBranchConditional %more %header %merge
+%merge = OpLabel
+%final = OpFAdd %float %accumulator %float_one
 OpReturn
 OpFunctionEnd
 )";
@@ -323,6 +384,19 @@ int main(int argc, char *argv[]) {
             << "an explicit Unroll control must preserve the existing "
                "SPIRV-Tools behavior";
         expect(validates(requested));
+    };
+
+    "spirv_loop_unswitch_ignores_non_cfg_annotation_uses"_test = [] {
+        auto words = assemble_test_module(annotated_loop_lcssa_module);
+        spvtools::Optimizer optimizer{SPV_ENV_VULKAN_1_2};
+        optimizer.RegisterPass(spvtools::CreateLoopUnswitchPass());
+        std::vector<uint32_t> optimized;
+        expect(optimizer.Run(words.data(), words.size(), &optimized))
+            << "loop unswitch must accept annotations of loop-local values";
+        expect(validates(optimized))
+            << "loop unswitch and LCSSA construction must preserve valid SPIR-V";
+        expect(disassemble(optimized).find("NoContraction") != std::string::npos)
+            << "the non-semantic annotation must survive the CFG transform";
     };
 
     "spirv_capability_reconciliation_expands_implicit_subgroup_parent"_test = [] {
