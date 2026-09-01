@@ -399,6 +399,25 @@ int main(int argc, char *argv[]) {
             << "the non-semantic annotation must survive the CFG transform";
     };
 
+    "spirv_native_presets_require_explicit_loop_unswitch"_test = [] {
+        ScopedEnvironmentVariable clear_custom_passes{
+            "LUISA_SPIRV_OPT_PASS_FLAGS", nullptr};
+        for (auto level : {2, 3}) {
+            auto words = assemble_test_module(annotated_loop_lcssa_module);
+            auto report = lc::spirv::optimize_spirv(
+                words, {.level = level});
+            expect(report.succeeded);
+            expect(report.output_validated);
+            auto registered = false;
+            for (const auto &pass : report.registered_passes) {
+                registered |= pass == "loop-unswitch";
+            }
+            expect(!registered)
+                << "an uncosted whole-loop cloning pass must not be native-default";
+            expect(validates(words));
+        }
+    };
+
     "spirv_capability_reconciliation_expands_implicit_subgroup_parent"_test = [] {
         // This fixture starts at the already-emitted SPIR-V boundary. It does
         // not claim that every feature-dependent lowering can emit when its
